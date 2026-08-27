@@ -1,4 +1,4 @@
-use beetle_core::Lane;
+use beetle_core::{Lane, PlayMode};
 
 /// RGBA color representation for software rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +30,7 @@ impl ColorRgba {
 /// Minimal skin configuration (positions, dimensions, colors).
 #[derive(Debug, Clone)]
 pub struct SkinConfig {
+    pub play_mode: PlayMode,
     pub playfield_x: f32,
     pub playfield_y: f32,
     pub playfield_width: f32,
@@ -59,6 +60,7 @@ impl Default for SkinConfig {
         let total_w = scratch_w + (7.0 * key_w);
 
         Self {
+            play_mode: PlayMode::Keys7,
             playfield_x: 60.0,
             playfield_y: 30.0,
             playfield_width: total_w,
@@ -84,6 +86,42 @@ impl Default for SkinConfig {
 }
 
 impl SkinConfig {
+    /// Active lane list based on current PlayMode.
+    pub fn active_lanes(&self) -> &'static [Lane] {
+        match self.play_mode {
+            PlayMode::Keys5 => &[
+                Lane::Scratch,
+                Lane::Key1,
+                Lane::Key2,
+                Lane::Key3,
+                Lane::Key4,
+                Lane::Key5,
+            ],
+            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys14 => &[
+                Lane::Scratch,
+                Lane::Key1,
+                Lane::Key2,
+                Lane::Key3,
+                Lane::Key4,
+                Lane::Key5,
+                Lane::Key6,
+                Lane::Key7,
+            ],
+        }
+    }
+
+    /// Sets play mode and updates playfield geometry accordingly.
+    pub fn set_play_mode(&mut self, mode: PlayMode) {
+        self.play_mode = mode;
+        match mode {
+            PlayMode::Keys5 => {
+                self.playfield_width = self.scratch_lane_width + (5.0 * self.lane_width);
+            }
+            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys14 => {
+                self.playfield_width = self.scratch_lane_width + (7.0 * self.lane_width);
+            }
+        }
+    }
     /// Returns the X-coordinate for a specific lane.
     pub fn lane_x(&self, lane: Lane) -> f32 {
         match lane {

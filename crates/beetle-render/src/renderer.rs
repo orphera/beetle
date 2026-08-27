@@ -3,16 +3,7 @@ use crate::skin::{ColorRgba, SkinConfig};
 use beetle_core::{BmsChart, GaugeType, JudgeGrade, Lane, NoteType, ScoreTracker, TimingModel};
 use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
 
-const ALL_LANES: [Lane; 8] = [
-    Lane::Scratch,
-    Lane::Key1,
-    Lane::Key2,
-    Lane::Key3,
-    Lane::Key4,
-    Lane::Key5,
-    Lane::Key6,
-    Lane::Key7,
-];
+
 
 /// A visual particle burst spawned when hitting a note on a lane.
 #[derive(Debug, Clone, Copy)]
@@ -142,7 +133,7 @@ impl SoftwareRenderer {
         );
 
         // Draw lane vertical separator lines
-        for &lane in &ALL_LANES {
+        for &lane in self.skin.active_lanes() {
             let x = self.skin.lane_x(lane);
             self.draw_rect(
                 x,
@@ -165,7 +156,8 @@ impl SoftwareRenderer {
     }
 
     fn draw_key_beams(&mut self) {
-        for &lane in &ALL_LANES {
+        let active = self.skin.active_lanes().to_vec();
+        for lane in active {
             let idx = lane_index(lane);
             if self.key_pressed[idx] {
                 let x = self.skin.lane_x(lane) + 1.0;

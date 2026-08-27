@@ -18,6 +18,27 @@ impl WavId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BmpId(pub u16);
 
+/// BMS play mode category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PlayMode {
+    #[default]
+    Keys7,
+    Keys5,
+    Keys9,
+    Keys14,
+}
+
+impl PlayMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Keys7 => "7KEYS",
+            Self::Keys5 => "5KEYS",
+            Self::Keys9 => "9KEYS",
+            Self::Keys14 => "14KEYS",
+        }
+    }
+}
+
 /// Key lanes supported by Beetle (7 Keys + 1 Scratch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Lane {
@@ -123,6 +144,24 @@ pub struct BmsChart {
     pub bgm_notes: Vec<(u32, f64, WavId)>,
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
+}
+
+impl BmsChart {
+    /// Detects the play mode based on header commands and note lanes present.
+    pub fn detect_play_mode(&self) -> PlayMode {
+        if self.header.player == 3 {
+            PlayMode::Keys9
+        } else if self.header.player == 2 {
+            PlayMode::Keys14
+        } else {
+            let has_key6_or_7 = self.notes.iter().any(|n| n.lane == Lane::Key6 || n.lane == Lane::Key7);
+            if has_key6_or_7 {
+                PlayMode::Keys7
+            } else {
+                PlayMode::Keys5
+            }
+        }
+    }
 }
 
 /// Errors that can occur when parsing BMS text.
@@ -256,7 +295,11 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
     let key = parts.next().unwrap_or("").trim();
     let val = parts.next().unwrap_or("").trim();
 
-    if key.eq_ignore_ascii_case("TITLE") {
+    if key.eq_ignore_ascii_case("PLAYER") {
+        if let Ok(p) = val.parse::<u32>() {
+            header.player = p;
+        }
+    } else if key.eq_ignore_ascii_case("TITLE") {
         header.title = val.to_string();
     } else if key.eq_ignore_ascii_case("SUBTITLE") {
         header.subtitle = val.to_string();
@@ -656,5 +699,30 @@ mod tests {
         assert_eq!(chart.notes.len(), 2);
         assert_eq!(chart.notes[0].note_type, NoteType::LongNoteStart);
         assert_eq!(chart.notes[1].note_type, NoteType::LongNoteEnd);
+    }
+
+    #[test]
+    fn test_detect_play_mode() {
+        let bms_5k = r#"
+#PLAYER 1
+#00111:01000000
+#00116:02000000
+"#;
+        let chart_5k = parse_bms(bms_5k).unwrap();
+        assert_eq!(chart_5k.detect_play_mode(), PlayMode::Keys5);
+
+        let bms_7k = r#"
+#PLAYER 1
+#00118:01000000
+"#;
+        let chart_7k = parse_bms(bms_7k).unwrap();
+        assert_eq!(chart_7k.detect_play_mode(), PlayMode::Keys7);
+
+        let bms_dp = r#"
+#PLAYER 2
+#00111:01000000
+"#;
+        let chart_dp = parse_bms(bms_dp).unwrap();
+        assert_eq!(chart_dp.detect_play_mode(), PlayMode::Keys14);
     }
 }

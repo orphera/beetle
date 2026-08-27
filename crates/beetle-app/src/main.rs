@@ -986,6 +986,8 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
         }
     }
 
+    let play_mode = play_chart.detect_play_mode();
+    state.renderer.skin.set_play_mode(play_mode);
     state.renderer.skin.hi_speed = state.play_options.hi_speed;
 
     let audio_engine = AudioEngine::new(soundbank).ok();
