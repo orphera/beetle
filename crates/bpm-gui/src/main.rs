@@ -9,7 +9,10 @@ use std::env;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 use ui::GuiRenderer;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -23,6 +26,11 @@ enum ModalMode {
     ImportFolder,
     InstallBmsp,
     PackFolder,
+}
+
+enum BgTaskResult {
+    Completed(String),
+    Failed(String),
 }
 
 struct AppState {
@@ -40,6 +48,10 @@ struct AppState {
     status_msg: String,
     modal: Option<(ModalMode, String)>,
     preview_image: Option<ImageBuffer>,
+    bg_receiver: Option<Receiver<BgTaskResult>>,
+    bg_task_running: Option<String>,
+    spinner_frame: usize,
+    last_anim_time: Instant,
 }
 
 impl AppState {
@@ -195,10 +207,52 @@ impl ApplicationHandler for BpmGuiApp {
             status_msg: "Ready".to_string(),
             modal: None,
             preview_image: None,
+            bg_receiver: None,
+            bg_task_running: None,
+            spinner_frame: 0,
+            last_anim_time: Instant::now(),
         };
 
         app_state.refresh_packages();
         self.state = Some(app_state);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let state = match &mut self.state {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Check if background task completed
+        if let Some(rx) = &state.bg_receiver {
+            if let Ok(res) = rx.try_recv() {
+                state.bg_receiver = None;
+                state.bg_task_running = None;
+                match res {
+                    BgTaskResult::Completed(msg) => {
+                        state.status_msg = msg;
+                        state.refresh_packages();
+                    }
+                    BgTaskResult::Failed(err) => {
+                        state.status_msg = err;
+                    }
+                }
+                state.window.request_redraw();
+            }
+        }
+
+        // Animate spinner smoothly if background task is active
+        if state.bg_task_running.is_some() {
+            let now = Instant::now();
+            if now.duration_since(state.last_anim_time) >= Duration::from_millis(80) {
+                state.spinner_frame = state.spinner_frame.wrapping_add(1);
+                state.last_anim_time = now;
+                state.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(30)));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
     }
 
     fn window_event(
@@ -256,6 +310,11 @@ impl ApplicationHandler for BpmGuiApp {
                         (prompt, input.as_str())
                     });
 
+                    let bg_task_info = state
+                        .bg_task_running
+                        .as_deref()
+                        .map(|msg| (msg, state.spinner_frame));
+
                     state.renderer.render_frame(
                         &filtered_pkgs,
                         state.selected_idx,
@@ -265,6 +324,7 @@ impl ApplicationHandler for BpmGuiApp {
                         &state.status_msg,
                         state.preview_image.as_ref(),
                         modal_info,
+                        bg_task_info,
                     );
 
                     if let Ok(mut buffer) = state.surface.buffer_mut() {
@@ -304,44 +364,86 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                     return;
                 }
 
+                // If already running a background task, disallow starting another
+                if state.bg_task_running.is_some() {
+                    state.status_msg = "Another task is already running in background...".to_string();
+                    return;
+                }
+
+                // Launch non-blocking background thread
+                let root_dir = state.manager.root_dir().to_path_buf();
+                let (tx, rx): (Sender<BgTaskResult>, Receiver<BgTaskResult>) = channel();
+                state.bg_receiver = Some(rx);
+
                 match m {
                     ModalMode::ImportFolder => {
-                        match state.manager.import_folder(&target_path, None) {
-                            Ok(installed) => {
-                                state.status_msg = format!("Imported '{}' v{}", installed.name, installed.version);
-                                state.refresh_packages();
+                        state.bg_task_running = Some(format!("Importing BMS folder '{}'...", target_path));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.import_folder(&target_path, None) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Imported '{}' v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Import error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
                             }
-                            Err(e) => {
-                                state.status_msg = format!("Import error: {e}");
-                            }
-                        }
+                        });
                     }
                     ModalMode::InstallBmsp => {
-                        match state.manager.install(&target_path) {
-                            Ok(installed) => {
-                                state.status_msg = format!("Installed '{}' v{}", installed.name, installed.version);
-                                state.refresh_packages();
+                        state.bg_task_running = Some(format!("Installing package '{}'...", target_path));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.install(&target_path) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Installed '{}' v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Install error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
                             }
-                            Err(e) => {
-                                state.status_msg = format!("Install error: {e}");
-                            }
-                        }
+                        });
                     }
                     ModalMode::PackFolder => {
                         let folder_p = PathBuf::from(&target_path);
-                        let out_name = format!("{}.bmsp", folder_p.file_name().and_then(|n| n.to_str()).unwrap_or("package"));
-                        match state.manager.pack_folder(&target_path, None) {
-                            Ok(bytes) => {
-                                if let Err(e) = fs::write(&out_name, bytes) {
-                                    state.status_msg = format!("Write error: {e}");
-                                } else {
-                                    state.status_msg = format!("Packed into '{}'", out_name);
+                        let out_name = format!(
+                            "{}.bmsp",
+                            folder_p.file_name().and_then(|n| n.to_str()).unwrap_or("package")
+                        );
+                        state.bg_task_running = Some(format!("Packing folder '{}' into '{}'...", target_path, out_name));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mgr) => match mgr.pack_folder(&target_path, None) {
+                                    Ok(bytes) => {
+                                        if let Err(e) = fs::write(&out_name, bytes) {
+                                            let _ = tx.send(BgTaskResult::Failed(format!("Write error: {e}")));
+                                        } else {
+                                            let _ = tx.send(BgTaskResult::Completed(format!("Packed into '{}'", out_name)));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Pack error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
                                 }
                             }
-                            Err(e) => {
-                                state.status_msg = format!("Pack error: {e}");
-                            }
-                        }
+                        });
                     }
                 }
             }

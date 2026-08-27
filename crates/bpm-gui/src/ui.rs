@@ -54,6 +54,7 @@ impl GuiRenderer {
         status_msg: &str,
         preview_img: Option<&ImageBuffer>,
         modal_info: Option<(&str, &str)>, // (Prompt, input)
+        bg_task_info: Option<(&str, usize)>, // (Task message, frame)
     ) {
         let w = self.pixmap.width() as f32;
         let h = self.pixmap.height() as f32;
@@ -319,6 +320,31 @@ impl GuiRenderer {
                 (modal_y + 118.0) as i32,
                 1,
                 ColorRgba::new(140, 140, 160, 255),
+            );
+        }
+
+        // 7. Background Task Running Banner (if active)
+        if let Some((task_msg, spinner_frame)) = bg_task_info {
+            let banner_w = 460.0;
+            let banner_h = 42.0;
+            let banner_x = (w - banner_w) / 2.0;
+            let banner_y = 70.0;
+
+            self.draw_rect(banner_x, banner_y, banner_w, banner_h, ColorRgba::new(22, 34, 52, 245));
+            self.draw_rect(banner_x, banner_y, banner_w, 1.0, ColorRgba::new(80, 180, 255, 255));
+            self.draw_rect(banner_x, banner_y + banner_h - 1.0, banner_w, 1.0, ColorRgba::new(80, 180, 255, 255));
+
+            let spinner_chars = ['|', '/', '-', '\\'];
+            let spinner = spinner_chars[spinner_frame % 4];
+            let disp = format!("[{}] {}", spinner, task_msg);
+
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &disp,
+                (banner_x + 16.0) as i32,
+                (banner_y + 14.0) as i32,
+                1,
+                ColorRgba::new(255, 230, 90, 255),
             );
         }
     }
