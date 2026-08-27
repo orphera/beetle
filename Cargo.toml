@@ -6,6 +6,7 @@ members = [
     "crates/beetle-app",
     "crates/bms-package",
     "crates/bms-package-manager",
+    "crates/bpm-gui",
 ]
 resolver = "2"
 
@@ -16,6 +17,7 @@ beetle-audio = { path = "crates/beetle-audio" }
 beetle-render = { path = "crates/beetle-render" }
 bms-package = { path = "crates/bms-package" }
 bms-package-manager = { path = "crates/bms-package-manager" }
+bpm-gui = { path = "crates/bpm-gui" }
 
 # External dependencies (kept minimal for binary size)
 cpal = "0.15"

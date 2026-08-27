@@ -1,0 +1,17 @@
+[package]
+name = "bpm-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone lightweight GUI package manager for BMS (.bmsp) packages"
+
+[[bin]]
+name = "bpm-gui"
+path = "src/main.rs"
+
+[dependencies]
+bms-package = { workspace = true }
+bms-package-manager = { workspace = true }
+beetle-render = { workspace = true }
+winit = { workspace = true }
+softbuffer = { workspace = true }
+tiny-skia = { workspace = true }
