@@ -232,5 +232,27 @@
   - [x] ZIP 컨테이너 파싱, 무결성 검증, Decompression size limit(Zip bomb 방어), 메모리/스트리밍 엔트리 읽기
 - [x] **종합 테스트 스위트 (12개 단위 테스트 추가, 총 48개 테스트 100% 통과)**
 
+---
+
+## 📋 Phase 20: BMS 폴더 패킹 & 임포트 엔진 (`bms-package-manager`) (Completed)
+- [x] **BMS 폴더 자동 분석 및 패킹 모듈 (`pack_folder` / `analyze_bms_folder`)**
+  - [x] 폴더 내 BMS 파일(`#TITLE`, `#ARTIST`, `#GENRE`) 메타데이터 자동 추출 및 `Manifest` 생성
+  - [x] 폴더 내 모든 에셋(`.bms`, `.wav`, `.ogg`, `.bmp`, `.png` 등)을 `.bmsp`로 묶는 기능
+- [x] **원클릭 폴더 임포트 (`import_folder`)**
+  - [x] 기존 BMS 폴더를 읽어 즉시 패키징 → `packages/` 저장소에 원자적 설치 → `registry.json` 등록
+- [x] **CLI 서브커맨드 구현 (`bpm pack`, `bpm import`)**
+  - [x] `bpm pack <folder> [-o <output.bmsp>]`
+  - [x] `bpm import <folder>`
+- [x] **단위 테스트 작성 및 검증 (6개 단위 테스트 100% 통과)**
+
+---
+
+## 📋 Phase 21: 독립형 경량 패키지 매니저 GUI (`bpm-gui`)
+- [ ] **`crates/bpm-gui` 초경량 소프트웨어 렌더링 데스크톱 UI 구축**
+- [ ] **패키지 목록 탐색 및 실시간 검색 필터**
+- [ ] **패키지 상세 메타데이터 & 내부 파일 트리 & BGA 미리보기**
+- [ ] **다중 버전 간 활성 버전 전환 (`Activate`) 및 삭제 (`Uninstall`)**
+- [ ] **로컬 폴더/BMSP 임포트 & 패키지 내보내기 인터페이스**
+
 
 
