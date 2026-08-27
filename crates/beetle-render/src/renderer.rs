@@ -76,6 +76,7 @@ impl SoftwareRenderer {
         audio_time_seconds: f64,
         score: &ScoreTracker,
         visual_levels: &[f32; 16],
+        bga_image: Option<&crate::image::ImageBuffer>,
     ) {
         self.clear();
 
@@ -87,7 +88,7 @@ impl SoftwareRenderer {
         self.draw_gauge_bar(score);
         self.draw_combo_and_judge(score, audio_time_seconds);
         self.draw_hud_info(chart, score);
-        self.draw_audio_visualizer(visual_levels);
+        self.draw_bga_and_visualizer(visual_levels, bga_image);
     }
 
     fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
@@ -506,39 +507,69 @@ impl SoftwareRenderer {
         }
     }
 
-    fn draw_audio_visualizer(&mut self, levels: &[f32; 16]) {
-        let vis_x = self.skin.playfield_x + self.skin.playfield_width + 60.0;
-        let vis_y = self.skin.playfield_y + 440.0;
-        let vis_w = 320.0;
-        let vis_h = 130.0;
+    fn draw_bga_and_visualizer(
+        &mut self,
+        levels: &[f32; 16],
+        bga_image: Option<&crate::image::ImageBuffer>,
+    ) {
+        let side_x = self.skin.playfield_x + self.skin.playfield_width + 60.0;
+        let bga_y = self.skin.playfield_y + 240.0;
+        let bga_w = 320.0;
+        let bga_h = 180.0;
 
-        // Background box
-        self.draw_rect(vis_x, vis_y, vis_w, vis_h, ColorRgba::new(12, 14, 20, 255));
-        self.draw_rect(vis_x, vis_y, vis_w, 1.0, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(vis_x, vis_y + vis_h, vis_w, 1.0, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(vis_x, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(vis_x + vis_w, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
+        // BGA frame
+        if let Some(img) = bga_image {
+            img.draw_scaled(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
+            self.draw_rect(side_x, bga_y, bga_w, 1.0, ColorRgba::new(80, 140, 255, 255));
+            self.draw_rect(side_x, bga_y + bga_h, bga_w, 1.0, ColorRgba::new(80, 140, 255, 255));
+            self.draw_rect(side_x, bga_y, 1.0, bga_h, ColorRgba::new(80, 140, 255, 255));
+            self.draw_rect(side_x + bga_w, bga_y, 1.0, bga_h, ColorRgba::new(80, 140, 255, 255));
+        } else {
+            self.draw_rect(side_x, bga_y, bga_w, bga_h, ColorRgba::new(14, 16, 22, 255));
+            self.draw_rect(side_x, bga_y, bga_w, 1.0, ColorRgba::new(50, 60, 80, 255));
+            self.draw_rect(side_x, bga_y + bga_h, bga_w, 1.0, ColorRgba::new(50, 60, 80, 255));
+            self.draw_rect(side_x, bga_y, 1.0, bga_h, ColorRgba::new(50, 60, 80, 255));
+            self.draw_rect(side_x + bga_w, bga_y, 1.0, bga_h, ColorRgba::new(50, 60, 80, 255));
+            BitmapFont::draw_text_centered(
+                &mut self.pixmap.as_mut(),
+                "[ BGA FRAME ]",
+                (side_x + bga_w / 2.0) as i32,
+                (bga_y + bga_h / 2.0 - 4.0) as i32,
+                1,
+                ColorRgba::new(80, 90, 110, 255),
+            );
+        }
+
+        let vis_y = bga_y + bga_h + 16.0;
+        let vis_h = 100.0;
+
+        // Visualizer background
+        self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(12, 14, 20, 255));
+        self.draw_rect(side_x, vis_y, bga_w, 1.0, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x, vis_y + vis_h, bga_w, 1.0, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x + bga_w, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
 
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "SPECTRUM VISUALIZER",
-            (vis_x + 12.0) as i32,
-            (vis_y + 10.0) as i32,
+            (side_x + 12.0) as i32,
+            (vis_y + 8.0) as i32,
             1,
             ColorRgba::new(140, 150, 180, 255),
         );
 
         let bar_count = 16;
         let padding = 12.0;
-        let usable_w = vis_w - (padding * 2.0);
+        let usable_w = bga_w - (padding * 2.0);
         let bar_w = (usable_w / bar_count as f32) - 4.0;
-        let max_h = 80.0;
-        let base_y = vis_y + vis_h - 14.0;
+        let max_h = 60.0;
+        let base_y = vis_y + vis_h - 10.0;
 
         for (i, &lvl) in levels.iter().enumerate() {
             let clamped_lvl = lvl.clamp(0.0, 1.0);
             let h = (clamped_lvl * max_h).max(2.0);
-            let x = vis_x + padding + (i as f32 * (bar_w + 4.0));
+            let x = side_x + padding + (i as f32 * (bar_w + 4.0));
             let y = base_y - h;
 
             // Dynamic frequency-based color gradient
@@ -571,6 +602,7 @@ impl SoftwareRenderer {
         selected_idx: usize,
         score_store: &beetle_core::ScoreStore,
         sort_mode_str: &str,
+        stage_image: Option<&crate::image::ImageBuffer>,
     ) {
         self.clear();
 
@@ -641,40 +673,60 @@ impl SoftwareRenderer {
         }
 
         // Right Detail Panel
-        let detail_x = 500;
+        let detail_x = 480;
         let mut detail_y = 80;
+        let panel_w = 280.0;
+        let panel_h = 490.0;
 
-        self.draw_rect(detail_x as f32 - 10.0, 70.0, 260.0, 400.0, ColorRgba::new(18, 18, 26, 255));
-        self.draw_rect(detail_x as f32 - 10.0, 70.0, 260.0, 1.0, ColorRgba::new(60, 60, 80, 255));
-        self.draw_rect(detail_x as f32 - 10.0, 470.0, 260.0, 1.0, ColorRgba::new(60, 60, 80, 255));
-        self.draw_rect(detail_x as f32 - 10.0, 70.0, 1.0, 400.0, ColorRgba::new(60, 60, 80, 255));
-        self.draw_rect(detail_x as f32 + 250.0, 70.0, 1.0, 400.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0, detail_y as f32 - 10.0, panel_w, panel_h, ColorRgba::new(18, 18, 26, 255));
+        self.draw_rect(detail_x as f32 - 10.0, detail_y as f32 - 10.0, panel_w, 1.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0, detail_y as f32 - 10.0 + panel_h, panel_w, 1.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0, detail_y as f32 - 10.0, 1.0, panel_h, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0 + panel_w, detail_y as f32 - 10.0, 1.0, panel_h, ColorRgba::new(60, 60, 80, 255));
 
         if let Some(selected_song) = songs.get(selected_idx) {
+            let img_w = 260;
+            let img_h = 140;
+            if let Some(img) = stage_image {
+                img.draw_scaled(&mut self.pixmap, detail_x, detail_y, img_w, img_h);
+                self.draw_rect(detail_x as f32, detail_y as f32, img_w as f32, 1.0, ColorRgba::new(80, 140, 255, 255));
+                self.draw_rect(detail_x as f32, (detail_y + img_h as i32) as f32, img_w as f32, 1.0, ColorRgba::new(80, 140, 255, 255));
+                self.draw_rect(detail_x as f32, detail_y as f32, 1.0, img_h as f32, ColorRgba::new(80, 140, 255, 255));
+                self.draw_rect((detail_x + img_w as i32) as f32, detail_y as f32, 1.0, img_h as f32, ColorRgba::new(80, 140, 255, 255));
+            } else {
+                self.draw_rect(detail_x as f32, detail_y as f32, img_w as f32, img_h as f32, ColorRgba::new(14, 16, 22, 255));
+                self.draw_rect(detail_x as f32, detail_y as f32, img_w as f32, 1.0, ColorRgba::new(50, 60, 80, 255));
+                self.draw_rect(detail_x as f32, (detail_y + img_h as i32) as f32, img_w as f32, 1.0, ColorRgba::new(50, 60, 80, 255));
+                self.draw_rect(detail_x as f32, detail_y as f32, 1.0, img_h as f32, ColorRgba::new(50, 60, 80, 255));
+                self.draw_rect((detail_x + img_w as i32) as f32, detail_y as f32, 1.0, img_h as f32, ColorRgba::new(50, 60, 80, 255));
+                BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), "[ STAGE IMAGE ]", detail_x + (img_w as i32 / 2), detail_y + (img_h as i32 / 2) - 4, 1, ColorRgba::new(90, 100, 120, 255));
+            }
+            detail_y += img_h as i32 + 16;
+
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), "CHART DETAILS", detail_x, detail_y, 1, ColorRgba::new(100, 200, 255, 255));
-            detail_y += 24;
+            detail_y += 20;
 
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &truncate_str(&selected_song.title, 20), detail_x, detail_y, 1, ColorRgba::new(255, 255, 255, 255));
             detail_y += 18;
 
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &truncate_str(&selected_song.artist, 20), detail_x, detail_y, 1, ColorRgba::new(160, 160, 180, 255));
-            detail_y += 26;
+            detail_y += 24;
 
             let bpm_str = format!("BPM:   {:.1}", selected_song.bpm);
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bpm_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
-            detail_y += 18;
+            detail_y += 16;
 
             let lvl_str = format!("LEVEL: {}", selected_song.play_level);
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &lvl_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
-            detail_y += 18;
+            detail_y += 16;
 
             let notes_str = format!("NOTES: {}", selected_song.notes_count);
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &notes_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
-            detail_y += 32;
+            detail_y += 24;
 
             // Personal Best Record
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), "PERSONAL BEST", detail_x, detail_y, 1, ColorRgba::new(255, 220, 80, 255));
-            detail_y += 20;
+            detail_y += 18;
 
             if let Some(best) = score_store.get(selected_song.hash) {
                 let lamp_color = match best.clear_type {
@@ -686,15 +738,15 @@ impl SoftwareRenderer {
 
                 let lamp_str = format!("STATUS: {}", best.clear_type.as_str());
                 BitmapFont::draw_text(&mut self.pixmap.as_mut(), &lamp_str, detail_x, detail_y, 1, lamp_color);
-                detail_y += 18;
+                detail_y += 16;
 
                 let score_str = format!("EX:     {}", best.ex_score);
                 BitmapFont::draw_text(&mut self.pixmap.as_mut(), &score_str, detail_x, detail_y, 1, ColorRgba::new(255, 255, 255, 255));
-                detail_y += 18;
+                detail_y += 16;
 
                 let acc_str = format!("ACC:    {:.2}%", best.accuracy_rate);
                 BitmapFont::draw_text(&mut self.pixmap.as_mut(), &acc_str, detail_x, detail_y, 1, ColorRgba::new(100, 220, 255, 255));
-                detail_y += 18;
+                detail_y += 16;
 
                 let combo_str = format!("COMBO:  {}", best.max_combo);
                 BitmapFont::draw_text(&mut self.pixmap.as_mut(), &combo_str, detail_x, detail_y, 1, ColorRgba::new(220, 220, 240, 255));
@@ -1040,7 +1092,7 @@ mod tests {
         renderer.set_key_state(Lane::Key1, true);
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         let levels = [0.5f32; 16];
-        renderer.render_gameplay(&chart, &timing, 1.0, &score, &levels);
+        renderer.render_gameplay(&chart, &timing, 1.0, &score, &levels, None);
 
         // Validate buffer is not all blank
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);

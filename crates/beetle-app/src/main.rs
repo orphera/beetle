@@ -15,7 +15,7 @@ use beetle_core::{
     GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ReplayData, ScoreRecord,
     ScoreStore, SongMetadata, SortMode, TimingModel,
 };
-use beetle_render::{SkinConfig, SoftwareRenderer};
+use beetle_render::{ImageBuffer, SkinConfig, SoftwareRenderer};
 use config::AppConfig;
 use input::{InputConfig, KeyPreset};
 use scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
@@ -60,6 +60,8 @@ struct AppState {
     playback_replay: Option<ReplayData>,
     playback_cursor: usize,
     start_measure: u32,
+    cached_stage_image: Option<(u64, Option<ImageBuffer>)>,
+    active_bga_image: Option<ImageBuffer>,
     active_chart: Option<BmsChart>,
     active_timing: Option<TimingModel>,
     active_chart_hash: u64,
@@ -127,6 +129,46 @@ fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore)
     sort_songs(&mut songs, sort_mode, &score_store);
 
     (songs, score_store)
+}
+
+fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
+    if song.file_path == ":demo:" {
+        return None;
+    }
+
+    let song_path = Path::new(&song.file_path);
+    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
+
+    // Check parsed chart header for stagefile or banner
+    if let Ok(content) = fs::read_to_string(song_path) {
+        if let Ok(chart) = parse_bms(&content) {
+            if !chart.header.stage_file.is_empty() {
+                let p = dir.join(&chart.header.stage_file);
+                if let Some(img) = ImageBuffer::load_from_file(&p) {
+                    return Some(img);
+                }
+            }
+            if !chart.header.banner.is_empty() {
+                let p = dir.join(&chart.header.banner);
+                if let Some(img) = ImageBuffer::load_from_file(&p) {
+                    return Some(img);
+                }
+            }
+        }
+    }
+
+    // Fallback file scanning for common artwork names
+    for name in &[
+        "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
+        "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
+    ] {
+        let p = dir.join(name);
+        if let Some(img) = ImageBuffer::load_from_file(&p) {
+            return Some(img);
+        }
+    }
+
+    None
 }
 
 fn load_chart_and_audio(song: &SongMetadata) -> (BmsChart, TimingModel, SampleBank) {
@@ -223,6 +265,8 @@ impl ApplicationHandler for BeetleApp {
             playback_replay: None,
             playback_cursor: 0,
             start_measure: 0,
+            cached_stage_image: None,
+            active_bga_image: None,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -282,11 +326,19 @@ impl ApplicationHandler for BeetleApp {
             WindowEvent::RedrawRequested => {
                 match state.screen {
                     AppScreen::SongSelect => {
+                        let selected_hash = state.songs.get(state.selected_song_idx).map(|s| s.hash).unwrap_or(0);
+                        if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
+                            let img = state.songs.get(state.selected_song_idx).and_then(load_stage_image);
+                            state.cached_stage_image = Some((selected_hash, img));
+                        }
+
+                        let stage_img = state.cached_stage_image.as_ref().and_then(|(_, img)| img.as_ref());
                         state.renderer.render_song_select(
                             &state.songs,
                             state.selected_song_idx,
                             &state.score_store,
                             state.sort_mode.as_str(),
+                            stage_img,
                         );
 
                         // Check replay existence for selected song
@@ -422,7 +474,14 @@ impl ApplicationHandler for BeetleApp {
                         if let (Some(chart), Some(timing), Some(judge)) =
                             (&state.active_chart, &state.active_timing, &state.active_judge)
                         {
-                            state.renderer.render_gameplay(chart, timing, audio_time, judge.score(), &visual_levels);
+                            state.renderer.render_gameplay(
+                                chart,
+                                timing,
+                                audio_time,
+                                judge.score(),
+                                &visual_levels,
+                                state.active_bga_image.as_ref(),
+                            );
 
                             // Check song finish
                             if audio_time > state.song_end_time + 1.5 {
@@ -848,6 +907,7 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.active_timing = Some(timing);
     state.active_chart_hash = song.hash;
     state.active_judge = Some(judge_engine);
+    state.active_bga_image = load_stage_image(song);
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
     state.is_new_record = false;
