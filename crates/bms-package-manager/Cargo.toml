@@ -1,0 +1,14 @@
+[package]
+name = "bms-package-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Package manager, installation lifecycle, and registry for .bmsp packages"
+
+[[bin]]
+name = "bpm"
+path = "src/main.rs"
+
+[dependencies]
+bms-package = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
