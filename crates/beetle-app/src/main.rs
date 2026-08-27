@@ -10,8 +10,9 @@ use std::sync::Arc;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, compute_chart_hash, parse_bms, BmsChart, ClearType, GaugeType,
-    JudgeEngine, LaneModifier, PlayOptions, ScoreRecord, ScoreStore, SongMetadata, TimingModel,
+    apply_lane_modifier, compute_chart_hash, parse_bms, sort_songs, BmsChart, ClearType,
+    GaugeType, JudgeEngine, LaneModifier, PlayOptions, ScoreRecord, ScoreStore, SongMetadata,
+    SortMode, TimingModel,
 };
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use input::{InputConfig, KeyPreset};
@@ -43,6 +44,9 @@ struct AppState {
     screen: AppScreen,
     songs: Vec<SongMetadata>,
     selected_song_idx: usize,
+    sort_mode: SortMode,
+    show_option_modal: bool,
+    modal_row: usize,
     score_store: ScoreStore,
     play_options: PlayOptions,
     active_chart: Option<BmsChart>,
@@ -96,6 +100,8 @@ fn init_songs_and_scores() -> (Vec<SongMetadata>, ScoreStore) {
     if !songs.iter().any(|s| s.file_path == ":demo:") {
         songs.insert(0, demo_meta);
     }
+
+    sort_songs(&mut songs, SortMode::Title, &score_store);
 
     (songs, score_store)
 }
@@ -177,6 +183,9 @@ impl ApplicationHandler for BeetleApp {
             screen: AppScreen::SongSelect,
             songs,
             selected_song_idx: 0,
+            sort_mode: SortMode::Title,
+            show_option_modal: false,
+            modal_row: 0,
             score_store,
             play_options: PlayOptions::default(),
             active_chart: None,
@@ -241,17 +250,27 @@ impl ApplicationHandler for BeetleApp {
                             &state.songs,
                             state.selected_song_idx,
                             &state.score_store,
+                            state.sort_mode.as_str(),
                         );
 
                         // Song select options bar
                         let opt_bar = format!(
-                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)",
+                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)  [Tab]: Options",
                             state.play_options.hi_speed,
                             state.play_options.lane_modifier.as_str(),
                             state.play_options.gauge_type.as_str(),
                             state.play_options.judge_offset_ms,
                         );
                         state.renderer.draw_footer_text(&opt_bar);
+
+                        // If option modal is open, overlay modal on top
+                        if state.show_option_modal {
+                            state.renderer.render_option_modal(
+                                &state.play_options,
+                                state.input_config.preset.as_str(),
+                                state.modal_row,
+                            );
+                        }
                     }
                     AppScreen::Gameplay => {
                         let audio_time = state
@@ -356,8 +375,8 @@ fn handle_keyboard_input(
         return;
     };
 
-    // Global layout preset toggle (F1 or Tab)
-    if key_state == ElementState::Pressed && (code == KeyCode::F1 || code == KeyCode::Tab) {
+    // Global layout preset toggle (F1)
+    if key_state == ElementState::Pressed && code == KeyCode::F1 {
         state.input_config.toggle_preset();
         return;
     }
@@ -403,7 +422,99 @@ fn handle_keyboard_input(
     match state.screen {
         AppScreen::SongSelect => {
             if key_state == ElementState::Pressed {
+                // If option modal is open, handle modal interactions
+                if state.show_option_modal {
+                    match code {
+                        KeyCode::Tab | KeyCode::Escape => {
+                            state.show_option_modal = false;
+                        }
+                        KeyCode::ArrowUp | KeyCode::KeyK => {
+                            state.modal_row = state.modal_row.saturating_sub(1);
+                        }
+                        KeyCode::ArrowDown | KeyCode::KeyJ => {
+                            state.modal_row = (state.modal_row + 1).min(4);
+                        }
+                        KeyCode::ArrowLeft => {
+                            match state.modal_row {
+                                0 => { // Hi-Speed
+                                    state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
+                                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                                }
+                                1 => { // Lane Modifier
+                                    state.play_options.lane_modifier = match state.play_options.lane_modifier {
+                                        LaneModifier::Regular => LaneModifier::SRandom,
+                                        LaneModifier::Mirror => LaneModifier::Regular,
+                                        LaneModifier::Random => LaneModifier::Mirror,
+                                        LaneModifier::RRandom => LaneModifier::Random,
+                                        LaneModifier::SRandom => LaneModifier::RRandom,
+                                    };
+                                }
+                                2 => { // Gauge
+                                    state.play_options.gauge_type = match state.play_options.gauge_type {
+                                        GaugeType::Easy => GaugeType::Hazard,
+                                        GaugeType::Groove => GaugeType::Easy,
+                                        GaugeType::Hard => GaugeType::Groove,
+                                        GaugeType::Hazard => GaugeType::Hard,
+                                    };
+                                }
+                                3 => { // Judge Offset
+                                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 1.0).max(-100.0);
+                                }
+                                4 => { // Key Layout
+                                    state.input_config.toggle_preset();
+                                }
+                                _ => (),
+                            }
+                        }
+                        KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Space => {
+                            match state.modal_row {
+                                0 => { // Hi-Speed
+                                    state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
+                                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                                }
+                                1 => { // Lane Modifier
+                                    state.play_options.lane_modifier = match state.play_options.lane_modifier {
+                                        LaneModifier::Regular => LaneModifier::Mirror,
+                                        LaneModifier::Mirror => LaneModifier::Random,
+                                        LaneModifier::Random => LaneModifier::RRandom,
+                                        LaneModifier::RRandom => LaneModifier::SRandom,
+                                        LaneModifier::SRandom => LaneModifier::Regular,
+                                    };
+                                }
+                                2 => { // Gauge
+                                    state.play_options.gauge_type = match state.play_options.gauge_type {
+                                        GaugeType::Easy => GaugeType::Groove,
+                                        GaugeType::Groove => GaugeType::Hard,
+                                        GaugeType::Hard => GaugeType::Hazard,
+                                        GaugeType::Hazard => GaugeType::Easy,
+                                    };
+                                }
+                                3 => { // Judge Offset
+                                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 1.0).min(100.0);
+                                }
+                                4 => { // Key Layout
+                                    state.input_config.toggle_preset();
+                                }
+                                _ => (),
+                            }
+                        }
+                        _ => (),
+                    }
+                    return;
+                }
+
+                // Normal SongSelect interactions
                 match code {
+                    KeyCode::Tab | KeyCode::KeyO => {
+                        state.show_option_modal = true;
+                        state.modal_row = 0;
+                    }
+                    KeyCode::F2 => {
+                        // Cycle Sort Mode
+                        state.sort_mode = state.sort_mode.next();
+                        sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
+                        state.selected_song_idx = 0;
+                    }
                     KeyCode::ArrowUp | KeyCode::KeyK => {
                         if state.selected_song_idx > 0 {
                             state.selected_song_idx -= 1;
@@ -422,7 +533,8 @@ fn handle_keyboard_input(
                         }
                     }
                     KeyCode::F5 => {
-                        let (songs, _) = init_songs_and_scores();
+                        let (mut songs, _) = init_songs_and_scores();
+                        sort_songs(&mut songs, state.sort_mode, &state.score_store);
                         state.songs = songs;
                         state.selected_song_idx = 0;
                     }

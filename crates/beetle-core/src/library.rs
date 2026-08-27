@@ -1,4 +1,5 @@
 use crate::bms::parse_bms;
+use crate::score::ScoreStore;
 
 /// High-speed FNV-1a 64-bit hash for chart identification without external cryptographic dependencies.
 pub fn compute_chart_hash(data: &[u8]) -> u64 {
@@ -11,6 +12,38 @@ pub fn compute_chart_hash(data: &[u8]) -> u64 {
         hash = hash.wrapping_mul(FNV_PRIME);
     }
     hash
+}
+
+/// Song list sorting criteria.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortMode {
+    Title,
+    Level,
+    ClearLamp,
+    ScoreRate,
+    Bpm,
+}
+
+impl SortMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "TITLE",
+            Self::Level => "LEVEL",
+            Self::ClearLamp => "CLEAR LAMP",
+            Self::ScoreRate => "SCORE RATE",
+            Self::Bpm => "BPM",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Title => Self::Level,
+            Self::Level => Self::ClearLamp,
+            Self::ClearLamp => Self::ScoreRate,
+            Self::ScoreRate => Self::Bpm,
+            Self::Bpm => Self::Title,
+        }
+    }
 }
 
 /// Metadata summary of a BMS chart stored in memory or cache.
@@ -112,6 +145,37 @@ fn unescape_field(s: &str) -> String {
         .replace("\\\\", "\\")
 }
 
+/// Sorts song list in-place according to the chosen sort mode.
+pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore) {
+    match mode {
+        SortMode::Title => {
+            songs.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        }
+        SortMode::Level => {
+            songs.sort_by(|a, b| a.play_level.cmp(&b.play_level).then_with(|| a.title.cmp(&b.title)));
+        }
+        SortMode::ClearLamp => {
+            songs.sort_by(|a, b| {
+                let lamp_a = store.get(a.hash).map(|r| r.clear_type);
+                let lamp_b = store.get(b.hash).map(|r| r.clear_type);
+                lamp_b.cmp(&lamp_a).then_with(|| a.title.cmp(&b.title))
+            });
+        }
+        SortMode::ScoreRate => {
+            songs.sort_by(|a, b| {
+                let acc_a = store.get(a.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
+                let acc_b = store.get(b.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
+                acc_b.partial_cmp(&acc_a).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.title.cmp(&b.title))
+            });
+        }
+        SortMode::Bpm => {
+            songs.sort_by(|a, b| {
+                a.bpm.partial_cmp(&b.bpm).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.title.cmp(&b.title))
+            });
+        }
+    }
+}
+
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
     let mut out = String::new();
@@ -162,5 +226,37 @@ mod tests {
         let decoded = SongMetadata::deserialize_tsv(&tsv).expect("Failed to deserialize TSV");
 
         assert_eq!(meta, decoded);
+    }
+
+    #[test]
+    fn test_sort_songs_by_level() {
+        let mut songs = vec![
+            SongMetadata {
+                hash: 1,
+                file_path: "1.bms".into(),
+                title: "Song B".into(),
+                subtitle: "".into(),
+                artist: "A".into(),
+                genre: "".into(),
+                bpm: 120.0,
+                play_level: 8,
+                notes_count: 100,
+            },
+            SongMetadata {
+                hash: 2,
+                file_path: "2.bms".into(),
+                title: "Song A".into(),
+                subtitle: "".into(),
+                artist: "A".into(),
+                genre: "".into(),
+                bpm: 140.0,
+                play_level: 4,
+                notes_count: 50,
+            },
+        ];
+        let store = ScoreStore::new();
+        sort_songs(&mut songs, SortMode::Level, &store);
+        assert_eq!(songs[0].play_level, 4);
+        assert_eq!(songs[1].play_level, 8);
     }
 }

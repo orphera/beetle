@@ -14,7 +14,8 @@ pub mod timing;
 pub use bms::{parse_bms, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType, WavId};
 pub use judge::{GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker};
 pub use library::{
-    compute_chart_hash, deserialize_song_cache, serialize_song_cache, SongMetadata,
+    compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
+    SortMode,
 };
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use score::{ClearType, ScoreRecord, ScoreStore};

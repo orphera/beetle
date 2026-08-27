@@ -464,13 +464,15 @@ impl SoftwareRenderer {
         songs: &[beetle_core::SongMetadata],
         selected_idx: usize,
         score_store: &beetle_core::ScoreStore,
+        sort_mode_str: &str,
     ) {
         self.clear();
 
         // Top Header
+        let header_str = format!("BEETLE BMS PLAYER - SONG SELECT  [SORT: {} (F2)]", sort_mode_str);
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
-            "BEETLE BMS PLAYER - SONG SELECT",
+            &header_str,
             40,
             30,
             2,
@@ -711,6 +713,79 @@ impl SoftwareRenderer {
             footer_y,
             1,
             ColorRgba::new(160, 160, 180, 255),
+        );
+    }
+
+    /// Renders the option modal overlay centered on the screen.
+    pub fn render_option_modal(
+        &mut self,
+        options: &beetle_core::PlayOptions,
+        key_preset_str: &str,
+        selected_row: usize,
+    ) {
+        let modal_w = 440.0;
+        let modal_h = 280.0;
+        let modal_x = (self.width() as f32 - modal_w) / 2.0;
+        let modal_y = (self.height() as f32 - modal_h) / 2.0;
+
+        // Background shadow / dim overlay (draw dark background)
+        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(12, 14, 20, 255));
+
+        // Glowing border
+        self.draw_rect(modal_x, modal_y, modal_w, 2.0, ColorRgba::new(80, 140, 255, 255));
+        self.draw_rect(modal_x, modal_y + modal_h, modal_w, 2.0, ColorRgba::new(80, 140, 255, 255));
+        self.draw_rect(modal_x, modal_y, 2.0, modal_h, ColorRgba::new(80, 140, 255, 255));
+        self.draw_rect(modal_x + modal_w, modal_y, 2.0, modal_h, ColorRgba::new(80, 140, 255, 255));
+
+        // Header Title
+        let center_x = (self.width() / 2) as i32;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "PLAY OPTIONS",
+            center_x,
+            (modal_y + 16.0) as i32,
+            2,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+
+        let rows = [
+            ("HI-SPEED", format!("<  {:.0} px/s  >", options.hi_speed)),
+            ("MODIFIER", format!("<  {}  >", options.lane_modifier.as_str())),
+            ("GAUGE", format!("<  {}  >", options.gauge_type.as_str())),
+            ("JUDGE OFFSET", format!("<  {:+.0} ms  >", options.judge_offset_ms)),
+            ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
+        ];
+
+        let mut row_y = (modal_y + 55.0) as i32;
+        for (i, (label, val)) in rows.iter().enumerate() {
+            let is_sel = i == selected_row;
+            let (text_color, bg_color) = if is_sel {
+                (
+                    ColorRgba::new(255, 255, 255, 255),
+                    Some(ColorRgba::new(40, 70, 140, 255)),
+                )
+            } else {
+                (ColorRgba::new(160, 170, 190, 255), None)
+            };
+
+            if let Some(bg) = bg_color {
+                self.draw_rect(modal_x + 16.0, row_y as f32 - 4.0, modal_w - 32.0, 26.0, bg);
+            }
+
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (modal_x + 30.0) as i32, row_y, 1, text_color);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), val, (modal_x + 230.0) as i32, row_y, 1, if is_sel { ColorRgba::new(255, 230, 80, 255) } else { text_color });
+
+            row_y += 30;
+        }
+
+        // Instructions Footer
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "[Up/Down]: Select   [Left/Right]: Change   [Tab/Esc]: Close",
+            center_x,
+            (modal_y + modal_h - 25.0) as i32,
+            1,
+            ColorRgba::new(130, 140, 160, 255),
         );
     }
 }

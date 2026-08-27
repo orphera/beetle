@@ -11,6 +11,15 @@ pub enum KeyPreset {
     ArcadeZx,
 }
 
+impl KeyPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::HomeRow => "HomeRow (S D F Space J K L)",
+            Self::ArcadeZx => "ArcadeZx (Z S X D C F V)",
+        }
+    }
+}
+
 /// Input configuration handling key mapping and preset switching.
 #[derive(Debug, Clone)]
 pub struct InputConfig {
