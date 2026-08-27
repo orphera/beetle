@@ -31,8 +31,41 @@ impl AudioClock {
         }
     }
 
+    /// Returns the audio playback time with a user-configured offset (e.g. visual/audio latency calibration).
+    pub fn current_compensated_time_seconds(&self, offset_seconds: f64) -> f64 {
+        (self.current_time_seconds() + offset_seconds).max(0.0)
+    }
+
     /// Configured audio output sample rate in Hz.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// Resets the audio clock to zero.
+    pub fn reset(&self) {
+        self.samples_played.store(0, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_audio_clock_conversion() {
+        let counter = Arc::new(AtomicU64::new(0));
+        let clock = AudioClock::new(Arc::clone(&counter), 48000);
+
+        assert_eq!(clock.current_samples(), 0);
+        assert_eq!(clock.current_time_seconds(), 0.0);
+
+        counter.store(24000, Ordering::Relaxed);
+        assert_eq!(clock.current_samples(), 24000);
+        assert_eq!(clock.current_time_seconds(), 0.5);
+        assert_eq!(clock.current_compensated_time_seconds(0.05), 0.55);
+
+        clock.reset();
+        assert_eq!(clock.current_samples(), 0);
+        assert_eq!(clock.current_time_seconds(), 0.0);
     }
 }
