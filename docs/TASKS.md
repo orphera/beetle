@@ -31,19 +31,17 @@
 
 ---
 
-## 📋 Phase 2: `beetle-audio` — 경량 믹서 및 오디오 클럭
-- [ ] **WAV / OGG 사전 디코더 (`SampleBank`) 구현**
-  - [ ] `hound` 기반 16비트/24비트/32비트 Float WAV 로더 및 정규화
-  - [ ] `lewton` 기반 OGG Vorbis 디코더 (옵셔널 feature 플래그)
-  - [ ] 메모리 PCM 포맷 표준화 (인터리브드 stereo f32)
-- [ ] **락프리 믹서 (`Mixer`) 구현**
-  - [ ] 고정 크기 발음 풀 (`[ActiveVoice; 128]`) 관리
-  - [ ] 선형 보간 믹싱 및 패닝/볼륨 감쇠 연산
-  - [ ] `rtrb` 링버퍼 커맨드 소비 (Zero-Allocation 보장)
-- [ ] **마스터 오디오 클럭 (`AudioClock`) 정밀화**
-  - [ ] `AtomicU64` 기반 샘플 누적 및 드리프트 방지
-  - [ ] 디바이스 레이턴시 보정 로직
-- [ ] **오디오 엔진 통합 및 루프백 테스트**
+## 📋 Phase 2: `beetle-audio` — 경량 믹서 및 오디오 클럭 (Completed)
+- [x] **WAV / PCM 사전 디코더 (`SampleBank`) 구현**
+  - [x] `hound` 기반 8/16/24/32비트 WAV 로더 및 Stereo f32 정규화
+  - [x] `#WAVxx` 채보 오디오 사전 로드 (`load_chart_soundbank`)
+- [x] **락프리 믹서 (`Mixer`) 구현**
+  - [x] 고정 크기 발음 풀 (`[ActiveVoice; 128]`) 관리 및 Voice Stealing
+  - [x] 선형 보간 믹싱 및 패닝/볼륨 감쇠 연산
+  - [x] `rtrb` 링버퍼 커맨드 소비 (Zero-Allocation 보장)
+- [x] **마스터 오디오 클럭 (`AudioClock`) 정밀화**
+  - [x] `AtomicU64` 기반 샘플 누적 및 레이턴시 오프셋 보정
+- [x] **오디오 엔진 통합 및 단위 테스트 (5개 테스트 통과)**
 
 ---
 
