@@ -8,6 +8,7 @@ pub mod bms;
 pub mod judge;
 pub mod library;
 pub mod modifier;
+pub mod replay;
 pub mod score;
 pub mod timing;
 
@@ -18,5 +19,6 @@ pub use library::{
     SortMode,
 };
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
+pub use replay::{ReplayData, ReplayEvent};
 pub use score::{ClearType, ScoreRecord, ScoreStore};
 pub use timing::{TimingModel, TimingSegment};

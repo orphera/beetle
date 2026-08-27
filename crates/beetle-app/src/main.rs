@@ -12,8 +12,8 @@ use std::sync::Arc;
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
     apply_lane_modifier, compute_chart_hash, parse_bms, sort_songs, BmsChart, ClearType,
-    GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ScoreRecord, ScoreStore,
-    SongMetadata, SortMode, TimingModel,
+    GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ReplayData, ScoreRecord,
+    ScoreStore, SongMetadata, SortMode, TimingModel,
 };
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::AppConfig;
@@ -28,6 +28,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 const SCORES_FILE: &str = "scores.dat";
+const REPLAYS_DIR: &str = "replays";
 
 /// Application screens for song select, gameplay, results, and key configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +55,10 @@ struct AppState {
     score_store: ScoreStore,
     play_options: PlayOptions,
     is_auto_play: bool,
+    is_replay_playback: bool,
+    current_replay: Option<ReplayData>,
+    playback_replay: Option<ReplayData>,
+    playback_cursor: usize,
     start_measure: u32,
     active_chart: Option<BmsChart>,
     active_timing: Option<TimingModel>,
@@ -213,6 +218,10 @@ impl ApplicationHandler for BeetleApp {
             score_store,
             play_options: saved_config.play_options,
             is_auto_play: false,
+            is_replay_playback: false,
+            current_replay: None,
+            playback_replay: None,
+            playback_cursor: 0,
             start_measure: 0,
             active_chart: None,
             active_timing: None,
@@ -280,14 +289,23 @@ impl ApplicationHandler for BeetleApp {
                             state.sort_mode.as_str(),
                         );
 
+                        // Check replay existence for selected song
+                        let has_replay = state
+                            .songs
+                            .get(state.selected_song_idx)
+                            .map(|s| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash)).exists())
+                            .unwrap_or(false);
+
                         // Song select options bar
+                        let rep_str = if has_replay { "  [R]: Replay" } else { "" };
                         let auto_str = if state.is_auto_play { "[AUTO: ON]" } else { "[AUTO: OFF]" };
                         let opt_bar = format!(
-                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}  [Tab]: Options  [A]: AutoPlay",
+                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}{}  [Tab]: Options  [A]: AutoPlay",
                             state.play_options.hi_speed,
                             state.play_options.lane_modifier.as_str(),
                             state.play_options.gauge_type.as_str(),
                             auto_str,
+                            rep_str,
                         );
                         state.renderer.draw_footer_text(&opt_bar);
 
@@ -332,8 +350,47 @@ impl ApplicationHandler for BeetleApp {
                             }
                         }
 
-                        // 2. AutoPlay or Miss updates
-                        if state.is_auto_play {
+                        // 2. Playback / AutoPlay / Miss updates
+                        if state.is_replay_playback {
+                            if let Some(rep) = &state.playback_replay {
+                                while state.playback_cursor < rep.events.len() {
+                                    let ev = rep.events[state.playback_cursor];
+                                    if audio_time >= ev.time_seconds {
+                                        if ev.is_down {
+                                            state.renderer.set_key_state(ev.lane, true);
+                                            if let Some(judge) = &mut state.active_judge {
+                                                if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
+                                                    state.renderer.trigger_judge(res.grade, audio_time, res.delta_ms);
+                                                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                                                        let _ = audio.send_command(AudioCommand::PlaySample {
+                                                            sample_id: id,
+                                                            volume: 1.0,
+                                                            pan: 0.0,
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            state.renderer.set_key_state(ev.lane, false);
+                                            if let Some(judge) = &mut state.active_judge {
+                                                if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
+                                                    state.renderer.trigger_judge(res.grade, audio_time, res.delta_ms);
+                                                }
+                                            }
+                                        }
+                                        state.playback_cursor += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(judge) = &mut state.active_judge {
+                                let misses = judge.update_misses(effective_judge_time);
+                                for (_lane, miss_res) in misses {
+                                    state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
+                                }
+                            }
+                        } else if state.is_auto_play {
                             if let Some(judge) = &mut state.active_judge {
                                 let hits = judge.auto_play_update(audio_time);
                                 for (lane, hit_res, wav_id) in hits {
@@ -369,7 +426,9 @@ impl ApplicationHandler for BeetleApp {
                         }
 
                         // 4. Footer info
-                        let footer_text = if state.is_auto_play {
+                        let footer_text = if state.is_replay_playback {
+                            "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
+                        } else if state.is_auto_play {
                             "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
                         } else {
                             match state.input_config.preset {
@@ -597,6 +656,22 @@ fn handle_keyboard_input(
                     KeyCode::KeyA => {
                         state.is_auto_play = !state.is_auto_play;
                     }
+                    KeyCode::KeyR => {
+                        // Launch replay playback if replay file exists
+                        if let Some(song) = state.songs.get(state.selected_song_idx) {
+                            let path_str = format!("{}/{:016x}.rep", REPLAYS_DIR, song.hash);
+                            if let Ok(rep_str) = fs::read_to_string(&path_str) {
+                                if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
+                                    state.is_replay_playback = true;
+                                    state.playback_replay = Some(replay);
+                                    state.playback_cursor = 0;
+                                    let s = song.clone();
+                                    start_gameplay(state, &s);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     KeyCode::F12 | KeyCode::KeyC => {
                         state.screen = AppScreen::KeyConfig;
                         state.selected_key_idx = 0;
@@ -622,6 +697,7 @@ fn handle_keyboard_input(
                     }
                     KeyCode::Enter | KeyCode::Space => {
                         if let Some(song) = state.songs.get(state.selected_song_idx).cloned() {
+                            state.is_replay_playback = false;
                             start_gameplay(state, &song);
                         }
                     }
@@ -651,8 +727,8 @@ fn handle_keyboard_input(
                 }
             }
 
-            // Ignore player keyboard hits during AutoPlay mode
-            if state.is_auto_play {
+            // Ignore player keyboard hits during AutoPlay or Replay playback mode
+            if state.is_auto_play || state.is_replay_playback {
                 return;
             }
 
@@ -667,6 +743,10 @@ fn handle_keyboard_input(
 
                 match key_state {
                     ElementState::Pressed => {
+                        if let Some(rep) = &mut state.current_replay {
+                            rep.record(audio_time, lane, true);
+                        }
+
                         state.renderer.set_key_state(lane, true);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
@@ -683,6 +763,10 @@ fn handle_keyboard_input(
                         }
                     }
                     ElementState::Released => {
+                        if let Some(rep) = &mut state.current_replay {
+                            rep.record(audio_time, lane, false);
+                        }
+
                         state.renderer.set_key_state(lane, false);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
@@ -728,14 +812,16 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .unwrap_or(42);
 
     let mut play_chart = chart.clone();
-    play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
+    if !state.is_replay_playback {
+        play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
+    }
 
     let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut bgm_cursor = 0;
     // Practice mode fast forward
-    if state.start_measure > 0 {
+    if state.start_measure > 0 && !state.is_replay_playback {
         let start_time = timing.beat_to_time_seconds(state.start_measure, 0.0);
         judge_engine.advance_to_time(start_time);
 
@@ -760,6 +846,12 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
     state.is_new_record = false;
+    state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
+        Some(ReplayData::new(song.hash))
+    } else {
+        None
+    };
+    state.playback_cursor = 0;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
 }
@@ -795,11 +887,21 @@ fn finish_gameplay(state: &mut AppState) {
             miss_count: score.miss_count,
         };
 
-        // Only save score records for actual manual playthroughs from start
-        if !state.is_auto_play && state.start_measure == 0 {
-            state.is_new_record = state.score_store.update(record);
+        // Only save score records and replays for actual manual playthroughs from start
+        if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
+            state.is_new_record = state.score_store.update(record.clone());
             let score_data = state.score_store.save_to_string();
             let _ = fs::write(SCORES_FILE, score_data);
+
+            // Save replay file
+            let rep_path = format!("{}/{:016x}.rep", REPLAYS_DIR, state.active_chart_hash);
+            if state.is_new_record || !Path::new(&rep_path).exists() {
+                if let Some(mut rep) = state.current_replay.take() {
+                    rep.set_score(&record);
+                    let _ = fs::create_dir_all(REPLAYS_DIR);
+                    let _ = fs::write(&rep_path, rep.serialize_to_string());
+                }
+            }
         } else {
             state.is_new_record = false;
         }
