@@ -8,8 +8,9 @@ use std::fs;
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
+use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
 use beetle_core::{
     apply_lane_modifier, compute_chart_hash, parse_bms, sort_songs, BmsChart, ClearType,
     GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ReplayData, ScoreRecord,
@@ -62,6 +63,10 @@ struct AppState {
     start_measure: u32,
     cached_stage_image: Option<(u64, Option<ImageBuffer>)>,
     active_bga_image: Option<ImageBuffer>,
+    preview_audio: Option<AudioEngine>,
+    preview_song_hash: Option<u64>,
+    preview_timer: Instant,
+    preview_duration: f64,
     active_chart: Option<BmsChart>,
     active_timing: Option<TimingModel>,
     active_chart_hash: u64,
@@ -171,6 +176,44 @@ fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     None
 }
 
+fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
+    if song.file_path == ":demo:" {
+        return None;
+    }
+
+    let song_path = Path::new(&song.file_path);
+    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
+
+    // 1. Common preview audio filenames
+    for name in &[
+        "preview.ogg", "preview.wav", "PREVIEW.OGG", "PREVIEW.WAV",
+        "intro.ogg", "intro.wav", "INTRO.OGG", "INTRO.WAV",
+    ] {
+        let p = dir.join(name);
+        if p.exists() {
+            if let Ok(pcm) = SampleBank::load_audio_file(&p) {
+                return Some(pcm);
+            }
+        }
+    }
+
+    // 2. Fallback: Parse chart, find first valid keysound longer than 0.4s
+    if let Ok(content) = fs::read_to_string(song_path) {
+        if let Ok(chart) = parse_bms(&content) {
+            for filename in chart.header.wav_table.values() {
+                let p = dir.join(filename);
+                if let Ok(pcm) = SampleBank::load_audio_file(&p) {
+                    if pcm.duration_seconds() > 0.4 {
+                        return Some(pcm);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn load_chart_and_audio(song: &SongMetadata) -> (BmsChart, TimingModel, SampleBank) {
     if song.file_path == ":demo:" {
         let chart = demo::create_demo_chart();
@@ -267,6 +310,10 @@ impl ApplicationHandler for BeetleApp {
             start_measure: 0,
             cached_stage_image: None,
             active_bga_image: None,
+            preview_audio: None,
+            preview_song_hash: None,
+            preview_timer: Instant::now(),
+            preview_duration: 0.0,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -330,6 +377,43 @@ impl ApplicationHandler for BeetleApp {
                         if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
                             let img = state.songs.get(state.selected_song_idx).and_then(load_stage_image);
                             state.cached_stage_image = Some((selected_hash, img));
+                        }
+
+                        // Preview audio management
+                        if state.preview_song_hash != Some(selected_hash) {
+                            state.preview_audio = None;
+                            state.preview_song_hash = Some(selected_hash);
+                            state.preview_timer = Instant::now();
+                            state.preview_duration = 0.0;
+                        } else if state.preview_timer.elapsed() >= Duration::from_millis(250) {
+                            if state.preview_audio.is_none() {
+                                if let Some(song) = state.songs.get(state.selected_song_idx) {
+                                    if let Some(pcm) = load_preview_sample(song) {
+                                        let dur = pcm.duration_seconds();
+                                        let mut bank = SampleBank::new();
+                                        bank.insert(beetle_core::WavId(1), pcm);
+                                        if let Ok(mut engine) = AudioEngine::new(bank) {
+                                            let _ = engine.send_command(AudioCommand::PlaySample {
+                                                sample_id: beetle_core::WavId(1),
+                                                volume: 0.8,
+                                                pan: 0.0,
+                                            });
+                                            state.preview_duration = dur;
+                                            state.preview_audio = Some(engine);
+                                        }
+                                    }
+                                }
+                            } else if let Some(audio) = &mut state.preview_audio {
+                                // Loop preview playback
+                                if state.preview_duration > 0.0 && audio.clock().current_time_seconds() >= state.preview_duration + 0.5 {
+                                    let _ = audio.send_command(AudioCommand::PlaySample {
+                                        sample_id: beetle_core::WavId(1),
+                                        volume: 0.8,
+                                        pan: 0.0,
+                                    });
+                                    let _ = audio.send_command(AudioCommand::ResetClock);
+                                }
+                            }
                         }
 
                         let stage_img = state.cached_stage_image.as_ref().and_then(|(_, img)| img.as_ref());
@@ -867,6 +951,9 @@ fn handle_keyboard_input(
 }
 
 fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
+    // Cleanly stop preview audio engine before entering gameplay
+    state.preview_audio = None;
+
     let (chart, timing, soundbank) = load_chart_and_audio(song);
 
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
