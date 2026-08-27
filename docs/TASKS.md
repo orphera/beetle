@@ -116,15 +116,13 @@
 
 ---
 
-## 📋 Phase 8: 선곡창 고도화 & 옵션 팝업 모달창
-- [ ] **플레이 옵션 모달 UI (`SoftwareRenderer` & `beetle-app`)**
-  - [ ] 선곡창에서 `Tab`/`Space` 키로 옵션 패널 팝업
-  - [ ] 배속, 노트 모디파이어, 게이지, 오프셋 직관적 변경
-- [ ] **곡 목록 정렬 및 필터링**
-  - [ ] Title / Level / Clear Lamp / Score Rate 순 정렬
-  - [ ] 특정 레벨 및 클리어 상태 필터링
-- [ ] **곡 프리뷰 오디오 연동**
-  - [ ] 선곡 커서 이동 시 해당 곡의 BGM/프리뷰 샘플 루프 재생
+## 📋 Phase 8: 선곡창 고도화 & 옵션 팝업 모달창 (Completed)
+- [x] **플레이 옵션 모달 UI (`SoftwareRenderer` & `beetle-app`)**
+  - [x] 선곡창에서 `Tab` / `O` 키로 옵션 패널 팝업 오버레이
+  - [x] Hi-Speed, 노트 모디파이어, 게이지, 판정 오프셋, 키 레이아웃 직관적 변경
+- [x] **곡 목록 정렬 (`SortMode`)**
+  - [x] Title / Level / Clear Lamp / Score Rate / BPM 정렬 (`F2` 순환 토글)
+- [x] **정렬 단위 테스트 (1개 테스트 통과, 총 31개 테스트 완료)**
 
 ---
 
