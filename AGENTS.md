@@ -6,9 +6,10 @@
 
 ## 1. 핵심 철학 (Core Philosophy)
 
-1. **바이너리 크기가 최우선 (Binary Size First)**: 런타임 최적화보다도 바이너리 크기 다이어트를 우선순위로 둡니다. 불필요한 크레이트 도입은 절대 금지합니다.
-2. **독립 실행 (All Batteries Included)**: 외부 런타임(GPU 드라이버 셰이더 컴파일러, 코덱 팩, C++ 런타임 dll) 의존 없이 단일 정적 바이너리로 구동되어야 합니다.
+1. **바이너리 크기가 최우선 (Binary Size First)**: 런타임 최적화보다도 바이너리 크기 다이어트를 우선순위로 둡니다. 불필요한 크레이트 도입은 절대 금지합니다. (목표: 개별 실행 파일당 < 1 MB)
+2. **독립 실행 (All Batteries Included)**: 외부 런타임(GPU 드라이버 셰이더 컴파일러, 코덱 팩, C++ 런타임 DLL) 의존 없이 단일 정적 바이너리로 구동되어야 합니다.
 3. **결정론적 판정 (Deterministic Judgement)**: 오디오 하드웨어 샘플 클럭을 단일 진실 기준으로 삼아 프레임 드랍이나 렉이 발생해도 판정 오차가 누적되지 않아야 합니다.
+4. **논블로킹 UI (Non-Blocking UI Experience)**: 무거운 파일 I/O나 오디오 디코딩 시 UI 이벤트 루프가 멈추지 않고 항상 부드러운 화면과 프로그레스를 유지해야 합니다.
 
 ---
 
@@ -33,6 +34,13 @@
   - **로직/입력 스레드**: 키 입력 처리, 판정, 락프리 큐로 오디오 커맨드 전송.
   - **렌더 스레드**: `softbuffer` + `tiny-skia` 기반 프레임 그리기.
 
+- **[INV-5] 비동기 백그라운드 I/O & 논블로킹 UI**
+  - 대용량 파일 복사, 압축 해제, 디렉터리 패킹, 다수 키음 디코딩은 메인 UI 스레드를 블로킹하지 않고 백그라운드 Worker 스레드로 위임합니다.
+  - UI는 `AppScreen::Loading` 또는 회전 스피너를 통해 60 FPS 무중단 상태를 유지합니다.
+
+- **[INV-6] 패키징 바이트 단위 결정론 (Deterministic Packaging)**
+  - `bms-package` 빌드 시 엔트리는 항상 사전식(Lexicographical)으로 정렬되며, 고정된 에포크 타임스탬프(`1980-01-01 00:00:00`)와 정규화된 JSON을 사용하여 동일 입력에 대해 언제나 바이트 단위로 동일한 `.bmsp` 아카이브를 생성합니다.
+
 ---
 
 ## 3. 의존성 정책 (Dependency Policy)
@@ -55,17 +63,20 @@
 - `tiny-skia` (2D 소프트웨어 렌더링)
 - `softbuffer` (네이티브 윈도우 프레임버퍼)
 - `winit` (윈도우 및 이벤트)
+- `zip` (패키지 컨테이너 - `deflate` 기능만 최소 활성화)
+- `serde`, `serde_json` (패키지 Manifest 및 Registry 직렬화)
 
 ---
 
-## 4. 코드 스타일 및 작성 원칙
+## 4. 모듈 책임 분리 원칙
 
-- **단순하고 직접적인 코드 (KISS)**: 불필요한 트레이트 남발, 과도한 제네릭, 빈번한 동적 디스패치(`dyn Trait`)를 지양합니다.
-- **명확한 에러 핸들링**: 런타임 핫패스에서는 `unwrap()`을 지양하고 구체적인 `Result`를 반환합니다.
-- **모듈 책임 분리**:
-  - `beetle-core`는 순수 알고리즘 크레이트로, OS API / 창 / 오디오 하드웨어 의존성을 갖지 않습니다.
-  - `beetle-audio`는 오디오와 클럭만 다루며 렌더링을 알지 못합니다.
-  - `beetle-render`는 소프트웨어 그래픽만 다루며 입력을 직접 폴링하지 않습니다.
+- `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
+- `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
+- `crates/beetle-render`: tiny-skia 2D 소프트웨어 그래픽을 렌더링하며 입력을 직접 폴링하지 않습니다.
+- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`) 및 입력 통합을 담당합니다.
+- `crates/bms-package`: 단일 패키지(`.bmsp`) 포맷, Manifest, 결정론적 패커 및 안전한 리더를 다룹니다.
+- `crates/bms-package-manager`: 로컬 저장소(`packages/`), `registry.json`, 원자적 설치, 다중 버전 관리 및 `bpm` CLI를 담당합니다.
+- `crates/bpm-gui`: 독립형 경량 데스크톱 패키지 관리 GUI 애플리케이션입니다.
 
 ---
 
@@ -75,12 +86,12 @@
 # 전체 워크스페이스 타입 체크
 cargo check --workspace
 
-# 테스트 실행
+# 전체 54개 테스트 실행
 cargo test --workspace
 
 # 릴리스 빌드 (바이너리 크기 최적화)
 cargo build --release
 
 # 바이너리 파일 크기 확인 (PowerShell)
-Get-Item .\target\release\beetle-app.exe | Select-Object Name, Length
+Get-Item .\target\release\beetle-app.exe, .\target\release\bpm-gui.exe, .\target\release\bpm.exe | Select-Object Name, Length
 ```

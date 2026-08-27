@@ -1,80 +1,151 @@
 # Beetle (BMS + Little) 🪲
 
-Beetle은 바이너리 크기 최소화와 단일 실행 파일 구동을 최우선으로 설계된 초경량 Rust 기반 BMS(Be-Music Source) 플레이어입니다.
+Beetle은 **바이너리 크기 최소화(< 1MB)**와 **단일 실행 파일 구동**을 최우선으로 설계된 초경량 Rust 기반 BMS(Be-Music Source) 플레이어 및 에코시스템입니다.
 
 ---
 
-## 🎯 설계 철학 (우선순위 순서)
+## 🎯 핵심 철학 (Core Philosophy)
 
-1. **가벼울 것 (Ultra Lightweight)**: 특히 **바이너리 크기를 최우선 지표**로 봅니다. 불필요한 의존성을 철저히 배제하고 실용적인 구조를 지향합니다.
-2. **All Batteries Included**: 외부 코덱, 런타임, GPU 셰이더 컴파일러, 임베디드 데이터베이스 설치 없이 단일 실행 파일(`.exe`) 하나로 즉시 구동됩니다.
-3. **UX & 판정 정확도**: 프레임레이트 변동에 영향을 받지 않는 절대적 판정 정확도와 높은 시각적 반응성을 제공합니다.
-
----
-
-## 🏛️ 핵심 아키텍처 원칙
-
-- **오디오 클럭 마스터 (Audio Clock Master)**: 판정 기준 시간은 프레임 타이머가 아니라 오디오 하드웨어가 실제로 재생한 샘플 수(`AudioClock`)를 단일 진실 공급원(Single Source of Truth)으로 삼습니다.
-- **오디오 스레드 락프리 & 무할당 (Zero-Allocation & Lock-Free)**: 오디오 콜백 스레드는 뮤텍스 락을 걸거나 힙 할당을 절대 수행하지 않습니다. 키음 트리거는 실시간 SPSC 링버퍼(`rtrb`)를 통해 비동기 전달됩니다.
-- **사전 PCM 디코딩 (Pre-decoded PCM Soundbank)**: 모든 키음(WAV/OGG)은 채보 로드 시점에 메모리에 PCM으로 완전히 디코드해 둡니다. 플레이 도중 런타임 디코딩을 일체 수행하지 않습니다.
-- **3-스레드 분리 모델**:
-  1. **오디오 스레드**: `cpal` 오디오 스트림 및 저지연 PCM 믹싱 전용.
-  2. **로직/입력 스레드**: 키보드 입력 수신, 판정 계산, 락프리 키음 트리거 큐잉.
-  3. **렌더 스레드**: 오디오 클럭을 읽어 노트 위치를 계산하고 화면에 출력 (프레임레이트 독립적).
+1. **초경량 & 바이너리 크기 최우선 (Ultra Lightweight)**: 런타임 최적화와 함께 **바이너리 크기를 최우선 지표**로 봅니다. 불필요한 의존성을 철저히 배제하고 정적 컴파일을 지향합니다.
+2. **독립 실행 (All Batteries Included)**: 외부 코덱 팩, C++ 런타임 DLL, GPU 셰이더 컴파일러, 임베디드 데이터베이스 설치 없이 단일 실행 파일(`.exe`)로 즉시 구동됩니다.
+3. **결정론적 판정 (Deterministic Judgement)**: 프레임레이트 변동이나 렉에 영향을 받지 않도록 오디오 하드웨어 샘플 클럭을 단일 진실 기준으로 삼아 판정 오차가 누적되지 않습니다.
+4. **쾌적한 반응성 (Non-Blocking UI)**: 무거운 파일 I/O와 오디오 디코딩을 백그라운드 Worker 스레드로 위임하여 60 FPS 무중단 화면을 보장합니다.
 
 ---
 
-## 📦 v1 지원 범위
+## 🏛️ 아키텍처 원칙
 
-### 포함 (In Scope)
-- **채보 파싱**: BMS / BME / BML 텍스트 포맷 (BPM 변화, `#STOP` 정지, 롱노트 기본 지원)
-- **오디오 코덱**: WAV 필수 지원 (경량 내장 디코더), OGG Vorbis (`vorbis` feature flag)
-- **오디오 엔진**: `cpal` 기반 자체 구현 저지연 믹서 (외부 믹서 라이브러리 미사용)
-- **소프트웨어 2D 렌더링**: `tiny-skia` + `softbuffer` (GPU/wgpu/Vulkan/DirectX 런타임 의존성 제로)
-- **폰트 시스템**: 벡터 폰트 래스터라이저 대신 내장 1비트/8비트 비트맵 폰트
-- **스킨**: 직관적인 미니멀 단일 설정 포맷 (좌표/색상)
-- **곡 관리 & 스코어**: 폴더 스캔 메타데이터 캐시 및 로컬 플랫 파일 스코어 저장
-
-### 제외 (Out of Scope for v1)
-- BGA (영상/애니메이션 배경)
-- LR2 스킨 포맷 호환
-- 인터넷 랭킹 (IR) 및 네트워크 기능
-- 리플레이 저장/재생
-- 난이도표 연동
-- MP3 / FLAC 코덱
+- **오디오 클럭 마스터 (Audio Clock Master Time)**: 판정(`JudgeEngine`) 및 렌더링 노트 위치는 오디오 하드웨어가 실제로 재생한 샘플 수(`AudioClock`)를 기준으로 계산됩니다.
+- **오디오 스레드 락프리 & 무할당 (Zero-Allocation & Lock-Free)**: 오디오 콜백 스레드는 뮤텍스 락이나 힙 메모리 할당을 일체 수행하지 않으며, 실시간 SPSC 링버퍼(`rtrb`)를 통해 커맨드를 수신합니다.
+- **사전 PCM 디코딩 (Pre-decoded PCM Soundbank)**: 모든 키음(WAV/OGG)은 로딩 시점에 메모리에 PCM으로 완전히 디코드해 둡니다. 플레이 도중 런타임 디코딩을 일체 수행하지 않습니다.
+- **소프트웨어 2D 렌더링 (No Heavy GPU Dependencies)**: `tiny-skia` + `softbuffer` 기반으로 구동되어 GPU 드라이버 호환성 이슈 없이 수백 FPS 이상을 부드럽게 렌더링합니다.
 
 ---
 
-## 📁 프로젝트 구조
+## ✨ 지원 기능 (Feature Matrix)
 
-```
+| 구분 | 지원 내용 |
+| :--- | :--- |
+| **채보 포맷** | BMS, BME, BML, PMS (BPM 변화, `#STOP`, LNOBJ/LNType1 롱노트, 배속 변경) |
+| **플레이 모드** | **5키 / 7키 / 9키 / 14키(DP)** 채보 자동 판별 및 가변 플레이필드 레이아웃 |
+| **오디오 엔진** | `cpal` 기반 자체 저지연 믹서, WAV 디코더, OGG Vorbis (`lewton`) 내장 |
+| **시각 효과** | 8방향 방사형 스파크 히트 버스트, 콤보 펄스 애니메이션, PGREAT 네온 빔, 16밴드 실시간 비주얼라이저 |
+| **플레이 옵션** | Hi-Speed (0.5x ~ 10.0x), 판정 오프셋(ms), 레인 커버, 서든, 배치 옵션(Mirror, Random, R-Random, S-Random), 게이지(Groove, Survival, EX-Hard, Easy) |
+| **보조 기능** | 리플레이 녹화/재생 (`.rep`), 연습 모드(마디 패스트포워드), 오토플레이 (`[A]`), 키 설정 UI (`[F12]`) |
+| **패키지 생태계** | 표준 `.bmsp` 패키지 포맷(`bms-package`), 패키지 매니저(`bpm`), 독립형 데스크톱 GUI(`bpm-gui`) |
+| **로딩 시스템** | 전용 로딩 화면(`AppScreen::Loading`), 비동기 키음 적재, Windows 콘솔 창 은닉 (`windows_subsystem`) |
+
+---
+
+## 📁 프로젝트 및 워크스페이스 구조
+
+```text
 beetle/
-├── Cargo.toml                # Workspace 설정 및 release 크기 최적화 프로필
-├── AGENTS.md                 # 아키텍처 불변식, 코딩 표준, 의존성 정책
+├── Cargo.toml                      # Workspace 및 release 최적화 프로필
+├── AGENTS.md                       # 개발 가이드 및 아키텍처 불변식
 ├── docs/
-│   ├── TASKS.md              # Phase별 개발 체크리스트
-│   └── DECISIONS.md          # 아키텍처 결정 레코드 (ADR)
+│   ├── TASKS.md                    # Phase별 개발 체크리스트 (Phase 1 ~ 23 완료)
+│   ├── DECISIONS.md                # 아키텍처 결정 레코드 (ADR-001 ~ ADR-011)
+│   ├── BMS_PACKAGE_SPEC.md         # bms-package 포맷 및 라이브러리 명세
+│   └── BMS_PACKAGE_MANAGER_SPEC.md # bms-package-manager 및 레지스트리 명세
 └── crates/
-    ├── beetle-core/          # 순수 채보 파서, 타이밍 모델, 판정 엔진 (GUI/오디오 비의존)
-    ├── beetle-audio/         # cpal 오디오 엔진, 락프리 믹서, 오디오 클럭
-    ├── beetle-render/        # tiny-skia + 내장 비트맵 폰트 2D 소프트웨어 렌더러
-    └── beetle-app/           # 바이너리 진입점, winit + softbuffer 창 및 루프
+    ├── beetle-core/                # 순수 채보 파서, 타이밍 모델, 판정/점수/리플레이 엔진
+    ├── beetle-audio/               # cpal 오디오 엔진, 락프리 믹서, 마스터 오디오 클럭
+    ├── beetle-render/              # tiny-skia + 내장 비트맵 폰트 2D 소프트웨어 렌더러
+    ├── beetle-app/                 # Beetle 메인 게임 (winit + softbuffer, 인게임 로딩)
+    ├── bms-package/                # .bmsp 패키지 포맷, Manifest, 결정론적 패커/리더
+    ├── bms-package-manager/        # 패키지 수명주기, registry.json, atomic install, bpm CLI
+    └── bpm-gui/                    # 독립형 경량 데스크톱 패키지 매니저 GUI
 ```
 
 ---
 
-## 🛠️ 빌드 및 실행
+## 📊 바이너리 크기 벤치마크 (Release Profile)
+
+`opt-level = "z"`, `lto = true`, `panic = "abort"`, `strip = true` 최적화를 적용한 단일 정적 바이너리 크기입니다:
+
+| 바이너리 | 설명 | 파일 크기 |
+| :--- | :--- | :--- |
+| **`beetle-app.exe`** | Beetle 메인 BMS 플레이어 | **823 KB (0.79 MB)** |
+| **`bpm-gui.exe`** | 독립형 GUI 패키지 매니저 | **867 KB (0.83 MB)** |
+| **`bpm.exe`** | 패키지 관리자 CLI 도구 | **480 KB (0.46 MB)** |
+
+---
+
+## 🎮 인게임 기본 조작키
+
+### 선곡 화면 (Song Select)
+- **`↑` / `↓` / `K` / `J`**: 곡 선택 이동
+- **`Enter` / `Space`**: 곡 플레이 시작 (전용 로딩 화면 거쳐 진입)
+- **`Tab` / `O`**: 플레이 옵션 모달 열기/닫기 (배속, 게이지, 배치, 시작 마디)
+- **`A`**: AutoPlay 모드 토글
+- **`R`**: 저장된 리플레이 실행
+- **`F2`**: 정렬 모드 변경 (제목순 / 레벨순 / 클리어마크순 / 스코어순)
+- **`F3` / `F4`**: Hi-Speed 배속 증감 (0.25x 단위)
+- **`F6` / `F7`**: 게이지 타입 / 배치 모디파이어 순환
+- **`F12` / `C`**: 키 설정(Key Config) 화면 진입
+- **`F5`**: 곡 목록 새로고침
+
+### 게임플레이 (Gameplay)
+- **기본 7K 키 배치 (1P Standard)**:
+  - `LShift`: Scratch
+  - `Z`, `S`, `X`, `D`, `C`, `F`, `V`: 1 ~ 7번 레인
+- **`F10` / `F11`**: 레인 커버 높이 조절
+- **`Esc`**: 곡 연주 중단 및 결과 화면으로 이동
+
+---
+
+## 📦 패키지 매니저 도구 사용법
+
+### 1. 독립형 GUI 매니저 (`bpm-gui`)
+```bash
+# GUI 매니저 실행
+cargo run -p bpm-gui --release
+```
+- **`↑` / `↓` / `K` / `J`**: 설치된 패키지 목록 탐색
+- **`[/]`**: 실시간 곡명/ID/아티스트 검색 필터
+- **`←` / `→`**: 다중 버전 선택
+- **`[A]`**: 선택한 버전을 활성 버전으로 지정
+- **`[U]` / `[Delete]`**: 선택한 버전 언인스톨
+- **`[I]` / `[F1]`**: 기존 BMS 폴더 경로 입력 시 원클릭 패킹 & 설치
+- **`[P]`**: BMS 폴더를 표준 `.bmsp` 아카이브로 내보내기
+- **`[F2]`**: `.bmsp` 파일 직접 설치
+
+### 2. CLI 도구 (`bpm`)
+```bash
+# 1. BMS 폴더를 .bmsp 파일로 패킹
+bpm pack ./songs/my_song/ -o my_song-1.0.0.bmsp
+
+# 2. 기존 BMS 폴더를 패키지 관리자로 즉시 임포트 & 설치
+bpm import ./songs/my_song/
+
+# 3. 로컬 .bmsp 패키지 파일 설치
+bpm install ./my_song-1.0.0.bmsp
+
+# 4. 설치된 활성 패키지 목록 조회
+bpm list
+
+# 5. 패키지 상세 정보 및 버전 목록 확인
+bpm info <package_id>
+
+# 6. 활성 버전 전환
+bpm activate <package_id> <version>
+
+# 7. 패키지 버전 삭제
+bpm uninstall <package_id> <version>
+```
+
+---
+
+## 🛠️ 빌드 및 테스트
 
 ```bash
-# 개발 빌드 확인
-cargo check
+# 워크스페이스 전체 타입 체크
+cargo check --workspace
 
-# 단위 테스트 실행
-cargo test
+# 전체 54개 단위 테스트 실행
+cargo test --workspace
 
-# 바이너리 크기 최적화 릴리스 빌드
+# 크기 최적화 릴리스 빌드
 cargo build --release
-
-# 실행
-cargo run -p beetle-app --release
 ```
