@@ -91,6 +91,32 @@ impl InputConfig {
             },
         }
     }
+
+    /// Returns the descriptive key name for a given lane.
+    pub fn get_key_name_for_lane(&self, lane: Lane) -> &'static str {
+        match self.preset {
+            KeyPreset::HomeRow => match lane {
+                Lane::Scratch => "Left Shift",
+                Lane::Key1 => "S",
+                Lane::Key2 => "D",
+                Lane::Key3 => "F",
+                Lane::Key4 => "Space",
+                Lane::Key5 => "J",
+                Lane::Key6 => "K",
+                Lane::Key7 => "L",
+            },
+            KeyPreset::ArcadeZx => match lane {
+                Lane::Scratch => "Left Shift",
+                Lane::Key1 => "Z",
+                Lane::Key2 => "S",
+                Lane::Key3 => "X",
+                Lane::Key4 => "D",
+                Lane::Key5 => "C",
+                Lane::Key6 => "F",
+                Lane::Key7 => "V",
+            },
+        }
+    }
 }
 
 #[cfg(test)]

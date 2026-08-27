@@ -848,6 +848,80 @@ impl SoftwareRenderer {
             ColorRgba::new(130, 140, 160, 255),
         );
     }
+
+    /// Renders the interactive key configuration screen.
+    pub fn render_key_config(
+        &mut self,
+        key_names: &[(&'static str, &'static str)],
+        selected_lane_idx: usize,
+    ) {
+        self.clear();
+
+        let center_x = (self.width() / 2) as i32;
+        let mut y = 40;
+
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "KEY CONFIGURATION",
+            center_x,
+            y,
+            2,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+        y += 30;
+
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "Preset Layout Mapping for 7K + 1S",
+            center_x,
+            y,
+            1,
+            ColorRgba::new(160, 160, 180, 255),
+        );
+        y += 40;
+
+        let box_w = 400.0;
+        let box_x = (self.width() as f32 - box_w) / 2.0;
+
+        for (i, (lane_name, key_name)) in key_names.iter().enumerate() {
+            let is_sel = i == selected_lane_idx;
+            let (text_color, bg_color) = if is_sel {
+                (
+                    ColorRgba::new(255, 255, 255, 255),
+                    Some(ColorRgba::new(40, 70, 140, 255)),
+                )
+            } else {
+                (ColorRgba::new(180, 180, 200, 255), None)
+            };
+
+            if let Some(bg) = bg_color {
+                self.draw_rect(box_x, y as f32 - 4.0, box_w, 28.0, bg);
+            }
+
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), lane_name, (box_x + 20.0) as i32, y, 1, text_color);
+            let val_str = format!("[ {} ]", key_name);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &val_str,
+                (box_x + 200.0) as i32,
+                y,
+                1,
+                if is_sel { ColorRgba::new(255, 220, 80, 255) } else { text_color },
+            );
+
+            y += 34;
+        }
+
+        let footer_y = (self.height() - 40) as i32;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "[Up/Down]: Select Lane   [F1]: Toggle Default Preset   [Enter/Esc]: Return",
+            center_x,
+            footer_y,
+            1,
+            ColorRgba::new(140, 140, 160, 255),
+        );
+    }
 }
 
 fn truncate_str(s: &str, max_chars: usize) -> String {

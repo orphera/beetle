@@ -1,3 +1,4 @@
+mod config;
 mod demo;
 mod input;
 mod scanner;
@@ -11,10 +12,11 @@ use std::sync::Arc;
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
     apply_lane_modifier, compute_chart_hash, parse_bms, sort_songs, BmsChart, ClearType,
-    GaugeType, JudgeEngine, LaneModifier, PlayOptions, ScoreRecord, ScoreStore, SongMetadata,
-    SortMode, TimingModel,
+    GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ScoreRecord, ScoreStore,
+    SongMetadata, SortMode, TimingModel,
 };
 use beetle_render::{SkinConfig, SoftwareRenderer};
+use config::AppConfig;
 use input::{InputConfig, KeyPreset};
 use scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 use softbuffer::{Context, Surface};
@@ -27,12 +29,13 @@ use winit::window::{Window, WindowId};
 
 const SCORES_FILE: &str = "scores.dat";
 
-/// Application screens for song select, gameplay, and results.
+/// Application screens for song select, gameplay, results, and key configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppScreen {
     SongSelect,
     Gameplay,
     Result,
+    KeyConfig,
 }
 
 struct AppState {
@@ -47,6 +50,7 @@ struct AppState {
     sort_mode: SortMode,
     show_option_modal: bool,
     modal_row: usize,
+    selected_key_idx: usize,
     score_store: ScoreStore,
     play_options: PlayOptions,
     active_chart: Option<BmsChart>,
@@ -57,6 +61,18 @@ struct AppState {
     is_new_record: bool,
     input_config: InputConfig,
     bgm_cursor: usize,
+}
+
+impl AppState {
+    fn save_config(&self) {
+        let app_config = AppConfig {
+            play_options: self.play_options.clone(),
+            lane_cover_ratio: self.renderer.skin.lane_cover_ratio,
+            sort_mode: self.sort_mode,
+            key_preset: self.input_config.preset,
+        };
+        app_config.save();
+    }
 }
 
 struct BeetleApp {
@@ -73,7 +89,7 @@ impl BeetleApp {
     }
 }
 
-fn init_songs_and_scores() -> (Vec<SongMetadata>, ScoreStore) {
+fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
         if let Ok(score_data) = fs::read_to_string(SCORES_FILE) {
@@ -101,7 +117,7 @@ fn init_songs_and_scores() -> (Vec<SongMetadata>, ScoreStore) {
         songs.insert(0, demo_meta);
     }
 
-    sort_songs(&mut songs, SortMode::Title, &score_store);
+    sort_songs(&mut songs, sort_mode, &score_store);
 
     (songs, score_store)
 }
@@ -169,9 +185,14 @@ impl ApplicationHandler for BeetleApp {
             }
         };
 
-        let (songs, score_store) = init_songs_and_scores();
+        let saved_config = AppConfig::load();
+        let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
         let size = window.inner_size();
-        let renderer = SoftwareRenderer::new(size.width, size.height, SkinConfig::default())
+        let mut skin = SkinConfig::default();
+        skin.hi_speed = saved_config.play_options.hi_speed;
+        skin.lane_cover_ratio = saved_config.lane_cover_ratio;
+
+        let renderer = SoftwareRenderer::new(size.width, size.height, skin)
             .expect("Failed to initialize software renderer");
 
         let mut app_state = AppState {
@@ -183,18 +204,19 @@ impl ApplicationHandler for BeetleApp {
             screen: AppScreen::SongSelect,
             songs,
             selected_song_idx: 0,
-            sort_mode: SortMode::Title,
+            sort_mode: saved_config.sort_mode,
             show_option_modal: false,
             modal_row: 0,
+            selected_key_idx: 0,
             score_store,
-            play_options: PlayOptions::default(),
+            play_options: saved_config.play_options,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
             active_judge: None,
             song_end_time: 0.0,
             is_new_record: false,
-            input_config: InputConfig::default(),
+            input_config: InputConfig::new(saved_config.key_preset),
             bgm_cursor: 0,
         };
 
@@ -222,6 +244,7 @@ impl ApplicationHandler for BeetleApp {
 
         match event {
             WindowEvent::CloseRequested => {
+                state.save_config();
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
@@ -255,7 +278,7 @@ impl ApplicationHandler for BeetleApp {
 
                         // Song select options bar
                         let opt_bar = format!(
-                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)  [Tab]: Options",
+                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)  [Tab]: Options  [F12]: Keys",
                             state.play_options.hi_speed,
                             state.play_options.lane_modifier.as_str(),
                             state.play_options.gauge_type.as_str(),
@@ -324,8 +347,8 @@ impl ApplicationHandler for BeetleApp {
 
                         // 4. Footer info
                         let preset_info = match state.input_config.preset {
-                            KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Switch layout | F3/F4: Speed)",
-                            KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Switch layout | F3/F4: Speed)",
+                            KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
+                            KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
                         };
                         state.renderer.draw_footer_text(preset_info);
                     }
@@ -333,6 +356,19 @@ impl ApplicationHandler for BeetleApp {
                         if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
                             state.renderer.render_result(chart, judge.score(), state.is_new_record);
                         }
+                    }
+                    AppScreen::KeyConfig => {
+                        let key_names = [
+                            ("SCRATCH (1S)", state.input_config.get_key_name_for_lane(Lane::Scratch)),
+                            ("KEY 1 (1P)", state.input_config.get_key_name_for_lane(Lane::Key1)),
+                            ("KEY 2 (1P)", state.input_config.get_key_name_for_lane(Lane::Key2)),
+                            ("KEY 3 (1P)", state.input_config.get_key_name_for_lane(Lane::Key3)),
+                            ("KEY 4 (1P)", state.input_config.get_key_name_for_lane(Lane::Key4)),
+                            ("KEY 5 (1P)", state.input_config.get_key_name_for_lane(Lane::Key5)),
+                            ("KEY 6 (1P)", state.input_config.get_key_name_for_lane(Lane::Key6)),
+                            ("KEY 7 (1P)", state.input_config.get_key_name_for_lane(Lane::Key7)),
+                        ];
+                        state.renderer.render_key_config(&key_names, state.selected_key_idx);
                     }
                 }
 
@@ -378,6 +414,7 @@ fn handle_keyboard_input(
     // Global layout preset toggle (F1)
     if key_state == ElementState::Pressed && code == KeyCode::F1 {
         state.input_config.toggle_preset();
+        state.save_config();
         return;
     }
 
@@ -386,10 +423,12 @@ fn handle_keyboard_input(
         if code == KeyCode::F3 || code == KeyCode::PageUp {
             state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
             state.renderer.skin.hi_speed = state.play_options.hi_speed;
+            state.save_config();
             return;
         } else if code == KeyCode::F4 || code == KeyCode::PageDown {
             state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
             state.renderer.skin.hi_speed = state.play_options.hi_speed;
+            state.save_config();
             return;
         } else if code == KeyCode::F6 {
             // Cycle Gauge Type
@@ -399,6 +438,7 @@ fn handle_keyboard_input(
                 GaugeType::Hard => GaugeType::Hazard,
                 GaugeType::Hazard => GaugeType::Easy,
             };
+            state.save_config();
             return;
         } else if code == KeyCode::F7 {
             // Cycle Lane Modifier
@@ -409,12 +449,15 @@ fn handle_keyboard_input(
                 LaneModifier::RRandom => LaneModifier::SRandom,
                 LaneModifier::SRandom => LaneModifier::Regular,
             };
+            state.save_config();
             return;
         } else if code == KeyCode::F8 {
             state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 2.0).max(-100.0);
+            state.save_config();
             return;
         } else if code == KeyCode::F9 {
             state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 2.0).min(100.0);
+            state.save_config();
             return;
         }
     }
@@ -427,6 +470,7 @@ fn handle_keyboard_input(
                     match code {
                         KeyCode::Tab | KeyCode::Escape => {
                             state.show_option_modal = false;
+                            state.save_config();
                         }
                         KeyCode::ArrowUp | KeyCode::KeyK => {
                             state.modal_row = state.modal_row.saturating_sub(1);
@@ -465,6 +509,7 @@ fn handle_keyboard_input(
                                 }
                                 _ => (),
                             }
+                            state.save_config();
                         }
                         KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Space => {
                             match state.modal_row {
@@ -497,6 +542,7 @@ fn handle_keyboard_input(
                                 }
                                 _ => (),
                             }
+                            state.save_config();
                         }
                         _ => (),
                     }
@@ -509,11 +555,16 @@ fn handle_keyboard_input(
                         state.show_option_modal = true;
                         state.modal_row = 0;
                     }
+                    KeyCode::F12 | KeyCode::KeyC => {
+                        state.screen = AppScreen::KeyConfig;
+                        state.selected_key_idx = 0;
+                    }
                     KeyCode::F2 => {
                         // Cycle Sort Mode
                         state.sort_mode = state.sort_mode.next();
                         sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
                         state.selected_song_idx = 0;
+                        state.save_config();
                     }
                     KeyCode::ArrowUp | KeyCode::KeyK => {
                         if state.selected_song_idx > 0 {
@@ -533,7 +584,7 @@ fn handle_keyboard_input(
                         }
                     }
                     KeyCode::F5 => {
-                        let (mut songs, _) = init_songs_and_scores();
+                        let (mut songs, _) = init_songs_and_scores(state.sort_mode);
                         sort_songs(&mut songs, state.sort_mode, &state.score_store);
                         state.songs = songs;
                         state.selected_song_idx = 0;
@@ -549,9 +600,11 @@ fn handle_keyboard_input(
                     return;
                 } else if code == KeyCode::F10 {
                     state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
+                    state.save_config();
                     return;
                 } else if code == KeyCode::F11 {
                     state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
+                    state.save_config();
                     return;
                 }
             }
@@ -596,6 +649,23 @@ fn handle_keyboard_input(
         AppScreen::Result => {
             if key_state == ElementState::Pressed && (code == KeyCode::Enter || code == KeyCode::Space || code == KeyCode::Escape) {
                 state.screen = AppScreen::SongSelect;
+            }
+        }
+        AppScreen::KeyConfig => {
+            if key_state == ElementState::Pressed {
+                match code {
+                    KeyCode::Escape | KeyCode::Enter => {
+                        state.screen = AppScreen::SongSelect;
+                        state.save_config();
+                    }
+                    KeyCode::ArrowUp | KeyCode::KeyK => {
+                        state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
+                    }
+                    KeyCode::ArrowDown | KeyCode::KeyJ => {
+                        state.selected_key_idx = (state.selected_key_idx + 1).min(7);
+                    }
+                    _ => (),
+                }
             }
         }
     }
