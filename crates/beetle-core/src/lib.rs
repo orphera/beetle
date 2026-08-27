@@ -8,5 +8,5 @@ pub mod judge;
 pub mod timing;
 
 pub use bms::{parse_bms, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType, WavId};
-pub use judge::{JudgeGrade, JudgeResult, JudgeWindow, ScoreTracker};
-pub use timing::TimingModel;
+pub use judge::{GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker};
+pub use timing::{TimingModel, TimingSegment};
