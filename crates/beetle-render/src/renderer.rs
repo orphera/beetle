@@ -781,10 +781,12 @@ impl SoftwareRenderer {
         &mut self,
         options: &beetle_core::PlayOptions,
         key_preset_str: &str,
+        is_auto_play: bool,
+        start_measure: u32,
         selected_row: usize,
     ) {
         let modal_w = 440.0;
-        let modal_h = 280.0;
+        let modal_h = 330.0;
         let modal_x = (self.width() as f32 - modal_w) / 2.0;
         let modal_y = (self.height() as f32 - modal_h) / 2.0;
 
@@ -814,6 +816,8 @@ impl SoftwareRenderer {
             ("GAUGE", format!("<  {}  >", options.gauge_type.as_str())),
             ("JUDGE OFFSET", format!("<  {:+.0} ms  >", options.judge_offset_ms)),
             ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
+            ("AUTO PLAY", if is_auto_play { "<  ON  >".to_string() } else { "<  OFF  >".to_string() }),
+            ("START MEASURE", format!("<  M.{}  >", start_measure)),
         ];
 
         let mut row_y = (modal_y + 55.0) as i32;

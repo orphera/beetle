@@ -435,6 +435,38 @@ impl JudgeEngine {
         misses
     }
 
+    /// Automatically judges all notes that reach the judgment line at the current audio time with PerfectGreat.
+    pub fn auto_play_update(
+        &mut self,
+        current_time_seconds: f64,
+    ) -> Vec<(Lane, JudgeResult, Option<WavId>)> {
+        let mut hits = Vec::new();
+        for note in self.notes.iter_mut() {
+            if note.is_judged {
+                continue;
+            }
+            if current_time_seconds >= note.target_time_seconds {
+                note.is_judged = true;
+                let result = JudgeResult {
+                    grade: JudgeGrade::PerfectGreat,
+                    delta_ms: 0.0,
+                };
+                self.score.record_hit(JudgeGrade::PerfectGreat);
+                hits.push((note.note_event.lane, result, note.note_event.wav_id));
+            }
+        }
+        hits
+    }
+
+    /// Fast-forwards note states when jumping to a practice measure.
+    pub fn advance_to_time(&mut self, start_time_seconds: f64) {
+        for note in self.notes.iter_mut() {
+            if note.target_time_seconds < start_time_seconds {
+                note.is_judged = true;
+            }
+        }
+    }
+
     /// Access the live score tracker.
     pub fn score(&self) -> &ScoreTracker {
         &self.score
@@ -525,5 +557,51 @@ mod tests {
         assert_eq!(misses[0].0, Lane::Key2);
         assert_eq!(misses[0].1.grade, JudgeGrade::Miss);
         assert_eq!(engine.score().miss_count, 1);
+    }
+
+    #[test]
+    fn test_auto_play_update() {
+        let chart = BmsChart {
+            header: BmsHeader {
+                bpm: 120.0,
+                ..Default::default()
+            },
+            notes: vec![
+                NoteEvent {
+                    measure: 1,
+                    fraction: 0.0,
+                    lane: Lane::Key1,
+                    wav_id: Some(WavId(1)),
+                    note_type: NoteType::Tap,
+                },
+                NoteEvent {
+                    measure: 2,
+                    fraction: 0.0,
+                    lane: Lane::Key2,
+                    wav_id: Some(WavId(2)),
+                    note_type: NoteType::Tap,
+                },
+            ],
+            ..Default::default()
+        };
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+
+        // At t=1.0s, no notes reached
+        let hits = engine.auto_play_update(1.0);
+        assert!(hits.is_empty());
+
+        // At t=2.0s, Note 1 hits
+        let hits = engine.auto_play_update(2.0);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, Lane::Key1);
+        assert_eq!(hits[0].1.grade, JudgeGrade::PerfectGreat);
+        assert_eq!(engine.score().pgreat_count, 1);
+
+        // At t=4.0s, Note 2 hits
+        let hits = engine.auto_play_update(4.0);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, Lane::Key2);
+        assert_eq!(engine.score().pgreat_count, 2);
     }
 }

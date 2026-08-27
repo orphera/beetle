@@ -53,6 +53,8 @@ struct AppState {
     selected_key_idx: usize,
     score_store: ScoreStore,
     play_options: PlayOptions,
+    is_auto_play: bool,
+    start_measure: u32,
     active_chart: Option<BmsChart>,
     active_timing: Option<TimingModel>,
     active_chart_hash: u64,
@@ -210,6 +212,8 @@ impl ApplicationHandler for BeetleApp {
             selected_key_idx: 0,
             score_store,
             play_options: saved_config.play_options,
+            is_auto_play: false,
+            start_measure: 0,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -277,12 +281,13 @@ impl ApplicationHandler for BeetleApp {
                         );
 
                         // Song select options bar
+                        let auto_str = if state.is_auto_play { "[AUTO: ON]" } else { "[AUTO: OFF]" };
                         let opt_bar = format!(
-                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)  [Tab]: Options  [F12]: Keys",
+                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}  [Tab]: Options  [A]: AutoPlay",
                             state.play_options.hi_speed,
                             state.play_options.lane_modifier.as_str(),
                             state.play_options.gauge_type.as_str(),
-                            state.play_options.judge_offset_ms,
+                            auto_str,
                         );
                         state.renderer.draw_footer_text(&opt_bar);
 
@@ -291,6 +296,8 @@ impl ApplicationHandler for BeetleApp {
                             state.renderer.render_option_modal(
                                 &state.play_options,
                                 state.input_config.preset.as_str(),
+                                state.is_auto_play,
+                                state.start_measure,
                                 state.modal_row,
                             );
                         }
@@ -325,8 +332,24 @@ impl ApplicationHandler for BeetleApp {
                             }
                         }
 
-                        // 2. Miss updates
-                        if let Some(judge) = &mut state.active_judge {
+                        // 2. AutoPlay or Miss updates
+                        if state.is_auto_play {
+                            if let Some(judge) = &mut state.active_judge {
+                                let hits = judge.auto_play_update(audio_time);
+                                for (lane, hit_res, wav_id) in hits {
+                                    state.renderer.set_key_state(lane, true);
+                                    state.renderer.trigger_judge(hit_res.grade, audio_time, 0.0);
+
+                                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                                        let _ = audio.send_command(AudioCommand::PlaySample {
+                                            sample_id: id,
+                                            volume: 1.0,
+                                            pan: 0.0,
+                                        });
+                                    }
+                                }
+                            }
+                        } else if let Some(judge) = &mut state.active_judge {
                             let misses = judge.update_misses(effective_judge_time);
                             for (_lane, miss_res) in misses {
                                 state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
@@ -346,11 +369,15 @@ impl ApplicationHandler for BeetleApp {
                         }
 
                         // 4. Footer info
-                        let preset_info = match state.input_config.preset {
-                            KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
-                            KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
+                        let footer_text = if state.is_auto_play {
+                            "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
+                        } else {
+                            match state.input_config.preset {
+                                KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
+                                KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
+                            }
                         };
-                        state.renderer.draw_footer_text(preset_info);
+                        state.renderer.draw_footer_text(footer_text);
                     }
                     AppScreen::Result => {
                         if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
@@ -476,7 +503,7 @@ fn handle_keyboard_input(
                             state.modal_row = state.modal_row.saturating_sub(1);
                         }
                         KeyCode::ArrowDown | KeyCode::KeyJ => {
-                            state.modal_row = (state.modal_row + 1).min(4);
+                            state.modal_row = (state.modal_row + 1).min(6);
                         }
                         KeyCode::ArrowLeft => {
                             match state.modal_row {
@@ -506,6 +533,12 @@ fn handle_keyboard_input(
                                 }
                                 4 => { // Key Layout
                                     state.input_config.toggle_preset();
+                                }
+                                5 => { // Auto Play
+                                    state.is_auto_play = !state.is_auto_play;
+                                }
+                                6 => { // Start Measure
+                                    state.start_measure = state.start_measure.saturating_sub(1);
                                 }
                                 _ => (),
                             }
@@ -540,6 +573,12 @@ fn handle_keyboard_input(
                                 4 => { // Key Layout
                                     state.input_config.toggle_preset();
                                 }
+                                5 => { // Auto Play
+                                    state.is_auto_play = !state.is_auto_play;
+                                }
+                                6 => { // Start Measure
+                                    state.start_measure = (state.start_measure + 1).min(200);
+                                }
                                 _ => (),
                             }
                             state.save_config();
@@ -554,6 +593,9 @@ fn handle_keyboard_input(
                     KeyCode::Tab | KeyCode::KeyO => {
                         state.show_option_modal = true;
                         state.modal_row = 0;
+                    }
+                    KeyCode::KeyA => {
+                        state.is_auto_play = !state.is_auto_play;
                     }
                     KeyCode::F12 | KeyCode::KeyC => {
                         state.screen = AppScreen::KeyConfig;
@@ -607,6 +649,11 @@ fn handle_keyboard_input(
                     state.save_config();
                     return;
                 }
+            }
+
+            // Ignore player keyboard hits during AutoPlay mode
+            if state.is_auto_play {
+                return;
             }
 
             if let Some(lane) = state.input_config.map_key(physical_key) {
@@ -683,8 +730,24 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
     let mut play_chart = chart.clone();
     play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
 
-    let judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
+    let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
     let total_duration = timing.total_duration_seconds(&play_chart);
+
+    let mut bgm_cursor = 0;
+    // Practice mode fast forward
+    if state.start_measure > 0 {
+        let start_time = timing.beat_to_time_seconds(state.start_measure, 0.0);
+        judge_engine.advance_to_time(start_time);
+
+        while bgm_cursor < play_chart.bgm_notes.len() {
+            let (m, f, _) = play_chart.bgm_notes[bgm_cursor];
+            if timing.beat_to_time_seconds(m, f) < start_time {
+                bgm_cursor += 1;
+            } else {
+                break;
+            }
+        }
+    }
 
     state.renderer.skin.hi_speed = state.play_options.hi_speed;
 
@@ -695,7 +758,7 @@ fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.active_chart_hash = song.hash;
     state.active_judge = Some(judge_engine);
     state.song_end_time = total_duration;
-    state.bgm_cursor = 0;
+    state.bgm_cursor = bgm_cursor;
     state.is_new_record = false;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
@@ -732,9 +795,14 @@ fn finish_gameplay(state: &mut AppState) {
             miss_count: score.miss_count,
         };
 
-        state.is_new_record = state.score_store.update(record);
-        let score_data = state.score_store.save_to_string();
-        let _ = fs::write(SCORES_FILE, score_data);
+        // Only save score records for actual manual playthroughs from start
+        if !state.is_auto_play && state.start_measure == 0 {
+            state.is_new_record = state.score_store.update(record);
+            let score_data = state.score_store.save_to_string();
+            let _ = fs::write(SCORES_FILE, score_data);
+        } else {
+            state.is_new_record = false;
+        }
     }
 
     state.screen = AppScreen::Result;
