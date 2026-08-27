@@ -145,13 +145,12 @@
 
 ---
 
-## 📋 Phase 11: OGG Vorbis 키음 디코딩 & 스마트 확장자 매칭
-- [ ] **`lewton` 기반 OGG Vorbis 디코더 연동 (`beetle-audio`)**
-  - [ ] 순수 Rust 경량 OGG 디코더로 PCM f32 추출
-- [ ] **스마트 오디오 파일 로더 (`SampleBank`)**
-  - [ ] `#WAVxx file.wav` 정의 시 `.wav`, `.ogg` 자동 탐색 및 폴백
-  - [ ] 파일 확장자 및 대소문자 무시 검색
-- [ ] **OGG 디코딩 단위 테스트 작성**
+## 📋 Phase 11: OGG Vorbis 키음 디코딩 & 스마트 확장자 매칭 (Completed)
+- [x] **`lewton` 기반 OGG Vorbis 디코더 연동 (`beetle-audio`)**
+  - [x] 순수 Rust 경량 OGG 디코더로 PCM f32 추출
+- [x] **스마트 오디오 파일 로더 (`SampleBank`)**
+  - [x] `#WAVxx file.wav` 정의 시 `.wav`, `.ogg`, `.WAV`, `.OGG` 자동 탐색 및 폴백
+  - [x] 파일 확장자 및 대소문자 무시 검색
 
 ---
 
