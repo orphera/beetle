@@ -39,6 +39,7 @@ pub struct SkinConfig {
     pub scratch_lane_width: f32,
     pub note_height: f32,
     pub hi_speed: f32,
+    pub lane_cover_ratio: f32,
     pub bg_color: ColorRgba,
     pub playfield_bg_color: ColorRgba,
     pub lane_line_color: ColorRgba,
@@ -67,6 +68,7 @@ impl Default for SkinConfig {
             scratch_lane_width: scratch_w,
             note_height: 10.0,
             hi_speed: 400.0, // Pixels per second
+            lane_cover_ratio: 0.0,
             bg_color: ColorRgba::new(8, 8, 12, 255),
             playfield_bg_color: ColorRgba::new(16, 16, 22, 255),
             lane_line_color: ColorRgba::new(45, 45, 55, 255),

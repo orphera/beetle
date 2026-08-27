@@ -19,7 +19,7 @@ pub struct SoftwareRenderer {
     pixmap: Pixmap,
     pub skin: SkinConfig,
     key_pressed: [bool; 8],
-    last_judge: Option<(JudgeGrade, f64)>, // (Grade, time_seconds)
+    last_judge: Option<(JudgeGrade, f64, f64)>, // (Grade, time_seconds, delta_ms)
 }
 
 impl SoftwareRenderer {
@@ -58,8 +58,8 @@ impl SoftwareRenderer {
         self.key_pressed[idx] = pressed;
     }
 
-    pub fn trigger_judge(&mut self, grade: JudgeGrade, time_seconds: f64) {
-        self.last_judge = Some((grade, time_seconds));
+    pub fn trigger_judge(&mut self, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {
+        self.last_judge = Some((grade, time_seconds, delta_ms));
     }
 
     /// Clear frame with background color.
@@ -81,6 +81,7 @@ impl SoftwareRenderer {
         self.draw_playfield_bg();
         self.draw_key_beams();
         self.draw_notes(chart, timing, audio_time_seconds);
+        self.draw_lane_cover();
         self.draw_judge_line();
         self.draw_gauge_bar(score);
         self.draw_combo_and_judge(score, audio_time_seconds);
@@ -331,8 +332,8 @@ impl SoftwareRenderer {
             );
         }
 
-        // 2. Draw Judge Popup
-        if let Some((grade, judge_time)) = self.last_judge {
+        // 2. Draw Judge Popup & FAST/SLOW
+        if let Some((grade, judge_time, delta_ms)) = self.last_judge {
             let elapsed = audio_time_seconds - judge_time;
             if elapsed >= 0.0 && elapsed < 0.5 {
                 let (text, color) = match grade {
@@ -352,7 +353,46 @@ impl SoftwareRenderer {
                     2,
                     color,
                 );
+
+                // FAST / SLOW indicator
+                if grade != JudgeGrade::Miss && delta_ms.abs() >= 4.0 {
+                    let (fast_slow_str, fs_color) = if delta_ms < 0.0 {
+                        (format!("FAST {:.0}ms", delta_ms), ColorRgba::new(80, 210, 255, 255))
+                    } else {
+                        (format!("SLOW +{:.0}ms", delta_ms), ColorRgba::new(255, 140, 60, 255))
+                    };
+
+                    BitmapFont::draw_text_centered(
+                        &mut self.pixmap.as_mut(),
+                        &fast_slow_str,
+                        center_x,
+                        judge_center_y + 26,
+                        1,
+                        fs_color,
+                    );
+                }
             }
+        }
+    }
+
+    fn draw_lane_cover(&mut self) {
+        if self.skin.lane_cover_ratio > 0.0 {
+            let ratio = self.skin.lane_cover_ratio.clamp(0.0, 0.85);
+            let cover_h = self.skin.playfield_height * ratio;
+            self.draw_rect(
+                self.skin.playfield_x,
+                self.skin.playfield_y,
+                self.skin.playfield_width,
+                cover_h,
+                ColorRgba::new(12, 12, 18, 255),
+            );
+            self.draw_rect(
+                self.skin.playfield_x,
+                self.skin.playfield_y + cover_h - 2.0,
+                self.skin.playfield_width,
+                2.0,
+                ColorRgba::new(80, 140, 255, 255),
+            );
         }
     }
 
@@ -425,7 +465,27 @@ impl SoftwareRenderer {
             1,
             ColorRgba::new(100, 220, 255, 255),
         );
-        hud_y += 30;
+        hud_y += 20;
+
+        // Pacemaker (AAA target = 8/9 of max possible EX score so far)
+        let played_notes = score.pgreat_count + score.great_count + score.good_count + score.bad_count + score.poor_count + score.miss_count;
+        let max_so_far = played_notes * 2;
+        let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
+        let pace_diff = score.ex_score as i32 - aaa_target;
+        let (pace_str, pace_color) = if pace_diff >= 0 {
+            (format!("PACEMAKER (AAA): +{}", pace_diff), ColorRgba::new(100, 255, 120, 255))
+        } else {
+            (format!("PACEMAKER (AAA): {}", pace_diff), ColorRgba::new(255, 90, 90, 255))
+        };
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            &pace_str,
+            hud_x,
+            hud_y,
+            1,
+            pace_color,
+        );
+        hud_y += 24;
 
         // Judge breakdown table
         let counts = [
@@ -854,7 +914,7 @@ mod tests {
         score.record_hit(JudgeGrade::PerfectGreat);
 
         renderer.set_key_state(Lane::Key1, true);
-        renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0);
+        renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         renderer.render_gameplay(&chart, &timing, 1.0, &score);
 
         // Validate buffer is not all blank

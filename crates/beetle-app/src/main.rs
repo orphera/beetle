@@ -306,7 +306,7 @@ impl ApplicationHandler for BeetleApp {
                         if let Some(judge) = &mut state.active_judge {
                             let misses = judge.update_misses(effective_judge_time);
                             for (_lane, miss_res) in misses {
-                                state.renderer.trigger_judge(miss_res.grade, audio_time);
+                                state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
                             }
                         }
 
@@ -543,9 +543,17 @@ fn handle_keyboard_input(
             }
         }
         AppScreen::Gameplay => {
-            if key_state == ElementState::Pressed && code == KeyCode::Escape {
-                finish_gameplay(state);
-                return;
+            if key_state == ElementState::Pressed {
+                if code == KeyCode::Escape {
+                    finish_gameplay(state);
+                    return;
+                } else if code == KeyCode::F10 {
+                    state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
+                    return;
+                } else if code == KeyCode::F11 {
+                    state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
+                    return;
+                }
             }
 
             if let Some(lane) = state.input_config.map_key(physical_key) {
@@ -562,7 +570,7 @@ fn handle_keyboard_input(
                         state.renderer.set_key_state(lane, true);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
-                                state.renderer.trigger_judge(judge_result.grade, audio_time);
+                                state.renderer.trigger_judge(judge_result.grade, audio_time, judge_result.delta_ms);
 
                                 if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                     let _ = audio.send_command(AudioCommand::PlaySample {
@@ -578,7 +586,7 @@ fn handle_keyboard_input(
                         state.renderer.set_key_state(lane, false);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                                state.renderer.trigger_judge(judge_result.grade, audio_time);
+                                state.renderer.trigger_judge(judge_result.grade, audio_time, judge_result.delta_ms);
                             }
                         }
                     }
