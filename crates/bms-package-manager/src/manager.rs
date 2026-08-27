@@ -152,6 +152,25 @@ impl PackageManager {
         })
     }
 
+    /// Packs a local BMS directory into `.bmsp` bytes.
+    pub fn pack_folder<P: AsRef<Path>>(
+        &self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+    ) -> Result<Vec<u8>, PackageManagerError> {
+        crate::pack::pack_bms_folder(folder_path, manifest_override)
+    }
+
+    /// Ingests and installs an existing local BMS directory directly into managed storage.
+    pub fn import_folder<P: AsRef<Path>>(
+        &mut self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+    ) -> Result<InstalledPackage, PackageManagerError> {
+        let bytes = self.pack_folder(folder_path, manifest_override)?;
+        self.install_from_bytes(bytes)
+    }
+
     /// Uninstalls a specific package version.
     pub fn uninstall(&mut self, id: &str, version: &str) -> Result<(), PackageManagerError> {
         // 1. Remove from storage

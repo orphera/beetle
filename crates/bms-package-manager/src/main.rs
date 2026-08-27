@@ -7,6 +7,8 @@ fn print_usage() {
     println!();
     println!("Usage:");
     println!("  bpm install <package.bmsp>    Install a local .bmsp package");
+    println!("  bpm import <folder_path>      Import an existing BMS folder into managed storage");
+    println!("  bpm pack <folder> [-o <out>]  Pack a BMS folder into a .bmsp archive");
     println!("  bpm list                      List all active installed packages");
     println!("  bpm info <package_id>         Show package metadata and installed versions");
     println!("  bpm versions <package_id>     List all installed versions of a package");
@@ -31,6 +33,59 @@ fn main() -> Result<(), PackageManagerError> {
     let mut manager = PackageManager::new(&storage_dir)?;
 
     match args[1].as_str() {
+        "pack" => {
+            if args.len() < 3 {
+                eprintln!("Error: Missing folder path.");
+                eprintln!("Usage: bpm pack <folder_path> [-o <output.bmsp>]");
+                std::process::exit(1);
+            }
+            let folder = &args[2];
+            let out_file = if args.len() >= 5 && args[3] == "-o" {
+                args[4].clone()
+            } else {
+                let folder_name = PathBuf::from(folder)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("package")
+                    .to_string();
+                format!("{}.bmsp", folder_name)
+            };
+
+            match manager.pack_folder(folder, None) {
+                Ok(bytes) => {
+                    if let Err(e) = std::fs::write(&out_file, bytes) {
+                        eprintln!("Failed to write output package file: {e}");
+                        std::process::exit(1);
+                    }
+                    println!("Successfully packed '{}' into '{}'", folder, out_file);
+                }
+                Err(e) => {
+                    eprintln!("Packaging failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "import" => {
+            if args.len() < 3 {
+                eprintln!("Error: Missing folder path.");
+                eprintln!("Usage: bpm import <folder_path>");
+                std::process::exit(1);
+            }
+            let folder = &args[2];
+            match manager.import_folder(folder, None) {
+                Ok(installed) => {
+                    println!(
+                        "Successfully imported and installed '{}' v{} ({})",
+                        installed.name, installed.version, installed.id
+                    );
+                    println!("Location: {}", installed.location.display());
+                }
+                Err(e) => {
+                    eprintln!("Import failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "install" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing package file path.");

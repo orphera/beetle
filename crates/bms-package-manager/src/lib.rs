@@ -4,11 +4,13 @@
 
 pub mod error;
 pub mod manager;
+pub mod pack;
 pub mod registry;
 pub mod storage;
 
 pub use error::PackageManagerError;
 pub use manager::{InstalledPackage, PackageManager};
+pub use pack::{analyze_bms_folder, pack_bms_folder};
 pub use registry::{PackageRecord, PackageVersionRecord, Registry};
 pub use storage::PackageStorage;
 
@@ -130,6 +132,43 @@ mod tests {
             manager.set_active("nonexistent.id", "1.0.0"),
             Err(PackageManagerError::PackageNotFound(_))
         ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_import_existing_bms_folder() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_test_import_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // Create a simulated BMS song folder
+        let song_folder = temp_dir.join("sakura_storm");
+        std::fs::create_dir_all(&song_folder).unwrap();
+
+        let bms_content = b"#TITLE Sakura Storm\n#ARTIST Ryu*\n#GENRE Happy Hardcore\n#00111:01000000";
+        std::fs::write(song_folder.join("main.bms"), bms_content).unwrap();
+        std::fs::write(song_folder.join("01.wav"), vec![0x12, 0x34]).unwrap();
+
+        let storage_dir = temp_dir.join("bpm_storage");
+        let mut manager = PackageManager::new(&storage_dir).unwrap();
+
+        // Import the folder
+        let installed = manager.import_folder(&song_folder, None).unwrap();
+        assert_eq!(installed.id, "ryu.sakura_storm");
+        assert_eq!(installed.version, "1.0.0");
+        assert_eq!(installed.name, "Sakura Storm");
+        assert_eq!(installed.author, Some("Ryu*".to_string()));
+
+        // Check active package
+        let active = manager.get_active_package("ryu.sakura_storm").unwrap();
+        let pkg = active.open().unwrap();
+        assert!(pkg.contains("main.bms"));
+        assert!(pkg.contains("01.wav"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
