@@ -219,5 +219,18 @@
   - [x] 5키(230px), 7키(300px) 등 모드에 따른 플레이필드 너비 및 활성 레인 분기
 - [x] **다중 모드 단위 테스트 (1개 테스트 추가, 총 36개 테스트 100% 통과)**
 
+---
+
+## 📋 Phase 19: `bms-package` 패키지 포맷 및 라이브러리 (`.bmsp`) (Completed)
+- [x] **패키지 포맷 및 Manifest 모델 정의 (`Manifest`)**
+  - [x] `format: 1`, `id`, `version`(SemVer), `name`, `author` 및 forward-compatibility 확장 필드
+- [x] **보안 경로 검증 시스템 (`validate_entry_path`)**
+  - [x] Path traversal(`..`), 절대 경로(`/`, `C:\`), 역슬래시(`\`), 중복 entry, 제어 문자 차단
+- [x] **결정론적 패키지 생성기 (`PackageBuilder`)**
+  - [x] 알파벳순 엔트리 정렬, 정규화된 JSON 직렬화, 고정 에포크 타임스탬프 기반 바이트 단위 결정론 보장
+- [x] **패키지 리더 및 스트리밍 접근 (`Package`)**
+  - [x] ZIP 컨테이너 파싱, 무결성 검증, Decompression size limit(Zip bomb 방어), 메모리/스트리밍 엔트리 읽기
+- [x] **종합 테스트 스위트 (12개 단위 테스트 추가, 총 48개 테스트 100% 통과)**
+
 
 
