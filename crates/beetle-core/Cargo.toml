@@ -1,0 +1,7 @@
+[package]
+name = "beetle-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure BMS parsing, timing models, and judgment logic for Beetle"
+
+[dependencies]

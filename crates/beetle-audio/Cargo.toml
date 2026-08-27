@@ -1,0 +1,16 @@
+[package]
+name = "beetle-audio"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight audio engine, mixer, audio clock, and PCM soundbank for Beetle"
+
+[dependencies]
+beetle-core = { workspace = true }
+cpal = { workspace = true }
+rtrb = { workspace = true }
+hound = { workspace = true }
+lewton = { workspace = true, optional = true }
+
+[features]
+default = []
+vorbis = ["dep:lewton"]

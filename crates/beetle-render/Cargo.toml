@@ -1,0 +1,10 @@
+[package]
+name = "beetle-render"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight 2D software renderer using tiny-skia and embedded bitmap fonts for Beetle"
+
+[dependencies]
+beetle-core = { workspace = true }
+beetle-audio = { workspace = true }
+tiny-skia = { workspace = true }

@@ -1,0 +1,93 @@
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트
+
+이 문서는 Beetle 프로젝트의 구현 태스크를 Phase별로 정리한 로드맵입니다. 각 단계는 크레이트 구조 및 의존성 순서에 따라 설계되었습니다.
+
+---
+
+## 📋 Phase 0: 리포지토리 부트스트랩 및 기반 구축 (Current)
+- [x] Cargo Workspace 초기화 및 릴리스 크기 최적화 프로필 설정
+- [x] 4개 크레이트 분할 (`beetle-core`, `beetle-audio`, `beetle-render`, `beetle-app`)
+- [x] 크레이트별 기본 모듈 스켈레톤 및 인터페이스 정의
+- [x] `beetle-app` 빈 창 (`winit` + `softbuffer`) 실행 검증
+- [x] 문서화 (`README.md`, `AGENTS.md`, `docs/TASKS.md`, `docs/DECISIONS.md`, `.gitignore`)
+
+---
+
+## 📋 Phase 1: `beetle-core` — 채보 파서 및 타이밍/판정 모델
+- [ ] **BMS / BME / BML 텍스트 파서 구현**
+  - [ ] `#HEADER` 태그 파싱 (`#TITLE`, `#ARTIST`, `#BPM`, `#TOTAL`, `#WAVxx`, `#BMPxx`, `#PLAYER`)
+  - [ ] `#MEASURE` 데이터 채널 파싱 (01: BGM, 02: 마디 길이 배율, 03/08: BPM 변경, 09: STOP, 11~19: 1P 단노트, 51~59: 1P 롱노트)
+  - [ ] Base36 (`01`~`ZZ`) 식별자 인코딩/디코딩 유틸리티
+  - [ ] 다양한 문자셋(Shift-JIS, UTF-8, CP949) 처리
+- [ ] **타이밍 모델 (`TimingModel`) 완성**
+  - [ ] 고정/가변 BPM 타임라인 계산
+  - [ ] `#STOP` 정지 시간 계산
+  - [ ] 마디/박자(Measure/Fraction) ↔ 절대 시간(Seconds/Samples) 양방향 정밀 변환
+- [ ] **판정 엔진 (`JudgeEngine`) 구현**
+  - [ ] 판정 윈도우 (PGREAT / GREAT / GOOD / BAD / POOR / MISS)
+  - [ ] 단노트 및 롱노트(Hold / Release) 판정 로직
+  - [ ] 스코어(EX-Score, Rate, Combo) 및 게이지(Groove, Hard) 시뮬레이션
+- [ ] **파서 및 타이밍 단위 테스트 작성**
+
+---
+
+## 📋 Phase 2: `beetle-audio` — 경량 믹서 및 오디오 클럭
+- [ ] **WAV / OGG 사전 디코더 (`SampleBank`) 구현**
+  - [ ] `hound` 기반 16비트/24비트/32비트 Float WAV 로더 및 정규화
+  - [ ] `lewton` 기반 OGG Vorbis 디코더 (옵셔널 feature 플래그)
+  - [ ] 메모리 PCM 포맷 표준화 (인터리브드 stereo f32)
+- [ ] **락프리 믹서 (`Mixer`) 구현**
+  - [ ] 고정 크기 발음 풀 (`[ActiveVoice; 128]`) 관리
+  - [ ] 선형 보간 믹싱 및 패닝/볼륨 감쇠 연산
+  - [ ] `rtrb` 링버퍼 커맨드 소비 (Zero-Allocation 보장)
+- [ ] **마스터 오디오 클럭 (`AudioClock`) 정밀화**
+  - [ ] `AtomicU64` 기반 샘플 누적 및 드리프트 방지
+  - [ ] 디바이스 레이턴시 보정 로직
+- [ ] **오디오 엔진 통합 및 루프백 테스트**
+
+---
+
+## 📋 Phase 3: `beetle-render` — 소프트웨어 2D 렌더러 & 폰트
+- [ ] **임베디드 비트맵 폰트 (`BitmapFont`) 작성**
+  - [ ] 숫자 (0~9), 알파벳, 특수문자용 경량 픽셀 아틀라스 내장
+  - [ ] 텍스트 블릿팅(Blit) 및 색조 입히기 함수
+- [ ] **스킨 레이아웃 (`SkinConfig`) 구성**
+  - [ ] 7키 + 1스크래치 레인 좌표 및 너비 계산
+  - [ ] 판정선, 레인 구분선, 키빔(Key Beam) 렌더링
+- [ ] **노트 렌더링 파이프라인 (`SoftwareRenderer`)**
+  - [ ] `AudioClock` 기반 노트 가시 범위 쿼리 및 Y좌표 계산
+  - [ ] 단노트 및 롱노트 바디/헤드/테일 렌더링
+  - [ ] 판정 애니메이션 (Combo 카운터, Judge 글자 팝업, 폭타 이펙트)
+  - [ ] 그루브 게이지 바 렌더링
+
+---
+
+## 📋 Phase 4: `beetle-app` — 통합 게임플레이 루프
+- [ ] **입력 시스템 (`InputHandler`) 구현**
+  - [ ] `winit` 키보드 이벤트 캡처 (7K + 1S 기본 키매핑)
+  - [ ] 입력 타임스탬프와 `AudioClock` 간의 판정 큐잉
+  - [ ] 키음 트리거 락프리 큐 전송
+- [ ] **인게임 상태 머신 (`GameLoop`)**
+  - [ ] BMS 로딩 상태 → 게임플레이 상태 → 결과 화면 상태 전환
+  - [ ] 자동 BGM 재생 스케줄러 (타임라인 기반 BGM 트리거링)
+  - [ ] 곡 종료 감지 및 결과 집계
+- [ ] **소프트버퍼 화면 출력 연동**
+  - [ ] `tiny-skia` 픽셀 버퍼 → `softbuffer` 프레임버퍼 다이렉트 전송
+
+---
+
+## 📋 Phase 5: 곡 라이브러리 & 로컬 스코어 시스템
+- [ ] **곡 폴더 스캐너 & 메타데이터 캐시**
+  - [ ] 지정된 디렉토리 내 `.bms`/`.bme`/`.bml` 재귀 검색
+  - [ ] 경량 바이너리/텍스트 캐시 파일 생성
+- [ ] **미니멀 선곡 화면**
+  - [ ] 키보드 상/하/엔터 기반 곡 리스트 탐색 및 프리뷰
+- [ ] **로컬 플랫 파일 스코어 저장**
+  - [ ] 곡 해시(MD5/SHA256) 기준 최고 점수, 랭크, 클리어 램프 저장
+
+---
+
+## 📋 Phase 6: 최적화 및 v1 릴리스 검증
+- [ ] 바이너리 크기 측정 및 dead code 제거 검증 (타겟: 수 MB 수준)
+- [ ] 저사양 머신 60+ FPS 소프트웨어 렌더링 프로파일링
+- [ ] 판정 지연(Input-to-Audio Latency) 및 클럭 안정성 검증

@@ -1,0 +1,12 @@
+[package]
+name = "beetle-app"
+version = "0.1.0"
+edition = "2021"
+description = "Main application binary for Beetle BMS Player"
+
+[dependencies]
+beetle-core = { workspace = true }
+beetle-audio = { workspace = true }
+beetle-render = { workspace = true }
+winit = { workspace = true }
+softbuffer = { workspace = true }
