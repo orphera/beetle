@@ -433,6 +433,286 @@ impl SoftwareRenderer {
             hud_y += 14;
         }
     }
+
+    /// Draws footer text (e.g. keybindings or layout indicators).
+    pub fn draw_footer_text(&mut self, text: &str) {
+        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 60.0) as i32;
+        let y = (self.height() - 40) as i32;
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            text,
+            hud_x,
+            y,
+            1,
+            ColorRgba::new(140, 140, 160, 255),
+        );
+    }
+
+    /// Renders the song select screen with list and metadata panel.
+    pub fn render_song_select(
+        &mut self,
+        songs: &[beetle_core::SongMetadata],
+        selected_idx: usize,
+        score_store: &beetle_core::ScoreStore,
+    ) {
+        self.clear();
+
+        // Top Header
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            "BEETLE BMS PLAYER - SONG SELECT",
+            40,
+            30,
+            2,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+
+        let total_songs = songs.len();
+        if total_songs == 0 {
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                "No BMS songs found in songs/ directory.",
+                40,
+                100,
+                1,
+                ColorRgba::new(200, 200, 220, 255),
+            );
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                "Place .bms / .bme files into songs/ or run with: cargo run -p beetle-app -- <path.bms>",
+                40,
+                125,
+                1,
+                ColorRgba::new(140, 140, 160, 255),
+            );
+            return;
+        }
+
+        // Left Song List Panel
+        let list_x = 40;
+        let mut list_y = 80;
+        let max_visible = 14;
+        let start_idx = if selected_idx >= max_visible / 2 {
+            (selected_idx + 1).saturating_sub(max_visible / 2).min(total_songs.saturating_sub(max_visible))
+        } else {
+            0
+        };
+        let end_idx = (start_idx + max_visible).min(total_songs);
+
+        for i in start_idx..end_idx {
+            let song = &songs[i];
+            let is_selected = i == selected_idx;
+
+            let (prefix, text_color, bg_color) = if is_selected {
+                (
+                    "> ",
+                    ColorRgba::new(255, 255, 255, 255),
+                    Some(ColorRgba::new(40, 60, 120, 255)),
+                )
+            } else {
+                ("  ", ColorRgba::new(160, 160, 180, 255), None)
+            };
+
+            if let Some(bg) = bg_color {
+                self.draw_rect(list_x as f32 - 8.0, list_y as f32 - 4.0, 420.0, 24.0, bg);
+            }
+
+            let line = format!("{}{:<28} [LV.{:>2}]", prefix, truncate_str(&song.title, 26), song.play_level);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &line, list_x, list_y, 1, text_color);
+            list_y += 26;
+        }
+
+        // Right Detail Panel
+        let detail_x = 500;
+        let mut detail_y = 80;
+
+        self.draw_rect(detail_x as f32 - 10.0, 70.0, 260.0, 400.0, ColorRgba::new(18, 18, 26, 255));
+        self.draw_rect(detail_x as f32 - 10.0, 70.0, 260.0, 1.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0, 470.0, 260.0, 1.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 - 10.0, 70.0, 1.0, 400.0, ColorRgba::new(60, 60, 80, 255));
+        self.draw_rect(detail_x as f32 + 250.0, 70.0, 1.0, 400.0, ColorRgba::new(60, 60, 80, 255));
+
+        if let Some(selected_song) = songs.get(selected_idx) {
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), "CHART DETAILS", detail_x, detail_y, 1, ColorRgba::new(100, 200, 255, 255));
+            detail_y += 24;
+
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &truncate_str(&selected_song.title, 20), detail_x, detail_y, 1, ColorRgba::new(255, 255, 255, 255));
+            detail_y += 18;
+
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &truncate_str(&selected_song.artist, 20), detail_x, detail_y, 1, ColorRgba::new(160, 160, 180, 255));
+            detail_y += 26;
+
+            let bpm_str = format!("BPM:   {:.1}", selected_song.bpm);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bpm_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
+            detail_y += 18;
+
+            let lvl_str = format!("LEVEL: {}", selected_song.play_level);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &lvl_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
+            detail_y += 18;
+
+            let notes_str = format!("NOTES: {}", selected_song.notes_count);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &notes_str, detail_x, detail_y, 1, ColorRgba::new(200, 200, 220, 255));
+            detail_y += 32;
+
+            // Personal Best Record
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), "PERSONAL BEST", detail_x, detail_y, 1, ColorRgba::new(255, 220, 80, 255));
+            detail_y += 20;
+
+            if let Some(best) = score_store.get(selected_song.hash) {
+                let lamp_color = match best.clear_type {
+                    beetle_core::ClearType::Perfect => ColorRgba::new(255, 230, 80, 255),
+                    beetle_core::ClearType::FullCombo => ColorRgba::new(100, 255, 120, 255),
+                    beetle_core::ClearType::Clear => ColorRgba::new(60, 180, 255, 255),
+                    beetle_core::ClearType::Failed => ColorRgba::new(220, 60, 60, 255),
+                };
+
+                let lamp_str = format!("STATUS: {}", best.clear_type.as_str());
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &lamp_str, detail_x, detail_y, 1, lamp_color);
+                detail_y += 18;
+
+                let score_str = format!("EX:     {}", best.ex_score);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &score_str, detail_x, detail_y, 1, ColorRgba::new(255, 255, 255, 255));
+                detail_y += 18;
+
+                let acc_str = format!("ACC:    {:.2}%", best.accuracy_rate);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &acc_str, detail_x, detail_y, 1, ColorRgba::new(100, 220, 255, 255));
+                detail_y += 18;
+
+                let combo_str = format!("COMBO:  {}", best.max_combo);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &combo_str, detail_x, detail_y, 1, ColorRgba::new(220, 220, 240, 255));
+            } else {
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), "NO RECORD", detail_x, detail_y, 1, ColorRgba::new(120, 120, 140, 255));
+            }
+        }
+
+        // Bottom Footer Bar
+        let footer_y = (self.height() - 40) as i32;
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            "[Up/Down or J/K]: Select  [Enter/Space]: Play  [F5]: Rescan  [F1/Tab]: Key Layout",
+            40,
+            footer_y,
+            1,
+            ColorRgba::new(140, 140, 160, 255),
+        );
+    }
+
+    /// Renders the result summary screen.
+    pub fn render_result(
+        &mut self,
+        chart: &BmsChart,
+        score: &ScoreTracker,
+        is_new_record: bool,
+    ) {
+        self.clear();
+
+        let center_x = (self.width() / 2) as i32;
+        let mut y = 40;
+
+        // Title
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "STAGE RESULT",
+            center_x,
+            y,
+            2,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+        y += 40;
+
+        // Cleared / Failed Status
+        let (status_text, status_color) = if score.is_cleared() {
+            if score.miss_count == 0 && score.poor_count == 0 && score.bad_count == 0 {
+                ("FULL COMBO CLEAR!", ColorRgba::new(100, 255, 120, 255))
+            } else {
+                ("STAGE CLEARED!", ColorRgba::new(60, 220, 255, 255))
+            }
+        } else {
+            ("STAGE FAILED", ColorRgba::new(255, 60, 60, 255))
+        };
+
+        BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), status_text, center_x, y, 3, status_color);
+        y += 45;
+
+        // New Record Banner
+        if is_new_record {
+            BitmapFont::draw_text_centered(
+                &mut self.pixmap.as_mut(),
+                "*** NEW PERSONAL BEST! ***",
+                center_x,
+                y,
+                1,
+                ColorRgba::new(255, 220, 50, 255),
+            );
+            y += 24;
+        }
+
+        // Song Title & Artist
+        BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), &chart.header.title, center_x, y, 2, ColorRgba::new(255, 255, 255, 255));
+        y += 24;
+        BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), &chart.header.artist, center_x, y, 1, ColorRgba::new(160, 160, 180, 255));
+        y += 35;
+
+        // Statistics Box
+        let box_x = center_x - 180;
+        self.draw_rect(box_x as f32, y as f32, 360.0, 220.0, ColorRgba::new(16, 16, 24, 255));
+        self.draw_rect(box_x as f32, y as f32, 360.0, 1.0, ColorRgba::new(50, 50, 70, 255));
+        self.draw_rect(box_x as f32, (y + 220) as f32, 360.0, 1.0, ColorRgba::new(50, 50, 70, 255));
+        self.draw_rect(box_x as f32, y as f32, 1.0, 220.0, ColorRgba::new(50, 50, 70, 255));
+        self.draw_rect((box_x + 360) as f32, y as f32, 1.0, 220.0, ColorRgba::new(50, 50, 70, 255));
+
+        let stat_x = box_x + 20;
+        let mut stat_y = y + 15;
+
+        let ex_str = format!("EX SCORE:   {} / {}", score.ex_score, score.max_ex_score());
+        BitmapFont::draw_text(&mut self.pixmap.as_mut(), &ex_str, stat_x, stat_y, 1, ColorRgba::new(255, 230, 80, 255));
+        stat_y += 18;
+
+        let acc_str = format!("ACCURACY:   {:.2}%", score.accuracy_rate());
+        BitmapFont::draw_text(&mut self.pixmap.as_mut(), &acc_str, stat_x, stat_y, 1, ColorRgba::new(100, 220, 255, 255));
+        stat_y += 18;
+
+        let max_c_str = format!("MAX COMBO:  {}", score.max_combo);
+        BitmapFont::draw_text(&mut self.pixmap.as_mut(), &max_c_str, stat_x, stat_y, 1, ColorRgba::new(240, 240, 255, 255));
+        stat_y += 24;
+
+        // Judge counts
+        let counts = [
+            ("PGREAT", score.pgreat_count, ColorRgba::new(255, 230, 80, 255)),
+            ("GREAT ", score.great_count, ColorRgba::new(255, 170, 50, 255)),
+            ("GOOD  ", score.good_count, ColorRgba::new(60, 220, 120, 255)),
+            ("BAD   ", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
+            ("POOR  ", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
+            ("MISS  ", score.miss_count, ColorRgba::new(140, 140, 140, 255)),
+        ];
+
+        for (lbl, cnt, clr) in counts {
+            let row = format!("{}: {:>4}", lbl, cnt);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &row, stat_x, stat_y, 1, clr);
+            stat_y += 16;
+        }
+
+        // Bottom navigation prompt
+        let footer_y = (self.height() - 40) as i32;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "Press [Enter] or [Escape] to return to Song Select",
+            center_x,
+            footer_y,
+            1,
+            ColorRgba::new(160, 160, 180, 255),
+        );
+    }
+}
+
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let mut truncated: String = s.chars().take(max_chars.saturating_sub(3)).collect();
+        truncated.push_str("...");
+        truncated
+    }
 }
 
 fn lane_index(lane: Lane) -> usize {
