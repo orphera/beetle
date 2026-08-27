@@ -1,5 +1,6 @@
 use beetle_core::{BmsChart, WavId};
 use hound::{SampleFormat, WavReader};
+use lewton::inside_ogg::OggStreamReader;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -41,6 +42,7 @@ impl PcmBuffer {
 pub enum AudioDecodeError {
     IoError(std::io::Error),
     WavDecodeError(String),
+    OggDecodeError(String),
     UnsupportedFormat(String),
 }
 
@@ -49,6 +51,7 @@ impl std::fmt::Display for AudioDecodeError {
         match self {
             Self::IoError(e) => write!(f, "I/O error: {e}"),
             Self::WavDecodeError(msg) => write!(f, "WAV decode error: {msg}"),
+            Self::OggDecodeError(msg) => write!(f, "OGG decode error: {msg}"),
             Self::UnsupportedFormat(msg) => write!(f, "Unsupported audio format: {msg}"),
         }
     }
@@ -160,10 +163,63 @@ impl SampleBank {
         Ok(PcmBuffer::new(sample_rate, stereo_samples))
     }
 
-    /// Load a WAV file from disk and pre-decode to PCM.
-    pub fn load_wav_file<P: AsRef<Path>>(path: P) -> Result<PcmBuffer, AudioDecodeError> {
-        let file = std::fs::File::open(path)?;
-        Self::load_wav_from_reader(std::io::BufReader::new(file))
+    /// Decode OGG Vorbis from any `Read + Seek` stream into stereo normalized `PcmBuffer`.
+    pub fn load_ogg_from_reader<R: Read + Seek>(reader: R) -> Result<PcmBuffer, AudioDecodeError> {
+        let mut ogg_reader =
+            OggStreamReader::new(reader).map_err(|e| AudioDecodeError::OggDecodeError(e.to_string()))?;
+
+        let channels = ogg_reader.ident_hdr.audio_channels as usize;
+        let sample_rate = ogg_reader.ident_hdr.audio_sample_rate;
+
+        if channels == 0 || channels > 2 {
+            return Err(AudioDecodeError::UnsupportedFormat(format!(
+                "Channels count {channels} not supported (only mono or stereo)"
+            )));
+        }
+
+        let mut raw_samples = Vec::new();
+        while let Some(packet) = ogg_reader
+            .read_dec_packet_itl()
+            .map_err(|e| AudioDecodeError::OggDecodeError(e.to_string()))?
+        {
+            for s in packet {
+                raw_samples.push(s as f32 / 32768.0);
+            }
+        }
+
+        let stereo_samples = if channels == 1 {
+            let mut stereo = Vec::with_capacity(raw_samples.len() * 2);
+            for s in raw_samples {
+                stereo.push(s);
+                stereo.push(s);
+            }
+            stereo
+        } else {
+            raw_samples
+        };
+
+        Ok(PcmBuffer::new(sample_rate, stereo_samples))
+    }
+
+    /// Load an audio file (WAV or OGG) from disk and pre-decode to PCM.
+    pub fn load_audio_file<P: AsRef<Path>>(path: P) -> Result<PcmBuffer, AudioDecodeError> {
+        let p = path.as_ref();
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        if ext.eq_ignore_ascii_case("ogg") {
+            let file = std::fs::File::open(p)?;
+            Self::load_ogg_from_reader(std::io::BufReader::new(file))
+        } else {
+            let file = std::fs::File::open(p)?;
+            // Attempt WAV first, fallback to OGG if format header mismatches
+            match Self::load_wav_from_reader(std::io::BufReader::new(file)) {
+                Ok(pcm) => Ok(pcm),
+                Err(_) => {
+                    let file = std::fs::File::open(p)?;
+                    Self::load_ogg_from_reader(std::io::BufReader::new(file))
+                }
+            }
+        }
     }
 
     /// Pre-decodes and loads all `#WAVxx` audio files referenced in a chart from the song directory.
@@ -179,20 +235,26 @@ impl SampleBank {
             if file_path.exists() {
                 resolved_path = Some(file_path);
             } else {
-                // Try alternate extensions (.wav, .ogg)
+                // Try smart alternate extensions (.wav, .ogg, .WAV, .OGG)
                 let stem = Path::new(filename).file_stem().unwrap_or_default();
                 let wav_alt = dir.join(format!("{}.wav", stem.to_string_lossy()));
                 let ogg_alt = dir.join(format!("{}.ogg", stem.to_string_lossy()));
+                let wav_upper = dir.join(format!("{}.WAV", stem.to_string_lossy()));
+                let ogg_upper = dir.join(format!("{}.OGG", stem.to_string_lossy()));
 
                 if wav_alt.exists() {
                     resolved_path = Some(wav_alt);
                 } else if ogg_alt.exists() {
                     resolved_path = Some(ogg_alt);
+                } else if wav_upper.exists() {
+                    resolved_path = Some(wav_upper);
+                } else if ogg_upper.exists() {
+                    resolved_path = Some(ogg_upper);
                 }
             }
 
             if let Some(path) = resolved_path {
-                if let Ok(pcm) = Self::load_wav_file(&path) {
+                if let Ok(pcm) = Self::load_audio_file(&path) {
                     bank.insert(wav_id, pcm);
                     loaded_count += 1;
                 }

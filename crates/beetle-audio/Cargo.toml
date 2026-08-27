@@ -9,8 +9,4 @@ beetle-core = { workspace = true }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 hound = { workspace = true }
-lewton = { workspace = true, optional = true }
-
-[features]
-default = []
-vorbis = ["dep:lewton"]
+lewton = { workspace = true }
