@@ -75,6 +75,7 @@ impl SoftwareRenderer {
         timing: &TimingModel,
         audio_time_seconds: f64,
         score: &ScoreTracker,
+        visual_levels: &[f32; 16],
     ) {
         self.clear();
 
@@ -86,6 +87,7 @@ impl SoftwareRenderer {
         self.draw_gauge_bar(score);
         self.draw_combo_and_judge(score, audio_time_seconds);
         self.draw_hud_info(chart, score);
+        self.draw_audio_visualizer(visual_levels);
     }
 
     fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
@@ -501,6 +503,50 @@ impl SoftwareRenderer {
             let row = format!("{}: {:>4}", label, count);
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &row, hud_x, hud_y, 1, color);
             hud_y += 14;
+        }
+    }
+
+    fn draw_audio_visualizer(&mut self, levels: &[f32; 16]) {
+        let vis_x = self.skin.playfield_x + self.skin.playfield_width + 60.0;
+        let vis_y = self.skin.playfield_y + 440.0;
+        let vis_w = 320.0;
+        let vis_h = 130.0;
+
+        // Background box
+        self.draw_rect(vis_x, vis_y, vis_w, vis_h, ColorRgba::new(12, 14, 20, 255));
+        self.draw_rect(vis_x, vis_y, vis_w, 1.0, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(vis_x, vis_y + vis_h, vis_w, 1.0, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(vis_x, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(vis_x + vis_w, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
+
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            "SPECTRUM VISUALIZER",
+            (vis_x + 12.0) as i32,
+            (vis_y + 10.0) as i32,
+            1,
+            ColorRgba::new(140, 150, 180, 255),
+        );
+
+        let bar_count = 16;
+        let padding = 12.0;
+        let usable_w = vis_w - (padding * 2.0);
+        let bar_w = (usable_w / bar_count as f32) - 4.0;
+        let max_h = 80.0;
+        let base_y = vis_y + vis_h - 14.0;
+
+        for (i, &lvl) in levels.iter().enumerate() {
+            let clamped_lvl = lvl.clamp(0.0, 1.0);
+            let h = (clamped_lvl * max_h).max(2.0);
+            let x = vis_x + padding + (i as f32 * (bar_w + 4.0));
+            let y = base_y - h;
+
+            // Dynamic frequency-based color gradient
+            let r = ((60.0 + i as f32 * 10.0 + clamped_lvl * 50.0).min(255.0)) as u8;
+            let g = ((160.0 - i as f32 * 4.0 + clamped_lvl * 40.0).clamp(40.0, 255.0)) as u8;
+            let b = (255.0 - clamped_lvl * 40.0) as u8;
+
+            self.draw_rect(x, y, bar_w, h, ColorRgba::new(r, g, b, 255));
         }
     }
 
@@ -993,7 +1039,8 @@ mod tests {
 
         renderer.set_key_state(Lane::Key1, true);
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
-        renderer.render_gameplay(&chart, &timing, 1.0, &score);
+        let levels = [0.5f32; 16];
+        renderer.render_gameplay(&chart, &timing, 1.0, &score, &levels);
 
         // Validate buffer is not all blank
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);

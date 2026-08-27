@@ -414,10 +414,15 @@ impl ApplicationHandler for BeetleApp {
                         }
 
                         // 3. Render gameplay frame
+                        let mut visual_levels = [0.0f32; 16];
+                        if let Some(audio) = &state.audio_engine {
+                            audio.get_visual_levels(&mut visual_levels);
+                        }
+
                         if let (Some(chart), Some(timing), Some(judge)) =
                             (&state.active_chart, &state.active_timing, &state.active_judge)
                         {
-                            state.renderer.render_gameplay(chart, timing, audio_time, judge.score());
+                            state.renderer.render_gameplay(chart, timing, audio_time, judge.score(), &visual_levels);
 
                             // Check song finish
                             if audio_time > state.song_end_time + 1.5 {

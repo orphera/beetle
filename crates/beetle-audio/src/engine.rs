@@ -5,7 +5,7 @@ use crate::sample::SampleBank;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Producer, RingBuffer};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const COMMAND_QUEUE_CAPACITY: usize = 512;
@@ -32,11 +32,12 @@ impl std::fmt::Display for AudioEngineError {
 
 impl std::error::Error for AudioEngineError {}
 
-/// Main audio engine holding the playback stream and command producer.
+/// Main audio engine holding the playback stream, command producer, and visual levels.
 pub struct AudioEngine {
     _stream: Stream,
     command_tx: Producer<AudioCommand>,
     clock: AudioClock,
+    visual_levels: Arc<[AtomicU32; 16]>,
 }
 
 impl AudioEngine {
@@ -57,8 +58,15 @@ impl AudioEngine {
         let samples_played = Arc::new(AtomicU64::new(0));
         let clock = AudioClock::new(Arc::clone(&samples_played), sample_rate);
 
+        let visual_levels: Arc<[AtomicU32; 16]> = Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
         let (producer, consumer) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
-        let mut mixer = Mixer::new(sample_bank, consumer, samples_played, sample_rate);
+        let mut mixer = Mixer::new(
+            sample_bank,
+            consumer,
+            samples_played,
+            Arc::clone(&visual_levels),
+            sample_rate,
+        );
 
         let err_fn = |err| eprintln!("Audio stream error: {err}");
 
@@ -81,12 +89,20 @@ impl AudioEngine {
             _stream: stream,
             command_tx: producer,
             clock,
+            visual_levels,
         })
     }
 
     /// Access the lock-free audio clock.
     pub fn clock(&self) -> &AudioClock {
         &self.clock
+    }
+
+    /// Reads the latest 16-band peak levels (0.0 .. 1.0) without lock contention.
+    pub fn get_visual_levels(&self, out: &mut [f32; 16]) {
+        for (i, slot) in self.visual_levels.iter().enumerate() {
+            out[i] = slot.load(Ordering::Relaxed) as f32 / 1000.0;
+        }
     }
 
     /// Enqueue a command to the audio thread (wait-free, lock-free).

@@ -2,7 +2,7 @@ use crate::command::AudioCommand;
 use crate::sample::SampleBank;
 use beetle_core::WavId;
 use rtrb::Consumer;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const MAX_VOICES: usize = 128;
@@ -36,6 +36,7 @@ pub struct Mixer {
     sample_bank: SampleBank,
     command_rx: Consumer<AudioCommand>,
     samples_played: Arc<AtomicU64>,
+    visual_levels: Arc<[AtomicU32; 16]>,
     output_sample_rate: u32,
     master_volume: f32,
 }
@@ -45,6 +46,7 @@ impl Mixer {
         sample_bank: SampleBank,
         command_rx: Consumer<AudioCommand>,
         samples_played: Arc<AtomicU64>,
+        visual_levels: Arc<[AtomicU32; 16]>,
         output_sample_rate: u32,
     ) -> Self {
         Self {
@@ -52,6 +54,7 @@ impl Mixer {
             sample_bank,
             command_rx,
             samples_played,
+            visual_levels,
             output_sample_rate: output_sample_rate.max(1),
             master_volume: 1.0,
         }
@@ -148,7 +151,26 @@ impl Mixer {
             *s = s.clamp(-1.0, 1.0);
         }
 
-        // 5. Update master audio clock
+        // 5. Update visualizer snapshot (16 bands)
+        let chunk = (output.len() / 16).max(1);
+        for (i, slot) in self.visual_levels.iter().enumerate() {
+            let start = i * chunk;
+            if start >= output.len() {
+                slot.store(0, Ordering::Relaxed);
+                continue;
+            }
+            let end = (start + chunk).min(output.len());
+            let mut peak: f32 = 0.0;
+            for &sample in &output[start..end] {
+                let a = sample.abs();
+                if a > peak {
+                    peak = a;
+                }
+            }
+            slot.store((peak * 1000.0) as u32, Ordering::Relaxed);
+        }
+
+        // 6. Update master audio clock
         self.samples_played.fetch_add(frame_count as u64, Ordering::Relaxed);
     }
 
@@ -214,6 +236,10 @@ mod tests {
     use crate::sample::PcmBuffer;
     use rtrb::RingBuffer;
 
+    fn make_visual_levels() -> Arc<[AtomicU32; 16]> {
+        Arc::new(std::array::from_fn(|_| AtomicU32::new(0)))
+    }
+
     #[test]
     fn test_mixer_playback_and_panning() {
         let mut sample_bank = SampleBank::new();
@@ -223,7 +249,14 @@ mod tests {
 
         let (mut producer, consumer) = RingBuffer::new(32);
         let samples_played = Arc::new(AtomicU64::new(0));
-        let mut mixer = Mixer::new(sample_bank, consumer, Arc::clone(&samples_played), 44100);
+        let visual_levels = make_visual_levels();
+        let mut mixer = Mixer::new(
+            sample_bank,
+            consumer,
+            Arc::clone(&samples_played),
+            visual_levels,
+            44100,
+        );
 
         // Pan center
         producer
@@ -258,7 +291,14 @@ mod tests {
 
         let (mut producer, consumer) = RingBuffer::new(32);
         let samples_played = Arc::new(AtomicU64::new(0));
-        let mut mixer = Mixer::new(sample_bank, consumer, samples_played, 44100);
+        let visual_levels = make_visual_levels();
+        let mut mixer = Mixer::new(
+            sample_bank,
+            consumer,
+            samples_played,
+            visual_levels,
+            44100,
+        );
 
         producer
             .push(AudioCommand::PlaySample {
