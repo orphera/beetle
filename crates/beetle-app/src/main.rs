@@ -496,7 +496,7 @@ impl ApplicationHandler for BeetleApp {
                                             state.renderer.set_key_state(ev.lane, true);
                                             if let Some(judge) = &mut state.active_judge {
                                                 if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
-                                                    state.renderer.trigger_judge(res.grade, audio_time, res.delta_ms);
+                                                    state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
                                                     if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                                         let _ = audio.send_command(AudioCommand::PlaySample {
                                                             sample_id: id,
@@ -510,7 +510,7 @@ impl ApplicationHandler for BeetleApp {
                                             state.renderer.set_key_state(ev.lane, false);
                                             if let Some(judge) = &mut state.active_judge {
                                                 if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
-                                                    state.renderer.trigger_judge(res.grade, audio_time, res.delta_ms);
+                                                    state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
                                                 }
                                             }
                                         }
@@ -531,7 +531,7 @@ impl ApplicationHandler for BeetleApp {
                                 let hits = judge.auto_play_update(audio_time);
                                 for (lane, hit_res, wav_id) in hits {
                                     state.renderer.set_key_state(lane, true);
-                                    state.renderer.trigger_judge(hit_res.grade, audio_time, 0.0);
+                                    state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, 0.0);
 
                                     if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                         let _ = audio.send_command(AudioCommand::PlaySample {
@@ -898,7 +898,7 @@ fn handle_keyboard_input(
                         state.renderer.set_key_state(lane, true);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
-                                state.renderer.trigger_judge(judge_result.grade, audio_time, judge_result.delta_ms);
+                                state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
 
                                 if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                     let _ = audio.send_command(AudioCommand::PlaySample {
@@ -918,7 +918,7 @@ fn handle_keyboard_input(
                         state.renderer.set_key_state(lane, false);
                         if let Some(judge) = &mut state.active_judge {
                             if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                                state.renderer.trigger_judge(judge_result.grade, audio_time, judge_result.delta_ms);
+                                state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
                             }
                         }
                     }

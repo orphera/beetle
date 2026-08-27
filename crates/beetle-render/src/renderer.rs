@@ -14,12 +14,21 @@ const ALL_LANES: [Lane; 8] = [
     Lane::Key7,
 ];
 
+/// A visual particle burst spawned when hitting a note on a lane.
+#[derive(Debug, Clone, Copy)]
+pub struct HitBurst {
+    pub lane: Lane,
+    pub spawn_time: f64,
+    pub grade: JudgeGrade,
+}
+
 /// Software 2D renderer powered by tiny-skia.
 pub struct SoftwareRenderer {
     pixmap: Pixmap,
     pub skin: SkinConfig,
     key_pressed: [bool; 8],
     last_judge: Option<(JudgeGrade, f64, f64)>, // (Grade, time_seconds, delta_ms)
+    hit_bursts: Vec<HitBurst>,
 }
 
 impl SoftwareRenderer {
@@ -30,6 +39,7 @@ impl SoftwareRenderer {
             skin,
             key_pressed: [false; 8],
             last_judge: None,
+            hit_bursts: Vec::with_capacity(32),
         })
     }
 
@@ -62,6 +72,17 @@ impl SoftwareRenderer {
         self.last_judge = Some((grade, time_seconds, delta_ms));
     }
 
+    pub fn trigger_judge_with_lane(&mut self, lane: Lane, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {
+        self.last_judge = Some((grade, time_seconds, delta_ms));
+        if grade != JudgeGrade::Miss && grade != JudgeGrade::Poor {
+            self.hit_bursts.push(HitBurst {
+                lane,
+                spawn_time: time_seconds,
+                grade,
+            });
+        }
+    }
+
     /// Clear frame with background color.
     pub fn clear(&mut self) {
         let bg = self.skin.bg_color;
@@ -85,6 +106,7 @@ impl SoftwareRenderer {
         self.draw_notes(chart, timing, audio_time_seconds);
         self.draw_lane_cover();
         self.draw_judge_line();
+        self.draw_hit_bursts(audio_time_seconds);
         self.draw_gauge_bar(score);
         self.draw_combo_and_judge(score, audio_time_seconds);
         self.draw_hud_info(chart, score);
@@ -309,18 +331,110 @@ impl SoftwareRenderer {
         );
     }
 
+    fn draw_hit_bursts(&mut self, audio_time_seconds: f64) {
+        let burst_duration = 0.22;
+        self.hit_bursts.retain(|b| {
+            let elapsed = audio_time_seconds - b.spawn_time;
+            elapsed >= 0.0 && elapsed < burst_duration
+        });
+
+        let judge_y = self.skin.judge_line_y;
+        let bursts = self.hit_bursts.clone();
+
+        for burst in bursts {
+            let elapsed = (audio_time_seconds - burst.spawn_time).max(0.0);
+            let progress = (elapsed / burst_duration) as f32;
+            let alpha = ((1.0 - progress) * 255.0) as u8;
+            if alpha == 0 {
+                continue;
+            }
+
+            let lx = self.skin.lane_x(burst.lane) + self.skin.lane_width(burst.lane) / 2.0;
+            let (r, g, b) = match burst.grade {
+                JudgeGrade::PerfectGreat => (255, 230, 80),
+                JudgeGrade::Great => (255, 170, 50),
+                JudgeGrade::Good => (60, 220, 120),
+                _ => (160, 160, 180),
+            };
+
+            // 1. Lane neon beam flash for PGREAT
+            if burst.grade == JudgeGrade::PerfectGreat {
+                let flash_alpha = ((1.0 - progress) * 50.0) as u8;
+                let lane_x = self.skin.lane_x(burst.lane);
+                let lane_w = self.skin.lane_width(burst.lane);
+                self.draw_rect(
+                    lane_x,
+                    self.skin.playfield_y,
+                    lane_w,
+                    self.skin.playfield_height,
+                    ColorRgba::new(255, 240, 140, flash_alpha),
+                );
+            }
+
+            // 2. Central expanding burst flare
+            let flare_size = (1.0 - progress) * 26.0 + 4.0;
+            self.draw_rect(
+                lx - flare_size / 2.0,
+                judge_y - flare_size / 2.0,
+                flare_size,
+                flare_size,
+                ColorRgba::new(r, g, b, alpha),
+            );
+
+            // 3. Radiating particle sparks
+            let dist = progress * 32.0;
+            let spark_size = (1.0 - progress) * 4.0 + 1.0;
+            let spark_alpha = (alpha / 2).max(1);
+            let spark_col = ColorRgba::new(r, g, b, spark_alpha);
+
+            let offsets = [
+                (0.0, -dist),
+                (0.0, dist),
+                (-dist, 0.0),
+                (dist, 0.0),
+                (-dist * 0.7, -dist * 0.7),
+                (dist * 0.7, -dist * 0.7),
+                (-dist * 0.7, dist * 0.7),
+                (dist * 0.7, dist * 0.7),
+            ];
+
+            for (dx, dy) in offsets {
+                self.draw_rect(
+                    lx + dx - spark_size / 2.0,
+                    judge_y + dy - spark_size / 2.0,
+                    spark_size,
+                    spark_size,
+                    spark_col,
+                );
+            }
+        }
+    }
+
     fn draw_combo_and_judge(&mut self, score: &ScoreTracker, audio_time_seconds: f64) {
         let center_x = (self.skin.playfield_x + (self.skin.playfield_width / 2.0)) as i32;
         let judge_center_y = (self.skin.judge_line_y - 100.0) as i32;
 
-        // 1. Draw Combo
+        // 1. Draw Combo with bounce pulse
         if score.current_combo > 0 {
             let combo_num = format!("{}", score.current_combo);
+            let pulse_offset = if let Some((_, judge_time, _)) = self.last_judge {
+                let elapsed = audio_time_seconds - judge_time;
+                if elapsed >= 0.0 && elapsed < 0.12 {
+                    ((1.0 - (elapsed / 0.12)) * 6.0) as i32
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            let combo_y = judge_center_y - 30 - pulse_offset;
+
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
                 &combo_num,
                 center_x,
-                judge_center_y - 30,
+                combo_y,
                 3, // Big font
                 ColorRgba::new(255, 255, 255, 255),
             );
@@ -329,7 +443,7 @@ impl SoftwareRenderer {
                 &mut self.pixmap.as_mut(),
                 "COMBO",
                 center_x,
-                judge_center_y - 8,
+                combo_y + 22,
                 1,
                 ColorRgba::new(180, 180, 200, 255),
             );
