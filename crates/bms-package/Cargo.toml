@@ -1,0 +1,10 @@
+[package]
+name = "bms-package"
+version = "0.1.0"
+edition = "2021"
+description = "BMS package format (.bmsp) container, manifest, and archive library"
+
+[dependencies]
+zip = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

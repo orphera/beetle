@@ -4,6 +4,7 @@ members = [
     "crates/beetle-audio",
     "crates/beetle-render",
     "crates/beetle-app",
+    "crates/bms-package",
 ]
 resolver = "2"
 
@@ -12,6 +13,7 @@ resolver = "2"
 beetle-core = { path = "crates/beetle-core" }
 beetle-audio = { path = "crates/beetle-audio" }
 beetle-render = { path = "crates/beetle-render" }
+bms-package = { path = "crates/bms-package" }
 
 # External dependencies (kept minimal for binary size)
 cpal = "0.15"
@@ -21,6 +23,9 @@ lewton = "0.10"
 tiny-skia = "0.11"
 winit = "0.30"
 softbuffer = "0.4"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [profile.release]
 opt-level = "z"
