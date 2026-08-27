@@ -253,6 +253,13 @@ impl SoftwareRenderer {
         let fill_y = gauge_y + gauge_h - fill_h;
 
         let fill_color = match score.gauge_type {
+            GaugeType::Easy => {
+                if score.gauge >= 80.0 {
+                    ColorRgba::new(80, 255, 160, 255) // Bright Mint Green
+                } else {
+                    ColorRgba::new(60, 200, 240, 255) // Cyan
+                }
+            }
             GaugeType::Groove => {
                 if score.gauge >= 80.0 {
                     ColorRgba::new(60, 240, 100, 255) // Green (Cleared)
@@ -267,6 +274,9 @@ impl SoftwareRenderer {
                     ColorRgba::new(255, 180, 40, 255) // Orange
                 }
             }
+            GaugeType::Hazard => {
+                ColorRgba::new(240, 40, 80, 255) // Crimson Hazard
+            }
         };
 
         self.draw_rect(gauge_x, fill_y, gauge_w, fill_h, fill_color);
@@ -277,8 +287,8 @@ impl SoftwareRenderer {
         self.draw_rect(gauge_x, gauge_y, 1.0, gauge_h, ColorRgba::new(80, 80, 100, 255));
         self.draw_rect(gauge_x + gauge_w, gauge_y, 1.0, gauge_h, ColorRgba::new(80, 80, 100, 255));
 
-        // Gauge 80% threshold line for Groove gauge
-        if score.gauge_type == GaugeType::Groove {
+        // Gauge 80% threshold line for Easy / Groove gauge
+        if matches!(score.gauge_type, GaugeType::Easy | GaugeType::Groove) {
             let line_y = gauge_y + gauge_h * 0.2;
             self.draw_rect(gauge_x - 3.0, line_y, gauge_w + 6.0, 2.0, ColorRgba::new(255, 220, 50, 255));
         }

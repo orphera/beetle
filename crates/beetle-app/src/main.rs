@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    compute_chart_hash, parse_bms, BmsChart, ClearType, GaugeType, JudgeEngine, ScoreRecord,
-    ScoreStore, SongMetadata, TimingModel,
+    apply_lane_modifier, compute_chart_hash, parse_bms, BmsChart, ClearType, GaugeType,
+    JudgeEngine, LaneModifier, PlayOptions, ScoreRecord, ScoreStore, SongMetadata, TimingModel,
 };
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use input::{InputConfig, KeyPreset};
@@ -44,6 +44,7 @@ struct AppState {
     songs: Vec<SongMetadata>,
     selected_song_idx: usize,
     score_store: ScoreStore,
+    play_options: PlayOptions,
     active_chart: Option<BmsChart>,
     active_timing: Option<TimingModel>,
     active_chart_hash: u64,
@@ -177,6 +178,7 @@ impl ApplicationHandler for BeetleApp {
             songs,
             selected_song_idx: 0,
             score_store,
+            play_options: PlayOptions::default(),
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -240,6 +242,16 @@ impl ApplicationHandler for BeetleApp {
                             state.selected_song_idx,
                             &state.score_store,
                         );
+
+                        // Song select options bar
+                        let opt_bar = format!(
+                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  OFFS: {:+.0}ms (F8/F9)",
+                            state.play_options.hi_speed,
+                            state.play_options.lane_modifier.as_str(),
+                            state.play_options.gauge_type.as_str(),
+                            state.play_options.judge_offset_ms,
+                        );
+                        state.renderer.draw_footer_text(&opt_bar);
                     }
                     AppScreen::Gameplay => {
                         let audio_time = state
@@ -247,6 +259,8 @@ impl ApplicationHandler for BeetleApp {
                             .as_ref()
                             .map(|a| a.clock().current_time_seconds())
                             .unwrap_or(0.0);
+
+                        let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
 
                         // 1. BGM schedule
                         if let (Some(audio), Some(chart), Some(timing)) =
@@ -271,7 +285,7 @@ impl ApplicationHandler for BeetleApp {
 
                         // 2. Miss updates
                         if let Some(judge) = &mut state.active_judge {
-                            let misses = judge.update_misses(audio_time);
+                            let misses = judge.update_misses(effective_judge_time);
                             for (_lane, miss_res) in misses {
                                 state.renderer.trigger_judge(miss_res.grade, audio_time);
                             }
@@ -291,8 +305,8 @@ impl ApplicationHandler for BeetleApp {
 
                         // 4. Footer info
                         let preset_info = match state.input_config.preset {
-                            KeyPreset::HomeRow => "KEYS: [Shift] + S D F Space J K L   (F1/Tab: Switch layout)",
-                            KeyPreset::ArcadeZx => "KEYS: [Shift] + Z S X D C F V       (F1/Tab: Switch layout)",
+                            KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Switch layout | F3/F4: Speed)",
+                            KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Switch layout | F3/F4: Speed)",
                         };
                         state.renderer.draw_footer_text(preset_info);
                     }
@@ -348,6 +362,44 @@ fn handle_keyboard_input(
         return;
     }
 
+    // Hi-Speed adjustments (F3: Speed+, F4: Speed-)
+    if key_state == ElementState::Pressed {
+        if code == KeyCode::F3 || code == KeyCode::PageUp {
+            state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
+            state.renderer.skin.hi_speed = state.play_options.hi_speed;
+            return;
+        } else if code == KeyCode::F4 || code == KeyCode::PageDown {
+            state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
+            state.renderer.skin.hi_speed = state.play_options.hi_speed;
+            return;
+        } else if code == KeyCode::F6 {
+            // Cycle Gauge Type
+            state.play_options.gauge_type = match state.play_options.gauge_type {
+                GaugeType::Easy => GaugeType::Groove,
+                GaugeType::Groove => GaugeType::Hard,
+                GaugeType::Hard => GaugeType::Hazard,
+                GaugeType::Hazard => GaugeType::Easy,
+            };
+            return;
+        } else if code == KeyCode::F7 {
+            // Cycle Lane Modifier
+            state.play_options.lane_modifier = match state.play_options.lane_modifier {
+                LaneModifier::Regular => LaneModifier::Mirror,
+                LaneModifier::Mirror => LaneModifier::Random,
+                LaneModifier::Random => LaneModifier::RRandom,
+                LaneModifier::RRandom => LaneModifier::SRandom,
+                LaneModifier::SRandom => LaneModifier::Regular,
+            };
+            return;
+        } else if code == KeyCode::F8 {
+            state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 2.0).max(-100.0);
+            return;
+        } else if code == KeyCode::F9 {
+            state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 2.0).min(100.0);
+            return;
+        }
+    }
+
     match state.screen {
         AppScreen::SongSelect => {
             if key_state == ElementState::Pressed {
@@ -391,11 +443,13 @@ fn handle_keyboard_input(
                     .map(|a| a.clock().current_time_seconds())
                     .unwrap_or(0.0);
 
+                let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
+
                 match key_state {
                     ElementState::Pressed => {
                         state.renderer.set_key_state(lane, true);
                         if let Some(judge) = &mut state.active_judge {
-                            if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, audio_time) {
+                            if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
                                 state.renderer.trigger_judge(judge_result.grade, audio_time);
 
                                 if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
@@ -411,7 +465,7 @@ fn handle_keyboard_input(
                     ElementState::Released => {
                         state.renderer.set_key_state(lane, false);
                         if let Some(judge) = &mut state.active_judge {
-                            if let Some(judge_result) = judge.handle_key_up(lane, audio_time) {
+                            if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
                                 state.renderer.trigger_judge(judge_result.grade, audio_time);
                             }
                         }
@@ -429,12 +483,24 @@ fn handle_keyboard_input(
 
 fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
     let (chart, timing, soundbank) = load_chart_and_audio(song);
-    let judge_engine = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
-    let total_duration = timing.total_duration_seconds(&chart);
+
+    // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(42);
+
+    let mut play_chart = chart.clone();
+    play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
+
+    let judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
+    let total_duration = timing.total_duration_seconds(&play_chart);
+
+    state.renderer.skin.hi_speed = state.play_options.hi_speed;
 
     let audio_engine = AudioEngine::new(soundbank).ok();
 
-    state.active_chart = Some(chart);
+    state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
     state.active_chart_hash = song.hash;
     state.active_judge = Some(judge_engine);

@@ -107,11 +107,24 @@ pub struct JudgeResult {
     pub delta_ms: f64,
 }
 
-/// Gauge mode (Groove normal or Hard).
+/// Gauge mode (Easy, Groove normal, Hard, or Hazard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GaugeType {
+    Easy,
     Groove,
     Hard,
+    Hazard,
+}
+
+impl GaugeType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Easy => "EASY",
+            Self::Groove => "GROOVE",
+            Self::Hard => "HARD",
+            Self::Hazard => "HAZARD",
+        }
+    }
 }
 
 /// Tracks realtime score, combo, and EX score during gameplay.
@@ -146,14 +159,15 @@ impl ScoreTracker {
         let n = total_notes.max(1) as f64;
         let effective_total = if total <= 0.0 { 200.0 } else { total };
 
-        // BMS standard gauge gain formula
-        let gain_pgreat = effective_total / n;
+        // BMS standard gauge gain formula (Easy gauge gets 1.2x boost)
+        let multiplier = if gauge_type == GaugeType::Easy { 1.2 } else { 1.0 };
+        let gain_pgreat = (effective_total / n) * multiplier;
         let gain_great = gain_pgreat * 0.8;
         let gain_good = gain_pgreat * 0.5;
 
         let initial_gauge = match gauge_type {
-            GaugeType::Groove => 20.0,
-            GaugeType::Hard => 100.0,
+            GaugeType::Easy | GaugeType::Groove => 20.0,
+            GaugeType::Hard | GaugeType::Hazard => 100.0,
         };
 
         Self {
@@ -178,7 +192,7 @@ impl ScoreTracker {
 
     /// Records a judge result and updates score and gauge.
     pub fn record_hit(&mut self, grade: JudgeGrade) {
-        if self.is_failed && self.gauge_type == GaugeType::Hard {
+        if self.is_failed && matches!(self.gauge_type, GaugeType::Hard | GaugeType::Hazard) {
             return;
         }
 
@@ -204,8 +218,10 @@ impl ScoreTracker {
                 self.bad_count += 1;
                 self.current_combo = 0;
                 let penalty = match self.gauge_type {
+                    GaugeType::Easy => -1.6,
                     GaugeType::Groove => -2.0,
                     GaugeType::Hard => -5.0,
+                    GaugeType::Hazard => -100.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -213,8 +229,10 @@ impl ScoreTracker {
                 self.poor_count += 1;
                 self.current_combo = 0;
                 let penalty = match self.gauge_type {
+                    GaugeType::Easy => -2.4,
                     GaugeType::Groove => -3.0,
                     GaugeType::Hard => -9.0,
+                    GaugeType::Hazard => -100.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -222,8 +240,10 @@ impl ScoreTracker {
                 self.miss_count += 1;
                 self.current_combo = 0;
                 let penalty = match self.gauge_type {
+                    GaugeType::Easy => -4.0,
                     GaugeType::Groove => -5.0,
                     GaugeType::Hard => -10.0,
+                    GaugeType::Hazard => -100.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -240,12 +260,12 @@ impl ScoreTracker {
             self.gauge = 100.0;
         }
         match self.gauge_type {
-            GaugeType::Groove => {
+            GaugeType::Easy | GaugeType::Groove => {
                 if self.gauge < 2.0 {
                     self.gauge = 2.0;
                 }
             }
-            GaugeType::Hard => {
+            GaugeType::Hard | GaugeType::Hazard => {
                 if self.gauge <= 0.0 {
                     self.gauge = 0.0;
                     self.is_failed = true;
@@ -272,8 +292,8 @@ impl ScoreTracker {
     /// Returns true if cleared at the end of the song.
     pub fn is_cleared(&self) -> bool {
         match self.gauge_type {
-            GaugeType::Groove => self.gauge >= 80.0,
-            GaugeType::Hard => !self.is_failed,
+            GaugeType::Easy | GaugeType::Groove => self.gauge >= 80.0,
+            GaugeType::Hard | GaugeType::Hazard => !self.is_failed,
         }
     }
 }
