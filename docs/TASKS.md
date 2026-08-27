@@ -126,13 +126,13 @@
 
 ---
 
-## 📋 Phase 9: 인게임 UX 디테일 (FAST/SLOW & 레인커버)
-- [ ] **실시간 FAST / SLOW 밀리초 표시**
-  - [ ] 판정선 부근에 `FAST +8ms` / `SLOW -12ms` 피드백 출력
-- [ ] **레인 커버 (Sudden+ / Hidden+)**
-  - [ ] 상단/하단 가림막 비율 조절 및 레인 뷰포트 마스킹
-- [ ] **페이스메이커 (Target Pacemaker)**
-  - [ ] Personal Best / AAA / AA 목표 대비 실시간 점수차(±Diff) 표시
+## 📋 Phase 9: 인게임 UX 디테일 (FAST/SLOW & 레인커버) (Completed)
+- [x] **실시간 FAST / SLOW 밀리초 표시**
+  - [x] 판정선 부근에 `FAST -12ms` / `SLOW +15ms` 실시간 델타 피드백 출력
+- [x] **레인 커버 (Sudden+)**
+  - [x] `F10` / `F11` 키로 상단 가림막 비율 실시간 조절 및 마스킹
+- [x] **페이스메이커 (Target Pacemaker)**
+  - [x] 현재 노트 진행 대비 AAA 목표치와의 실시간 격차 (`PACEMAKER (AAA): +14`) 표시
 
 ---
 
