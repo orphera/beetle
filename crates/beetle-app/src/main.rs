@@ -9,7 +9,9 @@ use std::env;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::Path;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
@@ -33,10 +35,11 @@ use winit::window::{Window, WindowId};
 const SCORES_FILE: &str = "scores.dat";
 const REPLAYS_DIR: &str = "replays";
 
-/// Application screens for song select, gameplay, results, and key configuration.
+/// Application screens for song select, loading, gameplay, results, and key configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppScreen {
     SongSelect,
+    Loading,
     Gameplay,
     Result,
     KeyConfig,
@@ -77,6 +80,10 @@ struct AppState {
     is_new_record: bool,
     input_config: InputConfig,
     bgm_cursor: usize,
+    loading_song: Option<SongMetadata>,
+    loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>>,
+    loading_spinner_frame: usize,
+    loading_anim_time: Instant,
 }
 
 impl AppState {
@@ -324,18 +331,58 @@ impl ApplicationHandler for BeetleApp {
             is_new_record: false,
             input_config: InputConfig::new(saved_config.key_preset),
             bgm_cursor: 0,
+            loading_song: None,
+            loading_receiver: None,
+            loading_spinner_frame: 0,
+            loading_anim_time: Instant::now(),
         };
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
             if let Ok(content) = fs::read_to_string(cli_path) {
                 if let Some(meta) = SongMetadata::from_content(cli_path, &content) {
-                    start_gameplay(&mut app_state, &meta);
+                    queue_start_gameplay(&mut app_state, &meta);
                 }
             }
         }
 
         self.state = Some(app_state);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(state) = &mut self.state else {
+            return;
+        };
+
+        if state.screen == AppScreen::Loading {
+            if let Some(rx) = &state.loading_receiver {
+                if let Ok(res) = rx.try_recv() {
+                    state.loading_receiver = None;
+                    match res {
+                        Ok((chart, timing, soundbank)) => {
+                            if let Some(song) = state.loading_song.take() {
+                                finalize_start_gameplay(state, &song, chart, timing, soundbank);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to load song: {e}");
+                            state.screen = AppScreen::SongSelect;
+                        }
+                    }
+                    state.window.request_redraw();
+                }
+            }
+
+            let now = Instant::now();
+            if now.duration_since(state.loading_anim_time) >= Duration::from_millis(30) {
+                state.loading_spinner_frame = state.loading_spinner_frame.wrapping_add(1);
+                state.loading_anim_time = now;
+                state.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(20)));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        }
     }
 
     fn window_event(
@@ -457,6 +504,31 @@ impl ApplicationHandler for BeetleApp {
                                 state.modal_row,
                             );
                         }
+                    }
+                    AppScreen::Loading => {
+                        let selected_hash = state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
+                        let stage_img = if let Some((h, img)) = &state.cached_stage_image {
+                            if *h == selected_hash {
+                                img.as_ref()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let title = state.loading_song.as_ref().map(|s| s.title.as_str()).unwrap_or("Unknown");
+                        let artist = state.loading_song.as_ref().map(|s| s.artist.as_str()).unwrap_or("Unknown");
+                        let genre = state.loading_song.as_ref().map(|s| s.genre.as_str()).unwrap_or("");
+
+                        state.renderer.render_loading_screen(
+                            title,
+                            artist,
+                            genre,
+                            stage_img,
+                            state.loading_spinner_frame,
+                            "Decoding soundbank & preparing audio engine...",
+                        );
                     }
                     AppScreen::Gameplay => {
                         let audio_time = state
@@ -628,12 +700,6 @@ impl ApplicationHandler for BeetleApp {
                 state.window.request_redraw();
             }
             _ => (),
-        }
-    }
-
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(state) = &self.state {
-            state.window.request_redraw();
         }
     }
 }
@@ -816,7 +882,7 @@ fn handle_keyboard_input(
                                     state.playback_replay = Some(replay);
                                     state.playback_cursor = 0;
                                     let s = song.clone();
-                                    start_gameplay(state, &s);
+                                    queue_start_gameplay(state, &s);
                                     return;
                                 }
                             }
@@ -848,7 +914,7 @@ fn handle_keyboard_input(
                     KeyCode::Enter | KeyCode::Space => {
                         if let Some(song) = state.songs.get(state.selected_song_idx).cloned() {
                             state.is_replay_playback = false;
-                            start_gameplay(state, &song);
+                            queue_start_gameplay(state, &song);
                         }
                     }
                     KeyCode::F5 => {
@@ -859,6 +925,13 @@ fn handle_keyboard_input(
                     }
                     _ => (),
                 }
+            }
+        }
+        AppScreen::Loading => {
+            if key_state == ElementState::Pressed && code == KeyCode::Escape {
+                state.loading_receiver = None;
+                state.loading_song = None;
+                state.screen = AppScreen::SongSelect;
             }
         }
         AppScreen::Gameplay => {
@@ -952,12 +1025,41 @@ fn handle_keyboard_input(
     }
 }
 
-fn start_gameplay(state: &mut AppState, song: &SongMetadata) {
-    // Cleanly stop preview audio engine before entering gameplay
+fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
+    // Cleanly stop preview audio engine before entering loading
     state.preview_audio = None;
+    state.screen = AppScreen::Loading;
+    state.loading_song = Some(song.clone());
+    state.loading_spinner_frame = 0;
+    state.loading_anim_time = Instant::now();
 
-    let (chart, timing, soundbank) = load_chart_and_audio(song);
+    // Cache stage image for loading screen
+    let selected_hash = song.hash;
+    if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
+        let img = load_stage_image(song);
+        state.cached_stage_image = Some((selected_hash, img));
+    }
 
+    let song_clone = song.clone();
+    let (tx, rx): (
+        Sender<Result<(BmsChart, TimingModel, SampleBank), String>>,
+        Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>,
+    ) = channel();
+    state.loading_receiver = Some(rx);
+
+    thread::spawn(move || {
+        let (chart, timing, bank) = load_chart_and_audio(&song_clone);
+        let _ = tx.send(Ok((chart, timing, bank)));
+    });
+}
+
+fn finalize_start_gameplay(
+    state: &mut AppState,
+    song: &SongMetadata,
+    chart: BmsChart,
+    timing: TimingModel,
+    soundbank: SampleBank,
+) {
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

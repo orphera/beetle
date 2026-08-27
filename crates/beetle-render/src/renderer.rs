@@ -1,4 +1,5 @@
 use crate::bitmap_font::BitmapFont;
+use crate::image::ImageBuffer;
 use crate::skin::{ColorRgba, SkinConfig};
 use beetle_core::{BmsChart, GaugeType, JudgeGrade, Lane, NoteType, ScoreTracker, TimingModel};
 use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
@@ -1128,6 +1129,114 @@ impl SoftwareRenderer {
             footer_y,
             1,
             ColorRgba::new(140, 140, 160, 255),
+        );
+    }
+
+    /// Renders the transition loading screen while soundbanks and charts are decoded in the background.
+    pub fn render_loading_screen(
+        &mut self,
+        title: &str,
+        artist: &str,
+        genre: &str,
+        stage_image: Option<&ImageBuffer>,
+        spinner_frame: usize,
+        progress_msg: &str,
+    ) {
+        self.clear();
+
+        let w = self.width() as f32;
+        let _h = self.height() as f32;
+        let center_x = (w / 2.0) as i32;
+
+        // Background subtle grid/lines
+        for line_y in (0..self.height()).step_by(24) {
+            self.draw_rect(0.0, line_y as f32, w, 1.0, ColorRgba::new(20, 20, 30, 255));
+        }
+
+        let mut y = 60.0;
+
+        // Top Header
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "PREPARING TRACK",
+            center_x,
+            y as i32,
+            1,
+            ColorRgba::new(120, 160, 220, 255),
+        );
+        y += 36.0;
+
+        // Stage Image / Artwork Box
+        let art_w = (w * 0.45).clamp(240.0, 480.0);
+        let art_h = art_w * (9.0 / 16.0);
+        let art_x = (w - art_w) / 2.0;
+
+        self.draw_rect(art_x - 2.0, y - 2.0, art_w + 4.0, art_h + 4.0, ColorRgba::new(50, 60, 90, 255));
+        self.draw_rect(art_x, y, art_w, art_h, ColorRgba::new(12, 12, 18, 255));
+
+        if let Some(img) = stage_image {
+            img.draw_scaled(&mut self.pixmap, art_x as i32, y as i32, art_w as u32, art_h as u32);
+        } else {
+            BitmapFont::draw_text_centered(
+                &mut self.pixmap.as_mut(),
+                "[ NO STAGE IMAGE ]",
+                center_x,
+                (y + art_h / 2.0 - 4.0) as i32,
+                1,
+                ColorRgba::new(70, 70, 90, 255),
+            );
+        }
+        y += art_h + 24.0;
+
+        // Track Title
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            title,
+            center_x,
+            y as i32,
+            2,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+        y += 32.0;
+
+        // Artist & Genre
+        let sub_info = if !genre.is_empty() {
+            format!("{} / {}", artist, genre)
+        } else {
+            artist.to_string()
+        };
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            &sub_info,
+            center_x,
+            y as i32,
+            1,
+            ColorRgba::new(170, 180, 210, 255),
+        );
+        y += 44.0;
+
+        // Animated Loading Progress Indicator
+        let bar_w = 320.0;
+        let bar_x = (w - bar_w) / 2.0;
+        self.draw_rect(bar_x, y, bar_w, 4.0, ColorRgba::new(30, 30, 45, 255));
+
+        // Pulsing / moving progress highlight
+        let pulse_pos = ((spinner_frame * 12) % (bar_w as usize)) as f32;
+        let seg_w = 60.0f32;
+        let seg_x = (bar_x + pulse_pos).min(bar_x + bar_w - seg_w);
+        self.draw_rect(seg_x, y, seg_w, 4.0, ColorRgba::new(80, 200, 255, 255));
+        y += 18.0;
+
+        let spinner_chars = ['|', '/', '-', '\\'];
+        let spinner = spinner_chars[spinner_frame % 4];
+        let loading_disp = format!("[{}] {}", spinner, progress_msg);
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            &loading_disp,
+            center_x,
+            y as i32,
+            1,
+            ColorRgba::new(255, 220, 90, 255),
         );
     }
 }
