@@ -98,20 +98,21 @@
 
 ---
 
-## 📋 Phase 7: 플레이 옵션(Modifiers) & 배속/판정 오프셋 시스템
-- [ ] **노트 배치 모디파이어 (Lane Modifiers) 구현 (`beetle-core`)**
-  - [ ] `Regular` (기본)
-  - [ ] `Mirror` (1~7건반 좌우 대칭 반전)
-  - [ ] `Random` (1~7건반 레인 무작위 셔플)
-  - [ ] `R-Random` (순환 회전 셔플)
-  - [ ] `S-Random` (노트 단위 슈퍼 랜덤)
-- [ ] **배속(Hi-Speed) 및 플로팅 스크롤 시스템**
-  - [ ] Hi-Speed 배율 (0.5x ~ 10.0x) 및 스크롤 픽셀 속도 동적 적용
-  - [ ] 인게임 실시간 배속 조절 단축키 지원
-- [ ] **게이지 모드 확장**
-  - [ ] `Easy`, `Groove(Normal)`, `Hard`, `Hazard` (1콤보 이탈 폭사) 모드
-- [ ] **정밀 판정 오프셋 (Calibration Offset)**
-  - [ ] 하드웨어/디스플레이 레이턴시 보정 (±100ms, 1ms 단위)
+## 📋 Phase 7: 플레이 옵션(Modifiers) & 배속/판정 오프셋 시스템 (Completed)
+- [x] **노트 배치 모디파이어 (Lane Modifiers) 구현 (`beetle-core`)**
+  - [x] `Regular` (기본)
+  - [x] `Mirror` (1~7건반 좌우 대칭 반전)
+  - [x] `Random` (1~7건반 레인 무작위 셔플)
+  - [x] `R-Random` (순환 회전 셔플)
+  - [x] `S-Random` (노트 단위 슈퍼 랜덤)
+- [x] **배속(Hi-Speed) 및 플로팅 스크롤 시스템**
+  - [x] Hi-Speed 픽셀 스크롤 속도 동적 적용
+  - [x] 인게임 실시간 배속 조절 단축키 (F3/F4, PageUp/PageDown) 지원
+- [x] **게이지 모드 확장**
+  - [x] `Easy`, `Groove(Normal)`, `Hard`, `Hazard` (1콤보 이탈 즉시 폭사) 모드 및 전용 게이지 색상/기준선
+- [x] **정밀 판정 오프셋 (Calibration Offset)**
+  - [x] 하드웨어/디스플레이 레이턴시 보정 (F8/F9 조절 지원)
+- [x] **모디파이어 단위 테스트 (2개 테스트 통과, 총 30개 테스트 완료)**
 
 ---
 
