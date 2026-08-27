@@ -58,7 +58,7 @@ impl AudioEngine {
         let clock = AudioClock::new(Arc::clone(&samples_played), sample_rate);
 
         let (producer, consumer) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
-        let mut mixer = Mixer::new(sample_bank, consumer, samples_played);
+        let mut mixer = Mixer::new(sample_bank, consumer, samples_played, sample_rate);
 
         let err_fn = |err| eprintln!("Audio stream error: {err}");
 

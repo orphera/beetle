@@ -206,6 +206,7 @@ impl SampleBank {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     fn create_synthetic_wav(channels: u16, sample_rate: u32, bits: u16, samples: &[i16]) -> Vec<u8> {
         let mut buffer = Cursor::new(Vec::new());
