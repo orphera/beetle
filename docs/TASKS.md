@@ -13,21 +13,21 @@
 
 ---
 
-## 📋 Phase 1: `beetle-core` — 채보 파서 및 타이밍/판정 모델
-- [ ] **BMS / BME / BML 텍스트 파서 구현**
-  - [ ] `#HEADER` 태그 파싱 (`#TITLE`, `#ARTIST`, `#BPM`, `#TOTAL`, `#WAVxx`, `#BMPxx`, `#PLAYER`)
-  - [ ] `#MEASURE` 데이터 채널 파싱 (01: BGM, 02: 마디 길이 배율, 03/08: BPM 변경, 09: STOP, 11~19: 1P 단노트, 51~59: 1P 롱노트)
-  - [ ] Base36 (`01`~`ZZ`) 식별자 인코딩/디코딩 유틸리티
-  - [ ] 다양한 문자셋(Shift-JIS, UTF-8, CP949) 처리
-- [ ] **타이밍 모델 (`TimingModel`) 완성**
-  - [ ] 고정/가변 BPM 타임라인 계산
-  - [ ] `#STOP` 정지 시간 계산
-  - [ ] 마디/박자(Measure/Fraction) ↔ 절대 시간(Seconds/Samples) 양방향 정밀 변환
-- [ ] **판정 엔진 (`JudgeEngine`) 구현**
-  - [ ] 판정 윈도우 (PGREAT / GREAT / GOOD / BAD / POOR / MISS)
-  - [ ] 단노트 및 롱노트(Hold / Release) 판정 로직
-  - [ ] 스코어(EX-Score, Rate, Combo) 및 게이지(Groove, Hard) 시뮬레이션
-- [ ] **파서 및 타이밍 단위 테스트 작성**
+## 📋 Phase 1: `beetle-core` — 채보 파서 및 타이밍/판정 모델 (Completed)
+- [x] **BMS / BME / BML 텍스트 파서 구현**
+  - [x] `#HEADER` 태그 파싱 (`#TITLE`, `#ARTIST`, `#BPM`, `#TOTAL`, `#WAVxx`, `#BMPxx`, `#PLAYER`)
+  - [x] `#MEASURE` 데이터 채널 파싱 (01: BGM, 02: 마디 길이 배율, 03/08: BPM 변경, 09: STOP, 11~19: 1P 단노트, 51~59: 1P 롱노트)
+  - [x] Base36 (`01`~`ZZ`) 식별자 인코딩/디코딩 유틸리티
+  - [x] LNTYPE 1 및 #LNOBJ 롱노트 처리
+- [x] **타이밍 모델 (`TimingModel`) 완성**
+  - [x] 고정/가변 BPM 타임라인 계산
+  - [x] `#STOP` 정지 시간 계산
+  - [x] 마디/박자(Measure/Fraction) ↔ 절대 시간(Seconds/Samples) 양방향 정밀 변환
+- [x] **판정 엔진 (`JudgeEngine`) 구현**
+  - [x] 판정 윈도우 (PGREAT / GREAT / GOOD / BAD / POOR / MISS)
+  - [x] 단노트 및 롱노트(Hold / Release) 판정 로직
+  - [x] 스코어(EX-Score, Rate, Combo) 및 게이지(Groove, Hard) 시뮬레이션
+- [x] **파서, 타이밍, 판정 단위 테스트 작성 (13개 테스트 통과)**
 
 ---
 
