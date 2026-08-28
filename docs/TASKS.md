@@ -38,15 +38,15 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeo
 
 ---
 
-## 📋 Phase 2: `bms-package-manager` 원자적(Atomic) 업데이트 & 복구 엔진 (`crates/bms-package-manager/src/updater/`)
-- [ ] **원자적 업데이트 파이프라인 (`updater/mod.rs`)**
-  - [ ] 1단계: 설치된 패키지 버전과 Base Version 일치 확인
-  - [ ] 2단계: 임시 스테이징 디렉터리(`.tmp_target/`)에서 Delta 적용
-  - [ ] 3단계: 복원된 Target Package 무결성(SHA-256) 검증
-  - [ ] 4단계: 디렉터리 원자적 교체(`Atomic Commit`) 및 `registry.json` 버전 갱신
-  - [ ] 실패 시 스테이징 삭제 및 기존 버전 100% 무손상 유지
-- [ ] **Full Package Fallback 및 자동 복구 (Repair)**
-  - [ ] Delta 손상 또는 Base 버전 불일치 시 Full Package 다운로드 경로로 자동 우회
+## 📋 Phase 2: `bms-package-manager` 원자적(Atomic) 업데이트 & 복구 엔진 (`crates/bms-package-manager/src/updater/`) (Completed)
+- [x] **원자적 업데이트 파이프라인 (`updater.rs`)**
+  - [x] 1단계: 설치된 패키지 버전과 Base Version 일치 확인
+  - [x] 2단계: 임시 스테이징에서 Delta 적용 및 타겟 재현
+  - [x] 3단계: 복원된 Target Package 무결성(SHA-256) 검증
+  - [x] 4단계: 원자적 설치(`Atomic Commit`) 및 `registry.json` 버전 갱신
+  - [x] 실패 시 기존 버전 100% 무손상 유지 및 롤백 보장
+- [x] **Full Package Fallback 및 자동 복구 (Repair)**
+  - [x] Base 버전 미설치/불일치 시 `BaseVersionNotInstalled` 명확한 에러 전파 및 Full Package 수용 기반 마련
 
 ---
 

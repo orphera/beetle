@@ -171,6 +171,22 @@ impl PackageManager {
         self.install_from_bytes(bytes)
     }
 
+    /// Applies a delta `.bmdp` package file on disk onto the installed base version.
+    pub fn apply_delta<P: AsRef<Path>>(
+        &mut self,
+        delta_path: P,
+    ) -> Result<InstalledPackage, PackageManagerError> {
+        crate::updater::PackageUpdater::apply_delta_file(self, delta_path)
+    }
+
+    /// Applies raw delta `.bmdp` bytes onto the installed base version.
+    pub fn apply_delta_bytes(
+        &mut self,
+        delta_bytes: &[u8],
+    ) -> Result<InstalledPackage, PackageManagerError> {
+        crate::updater::PackageUpdater::apply_delta_bytes(self, delta_bytes)
+    }
+
     /// Uninstalls a specific package version.
     pub fn uninstall(&mut self, id: &str, version: &str) -> Result<(), PackageManagerError> {
         // 1. Remove from storage

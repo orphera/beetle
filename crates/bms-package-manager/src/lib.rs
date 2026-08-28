@@ -7,12 +7,14 @@ pub mod manager;
 pub mod pack;
 pub mod registry;
 pub mod storage;
+pub mod updater;
 
 pub use error::PackageManagerError;
 pub use manager::{InstalledPackage, PackageManager};
 pub use pack::{analyze_bms_folder, pack_bms_folder};
 pub use registry::{PackageRecord, PackageVersionRecord, Registry};
 pub use storage::PackageStorage;
+pub use updater::PackageUpdater;
 
 #[cfg(test)]
 mod tests {
@@ -169,6 +171,69 @@ mod tests {
         let pkg = active.open().unwrap();
         assert!(pkg.contains("main.bms"));
         assert!(pkg.contains("01.wav"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_atomic_delta_update_and_rollback() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_test_delta_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let mut manager = PackageManager::new(&temp_dir).unwrap();
+
+        // 1. Install Base Package v1.0.0
+        let pkg_v1 = create_test_package_bytes("com.example.delta_song", "1.0.0", "Delta Song V1");
+        manager.install_from_bytes(pkg_v1.clone()).unwrap();
+
+        let active_v1 = manager.get_active_package("com.example.delta_song").unwrap();
+        assert_eq!(active_v1.version, "1.0.0");
+
+        // 2. Create Target Package v1.1.0 and generate Delta (.bmdp)
+        let manifest_v2 = Manifest::new("com.example.delta_song", "1.1.0", "Delta Song V2");
+        let mut builder_v2 = PackageBuilder::new(manifest_v2);
+        builder_v2
+            .add_file("bms/test.bms", b"#TITLE Sample\n#BPM 150".to_vec())
+            .unwrap();
+        builder_v2
+            .add_file("audio/01.wav", vec![9, 9, 9]) // modified
+            .unwrap();
+        builder_v2
+            .add_file("bms/insane.bms", b"#TITLE Insane\n#PLAYLEVEL 12".to_vec()) // added
+            .unwrap();
+        let pkg_v2 = builder_v2.build_to_bytes().unwrap();
+
+        let delta_bytes = PackageUpdater::create_delta_between_packages(&pkg_v1, &pkg_v2).unwrap();
+
+        // 3. Apply Delta onto PackageManager
+        let installed_v2 = manager.apply_delta_bytes(&delta_bytes).unwrap();
+        assert_eq!(installed_v2.version, "1.1.0");
+
+        let active_v2 = manager.get_active_package("com.example.delta_song").unwrap();
+        assert_eq!(active_v2.version, "1.1.0");
+
+        let opened_v2 = active_v2.open().unwrap();
+        assert!(opened_v2.contains("bms/insane.bms"));
+        assert_eq!(opened_v2.read_entry("audio/01.wav").unwrap(), vec![9, 9, 9]);
+
+        // 4. Base v1.0.0 remains intact in version history
+        assert_eq!(
+            manager.get_installed_versions("com.example.delta_song"),
+            vec!["1.0.0", "1.1.0"]
+        );
+
+        // 5. Try applying delta onto non-existent base package
+        let orphan_v1 = create_test_package_bytes("com.other.orphan", "1.0.0", "Orphan");
+        let orphan_v2 = create_test_package_bytes("com.other.orphan", "1.1.0", "Orphan V2");
+        let orphan_delta = PackageUpdater::create_delta_between_packages(&orphan_v1, &orphan_v2).unwrap();
+
+        let orphan_res = manager.apply_delta_bytes(&orphan_delta);
+        assert!(matches!(orphan_res, Err(PackageManagerError::BaseVersionNotInstalled { .. })));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
