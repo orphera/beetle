@@ -246,29 +246,49 @@ registry update
 
 ---
 
-## 10. Duplicate Installation
+## 10. Atomic Delta Update 파이프라인 (`updater.rs`)
+
+`bms-package-manager`는 차분 패키지(`.bmdp`)를 기존에 설치된 Base 패키지에 원자적으로 적용하여 타겟 버전을 생성·설치한다.
+
+```text
+1단계: Base State 검증 (Installed State vs Delta.base_state_hash)
+        ↓
+2단계: 격리된 Staging 디렉터리(.staging/)에서 Delta 적용 및 타겟 재현
+        ↓
+3단계: 복원된 Target Package SHA-256 및 Target Manifest 무결성 검증
+        ↓
+4단계: 원자적 설치(Atomic Commit) 및 registry.json 버전/해시 갱신
+```
+
+* **원자적 안전성 (Atomic Safety)**:
+  * Delta 적용 도중 예외, 체크섬 불일치, 프로세스 강제 종료가 발생해도 기존에 설치된 패키지는 100% 무손상으로 보존됩니다.
+  * 복원 실패 시 `BaseStateNotInstalled` 또는 `MismatchedBaseState` 오류를 반환하며, Full Package 재설치(Fallback)로 투명하게 전환 가능합니다.
+
+---
+
+## 11. Duplicate Installation
 
 이미 동일한 package ID와 state가 설치되어 있는 경우 `AlreadyInstalled` 오류를 반환한다.
 
 ---
 
-## 11. Uninstall
+## 12. Uninstall
 
 ```text
-manager.uninstall("example.song", "a3f8c2")
+manager.uninstall("example.song", "1.0.0")
 ```
 
 ---
 
-## 12. Multiple States & 13. Active State
+## 13. Multiple States & Active State
 
-동일 package의 여러 state를 보관하며, package ID마다 하나의 active state를 지정할 수 있다.
+동일 package의 여러 버전(State)을 보관하며, package ID마다 하나의 active state를 지정할 수 있다.
 
 ---
 
 ## 14. Discovery API
 
-Beetle이 사용할 수 있는 최소 API를 제공한다.
+Beetle 및 외부 런타임이 사용할 수 있는 패키지 조회 API를 제공한다.
 
 ```rust
 manager.list_packages() -> Vec<PackageSummary>
@@ -287,32 +307,49 @@ pub struct InstalledPackage {
 
 ---
 
-## 15. Beetle Integration
+## 15. CLI (`bpm`) 명세
 
-```text
-Beetle
-  ↓
-Package Manager
-  ↓
-InstalledPackage
-  ↓
-bms-package
-  ↓
-BMS file
+```bash
+# 1. BMS 폴더를 .bmsp 파일로 패킹
+bpm pack ./songs/my_song/ -o my_song-1.0.0.bmsp
+
+# 2. 기존 BMS 폴더를 패키지 관리자로 즉시 임포트 & 설치
+bpm import ./songs/my_song/
+
+# 3. 로컬 .bmsp 패키지 파일 설치
+bpm install ./my_song-1.0.0.bmsp
+
+# 4. 차분(Delta, .bmdp) 생성
+bpm diff base-1.0.0.bmsp target-1.1.0.bmsp -o patch-1.1.0.bmdp
+bpm pack ./songs/my_song_v2/ --base base-1.0.0.bmsp -o patch-1.1.0.bmdp
+
+# 5. 차분 패치 적용 및 원자적 업데이트
+bpm patch base-1.0.0.bmsp patch-1.1.0.bmdp -o target-1.1.0.bmsp
+bpm update patch-1.1.0.bmdp
+
+# 6. 설치된 패키지 목록 조회
+bpm list
+
+# 7. 패키지 상세 정보 및 버전 목록 확인
+bpm info <package_id>
+
+# 8. 활성 버전 전환
+bpm activate <package_id> <version>
+
+# 9. 패키지 버전 삭제
+bpm uninstall <package_id> <version>
 ```
 
 ---
 
-## 16. CLI (`bpm`)
+## 16. 독립형 GUI 매니저 (`bpm-gui`)
 
-```text
-bpm install <path.bmsp>
-bpm list
-bpm info <package_id>
-bpm states <package_id>
-bpm uninstall <package_id> [state]
-bpm activate <package_id> <state>
-```
+* **개요**: 터미널 없이 데스크톱에서 독립 실행되는 경량 패키지 관리자 GUI.
+* **기능**:
+  * 패키지 목록 및 버전 탐색, 실시간 CJK 검색 필터 (`[/]`)
+  * `.bmsp` / `.bmdp` 파일 드래그 앤 드롭 또는 1-클릭 설치 (`[D]`/`F3`)
+  * 차분 제작 마법사 모달 (`[C]`/`F4`): Base 곡과 타겟 폴더 선택 시 1-클릭 `.bmdp` 생성
+  * 백그라운드 Worker 스레드 + 회전 스피너를 통한 60 FPS 논블로킹 UI (`INV-5`)
 
 ---
 
@@ -321,4 +358,4 @@ bpm activate <package_id> <state>
 * Path traversal 방어 (`validate_entry_path`)
 * Symlink/Absolute path 차단
 * Safe atomic extraction
-* Remote repo / DRM / Account는 비담당
+* Remote repo / DRM / Account는 비담당 (향후 확장 제안서 참조)

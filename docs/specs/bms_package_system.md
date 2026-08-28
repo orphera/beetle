@@ -34,6 +34,10 @@ BMS Package
 * 이미 설치된 Package를 안전하게 업데이트할 수 있다.
 * Package를 다른 BMS 프로그램에서도 사용할 수 있도록 한다.
 
+> 📚 **세부 구현 명세서 및 책임 분리 (Detailed Specifications)**:
+> - **[bms_package.md](bms_package.md)**: `.bmsp` 풀 패키지 & `.bmdp` 차분(Delta) 포맷, `DeltaManifest`, `DeltaBuilder`/`DeltaApplicator` 라이브러리 스펙
+> - **[bms_package_manager.md](bms_package_manager.md)**: 원자적 차분 업데이트 파이프라인(`updater.rs`), `registry.json`, `bpm` CLI 및 `bpm-gui` 매니저 스펙
+
 ---
 
 # 2. 핵심 개념

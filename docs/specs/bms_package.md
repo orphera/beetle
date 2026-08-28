@@ -66,13 +66,10 @@ Installed Content
 
 ---
 
-### 2.3 가능한 한 단순한 포맷
-
-첫 버전에서는 범용적인 패키지 시스템을 만들지 않는다.
-
+### 2.3 단순성과 결정론적 설계
+ 
 BMS 콘텐츠를 안정적으로 묶고 이동할 수 있는 최소한의 포맷을 정의한다.
-
-의존성, delta update, content-addressed storage 등의 기능은 향후 확장 대상으로 남긴다.
+BMS 작품의 대용량 재배포를 방지하기 위해 **결정론적 차분(Delta, `.bmdp`) 포맷 및 Diff/Patch 엔진**을 내장하여 지원한다.
 
 ---
 
@@ -432,7 +429,56 @@ Builder는 다음을 검증한다.
 
 ---
 
-## 13. 오류 처리
+## 13. BMS Package Delta 포맷 및 Diff/Patch 엔진 (`delta/`)
+
+BMS 작품의 대용량 재배포를 방지하고 차분 제작자/원곡자의 배포 마찰을 제로화하기 위해 **결정론적 차분 아카이브(`.bmdp`)** 포맷과 코어 라이브러리를 제공한다.
+
+### 13.1 Delta 아카이브 구조 (`.bmdp`)
+
+```text
+patch.bmdp
+├── delta_manifest.json
+└── resources/ (추가되거나 수정된 파일만 포함)
+```
+
+### 13.2 Delta Manifest 스키마 (`delta_manifest.json`)
+
+```json
+{
+  "format": 1,
+  "package_id": "example.song",
+  "base_state_hash": "a3f8c2...",
+  "target_state_hash": "7b1d0e...",
+  "base_checksum": "sha256:...",
+  "target_checksum": "sha256:...",
+  "added_resources": ["bms/another.bme", "audio/keysound.wav"],
+  "modified_resources": ["manifest.json"],
+  "removed_resources": ["old_chart.bms"],
+  "unchanged_resources": ["audio/bgm.ogg", "image/stage.bmp"]
+}
+```
+
+### 13.3 결정론적 Diff/Patch 보장 (`INV-6`)
+
+1. **`DeltaBuilder`**:
+   * Base 패키지와 Target 패키지 간의 리소스/차트 diff를 추출하여 변경/추가된 리소스만 압축한 `.bmdp`를 생성합니다.
+   * 사전순 정렬 및 고정 타임스탬프(`1980-01-01 00:00:00`)를 적용합니다.
+2. **`DeltaApplicator`**:
+   * `Base Package + Delta Archive`를 검증하고 `Target Package`를 100% 바이트 단위로 동일하게 복원합니다.
+   * 불변식: $\text{Apply}(\text{Package@base}, \text{Delta}) = \text{Package@target}$
+
+### 13.4 Delta 에러 정의 (`DeltaError`)
+
+* `MismatchedBaseState { expected: String, actual: String }`
+* `MismatchedTargetState { expected: String, actual: String }`
+* `CorruptedPayloadChecksum`
+* `InvalidDeltaManifest(String)`
+* `MissingBaseResource(String)`
+* `PackageError(PackageError)`
+
+---
+
+## 14. 오류 처리
 
 라이브러리는 잘못된 패키지를 가능한 한 명확하게 구분한다 (`PackageError`).
 
@@ -449,7 +495,7 @@ Builder는 다음을 검증한다.
 
 ---
 
-## 14. Security
+## 15. Security
 
 패키지는 외부에서 받은 untrusted input으로 취급한다.
 
@@ -463,26 +509,26 @@ Builder는 다음을 검증한다.
 
 ---
 
-## 15. Dependency
+## 16. Dependency
 
 첫 버전의 `bms-package`에서는 dependency를 정의하지 않는다.
 
 ---
 
-## 16. Extension Strategy
+## 17. Extension Strategy
 
 Manifest는 향후 확장을 고려하여 알 수 없는 optional field를 보존/무시할 수 있다 (`serde(flatten)` extra).
 반면 `format`처럼 package semantics를 결정하는 필드는 엄격하게 처리한다.
 
 ---
 
-## 17. BMS-specific metadata
+## 18. BMS-specific metadata
 
 첫 버전에서는 BMS의 모든 메타데이터를 manifest에 복제하지 않는다. Authoritative source는 BMS 파일 자체다.
 
 ---
 
-## 18. Non-goals
+## 19. Non-goals
 
 다음 기능은 이 프로젝트의 목표가 아니다.
 
@@ -504,7 +550,7 @@ Manifest는 향후 확장을 고려하여 알 수 없는 optional field를 보�
 
 ---
 
-## 19. Beetle과의 Integration Boundary
+## 20. Beetle과의 Integration Boundary
 
 ```text
                  ┌───────────────┐
