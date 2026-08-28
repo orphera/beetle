@@ -15,6 +15,8 @@ impl SoftwareRenderer {
         visual_levels: &[f32; 16],
         bga_image: Option<&ImageBuffer>,
     ) {
+        self.clear();
+
         let is_danger = (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
             || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
         let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
