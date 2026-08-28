@@ -50,16 +50,16 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeo
 
 ---
 
-## 📋 Phase 3: `bpm` CLI 차분 명령어 및 제작자 툴링 (`crates/bpm/`)
-- [ ] **`bpm diff` 서브커맨드**
-  - [ ] `bpm diff <base.bmsp> <target.bmsp> -o <diff.bmdp>`
-  - [ ] 디렉터리 기반 diff: `bpm diff <base_dir> <target_dir> -o <diff.bmdp>`
-- [ ] **`bpm patch` 서브커맨드**
-  - [ ] `bpm patch <base.bmsp> <diff.bmdp> -o <target.bmsp>`
-- [ ] **`bpm pack --base` 차분 제작자 지원 플래그**
-  - [ ] 새로 만든 채보 폴더에서 BMS 헤더(#TITLE, #ARTIST, #LEVEL) 자동 추출 후 Base 패키지와 묶어 즉시 `.bmdp` 생성
-- [ ] **`bpm update` 서브커맨드 연동**
-  - [ ] 로컬 또는 원격 차분 패키지를 감지하여 1-명령어 자동 업데이트
+## 📋 Phase 3: `bpm` CLI 차분 명령어 및 제작자 툴링 (`crates/bpm/`) (Completed)
+- [x] **`bpm diff` 서브커맨드**
+  - [x] `bpm diff <base.bmsp> <target.bmsp> -o <diff.bmdp>`
+  - [x] 디렉터리 기반 diff: `bpm diff <base_dir> <target_dir> -o <diff.bmdp>`
+- [x] **`bpm patch` 서브커맨드**
+  - [x] `bpm patch <base.bmsp> <diff.bmdp> -o <target.bmsp>`
+- [x] **`bpm pack --base` 차분 제작자 지원 플래그**
+  - [x] 새로 만든 채보 폴더에서 BMS 헤더(#TITLE, #ARTIST, #LEVEL) 자동 추출 후 Base 패키지와 묶어 즉시 `.bmdp` 생성
+- [x] **`bpm update` 서브커맨드 연동**
+  - [x] 로컬 차분 패키지를 감지하여 1-명령어 자동 원자적 업데이트
 
 ---
 
