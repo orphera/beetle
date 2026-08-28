@@ -42,7 +42,7 @@ BMS Package
 
 ```text
 Package
-Package Version
+Package State
 Package Delta
 Archive
 Repository
@@ -61,17 +61,17 @@ Package
   ≠ Player
 ```
 
-그리고 차분은 Package 자체의 정체성이 아니라 **Package Version 사이의 변화를 표현하는 전달 단위**다.
+그리고 차분은 Package 자체의 정체성이 아니라 **Package State 사이의 변화를 표현하는 전달 단위**다.
 
 ```text
 Package
   │
-  ├── Version 1
-  ├── Version 2
-  └── Version 3
+  ├── State a3f8c2...
+  ├── State 7b1d0e...
+  └── State e9c4a1...
 
-Version 1 ──delta──> Version 2
-Version 2 ──delta──> Version 3
+a3f8c2 ──delta──> 7b1d0e
+7b1d0e ──delta──> e9c4a1
 ```
 
 ---
@@ -107,45 +107,88 @@ Package는 특정 Player의 내부 데이터 구조가 아니다.
 
 # 4. Package Identity
 
-Package는 안정적인 식별자를 가진다.
-
-```yaml
-id: example.artist.song
-version: 1.2.0
-```
-
-`id`와 `version`은 서로 다른 개념이다.
+Package는 두 수준의 식별자를 가진다.
 
 ```text
-example.artist.song@1.0.0
-example.artist.song@1.1.0
-example.artist.song@1.2.0
+id          = 작품을 식별하는 논리적 이름 (사람이 부여)
+state_hash  = Package 내용물의 SHA-256 해시 (내용에서 결정론적으로 도출)
 ```
 
-위 세 개는 서로 다른 Package가 아니라 **동일한 Package의 서로 다른 Version**이다.
+예:
+
+```text
+example.artist.song : a3f8c2d1...
+example.artist.song : 7b1d0e9f...
+```
+
+위 두 개는 서로 다른 Package가 아니라 **동일한 Package의 서로 다른 State**다.
+
+`id`는 사람이 부여하는 논리적 그룹이다. `state_hash`는 내용물에서 자동으로 결정된다.
+
+```text
+State Hash = SHA-256(canonical archive bytes)
+```
+
+동일한 내용물은 항상 동일한 해시를 생성한다(INV-6 결정론적 패키징).
 
 Package Manager는 파일명이나 설치 경로를 identity로 사용하지 않는다.
 
 ---
 
-# 5. Package Version
+# 5. Package State
 
-Version은 특정 시점의 Package 전체 상태를 식별한다.
+State는 특정 시점의 Package 전체 상태를 식별한다.
 
-중요한 것은 Package Version을 **현재 설치된 파일들의 우연한 상태**가 아니라 재현 가능한 하나의 상태로 취급하는 것이다.
+State 번호를 사람이 부여하는 대신, **Package 내용물의 해시가 곧 State의 식별자**다.
 
-따라서 Version은 다음과 같은 정보를 결정할 수 있어야 한다.
+```text
+State Hash = SHA-256(canonical archive bytes)
+```
+
+이는 git의 commit hash와 동일한 원리다.
+
+```text
+git commit = SHA-1(tree + parent + author + message)
+Package State = SHA-256(manifest + charts + resources)
+```
+
+이 모델에서는 다음과 같은 문제가 구조적으로 사라진다.
+
+```text
+"누가 v1.1.0을 올릴 권한이 있는가?"  → 질문 자체가 없음
+"같은 v1.1.0이 두 개 존재하면?"      → 내용이 다르면 해시가 다름
+"v1.0.0과 v1.1.0 중 어느 것이 진짜?" → 해시가 곧 정체성
+```
+
+State에는 다음 정보가 포함된다.
 
 ```text
 Package ID
-Package Version
+State Hash (computed, not stored in manifest)
 Manifest
 Charts
 Resource Set
-Dependency Set
 ```
 
-Package Manager는 이 Version을 기준으로 update 여부를 판단한다.
+선택적으로 다음을 Manifest에 포함할 수 있다.
+
+```text
+label       사람이 읽을 수 있는 이름 ("initial release", "ANOTHER 추가")
+parent      이전 State의 해시 (변경 이력 추적, optional)
+created_at  생성 시점의 타임스탬프 (optional)
+```
+
+`parent`를 통해 State 간의 시간 순서와 변경 이력을 추적할 수 있다.
+
+```text
+a3f8c2 (label: "initial release", parent: null)
+   │
+   ▼
+7b1d0e (label: "ANOTHER 추가", parent: a3f8c2)
+   │
+   ▼
+e9c4a1 (label: "키음 수정", parent: 7b1d0e)
+```
 
 ---
 
@@ -158,7 +201,9 @@ Manifest는 Package의 구조와 의미를 정의한다.
 ```yaml
 package:
   id: example.artist.song
-  version: 1.2.0
+  label: "ANOTHER 추가"
+  parent: a3f8c2d1...
+  created_at: 2024-02-01T00:00:00Z
 
 metadata:
   title: Example Song
@@ -173,6 +218,8 @@ charts:
 resources:
   ...
 ```
+
+Manifest에는 `version` 필드가 없다. State의 식별자는 아카이브 전체의 SHA-256 해시이며, Manifest 내부에 저장되지 않는다(순환 의존 방지).
 
 Manifest는 Package의 canonical description이다.
 
@@ -261,34 +308,34 @@ Delta
 
 ---
 
-# 10. Delta는 Version 간 변환이다
+# 10. Delta는 State 간 변환이다
 
 Delta는 독립적인 Package가 아니다.
 
 ```text
-Base Version
+Base State
      │
      │ Delta
      ▼
-Target Version
+Target State
 ```
 
 예:
 
 ```text
-example.song@1.0.0
+example.song : a3f8c2...
         │
         │ delta
         ▼
-example.song@1.1.0
+example.song : 7b1d0e...
 ```
 
 따라서 Delta에는 최소한 다음 개념이 필요하다.
 
 ```text
 package_id
-base_version
-target_version
+base_hash
+target_hash
 delta_format
 delta contents
 integrity information
@@ -301,25 +348,25 @@ integrity information
 Delta는 아무 Package에나 적용할 수 있는 것이 아니다.
 
 ```text
-Base Version
+Base State
      │
-     │ exact match
+     │ exact hash match
      ▼
 Delta
      │
      ▼
-Target Version
+Target State
 ```
 
-Manager는 현재 설치된 Version이 Delta가 요구하는 `base_version`과 정확히 일치하는지 확인한다.
+Manager는 현재 설치된 State의 해시가 Delta가 요구하는 `base_hash`와 정확히 일치하는지 확인한다.
 
-잘못된 Version에 Delta를 적용하려고 하지 않는다.
+잘못된 State에 Delta를 적용하려고 하지 않는다.
 
 예:
 
 ```text
-Installed: 1.0.0
-Delta:     1.1.0 → 1.2.0
+Installed: a3f8c2...
+Delta:     7b1d0e... → e9c4a1...
 ```
 
 이 경우 Delta를 적용할 수 없다.
@@ -341,7 +388,7 @@ Apply(
 Package@target
 ```
 
-즉 Delta 적용 결과는 완전한 Target Version이어야 한다.
+즉 Delta 적용 결과는 완전한 Target State이어야 한다.
 
 이 특성을 통해 Delta를 적용한 결과와 Target Package를 직접 설치한 결과가 동일한 Package 상태가 되도록 한다.
 
@@ -413,29 +460,29 @@ Target Package
 
 # 15. Delta Chain
 
-여러 Version이 존재할 수 있다.
+여러 State가 존재할 수 있다.
 
 ```text
-1.0 ──→ 1.1 ──→ 1.2 ──→ 1.3
+a3f8c2 ──→ 7b1d0e ──→ e9c4a1 ──→ f2b7d3
 ```
 
 따라서 Manager는 필요한 경우 Delta Chain을 사용할 수 있다.
 
 ```text
-1.0
+a3f8c2
  ↓
-delta 1.0→1.1
+delta a3f8c2→7b1d0e
  ↓
-1.1
+7b1d0e
  ↓
-delta 1.1→1.2
+delta 7b1d0e→e9c4a1
  ↓
-1.2
+e9c4a1
 ```
 
 다만 Delta Chain이 무한히 길어지는 것은 바람직하지 않다.
 
-Repository는 특정 Version에 대해 full Package를 제공할 수 있어야 하고, Manager는 다음을 비교해 더 합리적인 경로를 선택할 수 있다.
+Repository는 특정 State에 대해 full Package를 제공할 수 있어야 하고, Manager는 다음을 비교해 더 합리적인 경로를 선택할 수 있다.
 
 ```text
 Full Package
@@ -453,7 +500,7 @@ Delta Chain
 
 Delta만으로 Package를 배포하는 시스템으로 만들지 않는다.
 
-Repository는 가능하면 특정 Version의 완전한 Package를 제공할 수 있어야 한다.
+Repository는 가능하면 특정 State의 완전한 Package를 제공할 수 있어야 한다.
 
 ```text
                 ┌── Full Package ──┐
@@ -464,8 +511,8 @@ Repository ─────┤                  ├──> Installed
 이것이 중요한 이유는 다음과 같다.
 
 * 최초 설치
-* 오래된 Version에서 업데이트
-* Delta가 존재하지 않는 Version
+* 오래된 State에서 업데이트
+* Delta가 존재하지 않는 State
 * Delta 적용 실패
 * 손상된 설치 복구
 * 새로운 Manager 구현
@@ -482,13 +529,13 @@ Package와 Delta 모두 integrity 정보를 가져야 한다.
 
 ```text
 Package
-  ├── version
+  ├── state_hash
   ├── size
   └── checksum
 
 Delta
-  ├── base_version
-  ├── target_version
+  ├── base_hash
+  ├── target_hash
   ├── size
   └── checksum
 ```
@@ -505,7 +552,7 @@ Apply
 Target Package integrity
 ```
 
-최종 결과가 기대한 Target Version과 일치하지 않는 경우 설치를 성공으로 처리하지 않는다.
+최종 결과가 기대한 Target State의 해시와 일치하지 않는 경우 설치를 성공으로 처리하지 않는다.
 
 ---
 
@@ -516,7 +563,7 @@ Delta를 적용하는 과정에서 프로그램이 종료되거나 오류가 발
 권장 흐름:
 
 ```text
-Installed v1
+Installed (a3f8c2)
     │
     ▼
 Download Delta
@@ -537,7 +584,7 @@ Validate target
 Atomic Commit
     │
     ▼
-Installed v2
+Installed (7b1d0e)
 ```
 
 즉 다음 상태는 허용하지 않는다.
@@ -555,7 +602,7 @@ Package와 Installation을 분리한다.
 Package:
 
 ```text
-example.song@1.2.0
+example.song : 7b1d0e...
 ```
 
 Installation:
@@ -601,7 +648,7 @@ Package 자체의 의미를 정의하는 것은 Manager의 책임이 아니다.
 
 # 21. Repository
 
-Repository는 Package 및 Version을 제공하는 공급원이다.
+Repository는 Package 및 State을 제공하는 공급원이다.
 
 ```text
 Repository
@@ -644,7 +691,7 @@ Repository는 최소한 다음 정보를 제공할 수 있는 추상화로 본�
 
 ```text
 package discovery
-version discovery
+state discovery
 package retrieval
 delta retrieval
 ```
@@ -730,7 +777,7 @@ Player는 playback을 위해 Repository에 접근하지 않는다.
 Package Model
 Manifest
 Resource
-Version
+State
 Validation
 Delta Representation
 Delta Application
@@ -836,7 +883,7 @@ Manager는 Delta가 존재한다면 사용할 수 있지만, Delta 자체를 반
 
 # 29. Update Path
 
-Version graph를 다음처럼 생각할 수 있다.
+State graph를 다음처럼 생각할 수 있다.
 
 ```text
        delta
@@ -848,7 +895,7 @@ Version graph를 다음처럼 생각할 수 있다.
       full
 ```
 
-Manager는 현재 Version에서 목표 Version까지 갈 수 있는 경로를 선택한다.
+Manager는 현재 State에서 목표 State까지 갈 수 있는 경로를 선택한다.
 
 초기 구현에서는 다음 정도면 충분하다.
 
@@ -879,7 +926,7 @@ OK       Broken
          Repair
 ```
 
-Repair는 가능하면 해당 Version의 Full Package를 기준으로 수행한다.
+Repair는 가능하면 해당 State의 Full Package를 기준으로 수행한다.
 
 Delta는 복구 수단보다 **정상적인 Update 최적화 수단**으로 취급한다.
 
@@ -905,7 +952,7 @@ Package Manager 역시 Package를 설치한다는 이유로 Package 내부 코�
 
 # 32. Determinism
 
-동일한 Package Version은 가능한 한 동일한 결과를 생성해야 한다.
+동일한 Package State은 가능한 한 동일한 결과를 생성해야 한다.
 
 Delta 역시:
 
@@ -925,7 +972,7 @@ Base + Delta
 
 ---
 
-# 33. Format Version과 Package Version
+# 33. Format Version과 Package State
 
 둘은 반드시 구분한다.
 
@@ -933,7 +980,7 @@ Base + Delta
 Package Format Version
     = Package 구조 자체의 버전
 
-Package Version
+Package State
     = 작품의 버전
 ```
 
@@ -944,7 +991,7 @@ format = 2
 package = 1.4.0
 ```
 
-Format이 변경되더라도 Package Version과 동일한 의미를 갖지 않는다.
+Format이 변경되더라도 Package State과 동일한 의미를 갖지 않는다.
 
 ---
 
@@ -975,13 +1022,13 @@ Format v2
 ```text
 Package ID
     │
-    ├── Version 1
+    ├── State 1
     │
-    ├── Version 2
+    ├── State 2
     │      ▲
     │      │ Delta
     │      │
-    └── Version 3
+    └── State 3
            ▲
            │ Delta
            │
@@ -1009,7 +1056,7 @@ Package ID
                 │ resources        │
                 └────────┬─────────┘
                          │
-                    has versions
+                    has states
                          │
              ┌───────────┼───────────┐
              ▼           ▼           ▼
@@ -1055,7 +1102,7 @@ Package ≠ Installation
 Package ≠ ZIP
 ```
 
-### 4. Delta는 Version 간 변환이다.
+### 4. Delta는 State 간 변환이다.
 
 ```text
 Base + Delta = Target
@@ -1093,7 +1140,7 @@ Player  → playback
 
 ```text
 Third-party sabun → 독립 Package (별도 id) 권장
-동일 id의 Version 추가 → 해당 Package 관리 주체의 몫
+동일 id의 State 추가 → 해당 Package 관리 주체의 몫
 포맷 수준의 저자 인증 → 제공하지 않음 (배포 계층의 책임)
 ```
 
@@ -1114,7 +1161,7 @@ Delta fail → Full Package → 정상 설치
 ```text
 Manifest
 Package ID
-Version
+State
 Charts
 Resources
 Validation
@@ -1153,7 +1200,7 @@ Integrity verification
 ### Phase 5 — Update
 
 ```text
-Version resolution
+State resolution
 Delta selection
 Atomic update
 Fallback to full package
@@ -1191,10 +1238,9 @@ sabun.author.song-another@1.0.0  ← 제3자의 독립 Package
 ```yaml
 package:
   id: sabun.author.song-another
-  version: 1.0.0
   base_package:
     id: original.artist.song
-    min_version: 1.0.0
+    min_state: 1.0.0
 ```
 
 `base_package`는 다음 의미를 가진다.
@@ -1202,7 +1248,7 @@ package:
 ```text
 base_package
   ├── id        : 원본 Package의 id
-  ├── min_version : 최소 호환 Version (optional)
+  ├── min_state : 최소 호환 State (optional)
   └── purpose   : 리소스 공유 선언 (채보만 추가, 키음은 원본 사용)
 ```
 
@@ -1211,15 +1257,15 @@ base_package
 중요한 점은 다음과 같다.
 
 ```text
-base_package ≠ 원본의 Version 체인에 합류
+base_package ≠ 원본의 State 체인에 합류
 base_package ≠ 원본 Package의 Delta
 ```
 
-제3자 Package는 원본의 Version history를 오염시키지 않는다.
+제3자 Package는 원본의 State history를 오염시키지 않는다.
 
 ## 38.2 모델 B: 동일 Package의 Delta
 
-동일한 `id`의 Version chain에 Delta를 추가하는 것은 **해당 Package를 관리하는 주체**의 몫이다.
+동일한 `id`의 State chain에 Delta를 추가하는 것은 **해당 Package를 관리하는 주체**의 몫이다.
 
 ```text
 original.artist.song@1.0.0
@@ -1228,10 +1274,10 @@ original.artist.song@1.0.0
 original.artist.song@1.1.0
 ```
 
-제3자가 기존 곡에 채보를 추가하고 싶다면, 동일 `id`에 Version을 올리는 것이 아니라 **모델 A(독립 Package)**를 사용하는 것을 권장한다.
+제3자가 기존 곡에 채보를 추가하고 싶다면, 동일 `id`에 State을 올리는 것이 아니라 **모델 A(독립 Package)**를 사용하는 것을 권장한다.
 
 ```text
-original.artist.song@1.1.0        ← 동일 id의 새 Version
+original.artist.song@1.1.0        ← 동일 id의 새 State
 sabun.author.song-another@1.0.0   ← 별도 id의 독립 Package
 ```
 
@@ -1265,7 +1311,7 @@ Package 포맷은 저자의 신원(Identity)을 검증하지 않는다.
 
 ```text
 Package Format
-  ├── id, version, manifest, resources
+  ├── id, state, manifest, resources
   └── 저자 인증 메커니즘 → 없음
 ```
 
@@ -1377,7 +1423,7 @@ Full Package Fallback이 빈번하게 발생하면 Delta 시스템의 의미가 
    → 실패가 예상되면 즉시 Full Package 경로로 전환
    → 불필요한 Delta 다운로드 방지
 
-3. Repository는 최신 N개 Version에 대해 Full Package를 유지
+3. Repository는 최신 N개 State에 대해 Full Package를 유지
    → Delta Chain이 끊어져도 항상 복구 가능
 ```
 
@@ -1395,7 +1441,7 @@ Full Package는 항상 존재하며 항상 작동한다.
 
 이 시스템의 중심은 Package Manager가 아니다.
 
-중심은 **BMS 작품을 안정적인 Package와 Version으로 정의하는 것**이다.
+중심은 **BMS 작품을 안정적인 Package와 State으로 정의하는 것**이다.
 
 그 위에 다음 기능들이 자연스럽게 올라간다.
 
@@ -1407,7 +1453,7 @@ Full Package는 항상 존재하며 항상 작동한다.
                        │
               ┌────────┴────────┐
               ▼                 ▼
-           Version             Metadata
+           State             Metadata
               │
               ▼
             Delta
@@ -1427,7 +1473,7 @@ Full Package는 항상 존재하며 항상 작동한다.
 
 그리고 차분 시스템의 핵심은 다음 한 문장으로 요약한다.
 
-> **Delta는 Package의 또 다른 형태가 아니라, 동일한 Package의 한 Version을 다른 Version으로 변환하는 방법이다.**
+> **Delta는 Package의 또 다른 형태가 아니라, 동일한 Package의 한 State을 다른 State으로 변환하는 방법이다.**
 
 따라서 Package Manager가 Delta를 선택적으로 사용하더라도 Package와 Player의 모델은 복잡해지지 않아야 한다.
 
@@ -1438,13 +1484,13 @@ Full Package는 항상 존재하며 항상 작동한다.
                  │    BMS Package     │
                  │                    │
                  │  Identity          │
-                 │  Version           │
+                 │  State           │
                  │  Manifest          │
                  │  Charts            │
                  │  Resources         │
                  └─────────┬──────────┘
                            │
-                    Version changes
+                    State changes
                            │
                            ▼
                     ┌─────────────┐

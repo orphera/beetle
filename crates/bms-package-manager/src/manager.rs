@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledPackage {
     pub id: String,
-    pub version: String,
+    pub state_hash: String,
     pub name: String,
     pub author: Option<String>,
     pub location: PathBuf,
@@ -29,12 +29,10 @@ impl InstalledPackage {
         let manifest_path = self.location.join(MANIFEST_FILENAME);
         let manifest_content = fs::read_to_string(manifest_path)?;
         let manifest = Manifest::from_json_str(&manifest_content)?;
-
         let mut builder = bms_package::PackageBuilder::new(manifest);
         self.collect_files_recursive(&self.location, &self.location, &mut builder)?;
         let bytes = builder.build_to_bytes()?;
-        let pkg = Package::from_bytes(bytes)?;
-        Ok(pkg)
+        Ok(Package::from_bytes(bytes)?)
     }
 
     /// Reads and returns the package manifest from the installed directory.
@@ -72,7 +70,7 @@ impl InstalledPackage {
     }
 }
 
-/// Central BMS Package Manager coordinating installation, uninstallation, active versions, and discovery.
+/// Central BMS Package Manager coordinating installation, uninstallation, active states, and discovery.
 #[derive(Debug)]
 pub struct PackageManager {
     root_dir: PathBuf,
@@ -122,14 +120,14 @@ impl PackageManager {
         let pkg = Package::from_bytes(bytes.clone())?;
         let manifest = pkg.manifest().clone();
         let id = manifest.id.clone();
-        let version = manifest.version.clone();
+        let state_hash = pkg.state_hash();
 
         // 2. Check if already installed
         if let Some(record) = self.registry.get_package(&id) {
-            if record.versions.contains_key(&version) {
+            if record.state_hashes.contains_key(&state_hash) {
                 return Err(PackageManagerError::AlreadyInstalled {
                     id: id.clone(),
-                    version: version.clone(),
+                    state_hash: state_hash.clone(),
                 });
             }
         }
@@ -139,12 +137,12 @@ impl PackageManager {
 
         // 4. Update registry
         let now_str = "2026-08-28T02:00:00Z".to_string(); // Or ISO timestamp
-        self.registry.register(&manifest, rel_path, now_str)?;
+        self.registry.register(&manifest, &state_hash, rel_path, now_str)?;
         self.save_registry()?;
 
         Ok(InstalledPackage {
             id,
-            version,
+            state_hash,
             name: manifest.name,
             author: manifest.author,
             location,
@@ -171,7 +169,7 @@ impl PackageManager {
         self.install_from_bytes(bytes)
     }
 
-    /// Applies a delta `.bmdp` package file on disk onto the installed base version.
+    /// Applies a delta `.bmdp` package file on disk onto the installed base state.
     pub fn apply_delta<P: AsRef<Path>>(
         &mut self,
         delta_path: P,
@@ -179,7 +177,7 @@ impl PackageManager {
         crate::updater::PackageUpdater::apply_delta_file(self, delta_path)
     }
 
-    /// Applies raw delta `.bmdp` bytes onto the installed base version.
+    /// Applies raw delta `.bmdp` bytes onto the installed base state.
     pub fn apply_delta_bytes(
         &mut self,
         delta_bytes: &[u8],
@@ -187,21 +185,21 @@ impl PackageManager {
         crate::updater::PackageUpdater::apply_delta_bytes(self, delta_bytes)
     }
 
-    /// Uninstalls a specific package version.
-    pub fn uninstall(&mut self, id: &str, version: &str) -> Result<(), PackageManagerError> {
+    /// Uninstalls a specific package state.
+    pub fn uninstall(&mut self, id: &str, state_hash: &str) -> Result<(), PackageManagerError> {
         // 1. Remove from storage
-        self.storage.remove_package(id, version)?;
+        self.storage.remove_package(id, state_hash)?;
 
         // 2. Update registry
-        self.registry.unregister(id, version)?;
+        self.registry.unregister(id, state_hash)?;
         self.save_registry()?;
 
         Ok(())
     }
 
-    /// Sets the active version for a multi-version package.
-    pub fn set_active(&mut self, id: &str, version: &str) -> Result<(), PackageManagerError> {
-        self.registry.set_active(id, version)?;
+    /// Sets the active state for a multi-state package.
+    pub fn set_active(&mut self, id: &str, state_hash: &str) -> Result<(), PackageManagerError> {
+        self.registry.set_active(id, state_hash)?;
         self.save_registry()?;
         Ok(())
     }
@@ -210,11 +208,11 @@ impl PackageManager {
     pub fn list_active_packages(&self) -> Vec<InstalledPackage> {
         let mut result = Vec::new();
         for record in self.registry.list_packages() {
-            if let Some(ver_record) = record.versions.get(&record.active_version) {
-                let location = self.root_dir.join(&ver_record.path);
+            if let Some(state_record) = record.state_hashes.get(&record.active_state) {
+                let location = self.root_dir.join(&state_record.path);
                 result.push(InstalledPackage {
                     id: record.id.clone(),
-                    version: record.active_version.clone(),
+                    state_hash: record.active_state.clone(),
                     name: record.name.clone(),
                     author: record.author.clone(),
                     location,
@@ -225,52 +223,23 @@ impl PackageManager {
         result
     }
 
-    /// Returns all installed package versions across all packages.
+    /// Returns all installed package states across all packages.
     pub fn list_all_installed(&self) -> Vec<InstalledPackage> {
         let mut result = Vec::new();
         for record in self.registry.list_packages() {
-            for (ver, ver_record) in &record.versions {
-                let location = self.root_dir.join(&ver_record.path);
+            for (state_hash, state_record) in &record.state_hashes {
+                let location = self.root_dir.join(&state_record.path);
                 result.push(InstalledPackage {
                     id: record.id.clone(),
-                    version: ver.clone(),
+                    state_hash: state_hash.clone(),
                     name: record.name.clone(),
                     author: record.author.clone(),
                     location,
-                    is_active: ver == &record.active_version,
+                    is_active: state_hash == &record.active_state,
                 });
             }
         }
         result
-    }
-
-    /// Gets the active installed package handle for a package ID.
-    pub fn get_active_package(&self, id: &str) -> Option<InstalledPackage> {
-        let (record, ver_record) = self.registry.get_active_version(id)?;
-        let location = self.root_dir.join(&ver_record.path);
-        Some(InstalledPackage {
-            id: record.id.clone(),
-            version: record.active_version.clone(),
-            name: record.name.clone(),
-            author: record.author.clone(),
-            location,
-            is_active: true,
-        })
-    }
-
-    /// Gets a specific installed package version.
-    pub fn get_installed_package(&self, id: &str, version: &str) -> Option<InstalledPackage> {
-        let record = self.registry.get_package(id)?;
-        let ver_record = record.versions.get(version)?;
-        let location = self.root_dir.join(&ver_record.path);
-        Some(InstalledPackage {
-            id: record.id.clone(),
-            version: version.to_string(),
-            name: record.name.clone(),
-            author: record.author.clone(),
-            location,
-            is_active: version == &record.active_version,
-        })
     }
 
     /// Looks up a package record in the registry by ID.
@@ -278,11 +247,40 @@ impl PackageManager {
         self.registry.get_package(id)
     }
 
-    /// Gets all installed versions for a package ID.
-    pub fn get_installed_versions(&self, id: &str) -> Vec<String> {
+    /// Gets a specific installed package state.
+    pub fn get_installed_package(&self, id: &str, state_hash: &str) -> Option<InstalledPackage> {
+        let record = self.registry.get_package(id)?;
+        let state_record = record.state_hashes.get(state_hash)?;
+        let location = self.root_dir.join(&state_record.path);
+        Some(InstalledPackage {
+            id: record.id.clone(),
+            state_hash: state_hash.clone(),
+            name: record.name.clone(),
+            author: record.author.clone(),
+            location,
+            is_active: state_hash == &record.active_state,
+        })
+    }
+
+    /// Gets the active installed package handle for a package ID.
+    pub fn get_active_package(&self, id: &str) -> Option<InstalledPackage> {
+        let (record, state_record) = self.registry.get_active_state(id)?;
+        let location = self.root_dir.join(&state_record.path);
+        Some(InstalledPackage {
+            id: record.id.clone(),
+            state_hash: record.active_state.clone(),
+            name: record.name.clone(),
+            author: record.author.clone(),
+            location,
+            is_active: true,
+        })
+    }
+
+    /// Gets all installed state hashes for a package ID.
+    pub fn get_installed_states(&self, id: &str) -> Vec<String> {
         self.registry
             .get_package(id)
-            .map(|r| r.versions.keys().cloned().collect())
+            .map(|r| r.state_hashes.keys().cloned().collect())
             .unwrap_or_default()
     }
 }

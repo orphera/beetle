@@ -36,16 +36,24 @@ impl DeltaBuilder {
         if base_man.id != target_man.id {
             return Err(PackageError::DeltaBaseMismatch {
                 expected_id: base_man.id.clone(),
-                expected_version: base_man.version.clone(),
+                expected_hash: base.state_hash(),
                 actual_id: target_man.id.clone(),
-                actual_version: target_man.version.clone(),
+                actual_hash: target.state_hash(),
+            });
+        }
+
+        // If the base and target are the same state, we cannot create a delta.
+        if base.state_hash() == target.state_hash() {
+            return Err(PackageError::DeltaSameState {
+                id: base_man.id.clone(),
+                hash: base.state_hash(),
             });
         }
 
         let mut manifest = DeltaManifest::new(
             &base_man.id,
-            &base_man.version,
-            &target_man.version,
+            &base.state_hash(),
+            &target.state_hash(),
             target_man.clone(),
         );
 

@@ -33,7 +33,7 @@ graph TD
 
     subgraph "Local Storage (Repository)"
         LocalReg["local registry.json"]
-        PkgStore["packages/<id>/<version>/"]
+        PkgStore["packages/<id>/<state>/"]
         ActiveSongs["songs/ (Active Symlinks/Hardlinks)"]
     end
 
@@ -58,7 +58,7 @@ graph TD
   "packages": [
     {
       "id": "conflict",
-      "version": "1.0.0",
+      "state_hash": "a3f8c2d1...",
       "title": "Conflict",
       "artist": "siqlo + cranky",
       "genre": "HARMONIC HARDCORE",

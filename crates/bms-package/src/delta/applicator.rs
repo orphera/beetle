@@ -113,13 +113,13 @@ impl DeltaApplicator {
         let base_man = base.manifest();
         let delta_man = delta.manifest().clone();
 
-        // 1. Verify Identity and Base Version
-        if base_man.id != delta_man.package_id || base_man.version != delta_man.base_version {
+        // 1. Verify Identity and Base Hash
+        if base_man.id != delta_man.package_id || base.state_hash() != delta_man.base_hash {
             return Err(PackageError::DeltaBaseMismatch {
                 expected_id: delta_man.package_id,
-                expected_version: delta_man.base_version,
+                expected_hash: delta_man.base_hash.clone(),
                 actual_id: base_man.id.clone(),
-                actual_version: base_man.version.clone(),
+                actual_hash: base.state_hash(),
             });
         }
 
@@ -151,44 +151,17 @@ impl DeltaApplicator {
                     target_builder.add_file(&res.path, payload)?;
                 }
                 DeltaOpKind::Unchanged => {
-                    let base_bytes = base.read_entry(&res.path)?;
-                    let hash = sha256_hex(&base_bytes);
-                    if hash != res.sha256 {
-                        return Err(PackageError::DeltaChecksumMismatch {
-                            expected: res.sha256.clone(),
-                            actual: hash,
-                        });
-                    }
-                    target_builder.add_file(&res.path, base_bytes)?;
+                    // For unchanged resources, we need to copy them from the base package.
+                    // We don't have the payload in the delta, so we read from the base.
+                    let payload = base.read_entry(&res.path)?;
+                    target_builder.add_file(&res.path, payload)?;
                 }
                 DeltaOpKind::Removed => {
-                    // Intentionally skipped in target package
+                    // Do nothing, the resource is not in the target.
                 }
             }
         }
 
         Ok(target_builder)
-    }
-
-    /// Applies delta and returns the reconstructed target package bytes, verifying target checksum if specified.
-    pub fn apply_to_bytes<R: Read + Seek>(
-        base: &Package,
-        delta: &mut DeltaPackage<R>,
-        base_raw_bytes: Option<&[u8]>,
-    ) -> Result<Vec<u8>, PackageError> {
-        let builder = Self::apply(base, delta, base_raw_bytes)?;
-        let target_bytes = builder.build_to_bytes()?;
-
-        if let Some(expected_target_hash) = &delta.manifest().target_package_sha256 {
-            let actual_target_hash = sha256_hex(&target_bytes);
-            if actual_target_hash != *expected_target_hash {
-                return Err(PackageError::DeltaChecksumMismatch {
-                    expected: expected_target_hash.clone(),
-                    actual: actual_target_hash,
-                });
-            }
-        }
-
-        Ok(target_bytes)
     }
 }

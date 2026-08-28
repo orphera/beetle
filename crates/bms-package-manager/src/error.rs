@@ -18,7 +18,7 @@ pub enum PackageManagerError {
     /// Package verification failed after installation.
     VerificationFailed(String),
     /// Base version required by a delta package is not installed.
-    BaseVersionNotInstalled { id: String, base_version: String },
+    BaseStateNotInstalled { id: String, base_hash: String },
     /// Delta creation or application error.
     DeltaError(String),
     /// Registry storage or serialization error.
@@ -41,9 +41,9 @@ impl fmt::Display for PackageManagerError {
             Self::AlreadyInstalled { id, version } => {
                 write!(f, "Package '{id}@{version}' is already installed")
             }
-            Self::BaseVersionNotInstalled { id, base_version } => write!(
+            Self::BaseStateNotInstalled { id, base_hash } => write!(
                 f,
-                "Base package '{id}@{base_version}' is not installed (required for delta update)"
+                "Base package '{id}@{base_hash}' is not installed (required for delta update)"
             ),
             Self::DeltaError(msg) => write!(f, "Delta error: {msg}"),
             Self::NotInstalled(id) => write!(f, "Package '{id}' is not installed"),

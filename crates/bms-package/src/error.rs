@@ -27,12 +27,17 @@ pub enum PackageError {
     MissingDeltaManifest,
     /// `delta_manifest.json` is malformed JSON or has missing/invalid required fields.
     InvalidDeltaManifest(String),
-    /// The base package ID or version does not match what the delta requires.
+    /// The base package ID or hash does not match what the delta requires.
     DeltaBaseMismatch {
         expected_id: String,
-        expected_version: String,
+        expected_hash: String,
         actual_id: String,
-        actual_version: String,
+        actual_hash: String,
+    },
+    /// The base and target states are identical; no delta needed.
+    DeltaSameState {
+        id: String,
+        hash: String,
     },
     /// The calculated checksum of the base or target package did not match the manifest.
     DeltaChecksumMismatch {
@@ -62,12 +67,16 @@ impl fmt::Display for PackageError {
             Self::InvalidDeltaManifest(msg) => write!(f, "Invalid delta manifest: {msg}"),
             Self::DeltaBaseMismatch {
                 expected_id,
-                expected_version,
+                expected_hash,
                 actual_id,
-                actual_version,
+                actual_hash,
             } => write!(
                 f,
-                "Delta base mismatch: expected {expected_id}@{expected_version}, got {actual_id}@{actual_version}"
+                "Delta base mismatch: expected {expected_id}@{expected_hash}, got {actual_id}@{actual_hash}"
+            ),
+            Self::DeltaSameState { id, hash } => write!(
+                f,
+                "Delta same state: base and target are identical ({id}@{hash})"
             ),
             Self::DeltaChecksumMismatch { expected, actual } => write!(
                 f,

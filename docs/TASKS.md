@@ -22,7 +22,7 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](specs/bms_package_sy
 
 ## 📋 Phase 1: `bms-package` 차분 포맷 & Diff/Patch 코어 라이브러리 (`crates/bms-package/src/delta/`) (Completed)
 - [x] **차분 메타데이터 모델 정의 (`delta/manifest.rs`)**
-  - [x] `DeltaManifest`: `package_id`, `base_version`, `target_version`, `base_checksum`, `target_checksum`
+  - [x] `DeltaManifest`: `package_id`, `base_state_hash`, `target_state_hash`, `base_checksum`, `target_checksum`
   - [x] 엔트리 연산 분류: `added_resources`, `modified_resources`, `removed_resources`, `unchanged_resources`
   - [x] 매니페스트 직렬화/역직렬화 및 정규화
 - [x] **결정론적 차분 빌더 (`delta/builder.rs`)**
@@ -40,13 +40,13 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](specs/bms_package_sy
 
 ## 📋 Phase 2: `bms-package-manager` 원자적(Atomic) 업데이트 & 복구 엔진 (`crates/bms-package-manager/src/updater/`) (Completed)
 - [x] **원자적 업데이트 파이프라인 (`updater.rs`)**
-  - [x] 1단계: 설치된 패키지 버전과 Base Version 일치 확인
+  - [x] 1단계: 설치된 패키지 state와 Base State 일치 확인
   - [x] 2단계: 임시 스테이징에서 Delta 적용 및 타겟 재현
   - [x] 3단계: 복원된 Target Package 무결성(SHA-256) 검증
   - [x] 4단계: 원자적 설치(`Atomic Commit`) 및 `registry.json` 버전 갱신
   - [x] 실패 시 기존 버전 100% 무손상 유지 및 롤백 보장
 - [x] **Full Package Fallback 및 자동 복구 (Repair)**
-  - [x] Base 버전 미설치/불일치 시 `BaseVersionNotInstalled` 명확한 에러 전파 및 Full Package 수용 기반 마련
+  - [x] Base state 미설치/불일치 시 `BaseStateNotInstalled` 명확한 에러 전파 및 Full Package 수용 기반 마련
 
 ---
 

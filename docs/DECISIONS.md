@@ -135,10 +135,10 @@
 
 ## ADR-015: BMS 패키지 차분(Delta) 시스템 및 버전 전이 모델
 
-- **결정**: BMS 패키지 시스템에서 차분(Delta)을 독립된 패키지가 아닌 **버전 간 상태 전이 단위(`Base Version + Delta = Target Version`)**로 정의하며, Full Package를 기본 전달 단위로 유지하고 Delta를 대역폭 최적화 수단으로 취급한다.
+- **결정**: BMS 패키지 시스템에서 차분(Delta)을 독립된 패키지가 아닌 **State 간 상태 전이 단위(`Base State + Delta = Target State`)**로 정의하며, Full Package를 기본 전달 단위로 유지하고 Delta를 대역폭 최적화 수단으로 취급한다.
 - **배경 및 이유**:
   - BMS 작품은 음원/BGA 등 수 GB의 대용량 리소스를 포함하므로 소규모 차트/키음 수정 시 전체 재다운로드(2 GB) 대신 차분(수 MB) 배포가 필수적입니다.
-  - `Package ≠ Archive ≠ Installation ≠ Repository ≠ Player` 불변식을 확립하여, Delta 적용 결과가 Target Version을 직접 설치한 결과와 바이트/해시 수준에서 정확히 일치하도록 보장합니다.
+  - `Package ≠ Archive ≠ Installation ≠ Repository ≠ Player` 불변식을 확립하여, Delta 적용 결과가 Target State를 직접 설치한 결과와 바이트/해시 수준에서 정확히 일치하도록 보장합니다.
   - Delta 적용 실패 시 기존 Installation이 파괴되지 않도록 원자적(Atomic) 검증/교체 파이프라인을 구축합니다.
 
 ---

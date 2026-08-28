@@ -2,6 +2,7 @@ use crate::entry::PackageEntry;
 use crate::error::PackageError;
 use crate::manifest::{Manifest, MANIFEST_FILENAME};
 use crate::path::validate_entry_path;
+use crate::checksum::sha256_hex;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek};
@@ -129,7 +130,6 @@ impl Package {
         let mut entry_file = zip
             .by_name(path)
             .map_err(|_| PackageError::EntryNotFound(path.to_string()))?;
-
         let mut content = Vec::with_capacity(entry_file.size() as usize);
         entry_file.read_to_end(&mut content)?;
         Ok(content)
@@ -139,5 +139,10 @@ impl Package {
     pub fn open_entry(&self, path: &str) -> Result<Box<dyn Read>, PackageError> {
         let bytes = self.read_entry(path)?;
         Ok(Box::new(Cursor::new(bytes)))
+    }
+
+    /// Returns the SHA-256 hash of the entire package data (the canonical archive bytes).
+    pub fn state_hash(&self) -> String {
+        sha256_hex(&self.data)
     }
 }

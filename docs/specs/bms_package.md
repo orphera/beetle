@@ -89,7 +89,7 @@ BMS 콘텐츠를 안정적으로 묶고 이동할 수 있는 최소한의 포맷
 예:
 
 ```text
-song-name-1.0.0.bmsp
+song-name-a3f8c2.bmsp
 ```
 
 패키지는 ZIP 기반 container를 사용한다.
@@ -125,7 +125,7 @@ ZIP을 사용하는 이유는 다음과 같다.
 manifest.json
 ```
 
-Manifest는 패키지 자체의 identity와 콘텐츠 정보를 기술한다.
+Manifest는 패키지 자체의 identity와 콘텐츠 정보를 기술한다. `state_hash`는 아카이브 전체의 SHA-256 해시로, 패키지 생성 시 자동으로 계산되어 저장된다(순환 의존 방지를 위해 manifest 내부에는 저장하지 않고, 패키지 읽기 시 계산하여 검증한다).
 
 최소 형태:
 
@@ -133,7 +133,7 @@ Manifest는 패키지 자체의 identity와 콘텐츠 정보를 기술한다.
 {
   "format": 1,
   "id": "example.song",
-  "version": "1.0.0",
+  "state_hash": "a3f8c2d1...",
   "name": "Example Song",
   "author": "Example Author"
 }
@@ -155,7 +155,7 @@ Manifest는 패키지 자체의 identity와 콘텐츠 정보를 기술한다.
 
 패키지 포맷 자체가 변경될 때 증가한다.
 
-Package Manager가 사용하는 package version과 혼동해서는 안 된다.
+Package Manager가 사용하는 package state와 혼동해서는 안 된다.
 
 ---
 
@@ -172,7 +172,7 @@ Package Manager가 사용하는 package version과 혼동해서는 안 된다.
 * 비어 있지 않아야 한다.
 * Unicode normalization이나 대소문자 변환에 의존하지 않는다.
 * 동일한 콘텐츠의 다른 버전은 동일한 `id`를 사용한다.
-* 패키지의 `version`과 결합하여 특정 버전을 식별할 수 있다.
+* 패키지의 `state_hash`와 결합하여 특정 상태를 식별할 수 있다.
 
 예:
 
@@ -185,31 +185,16 @@ example.artist.collection
 
 ---
 
-#### `version`
 
-패키지 버전.
+#### `state_hash`
+
+패키지 상태를 식별하는 SHA-256 해시.
 
 ```json
-"version": "1.0.0"
+"state_hash": "a3f8c2d1..."
 ```
 
-SemVer 형식을 사용한다.
-
-```text
-MAJOR.MINOR.PATCH
-```
-
-Pre-release와 build metadata도 허용할 수 있다.
-
-예:
-
-```text
-1.0.0
-1.2.3-beta.1
-2.0.0+build.123
-```
-
-버전의 비교 및 dependency resolution은 `bms-package`의 책임이 아니다.
+아카이브 전체의 canonical bytes에 대한 SHA-256 해시이다. Manifest 내부에는 저장되지 않으며(순환 의존 방지), 패키지 읽기 시 계산되어 검증에 사용된다.
 
 ---
 
@@ -391,7 +376,7 @@ package.manifest()
 ```text
 Format
 Id
-Version
+State Hash
 Name
 Author
 ```
