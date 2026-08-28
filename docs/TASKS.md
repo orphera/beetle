@@ -3,15 +3,15 @@
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
 > 💡 **이전 마일스톤 완료 내역**:
-> - [archive/tasks_milestone_1.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_1.md): 기반 아키텍처, 오디오 엔진, 패키지 포맷 및 1차 게임 루프
-> - [archive/tasks_milestone_2.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_2.md): UI/UX 전면 개편, 다국어 폰트, 인게임 일시정지, 결과 보상 화면, 1:1 키 리바인딩
-> - [archive/tasks_milestone_3.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_3.md): 아키텍처 모듈화 & 클린 구조 리팩토링 (`beetle-render` 및 `beetle-app` 서브모듈화)
+> - [archive/tasks_milestone_1.md](archive/tasks_milestone_1.md): 기반 아키텍처, 오디오 엔진, 패키지 포맷 및 1차 게임 루프
+> - [archive/tasks_milestone_2.md](archive/tasks_milestone_2.md): UI/UX 전면 개편, 다국어 폰트, 인게임 일시정지, 결과 보상 화면, 1:1 키 리바인딩
+> - [archive/tasks_milestone_3.md](archive/tasks_milestone_3.md): 아키텍처 모듈화 & 클린 구조 리팩토링 (`beetle-render` 및 `beetle-app` 서브모듈화)
 
 ---
 
 # 🚀 Milestone 4: BMS Package Delta(차분) 및 원자적 업데이트 엔진 (Delta & Atomic Update Engine)
 
-Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeongwoong/dev/beetle/docs/specs/bms_package_system.md)와 [ADR-015](file:///C:/Users/jeongwoong/dev/beetle/docs/DECISIONS.md#adr-015-bms-패키지-차분delta-시스템-및-버전-전이-모델)에 따라, **BMS 작품의 대용량 재배포를 방지하고 차분 제작자/원곡자의 배포 마찰(Friction)을 제로화하는 고성능 차분(Delta) 생성·적용·원자적 업데이트 시스템**을 구축하는 것입니다.
+Milestone 4의 목표는 [BMS Package System 표준 명세](specs/bms_package_system.md)와 [ADR-015](DECISIONS.md#adr-015-bms-패키지-차분delta-시스템-및-버전-전이-모델)에 따라, **BMS 작품의 대용량 재배포를 방지하고 차분 제작자/원곡자의 배포 마찰(Friction)을 제로화하는 고성능 차분(Delta) 생성·적용·원자적 업데이트 시스템**을 구축하는 것입니다.
 
 핵심 원칙:
 1. **결정론적 변환**: $\text{Apply}(\text{Package@base}, \text{Delta}(\text{base} \to \text{target})) = \text{Package@target}$
@@ -77,6 +77,6 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeo
 ---
 
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
-- [proposals/platform_expansion.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
-- [proposals/remote_package_registry.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
-- [proposals/legacy_compatibility_vfs.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/legacy_compatibility_vfs.md): 레거시 구동기(LR2/beatoraja) 하위 호환을 위한 무설치 WebDAV VFS 마운트 및 FUSE 확장 제안서.
+- [proposals/platform_expansion.md](proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
+- [proposals/remote_package_registry.md](proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
+- [proposals/legacy_compatibility_vfs.md](proposals/legacy_compatibility_vfs.md): 레거시 구동기(LR2/beatoraja) 하위 호환을 위한 무설치 WebDAV VFS 마운트 및 FUSE 확장 제안서.

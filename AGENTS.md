@@ -86,7 +86,7 @@
 # 전체 워크스페이스 타입 체크
 cargo check --workspace
 
-# 전체 54개 테스트 실행
+# 전체 테스트 실행
 cargo test --workspace
 
 # 릴리스 빌드 (바이너리 크기 최적화)
@@ -95,3 +95,10 @@ cargo build --release
 # 바이너리 파일 크기 확인 (PowerShell)
 Get-Item .\target\release\beetle-app.exe, .\target\release\bpm-gui.exe, .\target\release\bpm.exe | Select-Object Name, Length
 ```
+
+---
+
+## 6. 문서 작성 및 링크 참조 규칙 (Documentation & Path Policy)
+
+- **로컬 머신 절대 경로 노출 절대 금지**: 모든 Markdown 문서(`docs/`, `AGENTS.md`, `README.md` 등)에는 개발자 로컬 머신의 절대 경로(`C:/Users/...`, `file:///...`, `/home/...`, `/Users/...`)를 절대로 기재하거나 노출하지 않습니다.
+- **상대 경로(Relative Path) 사용 원칙**: 저장소 내 파일 참조 시 반드시 프로젝트 루트 기준 상대 경로(예: `docs/specs/bms_package.md`, `crates/beetle-core/src/lib.rs`) 또는 마크다운 상대 링크(예: `[bms_package.md](specs/bms_package.md)`, `[tasks_milestone_1.md](archive/tasks_milestone_1.md)`)를 사용합니다.
