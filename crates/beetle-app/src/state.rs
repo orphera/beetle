@@ -131,6 +131,7 @@ pub struct AppState {
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,
+    pub cursor_settle_time: Instant,
 }
 
 impl AppState {

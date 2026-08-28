@@ -26,6 +26,7 @@ pub fn handle_song_select_input(
                 if !state.search_query.is_empty() {
                     state.search_query.clear();
                     state.recompute_filtered_songs();
+                    state.cursor_settle_time = std::time::Instant::now();
                 } else {
                     state.is_search_active = false;
                 }
@@ -36,6 +37,7 @@ pub fn handle_song_select_input(
             KeyCode::Backspace => {
                 state.search_query.pop();
                 state.recompute_filtered_songs();
+                state.cursor_settle_time = std::time::Instant::now();
             }
             _ => {
                 if let Some(t) = text {
@@ -45,6 +47,7 @@ pub fn handle_song_select_input(
                         }
                     }
                     state.recompute_filtered_songs();
+                    state.cursor_settle_time = std::time::Instant::now();
                 }
             }
         }
@@ -65,10 +68,12 @@ pub fn handle_song_select_input(
         KeyCode::F1 => {
             state.category_mode = state.category_mode.prev();
             state.recompute_filtered_songs();
+            state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::F3 => {
             state.category_mode = state.category_mode.next();
             state.recompute_filtered_songs();
+            state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Tab | KeyCode::KeyO => {
             state.show_option_modal = true;
@@ -101,6 +106,7 @@ pub fn handle_song_select_input(
             state.sort_mode = state.sort_mode.next();
             sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
             state.recompute_filtered_songs();
+            state.cursor_settle_time = std::time::Instant::now();
             state.save_config();
         }
         KeyCode::ArrowUp | KeyCode::KeyK => {
@@ -109,11 +115,35 @@ pub fn handle_song_select_input(
             } else if !state.filtered_indices.is_empty() {
                 state.selected_song_idx = state.filtered_indices.len() - 1;
             }
+            state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
             if !state.filtered_indices.is_empty() {
                 state.selected_song_idx = (state.selected_song_idx + 1) % state.filtered_indices.len();
             }
+            state.cursor_settle_time = std::time::Instant::now();
+        }
+        KeyCode::PageUp => {
+            if !state.filtered_indices.is_empty() {
+                state.selected_song_idx = state.selected_song_idx.saturating_sub(10);
+            }
+            state.cursor_settle_time = std::time::Instant::now();
+        }
+        KeyCode::PageDown => {
+            if !state.filtered_indices.is_empty() {
+                state.selected_song_idx = (state.selected_song_idx + 10).min(state.filtered_indices.len() - 1);
+            }
+            state.cursor_settle_time = std::time::Instant::now();
+        }
+        KeyCode::Home => {
+            state.selected_song_idx = 0;
+            state.cursor_settle_time = std::time::Instant::now();
+        }
+        KeyCode::End => {
+            if !state.filtered_indices.is_empty() {
+                state.selected_song_idx = state.filtered_indices.len() - 1;
+            }
+            state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Enter | KeyCode::Space => {
             if let Some(song) = state.current_selected_song().cloned() {
@@ -125,6 +155,7 @@ pub fn handle_song_select_input(
             state.stage_image_cache.clear();
             state.songs = crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
             state.recompute_filtered_songs();
+            state.cursor_settle_time = std::time::Instant::now();
         }
         _ => {
             if let Some(t) = text {

@@ -133,6 +133,7 @@ impl ApplicationHandler for BeetleApp {
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
             last_render_time: Instant::now(),
+            cursor_settle_time: Instant::now(),
         };
 
         app_state.recompute_filtered_songs();
@@ -226,8 +227,25 @@ impl ApplicationHandler for BeetleApp {
                 state.window.request_redraw();
                 event_loop.set_control_flow(ControlFlow::Poll);
             }
+            AppScreen::SongSelect => {
+                let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
+                if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
+                    if state.cursor_settle_time.elapsed() >= Duration::from_millis(150) {
+                        let img = state.current_selected_song().and_then(load_stage_image);
+                        state.stage_image_cache.insert(selected_hash, img);
+                        state.window.request_redraw();
+                        event_loop.set_control_flow(ControlFlow::Wait);
+                    } else {
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(
+                            state.cursor_settle_time + Duration::from_millis(150),
+                        ));
+                    }
+                } else {
+                    event_loop.set_control_flow(ControlFlow::Wait);
+                }
+            }
             _ => {
-                // Static screens (SongSelect, Result, KeyConfig) only update on events (keys, resizing)
+                // Static screens (Result, KeyConfig) only update on events (keys, resizing)
                 event_loop.set_control_flow(ControlFlow::Wait);
             }
         }
@@ -316,11 +334,6 @@ impl ApplicationHandler for BeetleApp {
                 match state.screen {
                     AppScreen::SongSelect => {
                         let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
-                        if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
-                            let img = state.current_selected_song().and_then(load_stage_image);
-                            state.stage_image_cache.insert(selected_hash, img);
-                        }
-
                         let visible_songs = state.current_visible_songs();
                         let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
                         state.renderer.render_song_select(
