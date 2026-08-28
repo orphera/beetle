@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
-use beetle_audio::{PcmBuffer, SampleBank};
+use beetle_audio::SampleBank;
 use beetle_core::{parse_bms, BmsChart, SongMetadata, TimingModel};
 use beetle_render::ImageBuffer;
 
@@ -93,87 +93,6 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
         let p = dir.join(name);
         if let Some(img) = ImageBuffer::load_from_file(&p) {
             return Some(img);
-        }
-    }
-
-    None
-}
-
-/// Loads a preview audio sample (dedicated preview.ogg/wav or first keysound).
-pub fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
-    if song.file_path == ":demo:" {
-        return None;
-    }
-
-    // Check if song is packaged inside a .bmsp archive
-    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
-        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
-            let base_dir = Path::new(entry_name)
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .to_string_lossy();
-
-            for name in &[
-                "preview.ogg", "preview.wav", "PREVIEW.OGG", "PREVIEW.WAV",
-                "intro.ogg", "intro.wav", "INTRO.OGG", "INTRO.WAV",
-            ] {
-                if let Some(path) = pkg.find_entry_path(&base_dir, name) {
-                    if let Ok(audio_bytes) = pkg.read_entry(&path) {
-                        if let Ok(pcm) = SampleBank::load_audio_from_bytes(&audio_bytes) {
-                            return Some(pcm);
-                        }
-                    }
-                }
-            }
-
-            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                let content = String::from_utf8_lossy(&bms_bytes);
-                if let Ok(chart) = parse_bms(&content) {
-                    for filename in chart.header.wav_table.values().take(10) {
-                        if let Some(path) = pkg.find_entry_path(&base_dir, filename) {
-                            if let Ok(audio_bytes) = pkg.read_entry(&path) {
-                                if let Ok(pcm) = SampleBank::load_audio_from_bytes(&audio_bytes) {
-                                    if pcm.duration_seconds() > 0.4 {
-                                        return Some(pcm);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return None;
-    }
-
-    let song_path = Path::new(&song.file_path);
-    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
-
-    // 1. Common preview audio filenames
-    for name in &[
-        "preview.ogg", "preview.wav", "PREVIEW.OGG", "PREVIEW.WAV",
-        "intro.ogg", "intro.wav", "INTRO.OGG", "INTRO.WAV",
-    ] {
-        let p = dir.join(name);
-        if p.exists() {
-            if let Ok(pcm) = SampleBank::load_audio_file(&p) {
-                return Some(pcm);
-            }
-        }
-    }
-
-    // 2. Fallback: Parse chart, find first valid keysound longer than 0.4s
-    if let Ok(bytes) = fs::read(song_path) {
-        let content = String::from_utf8_lossy(&bytes);
-        if let Ok(chart) = parse_bms(&content) {
-            for filename in chart.header.wav_table.values().take(10) {
-                let p = dir.join(filename);
-                if let Ok(pcm) = SampleBank::load_audio_file(&p) {
-                    if pcm.duration_seconds() > 0.4 {
-                        return Some(pcm);
-                    }
-                }
-            }
         }
     }
 

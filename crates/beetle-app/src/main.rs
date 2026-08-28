@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
+use beetle_audio::AudioCommand;
 use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::AppConfig;
@@ -25,7 +25,7 @@ use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
 use input::{InputConfig, KeyPreset};
-use loader::{load_preview_sample, load_stage_image};
+use loader::load_stage_image;
 use softbuffer::{Context, Surface};
 use state::{
     init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR,
@@ -111,11 +111,6 @@ impl ApplicationHandler for BeetleApp {
             start_measure: 0,
             stage_image_cache: std::collections::HashMap::new(),
             active_bga_image: None,
-            preview_audio: None,
-            preview_song_hash: None,
-            preview_timer: Instant::now(),
-            preview_duration: 0.0,
-            preview_attempted: false,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -328,45 +323,6 @@ impl ApplicationHandler for BeetleApp {
                         if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
                             let img = state.current_selected_song().and_then(load_stage_image);
                             state.stage_image_cache.insert(selected_hash, img);
-                        }
-
-                        // Preview audio management (debounced 400ms to prevent lag while scrolling)
-                        if state.preview_song_hash != Some(selected_hash) {
-                            state.preview_audio = None;
-                            state.preview_song_hash = Some(selected_hash);
-                            state.preview_timer = Instant::now();
-                            state.preview_duration = 0.0;
-                            state.preview_attempted = false;
-                        } else if state.preview_timer.elapsed() >= Duration::from_millis(400) {
-                            if !state.preview_attempted {
-                                state.preview_attempted = true;
-                                if let Some(song) = state.current_selected_song() {
-                                    if let Some(pcm) = load_preview_sample(song) {
-                                        let dur = pcm.duration_seconds();
-                                        let mut bank = SampleBank::new();
-                                        bank.insert(beetle_core::WavId(1), pcm);
-                                        if let Ok(mut engine) = AudioEngine::new(bank) {
-                                            let _ = engine.send_command(AudioCommand::PlaySample {
-                                                sample_id: beetle_core::WavId(1),
-                                                volume: 0.8,
-                                                pan: 0.0,
-                                            });
-                                            state.preview_duration = dur;
-                                            state.preview_audio = Some(engine);
-                                        }
-                                    }
-                                }
-                            } else if let Some(audio) = &mut state.preview_audio {
-                                // Loop preview playback
-                                if state.preview_duration > 0.0 && audio.clock().current_time_seconds() >= state.preview_duration + 0.5 {
-                                    let _ = audio.send_command(AudioCommand::PlaySample {
-                                        sample_id: beetle_core::WavId(1),
-                                        volume: 0.8,
-                                        pan: 0.0,
-                                    });
-                                    let _ = audio.send_command(AudioCommand::ResetClock);
-                                }
-                            }
                         }
 
                         let visible_songs = state.current_visible_songs();

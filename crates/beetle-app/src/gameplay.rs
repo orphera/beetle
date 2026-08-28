@@ -12,8 +12,6 @@ use crate::loader::{load_stage_image, spawn_background_song_loader};
 use crate::state::{AppScreen, AppState, REPLAYS_DIR, SCORES_FILE};
 
 pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
-    // Cleanly stop preview audio engine before entering loading
-    state.preview_audio = None;
     state.screen = AppScreen::Loading;
     state.loading_song = Some(song.clone());
     state.loading_spinner_frame = 0;

@@ -47,9 +47,6 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     if let Some(audio) = &mut state.audio_engine {
                         let _ = audio.set_master_volume(state.master_volume);
                     }
-                    if let Some(preview) = &mut state.preview_audio {
-                        let _ = preview.set_master_volume(state.master_volume);
-                    }
                 }
                 5 => { // Key Layout
                     state.input_config.toggle_preset();
@@ -94,9 +91,6 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     state.master_volume = (state.master_volume + 0.05).min(2.0);
                     if let Some(audio) = &mut state.audio_engine {
                         let _ = audio.set_master_volume(state.master_volume);
-                    }
-                    if let Some(preview) = &mut state.preview_audio {
-                        let _ = preview.set_master_volume(state.master_volume);
                     }
                 }
                 5 => { // Key Layout
