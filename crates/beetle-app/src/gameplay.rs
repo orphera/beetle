@@ -78,7 +78,7 @@ pub fn finalize_start_gameplay(
     state.active_timing = Some(timing);
     state.active_chart_hash = song.hash;
     state.active_judge = Some(judge_engine);
-    state.active_bga_image = load_stage_image(song);
+    state.active_bga_image = load_stage_image(song).map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
     state.is_new_record = false;

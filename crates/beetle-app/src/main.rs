@@ -508,12 +508,12 @@ impl ApplicationHandler for BeetleApp {
                         }
 
                         // Render gameplay frame
-                        if let (Some(chart), Some(timing), Some(judge)) =
-                            (&state.active_chart, &state.active_timing, &state.active_judge)
+                        if let (Some(chart), Some(judge)) =
+                            (&state.active_chart, &state.active_judge)
                         {
                             state.renderer.render_gameplay(
                                 chart,
-                                timing,
+                                judge.notes(),
                                 audio_time,
                                 judge.score(),
                                 &visual_levels,

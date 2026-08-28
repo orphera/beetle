@@ -351,6 +351,7 @@ impl ScoreTracker {
 pub struct PlayNote {
     pub note_event: NoteEvent,
     pub target_time_seconds: f64,
+    pub end_target_time_seconds: f64,
     pub is_judged: bool,
     pub is_holding: bool,
 }
@@ -366,11 +367,21 @@ impl JudgeEngine {
     /// Initializes the judgment engine with chart and precalculated timing model.
     pub fn new(chart: &BmsChart, timing: &TimingModel, gauge_type: GaugeType) -> Self {
         let mut play_notes = Vec::with_capacity(chart.notes.len());
-        for note in &chart.notes {
+        for (i, note) in chart.notes.iter().enumerate() {
             let target_time = timing.beat_to_time_seconds(note.measure, note.fraction);
+            let mut end_time = target_time;
+            if note.note_type == NoteType::LongNoteStart {
+                for end_note in &chart.notes[i + 1..] {
+                    if end_note.lane == note.lane && end_note.note_type == NoteType::LongNoteEnd {
+                        end_time = timing.beat_to_time_seconds(end_note.measure, end_note.fraction);
+                        break;
+                    }
+                }
+            }
             play_notes.push(PlayNote {
                 note_event: note.clone(),
                 target_time_seconds: target_time,
+                end_target_time_seconds: end_time,
                 is_judged: false,
                 is_holding: false,
             });

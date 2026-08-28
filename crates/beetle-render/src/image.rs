@@ -106,6 +106,70 @@ impl ImageBuffer {
         })
     }
 
+    /// Creates a new scaled ImageBuffer.
+    pub fn create_scaled(&self, dst_w: u32, dst_h: u32) -> Self {
+        if dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+            return Self::new(dst_w, dst_h, ColorRgba::transparent());
+        }
+
+        let mut pixels = Vec::with_capacity((dst_w * dst_h) as usize);
+        for dy in 0..dst_h {
+            let src_y = (dy as f32 / dst_h as f32 * self.height as f32) as usize;
+            let src_y = src_y.min(self.height as usize - 1);
+            let row_offset = src_y * self.width as usize;
+
+            for dx in 0..dst_w {
+                let src_x = (dx as f32 / dst_w as f32 * self.width as f32) as usize;
+                let src_x = src_x.min(self.width as usize - 1);
+                pixels.push(self.pixels[row_offset + src_x]);
+            }
+        }
+
+        Self {
+            width: dst_w,
+            height: dst_h,
+            pixels,
+        }
+    }
+
+    /// Blits this image (without scaling) directly into the target pixmap.
+    pub fn blit_to(&self, pixmap: &mut Pixmap, dst_x: i32, dst_y: i32) {
+        let target_w = pixmap.width() as i32;
+        let target_h = pixmap.height() as i32;
+        let data = pixmap.data_mut();
+        let src_w = self.width as i32;
+        let src_h = self.height as i32;
+
+        for dy in 0..src_h {
+            let py = dst_y + dy;
+            if py < 0 || py >= target_h {
+                continue;
+            }
+
+            let row_src_idx = (dy as usize) * (self.width as usize);
+
+            for dx in 0..src_w {
+                let px = dst_x + dx;
+                if px < 0 || px >= target_w {
+                    continue;
+                }
+
+                let color = self.pixels[row_src_idx + dx as usize];
+                if color.a == 0 {
+                    continue;
+                }
+
+                let dst_idx = (py as usize * target_w as usize + px as usize) * 4;
+                if dst_idx + 3 < data.len() {
+                    data[dst_idx] = color.r;
+                    data[dst_idx + 1] = color.g;
+                    data[dst_idx + 2] = color.b;
+                    data[dst_idx + 3] = 255;
+                }
+            }
+        }
+    }
+
     /// Blits and scales the image into a target area on the tiny-skia Pixmap.
     pub fn draw_scaled(
         &self,

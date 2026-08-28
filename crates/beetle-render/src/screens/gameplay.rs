@@ -2,14 +2,14 @@ use crate::bitmap_font::BitmapFont;
 use crate::image::ImageBuffer;
 use crate::renderer::{lane_index, SoftwareRenderer};
 use crate::skin::ColorRgba;
-use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, ScoreTracker, TimingModel};
+use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, ScoreTracker};
 
 impl SoftwareRenderer {
     /// Renders a single gameplay frame based on current audio time.
     pub fn render_gameplay(
         &mut self,
         chart: &BmsChart,
-        timing: &TimingModel,
+        notes: &[beetle_core::PlayNote],
         audio_time_seconds: f64,
         score: &ScoreTracker,
         visual_levels: &[f32; 16],
@@ -21,7 +21,7 @@ impl SoftwareRenderer {
 
         self.draw_playfield_bg(score.current_combo, danger_blink);
         self.draw_key_beams();
-        self.draw_notes(chart, timing, audio_time_seconds);
+        self.draw_notes(notes, audio_time_seconds);
         self.draw_lane_cover();
         self.draw_judge_line(score.current_combo);
         self.draw_hit_bursts(audio_time_seconds);
@@ -123,25 +123,32 @@ impl SoftwareRenderer {
         );
     }
 
-    fn draw_notes(&mut self, chart: &BmsChart, timing: &TimingModel, audio_time_seconds: f64) {
+    fn draw_notes(&mut self, notes: &[beetle_core::PlayNote], audio_time_seconds: f64) {
         let hi_speed = self.skin.hi_speed;
         let judge_y = self.skin.judge_line_y;
         let top_y = self.skin.playfield_y;
         let note_h = self.skin.note_height;
 
-        let mut i = 0;
-        while i < chart.notes.len() {
-            let note = &chart.notes[i];
-            let note_time = timing.beat_to_time_seconds(note.measure, note.fraction);
-            let delta_t = note_time - audio_time_seconds;
+        let visible_duration = (judge_y - top_y + 100.0) as f64 / hi_speed as f64;
+        let min_time = audio_time_seconds - 2.0;
+        let max_time = audio_time_seconds + visible_duration;
+
+        let start_idx = notes.partition_point(|n| n.end_target_time_seconds < min_time);
+
+        for note in &notes[start_idx..] {
+            if note.target_time_seconds > max_time {
+                break;
+            }
+
+            let delta_t = note.target_time_seconds - audio_time_seconds;
             let note_y = judge_y - (delta_t as f32 * hi_speed);
 
-            let lane = note.lane;
+            let lane = note.note_event.lane;
             let lane_x = self.skin.lane_x(lane) + 1.0;
             let lane_w = self.skin.lane_width(lane) - 2.0;
             let note_color = self.skin.lane_color(lane);
 
-            match note.note_type {
+            match note.note_event.note_type {
                 NoteType::Tap => {
                     // Only draw if within visible playfield vertical range
                     if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 {
@@ -149,16 +156,7 @@ impl SoftwareRenderer {
                     }
                 }
                 NoteType::LongNoteStart => {
-                    // Find next matching LongNoteEnd on the same lane
-                    let mut end_time = note_time;
-                    for end_note in &chart.notes[i + 1..] {
-                        if end_note.lane == lane && end_note.note_type == NoteType::LongNoteEnd {
-                            end_time = timing.beat_to_time_seconds(end_note.measure, end_note.fraction);
-                            break;
-                        }
-                    }
-
-                    let end_delta = end_time - audio_time_seconds;
+                    let end_delta = note.end_target_time_seconds - audio_time_seconds;
                     let end_y = judge_y - (end_delta as f32 * hi_speed);
 
                     let body_top = end_y.max(top_y);
@@ -188,8 +186,6 @@ impl SoftwareRenderer {
                 }
                 _ => (),
             }
-
-            i += 1;
         }
     }
 
@@ -589,7 +585,11 @@ impl SoftwareRenderer {
         self.draw_rect(side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255));
 
         if let Some(img) = bga_image {
-            img.draw_scaled(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
+            if img.width == bga_w as u32 && img.height == bga_h as u32 {
+                img.blit_to(&mut self.pixmap, side_x as i32, bga_y as i32);
+            } else {
+                img.draw_scaled(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
+            }
         } else {
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),

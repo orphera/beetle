@@ -240,7 +240,8 @@ mod tests {
         renderer.set_key_state(Lane::Key1, true);
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         let levels = [0.5f32; 16];
-        renderer.render_gameplay(&chart, &timing, 1.0, &score, &levels, None);
+        let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None);
 
         // Validate buffer is not all blank
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
