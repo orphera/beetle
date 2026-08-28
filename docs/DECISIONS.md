@@ -141,6 +141,12 @@
   - `Package ≠ Archive ≠ Installation ≠ Repository ≠ Player` 불변식을 확립하여, Delta 적용 결과가 Target Version을 직접 설치한 결과와 바이트/해시 수준에서 정확히 일치하도록 보장합니다.
   - Delta 적용 실패 시 기존 Installation이 파괴되지 않도록 원자적(Atomic) 검증/교체 파이프라인을 구축합니다.
 
+---
 
+## ADR-016: 제3자 차분(Sabun) 주권 분리 및 Delta 무결성 회복력 모델
 
-
+- **결정**: 제3자가 만든 차분(Sabun)은 원본 패키지의 Version 체인에 합류시키지 않고 독립된 `id`를 가진 별도 패키지로 정의한다. Manifest의 선택적 `base_package` 필드를 통해 원본과의 관계를 선언적으로 명시하되, 이를 강제 의존성으로 취급하지 않는다. 또한 Delta 적용 실패를 정상적인 시나리오로 간주하고, Full Package Fallback이 항상 작동하도록 설계한다.
+- **배경 및 이유**:
+  - BMS 생태계에서는 원작자가 아닌 제3자가 난이도표용 채보(差分/Sabun)를 만들어 배포하는 관행이 광범위하게 존재합니다. 단일 `id` 중심 모델에서 제3자가 타인의 Version 체인에 임의로 버전을 올리면 원작자의 주권이 침해되고, 패키지 그래프의 신뢰성이 무너집니다.
+  - Delta 무결성 검증(SHA-256 전체 체크섬 비교)은 사용자의 파일 수동 편집, 디스크 비트 부패, 빌더 버전 차이 등으로 인해 현실에서 불일치가 발생할 수 있으며, 이 경우 Full Package Fallback으로 투명하게 전환되어야 네트워크 트래픽 병목을 최소화할 수 있습니다.
+  - 향후 개별 리소스 단위의 Content-Addressable 매칭 및 Canonical Package Normalization 전략으로 Fallback 빈도를 추가 감소시킬 수 있습니다.

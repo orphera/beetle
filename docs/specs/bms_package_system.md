@@ -1089,6 +1089,19 @@ Player  → playback
 
 ### 10. Package 설치 과정에서 임의 코드를 실행하지 않는다.
 
+### 11. 제3자 차분은 원본 Package의 Version 체인을 오염시키지 않는다.
+
+```text
+Third-party sabun → 독립 Package (별도 id)
+원작자 업데이트  → 동일 Package (동일 id, 새 Version)
+```
+
+### 12. Delta 적용 실패는 항상 Full Package Fallback으로 복구된다.
+
+```text
+Delta fail → Full Package → 정상 설치
+```
+
 ---
 
 # 37. 구현 우선순위
@@ -1157,7 +1170,205 @@ Repository-side optimization
 
 ---
 
-# 38. 최종 철학
+# 38. Third-Party Derivative (제3자 차분/Sabun)
+
+BMS 생태계에서는 원작자가 아닌 제3자가 난이도표용 채보(차분, いわゆる差分)를 만들어 배포하는 관행이 존재한다.
+
+이 시스템에서 제3자 차분은 **두 가지 모델** 중 하나로 표현할 수 있다.
+
+## 38.1 모델 A: 독립 Package (권장)
+
+제3자가 만든 차분은 원본과 다른 `id`를 가진 별개의 Package로 정의한다.
+
+```text
+original.artist.song@1.0.0    ← 원작자의 Package
+sabun.author.song-another@1.0.0  ← 제3자의 독립 Package
+```
+
+이 경우 Manifest에 의존 관계를 **선언적으로** 명시한다.
+
+```yaml
+package:
+  id: sabun.author.song-another
+  version: 1.0.0
+  base_package:
+    id: original.artist.song
+    min_version: 1.0.0
+```
+
+`base_package`는 다음 의미를 가진다.
+
+```text
+base_package
+  ├── id        : 원본 Package의 id
+  ├── min_version : 최소 호환 Version (optional)
+  └── purpose   : 리소스 공유 선언 (채보만 추가, 키음은 원본 사용)
+```
+
+이 필드는 **정보 제공 목적**이며, Package Manager가 원본 Package의 키음 리소스를 공유하는 최적화에 활용할 수 있다.
+
+중요한 점은 다음과 같다.
+
+```text
+base_package ≠ 원본의 Version 체인에 합류
+base_package ≠ 원본 Package의 Delta
+```
+
+제3자 Package는 원본의 Version history를 오염시키지 않는다.
+
+## 38.2 모델 B: 원본 Package의 Delta (제한적)
+
+원작자 본인이 권한을 부여하거나, 원작자가 직접 Delta를 배포하는 경우에만 원본 `id`의 Version chain에 Delta를 추가할 수 있다.
+
+```text
+original.artist.song@1.0.0
+      │
+      ▼ (원작자 배포)
+original.artist.song@1.1.0
+```
+
+제3자가 임의로 타인의 `id` 아래에 Version을 올리는 것은 이 시스템에서 허용하지 않는다.
+
+```text
+❌ original.artist.song@1.1.0  ← 제3자가 올린 Version
+✅ sabun.author.song-another@1.0.0  ← 제3자의 독립 Package
+```
+
+## 38.3 Package Manager의 역할
+
+Package Manager는 `base_package` 관계를 이용해 다음을 수행할 수 있다.
+
+```text
+1. 의존성 안내
+   "이 패키지는 'original.artist.song' v1.0.0 이상이 필요합니다"
+
+2. 리소스 공유 (선택적 최적화)
+   설치 시 원본의 키음/BGA를 심볼릭 링크 또는 참조로 공유
+
+3. 일괄 표시
+   UI에서 원본과 파생 채보를 그룹으로 묶어 표시
+```
+
+그러나 Package Manager가 `base_package` 관계를 강제하지는 않는다.
+
+```text
+base_package 미설치 → 설치 차단 ❌
+base_package 미설치 → 경고 표시 ✅
+```
+
+제3자 Package는 원본이 없어도 독립적으로 설치 가능해야 한다. 다만 키음이 누락되면 플레이에 지장이 있을 수 있음을 사용자에게 안내한다.
+
+---
+
+# 39. Delta Integrity Resilience (Delta 무결성 회복력)
+
+## 39.1 문제: Base 불일치에 의한 Fallback 쏠림
+
+Delta 적용은 Base Package의 SHA-256 체크섬이 정확히 일치해야 한다.
+
+```text
+Expected Base checksum: abc123...
+Actual   Base checksum: def456...
+→ Delta 적용 실패
+→ Full Package Fallback
+```
+
+이론상 결정론적 패키징(INV-6)에 의해 동일 소스에서 동일 아카이브가 생성되어야 하지만, 현실에서는 다음 원인으로 Base 불일치가 발생할 수 있다.
+
+```text
+1. 사용자가 설치된 파일을 수동 편집
+2. 디스크 오류에 의한 비트 부패
+3. 이전 버전의 Builder가 다른 정렬/타임스탬프를 사용
+4. 다른 Package Manager 구현이 다른 방식으로 설치
+```
+
+## 39.2 완화 전략
+
+### 전략 1: Full Package Fallback은 항상 유효하다 (현재 구현)
+
+```text
+Delta 적용 시도
+     │
+     ├── 성공 → Target 설치
+     │
+     └── 실패 (Base 불일치)
+              │
+              ▼
+         Full Package 다운로드
+              │
+              ▼
+         Target 설치
+```
+
+이것이 가장 단순하고 안전한 전략이며, 초기 구현에서는 이것으로 충분하다.
+
+### 전략 2: Content-Addressable Resource 매칭 (향후 최적화)
+
+Base Package 전체의 체크섬 대신, **개별 리소스 단위**로 매칭하는 방식이다.
+
+```text
+Delta Manifest:
+  resource "bgm.wav"
+    expected_base_checksum: abc123...
+    actual base resource:   abc123... ✅ 일치
+
+  resource "chart.bms"
+    expected_base_checksum: def456...
+    actual base resource:   def456... ✅ 일치
+```
+
+이렇게 하면 Manifest JSON의 공백이나 정렬이 달라도 개별 리소스가 일치하면 Delta를 적용할 수 있다.
+
+다만 이 전략은 복잡성이 증가하므로 초기 구현에서는 도입하지 않는다.
+
+### 전략 3: Canonical Package Normalization (향후 최적화)
+
+설치된 Package를 Canonical Form으로 재빌드한 후 체크섬을 비교하는 방식이다.
+
+```text
+Installed files
+     │
+     ▼
+Canonical Builder
+     │
+     ▼
+Normalized Package (deterministic)
+     │
+     ▼
+Checksum 비교
+```
+
+INV-6(결정론적 패키징)이 이미 보장하는 정렬과 타임스탬프를 활용하면, 설치된 파일들로부터 원본과 동일한 체크섬을 복원할 수 있다.
+
+## 39.3 Fallback 비용 최소화
+
+Full Package Fallback이 빈번하게 발생하면 Delta 시스템의 의미가 퇴색된다.
+
+이를 방지하기 위해 다음을 권장한다.
+
+```text
+1. Package 설치 시 원본 아카이브(.bmsp)를 캐시에 보관
+   → 재빌드 없이 Base 체크섬 즉시 검증 가능
+
+2. Delta 적용 전 Base 체크섬을 미리 검증
+   → 실패가 예상되면 즉시 Full Package 경로로 전환
+   → 불필요한 Delta 다운로드 방지
+
+3. Repository는 최신 N개 Version에 대해 Full Package를 유지
+   → Delta Chain이 끊어져도 항상 복구 가능
+```
+
+## 39.4 설계 원칙
+
+```text
+Delta 적용 실패는 정상적인 시나리오다.
+시스템은 이를 에러가 아닌 대체 경로(Fallback)로 처리한다.
+Full Package는 항상 존재하며 항상 작동한다.
+```
+
+---
+
+# 40. 최종 철학
 
 이 시스템의 중심은 Package Manager가 아니다.
 
