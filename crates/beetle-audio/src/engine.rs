@@ -126,4 +126,9 @@ impl AudioEngine {
     pub fn stop_all(&mut self) -> Result<(), AudioCommand> {
         self.send_command(AudioCommand::StopAll)
     }
+
+    /// Set master volume multiplier (0.0 ~ 2.0).
+    pub fn set_master_volume(&mut self, vol: f32) -> Result<(), AudioCommand> {
+        self.send_command(AudioCommand::SetMasterVolume(vol))
+    }
 }

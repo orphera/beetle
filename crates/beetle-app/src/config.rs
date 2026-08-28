@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub lane_cover_ratio: f32,
     pub sort_mode: SortMode,
     pub key_preset: KeyPreset,
+    pub custom_key_bindings: String,
+    pub master_volume: f32,
 }
 
 impl Default for AppConfig {
@@ -21,6 +23,8 @@ impl Default for AppConfig {
             lane_cover_ratio: 0.0,
             sort_mode: SortMode::Title,
             key_preset: KeyPreset::HomeRow,
+            custom_key_bindings: String::new(),
+            master_volume: 1.0,
         }
     }
 }
@@ -108,8 +112,17 @@ impl AppConfig {
                 "key_preset" => {
                     config.key_preset = match val {
                         "ArcadeZx" => KeyPreset::ArcadeZx,
+                        "Custom" => KeyPreset::Custom,
                         _ => KeyPreset::HomeRow,
                     };
+                }
+                "custom_key_bindings" => {
+                    config.custom_key_bindings = val.to_string();
+                }
+                "master_volume" => {
+                    if let Ok(v) = val.parse::<f32>() {
+                        config.master_volume = v.clamp(0.0, 2.0);
+                    }
                 }
                 _ => (),
             }
@@ -122,10 +135,11 @@ impl AppConfig {
         let preset_str = match self.key_preset {
             KeyPreset::HomeRow => "HomeRow",
             KeyPreset::ArcadeZx => "ArcadeZx",
+            KeyPreset::Custom => "Custom",
         };
 
         format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -133,6 +147,8 @@ impl AppConfig {
             self.play_options.judge_offset_ms,
             self.sort_mode.as_str(),
             preset_str,
+            self.custom_key_bindings,
+            self.master_volume,
         )
     }
 }
@@ -152,7 +168,9 @@ mod tests {
             },
             lane_cover_ratio: 0.25,
             sort_mode: SortMode::Level,
-            key_preset: KeyPreset::ArcadeZx,
+            key_preset: KeyPreset::Custom,
+            custom_key_bindings: "Scratch:KeyA,Key1:KeyZ".to_string(),
+            master_volume: 0.85,
         };
 
         let serialized = config.serialize_str();
@@ -165,5 +183,7 @@ mod tests {
         assert_eq!(config.lane_cover_ratio, parsed.lane_cover_ratio);
         assert_eq!(config.sort_mode, parsed.sort_mode);
         assert_eq!(config.key_preset, parsed.key_preset);
+        assert_eq!(config.custom_key_bindings, parsed.custom_key_bindings);
+        assert_eq!(config.master_volume, parsed.master_volume);
     }
 }

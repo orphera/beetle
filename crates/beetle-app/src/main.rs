@@ -112,6 +112,8 @@ struct AppState {
     is_new_record: bool,
     previous_best: Option<ScoreRecord>,
     input_config: InputConfig,
+    is_rebinding_key: bool,
+    master_volume: f32,
     bgm_cursor: usize,
     loading_song: Option<SongMetadata>,
     loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>>,
@@ -126,6 +128,8 @@ impl AppState {
             lane_cover_ratio: self.renderer.skin.lane_cover_ratio,
             sort_mode: self.sort_mode,
             key_preset: self.input_config.preset,
+            custom_key_bindings: self.input_config.serialize_bindings(),
+            master_volume: self.master_volume,
         };
         app_config.save();
     }
@@ -434,7 +438,15 @@ impl ApplicationHandler for BeetleApp {
             song_end_time: 0.0,
             is_new_record: false,
             previous_best: None,
-            input_config: InputConfig::new(saved_config.key_preset),
+            input_config: {
+                let mut cfg = InputConfig::new(saved_config.key_preset);
+                if !saved_config.custom_key_bindings.is_empty() {
+                    cfg.deserialize_bindings(&saved_config.custom_key_bindings);
+                }
+                cfg
+            },
+            is_rebinding_key: false,
+            master_volume: saved_config.master_volume,
             bgm_cursor: 0,
             loading_song: None,
             loading_receiver: None,
@@ -612,6 +624,7 @@ impl ApplicationHandler for BeetleApp {
                                 state.input_config.preset.as_str(),
                                 state.is_auto_play,
                                 state.start_measure,
+                                state.master_volume,
                                 state.modal_row,
                             );
                         }
@@ -782,6 +795,7 @@ impl ApplicationHandler for BeetleApp {
                                 match state.input_config.preset {
                                     KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
                                     KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                    KeyPreset::Custom => "KEYS: Custom Key Layout Active    (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
                                 }
                             };
                             state.renderer.draw_footer_text(footer_text);
@@ -803,7 +817,12 @@ impl ApplicationHandler for BeetleApp {
                             ("KEY 6 (1P)", state.input_config.get_key_name_for_lane(Lane::Key6)),
                             ("KEY 7 (1P)", state.input_config.get_key_name_for_lane(Lane::Key7)),
                         ];
-                        state.renderer.render_key_config(&key_names, state.selected_key_idx);
+                        state.renderer.render_key_config(
+                            &key_names,
+                            state.selected_key_idx,
+                            state.input_config.preset.as_str(),
+                            state.is_rebinding_key,
+                        );
                     }
                 }
 
@@ -950,7 +969,7 @@ fn handle_keyboard_input(
                             state.modal_row = state.modal_row.saturating_sub(1);
                         }
                         KeyCode::ArrowDown | KeyCode::KeyJ => {
-                            state.modal_row = (state.modal_row + 1).min(6);
+                            state.modal_row = (state.modal_row + 1).min(7);
                         }
                         KeyCode::ArrowLeft => {
                             match state.modal_row {
@@ -978,13 +997,22 @@ fn handle_keyboard_input(
                                 3 => { // Judge Offset
                                     state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 1.0).max(-100.0);
                                 }
-                                4 => { // Key Layout
+                                4 => { // Master Volume
+                                    state.master_volume = (state.master_volume - 0.05).max(0.0);
+                                    if let Some(audio) = &mut state.audio_engine {
+                                        let _ = audio.set_master_volume(state.master_volume);
+                                    }
+                                    if let Some(preview) = &mut state.preview_audio {
+                                        let _ = preview.set_master_volume(state.master_volume);
+                                    }
+                                }
+                                5 => { // Key Layout
                                     state.input_config.toggle_preset();
                                 }
-                                5 => { // Auto Play
+                                6 => { // Auto Play
                                     state.is_auto_play = !state.is_auto_play;
                                 }
-                                6 => { // Start Measure
+                                7 => { // Start Measure
                                     state.start_measure = state.start_measure.saturating_sub(1);
                                 }
                                 _ => (),
@@ -1017,13 +1045,27 @@ fn handle_keyboard_input(
                                 3 => { // Judge Offset
                                     state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 1.0).min(100.0);
                                 }
-                                4 => { // Key Layout
-                                    state.input_config.toggle_preset();
+                                4 => { // Master Volume
+                                    state.master_volume = (state.master_volume + 0.05).min(2.0);
+                                    if let Some(audio) = &mut state.audio_engine {
+                                        let _ = audio.set_master_volume(state.master_volume);
+                                    }
+                                    if let Some(preview) = &mut state.preview_audio {
+                                        let _ = preview.set_master_volume(state.master_volume);
+                                    }
                                 }
-                                5 => { // Auto Play
+                                5 => { // Key Layout
+                                    if code == KeyCode::Enter || code == KeyCode::Space {
+                                        state.screen = AppScreen::KeyConfig;
+                                        state.show_option_modal = false;
+                                    } else {
+                                        state.input_config.toggle_preset();
+                                    }
+                                }
+                                6 => { // Auto Play
                                     state.is_auto_play = !state.is_auto_play;
                                 }
-                                6 => { // Start Measure
+                                7 => { // Start Measure
                                     state.start_measure = (state.start_measure + 1).min(200);
                                 }
                                 _ => (),
@@ -1289,18 +1331,49 @@ fn handle_keyboard_input(
         }
         AppScreen::KeyConfig => {
             if key_state == ElementState::Pressed {
-                match code {
-                    KeyCode::Escape | KeyCode::Enter => {
-                        state.screen = AppScreen::SongSelect;
+                if state.is_rebinding_key {
+                    if code == KeyCode::Escape {
+                        state.is_rebinding_key = false;
+                    } else {
+                        let target_lane = match state.selected_key_idx {
+                            0 => Lane::Scratch,
+                            1 => Lane::Key1,
+                            2 => Lane::Key2,
+                            3 => Lane::Key3,
+                            4 => Lane::Key4,
+                            5 => Lane::Key5,
+                            6 => Lane::Key6,
+                            _ => Lane::Key7,
+                        };
+                        state.input_config.bind_key(code, target_lane);
+                        state.is_rebinding_key = false;
                         state.save_config();
                     }
-                    KeyCode::ArrowUp | KeyCode::KeyK => {
-                        state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
+                } else {
+                    match code {
+                        KeyCode::Escape => {
+                            state.screen = AppScreen::SongSelect;
+                            state.save_config();
+                        }
+                        KeyCode::Enter | KeyCode::Space => {
+                            state.is_rebinding_key = true;
+                        }
+                        KeyCode::ArrowUp | KeyCode::KeyK => {
+                            state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
+                        }
+                        KeyCode::ArrowDown | KeyCode::KeyJ => {
+                            state.selected_key_idx = (state.selected_key_idx + 1).min(7);
+                        }
+                        KeyCode::F1 => {
+                            state.input_config.toggle_preset();
+                            state.save_config();
+                        }
+                        KeyCode::Delete | KeyCode::Backspace => {
+                            state.input_config.reset_to_preset(KeyPreset::HomeRow);
+                            state.save_config();
+                        }
+                        _ => (),
                     }
-                    KeyCode::ArrowDown | KeyCode::KeyJ => {
-                        state.selected_key_idx = (state.selected_key_idx + 1).min(7);
-                    }
-                    _ => (),
                 }
             }
         }
@@ -1376,7 +1449,10 @@ fn finalize_start_gameplay(
     state.renderer.skin.set_play_mode(play_mode);
     state.renderer.skin.hi_speed = state.play_options.hi_speed;
 
-    let audio_engine = AudioEngine::new(soundbank).ok();
+    let mut audio_engine = AudioEngine::new(soundbank).ok();
+    if let Some(audio) = &mut audio_engine {
+        let _ = audio.set_master_volume(state.master_volume);
+    }
 
     state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
