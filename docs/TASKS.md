@@ -62,7 +62,8 @@
 ---
 
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
-- [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 지원 제안서.
+- [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 지원 제안서 (Milestone 5).
+- [proposals/lightweight_gpu_acceleration.md](proposals/lightweight_gpu_acceleration.md): 초경량 멀티 백엔드(D3D11, OpenGL, Vulkan, Metal, Software Fallback) GPU 하드웨어 가속 렌더링 엔진 제안서 (Milestone 6).
 - [proposals/platform_expansion.md](proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
 - [proposals/remote_package_registry.md](proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
 - [proposals/legacy_compatibility_vfs.md](proposals/legacy_compatibility_vfs.md): 레거시 구동기(LR2/beatoraja) 하위 호환을 위한 무설치 WebDAV VFS 마운트 및 FUSE 확장 제안서.
