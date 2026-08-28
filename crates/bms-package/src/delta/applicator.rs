@@ -164,4 +164,26 @@ impl DeltaApplicator {
 
         Ok(target_builder)
     }
+
+    /// Applies delta and returns the reconstructed target package bytes, verifying target checksum if specified.
+    pub fn apply_to_bytes<R: Read + Seek>(
+        base: &Package,
+        delta: &mut DeltaPackage<R>,
+        base_raw_bytes: Option<&[u8]>,
+    ) -> Result<Vec<u8>, PackageError> {
+        let builder = Self::apply(base, delta, base_raw_bytes)?;
+        let target_bytes = builder.build_to_bytes()?;
+
+        if let Some(expected_target_hash) = &delta.manifest().target_package_sha256 {
+            let actual_target_hash = sha256_hex(&target_bytes);
+            if actual_target_hash != *expected_target_hash {
+                return Err(PackageError::DeltaChecksumMismatch {
+                    expected: expected_target_hash.clone(),
+                    actual: actual_target_hash,
+                });
+            }
+        }
+
+        Ok(target_bytes)
+    }
 }

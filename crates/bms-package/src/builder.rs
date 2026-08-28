@@ -60,8 +60,26 @@ impl PackageBuilder {
         self.add_file(entry_path, buffer)
     }
 
+    /// Returns the number of files currently added.
+    pub fn file_count(&self) -> usize {
+        self.files.len()
+    }
+
     /// Builds and serializes the package into a seekable writer with deterministic ordering and timestamps.
     pub fn build_to_writer<W: Write + Seek>(&self, writer: W) -> Result<(), PackageError> {
+        self.build_to_writer_with_progress(writer, None, |_, _, _| {})
+    }
+
+    /// Builds and serializes the package with optional cancellation and progress reporting.
+    pub fn build_to_writer_with_progress<W: Write + Seek, F>(
+        &self,
+        writer: W,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        mut on_progress: F,
+    ) -> Result<(), PackageError>
+    where
+        F: FnMut(usize, usize, &str),
+    {
         self.manifest.validate()?;
 
         let mut zip = ZipWriter::new(writer);
@@ -80,7 +98,14 @@ impl PackageBuilder {
         zip.write_all(manifest_json.as_bytes())?;
 
         // 2. Write file entries in alphabetical order (BTreeMap guarantees sorted keys)
-        for (path, content) in &self.files {
+        let total = self.files.len();
+        for (i, (path, content)) in self.files.iter().enumerate() {
+            if let Some(flag) = cancel_flag {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(PackageError::Cancelled);
+                }
+            }
+            on_progress(i + 1, total, path);
             zip.start_file(path, options)?;
             zip.write_all(content)?;
         }
@@ -97,8 +122,20 @@ impl PackageBuilder {
 
     /// Builds and returns the package binary data as an in-memory byte buffer.
     pub fn build_to_bytes(&self) -> Result<Vec<u8>, PackageError> {
+        self.build_to_bytes_with_progress(None, |_, _, _| {})
+    }
+
+    /// Builds and returns the package binary data with optional cancellation and progress reporting.
+    pub fn build_to_bytes_with_progress<F>(
+        &self,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<Vec<u8>, PackageError>
+    where
+        F: FnMut(usize, usize, &str),
+    {
         let mut cursor = Cursor::new(Vec::new());
-        self.build_to_writer(&mut cursor)?;
+        self.build_to_writer_with_progress(&mut cursor, cancel_flag, on_progress)?;
         Ok(cursor.into_inner())
     }
 }

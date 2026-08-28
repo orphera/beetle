@@ -20,8 +20,8 @@ mod tests {
 
     #[test]
     fn test_delta_diff_and_apply_roundtrip_determinism() {
-        // 1. Build Base Package v1.0.0
-        let manifest_v1 = Manifest::new("com.example.song", "1.0.0", "Example Song")
+        // 1. Build Base Package
+        let manifest_v1 = Manifest::new("com.example.song", "Example Song")
             .with_author("Composer");
         let kick_data: Vec<u8> = (0..20000).map(|i| (i % 251) as u8).collect();
 
@@ -41,13 +41,13 @@ mod tests {
         let bytes_v1 = builder_v1.build_to_bytes().unwrap();
         let hash_v1 = sha256_hex(&bytes_v1);
 
-        // 2. Build Target Package v1.1.0:
+        // 2. Build Target Package:
         // - "bms/normal.bms": unchanged
         // - "audio/kick.wav": unchanged (20 KB not included in delta!)
         // - "audio/snare.wav": modified (remastered)
         // - "image/old_banner.png": removed
         // - "bms/insane.bms": added (new chart)
-        let manifest_v2 = Manifest::new("com.example.song", "1.1.0", "Example Song (Remaster)")
+        let manifest_v2 = Manifest::new("com.example.song", "Example Song (Remaster)")
             .with_author("Composer");
         let mut builder_v2 = PackageBuilder::new(manifest_v2);
         builder_v2
@@ -97,7 +97,7 @@ mod tests {
         );
 
         let reconstructed_pkg = Package::from_bytes(reconstructed_bytes).unwrap();
-        assert_eq!(reconstructed_pkg.manifest().version, "1.1.0");
+        assert_eq!(reconstructed_pkg.manifest().name, "Example Song (Remaster)");
         assert!(reconstructed_pkg.contains("bms/insane.bms"));
         assert!(!reconstructed_pkg.contains("image/old_banner.png"));
         assert_eq!(
@@ -111,12 +111,14 @@ mod tests {
     }
 
     #[test]
-    fn test_delta_rejects_mismatched_base_version() {
-        let manifest_v1 = Manifest::new("com.example.song", "1.0.0", "Song");
-        let pkg_v1 = PackageBuilder::new(manifest_v1).build_to_bytes().unwrap();
+    fn test_delta_rejects_mismatched_base_state() {
+        let mut b1 = PackageBuilder::new(Manifest::new("com.example.song", "Song"));
+        b1.add_file("audio/01.wav", vec![1u8; 100]).unwrap();
+        let pkg_v1 = b1.build_to_bytes().unwrap();
 
-        let manifest_v2 = Manifest::new("com.example.song", "1.1.0", "Song");
-        let pkg_v2 = PackageBuilder::new(manifest_v2).build_to_bytes().unwrap();
+        let mut b2 = PackageBuilder::new(Manifest::new("com.example.song", "Song"));
+        b2.add_file("audio/01.wav", vec![2u8; 100]).unwrap();
+        let pkg_v2 = b2.build_to_bytes().unwrap();
 
         let base_pkg = Package::from_bytes(pkg_v1).unwrap();
         let target_pkg = Package::from_bytes(pkg_v2).unwrap();
@@ -124,9 +126,10 @@ mod tests {
         let delta_builder = DeltaBuilder::from_packages(&base_pkg, &target_pkg).unwrap();
         let delta_bytes = delta_builder.build_to_bytes().unwrap();
 
-        // Attempt to apply onto wrong base version 0.9.0
-        let manifest_wrong = Manifest::new("com.example.song", "0.9.0", "Song");
-        let pkg_wrong = PackageBuilder::new(manifest_wrong).build_to_bytes().unwrap();
+        // Attempt to apply onto wrong base state
+        let mut b_wrong = PackageBuilder::new(Manifest::new("com.example.song", "Song"));
+        b_wrong.add_file("audio/01.wav", vec![3u8; 100]).unwrap();
+        let pkg_wrong = b_wrong.build_to_bytes().unwrap();
         let wrong_base = Package::from_bytes(pkg_wrong).unwrap();
         let mut delta_pkg = DeltaPackage::from_bytes(delta_bytes).unwrap();
 
@@ -136,12 +139,12 @@ mod tests {
 
     #[test]
     fn test_delta_rejects_corrupted_payload_checksum() {
-        let manifest_v1 = Manifest::new("com.example.song", "1.0.0", "Song");
+        let manifest_v1 = Manifest::new("com.example.song", "Song");
         let mut b1 = PackageBuilder::new(manifest_v1);
         b1.add_file("audio/01.wav", vec![1u8; 100]).unwrap();
         let pkg_v1 = b1.build_to_bytes().unwrap();
 
-        let manifest_v2 = Manifest::new("com.example.song", "1.1.0", "Song");
+        let manifest_v2 = Manifest::new("com.example.song", "Song");
         let mut b2 = PackageBuilder::new(manifest_v2.clone());
         b2.add_file("audio/01.wav", vec![2u8; 100]).unwrap();
         let pkg_v2 = b2.build_to_bytes().unwrap();

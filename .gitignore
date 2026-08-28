@@ -15,3 +15,6 @@ Thumbs.db
 # Temporary / Scratch files
 scratch/
 *.log
+*.cache
+*.dat
+/replays/

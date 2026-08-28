@@ -5,10 +5,10 @@ use std::fmt;
 pub enum PackageManagerError {
     /// Package with given ID was not found in registry.
     PackageNotFound(String),
-    /// Specific version of a package was not found.
-    VersionNotFound { id: String, version: String },
-    /// Package version is already installed.
-    AlreadyInstalled { id: String, version: String },
+    /// Specific state of a package was not found.
+    StateNotFound { id: String, state_hash: String },
+    /// Package state is already installed.
+    AlreadyInstalled { id: String, state_hash: String },
     /// Package is not installed.
     NotInstalled(String),
     /// Package validation failed.
@@ -17,7 +17,7 @@ pub enum PackageManagerError {
     InstallationFailed(String),
     /// Package verification failed after installation.
     VerificationFailed(String),
-    /// Base version required by a delta package is not installed.
+    /// Base state required by a delta package is not installed.
     BaseStateNotInstalled { id: String, base_hash: String },
     /// Delta creation or application error.
     DeltaError(String),
@@ -29,17 +29,19 @@ pub enum PackageManagerError {
     Package(bms_package::PackageError),
     /// Underlying I/O error.
     Io(std::io::Error),
+    /// Operation cancelled by user.
+    Cancelled,
 }
 
 impl fmt::Display for PackageManagerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PackageNotFound(id) => write!(f, "Package not found: '{id}'"),
-            Self::VersionNotFound { id, version } => {
-                write!(f, "Package '{id}' version '{version}' not found")
+            Self::StateNotFound { id, state_hash } => {
+                write!(f, "Package '{id}' state '{state_hash}' not found")
             }
-            Self::AlreadyInstalled { id, version } => {
-                write!(f, "Package '{id}@{version}' is already installed")
+            Self::AlreadyInstalled { id, state_hash } => {
+                write!(f, "Package '{id}@{state_hash}' is already installed")
             }
             Self::BaseStateNotInstalled { id, base_hash } => write!(
                 f,
@@ -54,6 +56,7 @@ impl fmt::Display for PackageManagerError {
             Self::StorageError(msg) => write!(f, "Storage error: {msg}"),
             Self::Package(e) => write!(f, "Package error: {e}"),
             Self::Io(e) => write!(f, "I/O error: {e}"),
+            Self::Cancelled => write!(f, "Operation cancelled by user"),
         }
     }
 }

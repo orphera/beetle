@@ -110,12 +110,38 @@ impl PackageManager {
 
     /// Installs a package from a `.bmsp` file on disk.
     pub fn install<P: AsRef<Path>>(&mut self, bmsp_path: P) -> Result<InstalledPackage, PackageManagerError> {
+        self.install_with_progress(bmsp_path, None, |_, _, _, _| {})
+    }
+
+    /// Installs a package from a `.bmsp` file on disk with progress reporting and cancellation.
+    pub fn install_with_progress<P: AsRef<Path>, F>(
+        &mut self,
+        bmsp_path: P,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<InstalledPackage, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
         let bytes = fs::read(bmsp_path)?;
-        self.install_from_bytes(bytes)
+        self.install_from_bytes_with_progress(bytes, cancel_flag, on_progress)
     }
 
     /// Installs a package from raw `.bmsp` binary bytes.
     pub fn install_from_bytes(&mut self, bytes: Vec<u8>) -> Result<InstalledPackage, PackageManagerError> {
+        self.install_from_bytes_with_progress(bytes, None, |_, _, _, _| {})
+    }
+
+    /// Installs a package from raw `.bmsp` binary bytes with cancellation and progress reporting.
+    pub fn install_from_bytes_with_progress<F>(
+        &mut self,
+        bytes: Vec<u8>,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<InstalledPackage, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
         // 1. Validate package structure using bms-package
         let pkg = Package::from_bytes(bytes.clone())?;
         let manifest = pkg.manifest().clone();
@@ -133,11 +159,11 @@ impl PackageManager {
         }
 
         // 3. Atomically extract and install files into managed storage
-        let (location, rel_path) = self.storage.install_package(&pkg, &bytes)?;
+        let (location, rel_path) = self.storage.install_package_with_progress(&pkg, &bytes, cancel_flag, on_progress)?;
 
         // 4. Update registry
         let now_str = "2026-08-28T02:00:00Z".to_string(); // Or ISO timestamp
-        self.registry.register(&manifest, &state_hash, rel_path, now_str)?;
+        self.registry.register(&manifest, &state_hash, &rel_path, &now_str)?;
         self.save_registry()?;
 
         Ok(InstalledPackage {
@@ -156,7 +182,21 @@ impl PackageManager {
         folder_path: P,
         manifest_override: Option<Manifest>,
     ) -> Result<Vec<u8>, PackageManagerError> {
-        crate::pack::pack_bms_folder(folder_path, manifest_override)
+        self.pack_folder_with_progress(folder_path, manifest_override, None, |_, _, _, _| {})
+    }
+
+    /// Packs a local BMS directory with cancellation and progress reporting.
+    pub fn pack_folder_with_progress<P: AsRef<Path>, F>(
+        &self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<Vec<u8>, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
+        crate::pack::pack_bms_folder_with_progress(folder_path, manifest_override, cancel_flag, on_progress)
     }
 
     /// Ingests and installs an existing local BMS directory directly into managed storage.
@@ -165,8 +205,22 @@ impl PackageManager {
         folder_path: P,
         manifest_override: Option<Manifest>,
     ) -> Result<InstalledPackage, PackageManagerError> {
-        let bytes = self.pack_folder(folder_path, manifest_override)?;
-        self.install_from_bytes(bytes)
+        self.import_folder_with_progress(folder_path, manifest_override, None, |_, _, _, _| {})
+    }
+
+    /// Ingests and installs a local BMS directory with cancellation and progress reporting.
+    pub fn import_folder_with_progress<P: AsRef<Path>, F>(
+        &mut self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        mut on_progress: F,
+    ) -> Result<InstalledPackage, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
+        let bytes = self.pack_folder_with_progress(folder_path, manifest_override, cancel_flag, &mut on_progress)?;
+        self.install_from_bytes_with_progress(bytes, cancel_flag, on_progress)
     }
 
     /// Applies a delta `.bmdp` package file on disk onto the installed base state.
@@ -254,7 +308,7 @@ impl PackageManager {
         let location = self.root_dir.join(&state_record.path);
         Some(InstalledPackage {
             id: record.id.clone(),
-            state_hash: state_hash.clone(),
+            state_hash: state_hash.to_string(),
             name: record.name.clone(),
             author: record.author.clone(),
             location,

@@ -12,29 +12,29 @@ pub mod updater;
 pub use error::PackageManagerError;
 pub use manager::{InstalledPackage, PackageManager};
 pub use pack::{analyze_bms_folder, pack_bms_folder};
-pub use registry::{PackageRecord, PackageVersionRecord, Registry};
+pub use registry::{PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
 pub use updater::PackageUpdater;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bms_package::{Manifest, PackageBuilder};
+    use bms_package::{Manifest, Package, PackageBuilder};
 
-    fn create_test_package_bytes(id: &str, version: &str, name: &str) -> Vec<u8> {
-        let manifest = Manifest::new(id, version, name).with_author("Test Author");
+    fn create_test_package_bytes(id: &str, name: &str, extra_byte: u8) -> Vec<u8> {
+        let manifest = Manifest::new(id, name).with_author("Test Author");
         let mut builder = PackageBuilder::new(manifest);
         builder
             .add_file("bms/test.bms", b"#TITLE Sample\n#BPM 150".to_vec())
             .unwrap();
         builder
-            .add_file("audio/01.wav", vec![1, 2, 3, 4, 5])
+            .add_file("audio/01.wav", vec![1, 2, 3, 4, extra_byte])
             .unwrap();
         builder.build_to_bytes().unwrap()
     }
 
     #[test]
-    fn test_package_lifecycle_install_versions_and_uninstall() {
+    fn test_package_lifecycle_install_states_and_uninstall() {
         let temp_dir = std::env::temp_dir().join(format!(
             "bpm_test_{}",
             std::time::SystemTime::now()
@@ -45,42 +45,44 @@ mod tests {
 
         let mut manager = PackageManager::new(&temp_dir).unwrap();
 
-        // 1. Install version 1.0.0
-        let pkg_v1 = create_test_package_bytes("com.example.song", "1.0.0", "Song V1");
+        // 1. Install state 1
+        let pkg_v1 = create_test_package_bytes("com.example.song", "Song V1", 5);
+        let hash_v1 = Package::from_bytes(pkg_v1.clone()).unwrap().state_hash();
         let installed1 = manager.install_from_bytes(pkg_v1.clone()).unwrap();
         assert_eq!(installed1.id, "com.example.song");
-        assert_eq!(installed1.version, "1.0.0");
+        assert_eq!(installed1.state_hash, hash_v1);
         assert_eq!(installed1.name, "Song V1");
 
         // Duplicate install rejected
         let dup_res = manager.install_from_bytes(pkg_v1);
         assert!(matches!(dup_res, Err(PackageManagerError::AlreadyInstalled { .. })));
 
-        // 2. Install version 1.1.0 (Multi-version support)
-        let pkg_v2 = create_test_package_bytes("com.example.song", "1.1.0", "Song V2");
+        // 2. Install state 2 (Multi-state support)
+        let pkg_v2 = create_test_package_bytes("com.example.song", "Song V2", 6);
+        let hash_v2 = Package::from_bytes(pkg_v2.clone()).unwrap().state_hash();
         let installed2 = manager.install_from_bytes(pkg_v2).unwrap();
-        assert_eq!(installed2.version, "1.1.0");
+        assert_eq!(installed2.state_hash, hash_v2);
 
-        // Verify active version is 1.1.0
+        // Verify active state is hash_v2
         let active = manager.get_active_package("com.example.song").unwrap();
-        assert_eq!(active.version, "1.1.0");
+        assert_eq!(active.state_hash, hash_v2);
 
-        // Switch active version back to 1.0.0
-        manager.set_active("com.example.song", "1.0.0").unwrap();
+        // Switch active state back to hash_v1
+        manager.set_active("com.example.song", &hash_v1).unwrap();
         let active_switched = manager.get_active_package("com.example.song").unwrap();
-        assert_eq!(active_switched.version, "1.0.0");
+        assert_eq!(active_switched.state_hash, hash_v1);
 
         // Test opening installed package and reading entry
         let opened_pkg = active_switched.open().unwrap();
         assert!(opened_pkg.contains("bms/test.bms"));
         assert!(opened_pkg.contains("audio/01.wav"));
 
-        // 3. Uninstall version 1.0.0
-        manager.uninstall("com.example.song", "1.0.0").unwrap();
-        assert_eq!(manager.get_installed_versions("com.example.song"), vec!["1.1.0"]);
+        // 3. Uninstall state 1
+        manager.uninstall("com.example.song", &hash_v1).unwrap();
+        assert_eq!(manager.get_installed_states("com.example.song"), vec![hash_v2.clone()]);
 
-        // 4. Uninstall last version (1.1.0)
-        manager.uninstall("com.example.song", "1.1.0").unwrap();
+        // 4. Uninstall last state
+        manager.uninstall("com.example.song", &hash_v2).unwrap();
         assert!(manager.get_active_package("com.example.song").is_none());
         assert!(manager.list_active_packages().is_empty());
 
@@ -125,13 +127,13 @@ mod tests {
 
         // Uninstall nonexistent package
         assert!(matches!(
-            manager.uninstall("nonexistent.id", "1.0.0"),
+            manager.uninstall("nonexistent.id", "deadbeef"),
             Err(PackageManagerError::PackageNotFound(_))
         ));
 
         // Activate nonexistent package
         assert!(matches!(
-            manager.set_active("nonexistent.id", "1.0.0"),
+            manager.set_active("nonexistent.id", "deadbeef"),
             Err(PackageManagerError::PackageNotFound(_))
         ));
 
@@ -162,7 +164,6 @@ mod tests {
         // Import the folder
         let installed = manager.import_folder(&song_folder, None).unwrap();
         assert_eq!(installed.id, "ryu.sakura_storm");
-        assert_eq!(installed.version, "1.0.0");
         assert_eq!(installed.name, "Sakura Storm");
         assert_eq!(installed.author, Some("Ryu*".to_string()));
 
@@ -187,15 +188,16 @@ mod tests {
 
         let mut manager = PackageManager::new(&temp_dir).unwrap();
 
-        // 1. Install Base Package v1.0.0
-        let pkg_v1 = create_test_package_bytes("com.example.delta_song", "1.0.0", "Delta Song V1");
+        // 1. Install Base Package
+        let pkg_v1 = create_test_package_bytes("com.example.delta_song", "Delta Song V1", 5);
+        let hash_v1 = Package::from_bytes(pkg_v1.clone()).unwrap().state_hash();
         manager.install_from_bytes(pkg_v1.clone()).unwrap();
 
         let active_v1 = manager.get_active_package("com.example.delta_song").unwrap();
-        assert_eq!(active_v1.version, "1.0.0");
+        assert_eq!(active_v1.state_hash, hash_v1);
 
-        // 2. Create Target Package v1.1.0 and generate Delta (.bmdp)
-        let manifest_v2 = Manifest::new("com.example.delta_song", "1.1.0", "Delta Song V2");
+        // 2. Create Target Package and generate Delta (.bmdp)
+        let manifest_v2 = Manifest::new("com.example.delta_song", "Delta Song V2");
         let mut builder_v2 = PackageBuilder::new(manifest_v2);
         builder_v2
             .add_file("bms/test.bms", b"#TITLE Sample\n#BPM 150".to_vec())
@@ -207,33 +209,33 @@ mod tests {
             .add_file("bms/insane.bms", b"#TITLE Insane\n#PLAYLEVEL 12".to_vec()) // added
             .unwrap();
         let pkg_v2 = builder_v2.build_to_bytes().unwrap();
+        let hash_v2 = Package::from_bytes(pkg_v2.clone()).unwrap().state_hash();
 
         let delta_bytes = PackageUpdater::create_delta_between_packages(&pkg_v1, &pkg_v2).unwrap();
 
         // 3. Apply Delta onto PackageManager
         let installed_v2 = manager.apply_delta_bytes(&delta_bytes).unwrap();
-        assert_eq!(installed_v2.version, "1.1.0");
+        assert_eq!(installed_v2.state_hash, hash_v2);
 
         let active_v2 = manager.get_active_package("com.example.delta_song").unwrap();
-        assert_eq!(active_v2.version, "1.1.0");
+        assert_eq!(active_v2.state_hash, hash_v2);
 
         let opened_v2 = active_v2.open().unwrap();
         assert!(opened_v2.contains("bms/insane.bms"));
         assert_eq!(opened_v2.read_entry("audio/01.wav").unwrap(), vec![9, 9, 9]);
 
-        // 4. Base v1.0.0 remains intact in version history
-        assert_eq!(
-            manager.get_installed_versions("com.example.delta_song"),
-            vec!["1.0.0", "1.1.0"]
-        );
+        // 4. Base state remains intact in state history
+        let states = manager.get_installed_states("com.example.delta_song");
+        assert!(states.contains(&hash_v1));
+        assert!(states.contains(&hash_v2));
 
         // 5. Try applying delta onto non-existent base package
-        let orphan_v1 = create_test_package_bytes("com.other.orphan", "1.0.0", "Orphan");
-        let orphan_v2 = create_test_package_bytes("com.other.orphan", "1.1.0", "Orphan V2");
+        let orphan_v1 = create_test_package_bytes("com.other.orphan", "Orphan", 1);
+        let orphan_v2 = create_test_package_bytes("com.other.orphan", "Orphan V2", 2);
         let orphan_delta = PackageUpdater::create_delta_between_packages(&orphan_v1, &orphan_v2).unwrap();
 
         let orphan_res = manager.apply_delta_bytes(&orphan_delta);
-        assert!(matches!(orphan_res, Err(PackageManagerError::BaseVersionNotInstalled { .. })));
+        assert!(matches!(orphan_res, Err(PackageManagerError::BaseStateNotInstalled { .. })));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

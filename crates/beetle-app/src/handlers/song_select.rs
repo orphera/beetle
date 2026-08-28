@@ -62,6 +62,10 @@ pub fn handle_song_select_input(
         KeyCode::Slash => {
             state.is_search_active = true;
         }
+        KeyCode::F1 => {
+            state.category_mode = state.category_mode.prev();
+            state.recompute_filtered_songs();
+        }
         KeyCode::F3 => {
             state.category_mode = state.category_mode.next();
             state.recompute_filtered_songs();

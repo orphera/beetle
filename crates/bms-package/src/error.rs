@@ -46,6 +46,8 @@ pub enum PackageError {
     },
     /// Delta patch application failed.
     DeltaApplyFailed(String),
+    /// Operation was cancelled by user.
+    Cancelled,
 }
 
 impl fmt::Display for PackageError {
@@ -58,12 +60,12 @@ impl fmt::Display for PackageError {
             Self::UnsupportedFormat(ver) => write!(f, "Unsupported package format version: {ver}"),
             Self::InvalidEntryPath(path) => write!(f, "Invalid entry path: '{path}'"),
             Self::DuplicateEntry(path) => write!(f, "Duplicate entry path in package: '{path}'"),
-            Self::EntryNotFound(path) => write!(f, "Entry not found in package: '{path}'"),
-            Self::DecompressionLimitExceeded(size) => {
-                write!(f, "Decompression safety limit exceeded: {size} bytes")
+            Self::EntryNotFound(path) => write!(f, "Entry not found: '{path}'"),
+            Self::DecompressionLimitExceeded(bytes) => {
+                write!(f, "Decompression limit exceeded ({bytes} bytes)")
             }
             Self::CorruptedPackage(msg) => write!(f, "Corrupted package: {msg}"),
-            Self::MissingDeltaManifest => write!(f, "Missing delta_manifest.json in delta archive root"),
+            Self::MissingDeltaManifest => write!(f, "Missing delta_manifest.json in delta root"),
             Self::InvalidDeltaManifest(msg) => write!(f, "Invalid delta manifest: {msg}"),
             Self::DeltaBaseMismatch {
                 expected_id,
@@ -80,9 +82,10 @@ impl fmt::Display for PackageError {
             ),
             Self::DeltaChecksumMismatch { expected, actual } => write!(
                 f,
-                "Delta integrity checksum mismatch: expected '{expected}', calculated '{actual}'"
+                "Delta checksum mismatch: expected {expected}, got {actual}"
             ),
             Self::DeltaApplyFailed(msg) => write!(f, "Delta apply failed: {msg}"),
+            Self::Cancelled => write!(f, "Operation cancelled by user"),
         }
     }
 }

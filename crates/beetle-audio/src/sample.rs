@@ -2,7 +2,7 @@ use beetle_core::{BmsChart, WavId};
 use hound::{SampleFormat, WavReader};
 use lewton::inside_ogg::OggStreamReader;
 use std::collections::HashMap;
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -199,6 +199,15 @@ impl SampleBank {
         };
 
         Ok(PcmBuffer::new(sample_rate, stereo_samples))
+    }
+
+    /// Decodes an audio file (WAV or OGG) from an in-memory byte buffer into stereo normalized PCM.
+    pub fn load_audio_from_bytes(data: &[u8]) -> Result<PcmBuffer, AudioDecodeError> {
+        let cursor = Cursor::new(data);
+        match Self::load_wav_from_reader(cursor.clone()) {
+            Ok(pcm) => Ok(pcm),
+            Err(_) => Self::load_ogg_from_reader(cursor),
+        }
     }
 
     /// Load an audio file (WAV or OGG) from disk and pre-decode to PCM.

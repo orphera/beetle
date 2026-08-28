@@ -21,9 +21,9 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
 
     // Cache stage image for loading screen
     let selected_hash = song.hash;
-    if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
+    if !state.stage_image_cache.contains_key(&selected_hash) {
         let img = load_stage_image(song);
-        state.cached_stage_image = Some((selected_hash, img));
+        state.stage_image_cache.insert(selected_hash, img);
     }
 
     state.loading_receiver = Some(spawn_background_song_loader(song));

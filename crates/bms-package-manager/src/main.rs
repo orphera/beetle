@@ -10,20 +10,29 @@ fn print_usage() {
     println!("  bpm install <package.bmsp>             Install a local .bmsp package");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
     println!("  bpm pack <folder> [-o <out>]           Pack a BMS folder into a .bmsp archive");
-    println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between versions/folders");
+    println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!("  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff");
     println!("  bpm update <delta.bmdp>                Atomically apply a delta package to installed library");
     println!("  bpm list                               List all active installed packages");
-    println!("  bpm info <package_id>                  Show package metadata and installed versions");
-    println!("  bpm versions <package_id>              List all installed versions of a package");
-    println!("  bpm activate <id> <version>            Switch active version for a package");
-    println!("  bpm uninstall <id> <version>           Uninstall a specific package version");
+    println!("  bpm info <package_id>                  Show package metadata and installed states");
+    println!("  bpm states <package_id>                List all installed states of a package");
+    println!("  bpm activate <id> <state_hash>         Switch active state for a package");
+    println!("  bpm uninstall <id> <state_hash>        Uninstall a specific package state");
 }
 
 fn get_default_packages_dir() -> PathBuf {
+    use std::path::Path;
     env::var("BEETLE_PACKAGES_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("packages"))
+        .unwrap_or_else(|_| {
+            for candidate in &["packages", "target/release/packages", "../packages"] {
+                let p = Path::new(candidate);
+                if p.join("registry.json").exists() {
+                    return p.to_path_buf();
+                }
+            }
+            PathBuf::from("packages")
+        })
 }
 
 fn main() -> Result<(), PackageManagerError> {
@@ -182,8 +191,8 @@ fn main() -> Result<(), PackageManagerError> {
             match manager.apply_delta(delta_path) {
                 Ok(installed) => {
                     println!(
-                        "Successfully applied delta and updated '{}' to v{} ({})",
-                        installed.name, installed.version, installed.id
+                        "Successfully applied delta and updated '{}' ({}) -> state {}",
+                        installed.name, installed.id, installed.state_hash
                     );
                     println!("Location: {}", installed.location.display());
                 }
@@ -203,8 +212,8 @@ fn main() -> Result<(), PackageManagerError> {
             match manager.import_folder(folder, None) {
                 Ok(installed) => {
                     println!(
-                        "Successfully imported and installed '{}' v{} ({})",
-                        installed.name, installed.version, installed.id
+                        "Successfully imported and installed '{}' ({}) -> state {}",
+                        installed.name, installed.id, installed.state_hash
                     );
                     println!("Location: {}", installed.location.display());
                 }
@@ -224,8 +233,8 @@ fn main() -> Result<(), PackageManagerError> {
             match manager.install(path) {
                 Ok(installed) => {
                     println!(
-                        "Successfully installed '{}' v{} ({})",
-                        installed.name, installed.version, installed.id
+                        "Successfully installed '{}' ({}) -> state {}",
+                        installed.name, installed.id, installed.state_hash
                     );
                     println!("Location: {}", installed.location.display());
                 }
@@ -242,13 +251,18 @@ fn main() -> Result<(), PackageManagerError> {
                 return Ok(());
             }
 
-            println!("{:<25} {:<10} {:<30} {}", "ID", "VERSION", "NAME", "AUTHOR");
+            println!("{:<25} {:<16} {:<30} {}", "ID", "STATE", "NAME", "AUTHOR");
             println!("{:-<80}", "");
             for pkg in packages {
                 let author = pkg.author.as_deref().unwrap_or("-");
+                let short_hash = if pkg.state_hash.len() > 12 {
+                    &pkg.state_hash[..12]
+                } else {
+                    &pkg.state_hash
+                };
                 println!(
-                    "{:<25} {:<10} {:<30} {}",
-                    pkg.id, pkg.version, pkg.name, author
+                    "{:<25} {:<16} {:<30} {}",
+                    pkg.id, short_hash, pkg.name, author
                 );
             }
         }
@@ -264,11 +278,11 @@ fn main() -> Result<(), PackageManagerError> {
                     println!("Package ID:      {}", record.id);
                     println!("Name:            {}", record.name);
                     println!("Author:          {}", record.author.as_deref().unwrap_or("-"));
-                    println!("Active Version:  {}", record.active_version);
-                    println!("Installed Versions:");
-                    for (ver, ver_record) in &record.versions {
-                        let marker = if ver == &record.active_version { "* (active)" } else { "" };
-                        println!("  - {:<10} (installed at: {}) {}", ver, ver_record.installed_at, marker);
+                    println!("Active State:    {}", record.active_state);
+                    println!("Installed States:");
+                    for (state_hash, state_record) in &record.state_hashes {
+                        let marker = if state_hash == &record.active_state { "* (active)" } else { "" };
+                        println!("  - {:<16} (installed at: {}) {}", state_hash, state_record.installed_at, marker);
                     }
                 }
                 None => {
@@ -277,34 +291,34 @@ fn main() -> Result<(), PackageManagerError> {
                 }
             }
         }
-        "versions" => {
+        "states" | "versions" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing package ID.");
-                eprintln!("Usage: bpm versions <package_id>");
+                eprintln!("Usage: bpm states <package_id>");
                 std::process::exit(1);
             }
             let id = &args[2];
-            let versions = manager.get_installed_versions(id);
-            if versions.is_empty() {
-                println!("Package '{}' has no installed versions.", id);
+            let states = manager.get_installed_states(id);
+            if states.is_empty() {
+                println!("Package '{}' has no installed states.", id);
             } else {
-                for ver in versions {
-                    println!("{ver}");
+                for state in states {
+                    println!("{state}");
                 }
             }
         }
         "activate" => {
             if args.len() < 4 {
                 eprintln!("Error: Missing arguments.");
-                eprintln!("Usage: bpm activate <package_id> <version>");
+                eprintln!("Usage: bpm activate <package_id> <state_hash>");
                 std::process::exit(1);
             }
             let id = &args[2];
-            let version = &args[3];
-            match manager.set_active(id, version) {
-                Ok(()) => println!("Active version for '{}' set to v{}.", id, version),
+            let state_hash = &args[3];
+            match manager.set_active(id, state_hash) {
+                Ok(()) => println!("Active state for '{}' set to {}.", id, state_hash),
                 Err(e) => {
-                    eprintln!("Failed to activate version: {e}");
+                    eprintln!("Failed to activate state: {e}");
                     std::process::exit(1);
                 }
             }
@@ -312,13 +326,13 @@ fn main() -> Result<(), PackageManagerError> {
         "uninstall" => {
             if args.len() < 4 {
                 eprintln!("Error: Missing arguments.");
-                eprintln!("Usage: bpm uninstall <package_id> <version>");
+                eprintln!("Usage: bpm uninstall <package_id> <state_hash>");
                 std::process::exit(1);
             }
             let id = &args[2];
-            let version = &args[3];
-            match manager.uninstall(id, version) {
-                Ok(()) => println!("Successfully uninstalled '{}' v{}.", id, version),
+            let state_hash = &args[3];
+            match manager.uninstall(id, state_hash) {
+                Ok(()) => println!("Successfully uninstalled '{}' state {}.", id, state_hash),
                 Err(e) => {
                     eprintln!("Failed to uninstall package: {e}");
                     std::process::exit(1);

@@ -1,4 +1,4 @@
-use crate::bms::parse_bms;
+use crate::bms::{parse_bms, PlayMode};
 use crate::score::ScoreStore;
 
 /// High-speed FNV-1a 64-bit hash for chart identification without external cryptographic dependencies.
@@ -58,6 +58,7 @@ pub struct SongMetadata {
     pub bpm: f64,
     pub play_level: u32,
     pub notes_count: usize,
+    pub play_mode: PlayMode,
 }
 
 impl SongMetadata {
@@ -66,6 +67,7 @@ impl SongMetadata {
         let chart = parse_bms(content).ok()?;
         let hash = compute_chart_hash(content.as_bytes());
         let notes_count = chart.notes.len();
+        let play_mode = chart.detect_play_mode();
 
         let title = if chart.header.title.is_empty() {
             "Unknown Title".to_string()
@@ -83,13 +85,14 @@ impl SongMetadata {
             bpm: chart.header.bpm,
             play_level: chart.header.play_level,
             notes_count,
+            play_mode,
         })
     }
 
     /// Serializes metadata to a simple flat TSV line.
     pub fn serialize_tsv(&self) -> String {
         format!(
-            "{:016x}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}",
+            "{:016x}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}",
             self.hash,
             escape_field(&self.file_path),
             escape_field(&self.title),
@@ -99,6 +102,7 @@ impl SongMetadata {
             self.bpm,
             self.play_level,
             self.notes_count,
+            self.play_mode.as_str(),
         )
     }
 
@@ -118,6 +122,18 @@ impl SongMetadata {
         let bpm = parts[6].parse().unwrap_or(130.0);
         let play_level = parts[7].parse().unwrap_or(1);
         let notes_count = parts[8].parse().unwrap_or(0);
+        let play_mode = if parts.len() > 9 {
+            match parts[9].trim() {
+                "5KEYS" => PlayMode::Keys5,
+                "7KEYS" => PlayMode::Keys7,
+                "9KEYS" => PlayMode::Keys9,
+                "10KEYS" => PlayMode::Keys10,
+                "14KEYS" => PlayMode::Keys14,
+                _ => PlayMode::Keys7,
+            }
+        } else {
+            PlayMode::Keys7
+        };
 
         Some(Self {
             hash,
@@ -129,6 +145,7 @@ impl SongMetadata {
             bpm,
             play_level,
             notes_count,
+            play_mode,
         })
     }
 }
@@ -220,6 +237,7 @@ mod tests {
             bpm: 180.0,
             play_level: 10,
             notes_count: 1200,
+            play_mode: PlayMode::Keys7,
         };
 
         let tsv = meta.serialize_tsv();
@@ -241,6 +259,7 @@ mod tests {
                 bpm: 120.0,
                 play_level: 8,
                 notes_count: 100,
+                play_mode: PlayMode::Keys7,
             },
             SongMetadata {
                 hash: 2,
@@ -252,6 +271,7 @@ mod tests {
                 bpm: 140.0,
                 play_level: 4,
                 notes_count: 50,
+                play_mode: PlayMode::Keys7,
             },
         ];
         let store = ScoreStore::new();

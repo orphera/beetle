@@ -139,6 +139,7 @@ dependencies = [
  "beetle-audio",
  "beetle-core",
  "beetle-render",
+ "bms-package",
  "softbuffer",
  "winit",
 ]

@@ -97,7 +97,7 @@ impl SkinConfig {
                 Lane::Key4,
                 Lane::Key5,
             ],
-            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys14 => &[
+            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys10 | PlayMode::Keys14 => &[
                 Lane::Scratch,
                 Lane::Key1,
                 Lane::Key2,
@@ -117,7 +117,7 @@ impl SkinConfig {
             PlayMode::Keys5 => {
                 self.playfield_width = self.scratch_lane_width + (5.0 * self.lane_width);
             }
-            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys14 => {
+            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys10 | PlayMode::Keys14 => {
                 self.playfield_width = self.scratch_lane_width + (7.0 * self.lane_width);
             }
         }

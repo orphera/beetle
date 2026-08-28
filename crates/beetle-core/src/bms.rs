@@ -25,6 +25,7 @@ pub enum PlayMode {
     Keys7,
     Keys5,
     Keys9,
+    Keys10,
     Keys14,
 }
 
@@ -34,6 +35,7 @@ impl PlayMode {
             Self::Keys7 => "7KEYS",
             Self::Keys5 => "5KEYS",
             Self::Keys9 => "9KEYS",
+            Self::Keys10 => "10KEYS",
             Self::Keys14 => "14KEYS",
         }
     }
@@ -152,7 +154,12 @@ impl BmsChart {
         if self.header.player == 3 {
             PlayMode::Keys9
         } else if self.header.player == 2 {
-            PlayMode::Keys14
+            let has_key6_or_7 = self.notes.iter().any(|n| n.lane == Lane::Key6 || n.lane == Lane::Key7);
+            if has_key6_or_7 {
+                PlayMode::Keys14
+            } else {
+                PlayMode::Keys10
+            }
         } else {
             let has_key6_or_7 = self.notes.iter().any(|n| n.lane == Lane::Key6 || n.lane == Lane::Key7);
             if has_key6_or_7 {
@@ -718,11 +725,18 @@ mod tests {
         let chart_7k = parse_bms(bms_7k).unwrap();
         assert_eq!(chart_7k.detect_play_mode(), PlayMode::Keys7);
 
-        let bms_dp = r#"
+        let bms_10k = r#"
 #PLAYER 2
 #00111:01000000
 "#;
-        let chart_dp = parse_bms(bms_dp).unwrap();
-        assert_eq!(chart_dp.detect_play_mode(), PlayMode::Keys14);
+        let chart_10k = parse_bms(bms_10k).unwrap();
+        assert_eq!(chart_10k.detect_play_mode(), PlayMode::Keys10);
+
+        let bms_14k = r#"
+#PLAYER 2
+#00118:01000000
+"#;
+        let chart_14k = parse_bms(bms_14k).unwrap();
+        assert_eq!(chart_14k.detect_play_mode(), PlayMode::Keys14);
     }
 }

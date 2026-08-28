@@ -4,6 +4,16 @@ use beetle_render::skin::ColorRgba;
 use bms_package_manager::PackageRecord;
 use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
 
+#[derive(Debug, Clone)]
+pub struct TaskProgressInfo<'a> {
+    pub message: &'a str,
+    pub phase: &'a str,
+    pub current: usize,
+    pub total: usize,
+    pub detail: &'a str,
+    pub spinner_frame: usize,
+}
+
 pub struct GuiRenderer {
     pub pixmap: Pixmap,
 }
@@ -54,7 +64,7 @@ impl GuiRenderer {
         status_msg: &str,
         preview_img: Option<&ImageBuffer>,
         modal_info: Option<(&str, &str)>, // (Prompt, input)
-        bg_task_info: Option<(&str, usize)>, // (Task message, frame)
+        bg_task_info: Option<TaskProgressInfo>,
     ) {
         let w = self.pixmap.width() as f32;
         let h = self.pixmap.height() as f32;
@@ -78,75 +88,56 @@ impl GuiRenderer {
         // Search Input Box
         let search_box_x = w - 340.0;
         let search_border_col = if is_search_active {
-            ColorRgba::new(80, 180, 255, 255)
+            ColorRgba::new(255, 220, 80, 255)
         } else {
-            ColorRgba::new(50, 50, 70, 255)
+            ColorRgba::new(60, 60, 80, 255)
         };
-        self.draw_rect(search_box_x, 12.0, 320.0, 32.0, ColorRgba::new(28, 28, 40, 255));
-        self.draw_rect(search_box_x, 12.0, 320.0, 1.0, search_border_col);
-        self.draw_rect(search_box_x, 43.0, 320.0, 1.0, search_border_col);
+        self.draw_rect(search_box_x, 14.0, 320.0, 28.0, ColorRgba::new(16, 16, 24, 255));
+        self.draw_rect(search_box_x, 14.0, 320.0, 1.0, search_border_col);
+        self.draw_rect(search_box_x, 41.0, 320.0, 1.0, search_border_col);
+        self.draw_rect(search_box_x, 14.0, 1.0, 28.0, search_border_col);
+        self.draw_rect(search_box_x + 319.0, 14.0, 1.0, 28.0, search_border_col);
 
-        let search_disp = if search_query.is_empty() && !is_search_active {
-            "[/] Search packages...".to_string()
+        let search_display = if search_query.is_empty() {
+            if is_search_active { "Type to search..._" } else { "Search (press [/])..." }
         } else {
-            format!("Search: {}{}", search_query, if is_search_active { "_" } else { "" })
+            search_query
         };
         let search_text_col = if is_search_active {
             ColorRgba::new(255, 255, 255, 255)
         } else {
-            ColorRgba::new(140, 140, 160, 255)
+            ColorRgba::new(120, 120, 140, 255)
         };
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &search_disp,
-            search_box_x as i32 + 10,
-            22,
-            1,
-            search_text_col,
-        );
+        BitmapFont::draw_text(&mut self.pixmap.as_mut(), search_display, (search_box_x + 10.0) as i32, 22, 1, search_text_col);
 
-        // 3. Left Panel: Package List
-        let list_w = (w * 0.52).max(380.0);
-        let content_y = 66.0;
+        // 3. Left Panel: Package List View
+        let list_w = 420.0;
+        let content_y = 68.0;
         let content_h = h - content_y - 48.0;
 
         self.draw_rect(16.0, content_y, list_w, content_h, ColorRgba::new(18, 18, 26, 255));
         self.draw_rect(16.0, content_y, list_w, 28.0, ColorRgba::new(26, 26, 38, 255));
 
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            "INSTALLED PACKAGES",
-            26,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(170, 170, 190, 255),
-        );
-
-        let count_str = format!("Total: {}", packages.len());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &count_str,
-            (16.0 + list_w - 90.0) as i32,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(140, 140, 160, 255),
-        );
+        let list_title = format!("INSTALLED PACKAGES ({})", packages.len());
+        BitmapFont::draw_text(&mut self.pixmap.as_mut(), &list_title, 26, (content_y + 8.0) as i32, 1, ColorRgba::new(170, 170, 190, 255));
 
         let row_h = 44.0;
-        let visible_count = ((content_h - 32.0) / row_h) as usize;
-        let scroll_offset = if selected_idx >= visible_count {
-            selected_idx - visible_count + 1
+        let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
+        let scroll_offset = if selected_idx >= max_visible_rows {
+            selected_idx - max_visible_rows + 1
         } else {
             0
         };
 
         let mut row_y = content_y + 32.0;
-        for (i, &pkg) in packages.iter().enumerate().skip(scroll_offset).take(visible_count) {
-            let is_selected = i == selected_idx;
+        for (i, &pkg) in packages.iter().skip(scroll_offset).take(max_visible_rows).enumerate() {
+            let actual_idx = scroll_offset + i;
+            let is_selected = actual_idx == selected_idx;
+
             if is_selected {
-                self.draw_rect(18.0, row_y, list_w - 4.0, row_h - 2.0, ColorRgba::new(38, 48, 70, 255));
-                self.draw_rect(18.0, row_y, 4.0, row_h - 2.0, ColorRgba::new(255, 210, 70, 255));
-            } else if i % 2 == 1 {
+                self.draw_rect(18.0, row_y, list_w - 4.0, row_h - 2.0, ColorRgba::new(35, 45, 70, 255));
+                self.draw_rect(18.0, row_y, 4.0, row_h - 2.0, ColorRgba::new(255, 210, 80, 255));
+            } else if actual_idx % 2 == 1 {
                 self.draw_rect(18.0, row_y, list_w - 4.0, row_h - 2.0, ColorRgba::new(22, 22, 30, 255));
             }
 
@@ -158,9 +149,10 @@ impl GuiRenderer {
             };
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &pkg.name, 30, (row_y + 6.0) as i32, 1, name_col);
 
-            // ID & Author & Version
+            // ID & Author & State
             let author = pkg.author.as_deref().unwrap_or("Unknown");
-            let sub_info = format!("{} | by {} | v{} ({} ver)", pkg.id, author, pkg.active_version, pkg.versions.len());
+            let short_active = if pkg.active_state.len() > 10 { &pkg.active_state[..10] } else { &pkg.active_state };
+            let sub_info = format!("{} | by {} | #{} ({} states)", pkg.id, author, short_active, pkg.state_hashes.len());
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 &sub_info,
@@ -225,29 +217,30 @@ impl GuiRenderer {
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &author_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(180, 180, 200, 255));
             dy += 26.0;
 
-            // Installed Versions Management Box
+            // Installed States Management Box
             self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
             dy += 8.0;
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), "Installed Versions (Use [<-/->] to select):", detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(255, 210, 80, 255));
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), "Installed States (Use [<-/->] to select):", detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(255, 210, 80, 255));
             dy += 20.0;
 
-            let version_keys: Vec<&String> = selected_pkg.versions.keys().collect();
-            for (v_idx, &ver) in version_keys.iter().enumerate() {
-                let is_ver_selected = v_idx == selected_ver_idx;
-                let is_active = ver == &selected_pkg.active_version;
+            let state_keys: Vec<&String> = selected_pkg.state_hashes.keys().collect();
+            for (v_idx, &st) in state_keys.iter().enumerate() {
+                let is_state_selected = v_idx == selected_ver_idx;
+                let is_active = st == &selected_pkg.active_state;
+                let short_st = if st.len() > 12 { &st[..12] } else { st };
 
                 let ver_tag = format!(
-                    "{} v{} {}{}",
-                    if is_ver_selected { ">" } else { " " },
-                    ver,
+                    "{} {} {}{}",
+                    if is_state_selected { ">" } else { " " },
+                    short_st,
                     if is_active { "[ACTIVE]" } else { "" },
-                    if is_ver_selected { " (Selected)" } else { "" }
+                    if is_state_selected { " (Selected)" } else { "" }
                 );
 
                 let ver_col = if is_active {
                     ColorRgba::new(80, 220, 130, 255)
-                } else if is_ver_selected {
+                } else if is_state_selected {
                     ColorRgba::new(255, 230, 120, 255)
                 } else {
                     ColorRgba::new(150, 150, 170, 255)
@@ -258,13 +251,19 @@ impl GuiRenderer {
             }
 
             dy += 12.0;
+
+            // Actions box
+            self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
+            dy += 8.0;
+
+            let action_text = "[A]: Set Active State   [U]/[Del]: Uninstall Selected State";
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
-                "[A]: Activate  [U]: Uninstall Version",
+                action_text,
                 detail_x as i32 + 14,
                 dy as i32,
                 1,
-                ColorRgba::new(140, 180, 255, 255),
+                ColorRgba::new(130, 170, 220, 255),
             );
         }
 
@@ -291,7 +290,7 @@ impl GuiRenderer {
 
         // 6. Input Modal (if active)
         if let Some((prompt, input)) = modal_info {
-            let modal_w = 520.0;
+            let modal_w = 540.0;
             let modal_h = 160.0;
             let modal_x = (w - modal_w) / 2.0;
             let modal_y = (h - modal_h) / 2.0;
@@ -315,7 +314,7 @@ impl GuiRenderer {
 
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
-                "[Enter]: Confirm   [Esc]: Cancel",
+                "[Enter]: Confirm   [Ctrl+V]: Paste   [Esc]: Cancel",
                 (modal_x + 20.0) as i32,
                 (modal_y + 118.0) as i32,
                 1,
@@ -324,28 +323,59 @@ impl GuiRenderer {
         }
 
         // 7. Background Task Running Banner (if active)
-        if let Some((task_msg, spinner_frame)) = bg_task_info {
-            let banner_w = 460.0;
-            let banner_h = 42.0;
+        if let Some(info) = bg_task_info {
+            let banner_w = (w - 60.0).min(520.0);
+            let banner_h = if info.total > 0 { 86.0 } else { 48.0 };
             let banner_x = (w - banner_w) / 2.0;
-            let banner_y = 70.0;
+            let banner_y = 66.0;
 
-            self.draw_rect(banner_x, banner_y, banner_w, banner_h, ColorRgba::new(22, 34, 52, 245));
-            self.draw_rect(banner_x, banner_y, banner_w, 1.0, ColorRgba::new(80, 180, 255, 255));
-            self.draw_rect(banner_x, banner_y + banner_h - 1.0, banner_w, 1.0, ColorRgba::new(80, 180, 255, 255));
+            self.draw_rect(banner_x, banner_y, banner_w, banner_h, ColorRgba::new(20, 28, 44, 250));
+            self.draw_rect(banner_x, banner_y, banner_w, 2.0, ColorRgba::new(80, 180, 255, 255));
+            self.draw_rect(banner_x, banner_y + banner_h - 1.0, banner_w, 1.0, ColorRgba::new(60, 140, 200, 255));
 
             let spinner_chars = ['|', '/', '-', '\\'];
-            let spinner = spinner_chars[spinner_frame % 4];
-            let disp = format!("[{}] {}", spinner, task_msg);
+            let spinner = spinner_chars[info.spinner_frame % 4];
 
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &disp,
-                (banner_x + 16.0) as i32,
-                (banner_y + 14.0) as i32,
-                1,
-                ColorRgba::new(255, 230, 90, 255),
-            );
+            if info.total > 0 {
+                // Title & counts
+                let pct = ((info.current as f32 / info.total.max(1) as f32) * 100.0) as u32;
+                let phase_disp = if !info.phase.is_empty() {
+                    format!("[{}] {} ({}% - {}/{})", spinner, info.phase, pct, info.current, info.total)
+                } else {
+                    format!("[{}] {} ({}% - {}/{})", spinner, info.message, pct, info.current, info.total)
+                };
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &phase_disp, (banner_x + 16.0) as i32, (banner_y + 12.0) as i32, 1, ColorRgba::new(255, 230, 90, 255));
+
+                // Progress Bar
+                let bar_x = banner_x + 16.0;
+                let bar_y = banner_y + 36.0;
+                let bar_w = banner_w - 32.0;
+                let bar_h = 14.0;
+                self.draw_rect(bar_x, bar_y, bar_w, bar_h, ColorRgba::new(12, 16, 26, 255));
+                self.draw_rect(bar_x, bar_y, bar_w, 1.0, ColorRgba::new(40, 60, 90, 255));
+
+                let ratio = (info.current as f32 / info.total.max(1) as f32).clamp(0.0, 1.0);
+                let fill_w = bar_w * ratio;
+                if fill_w > 0.0 {
+                    self.draw_rect(bar_x, bar_y, fill_w, bar_h, ColorRgba::new(40, 180, 240, 255));
+                }
+
+                // Detail filename & Cancel text
+                let detail_str = if info.detail.len() > 36 {
+                    format!("...{}", &info.detail[info.detail.len() - 33..])
+                } else {
+                    info.detail.to_string()
+                };
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &detail_str, (banner_x + 16.0) as i32, (banner_y + 60.0) as i32, 1, ColorRgba::new(170, 190, 215, 255));
+
+                let cancel_hint = "[ESC] Cancel";
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), cancel_hint, (banner_x + banner_w - 110.0) as i32, (banner_y + 60.0) as i32, 1, ColorRgba::new(255, 120, 120, 255));
+            } else {
+                let disp = format!("[{}] {}", spinner, info.message);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &disp, (banner_x + 16.0) as i32, (banner_y + 16.0) as i32, 1, ColorRgba::new(255, 230, 90, 255));
+                let cancel_hint = "[ESC] Cancel";
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), cancel_hint, (banner_x + banner_w - 110.0) as i32, (banner_y + 16.0) as i32, 1, ColorRgba::new(255, 120, 120, 255));
+            }
         }
     }
 }

@@ -32,9 +32,15 @@ pub enum AppScreen {
 }
 
 /// Category grouping mode for songs library.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SongCategory {
+    #[default]
     All,
+    Keys5,
+    Keys7,
+    Keys9,
+    Keys10,
+    Keys14,
     Level,
     ClearStatus,
 }
@@ -42,15 +48,38 @@ pub enum SongCategory {
 impl SongCategory {
     pub fn next(self) -> Self {
         match self {
-            SongCategory::All => SongCategory::Level,
+            SongCategory::All => SongCategory::Keys5,
+            SongCategory::Keys5 => SongCategory::Keys7,
+            SongCategory::Keys7 => SongCategory::Keys9,
+            SongCategory::Keys9 => SongCategory::Keys10,
+            SongCategory::Keys10 => SongCategory::Keys14,
+            SongCategory::Keys14 => SongCategory::Level,
             SongCategory::Level => SongCategory::ClearStatus,
             SongCategory::ClearStatus => SongCategory::All,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            SongCategory::All => SongCategory::ClearStatus,
+            SongCategory::Keys5 => SongCategory::All,
+            SongCategory::Keys7 => SongCategory::Keys5,
+            SongCategory::Keys9 => SongCategory::Keys7,
+            SongCategory::Keys10 => SongCategory::Keys9,
+            SongCategory::Keys14 => SongCategory::Keys10,
+            SongCategory::Level => SongCategory::Keys14,
+            SongCategory::ClearStatus => SongCategory::Level,
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
             SongCategory::All => "ALL SONGS",
+            SongCategory::Keys5 => "5 KEYS",
+            SongCategory::Keys7 => "7 KEYS",
+            SongCategory::Keys9 => "9 KEYS",
+            SongCategory::Keys10 => "10 KEYS",
+            SongCategory::Keys14 => "14 KEYS",
             SongCategory::Level => "BY LEVEL",
             SongCategory::ClearStatus => "BY CLEAR STATUS",
         }
@@ -84,12 +113,13 @@ pub struct AppState {
     pub playback_replay: Option<ReplayData>,
     pub playback_cursor: usize,
     pub start_measure: u32,
-    pub cached_stage_image: Option<(u64, Option<ImageBuffer>)>,
+    pub stage_image_cache: std::collections::HashMap<u64, Option<ImageBuffer>>,
     pub active_bga_image: Option<ImageBuffer>,
     pub preview_audio: Option<AudioEngine>,
     pub preview_song_hash: Option<u64>,
     pub preview_timer: Instant,
     pub preview_duration: f64,
+    pub preview_attempted: bool,
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
     pub active_chart_hash: u64,
@@ -105,6 +135,7 @@ pub struct AppState {
     pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
+    pub last_render_time: Instant,
 }
 
 impl AppState {
@@ -172,13 +203,48 @@ pub fn filter_song_indices(
             // 2. Category filter
             match category {
                 SongCategory::All => Some(idx),
+                SongCategory::Keys5 => {
+                    if s.play_mode == beetle_core::PlayMode::Keys5 || s.file_path == ":demo:" {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
+                SongCategory::Keys7 => {
+                    if s.play_mode == beetle_core::PlayMode::Keys7 || s.file_path == ":demo:" {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
+                SongCategory::Keys9 => {
+                    if s.play_mode == beetle_core::PlayMode::Keys9 {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
+                SongCategory::Keys10 => {
+                    if s.play_mode == beetle_core::PlayMode::Keys10 {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
+                SongCategory::Keys14 => {
+                    if s.play_mode == beetle_core::PlayMode::Keys14 {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
                 SongCategory::Level => Some(idx),
                 SongCategory::ClearStatus => {
                     let best = score_store.get(s.hash);
                     if best.is_some() || s.file_path == ":demo:" {
                         Some(idx)
                     } else {
-                        Some(idx)
+                        None
                     }
                 }
             }
@@ -208,6 +274,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
         bpm: demo_chart.header.bpm,
         play_level: demo_chart.header.play_level,
         notes_count: demo_chart.notes.len(),
+        play_mode: beetle_core::PlayMode::Keys7,
     };
 
     if !songs.iter().any(|s| s.file_path == ":demo:") {

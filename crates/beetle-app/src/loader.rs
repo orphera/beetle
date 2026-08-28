@@ -9,9 +9,57 @@ use beetle_render::ImageBuffer;
 
 use crate::demo;
 
-/// Loads stage artwork image for a song if available on disk.
+/// Loads stage artwork image for a song if available on disk or inside a .bmsp package.
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     if song.file_path == ":demo:" {
+        return None;
+    }
+
+    // Check if song is packaged inside a .bmsp archive
+    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
+        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
+            let base_dir = Path::new(entry_name)
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_string_lossy();
+
+            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
+                let content = String::from_utf8_lossy(&bms_bytes);
+                if let Ok(chart) = parse_bms(&content) {
+                    if !chart.header.stage_file.is_empty() {
+                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file) {
+                            if let Ok(img_bytes) = pkg.read_entry(&path) {
+                                if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                                    return Some(img);
+                                }
+                            }
+                        }
+                    }
+                    if !chart.header.banner.is_empty() {
+                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.banner) {
+                            if let Ok(img_bytes) = pkg.read_entry(&path) {
+                                if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                                    return Some(img);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for name in &[
+                "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
+                "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
+            ] {
+                if let Some(path) = pkg.find_entry_path(&base_dir, name) {
+                    if let Ok(img_bytes) = pkg.read_entry(&path) {
+                        if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                            return Some(img);
+                        }
+                    }
+                }
+            }
+        }
         return None;
     }
 
@@ -19,7 +67,8 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
 
     // Check parsed chart header for stagefile or banner
-    if let Ok(content) = fs::read_to_string(song_path) {
+    if let Ok(bytes) = fs::read(song_path) {
+        let content = String::from_utf8_lossy(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             if !chart.header.stage_file.is_empty() {
                 let p = dir.join(&chart.header.stage_file);
@@ -56,6 +105,47 @@ pub fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
         return None;
     }
 
+    // Check if song is packaged inside a .bmsp archive
+    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
+        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
+            let base_dir = Path::new(entry_name)
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_string_lossy();
+
+            for name in &[
+                "preview.ogg", "preview.wav", "PREVIEW.OGG", "PREVIEW.WAV",
+                "intro.ogg", "intro.wav", "INTRO.OGG", "INTRO.WAV",
+            ] {
+                if let Some(path) = pkg.find_entry_path(&base_dir, name) {
+                    if let Ok(audio_bytes) = pkg.read_entry(&path) {
+                        if let Ok(pcm) = SampleBank::load_audio_from_bytes(&audio_bytes) {
+                            return Some(pcm);
+                        }
+                    }
+                }
+            }
+
+            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
+                let content = String::from_utf8_lossy(&bms_bytes);
+                if let Ok(chart) = parse_bms(&content) {
+                    for filename in chart.header.wav_table.values() {
+                        if let Some(path) = pkg.find_entry_path(&base_dir, filename) {
+                            if let Ok(audio_bytes) = pkg.read_entry(&path) {
+                                if let Ok(pcm) = SampleBank::load_audio_from_bytes(&audio_bytes) {
+                                    if pcm.duration_seconds() > 0.4 {
+                                        return Some(pcm);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return None;
+    }
+
     let song_path = Path::new(&song.file_path);
     let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
 
@@ -73,7 +163,8 @@ pub fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
     }
 
     // 2. Fallback: Parse chart, find first valid keysound longer than 0.4s
-    if let Ok(content) = fs::read_to_string(song_path) {
+    if let Ok(bytes) = fs::read(song_path) {
+        let content = String::from_utf8_lossy(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             for filename in chart.header.wav_table.values() {
                 let p = dir.join(filename);
@@ -98,8 +189,45 @@ pub fn load_chart_and_audio(song: &SongMetadata) -> (BmsChart, TimingModel, Samp
         return (chart, timing, soundbank);
     }
 
+    // Check if song is inside a .bmsp package
+    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
+        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
+            let base_dir = Path::new(entry_name)
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_string_lossy();
+
+            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
+                let content = String::from_utf8_lossy(&bms_bytes);
+                if let Ok(chart) = parse_bms(&content) {
+                    let timing = TimingModel::from_chart(&chart);
+                    let mut soundbank = SampleBank::new();
+                    let mut loaded_count = 0;
+
+                    for (&wav_id, filename) in &chart.header.wav_table {
+                        if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                            if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
+                                    soundbank.insert(wav_id, pcm);
+                                    loaded_count += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    println!(
+                        "Loaded BMSP Chart: '{}' ({} / {} keysounds decoded in-memory from archive)",
+                        chart.header.title, loaded_count, chart.header.wav_table.len()
+                    );
+                    return (chart, timing, soundbank);
+                }
+            }
+        }
+    }
+
     let path = Path::new(&song.file_path);
-    if let Ok(content) = fs::read_to_string(path) {
+    if let Ok(bytes) = fs::read(path) {
+        let content = String::from_utf8_lossy(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             let timing = TimingModel::from_chart(&chart);
             let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));

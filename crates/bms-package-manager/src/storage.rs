@@ -24,14 +24,14 @@ impl PackageStorage {
         self.root_dir.join("packages")
     }
 
-    /// Gets the destination directory for a specific package ID and version.
-    pub fn version_dir(&self, id: &str, version: &str) -> PathBuf {
-        self.packages_dir().join(id).join(version)
+    /// Gets the destination directory for a specific package ID and state hash.
+    pub fn state_dir(&self, id: &str, state_hash: &str) -> PathBuf {
+        self.packages_dir().join(id).join(state_hash)
     }
 
-    /// Checks if a package version directory already exists on disk.
-    pub fn exists(&self, id: &str, version: &str) -> bool {
-        self.version_dir(id, version).exists()
+    /// Checks if a package state directory already exists on disk.
+    pub fn exists(&self, id: &str, state_hash: &str) -> bool {
+        self.state_dir(id, state_hash).exists()
     }
 
     /// Atomically extracts and installs a validated package into the managed storage directory.
@@ -40,14 +40,28 @@ impl PackageStorage {
         pkg: &Package,
         raw_bytes: &[u8],
     ) -> Result<(PathBuf, String), PackageManagerError> {
+        self.install_package_with_progress(pkg, raw_bytes, None, |_, _, _, _| {})
+    }
+
+    /// Atomically extracts and installs a validated package with optional cancellation and progress reporting.
+    pub fn install_package_with_progress<F>(
+        &self,
+        pkg: &Package,
+        raw_bytes: &[u8],
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        mut on_progress: F,
+    ) -> Result<(PathBuf, String), PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
         let id = &pkg.manifest().id;
-        let version = &pkg.manifest().version;
-        let target_dir = self.version_dir(id, version);
+        let state_hash = pkg.state_hash();
+        let target_dir = self.state_dir(id, &state_hash);
 
         if target_dir.exists() {
             return Err(PackageManagerError::AlreadyInstalled {
                 id: id.clone(),
-                version: version.clone(),
+                state_hash: state_hash.clone(),
             });
         }
 
@@ -59,7 +73,7 @@ impl PackageStorage {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let temp_dir = temp_base.join(format!("{}_{}_{}", id, version, nonce));
+        let temp_dir = temp_base.join(format!("{}_{}_{}", id, &state_hash[..8.min(state_hash.len())], nonce));
         fs::create_dir_all(&temp_dir)?;
 
         // Ensure temp_dir is cleaned up if any step fails
@@ -68,11 +82,22 @@ impl PackageStorage {
             let manifest_json = pkg.manifest().to_json_string()?;
             fs::write(temp_dir.join(MANIFEST_FILENAME), manifest_json)?;
 
+            let entries = pkg.entries();
+            let total = entries.len();
+
             // 2. Extract each entry safely
-            for entry in pkg.entries() {
+            for (i, entry) in entries.iter().enumerate() {
+                if let Some(flag) = cancel_flag {
+                    if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Err(PackageManagerError::Cancelled);
+                    }
+                }
+
                 if entry.path == MANIFEST_FILENAME {
                     continue;
                 }
+
+                on_progress("Extracting files", i + 1, total, &entry.path);
 
                 let dest_path = temp_dir.join(&entry.path);
 
@@ -93,7 +118,7 @@ impl PackageStorage {
 
         if let Err(e) = extract_result {
             let _ = fs::remove_dir_all(&temp_dir);
-            return Err(PackageManagerError::InstallationFailed(e.to_string()));
+            return Err(e);
         }
 
         // Atomic move from temp directory to final destination
@@ -108,13 +133,13 @@ impl PackageStorage {
             )));
         }
 
-        let rel_path = format!("packages/{}/{}", id, version);
+        let rel_path = format!("packages/{}/{}", id, state_hash);
         Ok((target_dir, rel_path))
     }
 
-    /// Removes an installed package version from storage.
-    pub fn remove_package(&self, id: &str, version: &str) -> Result<(), PackageManagerError> {
-        let dir = self.version_dir(id, version);
+    /// Removes an installed package state from storage.
+    pub fn remove_package(&self, id: &str, state_hash: &str) -> Result<(), PackageManagerError> {
+        let dir = self.state_dir(id, state_hash);
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
         }

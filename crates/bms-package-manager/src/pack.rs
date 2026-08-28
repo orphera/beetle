@@ -34,7 +34,8 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
                 .to_ascii_lowercase();
 
             if matches!(ext.as_str(), "bms" | "bme" | "bml" | "pms") {
-                if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(bytes) = fs::read(&path) {
+                    let content = String::from_utf8_lossy(&bytes);
                     let (title, artist, genre) = extract_bms_header_tags(&content);
                     if !title.is_empty() && found_title.is_empty() {
                         found_title = title;
@@ -64,7 +65,7 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
 
     let package_id = generate_slug_id(&final_artist, &final_title);
 
-    let mut manifest = Manifest::new(package_id, "1.0.0", final_title)
+    let mut manifest = Manifest::new(package_id, final_title)
         .with_author(final_artist);
 
     if !found_genre.is_empty() {
@@ -79,6 +80,19 @@ pub fn pack_bms_folder<P: AsRef<Path>>(
     folder_path: P,
     manifest_override: Option<Manifest>,
 ) -> Result<Vec<u8>, PackageManagerError> {
+    pack_bms_folder_with_progress(folder_path, manifest_override, None, |_, _, _, _| {})
+}
+
+/// Packs a BMS directory with cancellation check and progress reporting callback.
+pub fn pack_bms_folder_with_progress<P: AsRef<Path>, F>(
+    folder_path: P,
+    manifest_override: Option<Manifest>,
+    cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+    mut on_progress: F,
+) -> Result<Vec<u8>, PackageManagerError>
+where
+    F: FnMut(&str, usize, usize, &str),
+{
     let p = folder_path.as_ref();
     let manifest = match manifest_override {
         Some(m) => m,
@@ -86,21 +100,38 @@ pub fn pack_bms_folder<P: AsRef<Path>>(
     };
 
     let mut builder = PackageBuilder::new(manifest);
-    collect_files_to_builder(p, p, &mut builder)?;
-    let bytes = builder.build_to_bytes()?;
+    let mut files_to_read = Vec::new();
+    collect_file_paths(p, p, &mut files_to_read)?;
+
+    let total = files_to_read.len();
+    for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
+        if let Some(flag) = cancel_flag {
+            if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(PackageManagerError::Cancelled);
+            }
+        }
+        on_progress("Reading files", i + 1, total, &rel_path);
+        let data = fs::read(&abs_path)?;
+        builder.add_file(rel_path, data)?;
+    }
+
+    let bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+        on_progress("Compressing .bmsp", curr, tot, name);
+    })?;
+
     Ok(bytes)
 }
 
-fn collect_files_to_builder(
+fn collect_file_paths(
     base_dir: &Path,
     current_dir: &Path,
-    builder: &mut PackageBuilder,
+    out: &mut Vec<(String, std::path::PathBuf)>,
 ) -> Result<(), PackageManagerError> {
     for entry in fs::read_dir(current_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_files_to_builder(base_dir, &path, builder)?;
+            collect_file_paths(base_dir, &path, out)?;
         } else if path.is_file() {
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if file_name == MANIFEST_FILENAME || file_name.ends_with(".bmsp") || file_name.starts_with('.') {
@@ -109,8 +140,7 @@ fn collect_files_to_builder(
 
             if let Ok(rel) = path.strip_prefix(base_dir) {
                 let rel_str = rel.to_string_lossy().replace('\\', "/");
-                let data = fs::read(&path)?;
-                builder.add_file(rel_str, data)?;
+                out.push((rel_str, path));
             }
         }
     }

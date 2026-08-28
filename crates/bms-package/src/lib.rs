@@ -22,7 +22,7 @@ pub use entry::PackageEntry;
 pub use error::PackageError;
 pub use manifest::{Manifest, CURRENT_FORMAT_VERSION, MANIFEST_FILENAME};
 pub use path::validate_entry_path;
-pub use reader::{Package, DEFAULT_MAX_ENTRY_SIZE};
+pub use reader::{Package, PackageReader, DEFAULT_MAX_ENTRY_SIZE};
 
 #[cfg(test)]
 mod tests {
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn test_package_roundtrip_and_determinism() {
-        let manifest = Manifest::new("com.example.testsong", "1.0.0", "Test Song")
+        let manifest = Manifest::new("com.example.testsong", "Test Song")
             .with_author("Beetle")
             .with_extra("genre", serde_json::json!("Electronic"));
 
@@ -71,7 +71,6 @@ mod tests {
         // Read and verify package
         let pkg = Package::from_bytes(bytes1).unwrap();
         assert_eq!(pkg.manifest().id, "com.example.testsong");
-        assert_eq!(pkg.manifest().version, "1.0.0");
         assert_eq!(pkg.manifest().name, "Test Song");
         assert_eq!(pkg.manifest().author, Some("Beetle".to_string()));
 
@@ -126,7 +125,7 @@ mod tests {
         {
             let mut zip = ZipWriter::new(&mut cursor);
             zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default()).unwrap();
-            zip.write_all(br#"{"format": 999, "id": "test", "version": "1.0.0", "name": "Test"}"#).unwrap();
+            zip.write_all(br#"{"format": 999, "id": "test", "name": "Test"}"#).unwrap();
             zip.finish().unwrap();
         }
 
@@ -141,7 +140,7 @@ mod tests {
         {
             let mut zip = ZipWriter::new(&mut cursor);
             zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default()).unwrap();
-            zip.write_all(br#"{"format": 1, "id": "test", "version": "1.0.0", "name": "Test"}"#).unwrap();
+            zip.write_all(br#"{"format": 1, "id": "test", "name": "Test"}"#).unwrap();
             zip.start_file("../outside.txt", SimpleFileOptions::default()).unwrap();
             zip.write_all(b"malicious").unwrap();
             zip.finish().unwrap();
@@ -154,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_entry_in_builder_rejected() {
-        let manifest = Manifest::new("test", "1.0.0", "Test");
+        let manifest = Manifest::new("test", "Test");
         let mut builder = PackageBuilder::new(manifest);
         builder.add_file("audio/01.wav", vec![0u8; 10]).unwrap();
         let result = builder.add_file("audio/01.wav", vec![1u8; 10]);
@@ -163,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_builder_rejects_manual_manifest_entry() {
-        let manifest = Manifest::new("test", "1.0.0", "Test");
+        let manifest = Manifest::new("test", "Test");
         let mut builder = PackageBuilder::new(manifest);
         let result = builder.add_file(MANIFEST_FILENAME, vec![0u8; 10]);
         assert!(matches!(result, Err(PackageError::InvalidEntryPath(_))));

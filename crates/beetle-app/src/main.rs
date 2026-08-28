@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod config;
 mod demo;
@@ -109,12 +109,13 @@ impl ApplicationHandler for BeetleApp {
             playback_replay: None,
             playback_cursor: 0,
             start_measure: 0,
-            cached_stage_image: None,
+            stage_image_cache: std::collections::HashMap::new(),
             active_bga_image: None,
             preview_audio: None,
             preview_song_hash: None,
             preview_timer: Instant::now(),
             preview_duration: 0.0,
+            preview_attempted: false,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -136,13 +137,47 @@ impl ApplicationHandler for BeetleApp {
             loading_receiver: None,
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
+            last_render_time: Instant::now(),
         };
 
         app_state.recompute_filtered_songs();
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
-            if let Ok(content) = fs::read_to_string(cli_path) {
+            let p = Path::new(cli_path);
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("bmsp") {
+                if let Ok(mut pkg) = bms_package::PackageReader::open_file(p) {
+                    let path_str = p.to_string_lossy();
+                    let chart_entries: Vec<String> = pkg
+                        .entries()
+                        .iter()
+                        .filter_map(|e| {
+                            let e_ext = e.path.rsplit('.').next().unwrap_or("");
+                            if e_ext.eq_ignore_ascii_case("bms")
+                                || e_ext.eq_ignore_ascii_case("bme")
+                                || e_ext.eq_ignore_ascii_case("bml")
+                            {
+                                Some(e.path.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    for entry_path in chart_entries {
+                        if let Ok(bytes) = pkg.read_entry(&entry_path) {
+                            let content = String::from_utf8_lossy(&bytes);
+                            let virtual_path = format!("{}::{}", path_str, entry_path);
+                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
+                                queue_start_gameplay(&mut app_state, &meta);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(bytes) = fs::read(cli_path) {
+                let content = String::from_utf8_lossy(&bytes);
                 if let Some(meta) = SongMetadata::from_content(cli_path, &content) {
                     queue_start_gameplay(&mut app_state, &meta);
                 }
@@ -157,34 +192,57 @@ impl ApplicationHandler for BeetleApp {
             return;
         };
 
-        if state.screen == AppScreen::Loading {
-            if let Some(rx) = &state.loading_receiver {
-                if let Ok(res) = rx.try_recv() {
-                    state.loading_receiver = None;
-                    match res {
-                        Ok((chart, timing, soundbank)) => {
-                            if let Some(song) = state.loading_song.take() {
-                                finalize_start_gameplay(state, &song, chart, timing, soundbank);
+        let now = Instant::now();
+
+        match state.screen {
+            AppScreen::Loading => {
+                if let Some(rx) = &state.loading_receiver {
+                    if let Ok(res) = rx.try_recv() {
+                        state.loading_receiver = None;
+                        match res {
+                            Ok((chart, timing, soundbank)) => {
+                                if let Some(song) = state.loading_song.take() {
+                                    finalize_start_gameplay(state, &song, chart, timing, soundbank);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to load song: {e}");
+                                state.screen = AppScreen::SongSelect;
                             }
                         }
-                        Err(e) => {
-                            eprintln!("Failed to load song: {e}");
-                            state.screen = AppScreen::SongSelect;
-                        }
+                        state.window.request_redraw();
                     }
+                }
+
+                if now.duration_since(state.loading_anim_time) >= Duration::from_millis(30) {
+                    state.loading_spinner_frame = state.loading_spinner_frame.wrapping_add(1);
+                    state.loading_anim_time = now;
                     state.window.request_redraw();
                 }
+                event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(16)));
             }
-
-            let now = Instant::now();
-            if now.duration_since(state.loading_anim_time) >= Duration::from_millis(30) {
-                state.loading_spinner_frame = state.loading_spinner_frame.wrapping_add(1);
-                state.loading_anim_time = now;
-                state.window.request_redraw();
+            AppScreen::Gameplay => {
+                let elapsed = now.duration_since(state.last_render_time);
+                let target = Duration::from_millis(4);
+                if elapsed >= target {
+                    state.last_render_time = now;
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(now + target));
+                } else {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(state.last_render_time + target));
+                }
             }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(20)));
-        } else {
-            event_loop.set_control_flow(ControlFlow::Poll);
+            _ => {
+                let elapsed = now.duration_since(state.last_render_time);
+                let target = Duration::from_millis(16);
+                if elapsed >= target {
+                    state.last_render_time = now;
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(now + target));
+                } else {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(state.last_render_time + target));
+                }
+            }
         }
     }
 
@@ -210,6 +268,50 @@ impl ApplicationHandler for BeetleApp {
                     state.window.request_redraw();
                 }
             }
+            WindowEvent::DroppedFile(path) => {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if ext.eq_ignore_ascii_case("bmsp") {
+                    if let Ok(mut pkg) = bms_package::PackageReader::open_file(&path) {
+                        let path_str = path.to_string_lossy();
+                        let chart_entries: Vec<String> = pkg
+                            .entries()
+                            .iter()
+                            .filter_map(|e| {
+                                let e_ext = e.path.rsplit('.').next().unwrap_or("");
+                                if e_ext.eq_ignore_ascii_case("bms")
+                                    || e_ext.eq_ignore_ascii_case("bme")
+                                    || e_ext.eq_ignore_ascii_case("bml")
+                                {
+                                    Some(e.path.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        for entry_path in chart_entries {
+                            if let Ok(bytes) = pkg.read_entry(&entry_path) {
+                                let content = String::from_utf8_lossy(&bytes);
+                                let virtual_path = format!("{}::{}", path_str, entry_path);
+                                if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
+                                    queue_start_gameplay(state, &meta);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else if ext.eq_ignore_ascii_case("bms")
+                    || ext.eq_ignore_ascii_case("bme")
+                    || ext.eq_ignore_ascii_case("bml")
+                {
+                    if let Ok(bytes) = fs::read(&path) {
+                        let content = String::from_utf8_lossy(&bytes);
+                        if let Some(meta) = SongMetadata::from_content(&path.to_string_lossy(), &content) {
+                            queue_start_gameplay(state, &meta);
+                        }
+                    }
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     ref key_event @ KeyEvent {
@@ -221,24 +323,29 @@ impl ApplicationHandler for BeetleApp {
                 ..
             } => {
                 handle_keyboard_input(state, physical_key, key_state, repeat, key_event.text.as_deref());
+                state.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 match state.screen {
                     AppScreen::SongSelect => {
                         let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
-                        if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
-                            let img = state.current_selected_song().and_then(load_stage_image);
-                            state.cached_stage_image = Some((selected_hash, img));
+                        if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
+                            if state.preview_timer.elapsed() >= Duration::from_millis(50) {
+                                let img = state.current_selected_song().and_then(load_stage_image);
+                                state.stage_image_cache.insert(selected_hash, img);
+                            }
                         }
 
-                        // Preview audio management
+                        // Preview audio management (debounced 400ms to prevent lag while scrolling)
                         if state.preview_song_hash != Some(selected_hash) {
                             state.preview_audio = None;
                             state.preview_song_hash = Some(selected_hash);
                             state.preview_timer = Instant::now();
                             state.preview_duration = 0.0;
-                        } else if state.preview_timer.elapsed() >= Duration::from_millis(250) {
-                            if state.preview_audio.is_none() {
+                            state.preview_attempted = false;
+                        } else if state.preview_timer.elapsed() >= Duration::from_millis(400) {
+                            if !state.preview_attempted {
+                                state.preview_attempted = true;
                                 if let Some(song) = state.current_selected_song() {
                                     if let Some(pcm) = load_preview_sample(song) {
                                         let dur = pcm.duration_seconds();
@@ -269,7 +376,7 @@ impl ApplicationHandler for BeetleApp {
                         }
 
                         let visible_songs = state.current_visible_songs();
-                        let stage_img = state.cached_stage_image.as_ref().and_then(|(_, img)| img.as_ref());
+                        let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
                         state.renderer.render_song_select(
                             &visible_songs,
                             state.selected_song_idx,
@@ -315,15 +422,7 @@ impl ApplicationHandler for BeetleApp {
                     }
                     AppScreen::Loading => {
                         let selected_hash = state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
-                        let stage_img = if let Some((h, img)) = &state.cached_stage_image {
-                            if *h == selected_hash {
-                                img.as_ref()
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
+                        let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
 
                         let title = state.loading_song.as_ref().map(|s| s.title.as_str()).unwrap_or("Unknown");
                         let artist = state.loading_song.as_ref().map(|s| s.artist.as_str()).unwrap_or("Unknown");
@@ -519,8 +618,6 @@ impl ApplicationHandler for BeetleApp {
                         let _ = buffer.present();
                     }
                 }
-
-                state.window.request_redraw();
             }
             _ => (),
         }
@@ -606,7 +703,12 @@ mod tests {
 
     #[test]
     fn test_song_category_transitions() {
-        assert_eq!(SongCategory::All.next(), SongCategory::Level);
+        assert_eq!(SongCategory::All.next(), SongCategory::Keys5);
+        assert_eq!(SongCategory::Keys5.next(), SongCategory::Keys7);
+        assert_eq!(SongCategory::Keys7.next(), SongCategory::Keys9);
+        assert_eq!(SongCategory::Keys9.next(), SongCategory::Keys10);
+        assert_eq!(SongCategory::Keys10.next(), SongCategory::Keys14);
+        assert_eq!(SongCategory::Keys14.next(), SongCategory::Level);
         assert_eq!(SongCategory::Level.next(), SongCategory::ClearStatus);
         assert_eq!(SongCategory::ClearStatus.next(), SongCategory::All);
     }
@@ -624,6 +726,7 @@ mod tests {
             bpm: 140.0,
             play_level: 5,
             notes_count: 500,
+            play_mode: beetle_core::PlayMode::Keys7,
         });
         songs.push(SongMetadata {
             hash: 102,
@@ -635,6 +738,7 @@ mod tests {
             bpm: 180.0,
             play_level: 10,
             notes_count: 1200,
+            play_mode: beetle_core::PlayMode::Keys5,
         });
 
         // 1. Initial unfiltered indices

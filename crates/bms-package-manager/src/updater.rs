@@ -52,7 +52,7 @@ impl PackageUpdater {
         Self::create_delta_between_packages(&base_bytes, &target_bytes)
     }
 
-    /// Applies a delta package in memory onto the base package in the manager and installs the target version.
+    /// Applies a delta package in memory onto the base package in the manager and installs the target state.
     pub fn apply_delta_bytes(
         manager: &mut PackageManager,
         delta_bytes: &[u8],
@@ -60,12 +60,12 @@ impl PackageUpdater {
         let mut delta_pkg = DeltaPackage::from_bytes(delta_bytes.to_vec())?;
         let delta_man = delta_pkg.manifest().clone();
 
-        // 1. Locate installed base package version
+        // 1. Locate installed base package state
         let base_installed = manager
-            .get_installed_package(&delta_man.package_id, &delta_man.base_version)
-            .ok_or_else(|| PackageManagerError::BaseVersionNotInstalled {
+            .get_installed_package(&delta_man.package_id, &delta_man.base_hash)
+            .ok_or_else(|| PackageManagerError::BaseStateNotInstalled {
                 id: delta_man.package_id.clone(),
-                base_version: delta_man.base_version.clone(),
+                base_hash: delta_man.base_hash.clone(),
             })?;
 
         // 2. Open base package
