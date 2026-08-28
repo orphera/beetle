@@ -25,7 +25,7 @@ use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
 use input::{InputConfig, KeyPreset};
-use loader::load_stage_image;
+use loader::spawn_background_stage_image_loader;
 use softbuffer::{Context, Surface};
 use state::{
     init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR,
@@ -134,6 +134,8 @@ impl ApplicationHandler for BeetleApp {
             loading_anim_time: Instant::now(),
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
+            stage_image_receiver: None,
+            stage_image_loading_hash: None,
         };
 
         app_state.recompute_filtered_songs();
@@ -228,18 +230,29 @@ impl ApplicationHandler for BeetleApp {
                 event_loop.set_control_flow(ControlFlow::Poll);
             }
             AppScreen::SongSelect => {
-                let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
-                if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
-                    if state.cursor_settle_time.elapsed() >= Duration::from_millis(150) {
-                        let img = state.current_selected_song().and_then(load_stage_image);
-                        state.stage_image_cache.insert(selected_hash, img);
+                // 1. Receive background artwork loader results without blocking UI
+                if let Some(rx) = &state.stage_image_receiver {
+                    if let Ok((hash, img)) = rx.try_recv() {
+                        state.stage_image_cache.insert(hash, img);
+                        state.stage_image_receiver = None;
+                        state.stage_image_loading_hash = None;
                         state.window.request_redraw();
-                        event_loop.set_control_flow(ControlFlow::Wait);
-                    } else {
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(
-                            state.cursor_settle_time + Duration::from_millis(150),
-                        ));
                     }
+                }
+
+                // 2. Dispatch background loading for selected song
+                let selected_song = state.current_selected_song().cloned();
+                let selected_hash = selected_song.as_ref().map(|s| s.hash).unwrap_or(0);
+                if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
+                    if state.stage_image_loading_hash != Some(selected_hash) {
+                        if let Some(song) = selected_song {
+                            state.stage_image_loading_hash = Some(selected_hash);
+                            state.stage_image_receiver = Some(spawn_background_stage_image_loader(&song));
+                        }
+                    }
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                } else if state.stage_image_receiver.is_some() {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
                 } else {
                     event_loop.set_control_flow(ControlFlow::Wait);
                 }

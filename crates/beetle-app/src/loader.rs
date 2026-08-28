@@ -9,13 +9,24 @@ use beetle_render::ImageBuffer;
 
 use crate::demo;
 
-/// Loads stage artwork image for a song if available on disk or inside a .bmsp package.
+pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
+
+/// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     if song.file_path == ":demo:" {
         return None;
     }
 
-    // Check if song is packaged inside a .bmsp archive
+    // 1. Check persistent on-disk artwork cache first (fastest)
+    let cache_dir = Path::new(ARTWORKS_CACHE_DIR);
+    let cache_file = cache_dir.join(format!("{:016x}.bmp", song.hash));
+    if cache_file.exists() {
+        if let Some(img) = ImageBuffer::load_from_file(&cache_file) {
+            return Some(img);
+        }
+    }
+
+    // 2. Check if song is packaged inside a .bmsp archive
     if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
         if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
             let base_dir = Path::new(entry_name)
@@ -30,6 +41,8 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                         if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file) {
                             if let Ok(img_bytes) = pkg.read_entry(&path) {
                                 if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                                    let _ = fs::create_dir_all(cache_dir);
+                                    let _ = fs::write(&cache_file, &img_bytes);
                                     return Some(img);
                                 }
                             }
@@ -39,6 +52,8 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                         if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.banner) {
                             if let Ok(img_bytes) = pkg.read_entry(&path) {
                                 if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                                    let _ = fs::create_dir_all(cache_dir);
+                                    let _ = fs::write(&cache_file, &img_bytes);
                                     return Some(img);
                                 }
                             }
@@ -54,6 +69,8 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 if let Some(path) = pkg.find_entry_path(&base_dir, name) {
                     if let Ok(img_bytes) = pkg.read_entry(&path) {
                         if let Some(img) = ImageBuffer::from_bmp_bytes(&img_bytes) {
+                            let _ = fs::create_dir_all(cache_dir);
+                            let _ = fs::write(&cache_file, &img_bytes);
                             return Some(img);
                         }
                     }
@@ -73,12 +90,20 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
             if !chart.header.stage_file.is_empty() {
                 let p = dir.join(&chart.header.stage_file);
                 if let Some(img) = ImageBuffer::load_from_file(&p) {
+                    if let Ok(data) = fs::read(&p) {
+                        let _ = fs::create_dir_all(cache_dir);
+                        let _ = fs::write(&cache_file, data);
+                    }
                     return Some(img);
                 }
             }
             if !chart.header.banner.is_empty() {
                 let p = dir.join(&chart.header.banner);
                 if let Some(img) = ImageBuffer::load_from_file(&p) {
+                    if let Ok(data) = fs::read(&p) {
+                        let _ = fs::create_dir_all(cache_dir);
+                        let _ = fs::write(&cache_file, data);
+                    }
                     return Some(img);
                 }
             }
@@ -92,6 +117,10 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     ] {
         let p = dir.join(name);
         if let Some(img) = ImageBuffer::load_from_file(&p) {
+            if let Ok(data) = fs::read(&p) {
+                let _ = fs::create_dir_all(cache_dir);
+                let _ = fs::write(&cache_file, data);
+            }
             return Some(img);
         }
     }
@@ -179,6 +208,22 @@ pub fn spawn_background_song_loader(
     thread::spawn(move || {
         let (chart, timing, bank) = load_chart_and_audio(&song_clone);
         let _ = tx.send(Ok((chart, timing, bank)));
+    });
+
+    rx
+}
+
+/// Spawns a background thread to load a song's stage image without blocking the UI thread.
+pub fn spawn_background_stage_image_loader(
+    song: &SongMetadata,
+) -> Receiver<(u64, Option<ImageBuffer>)> {
+    let hash = song.hash;
+    let song_clone = song.clone();
+    let (tx, rx) = channel();
+
+    thread::spawn(move || {
+        let img = load_stage_image(&song_clone);
+        let _ = tx.send((hash, img));
     });
 
     rx

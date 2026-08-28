@@ -132,6 +132,8 @@ pub struct AppState {
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
+    pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
+    pub stage_image_loading_hash: Option<u64>,
 }
 
 impl AppState {

@@ -153,6 +153,8 @@ pub fn handle_song_select_input(
         }
         KeyCode::F5 => {
             state.stage_image_cache.clear();
+            state.stage_image_receiver = None;
+            state.stage_image_loading_hash = None;
             state.songs = crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
