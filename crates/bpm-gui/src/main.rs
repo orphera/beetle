@@ -26,6 +26,8 @@ enum ModalMode {
     ImportFolder,
     InstallBmsp,
     PackFolder,
+    ApplyDelta,
+    CreateDelta,
 }
 
 enum BgTaskResult {
@@ -306,6 +308,8 @@ impl ApplicationHandler for BpmGuiApp {
                             ModalMode::ImportFolder => "Import BMS Folder (enter directory path):",
                             ModalMode::InstallBmsp => "Install .bmsp Package (enter file path):",
                             ModalMode::PackFolder => "Pack BMS Folder (enter directory path):",
+                            ModalMode::ApplyDelta => "Apply Delta .bmdp (enter file path):",
+                            ModalMode::CreateDelta => "Create Delta (enter '<base_path> <target_path>'):",
                         };
                         (prompt, input.as_str())
                     });
@@ -337,6 +341,78 @@ impl ApplicationHandler for BpmGuiApp {
                         }
                         buffer.present().ok();
                     }
+                }
+            }
+            WindowEvent::DroppedFile(path) => {
+                if state.bg_task_running.is_none() {
+                    let root_dir = state.manager.root_dir().to_path_buf();
+                    let (tx, rx): (Sender<BgTaskResult>, Receiver<BgTaskResult>) = channel();
+                    state.bg_receiver = Some(rx);
+
+                    let path_buf = path.clone();
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                    if ext == "bmdp" {
+                        state.bg_task_running = Some(format!("Applying dropped delta '{}'...", path.display()));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.apply_delta(&path_buf) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Updated '{}' to v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Delta apply error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
+                            }
+                        });
+                    } else if ext == "bmsp" {
+                        state.bg_task_running = Some(format!("Installing dropped package '{}'...", path.display()));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.install(&path_buf) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Installed '{}' v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Install error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
+                            }
+                        });
+                    } else if path.is_dir() {
+                        state.bg_task_running = Some(format!("Importing dropped folder '{}'...", path.display()));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.import_folder(&path_buf, None) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Imported '{}' v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Import error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
+                            }
+                        });
+                    }
+                    state.window.request_redraw();
                 }
             }
             _ => (),
@@ -441,6 +517,52 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                 },
                                 Err(e) => {
                                     let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
+                            }
+                        });
+                    }
+                    ModalMode::ApplyDelta => {
+                        state.bg_task_running = Some(format!("Applying delta '{}'...", target_path));
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
+                                Ok(mut mgr) => match mgr.apply_delta(&target_path) {
+                                    Ok(installed) => {
+                                        let _ = tx.send(BgTaskResult::Completed(format!(
+                                            "Updated '{}' to v{}",
+                                            installed.name, installed.version
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Delta apply error: {e}")));
+                                    }
+                                },
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Manager error: {e}")));
+                                }
+                            }
+                        });
+                    }
+                    ModalMode::CreateDelta => {
+                        let parts: Vec<&str> = target_path.split_whitespace().collect();
+                        if parts.len() < 2 {
+                            let _ = tx.send(BgTaskResult::Failed("Usage: <base_path> <target_path>".to_string()));
+                            return;
+                        }
+                        let base_p = parts[0].to_string();
+                        let target_p = parts[1].to_string();
+                        let out_name = "update.bmdp".to_string();
+                        state.bg_task_running = Some(format!("Creating delta '{}' -> '{}'...", base_p, target_p));
+                        thread::spawn(move || {
+                            match bms_package_manager::PackageUpdater::create_delta_between_paths(&base_p, &target_p) {
+                                Ok(bytes) => {
+                                    if let Err(e) = fs::write(&out_name, bytes) {
+                                        let _ = tx.send(BgTaskResult::Failed(format!("Write error: {e}")));
+                                    } else {
+                                        let _ = tx.send(BgTaskResult::Completed(format!("Created delta '{}'", out_name)));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(BgTaskResult::Failed(format!("Delta create error: {e}")));
                                 }
                             }
                         });
@@ -577,6 +699,12 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
         }
         KeyCode::KeyP => {
             state.modal = Some((ModalMode::PackFolder, String::new()));
+        }
+        KeyCode::KeyD | KeyCode::F3 => {
+            state.modal = Some((ModalMode::ApplyDelta, String::new()));
+        }
+        KeyCode::KeyC | KeyCode::F4 => {
+            state.modal = Some((ModalMode::CreateDelta, String::new()));
         }
         _ => (),
     }

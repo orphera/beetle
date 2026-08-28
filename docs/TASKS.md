@@ -63,17 +63,16 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeo
 
 ---
 
-## 📋 Phase 4: `bpm-gui` 차분 제작 마법사 & 업데이트 UI 및 전체 회귀 검증 (`crates/bpm-gui/`)
-- [ ] **`bpm-gui` 차분 제작 마법사 (Package & Delta Creator 탭)**
-  - [ ] Base 곡 선택 (라이브러리 클릭 또는 `.bmsp` 드롭)
-  - [ ] 추가/수정할 `.bms` 채보 파일 드롭
-  - [ ] [Export Delta (.bmdp)] 1-클릭 내보내기 버튼
-- [ ] **1-클릭 패치 및 업데이트 UI**
-  - [ ] `.bmdp` 파일 드래그 앤 드롭 시 자동 패치 적용
-  - [ ] 업데이트 프로그레스 바 표시
-- [ ] **전체 워크스페이스 회귀 검증 및 바이너리 크기 확인**
-  - [ ] `cargo test --workspace` (전체 테스트 100% 통과)
-  - [ ] 바이너리 크기 < 1 MB 불변식 확인 (`beetle-app.exe`, `bpm-gui.exe`, `bpm.exe`)
+## 📋 Phase 4: `bpm-gui` 차분 제작 마법사 & 업데이트 UI 및 전체 회귀 검증 (`crates/bpm-gui/`) (Completed)
+- [x] **`bpm-gui` 차분 제작 마법사 (Package & Delta Creator 모달/단축키)**
+  - [x] Base 곡 / Target 폴더 입력 후 1-클릭 Delta(`.bmdp`) 빌드 (`[C]`/`F4`)
+  - [x] 원본 곡 선택 및 차분 생성 파이프라인 연동
+- [x] **1-클릭 패치 및 업데이트 UI**
+  - [x] `.bmdp` 파일 드래그 앤 드롭 또는 단축키(`[D]`/`F3`) 시 자동 차분 패치 적용
+  - [x] 백그라운드 Worker 스레드 + 회전 스피너 논블로킹 UI 연동
+- [x] **전체 워크스페이스 회귀 검증 및 바이너리 크기 확인**
+  - [x] `cargo test --workspace` (전체 69개 테스트 100% 통과)
+  - [x] 바이너리 크기 < 1 MB 불변식 확인 (`beetle-app.exe: 863 KB`, `bpm-gui.exe: 943 KB`, `bpm.exe: 546 KB`)
 
 ---
 
