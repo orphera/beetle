@@ -45,6 +45,32 @@ enum AppScreen {
     KeyConfig,
 }
 
+/// Category grouping mode for songs library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SongCategory {
+    All,
+    Level,
+    ClearStatus,
+}
+
+impl SongCategory {
+    pub fn next(self) -> Self {
+        match self {
+            SongCategory::All => SongCategory::Level,
+            SongCategory::Level => SongCategory::ClearStatus,
+            SongCategory::ClearStatus => SongCategory::All,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SongCategory::All => "ALL SONGS",
+            SongCategory::Level => "BY LEVEL",
+            SongCategory::ClearStatus => "BY CLEAR STATUS",
+        }
+    }
+}
+
 struct AppState {
     window: Arc<Window>,
     _context: Context<Arc<Window>>,
@@ -53,7 +79,11 @@ struct AppState {
     audio_engine: Option<AudioEngine>,
     screen: AppScreen,
     songs: Vec<SongMetadata>,
+    filtered_indices: Vec<usize>,
     selected_song_idx: usize,
+    search_query: String,
+    is_search_active: bool,
+    category_mode: SongCategory,
     sort_mode: SortMode,
     show_option_modal: bool,
     modal_row: usize,
@@ -96,6 +126,71 @@ impl AppState {
         };
         app_config.save();
     }
+
+    fn recompute_filtered_songs(&mut self) {
+        self.filtered_indices = filter_song_indices(
+            &self.songs,
+            &self.search_query,
+            self.category_mode,
+            &self.score_store,
+        );
+
+        if self.filtered_indices.is_empty() {
+            self.selected_song_idx = 0;
+        } else if self.selected_song_idx >= self.filtered_indices.len() {
+            self.selected_song_idx = self.filtered_indices.len() - 1;
+        }
+    }
+
+    fn current_selected_song(&self) -> Option<&SongMetadata> {
+        let real_idx = *self.filtered_indices.get(self.selected_song_idx)?;
+        self.songs.get(real_idx)
+    }
+
+    fn current_visible_songs(&self) -> Vec<SongMetadata> {
+        self.filtered_indices
+            .iter()
+            .filter_map(|&idx| self.songs.get(idx).cloned())
+            .collect()
+    }
+}
+
+fn filter_song_indices(
+    songs: &[SongMetadata],
+    search_query: &str,
+    category: SongCategory,
+    score_store: &ScoreStore,
+) -> Vec<usize> {
+    let q = search_query.to_lowercase().trim().to_string();
+    songs
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, s)| {
+            // 1. Search filter
+            if !q.is_empty() {
+                let matches_title = s.title.to_lowercase().contains(&q);
+                let matches_artist = s.artist.to_lowercase().contains(&q);
+                let matches_genre = s.genre.to_lowercase().contains(&q);
+                if !matches_title && !matches_artist && !matches_genre {
+                    return None;
+                }
+            }
+
+            // 2. Category filter
+            match category {
+                SongCategory::All => Some(idx),
+                SongCategory::Level => Some(idx),
+                SongCategory::ClearStatus => {
+                    let best = score_store.get(s.hash);
+                    if best.is_some() || s.file_path == ":demo:" {
+                        Some(idx)
+                    } else {
+                        Some(idx)
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 struct BeetleApp {
@@ -304,7 +399,11 @@ impl ApplicationHandler for BeetleApp {
             audio_engine: None,
             screen: AppScreen::SongSelect,
             songs,
+            filtered_indices: Vec::new(),
             selected_song_idx: 0,
+            search_query: String::new(),
+            is_search_active: false,
+            category_mode: SongCategory::All,
             sort_mode: saved_config.sort_mode,
             show_option_modal: false,
             modal_row: 0,
@@ -336,6 +435,8 @@ impl ApplicationHandler for BeetleApp {
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
         };
+
+        app_state.recompute_filtered_songs();
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
@@ -409,22 +510,22 @@ impl ApplicationHandler for BeetleApp {
             }
             WindowEvent::KeyboardInput {
                 event:
-                    KeyEvent {
+                    ref key_event @ KeyEvent {
                         physical_key,
                         state: key_state,
-                        repeat: false,
+                        repeat,
                         ..
                     },
                 ..
             } => {
-                handle_keyboard_input(state, physical_key, key_state);
+                handle_keyboard_input(state, physical_key, key_state, repeat, key_event.text.as_deref());
             }
             WindowEvent::RedrawRequested => {
                 match state.screen {
                     AppScreen::SongSelect => {
-                        let selected_hash = state.songs.get(state.selected_song_idx).map(|s| s.hash).unwrap_or(0);
+                        let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
                         if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
-                            let img = state.songs.get(state.selected_song_idx).and_then(load_stage_image);
+                            let img = state.current_selected_song().and_then(load_stage_image);
                             state.cached_stage_image = Some((selected_hash, img));
                         }
 
@@ -436,7 +537,7 @@ impl ApplicationHandler for BeetleApp {
                             state.preview_duration = 0.0;
                         } else if state.preview_timer.elapsed() >= Duration::from_millis(250) {
                             if state.preview_audio.is_none() {
-                                if let Some(song) = state.songs.get(state.selected_song_idx) {
+                                if let Some(song) = state.current_selected_song() {
                                     if let Some(pcm) = load_preview_sample(song) {
                                         let dur = pcm.duration_seconds();
                                         let mut bank = SampleBank::new();
@@ -465,19 +566,23 @@ impl ApplicationHandler for BeetleApp {
                             }
                         }
 
+                        let visible_songs = state.current_visible_songs();
                         let stage_img = state.cached_stage_image.as_ref().and_then(|(_, img)| img.as_ref());
                         state.renderer.render_song_select(
-                            &state.songs,
+                            &visible_songs,
                             state.selected_song_idx,
                             &state.score_store,
                             state.sort_mode.as_str(),
+                            state.category_mode.as_str(),
+                            &state.search_query,
+                            state.is_search_active,
                             stage_img,
+                            state.songs.len(),
                         );
 
                         // Check replay existence for selected song
                         let has_replay = state
-                            .songs
-                            .get(state.selected_song_idx)
+                            .current_selected_song()
                             .map(|s| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash)).exists())
                             .unwrap_or(false);
 
@@ -708,6 +813,8 @@ fn handle_keyboard_input(
     state: &mut AppState,
     physical_key: PhysicalKey,
     key_state: ElementState,
+    _repeat: bool,
+    text: Option<&str>,
 ) {
     let PhysicalKey::Code(code) = physical_key else {
         return;
@@ -721,7 +828,7 @@ fn handle_keyboard_input(
     }
 
     // Hi-Speed adjustments (F3: Speed+, F4: Speed-)
-    if key_state == ElementState::Pressed {
+    if key_state == ElementState::Pressed && state.screen != AppScreen::SongSelect {
         if code == KeyCode::F3 || code == KeyCode::PageUp {
             state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
             state.renderer.skin.hi_speed = state.play_options.hi_speed;
@@ -767,6 +874,38 @@ fn handle_keyboard_input(
     match state.screen {
         AppScreen::SongSelect => {
             if key_state == ElementState::Pressed {
+                // If live search is active, capture search input
+                if state.is_search_active {
+                    match code {
+                        KeyCode::Escape => {
+                            if !state.search_query.is_empty() {
+                                state.search_query.clear();
+                                state.recompute_filtered_songs();
+                            } else {
+                                state.is_search_active = false;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            state.is_search_active = false;
+                        }
+                        KeyCode::Backspace => {
+                            state.search_query.pop();
+                            state.recompute_filtered_songs();
+                        }
+                        _ => {
+                            if let Some(t) = text {
+                                for c in t.chars() {
+                                    if !c.is_control() {
+                                        state.search_query.push(c);
+                                    }
+                                }
+                                state.recompute_filtered_songs();
+                            }
+                        }
+                    }
+                    return;
+                }
+
                 // If option modal is open, handle modal interactions
                 if state.show_option_modal {
                     match code {
@@ -865,6 +1004,13 @@ fn handle_keyboard_input(
 
                 // Normal SongSelect interactions
                 match code {
+                    KeyCode::Slash => {
+                        state.is_search_active = true;
+                    }
+                    KeyCode::F3 => {
+                        state.category_mode = state.category_mode.next();
+                        state.recompute_filtered_songs();
+                    }
                     KeyCode::Tab | KeyCode::KeyO => {
                         state.show_option_modal = true;
                         state.modal_row = 0;
@@ -874,15 +1020,14 @@ fn handle_keyboard_input(
                     }
                     KeyCode::KeyR => {
                         // Launch replay playback if replay file exists
-                        if let Some(song) = state.songs.get(state.selected_song_idx) {
+                        if let Some(song) = state.current_selected_song().cloned() {
                             let path_str = format!("{}/{:016x}.rep", REPLAYS_DIR, song.hash);
                             if let Ok(rep_str) = fs::read_to_string(&path_str) {
                                 if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
                                     state.is_replay_playback = true;
                                     state.playback_replay = Some(replay);
                                     state.playback_cursor = 0;
-                                    let s = song.clone();
-                                    queue_start_gameplay(state, &s);
+                                    queue_start_gameplay(state, &song);
                                     return;
                                 }
                             }
@@ -896,23 +1041,23 @@ fn handle_keyboard_input(
                         // Cycle Sort Mode
                         state.sort_mode = state.sort_mode.next();
                         sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
-                        state.selected_song_idx = 0;
+                        state.recompute_filtered_songs();
                         state.save_config();
                     }
                     KeyCode::ArrowUp | KeyCode::KeyK => {
                         if state.selected_song_idx > 0 {
                             state.selected_song_idx -= 1;
-                        } else if !state.songs.is_empty() {
-                            state.selected_song_idx = state.songs.len() - 1;
+                        } else if !state.filtered_indices.is_empty() {
+                            state.selected_song_idx = state.filtered_indices.len() - 1;
                         }
                     }
                     KeyCode::ArrowDown | KeyCode::KeyJ => {
-                        if !state.songs.is_empty() {
-                            state.selected_song_idx = (state.selected_song_idx + 1) % state.songs.len();
+                        if !state.filtered_indices.is_empty() {
+                            state.selected_song_idx = (state.selected_song_idx + 1) % state.filtered_indices.len();
                         }
                     }
                     KeyCode::Enter | KeyCode::Space => {
-                        if let Some(song) = state.songs.get(state.selected_song_idx).cloned() {
+                        if let Some(song) = state.current_selected_song().cloned() {
                             state.is_replay_playback = false;
                             queue_start_gameplay(state, &song);
                         }
@@ -921,9 +1066,15 @@ fn handle_keyboard_input(
                         let (mut songs, _) = init_songs_and_scores(state.sort_mode);
                         sort_songs(&mut songs, state.sort_mode, &state.score_store);
                         state.songs = songs;
-                        state.selected_song_idx = 0;
+                        state.recompute_filtered_songs();
                     }
-                    _ => (),
+                    _ => {
+                        if let Some(t) = text {
+                            if t == "/" {
+                                state.is_search_active = true;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1180,3 +1331,67 @@ fn main() {
         eprintln!("Application error: {e}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_song_category_transitions() {
+        assert_eq!(SongCategory::All.next(), SongCategory::Level);
+        assert_eq!(SongCategory::Level.next(), SongCategory::ClearStatus);
+        assert_eq!(SongCategory::ClearStatus.next(), SongCategory::All);
+    }
+
+    #[test]
+    fn test_search_and_category_filtering() {
+        let (mut songs, score_store) = init_songs_and_scores(SortMode::Title);
+        songs.push(SongMetadata {
+            hash: 101,
+            file_path: "test1.bms".to_string(),
+            title: "First Anthem".to_string(),
+            subtitle: "".to_string(),
+            artist: "Sound Artist".to_string(),
+            genre: "Trance".to_string(),
+            bpm: 140.0,
+            play_level: 5,
+            notes_count: 500,
+        });
+        songs.push(SongMetadata {
+            hash: 102,
+            file_path: "test2.bms".to_string(),
+            title: "Second Beat".to_string(),
+            subtitle: "".to_string(),
+            artist: "DJ Beat".to_string(),
+            genre: "Hardcore".to_string(),
+            bpm: 180.0,
+            play_level: 10,
+            notes_count: 1200,
+        });
+
+        // 1. Initial unfiltered indices
+        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store);
+        assert!(all_indices.len() >= 2);
+
+        // 2. Filter by title "anthem"
+        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store);
+        assert_eq!(anthem_indices.len(), 1);
+        let match_song = &songs[anthem_indices[0]];
+        assert_eq!(match_song.title, "First Anthem");
+
+        // 3. Filter by artist "dj beat"
+        let artist_indices = filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store);
+        assert_eq!(artist_indices.len(), 1);
+        assert_eq!(songs[artist_indices[0]].title, "Second Beat");
+
+        // 4. Filter by genre "hardcore"
+        let genre_indices = filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store);
+        assert_eq!(genre_indices.len(), 1);
+        assert_eq!(songs[genre_indices[0]].title, "Second Beat");
+
+        // 5. Non-matching search query
+        let empty_indices = filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
+        assert_eq!(empty_indices.len(), 0);
+    }
+}
+
