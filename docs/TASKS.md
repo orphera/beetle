@@ -59,3 +59,4 @@ Milestone 3의 목표는 마일스톤 1 & 2를 거치며 급격히 거대해진 
 
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
 - [proposals/platform_expansion.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
+- [proposals/remote_package_registry.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
