@@ -54,3 +54,8 @@ Milestone 3의 목표는 마일스톤 1 & 2를 거치며 급격히 거대해진 
 - [x] **전체 63개 단위 테스트 회귀 검증 (`cargo test --workspace` 100% Pass)**
 - [x] **바이너리 크기 < 1 MB 불변식 재측정 (`beetle-app.exe: 863 KB`, `bpm-gui.exe: 860 KB`, `bpm.exe: 469 KB`)**
 - [x] **오디오 락프리 & 60+ FPS 렌더링 무결성 확인**
+
+---
+
+## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
+- [proposals/platform_expansion.md](file:///C:/Users/jeongwoong/dev/beetle/docs/proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
