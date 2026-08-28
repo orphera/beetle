@@ -1,86 +1,55 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 2)
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 3)
 
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
-> 💡 **이전 마일스톤 완료 내역**: 기반 아키텍처, 오디오 엔진, 패키지 포맷 및 1차 게임 루프 완성 내역은 [archive/tasks_milestone_1.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_1.md)에 영구 아카이브되어 있습니다.
+> 💡 **이전 마일스톤 완료 내역**:
+> - [archive/tasks_milestone_1.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_1.md): 기반 아키텍처, 오디오 엔진, 패키지 포맷 및 1차 게임 루프
+> - [archive/tasks_milestone_2.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_2.md): UI/UX 전면 개편, 다국어 폰트, 인게임 일시정지, 결과 보상 화면, 1:1 키 리바인딩
 
 ---
 
-# 🚀 Milestone 2: UI/UX & 비주얼 고도화 (User Experience & Visual Polish)
+# 🚀 Milestone 3: 아키텍처 모듈화 & 클린 구조 리팩토링 (Clean Architecture & Modularization)
 
-Milestone 2의 목표는 무거운 외부 라이브러리 추가 없이(바이너리 크기 < 1 MB 및 무할당/무락 오디오 불변식 유지) **선곡 탐색 편의성, 한글/일본어 다국어 지원, 인게임 플레이어블 편의성(일시정지/실시간 조절), 결과 화면 시각 보상 및 인터랙티브 키 설정**을 최고 수준으로 끌어올리는 것입니다.
-
----
-
-## 📋 Phase 1: 타이포그래피 & 경량 다국어(CJK) 비트맵 폰트 시스템 (`beetle-render`) (Completed)
-- [x] **초경량 다국어 비트맵 폰트 엔진 (`beetle-render::bitmap_font`)**
-  - [x] 한글 완성형/조합형 및 일본어(히라가나/가타카나) 정적 비트맵 글리프 테이블 구축
-  - [x] 외부 크레이트(`freetype`, `fontdue` 등) 없이 순수 바이너리 내장 (< 60 KB 오버헤드)
-  - [x] ASCII, 한글, 가나, 전각 기호 자동 디코딩 및 폴백 렌더링 지원
-- [x] **비주얼 폰트 계층화**
-  - [x] 대형 스코어/콤보/랭크 전용 볼드 비트맵 폰트 및 라틴 폰트 해상도 개선
-  - [x] 텍스트 그림자(Drop-shadow) 및 아웃라인 렌더링 헬퍼
-- [x] **다국어 렌더링 단위 테스트 작성 및 검증**
+Milestone 3의 목표는 마일스톤 1 & 2를 거치며 급격히 거대해진 `beetle-render` (2,076줄)와 `beetle-app` (1,607줄)의 모놀리식 파일들을 **도메인 및 화면 단위 서브모듈로 깔끔하게 분리하고 응집도를 높여 유지보수성과 확장성을 극대화**하는 것입니다.
 
 ---
 
-## 📋 Phase 2: 선곡 화면(Song Select) UX 전면 개편 (`beetle-app`, `beetle-render`) (Completed)
-- [x] **실시간 인라인 검색 (Live Search)**
-  - [x] `/` 키로 검색창 활성화 및 실시간 제목/아티스트/장르 필터링
-  - [x] 한글/영문 자모 및 부분 일치 실시간 쿼리 매칭
-- [x] **난이도 및 클리어 상태별 카테고리/폴더 뷰**
-  - [x] `F3` 키로 전체 / 레벨별 / 클리어 상태별 폴더 그룹핑 및 인디케이터
-  - [x] 카테고리별 실시간 필터링 및 카운터 표출
-- [x] **곡 목록 클리어 램프(Clear Lamp) 비주얼 인디케이터**
-  - [x] 리스트 좌측에 플레이 상태(No Play, Failed, Clear, Full Combo, Perfect) 컬러 바/도트 점등
-- [x] **부드러운 캐러셀 스크롤 & 선택 모션 (Motion & Lerp)**
-  - [x] 커서 이동 시 동적 중앙 포커싱 및 스크롤바 인디케이터
-  - [x] 선택된 곡의 확장 카드 하이라이트 및 글로우 테두리 연출
-- [x] **곡 상세 카드 디자인 고도화**
-  - [x] 채보 속성(BPM, 총 노트 수, 난이도 뱃지, 퍼스널 베스트 스코어/정확도/랭크) 그리드 레이아웃
+## 📋 Phase 1: `beetle-render` 화면별 렌더링 서브모듈 분리 (`crates/beetle-render/src/screens/`)
+- [ ] **화면별 전용 렌더링 모듈 생성**
+  - [ ] `screens/mod.rs`: 서브모듈 재내보내기
+  - [ ] `screens/song_select.rs`: 선곡 캐러셀 휠, 클리어 램프 바, 상세 카드, 검색창 렌더링
+  - [ ] `screens/gameplay.rs`: 인게임 플레이필드, 노트, 판정선, 글로우, Danger 점멸, BGA
+  - [ ] `screens/result.rs`: 8단계 랭크 엠블럼, 타이밍 히스토그램, PB 델타 비교 카드
+  - [ ] `screens/key_config.rs`: 1:1 키 리바인딩 테이블 및 상태 프롬프트
+  - [ ] `screens/modals.rs`: 일시정지 모달, 옵션 모달, 로딩 스피너 화면
+- [ ] **`renderer.rs` 코어 다이어트 (~300줄 목표)**
+  - [ ] 순수 프레임버퍼, 뷰포트, 기하 도형 프리미티브, 스킨/히트버스트 코어만 유지
+- [ ] **단위 테스트 통과 검증**
 
 ---
 
-## 📋 Phase 3: 인게임 일시정지(Pause) & 실시간 플레이 편의 기능 (`beetle-app`, `beetle-render`) (Completed)
-- [x] **인게임 일시정지 모달 (`AppScreen::Gameplay` 오버레이)**
-  - [x] 플레이 중 `Esc` 입력 시 오디오 일시정지 및 반투명 딤 오버레이
-  - [x] `Resume`, `Restart (R)`, `Select Song (Esc)` 선택 메뉴 및 키보드 네비게이션
-- [x] **인게임 실시간 배속 및 레인커버 핫키 조절**
-  - [x] 플레이 중 `1`/`2` 또는 `PgUp`/`PgDn`/`F3`/`F4`로 배속(Hi-Speed) 즉시 실시간 조절
-  - [x] 서든(Lane Cover) 실시간 `F10`/`F11` 높이 슬라이딩 및 시각 가이드
-- [x] **플레이필드 비주얼 피드백 강화**
-  - [x] 하드/하저드 게이지 위험 상태(Danger Red Blink) 비주얼 이펙트
-  - [x] 판정선 네온 글로우 및 풀콤보 유지 시 레인 앰비언트 라이트
+## 📋 Phase 2: `beetle-app` 백그라운드 로더 & 에셋 캡슐화 (`crates/beetle-app/src/loader.rs`)
+- [ ] **비동기 로딩 및 디코딩 서브모듈 분리 (`loader.rs`)**
+  - [ ] `load_chart_and_audio`, `load_stage_image` 모듈 분리
+  - [ ] 백그라운드 Worker 스레드 채널 통신 캡슐화 (`SongLoader`)
+- [ ] **`main.rs` 로딩 파이프라인 정리**
 
 ---
 
-## 📋 Phase 4: 결과 화면(Stage Result) 보상 & 통계 시각화 (`beetle-render`, `beetle-core`) (Completed)
-- [x] **대형 랭크 엠블럼 (Rank Emblems)**
-  - [x] MAX, AAA (8/9), AA (7/9), A (6/9), B, C, D, F 글로우 뱃지 디자인
-- [x] **개인 최고 기록 비교 배지**
-  - [x] 이전 베스트 대비 EX 점수 증감치(`(+32) BEST: 1810`), 정확도 증감치(`(+1.40%)`), 콤보 증감치 시각화
-- [x] **판정 타이밍 오프셋(FAST / SLOW) 정밀 히스토그램**
-  - [x] 곡 플레이 동안 발생한 밀리초(-40ms ~ +40ms) 17구간 판정 분포 막대그래프 렌더링
-  - [x] FAST / SLOW 세부 카운트 박스
-- [x] **무의존성 24비트 BMP 스크린샷 캡처 지원 (`PrintScreen` / `P`)**
+## 📋 Phase 3: `beetle-app` 화면별 입력 핸들러 및 상태 분리 (`crates/beetle-app/src/handlers/`, `state.rs`)
+- [ ] **화면별 입력 핸들러 분리 (`handlers/`)**
+  - [ ] `handlers/song_select.rs`: 선곡 네비게이션, 검색 쿼리, 카테고리/정렬 토글
+  - [ ] `handlers/gameplay.rs`: 인게임 타건/판정, 일시정지 모달 네비게이션, 실시간 핫키
+  - [ ] `handlers/result.rs`: 결과 화면 키 네비게이션, 리트라이, 스크린샷 캡처
+  - [ ] `handlers/key_config.rs`: 1:1 키 리바인딩 인터랙션, 프리셋 토글/초기화
+  - [ ] `handlers/options.rs`: 옵션 모달 슬라이더/토글 네비게이션
+- [ ] **`AppState` 구조화 및 `state.rs` 분리**
+  - [ ] 전역 공통 상태와 화면별 종속 상태의 명확한 경계 수립
+- [ ] **`main.rs` 경량화 (~200줄 진입점 러너로 축소)**
 
 ---
 
-## 📋 Phase 5: 인터랙티브 1:1 키 리바인딩 & 오디오 캘리브레이션 (`beetle-app`, `beetle-render`) (Completed)
-- [x] **인터랙티브 1:1 키 리바인딩 GUI (`AppScreen::KeyConfig`)**
-  - [x] 레인 선택 후 임의의 물리 키 입력 즉시 1:1 바인딩 (HomeRow / ArcadeZx / Custom 완전 지원)
-  - [x] 중복 키 충돌 자동 해소, `F1` 프리셋 순환, `Del` 기본값 복원
-- [x] **오디오/비주얼 싱크 캘리브레이션 및 핫키 연동**
-  - [x] `JUDGE OFFSET` (±1.0ms 정밀 조절) 및 `F8`/`F9` 실시간 조절
-- [x] **볼륨 믹서 슬라이더 & 영속화**
-  - [x] 마스터 볼륨(0%~200%) 옵션 모달 연동 및 `config.dat` 자동 영속화 (락프리 커맨드 제어)
-
----
-
-## 📋 Phase 6: 마일스톤 2 통합 검증 및 바이너리/성능 프로파일링 (Completed)
-- [x] **바이너리 크기 최적화 재측정**
-  - [x] 모든 실행 파일(`beetle-app.exe: 863 KB`, `bpm-gui.exe: 860 KB`, `bpm.exe: 469 KB`) 개별 < 1 MB 유지 검증
-- [x] **렌더링 & 오디오 락프리 불변식 검증**
-  - [x] 60+ FPS 소프트웨어 렌더링 및 오디오 스레드 무할당/무락 유지 확인 (`INV-1` ~ `INV-5`)
-- [x] **전체 워크스페이스 단위 테스트 100% 통과 검증**
-  - [x] 전체 63개 테스트 100% 통과
+## 📋 Phase 4: 전체 워크스페이스 회귀 검증 및 바이너리/성능 프로파일링
+- [ ] **전체 63개 단위 테스트 회귀 검증 (`cargo test --workspace`)**
+- [ ] **바이너리 크기 < 1 MB 불변식 재측정 (`cargo build --release`)**
+- [ ] **오디오 락프리 & 60+ FPS 렌더링 무결성 확인**
