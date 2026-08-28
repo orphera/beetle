@@ -91,15 +91,17 @@ impl SoftwareRenderer {
         visual_levels: &[f32; 16],
         bga_image: Option<&crate::image::ImageBuffer>,
     ) {
-        self.clear();
+        let is_danger = (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
+            || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
+        let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
 
-        self.draw_playfield_bg();
+        self.draw_playfield_bg(score.current_combo, danger_blink);
         self.draw_key_beams();
         self.draw_notes(chart, timing, audio_time_seconds);
         self.draw_lane_cover();
-        self.draw_judge_line();
+        self.draw_judge_line(score.current_combo);
         self.draw_hit_bursts(audio_time_seconds);
-        self.draw_gauge_bar(score);
+        self.draw_gauge_bar(score, danger_blink);
         self.draw_combo_and_judge(score, audio_time_seconds);
         self.draw_hud_info(chart, score);
         self.draw_bga_and_visualizer(visual_levels, bga_image);
@@ -123,7 +125,7 @@ impl SoftwareRenderer {
         }
     }
 
-    fn draw_playfield_bg(&mut self) {
+    fn draw_playfield_bg(&mut self, combo: u32, danger_blink: bool) {
         // Draw playfield main background box
         self.draw_rect(
             self.skin.playfield_x,
@@ -133,6 +135,12 @@ impl SoftwareRenderer {
             self.skin.playfield_bg_color,
         );
 
+        let line_color = if combo >= 100 {
+            ColorRgba::new(50, 100, 180, 220) // Subtle ambient blue for active combo
+        } else {
+            self.skin.lane_line_color
+        };
+
         // Draw lane vertical separator lines
         for &lane in self.skin.active_lanes() {
             let x = self.skin.lane_x(lane);
@@ -141,7 +149,7 @@ impl SoftwareRenderer {
                 self.skin.playfield_y,
                 1.0,
                 self.skin.playfield_height,
-                self.skin.lane_line_color,
+                line_color,
             );
         }
 
@@ -152,8 +160,21 @@ impl SoftwareRenderer {
             self.skin.playfield_y,
             1.0,
             self.skin.playfield_height,
-            self.skin.lane_line_color,
+            line_color,
         );
+
+        // Danger pulsing border around entire playfield
+        if danger_blink {
+            let px = self.skin.playfield_x;
+            let py = self.skin.playfield_y;
+            let pw = self.skin.playfield_width;
+            let ph = self.skin.playfield_height;
+            let danger_col = ColorRgba::new(255, 40, 40, 220);
+            self.draw_rect(px, py, pw, 2.0, danger_col);
+            self.draw_rect(px, py + ph - 2.0, pw, 2.0, danger_col);
+            self.draw_rect(px, py, 2.0, ph, danger_col);
+            self.draw_rect(px + pw - 2.0, py, 2.0, ph, danger_col);
+        }
     }
 
     fn draw_key_beams(&mut self) {
@@ -171,11 +192,26 @@ impl SoftwareRenderer {
         }
     }
 
-    fn draw_judge_line(&mut self) {
+    fn draw_judge_line(&mut self, combo: u32) {
+        let jy = self.skin.judge_line_y;
+        let px = self.skin.playfield_x;
+        let pw = self.skin.playfield_width;
+
+        // Subtle neon ambient glow above and below judge line
+        let glow_color = if combo >= 200 {
+            ColorRgba::new(255, 215, 60, 90) // Gold
+        } else if combo >= 50 {
+            ColorRgba::new(60, 200, 255, 80) // Cyan
+        } else {
+            ColorRgba::new(255, 70, 70, 70) // Reddish
+        };
+        self.draw_rect(px, jy - 2.0, pw, 6.0, glow_color);
+
+        // Core bright judge line
         self.draw_rect(
-            self.skin.playfield_x,
-            self.skin.judge_line_y,
-            self.skin.playfield_width,
+            px,
+            jy,
+            pw,
             2.0,
             self.skin.judge_line_color,
         );
@@ -251,7 +287,7 @@ impl SoftwareRenderer {
         }
     }
 
-    fn draw_gauge_bar(&mut self, score: &ScoreTracker) {
+    fn draw_gauge_bar(&mut self, score: &ScoreTracker, danger_blink: bool) {
         let gauge_x = self.skin.playfield_x + self.skin.playfield_width + 20.0;
         let gauge_y = self.skin.playfield_y;
         let gauge_w = 20.0;
@@ -282,29 +318,42 @@ impl SoftwareRenderer {
             GaugeType::Groove => {
                 if score.gauge >= 80.0 {
                     ColorRgba::new(60, 240, 100, 255) // Green (Cleared)
+                } else if danger_blink {
+                    ColorRgba::new(255, 70, 70, 255) // Pulsing danger red
                 } else {
                     ColorRgba::new(60, 140, 255, 255) // Blue
                 }
             }
             GaugeType::Hard => {
-                if score.gauge < 30.0 {
-                    ColorRgba::new(255, 50, 50, 255) // Red (Danger)
+                if danger_blink {
+                    ColorRgba::new(255, 40, 40, 255) // Pulsing danger red
+                } else if score.gauge < 30.0 {
+                    ColorRgba::new(255, 70, 70, 255) // Red (Danger)
                 } else {
                     ColorRgba::new(255, 180, 40, 255) // Orange
                 }
             }
             GaugeType::Hazard => {
-                ColorRgba::new(240, 40, 80, 255) // Crimson Hazard
+                if danger_blink {
+                    ColorRgba::new(255, 50, 50, 255)
+                } else {
+                    ColorRgba::new(240, 40, 80, 255) // Crimson Hazard
+                }
             }
         };
 
         self.draw_rect(gauge_x, fill_y, gauge_w, fill_h, fill_color);
 
         // Border
-        self.draw_rect(gauge_x, gauge_y, gauge_w, 1.0, ColorRgba::new(80, 80, 100, 255));
-        self.draw_rect(gauge_x, gauge_y + gauge_h, gauge_w, 1.0, ColorRgba::new(80, 80, 100, 255));
-        self.draw_rect(gauge_x, gauge_y, 1.0, gauge_h, ColorRgba::new(80, 80, 100, 255));
-        self.draw_rect(gauge_x + gauge_w, gauge_y, 1.0, gauge_h, ColorRgba::new(80, 80, 100, 255));
+        let border_color = if danger_blink {
+            ColorRgba::new(255, 60, 60, 255)
+        } else {
+            ColorRgba::new(80, 80, 100, 255)
+        };
+        self.draw_rect(gauge_x, gauge_y, gauge_w, 1.0, border_color);
+        self.draw_rect(gauge_x, gauge_y + gauge_h, gauge_w, 1.0, border_color);
+        self.draw_rect(gauge_x, gauge_y, 1.0, gauge_h, border_color);
+        self.draw_rect(gauge_x + gauge_w, gauge_y, 1.0, gauge_h, border_color);
 
         // Gauge 80% threshold line for Easy / Groove gauge
         if matches!(score.gauge_type, GaugeType::Easy | GaugeType::Groove) {
@@ -314,13 +363,18 @@ impl SoftwareRenderer {
 
         // Percentage text below gauge
         let gauge_str = format!("{:.1}%", score.gauge);
+        let text_color = if danger_blink {
+            ColorRgba::new(255, 80, 80, 255)
+        } else {
+            ColorRgba::new(220, 220, 240, 255)
+        };
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &gauge_str,
             gauge_x as i32 - 10,
             (gauge_y + gauge_h + 8.0) as i32,
             1,
-            ColorRgba::new(220, 220, 240, 255),
+            text_color,
         );
     }
 
@@ -1284,6 +1338,136 @@ impl SoftwareRenderer {
         );
     }
 
+    /// Renders the in-game pause overlay modal with options (Resume, Restart, Quit).
+    pub fn render_pause_modal(
+        &mut self,
+        title: &str,
+        artist: &str,
+        current_time_sec: f64,
+        total_time_sec: f64,
+        selected_option: usize,
+    ) {
+        let w = self.width() as f32;
+        let h = self.height() as f32;
+
+        // 1. Semi-transparent dark overlay dimming the gameplay field
+        self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 190));
+
+        // 2. Center Glassmorphic Modal Box
+        let modal_w = 420.0f32;
+        let modal_h = 300.0f32;
+        let modal_x = (w - modal_w) / 2.0;
+        let modal_y = (h - modal_h) / 2.0;
+
+        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(16, 20, 32, 255));
+        self.draw_rect(modal_x, modal_y, modal_w, 1.0, ColorRgba::new(80, 180, 255, 255));
+        self.draw_rect(modal_x, modal_y + modal_h - 1.0, modal_w, 1.0, ColorRgba::new(80, 180, 255, 255));
+        self.draw_rect(modal_x, modal_y, 1.0, modal_h, ColorRgba::new(80, 180, 255, 255));
+        self.draw_rect(modal_x + modal_w - 1.0, modal_y, 1.0, modal_h, ColorRgba::new(80, 180, 255, 255));
+
+        // 3. Pause Header
+        let center_x = (w / 2.0) as i32;
+        let mut cur_y = modal_y + 20.0;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "GAME PAUSED",
+            center_x,
+            cur_y as i32,
+            2,
+            ColorRgba::new(255, 220, 80, 255),
+        );
+        cur_y += 32.0;
+
+        // Song Title & Artist
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            &truncate_str(title, 26),
+            center_x,
+            cur_y as i32,
+            1,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+        cur_y += 18.0;
+
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            &truncate_str(artist, 28),
+            center_x,
+            cur_y as i32,
+            1,
+            ColorRgba::new(160, 170, 195, 255),
+        );
+        cur_y += 24.0;
+
+        // Progress Bar
+        let bar_w = modal_w - 60.0;
+        let bar_x = modal_x + 30.0;
+        let bar_h = 6.0;
+        let ratio = if total_time_sec > 0.0 {
+            (current_time_sec / total_time_sec).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        };
+
+        self.draw_rect(bar_x, cur_y, bar_w, bar_h, ColorRgba::new(30, 36, 52, 255));
+        self.draw_rect(bar_x, cur_y, bar_w * ratio, bar_h, ColorRgba::new(80, 210, 255, 255));
+        cur_y += bar_h + 8.0;
+
+        let time_disp = format!(
+            "{:02}:{:02} / {:02}:{:02}",
+            (current_time_sec / 60.0) as u32,
+            (current_time_sec % 60.0) as u32,
+            (total_time_sec / 60.0) as u32,
+            (total_time_sec % 60.0) as u32,
+        );
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            &time_disp,
+            center_x,
+            cur_y as i32,
+            1,
+            ColorRgba::new(140, 150, 175, 255),
+        );
+        cur_y += 26.0;
+
+        // Menu Options
+        let menu_items = [
+            ("RESUME", "Continue playing"),
+            ("RESTART", "Retry from start (R)"),
+            ("SELECT SONG", "Quit to song select (Esc)"),
+        ];
+
+        let item_w = modal_w - 40.0;
+        let item_x = modal_x + 20.0;
+        let item_h = 32.0;
+
+        for (idx, (label, sub)) in menu_items.iter().enumerate() {
+            let is_sel = idx == selected_option;
+            let item_y = cur_y;
+
+            if is_sel {
+                self.draw_rect(item_x, item_y, item_w, item_h, ColorRgba::new(35, 65, 135, 255));
+                self.draw_rect(item_x, item_y, item_w, 1.0, ColorRgba::new(90, 190, 255, 255));
+                self.draw_rect(item_x, item_y + item_h - 1.0, item_w, 1.0, ColorRgba::new(90, 190, 255, 255));
+                self.draw_rect(item_x, item_y, 1.0, item_h, ColorRgba::new(90, 190, 255, 255));
+                self.draw_rect(item_x + item_w - 1.0, item_y, 1.0, item_h, ColorRgba::new(90, 190, 255, 255));
+            } else {
+                self.draw_rect(item_x, item_y, item_w, item_h, ColorRgba::new(20, 25, 38, 200));
+                self.draw_rect(item_x, item_y, item_w, 1.0, ColorRgba::new(40, 48, 68, 255));
+                self.draw_rect(item_x, item_y + item_h - 1.0, item_w, 1.0, ColorRgba::new(40, 48, 68, 255));
+            }
+
+            let text_col = if is_sel { ColorRgba::new(255, 255, 255, 255) } else { ColorRgba::new(180, 190, 215, 255) };
+            let sub_col = if is_sel { ColorRgba::new(140, 210, 255, 255) } else { ColorRgba::new(100, 110, 135, 255) };
+
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (item_x + 16.0) as i32, (item_y + 8.0) as i32, 1, text_col);
+            let sub_x = (item_x + item_w - BitmapFont::text_width(sub, 1) as f32 - 16.0) as i32;
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), sub, sub_x, (item_y + 8.0) as i32, 1, sub_col);
+
+            cur_y += item_h + 8.0;
+        }
+    }
+
     /// Renders the interactive key configuration screen.
     pub fn render_key_config(
         &mut self,
@@ -1574,6 +1758,15 @@ mod tests {
         renderer.render_gameplay(&chart, &timing, 1.0, &score, &levels, None);
 
         // Validate buffer is not all blank
+        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_content);
+    }
+
+    #[test]
+    fn test_render_pause_modal() {
+        let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
+        renderer.render_pause_modal("Sample Song", "Artist Name", 45.0, 120.0, 0);
+
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }

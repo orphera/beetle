@@ -92,6 +92,8 @@ struct AppState {
     play_options: PlayOptions,
     is_auto_play: bool,
     is_replay_playback: bool,
+    is_gameplay_paused: bool,
+    pause_selected_option: usize,
     current_replay: Option<ReplayData>,
     playback_replay: Option<ReplayData>,
     playback_cursor: usize,
@@ -412,6 +414,8 @@ impl ApplicationHandler for BeetleApp {
             play_options: saved_config.play_options,
             is_auto_play: false,
             is_replay_playback: false,
+            is_gameplay_paused: false,
+            pause_selected_option: 0,
             current_replay: None,
             playback_replay: None,
             playback_cursor: 0,
@@ -644,87 +648,89 @@ impl ApplicationHandler for BeetleApp {
 
                         let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
 
-                        // 1. BGM schedule
-                        if let (Some(audio), Some(chart), Some(timing)) =
-                            (&mut state.audio_engine, &state.active_chart, &state.active_timing)
-                        {
-                            while state.bgm_cursor < chart.bgm_notes.len() {
-                                let (m, f, wav_id) = chart.bgm_notes[state.bgm_cursor];
-                                let target_t = timing.beat_to_time_seconds(m, f);
+                        if !state.is_gameplay_paused {
+                            // 1. BGM schedule
+                            if let (Some(audio), Some(chart), Some(timing)) =
+                                (&mut state.audio_engine, &state.active_chart, &state.active_timing)
+                            {
+                                while state.bgm_cursor < chart.bgm_notes.len() {
+                                    let (m, f, wav_id) = chart.bgm_notes[state.bgm_cursor];
+                                    let target_t = timing.beat_to_time_seconds(m, f);
 
-                                if audio_time >= target_t {
-                                    let _ = audio.send_command(AudioCommand::PlaySample {
-                                        sample_id: wav_id,
-                                        volume: 1.0,
-                                        pan: 0.0,
-                                    });
-                                    state.bgm_cursor += 1;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        // 2. Playback / AutoPlay / Miss updates
-                        if state.is_replay_playback {
-                            if let Some(rep) = &state.playback_replay {
-                                while state.playback_cursor < rep.events.len() {
-                                    let ev = rep.events[state.playback_cursor];
-                                    if audio_time >= ev.time_seconds {
-                                        if ev.is_down {
-                                            state.renderer.set_key_state(ev.lane, true);
-                                            if let Some(judge) = &mut state.active_judge {
-                                                if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
-                                                    state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
-                                                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                                                        let _ = audio.send_command(AudioCommand::PlaySample {
-                                                            sample_id: id,
-                                                            volume: 1.0,
-                                                            pan: 0.0,
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            state.renderer.set_key_state(ev.lane, false);
-                                            if let Some(judge) = &mut state.active_judge {
-                                                if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
-                                                    state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
-                                                }
-                                            }
-                                        }
-                                        state.playback_cursor += 1;
+                                    if audio_time >= target_t {
+                                        let _ = audio.send_command(AudioCommand::PlaySample {
+                                            sample_id: wav_id,
+                                            volume: 1.0,
+                                            pan: 0.0,
+                                        });
+                                        state.bgm_cursor += 1;
                                     } else {
                                         break;
                                     }
                                 }
                             }
-                            if let Some(judge) = &mut state.active_judge {
+
+                            // 2. Playback / AutoPlay / Miss updates
+                            if state.is_replay_playback {
+                                if let Some(rep) = &state.playback_replay {
+                                    while state.playback_cursor < rep.events.len() {
+                                        let ev = rep.events[state.playback_cursor];
+                                        if audio_time >= ev.time_seconds {
+                                            if ev.is_down {
+                                                state.renderer.set_key_state(ev.lane, true);
+                                                if let Some(judge) = &mut state.active_judge {
+                                                    if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
+                                                        state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
+                                                        if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                                                            let _ = audio.send_command(AudioCommand::PlaySample {
+                                                                sample_id: id,
+                                                                volume: 1.0,
+                                                                pan: 0.0,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                state.renderer.set_key_state(ev.lane, false);
+                                                if let Some(judge) = &mut state.active_judge {
+                                                    if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
+                                                        state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
+                                                    }
+                                                }
+                                            }
+                                            state.playback_cursor += 1;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                }
+                                if let Some(judge) = &mut state.active_judge {
+                                    let misses = judge.update_misses(effective_judge_time);
+                                    for (_lane, miss_res) in misses {
+                                        state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
+                                    }
+                                }
+                            } else if state.is_auto_play {
+                                if let Some(judge) = &mut state.active_judge {
+                                    let hits = judge.auto_play_update(audio_time);
+                                    for (lane, hit_res, wav_id) in hits {
+                                        state.renderer.set_key_state(lane, true);
+                                        state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, 0.0);
+
+                                        if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                                            let _ = audio.send_command(AudioCommand::PlaySample {
+                                                sample_id: id,
+                                                volume: 1.0,
+                                                pan: 0.0,
+                                            });
+                                        }
+                                    }
+                                }
+                            } else if let Some(judge) = &mut state.active_judge {
                                 let misses = judge.update_misses(effective_judge_time);
                                 for (_lane, miss_res) in misses {
                                     state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
                                 }
-                            }
-                        } else if state.is_auto_play {
-                            if let Some(judge) = &mut state.active_judge {
-                                let hits = judge.auto_play_update(audio_time);
-                                for (lane, hit_res, wav_id) in hits {
-                                    state.renderer.set_key_state(lane, true);
-                                    state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, 0.0);
-
-                                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                                        let _ = audio.send_command(AudioCommand::PlaySample {
-                                            sample_id: id,
-                                            volume: 1.0,
-                                            pan: 0.0,
-                                        });
-                                    }
-                                }
-                            }
-                        } else if let Some(judge) = &mut state.active_judge {
-                            let misses = judge.update_misses(effective_judge_time);
-                            for (_lane, miss_res) in misses {
-                                state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
                             }
                         }
 
@@ -746,24 +752,38 @@ impl ApplicationHandler for BeetleApp {
                                 state.active_bga_image.as_ref(),
                             );
 
-                            // Check song finish
-                            if audio_time > state.song_end_time + 1.5 {
-                                finish_gameplay(state);
+                            if !state.is_gameplay_paused {
+                                // Check song finish
+                                if audio_time > state.song_end_time + 1.5 {
+                                    finish_gameplay(state);
+                                }
                             }
                         }
 
-                        // 4. Footer info
-                        let footer_text = if state.is_replay_playback {
-                            "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
-                        } else if state.is_auto_play {
-                            "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
+                        // 4. Footer info / Pause modal
+                        if state.is_gameplay_paused {
+                            let title = state.active_chart.as_ref().map(|c| c.header.title.as_str()).unwrap_or("Unknown");
+                            let artist = state.active_chart.as_ref().map(|c| c.header.artist.as_str()).unwrap_or("Unknown");
+                            state.renderer.render_pause_modal(
+                                title,
+                                artist,
+                                audio_time,
+                                state.song_end_time,
+                                state.pause_selected_option,
+                            );
                         } else {
-                            match state.input_config.preset {
-                                KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
-                                KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | F3/F4: Speed | F10/F11: Cover)",
-                            }
-                        };
-                        state.renderer.draw_footer_text(footer_text);
+                            let footer_text = if state.is_replay_playback {
+                                "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
+                            } else if state.is_auto_play {
+                                "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
+                            } else {
+                                match state.input_config.preset {
+                                    KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                    KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                }
+                            };
+                            state.renderer.draw_footer_text(footer_text);
+                        }
                     }
                     AppScreen::Result => {
                         if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
@@ -1087,22 +1107,102 @@ fn handle_keyboard_input(
         }
         AppScreen::Gameplay => {
             if key_state == ElementState::Pressed {
-                if code == KeyCode::Escape {
-                    finish_gameplay(state);
+                // If paused, handle pause modal interactions
+                if state.is_gameplay_paused {
+                    match code {
+                        KeyCode::Escape => {
+                            // Resume playback
+                            state.is_gameplay_paused = false;
+                            if let Some(audio) = &mut state.audio_engine {
+                                let _ = audio.resume();
+                            }
+                        }
+                        KeyCode::KeyR => {
+                            // Instant Restart
+                            state.is_gameplay_paused = false;
+                            if let Some(song) = state.current_selected_song().cloned() {
+                                queue_start_gameplay(state, &song);
+                            }
+                        }
+                        KeyCode::ArrowUp | KeyCode::KeyK => {
+                            state.pause_selected_option = state.pause_selected_option.saturating_sub(1);
+                        }
+                        KeyCode::ArrowDown | KeyCode::KeyJ => {
+                            state.pause_selected_option = (state.pause_selected_option + 1).min(2);
+                        }
+                        KeyCode::Enter | KeyCode::Space => {
+                            match state.pause_selected_option {
+                                0 => {
+                                    // Resume
+                                    state.is_gameplay_paused = false;
+                                    if let Some(audio) = &mut state.audio_engine {
+                                        let _ = audio.resume();
+                                    }
+                                }
+                                1 => {
+                                    // Restart
+                                    state.is_gameplay_paused = false;
+                                    if let Some(song) = state.current_selected_song().cloned() {
+                                        queue_start_gameplay(state, &song);
+                                    }
+                                }
+                                2 => {
+                                    // Quit to Song Select
+                                    state.is_gameplay_paused = false;
+                                    state.audio_engine = None;
+                                    state.screen = AppScreen::SongSelect;
+                                }
+                                _ => (),
+                            }
+                        }
+                        _ => (),
+                    }
                     return;
-                } else if code == KeyCode::F10 {
-                    state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
-                    state.save_config();
-                    return;
-                } else if code == KeyCode::F11 {
-                    state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
-                    state.save_config();
-                    return;
+                }
+
+                // Normal gameplay hotkeys (when unpaused)
+                match code {
+                    KeyCode::Escape => {
+                        if state.is_auto_play || state.is_replay_playback {
+                            state.screen = AppScreen::SongSelect;
+                            state.audio_engine = None;
+                        } else {
+                            state.is_gameplay_paused = true;
+                            state.pause_selected_option = 0;
+                            if let Some(audio) = &mut state.audio_engine {
+                                let _ = audio.pause();
+                            }
+                        }
+                        return;
+                    }
+                    KeyCode::F3 | KeyCode::PageUp | KeyCode::Digit1 => {
+                        state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
+                        state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                        state.save_config();
+                        return;
+                    }
+                    KeyCode::F4 | KeyCode::PageDown | KeyCode::Digit2 => {
+                        state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
+                        state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                        state.save_config();
+                        return;
+                    }
+                    KeyCode::F10 => {
+                        state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
+                        state.save_config();
+                        return;
+                    }
+                    KeyCode::F11 => {
+                        state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
+                        state.save_config();
+                        return;
+                    }
+                    _ => (),
                 }
             }
 
-            // Ignore player keyboard hits during AutoPlay or Replay playback mode
-            if state.is_auto_play || state.is_replay_playback {
+            // Block lane keys if paused or during replay/auto-play
+            if state.is_gameplay_paused || state.is_auto_play || state.is_replay_playback {
                 return;
             }
 
@@ -1261,6 +1361,8 @@ fn finalize_start_gameplay(
         None
     };
     state.playback_cursor = 0;
+    state.is_gameplay_paused = false;
+    state.pause_selected_option = 0;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
 }

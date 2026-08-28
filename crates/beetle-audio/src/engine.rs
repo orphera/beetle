@@ -111,4 +111,19 @@ impl AudioEngine {
             rtrb::PushError::Full(val) => val,
         })
     }
+
+    /// Pause audio playback and master clock advancement.
+    pub fn pause(&mut self) -> Result<(), AudioCommand> {
+        self.send_command(AudioCommand::Pause)
+    }
+
+    /// Resume audio playback and master clock advancement.
+    pub fn resume(&mut self) -> Result<(), AudioCommand> {
+        self.send_command(AudioCommand::Resume)
+    }
+
+    /// Stop all active playing voices immediately.
+    pub fn stop_all(&mut self) -> Result<(), AudioCommand> {
+        self.send_command(AudioCommand::StopAll)
+    }
 }

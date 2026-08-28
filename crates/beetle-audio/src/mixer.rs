@@ -39,6 +39,7 @@ pub struct Mixer {
     visual_levels: Arc<[AtomicU32; 16]>,
     output_sample_rate: u32,
     master_volume: f32,
+    is_paused: bool,
 }
 
 impl Mixer {
@@ -57,6 +58,7 @@ impl Mixer {
             visual_levels,
             output_sample_rate: output_sample_rate.max(1),
             master_volume: 1.0,
+            is_paused: false,
         }
     }
 
@@ -75,6 +77,17 @@ impl Mixer {
                 AudioCommand::StopSample { sample_id } => {
                     self.kill_voice(sample_id);
                 }
+                AudioCommand::StopAll => {
+                    for v in &mut self.voices {
+                        v.is_active = false;
+                    }
+                }
+                AudioCommand::Pause => {
+                    self.is_paused = true;
+                }
+                AudioCommand::Resume => {
+                    self.is_paused = false;
+                }
                 AudioCommand::SetMasterVolume(vol) => {
                     self.master_volume = vol.clamp(0.0, 2.0);
                 }
@@ -86,6 +99,13 @@ impl Mixer {
 
         // 2. Clear output buffer
         output.fill(0.0);
+
+        if self.is_paused {
+            for slot in self.visual_levels.iter() {
+                slot.store(0, Ordering::Relaxed);
+            }
+            return;
+        }
 
         let frame_count = output.len() / 2;
         if frame_count == 0 {
@@ -320,5 +340,49 @@ mod tests {
 
         mixer.process_buffer(&mut output);
         assert_eq!(mixer.active_voice_count(), 0);
+    }
+
+    #[test]
+    fn test_mixer_pause_and_resume() {
+        let mut sample_bank = SampleBank::new();
+        let pcm = PcmBuffer::new(44100, vec![0.5; 1000]);
+        sample_bank.insert(WavId(1), pcm);
+
+        let (mut producer, consumer) = RingBuffer::new(32);
+        let samples_played = Arc::new(AtomicU64::new(0));
+        let visual_levels = make_visual_levels();
+        let mut mixer = Mixer::new(
+            sample_bank,
+            consumer,
+            Arc::clone(&samples_played),
+            visual_levels,
+            44100,
+        );
+
+        producer
+            .push(AudioCommand::PlaySample {
+                sample_id: WavId(1),
+                volume: 1.0,
+                pan: 0.0,
+            })
+            .unwrap();
+
+        let mut output = [0.0f32; 10];
+        mixer.process_buffer(&mut output);
+        assert_eq!(samples_played.load(Ordering::Relaxed), 5);
+
+        // Pause
+        producer.push(AudioCommand::Pause).unwrap();
+        let mut pause_out = [1.0f32; 10];
+        mixer.process_buffer(&mut pause_out);
+
+        // While paused: output is 0.0 and clock does not advance
+        assert_eq!(samples_played.load(Ordering::Relaxed), 5);
+        assert!(pause_out.iter().all(|&s| s == 0.0));
+
+        // Resume
+        producer.push(AudioCommand::Resume).unwrap();
+        mixer.process_buffer(&mut output);
+        assert_eq!(samples_played.load(Ordering::Relaxed), 10);
     }
 }

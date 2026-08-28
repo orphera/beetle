@@ -41,16 +41,16 @@ Milestone 2의 목표는 무거운 외부 라이브러리 추가 없이(바이�
 
 ---
 
-## 📋 Phase 3: 인게임 일시정지(Pause) & 실시간 플레이 편의 기능 (`beetle-app`, `beetle-render`)
-- [ ] **인게임 일시정지 모달 (`AppScreen::Gameplay` 오버레이)**
-  - [ ] 플레이 중 `Esc` 입력 시 오디오 일시정지 및 반투명 딤 오버레이
-  - [ ] `Resume`, `Restart (R)`, `Select Song (Esc)` 선택 메뉴
-- [ ] **인게임 실시간 배속 및 레인커버 핫키 조절**
-  - [ ] 플레이 중 `1`/`2` 또는 `PgUp`/`PgDn`으로 배속(Hi-Speed) 즉시 ±0.1 조절
-  - [ ] 서든(Lane Cover) 실시간 높이 슬라이딩 및 시각 가이드
-- [ ] **플레이필드 비주얼 피드백 강화**
-  - [ ] 하드/하저드 게이지 위험 상태(Danger Red Blink) 비주얼 이펙트
-  - [ ] 판정선 네온 글로우 및 풀콤보 유지 시 레인 앰비언트 라이트
+## 📋 Phase 3: 인게임 일시정지(Pause) & 실시간 플레이 편의 기능 (`beetle-app`, `beetle-render`) (Completed)
+- [x] **인게임 일시정지 모달 (`AppScreen::Gameplay` 오버레이)**
+  - [x] 플레이 중 `Esc` 입력 시 오디오 일시정지 및 반투명 딤 오버레이
+  - [x] `Resume`, `Restart (R)`, `Select Song (Esc)` 선택 메뉴 및 키보드 네비게이션
+- [x] **인게임 실시간 배속 및 레인커버 핫키 조절**
+  - [x] 플레이 중 `1`/`2` 또는 `PgUp`/`PgDn`/`F3`/`F4`로 배속(Hi-Speed) 즉시 실시간 조절
+  - [x] 서든(Lane Cover) 실시간 `F10`/`F11` 높이 슬라이딩 및 시각 가이드
+- [x] **플레이필드 비주얼 피드백 강화**
+  - [x] 하드/하저드 게이지 위험 상태(Danger Red Blink) 비주얼 이펙트
+  - [x] 판정선 네온 글로우 및 풀콤보 유지 시 레인 앰비언트 라이트
 
 ---
 

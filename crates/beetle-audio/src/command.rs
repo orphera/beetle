@@ -13,6 +13,12 @@ pub enum AudioCommand {
     StopSample {
         sample_id: WavId,
     },
+    /// Stop all currently playing voices.
+    StopAll,
+    /// Pause audio playback and clock advancement.
+    Pause,
+    /// Resume audio playback and clock advancement.
+    Resume,
     /// Set master volume multiplier (0.0 ~ 1.0).
     SetMasterVolume(f32),
     /// Reset the audio clock counter to zero.
