@@ -1089,11 +1089,12 @@ Player  → playback
 
 ### 10. Package 설치 과정에서 임의 코드를 실행하지 않는다.
 
-### 11. 제3자 차분은 원본 Package의 Version 체인을 오염시키지 않는다.
+### 11. 제3자 차분은 독립 Package로 표현하는 것을 권장한다.
 
 ```text
-Third-party sabun → 독립 Package (별도 id)
-원작자 업데이트  → 동일 Package (동일 id, 새 Version)
+Third-party sabun → 독립 Package (별도 id) 권장
+동일 id의 Version 추가 → 해당 Package 관리 주체의 몫
+포맷 수준의 저자 인증 → 제공하지 않음 (배포 계층의 책임)
 ```
 
 ### 12. Delta 적용 실패는 항상 Full Package Fallback으로 복구된다.
@@ -1216,22 +1217,22 @@ base_package ≠ 원본 Package의 Delta
 
 제3자 Package는 원본의 Version history를 오염시키지 않는다.
 
-## 38.2 모델 B: 원본 Package의 Delta (제한적)
+## 38.2 모델 B: 동일 Package의 Delta
 
-원작자 본인이 권한을 부여하거나, 원작자가 직접 Delta를 배포하는 경우에만 원본 `id`의 Version chain에 Delta를 추가할 수 있다.
+동일한 `id`의 Version chain에 Delta를 추가하는 것은 **해당 Package를 관리하는 주체**의 몫이다.
 
 ```text
 original.artist.song@1.0.0
       │
-      ▼ (원작자 배포)
+      ▼
 original.artist.song@1.1.0
 ```
 
-제3자가 임의로 타인의 `id` 아래에 Version을 올리는 것은 이 시스템에서 허용하지 않는다.
+제3자가 기존 곡에 채보를 추가하고 싶다면, 동일 `id`에 Version을 올리는 것이 아니라 **모델 A(독립 Package)**를 사용하는 것을 권장한다.
 
 ```text
-❌ original.artist.song@1.1.0  ← 제3자가 올린 Version
-✅ sabun.author.song-another@1.0.0  ← 제3자의 독립 Package
+original.artist.song@1.1.0        ← 동일 id의 새 Version
+sabun.author.song-another@1.0.0   ← 별도 id의 독립 Package
 ```
 
 ## 38.3 Package Manager의 역할
@@ -1257,6 +1258,28 @@ base_package 미설치 → 경고 표시 ✅
 ```
 
 제3자 Package는 원본이 없어도 독립적으로 설치 가능해야 한다. 다만 키음이 누락되면 플레이에 지장이 있을 수 있음을 사용자에게 안내한다.
+
+## 38.4 Identity와 신뢰
+
+Package 포맷은 저자의 신원(Identity)을 검증하지 않는다.
+
+```text
+Package Format
+  ├── id, version, manifest, resources
+  └── 저자 인증 메커니즘 → 없음
+```
+
+`id`는 단순한 문자열이며, 포맷 수준에서 "이 id를 누가 소유하는가"를 기술적으로 강제하는 수단은 제공하지 않는다.
+
+신원 검증이 필요한 경우 이는 **배포 계층(Repository / Registry)**의 책임이다.
+
+```text
+Package Format    → 구조와 무결성만 정의
+Repository        → 네임스페이스 관리, 업로드 권한, 신뢰 정책
+커뮤니티          → 배포처 신뢰, 사회적 검증
+```
+
+초기 구현에서는 이 경계를 유지하고, 향후 Repository 구현 시 네임스페이스 소유권이나 선택적 서명 필드를 도입할 수 있다.
 
 ---
 
