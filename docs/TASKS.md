@@ -14,17 +14,17 @@ Milestone 3의 목표는 마일스톤 1 & 2를 거치며 급격히 거대해진 
 
 ---
 
-## 📋 Phase 1: `beetle-render` 화면별 렌더링 서브모듈 분리 (`crates/beetle-render/src/screens/`)
-- [ ] **화면별 전용 렌더링 모듈 생성**
-  - [ ] `screens/mod.rs`: 서브모듈 재내보내기
-  - [ ] `screens/song_select.rs`: 선곡 캐러셀 휠, 클리어 램프 바, 상세 카드, 검색창 렌더링
-  - [ ] `screens/gameplay.rs`: 인게임 플레이필드, 노트, 판정선, 글로우, Danger 점멸, BGA
-  - [ ] `screens/result.rs`: 8단계 랭크 엠블럼, 타이밍 히스토그램, PB 델타 비교 카드
-  - [ ] `screens/key_config.rs`: 1:1 키 리바인딩 테이블 및 상태 프롬프트
-  - [ ] `screens/modals.rs`: 일시정지 모달, 옵션 모달, 로딩 스피너 화면
-- [ ] **`renderer.rs` 코어 다이어트 (~300줄 목표)**
-  - [ ] 순수 프레임버퍼, 뷰포트, 기하 도형 프리미티브, 스킨/히트버스트 코어만 유지
-- [ ] **단위 테스트 통과 검증**
+## 📋 Phase 1: `beetle-render` 화면별 렌더링 서브모듈 분리 (`crates/beetle-render/src/screens/`) (Completed)
+- [x] **화면별 전용 렌더링 모듈 생성**
+  - [x] `screens/mod.rs`: 서브모듈 재내보내기
+  - [x] `screens/song_select.rs`: 선곡 캐러셀 휠, 클리어 램프 바, 상세 카드, 검색창 렌더링
+  - [x] `screens/gameplay.rs`: 인게임 플레이필드, 노트, 판정선, 글로우, Danger 점멸, BGA
+  - [x] `screens/result.rs`: 8단계 랭크 엠블럼, 타이밍 히스토그램, PB 델타 비교 카드
+  - [x] `screens/key_config.rs`: 1:1 키 리바인딩 테이블 및 상태 프롬프트
+  - [x] `screens/modals.rs`: 일시정지 모달, 옵션 모달, 로딩 스피너 화면
+- [x] **`renderer.rs` 코어 다이어트 (~250줄로 축소 달성)**
+  - [x] 순수 프레임버퍼, 뷰포트, 기하 도형 프리미티브, 스킨/히트버스트 코어만 유지
+- [x] **단위 테스트 100% 통과 검증**
 
 ---
 

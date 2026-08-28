@@ -6,6 +6,7 @@
 pub mod bitmap_font;
 pub mod image;
 pub mod renderer;
+pub mod screens;
 pub mod skin;
 
 pub use bitmap_font::BitmapFont;
