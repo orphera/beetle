@@ -2,203 +2,40 @@
 
 mod config;
 mod demo;
+mod gameplay;
+mod handlers;
 mod input;
+mod loader;
 mod scanner;
+mod state;
 
 use std::env;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
-use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
-use beetle_core::{
-    apply_lane_modifier, compute_chart_hash, parse_bms, sort_songs, BmsChart, ClearType,
-    GaugeType, JudgeEngine, Lane, LaneModifier, PlayOptions, ReplayData, ScoreRecord,
-    ScoreStore, SongMetadata, SortMode, TimingModel,
-};
-use beetle_render::{ImageBuffer, SkinConfig, SoftwareRenderer};
+use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
+use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
+use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::AppConfig;
+use gameplay::{finalize_start_gameplay, finish_gameplay, queue_start_gameplay};
+use handlers::{
+    handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
+};
 use input::{InputConfig, KeyPreset};
-use scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
+use loader::{load_preview_sample, load_stage_image};
 use softbuffer::{Context, Surface};
+use state::{
+    init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR,
+};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
-
-const SCORES_FILE: &str = "scores.dat";
-const REPLAYS_DIR: &str = "replays";
-
-/// Application screens for song select, loading, gameplay, results, and key configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AppScreen {
-    SongSelect,
-    Loading,
-    Gameplay,
-    Result,
-    KeyConfig,
-}
-
-/// Category grouping mode for songs library.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SongCategory {
-    All,
-    Level,
-    ClearStatus,
-}
-
-impl SongCategory {
-    pub fn next(self) -> Self {
-        match self {
-            SongCategory::All => SongCategory::Level,
-            SongCategory::Level => SongCategory::ClearStatus,
-            SongCategory::ClearStatus => SongCategory::All,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SongCategory::All => "ALL SONGS",
-            SongCategory::Level => "BY LEVEL",
-            SongCategory::ClearStatus => "BY CLEAR STATUS",
-        }
-    }
-}
-
-struct AppState {
-    window: Arc<Window>,
-    _context: Context<Arc<Window>>,
-    surface: Surface<Arc<Window>, Arc<Window>>,
-    renderer: SoftwareRenderer,
-    audio_engine: Option<AudioEngine>,
-    screen: AppScreen,
-    songs: Vec<SongMetadata>,
-    filtered_indices: Vec<usize>,
-    selected_song_idx: usize,
-    search_query: String,
-    is_search_active: bool,
-    category_mode: SongCategory,
-    sort_mode: SortMode,
-    show_option_modal: bool,
-    modal_row: usize,
-    selected_key_idx: usize,
-    score_store: ScoreStore,
-    play_options: PlayOptions,
-    is_auto_play: bool,
-    is_replay_playback: bool,
-    is_gameplay_paused: bool,
-    pause_selected_option: usize,
-    current_replay: Option<ReplayData>,
-    playback_replay: Option<ReplayData>,
-    playback_cursor: usize,
-    start_measure: u32,
-    cached_stage_image: Option<(u64, Option<ImageBuffer>)>,
-    active_bga_image: Option<ImageBuffer>,
-    preview_audio: Option<AudioEngine>,
-    preview_song_hash: Option<u64>,
-    preview_timer: Instant,
-    preview_duration: f64,
-    active_chart: Option<BmsChart>,
-    active_timing: Option<TimingModel>,
-    active_chart_hash: u64,
-    active_judge: Option<JudgeEngine>,
-    song_end_time: f64,
-    is_new_record: bool,
-    previous_best: Option<ScoreRecord>,
-    input_config: InputConfig,
-    is_rebinding_key: bool,
-    master_volume: f32,
-    bgm_cursor: usize,
-    loading_song: Option<SongMetadata>,
-    loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>>,
-    loading_spinner_frame: usize,
-    loading_anim_time: Instant,
-}
-
-impl AppState {
-    fn save_config(&self) {
-        let app_config = AppConfig {
-            play_options: self.play_options.clone(),
-            lane_cover_ratio: self.renderer.skin.lane_cover_ratio,
-            sort_mode: self.sort_mode,
-            key_preset: self.input_config.preset,
-            custom_key_bindings: self.input_config.serialize_bindings(),
-            master_volume: self.master_volume,
-        };
-        app_config.save();
-    }
-
-    fn recompute_filtered_songs(&mut self) {
-        self.filtered_indices = filter_song_indices(
-            &self.songs,
-            &self.search_query,
-            self.category_mode,
-            &self.score_store,
-        );
-
-        if self.filtered_indices.is_empty() {
-            self.selected_song_idx = 0;
-        } else if self.selected_song_idx >= self.filtered_indices.len() {
-            self.selected_song_idx = self.filtered_indices.len() - 1;
-        }
-    }
-
-    fn current_selected_song(&self) -> Option<&SongMetadata> {
-        let real_idx = *self.filtered_indices.get(self.selected_song_idx)?;
-        self.songs.get(real_idx)
-    }
-
-    fn current_visible_songs(&self) -> Vec<SongMetadata> {
-        self.filtered_indices
-            .iter()
-            .filter_map(|&idx| self.songs.get(idx).cloned())
-            .collect()
-    }
-}
-
-fn filter_song_indices(
-    songs: &[SongMetadata],
-    search_query: &str,
-    category: SongCategory,
-    score_store: &ScoreStore,
-) -> Vec<usize> {
-    let q = search_query.to_lowercase().trim().to_string();
-    songs
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, s)| {
-            // 1. Search filter
-            if !q.is_empty() {
-                let matches_title = s.title.to_lowercase().contains(&q);
-                let matches_artist = s.artist.to_lowercase().contains(&q);
-                let matches_genre = s.genre.to_lowercase().contains(&q);
-                if !matches_title && !matches_artist && !matches_genre {
-                    return None;
-                }
-            }
-
-            // 2. Category filter
-            match category {
-                SongCategory::All => Some(idx),
-                SongCategory::Level => Some(idx),
-                SongCategory::ClearStatus => {
-                    let best = score_store.get(s.hash);
-                    if best.is_some() || s.file_path == ":demo:" {
-                        Some(idx)
-                    } else {
-                        Some(idx)
-                    }
-                }
-            }
-        })
-        .collect()
-}
 
 struct BeetleApp {
     state: Option<AppState>,
@@ -214,146 +51,6 @@ impl BeetleApp {
     }
 }
 
-fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
-    let mut score_store = ScoreStore::new();
-    if Path::new(SCORES_FILE).exists() {
-        if let Ok(score_data) = fs::read_to_string(SCORES_FILE) {
-            score_store.load_from_str(&score_data);
-        }
-    }
-
-    let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR);
-
-    // Always ensure demo track is available in library
-    let demo_chart = demo::create_demo_chart();
-    let demo_meta = SongMetadata {
-        hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
-        file_path: ":demo:".to_string(),
-        title: demo_chart.header.title,
-        subtitle: demo_chart.header.subtitle,
-        artist: demo_chart.header.artist,
-        genre: demo_chart.header.genre,
-        bpm: demo_chart.header.bpm,
-        play_level: demo_chart.header.play_level,
-        notes_count: demo_chart.notes.len(),
-    };
-
-    if !songs.iter().any(|s| s.file_path == ":demo:") {
-        songs.insert(0, demo_meta);
-    }
-
-    sort_songs(&mut songs, sort_mode, &score_store);
-
-    (songs, score_store)
-}
-
-fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    if song.file_path == ":demo:" {
-        return None;
-    }
-
-    let song_path = Path::new(&song.file_path);
-    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
-
-    // Check parsed chart header for stagefile or banner
-    if let Ok(content) = fs::read_to_string(song_path) {
-        if let Ok(chart) = parse_bms(&content) {
-            if !chart.header.stage_file.is_empty() {
-                let p = dir.join(&chart.header.stage_file);
-                if let Some(img) = ImageBuffer::load_from_file(&p) {
-                    return Some(img);
-                }
-            }
-            if !chart.header.banner.is_empty() {
-                let p = dir.join(&chart.header.banner);
-                if let Some(img) = ImageBuffer::load_from_file(&p) {
-                    return Some(img);
-                }
-            }
-        }
-    }
-
-    // Fallback file scanning for common artwork names
-    for name in &[
-        "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
-        "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
-    ] {
-        let p = dir.join(name);
-        if let Some(img) = ImageBuffer::load_from_file(&p) {
-            return Some(img);
-        }
-    }
-
-    None
-}
-
-fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
-    if song.file_path == ":demo:" {
-        return None;
-    }
-
-    let song_path = Path::new(&song.file_path);
-    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
-
-    // 1. Common preview audio filenames
-    for name in &[
-        "preview.ogg", "preview.wav", "PREVIEW.OGG", "PREVIEW.WAV",
-        "intro.ogg", "intro.wav", "INTRO.OGG", "INTRO.WAV",
-    ] {
-        let p = dir.join(name);
-        if p.exists() {
-            if let Ok(pcm) = SampleBank::load_audio_file(&p) {
-                return Some(pcm);
-            }
-        }
-    }
-
-    // 2. Fallback: Parse chart, find first valid keysound longer than 0.4s
-    if let Ok(content) = fs::read_to_string(song_path) {
-        if let Ok(chart) = parse_bms(&content) {
-            for filename in chart.header.wav_table.values() {
-                let p = dir.join(filename);
-                if let Ok(pcm) = SampleBank::load_audio_file(&p) {
-                    if pcm.duration_seconds() > 0.4 {
-                        return Some(pcm);
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn load_chart_and_audio(song: &SongMetadata) -> (BmsChart, TimingModel, SampleBank) {
-    if song.file_path == ":demo:" {
-        let chart = demo::create_demo_chart();
-        let timing = TimingModel::from_chart(&chart);
-        let soundbank = demo::create_demo_sample_bank();
-        return (chart, timing, soundbank);
-    }
-
-    let path = Path::new(&song.file_path);
-    if let Ok(content) = fs::read_to_string(path) {
-        if let Ok(chart) = parse_bms(&content) {
-            let timing = TimingModel::from_chart(&chart);
-            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
-            let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
-            println!(
-                "Loaded BMS: '{}' ({} keysounds loaded)",
-                chart.header.title, loaded
-            );
-            return (chart, timing, soundbank);
-        }
-    }
-
-    // Fallback demo
-    let chart = demo::create_demo_chart();
-    let timing = TimingModel::from_chart(&chart);
-    let soundbank = demo::create_demo_sample_bank();
-    (chart, timing, soundbank)
-}
-
 impl ApplicationHandler for BeetleApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
@@ -361,42 +58,29 @@ impl ApplicationHandler for BeetleApp {
         }
 
         let window_attributes = Window::default_attributes()
-            .with_title("Beetle BMS Player")
-            .with_inner_size(LogicalSize::new(800.0, 720.0));
+            .with_title("Beetle — BMS Rhythm Engine")
+            .with_inner_size(LogicalSize::new(1024, 768))
+            .with_min_inner_size(LogicalSize::new(800, 600));
 
-        let window = match event_loop.create_window(window_attributes) {
-            Ok(w) => Arc::new(w),
-            Err(err) => {
-                eprintln!("Failed to create window: {err}");
-                return;
-            }
-        };
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let context = Context::new(window.clone()).unwrap();
+        let mut surface = Surface::new(&context, window.clone()).unwrap();
 
-        let context = match Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(err) => {
-                eprintln!("Failed to create softbuffer context: {err}");
-                return;
-            }
-        };
-
-        let surface = match Surface::new(&context, window.clone()) {
-            Ok(s) => s,
-            Err(err) => {
-                eprintln!("Failed to create softbuffer surface: {err}");
-                return;
-            }
-        };
+        let size = window.inner_size();
+        let _ = surface.resize(
+            NonZeroU32::new(size.width.max(1)).unwrap(),
+            NonZeroU32::new(size.height.max(1)).unwrap(),
+        );
 
         let saved_config = AppConfig::load();
-        let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
-        let size = window.inner_size();
         let mut skin = SkinConfig::default();
         skin.hi_speed = saved_config.play_options.hi_speed;
         skin.lane_cover_ratio = saved_config.lane_cover_ratio;
 
         let renderer = SoftwareRenderer::new(size.width, size.height, skin)
             .expect("Failed to initialize software renderer");
+
+        let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
         let mut app_state = AppState {
             window,
@@ -685,11 +369,11 @@ impl ApplicationHandler for BeetleApp {
                                 }
                             }
 
-                            // 2. Playback / AutoPlay / Miss updates
+                            // 2. Replay Playback driver or Auto-play driver or Manual update misses
                             if state.is_replay_playback {
-                                if let Some(rep) = &state.playback_replay {
-                                    while state.playback_cursor < rep.events.len() {
-                                        let ev = rep.events[state.playback_cursor];
+                                if let Some(replay) = &state.playback_replay {
+                                    while state.playback_cursor < replay.events.len() {
+                                        let ev = &replay.events[state.playback_cursor];
                                         if audio_time >= ev.time_seconds {
                                             if ev.is_down {
                                                 state.renderer.set_key_state(ev.lane, true);
@@ -729,9 +413,7 @@ impl ApplicationHandler for BeetleApp {
                                 if let Some(judge) = &mut state.active_judge {
                                     let hits = judge.auto_play_update(audio_time);
                                     for (lane, hit_res, wav_id) in hits {
-                                        state.renderer.set_key_state(lane, true);
-                                        state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, 0.0);
-
+                                        state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, hit_res.delta_ms);
                                         if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                             let _ = audio.send_command(AudioCommand::PlaySample {
                                                 sample_id: id,
@@ -743,18 +425,18 @@ impl ApplicationHandler for BeetleApp {
                                 }
                             } else if let Some(judge) = &mut state.active_judge {
                                 let misses = judge.update_misses(effective_judge_time);
-                                for (_lane, miss_res) in misses {
-                                    state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
+                                for (lane, miss_res) in misses {
+                                    state.renderer.trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
                                 }
                             }
                         }
 
-                        // 3. Render gameplay frame
-                        let mut visual_levels = [0.0f32; 16];
+                        let mut visual_levels = [0.0; 16];
                         if let Some(audio) = &state.audio_engine {
                             audio.get_visual_levels(&mut visual_levels);
                         }
 
+                        // Render gameplay frame
                         if let (Some(chart), Some(timing), Some(judge)) =
                             (&state.active_chart, &state.active_timing, &state.active_judge)
                         {
@@ -766,16 +448,9 @@ impl ApplicationHandler for BeetleApp {
                                 &visual_levels,
                                 state.active_bga_image.as_ref(),
                             );
-
-                            if !state.is_gameplay_paused {
-                                // Check song finish
-                                if audio_time > state.song_end_time + 1.5 {
-                                    finish_gameplay(state);
-                                }
-                            }
                         }
 
-                        // 4. Footer info / Pause modal
+                        // Overlay Pause Modal if active
                         if state.is_gameplay_paused {
                             let title = state.active_chart.as_ref().map(|c| c.header.title.as_str()).unwrap_or("Unknown");
                             let artist = state.active_chart.as_ref().map(|c| c.header.artist.as_str()).unwrap_or("Unknown");
@@ -799,6 +474,11 @@ impl ApplicationHandler for BeetleApp {
                                 }
                             };
                             state.renderer.draw_footer_text(footer_text);
+                        }
+
+                        // Check Song End
+                        if audio_time >= state.song_end_time + 1.5 {
+                            finish_gameplay(state);
                         }
                     }
                     AppScreen::Result => {
@@ -829,15 +509,12 @@ impl ApplicationHandler for BeetleApp {
                 // Blit to softbuffer
                 let width = state.renderer.width();
                 let height = state.renderer.height();
-                if let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height)) {
-                    let _ = state.surface.resize(w, h);
+                if width > 0 && height > 0 {
                     if let Ok(mut buffer) = state.surface.buffer_mut() {
-                        let src = state.renderer.data();
-                        for (dst, chunk) in buffer.iter_mut().zip(src.chunks_exact(4)) {
-                            let r = chunk[0] as u32;
-                            let g = chunk[1] as u32;
-                            let b = chunk[2] as u32;
-                            *dst = (r << 16) | (g << 8) | b;
+                        let data = state.renderer.data();
+                        let buffer_slice = buffer.as_mut();
+                        for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
+                            *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
                         }
                         let _ = buffer.present();
                     }
@@ -861,38 +538,9 @@ fn handle_keyboard_input(
         return;
     };
 
-    // Global screenshot capture (PrintScreen)
-    if key_state == ElementState::Pressed && code == KeyCode::PrintScreen {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let path = format!("screenshots/screenshot_{}.bmp", timestamp);
-        let _ = state.renderer.save_screenshot(&path);
-        return;
-    }
-
-    // Global layout preset toggle (F1)
-    if key_state == ElementState::Pressed && code == KeyCode::F1 {
-        state.input_config.toggle_preset();
-        state.save_config();
-        return;
-    }
-
-    // Hi-Speed adjustments (F3: Speed+, F4: Speed-)
-    if key_state == ElementState::Pressed && state.screen != AppScreen::SongSelect {
-        if code == KeyCode::F3 || code == KeyCode::PageUp {
-            state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-            state.renderer.skin.hi_speed = state.play_options.hi_speed;
-            state.save_config();
-            return;
-        } else if code == KeyCode::F4 || code == KeyCode::PageDown {
-            state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-            state.renderer.skin.hi_speed = state.play_options.hi_speed;
-            state.save_config();
-            return;
-        } else if code == KeyCode::F6 {
-            // Cycle Gauge Type
+    // Global Hotkeys (when key is pressed)
+    if key_state == ElementState::Pressed && !state.is_search_active && !state.is_rebinding_key {
+        if code == KeyCode::F6 {
             state.play_options.gauge_type = match state.play_options.gauge_type {
                 GaugeType::Easy => GaugeType::Groove,
                 GaugeType::Groove => GaugeType::Hard,
@@ -902,7 +550,6 @@ fn handle_keyboard_input(
             state.save_config();
             return;
         } else if code == KeyCode::F7 {
-            // Cycle Lane Modifier
             state.play_options.lane_modifier = match state.play_options.lane_modifier {
                 LaneModifier::Regular => LaneModifier::Mirror,
                 LaneModifier::Mirror => LaneModifier::Random,
@@ -924,235 +571,7 @@ fn handle_keyboard_input(
     }
 
     match state.screen {
-        AppScreen::SongSelect => {
-            if key_state == ElementState::Pressed {
-                // If live search is active, capture search input
-                if state.is_search_active {
-                    match code {
-                        KeyCode::Escape => {
-                            if !state.search_query.is_empty() {
-                                state.search_query.clear();
-                                state.recompute_filtered_songs();
-                            } else {
-                                state.is_search_active = false;
-                            }
-                        }
-                        KeyCode::Enter => {
-                            state.is_search_active = false;
-                        }
-                        KeyCode::Backspace => {
-                            state.search_query.pop();
-                            state.recompute_filtered_songs();
-                        }
-                        _ => {
-                            if let Some(t) = text {
-                                for c in t.chars() {
-                                    if !c.is_control() {
-                                        state.search_query.push(c);
-                                    }
-                                }
-                                state.recompute_filtered_songs();
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                // If option modal is open, handle modal interactions
-                if state.show_option_modal {
-                    match code {
-                        KeyCode::Tab | KeyCode::Escape => {
-                            state.show_option_modal = false;
-                            state.save_config();
-                        }
-                        KeyCode::ArrowUp | KeyCode::KeyK => {
-                            state.modal_row = state.modal_row.saturating_sub(1);
-                        }
-                        KeyCode::ArrowDown | KeyCode::KeyJ => {
-                            state.modal_row = (state.modal_row + 1).min(7);
-                        }
-                        KeyCode::ArrowLeft => {
-                            match state.modal_row {
-                                0 => { // Hi-Speed
-                                    state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-                                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
-                                }
-                                1 => { // Lane Modifier
-                                    state.play_options.lane_modifier = match state.play_options.lane_modifier {
-                                        LaneModifier::Regular => LaneModifier::SRandom,
-                                        LaneModifier::Mirror => LaneModifier::Regular,
-                                        LaneModifier::Random => LaneModifier::Mirror,
-                                        LaneModifier::RRandom => LaneModifier::Random,
-                                        LaneModifier::SRandom => LaneModifier::RRandom,
-                                    };
-                                }
-                                2 => { // Gauge
-                                    state.play_options.gauge_type = match state.play_options.gauge_type {
-                                        GaugeType::Easy => GaugeType::Hazard,
-                                        GaugeType::Groove => GaugeType::Easy,
-                                        GaugeType::Hard => GaugeType::Groove,
-                                        GaugeType::Hazard => GaugeType::Hard,
-                                    };
-                                }
-                                3 => { // Judge Offset
-                                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 1.0).max(-100.0);
-                                }
-                                4 => { // Master Volume
-                                    state.master_volume = (state.master_volume - 0.05).max(0.0);
-                                    if let Some(audio) = &mut state.audio_engine {
-                                        let _ = audio.set_master_volume(state.master_volume);
-                                    }
-                                    if let Some(preview) = &mut state.preview_audio {
-                                        let _ = preview.set_master_volume(state.master_volume);
-                                    }
-                                }
-                                5 => { // Key Layout
-                                    state.input_config.toggle_preset();
-                                }
-                                6 => { // Auto Play
-                                    state.is_auto_play = !state.is_auto_play;
-                                }
-                                7 => { // Start Measure
-                                    state.start_measure = state.start_measure.saturating_sub(1);
-                                }
-                                _ => (),
-                            }
-                            state.save_config();
-                        }
-                        KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Space => {
-                            match state.modal_row {
-                                0 => { // Hi-Speed
-                                    state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-                                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
-                                }
-                                1 => { // Lane Modifier
-                                    state.play_options.lane_modifier = match state.play_options.lane_modifier {
-                                        LaneModifier::Regular => LaneModifier::Mirror,
-                                        LaneModifier::Mirror => LaneModifier::Random,
-                                        LaneModifier::Random => LaneModifier::RRandom,
-                                        LaneModifier::RRandom => LaneModifier::SRandom,
-                                        LaneModifier::SRandom => LaneModifier::Regular,
-                                    };
-                                }
-                                2 => { // Gauge
-                                    state.play_options.gauge_type = match state.play_options.gauge_type {
-                                        GaugeType::Easy => GaugeType::Groove,
-                                        GaugeType::Groove => GaugeType::Hard,
-                                        GaugeType::Hard => GaugeType::Hazard,
-                                        GaugeType::Hazard => GaugeType::Easy,
-                                    };
-                                }
-                                3 => { // Judge Offset
-                                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 1.0).min(100.0);
-                                }
-                                4 => { // Master Volume
-                                    state.master_volume = (state.master_volume + 0.05).min(2.0);
-                                    if let Some(audio) = &mut state.audio_engine {
-                                        let _ = audio.set_master_volume(state.master_volume);
-                                    }
-                                    if let Some(preview) = &mut state.preview_audio {
-                                        let _ = preview.set_master_volume(state.master_volume);
-                                    }
-                                }
-                                5 => { // Key Layout
-                                    if code == KeyCode::Enter || code == KeyCode::Space {
-                                        state.screen = AppScreen::KeyConfig;
-                                        state.show_option_modal = false;
-                                    } else {
-                                        state.input_config.toggle_preset();
-                                    }
-                                }
-                                6 => { // Auto Play
-                                    state.is_auto_play = !state.is_auto_play;
-                                }
-                                7 => { // Start Measure
-                                    state.start_measure = (state.start_measure + 1).min(200);
-                                }
-                                _ => (),
-                            }
-                            state.save_config();
-                        }
-                        _ => (),
-                    }
-                    return;
-                }
-
-                // Normal SongSelect interactions
-                match code {
-                    KeyCode::Slash => {
-                        state.is_search_active = true;
-                    }
-                    KeyCode::F3 => {
-                        state.category_mode = state.category_mode.next();
-                        state.recompute_filtered_songs();
-                    }
-                    KeyCode::Tab | KeyCode::KeyO => {
-                        state.show_option_modal = true;
-                        state.modal_row = 0;
-                    }
-                    KeyCode::KeyA => {
-                        state.is_auto_play = !state.is_auto_play;
-                    }
-                    KeyCode::KeyR => {
-                        // Launch replay playback if replay file exists
-                        if let Some(song) = state.current_selected_song().cloned() {
-                            let path_str = format!("{}/{:016x}.rep", REPLAYS_DIR, song.hash);
-                            if let Ok(rep_str) = fs::read_to_string(&path_str) {
-                                if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
-                                    state.is_replay_playback = true;
-                                    state.playback_replay = Some(replay);
-                                    state.playback_cursor = 0;
-                                    queue_start_gameplay(state, &song);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::F12 | KeyCode::KeyC => {
-                        state.screen = AppScreen::KeyConfig;
-                        state.selected_key_idx = 0;
-                    }
-                    KeyCode::F2 => {
-                        // Cycle Sort Mode
-                        state.sort_mode = state.sort_mode.next();
-                        sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
-                        state.recompute_filtered_songs();
-                        state.save_config();
-                    }
-                    KeyCode::ArrowUp | KeyCode::KeyK => {
-                        if state.selected_song_idx > 0 {
-                            state.selected_song_idx -= 1;
-                        } else if !state.filtered_indices.is_empty() {
-                            state.selected_song_idx = state.filtered_indices.len() - 1;
-                        }
-                    }
-                    KeyCode::ArrowDown | KeyCode::KeyJ => {
-                        if !state.filtered_indices.is_empty() {
-                            state.selected_song_idx = (state.selected_song_idx + 1) % state.filtered_indices.len();
-                        }
-                    }
-                    KeyCode::Enter | KeyCode::Space => {
-                        if let Some(song) = state.current_selected_song().cloned() {
-                            state.is_replay_playback = false;
-                            queue_start_gameplay(state, &song);
-                        }
-                    }
-                    KeyCode::F5 => {
-                        let (mut songs, _) = init_songs_and_scores(state.sort_mode);
-                        sort_songs(&mut songs, state.sort_mode, &state.score_store);
-                        state.songs = songs;
-                        state.recompute_filtered_songs();
-                    }
-                    _ => {
-                        if let Some(t) = text {
-                            if t == "/" {
-                                state.is_search_active = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        AppScreen::SongSelect => handle_song_select_input(state, key_state, code, text),
         AppScreen::Loading => {
             if key_state == ElementState::Pressed && code == KeyCode::Escape {
                 state.loading_receiver = None;
@@ -1160,373 +579,10 @@ fn handle_keyboard_input(
                 state.screen = AppScreen::SongSelect;
             }
         }
-        AppScreen::Gameplay => {
-            if key_state == ElementState::Pressed {
-                // If paused, handle pause modal interactions
-                if state.is_gameplay_paused {
-                    match code {
-                        KeyCode::Escape => {
-                            // Resume playback
-                            state.is_gameplay_paused = false;
-                            if let Some(audio) = &mut state.audio_engine {
-                                let _ = audio.resume();
-                            }
-                        }
-                        KeyCode::KeyR => {
-                            // Instant Restart
-                            state.is_gameplay_paused = false;
-                            if let Some(song) = state.current_selected_song().cloned() {
-                                queue_start_gameplay(state, &song);
-                            }
-                        }
-                        KeyCode::ArrowUp | KeyCode::KeyK => {
-                            state.pause_selected_option = state.pause_selected_option.saturating_sub(1);
-                        }
-                        KeyCode::ArrowDown | KeyCode::KeyJ => {
-                            state.pause_selected_option = (state.pause_selected_option + 1).min(2);
-                        }
-                        KeyCode::Enter | KeyCode::Space => {
-                            match state.pause_selected_option {
-                                0 => {
-                                    // Resume
-                                    state.is_gameplay_paused = false;
-                                    if let Some(audio) = &mut state.audio_engine {
-                                        let _ = audio.resume();
-                                    }
-                                }
-                                1 => {
-                                    // Restart
-                                    state.is_gameplay_paused = false;
-                                    if let Some(song) = state.current_selected_song().cloned() {
-                                        queue_start_gameplay(state, &song);
-                                    }
-                                }
-                                2 => {
-                                    // Quit to Song Select
-                                    state.is_gameplay_paused = false;
-                                    state.audio_engine = None;
-                                    state.screen = AppScreen::SongSelect;
-                                }
-                                _ => (),
-                            }
-                        }
-                        _ => (),
-                    }
-                    return;
-                }
-
-                // Normal gameplay hotkeys (when unpaused)
-                match code {
-                    KeyCode::Escape => {
-                        if state.is_auto_play || state.is_replay_playback {
-                            state.screen = AppScreen::SongSelect;
-                            state.audio_engine = None;
-                        } else {
-                            state.is_gameplay_paused = true;
-                            state.pause_selected_option = 0;
-                            if let Some(audio) = &mut state.audio_engine {
-                                let _ = audio.pause();
-                            }
-                        }
-                        return;
-                    }
-                    KeyCode::F3 | KeyCode::PageUp | KeyCode::Digit1 => {
-                        state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-                        state.renderer.skin.hi_speed = state.play_options.hi_speed;
-                        state.save_config();
-                        return;
-                    }
-                    KeyCode::F4 | KeyCode::PageDown | KeyCode::Digit2 => {
-                        state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-                        state.renderer.skin.hi_speed = state.play_options.hi_speed;
-                        state.save_config();
-                        return;
-                    }
-                    KeyCode::F10 => {
-                        state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
-                        state.save_config();
-                        return;
-                    }
-                    KeyCode::F11 => {
-                        state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
-                        state.save_config();
-                        return;
-                    }
-                    _ => (),
-                }
-            }
-
-            // Block lane keys if paused or during replay/auto-play
-            if state.is_gameplay_paused || state.is_auto_play || state.is_replay_playback {
-                return;
-            }
-
-            if let Some(lane) = state.input_config.map_key(physical_key) {
-                let audio_time = state
-                    .audio_engine
-                    .as_ref()
-                    .map(|a| a.clock().current_time_seconds())
-                    .unwrap_or(0.0);
-
-                let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
-
-                match key_state {
-                    ElementState::Pressed => {
-                        if let Some(rep) = &mut state.current_replay {
-                            rep.record(audio_time, lane, true);
-                        }
-
-                        state.renderer.set_key_state(lane, true);
-                        if let Some(judge) = &mut state.active_judge {
-                            if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
-                                state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
-
-                                if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                                    let _ = audio.send_command(AudioCommand::PlaySample {
-                                        sample_id: id,
-                                        volume: 1.0,
-                                        pan: 0.0,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    ElementState::Released => {
-                        if let Some(rep) = &mut state.current_replay {
-                            rep.record(audio_time, lane, false);
-                        }
-
-                        state.renderer.set_key_state(lane, false);
-                        if let Some(judge) = &mut state.active_judge {
-                            if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                                state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        AppScreen::Result => {
-            if key_state == ElementState::Pressed {
-                match code {
-                    KeyCode::Enter | KeyCode::Space | KeyCode::Escape => {
-                        state.screen = AppScreen::SongSelect;
-                    }
-                    KeyCode::KeyR => {
-                        if let Some(song) = state.current_selected_song().cloned() {
-                            queue_start_gameplay(state, &song);
-                        }
-                    }
-                    KeyCode::KeyP => {
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        let path = format!("screenshots/result_{}.bmp", timestamp);
-                        let _ = state.renderer.save_screenshot(&path);
-                    }
-                    _ => (),
-                }
-            }
-        }
-        AppScreen::KeyConfig => {
-            if key_state == ElementState::Pressed {
-                if state.is_rebinding_key {
-                    if code == KeyCode::Escape {
-                        state.is_rebinding_key = false;
-                    } else {
-                        let target_lane = match state.selected_key_idx {
-                            0 => Lane::Scratch,
-                            1 => Lane::Key1,
-                            2 => Lane::Key2,
-                            3 => Lane::Key3,
-                            4 => Lane::Key4,
-                            5 => Lane::Key5,
-                            6 => Lane::Key6,
-                            _ => Lane::Key7,
-                        };
-                        state.input_config.bind_key(code, target_lane);
-                        state.is_rebinding_key = false;
-                        state.save_config();
-                    }
-                } else {
-                    match code {
-                        KeyCode::Escape => {
-                            state.screen = AppScreen::SongSelect;
-                            state.save_config();
-                        }
-                        KeyCode::Enter | KeyCode::Space => {
-                            state.is_rebinding_key = true;
-                        }
-                        KeyCode::ArrowUp | KeyCode::KeyK => {
-                            state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
-                        }
-                        KeyCode::ArrowDown | KeyCode::KeyJ => {
-                            state.selected_key_idx = (state.selected_key_idx + 1).min(7);
-                        }
-                        KeyCode::F1 => {
-                            state.input_config.toggle_preset();
-                            state.save_config();
-                        }
-                        KeyCode::Delete | KeyCode::Backspace => {
-                            state.input_config.reset_to_preset(KeyPreset::HomeRow);
-                            state.save_config();
-                        }
-                        _ => (),
-                    }
-                }
-            }
-        }
+        AppScreen::Gameplay => handle_gameplay_input(state, key_state, code, physical_key),
+        AppScreen::Result => handle_result_input(state, key_state, code),
+        AppScreen::KeyConfig => handle_key_config_input(state, key_state, code),
     }
-}
-
-fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
-    // Cleanly stop preview audio engine before entering loading
-    state.preview_audio = None;
-    state.screen = AppScreen::Loading;
-    state.loading_song = Some(song.clone());
-    state.loading_spinner_frame = 0;
-    state.loading_anim_time = Instant::now();
-
-    // Cache stage image for loading screen
-    let selected_hash = song.hash;
-    if state.cached_stage_image.as_ref().map(|(h, _)| *h) != Some(selected_hash) {
-        let img = load_stage_image(song);
-        state.cached_stage_image = Some((selected_hash, img));
-    }
-
-    let song_clone = song.clone();
-    let (tx, rx): (
-        Sender<Result<(BmsChart, TimingModel, SampleBank), String>>,
-        Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>,
-    ) = channel();
-    state.loading_receiver = Some(rx);
-
-    thread::spawn(move || {
-        let (chart, timing, bank) = load_chart_and_audio(&song_clone);
-        let _ = tx.send(Ok((chart, timing, bank)));
-    });
-}
-
-fn finalize_start_gameplay(
-    state: &mut AppState,
-    song: &SongMetadata,
-    chart: BmsChart,
-    timing: TimingModel,
-    soundbank: SampleBank,
-) {
-    // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(42);
-
-    let mut play_chart = chart.clone();
-    if !state.is_replay_playback {
-        play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
-    }
-
-    let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
-    let total_duration = timing.total_duration_seconds(&play_chart);
-
-    let mut bgm_cursor = 0;
-    // Practice mode fast forward
-    if state.start_measure > 0 && !state.is_replay_playback {
-        let start_time = timing.beat_to_time_seconds(state.start_measure, 0.0);
-        judge_engine.advance_to_time(start_time);
-
-        while bgm_cursor < play_chart.bgm_notes.len() {
-            let (m, f, _) = play_chart.bgm_notes[bgm_cursor];
-            if timing.beat_to_time_seconds(m, f) < start_time {
-                bgm_cursor += 1;
-            } else {
-                break;
-            }
-        }
-    }
-
-    let play_mode = play_chart.detect_play_mode();
-    state.renderer.skin.set_play_mode(play_mode);
-    state.renderer.skin.hi_speed = state.play_options.hi_speed;
-
-    let mut audio_engine = AudioEngine::new(soundbank).ok();
-    if let Some(audio) = &mut audio_engine {
-        let _ = audio.set_master_volume(state.master_volume);
-    }
-
-    state.active_chart = Some(play_chart);
-    state.active_timing = Some(timing);
-    state.active_chart_hash = song.hash;
-    state.active_judge = Some(judge_engine);
-    state.active_bga_image = load_stage_image(song);
-    state.song_end_time = total_duration;
-    state.bgm_cursor = bgm_cursor;
-    state.is_new_record = false;
-    state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
-        Some(ReplayData::new(song.hash))
-    } else {
-        None
-    };
-    state.playback_cursor = 0;
-    state.is_gameplay_paused = false;
-    state.pause_selected_option = 0;
-    state.audio_engine = audio_engine;
-    state.screen = AppScreen::Gameplay;
-}
-
-fn finish_gameplay(state: &mut AppState) {
-    if let Some(judge) = &state.active_judge {
-        let score = judge.score();
-        let clear_type = if score.is_cleared() {
-            if score.miss_count == 0 && score.poor_count == 0 && score.bad_count == 0 {
-                if score.great_count == 0 && score.good_count == 0 {
-                    ClearType::Perfect
-                } else {
-                    ClearType::FullCombo
-                }
-            } else {
-                ClearType::Clear
-            }
-        } else {
-            ClearType::Failed
-        };
-
-        let record = ScoreRecord {
-            chart_hash: state.active_chart_hash,
-            ex_score: score.ex_score,
-            max_combo: score.max_combo,
-            accuracy_rate: score.accuracy_rate(),
-            clear_type,
-            pgreat_count: score.pgreat_count,
-            great_count: score.great_count,
-            good_count: score.good_count,
-            bad_count: score.bad_count,
-            poor_count: score.poor_count,
-            miss_count: score.miss_count,
-        };
-
-        // Only save score records and replays for actual manual playthroughs from start
-        state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
-        if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
-            state.is_new_record = state.score_store.update(record.clone());
-            let score_data = state.score_store.save_to_string();
-            let _ = fs::write(SCORES_FILE, score_data);
-
-            // Save replay file
-            let rep_path = format!("{}/{:016x}.rep", REPLAYS_DIR, state.active_chart_hash);
-            if state.is_new_record || !Path::new(&rep_path).exists() {
-                if let Some(mut rep) = state.current_replay.take() {
-                    rep.set_score(&record);
-                    let _ = fs::create_dir_all(REPLAYS_DIR);
-                    let _ = fs::write(&rep_path, rep.serialize_to_string());
-                }
-            }
-        } else {
-            state.is_new_record = false;
-        }
-    }
-
-    state.screen = AppScreen::Result;
 }
 
 fn main() {
@@ -1545,6 +601,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beetle_core::SortMode;
+    use state::filter_song_indices;
 
     #[test]
     fn test_song_category_transitions() {
@@ -1604,4 +662,3 @@ mod tests {
         assert_eq!(empty_indices.len(), 0);
     }
 }
-
