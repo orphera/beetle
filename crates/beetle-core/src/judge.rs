@@ -143,6 +143,9 @@ pub struct ScoreTracker {
     pub gauge: f64,
     pub gauge_type: GaugeType,
     pub is_failed: bool,
+    pub fast_count: u32,
+    pub slow_count: u32,
+    pub timing_histogram: [u32; 17],
     gauge_gain_pgreat: f64,
     gauge_gain_great: f64,
     gauge_gain_good: f64,
@@ -184,19 +187,38 @@ impl ScoreTracker {
             gauge: initial_gauge,
             gauge_type,
             is_failed: false,
+            fast_count: 0,
+            slow_count: 0,
+            timing_histogram: [0; 17],
             gauge_gain_pgreat: gain_pgreat,
             gauge_gain_great: gain_great,
             gauge_gain_good: gain_good,
         }
     }
 
-    /// Records a judge result and updates score and gauge.
+    /// Records a judge result without explicit timing delta.
     pub fn record_hit(&mut self, grade: JudgeGrade) {
+        self.record_hit_with_delta(grade, 0.0);
+    }
+
+    /// Records a judge result and updates score, gauge, and timing distribution stats.
+    pub fn record_hit_with_delta(&mut self, grade: JudgeGrade, delta_ms: f64) {
         if self.is_failed && matches!(self.gauge_type, GaugeType::Hard | GaugeType::Hazard) {
             return;
         }
 
         self.ex_score += grade.ex_score_points();
+
+        if grade != JudgeGrade::Miss && grade != JudgeGrade::Poor {
+            if delta_ms < -4.0 {
+                self.fast_count += 1;
+            } else if delta_ms > 4.0 {
+                self.slow_count += 1;
+            }
+
+            let bin = ((delta_ms + 42.5) / 5.0).floor().clamp(0.0, 16.0) as usize;
+            self.timing_histogram[bin] += 1;
+        }
 
         match grade {
             JudgeGrade::PerfectGreat => {
@@ -296,6 +318,32 @@ impl ScoreTracker {
             GaugeType::Hard | GaugeType::Hazard => !self.is_failed,
         }
     }
+
+    /// Evaluates current performance rank string (MAX, AAA, AA, A, B, C, D, F).
+    pub fn rank(&self) -> &'static str {
+        let max_possible = self.max_ex_score();
+        if max_possible == 0 {
+            return "F";
+        }
+        let ratio = self.ex_score as f64 / max_possible as f64;
+        if ratio >= 1.0 {
+            "MAX"
+        } else if ratio >= 8.0 / 9.0 {
+            "AAA"
+        } else if ratio >= 7.0 / 9.0 {
+            "AA"
+        } else if ratio >= 6.0 / 9.0 {
+            "A"
+        } else if ratio >= 5.0 / 9.0 {
+            "B"
+        } else if ratio >= 4.0 / 9.0 {
+            "C"
+        } else if ratio >= 3.0 / 9.0 {
+            "D"
+        } else {
+            "F"
+        }
+    }
 }
 
 /// A playable note with precalculated target audio time.
@@ -373,7 +421,7 @@ impl JudgeEngine {
                 }
 
                 let result = JudgeResult { grade, delta_ms };
-                self.score.record_hit(grade);
+                self.score.record_hit_with_delta(grade, delta_ms);
                 return Some((result, note.note_event.wav_id));
             }
         }
@@ -401,7 +449,7 @@ impl JudgeEngine {
             if let Some(grade) = self.window.evaluate(delta_ms) {
                 note.is_judged = true;
                 let result = JudgeResult { grade, delta_ms };
-                self.score.record_hit(grade);
+                self.score.record_hit_with_delta(grade, delta_ms);
                 return Some(result);
             }
         }
@@ -603,5 +651,31 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, Lane::Key2);
         assert_eq!(engine.score().pgreat_count, 2);
+    }
+
+    #[test]
+    fn test_score_tracker_rank_and_timing_histogram() {
+        let mut score = ScoreTracker::new(90, 200.0, GaugeType::Groove);
+        // 90 notes -> max EX = 180
+        // Perfect score -> 180 EX -> MAX
+        for _ in 0..90 {
+            score.record_hit_with_delta(JudgeGrade::PerfectGreat, 0.0);
+        }
+        assert_eq!(score.rank(), "MAX");
+        assert_eq!(score.timing_histogram[8], 90);
+        assert_eq!(score.fast_count, 0);
+        assert_eq!(score.slow_count, 0);
+
+        let mut score2 = ScoreTracker::new(90, 200.0, GaugeType::Groove);
+        // 80 PGREAT (160) + 10 GREAT (10) = 170 EX -> 170/180 = 94.4% -> AAA
+        for _ in 0..80 {
+            score2.record_hit_with_delta(JudgeGrade::PerfectGreat, -10.0); // Fast
+        }
+        for _ in 0..10 {
+            score2.record_hit_with_delta(JudgeGrade::Great, 15.0); // Slow
+        }
+        assert_eq!(score2.rank(), "AAA");
+        assert_eq!(score2.fast_count, 80);
+        assert_eq!(score2.slow_count, 10);
     }
 }

@@ -166,6 +166,52 @@ impl ImageBuffer {
             }
         }
     }
+
+    /// Encodes this image buffer as a 24-bit uncompressed Windows BMP byte vector without external dependencies.
+    pub fn encode_bmp_bytes(&self) -> Vec<u8> {
+        let w = self.width;
+        let h = self.height;
+        let row_stride_unpadded = (w * 3) as usize;
+        let row_padding = (4 - (row_stride_unpadded % 4)) % 4;
+        let row_stride = row_stride_unpadded + row_padding;
+        let pixel_bytes_len = row_stride * h as usize;
+        let total_size = 54 + pixel_bytes_len;
+
+        let mut data = Vec::with_capacity(total_size);
+        // Header
+        data.extend_from_slice(b"BM");
+        data.extend_from_slice(&(total_size as u32).to_le_bytes());
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        data.extend_from_slice(&54u32.to_le_bytes());
+
+        // DIB Header
+        data.extend_from_slice(&40u32.to_le_bytes());
+        data.extend_from_slice(&(w as i32).to_le_bytes());
+        data.extend_from_slice(&(h as i32).to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&24u16.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&(pixel_bytes_len as u32).to_le_bytes());
+        data.extend_from_slice(&2835u32.to_le_bytes());
+        data.extend_from_slice(&2835u32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+
+        // Pixels: bottom-up row order
+        for y in (0..h as usize).rev() {
+            for x in 0..w as usize {
+                let px = self.pixels[y * w as usize + x];
+                data.push(px.b);
+                data.push(px.g);
+                data.push(px.r);
+            }
+            for _ in 0..row_padding {
+                data.push(0);
+            }
+        }
+
+        data
+    }
 }
 
 #[cfg(test)]

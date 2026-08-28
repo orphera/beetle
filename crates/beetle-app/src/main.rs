@@ -110,6 +110,7 @@ struct AppState {
     active_judge: Option<JudgeEngine>,
     song_end_time: f64,
     is_new_record: bool,
+    previous_best: Option<ScoreRecord>,
     input_config: InputConfig,
     bgm_cursor: usize,
     loading_song: Option<SongMetadata>,
@@ -432,6 +433,7 @@ impl ApplicationHandler for BeetleApp {
             active_judge: None,
             song_end_time: 0.0,
             is_new_record: false,
+            previous_best: None,
             input_config: InputConfig::new(saved_config.key_preset),
             bgm_cursor: 0,
             loading_song: None,
@@ -787,7 +789,7 @@ impl ApplicationHandler for BeetleApp {
                     }
                     AppScreen::Result => {
                         if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
-                            state.renderer.render_result(chart, judge.score(), state.is_new_record);
+                            state.renderer.render_result(chart, judge.score(), state.is_new_record, state.previous_best.as_ref());
                         }
                     }
                     AppScreen::KeyConfig => {
@@ -839,6 +841,17 @@ fn handle_keyboard_input(
     let PhysicalKey::Code(code) = physical_key else {
         return;
     };
+
+    // Global screenshot capture (PrintScreen)
+    if key_state == ElementState::Pressed && code == KeyCode::PrintScreen {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = format!("screenshots/screenshot_{}.bmp", timestamp);
+        let _ = state.renderer.save_screenshot(&path);
+        return;
+    }
 
     // Global layout preset toggle (F1)
     if key_state == ElementState::Pressed && code == KeyCode::F1 {
@@ -1252,8 +1265,26 @@ fn handle_keyboard_input(
             }
         }
         AppScreen::Result => {
-            if key_state == ElementState::Pressed && (code == KeyCode::Enter || code == KeyCode::Space || code == KeyCode::Escape) {
-                state.screen = AppScreen::SongSelect;
+            if key_state == ElementState::Pressed {
+                match code {
+                    KeyCode::Enter | KeyCode::Space | KeyCode::Escape => {
+                        state.screen = AppScreen::SongSelect;
+                    }
+                    KeyCode::KeyR => {
+                        if let Some(song) = state.current_selected_song().cloned() {
+                            queue_start_gameplay(state, &song);
+                        }
+                    }
+                    KeyCode::KeyP => {
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        let path = format!("screenshots/result_{}.bmp", timestamp);
+                        let _ = state.renderer.save_screenshot(&path);
+                    }
+                    _ => (),
+                }
             }
         }
         AppScreen::KeyConfig => {
@@ -1399,6 +1430,7 @@ fn finish_gameplay(state: &mut AppState) {
         };
 
         // Only save score records and replays for actual manual playthroughs from start
+        state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
             state.is_new_record = state.score_store.update(record.clone());
             let score_data = state.score_store.save_to_string();
