@@ -182,12 +182,10 @@ impl ApplicationHandler for BeetleApp {
         self.state = Some(app_state);
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let Some(state) = &mut self.state else {
             return;
         };
-
-        let now = Instant::now();
 
         match state.screen {
             AppScreen::Loading => {
@@ -203,20 +201,22 @@ impl ApplicationHandler for BeetleApp {
                             Err(e) => {
                                 eprintln!("Failed to load song: {e}");
                                 state.screen = AppScreen::SongSelect;
+                                state.window.request_redraw();
                             }
                         }
-                        state.window.request_redraw();
                     }
                 }
 
+                let now = Instant::now();
                 if now.duration_since(state.loading_anim_time) >= Duration::from_millis(30) {
                     state.loading_spinner_frame = state.loading_spinner_frame.wrapping_add(1);
                     state.loading_anim_time = now;
                     state.window.request_redraw();
                 }
-                std::thread::sleep(Duration::from_millis(16));
+                event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
             }
             AppScreen::Gameplay => {
+                let now = Instant::now();
                 let elapsed = now.duration_since(state.last_render_time);
                 let target = Duration::from_millis(4);
                 if elapsed < target {
@@ -224,15 +224,11 @@ impl ApplicationHandler for BeetleApp {
                 }
                 state.last_render_time = Instant::now();
                 state.window.request_redraw();
+                event_loop.set_control_flow(ControlFlow::Poll);
             }
             _ => {
-                let elapsed = now.duration_since(state.last_render_time);
-                let target = Duration::from_millis(16);
-                if elapsed < target {
-                    std::thread::sleep(target - elapsed);
-                }
-                state.last_render_time = Instant::now();
-                state.window.request_redraw();
+                // Static screens (SongSelect, Result, KeyConfig) only update on events (keys, resizing)
+                event_loop.set_control_flow(ControlFlow::Wait);
             }
         }
     }

@@ -25,6 +25,7 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     }
 
     state.loading_receiver = Some(spawn_background_song_loader(song));
+    state.window.request_redraw();
 }
 
 pub fn finalize_start_gameplay(
@@ -91,6 +92,7 @@ pub fn finalize_start_gameplay(
     state.pause_selected_option = 0;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
+    state.window.request_redraw();
 }
 
 pub fn finish_gameplay(state: &mut AppState) {
@@ -146,4 +148,5 @@ pub fn finish_gameplay(state: &mut AppState) {
     }
 
     state.screen = AppScreen::Result;
+    state.window.request_redraw();
 }
