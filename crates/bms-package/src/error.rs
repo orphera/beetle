@@ -23,6 +23,24 @@ pub enum PackageError {
     DecompressionLimitExceeded(u64),
     /// General corruption or integrity error in package data.
     CorruptedPackage(String),
+    /// The required `delta_manifest.json` file is missing in the delta package root.
+    MissingDeltaManifest,
+    /// `delta_manifest.json` is malformed JSON or has missing/invalid required fields.
+    InvalidDeltaManifest(String),
+    /// The base package ID or version does not match what the delta requires.
+    DeltaBaseMismatch {
+        expected_id: String,
+        expected_version: String,
+        actual_id: String,
+        actual_version: String,
+    },
+    /// The calculated checksum of the base or target package did not match the manifest.
+    DeltaChecksumMismatch {
+        expected: String,
+        actual: String,
+    },
+    /// Delta patch application failed.
+    DeltaApplyFailed(String),
 }
 
 impl fmt::Display for PackageError {
@@ -40,6 +58,22 @@ impl fmt::Display for PackageError {
                 write!(f, "Decompression safety limit exceeded: {size} bytes")
             }
             Self::CorruptedPackage(msg) => write!(f, "Corrupted package: {msg}"),
+            Self::MissingDeltaManifest => write!(f, "Missing delta_manifest.json in delta archive root"),
+            Self::InvalidDeltaManifest(msg) => write!(f, "Invalid delta manifest: {msg}"),
+            Self::DeltaBaseMismatch {
+                expected_id,
+                expected_version,
+                actual_id,
+                actual_version,
+            } => write!(
+                f,
+                "Delta base mismatch: expected {expected_id}@{expected_version}, got {actual_id}@{actual_version}"
+            ),
+            Self::DeltaChecksumMismatch { expected, actual } => write!(
+                f,
+                "Delta integrity checksum mismatch: expected '{expected}', calculated '{actual}'"
+            ),
+            Self::DeltaApplyFailed(msg) => write!(f, "Delta apply failed: {msg}"),
         }
     }
 }

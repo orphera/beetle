@@ -4,6 +4,8 @@
 //! Designed for secure, deterministic, self-contained packaging and distribution of BMS content.
 
 pub mod builder;
+pub mod checksum;
+pub mod delta;
 pub mod entry;
 pub mod error;
 pub mod manifest;
@@ -11,6 +13,11 @@ pub mod path;
 pub mod reader;
 
 pub use builder::PackageBuilder;
+pub use checksum::{sha256_digest, sha256_hex};
+pub use delta::{
+    DeltaApplicator, DeltaBuilder, DeltaManifest, DeltaOpKind, DeltaPackage, DeltaResourceEntry,
+    CURRENT_DELTA_FORMAT_VERSION, DELTA_MANIFEST_FILENAME,
+};
 pub use entry::PackageEntry;
 pub use error::PackageError;
 pub use manifest::{Manifest, CURRENT_FORMAT_VERSION, MANIFEST_FILENAME};

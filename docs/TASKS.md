@@ -20,21 +20,21 @@ Milestone 4의 목표는 [BMS Package System 표준 명세](file:///C:/Users/jeo
 
 ---
 
-## 📋 Phase 1: `bms-package` 차분 포맷 & Diff/Patch 코어 라이브러리 (`crates/bms-package/src/delta/`)
-- [ ] **차분 메타데이터 모델 정의 (`delta/manifest.rs`)**
-  - [ ] `DeltaManifest`: `package_id`, `base_version`, `target_version`, `base_checksum`, `target_checksum`
-  - [ ] 엔트리 연산 분류: `added_resources`, `modified_resources`, `removed_resources`, `unchanged_resources`
-  - [ ] 매니페스트 직렬화/역직렬화 및 정규화
-- [ ] **결정론적 차분 빌더 (`delta/builder.rs`)**
-  - [ ] `DeltaBuilder`: Base 패키지와 Target 패키지 간의 리소스/차트 diff 추출
-  - [ ] 변경/추가된 리소스만 압축하여 `.bmdp` 아카이브 생성 (`INV-6` 결정론적 타임스탬프 및 사전순 정렬)
-- [ ] **차분 적용 및 타겟 재현 엔진 (`delta/applicator.rs`)**
-  - [ ] `DeltaApplicator`: `Base Package + Delta Archive` 검증 및 `Target Package` 완전 복원
-  - [ ] Base SHA-256 검증 및 생성된 Target SHA-256 일치 검증
-- [ ] **단위 테스트 스위트 작성**
-  - [ ] 차트만 추가된 케이스 (15 KB 초경량 차분)
-  - [ ] 키음 WAV 수정/추가/삭제 케이스
-  - [ ] Base 버전 불일치 및 손상된 Delta 거부 테스트
+## 📋 Phase 1: `bms-package` 차분 포맷 & Diff/Patch 코어 라이브러리 (`crates/bms-package/src/delta/`) (Completed)
+- [x] **차분 메타데이터 모델 정의 (`delta/manifest.rs`)**
+  - [x] `DeltaManifest`: `package_id`, `base_version`, `target_version`, `base_checksum`, `target_checksum`
+  - [x] 엔트리 연산 분류: `added_resources`, `modified_resources`, `removed_resources`, `unchanged_resources`
+  - [x] 매니페스트 직렬화/역직렬화 및 정규화
+- [x] **결정론적 차분 빌더 (`delta/builder.rs`)**
+  - [x] `DeltaBuilder`: Base 패키지와 Target 패키지 간의 리소스/차트 diff 추출
+  - [x] 변경/추가된 리소스만 압축하여 `.bmdp` 아카이브 생성 (`INV-6` 결정론적 타임스탬프 및 사전순 정렬)
+- [x] **차분 적용 및 타겟 재현 엔진 (`delta/applicator.rs`)**
+  - [x] `DeltaApplicator`: `Base Package + Delta Archive` 검증 및 `Target Package` 완전 복원
+  - [x] Base SHA-256 검증 및 생성된 Target SHA-256 일치 검증
+- [x] **단위 테스트 스위트 작성**
+  - [x] 차트만 추가된 케이스 (15 KB 초경량 차분)
+  - [x] 키음 WAV 수정/추가/삭제 케이스
+  - [x] Base 버전 불일치 및 손상된 Delta 거부 테스트
 
 ---
 
