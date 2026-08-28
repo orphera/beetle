@@ -547,8 +547,20 @@ impl ApplicationHandler for BeetleApp {
                             state.renderer.draw_footer_text(footer_text);
                         }
 
-                        // Check Song End
-                        if audio_time >= state.song_end_time + 1.5 {
+                        // Check Stage Failure (Hard / Hazard gauge depleted to 0)
+                        let is_stage_failed = state
+                            .active_judge
+                            .as_ref()
+                            .map(|j| j.score().is_failed)
+                            .unwrap_or(false);
+
+                        if is_stage_failed && !state.is_auto_play && !state.is_replay_playback {
+                            if let Some(audio) = &mut state.audio_engine {
+                                let _ = audio.stop_all();
+                            }
+                            finish_gameplay(state);
+                        } else if audio_time >= state.song_end_time + 1.5 {
+                            // Check Song End
                             finish_gameplay(state);
                         }
                     }
