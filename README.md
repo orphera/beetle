@@ -58,7 +58,8 @@ beetle/
 │   └── archive/                    # 완료된 마일스톤 히스토리 아카이브
 │       ├── tasks_milestone_1.md    # Milestone 1: 기반 아키텍처 및 게임 루프
 │       ├── tasks_milestone_2.md    # Milestone 2: UI/UX 전면 개편 및 다국어 폰트
-│       └── tasks_milestone_3.md    # Milestone 3: 모듈화 & 클린 구조 리팩토링
+│       ├── tasks_milestone_3.md    # Milestone 3: 모듈화 & 클린 구조 리팩토링
+│       └── tasks_milestone_4.md    # Milestone 4: BMS Package Delta(차분) 및 원자적 업데이트 엔진
 └── crates/
     ├── beetle-core/                # 순수 채보 파서, 타이밍 모델, 판정/점수/리플레이 엔진
     ├── beetle-audio/               # cpal 오디오 엔진, 락프리 믹서, 마스터 오디오 클럭
