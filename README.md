@@ -44,10 +44,13 @@ beetle/
 ├── Cargo.toml                      # Workspace 및 release 최적화 프로필
 ├── AGENTS.md                       # 개발 가이드 및 아키텍처 불변식
 ├── docs/
-│   ├── TASKS.md                    # Phase별 개발 체크리스트 (Phase 1 ~ 23 완료)
-│   ├── DECISIONS.md                # 아키텍처 결정 레코드 (ADR-001 ~ ADR-011)
-│   ├── BMS_PACKAGE_SPEC.md         # bms-package 포맷 및 라이브러리 명세
-│   └── BMS_PACKAGE_MANAGER_SPEC.md # bms-package-manager 및 레지스트리 명세
+│   ├── TASKS.md                    # 활성 마일스톤 개발 체크리스트 (Milestone 2)
+│   ├── DECISIONS.md                # 아키텍처 결정 레코드 (ADR-001 ~ ADR-013)
+│   ├── specs/                      # 세부 기술 명세서
+│   │   ├── bms_package.md          # bms-package 포맷 및 라이브러리 명세
+│   │   └── bms_package_manager.md  # bms-package-manager 및 레지스트리 명세
+│   └── archive/                    # 완료된 마일스톤 히스토리 아카이브
+│       └── tasks_milestone_1.md    # Milestone 1 개발 체크리스트 아카이브 (Phase 0 ~ 23)
 └── crates/
     ├── beetle-core/                # 순수 채보 파서, 타이밍 모델, 판정/점수/리플레이 엔진
     ├── beetle-audio/               # cpal 오디오 엔진, 락프리 믹서, 마스터 오디오 클럭

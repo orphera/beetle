@@ -1,281 +1,84 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 2)
 
-이 문서는 Beetle 프로젝트의 구현 태스크를 Phase별로 정리한 로드맵입니다. 각 단계는 크레이트 구조 및 의존성 순서에 따라 설계되었습니다.
+이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
----
-
-## 📋 Phase 0: 리포지토리 부트스트랩 및 기반 구축 (Current)
-- [x] Cargo Workspace 초기화 및 릴리스 크기 최적화 프로필 설정
-- [x] 4개 크레이트 분할 (`beetle-core`, `beetle-audio`, `beetle-render`, `beetle-app`)
-- [x] 크레이트별 기본 모듈 스켈레톤 및 인터페이스 정의
-- [x] `beetle-app` 빈 창 (`winit` + `softbuffer`) 실행 검증
-- [x] 문서화 (`README.md`, `AGENTS.md`, `docs/TASKS.md`, `docs/DECISIONS.md`, `.gitignore`)
+> 💡 **이전 마일스톤 완료 내역**: 기반 아키텍처, 오디오 엔진, 패키지 포맷 및 1차 게임 루프 완성 내역은 [archive/tasks_milestone_1.md](file:///C:/Users/jeongwoong/dev/beetle/docs/archive/tasks_milestone_1.md)에 영구 아카이브되어 있습니다.
 
 ---
 
-## 📋 Phase 1: `beetle-core` — 채보 파서 및 타이밍/판정 모델 (Completed)
-- [x] **BMS / BME / BML 텍스트 파서 구현**
-  - [x] `#HEADER` 태그 파싱 (`#TITLE`, `#ARTIST`, `#BPM`, `#TOTAL`, `#WAVxx`, `#BMPxx`, `#PLAYER`)
-  - [x] `#MEASURE` 데이터 채널 파싱 (01: BGM, 02: 마디 길이 배율, 03/08: BPM 변경, 09: STOP, 11~19: 1P 단노트, 51~59: 1P 롱노트)
-  - [x] Base36 (`01`~`ZZ`) 식별자 인코딩/디코딩 유틸리티
-  - [x] LNTYPE 1 및 #LNOBJ 롱노트 처리
-- [x] **타이밍 모델 (`TimingModel`) 완성**
-  - [x] 고정/가변 BPM 타임라인 계산
-  - [x] `#STOP` 정지 시간 계산
-  - [x] 마디/박자(Measure/Fraction) ↔ 절대 시간(Seconds/Samples) 양방향 정밀 변환
-- [x] **판정 엔진 (`JudgeEngine`) 구현**
-  - [x] 판정 윈도우 (PGREAT / GREAT / GOOD / BAD / POOR / MISS)
-  - [x] 단노트 및 롱노트(Hold / Release) 판정 로직
-  - [x] 스코어(EX-Score, Rate, Combo) 및 게이지(Groove, Hard) 시뮬레이션
-- [x] **파서, 타이밍, 판정 단위 테스트 작성 (13개 테스트 통과)**
+# 🚀 Milestone 2: UI/UX & 비주얼 고도화 (User Experience & Visual Polish)
+
+Milestone 2의 목표는 무거운 외부 라이브러리 추가 없이(바이너리 크기 < 1 MB 및 무할당/무락 오디오 불변식 유지) **선곡 탐색 편의성, 한글/일본어 다국어 지원, 인게임 플레이어블 편의성(일시정지/실시간 조절), 결과 화면 시각 보상 및 인터랙티브 키 설정**을 최고 수준으로 끌어올리는 것입니다.
 
 ---
 
-## 📋 Phase 2: `beetle-audio` — 경량 믹서 및 오디오 클럭 (Completed)
-- [x] **WAV / PCM 사전 디코더 (`SampleBank`) 구현**
-  - [x] `hound` 기반 8/16/24/32비트 WAV 로더 및 Stereo f32 정규화
-  - [x] `#WAVxx` 채보 오디오 사전 로드 (`load_chart_soundbank`)
-- [x] **락프리 믹서 (`Mixer`) 구현**
-  - [x] 고정 크기 발음 풀 (`[ActiveVoice; 128]`) 관리 및 Voice Stealing
-  - [x] 선형 보간 믹싱 및 패닝/볼륨 감쇠 연산
-  - [x] `rtrb` 링버퍼 커맨드 소비 (Zero-Allocation 보장)
-- [x] **마스터 오디오 클럭 (`AudioClock`) 정밀화**
-  - [x] `AtomicU64` 기반 샘플 누적 및 레이턴시 오프셋 보정
-- [x] **오디오 엔진 통합 및 단위 테스트 (5개 테스트 통과)**
+## 📋 Phase 1: 타이포그래피 & 경량 다국어(CJK) 비트맵 폰트 시스템 (`beetle-render`)
+- [ ] **초경량 다국어 비트맵 폰트 엔진 (`beetle-render::bitmap_font`)**
+  - [ ] 한글 완성형/조합형 및 일본어(히라가나/가타카나) 정적 비트맵 글리프 테이블 구축
+  - [ ] 외부 크레이트(`freetype`, `fontdue` 등) 없이 순수 바이너리 내장 (< 60 KB 오버헤드)
+  - [ ] ASCII, 한글, 가나, 전각 기호 자동 디코딩 및 폴백 렌더링 지원
+- [ ] **비주얼 폰트 계층화**
+  - [ ] 대형 스코어/콤보/랭크 전용 볼드 비트맵 폰트 및 라틴 폰트 해상도 개선
+  - [ ] 텍스트 그림자(Drop-shadow) 및 아웃라인 렌더링 헬퍼
+- [ ] **다국어 렌더링 단위 테스트 작성 및 검증**
 
 ---
 
-## 📋 Phase 3: `beetle-render` — 소프트웨어 2D 렌더러 & 폰트 (Completed)
-- [x] **임베디드 비트맵 폰트 (`BitmapFont`) 작성**
-  - [x] 5x7 ASCII 픽셀 아틀라스 내장 (~475B ROM)
-  - [x] 스케일링/색상 텍스트 및 중앙 정렬 렌더링
-- [x] **스킨 레이아웃 (`SkinConfig`) 구성**
-  - [x] 7키 + 1스크래치 레인 좌표 및 너비 계산
-  - [x] 판정선, 레인 구분선, 키빔(Key Beam) 색상 설정
-- [x] **노트 렌더링 파이프라인 (`SoftwareRenderer`)**
-  - [x] `AudioClock` 기반 가시 노트 쿼리 및 Y좌표 계산
-  - [x] 단노트 및 롱노트 바디/헤드/테일 렌더링
-  - [x] 판정 애니메이션 (Combo 카운터, Judge 글자 팝업)
-  - [x] 그루브 / 하드 게이지 바 및 HUD 정보 렌더링
-- [x] **렌더러 단위 테스트 (4개 테스트 통과)**
+## 📋 Phase 2: 선곡 화면(Song Select) UX 전면 개편 (`beetle-app`, `beetle-render`)
+- [ ] **실시간 인라인 검색 (Live Search)**
+  - [ ] `/` 키로 검색창 활성화 및 실시간 제목/아티스트/장르 필터링
+  - [ ] 한글/영문 자모 및 부분 일치 실시간 쿼리 매칭
+- [ ] **난이도 및 클리어 상태별 카테고리/폴더 뷰**
+  - [ ] `Tab` / `F3` 키로 전체 / 레벨별(Level 1~12+) / 클리어 상태별(All, FC, Clear, Failed, NoPlay) 폴더 그룹핑
+  - [ ] 폴더 접기/펼치기 및 카테고리별 클리어 레이트 통계 표출
+- [ ] **곡 목록 클리어 램프(Clear Lamp) 비주얼 인디케이터**
+  - [ ] 리스트 좌측에 플레이 상태(No Play, Failed, Easy, Clear, Hard, Full Combo, Perfect) 컬러 바/도트 점등
+- [ ] **부드러운 캐러셀 스크롤 & 선택 모션 (Motion & Lerp)**
+  - [ ] 커서 이동 시 부드러운 위치 보간(Lerp) 애니메이션
+  - [ ] 선택된 곡의 아트워크/메타데이터 페이드인 연출
+- [ ] **곡 상세 카드 디자인 고도화**
+  - [ ] 채보 속성(BPM 범위, 총 노트 수, 스크래치 수, 롱노트 비율) 그리드 레이아웃
 
 ---
 
-## 📋 Phase 4: `beetle-app` — 통합 게임플레이 루프 (Completed)
-- [x] **입력 시스템 (`InputConfig`) 구현**
-  - [x] 7K + 1S 기본 키매핑 프리셋 (HomeRow & ArcadeZx 런타임 F1/Tab 전환 지원)
-  - [x] 커스텀 키 바인딩 확장 지원
-  - [x] 입력 타임스탬프와 `AudioClock` 간의 판정 큐잉
-  - [x] 키음 트리거 락프리 큐 전송
-- [x] **인게임 상태 머신 & BGM 스케줄러**
-  - [x] BMS 로딩 및 내장 데모 곡/신디사이저 사운드뱅크 지원
-  - [x] 자동 BGM 재생 스케줄러 (타임라인 기반 BGM 트리거링)
-- [x] **소프트버퍼 화면 출력 연동**
-  - [x] `tiny-skia` 픽셀 버퍼 → `softbuffer` 프레임버퍼 다이렉트 전송
-- [x] **앱 입력 단위 테스트 (2개 테스트 통과)**
+## 📋 Phase 3: 인게임 일시정지(Pause) & 실시간 플레이 편의 기능 (`beetle-app`, `beetle-render`)
+- [ ] **인게임 일시정지 모달 (`AppScreen::Gameplay` 오버레이)**
+  - [ ] 플레이 중 `Esc` 입력 시 오디오 일시정지 및 반투명 딤 오버레이
+  - [ ] `Resume`, `Restart (R)`, `Select Song (Esc)` 선택 메뉴
+- [ ] **인게임 실시간 배속 및 레인커버 핫키 조절**
+  - [ ] 플레이 중 `1`/`2` 또는 `PgUp`/`PgDn`으로 배속(Hi-Speed) 즉시 ±0.1 조절
+  - [ ] 서든(Lane Cover) 실시간 높이 슬라이딩 및 시각 가이드
+- [ ] **플레이필드 비주얼 피드백 강화**
+  - [ ] 하드/하저드 게이지 위험 상태(Danger Red Blink) 비주얼 이펙트
+  - [ ] 판정선 네온 글로우 및 풀콤보 유지 시 레인 앰비언트 라이트
 
 ---
 
-## 📋 Phase 5: 곡 라이브러리 & 로컬 스코어 시스템 (Completed)
-- [x] **곡 폴더 스캐너 & 메타데이터 캐시**
-  - [x] 지정된 디렉토리 내 `.bms`/`.bme`/`.bml` 재귀 검색
-  - [x] `SongMetadata` FNV-1a 해싱 및 `songs.cache` 플랫 텍스트 캐시 생성
-- [x] **미니멀 선곡 화면**
-  - [x] 상/하(J/K) 곡 탐색, 상세 메타데이터 및 최고 기록 패널 렌더링
-  - [x] Enter/Space 즉시 플레이 및 F5 재스캔
-- [x] **로컬 플랫 파일 스코어 저장**
-  - [x] `ScoreStore` 및 `scores.dat` 기반 최고 기록, EX-Score, 정확도, 클리어 램프 영구 저장
-- [x] **라이브러리/스코어 단위 테스트 (4개 테스트 통과)**
+## 📋 Phase 4: 결과 화면(Stage Result) 보상 & 통계 시각화 (`beetle-render`, `beetle-core`)
+- [ ] **대형 랭크 엠블럼 (Rank Emblems)**
+  - [ ] MAX, AAA (8/9), AA (7/9), A (6/9), B, C, D, F 글로우 뱃지 디자인
+- [ ] **개인 최고 기록 비교 배지**
+  - [ ] 이전 베스트 대비 EX 점수 증감치(`+32 EX`), 정확도 증감치(`+1.4%`), 콤보 증감치 시각화
+- [ ] **판정 타이밍 오프셋(FAST / SLOW) 정밀 히스토그램**
+  - [ ] 곡 플레이 동안 발생한 밀리초(-50ms ~ +50ms) 판정 분포 막대그래프 렌더링
+- [ ] **스크린샷 캡처 및 클립보드 복사 지원**
 
 ---
 
-## 📋 Phase 6: 최적화 및 v1 릴리스 검증 (Completed)
-- [x] **바이너리 크기 최적화 및 측정**
-  - [x] Release 바이너리 크기: **~659 KB (0.63 MB)** (목표인 수 MB 이하 초과 달성)
-- [x] **단위 테스트 및 품질 검증**
-  - [x] 워크스페이스 28개 단위 테스트 100% 통과 (0 errors, 0 warnings)
-- [x] **오디오/판정 결정론적 클럭 모델 및 락프리 구조 검증**
+## 📋 Phase 5: 인터랙티브 1:1 키 리바인딩 & 오디오 캘리브레이션 (`beetle-app`, `beetle-render`)
+- [ ] **인터랙티브 1:1 키 리바인딩 GUI (`AppScreen::KeyConfig`)**
+  - [ ] 레인 선택 후 임의의 물리 키 입력 즉시 바인딩 (HomeRow/ArcadeZx 외 사용자 정의 완전 지원)
+  - [ ] 중복 키 충돌 경고 및 기본값 복원 기능
+- [ ] **오디오/비주얼 싱크 캘리브레이션 미니 UI**
+  - [ ] 메트로놈 비트 타건을 통해 최적의 `judge_offset_ms` 자동/수동 측정
+- [ ] **볼륨 믹서 슬라이더**
+  - [ ] 마스터 볼륨, BGM 볼륨, 키음 볼륨 개별 조절 및 `config.dat` 자동 영속화
 
 ---
 
-## 📋 Phase 7: 플레이 옵션(Modifiers) & 배속/판정 오프셋 시스템 (Completed)
-- [x] **노트 배치 모디파이어 (Lane Modifiers) 구현 (`beetle-core`)**
-  - [x] `Regular` (기본)
-  - [x] `Mirror` (1~7건반 좌우 대칭 반전)
-  - [x] `Random` (1~7건반 레인 무작위 셔플)
-  - [x] `R-Random` (순환 회전 셔플)
-  - [x] `S-Random` (노트 단위 슈퍼 랜덤)
-- [x] **배속(Hi-Speed) 및 플로팅 스크롤 시스템**
-  - [x] Hi-Speed 픽셀 스크롤 속도 동적 적용
-  - [x] 인게임 실시간 배속 조절 단축키 (F3/F4, PageUp/PageDown) 지원
-- [x] **게이지 모드 확장**
-  - [x] `Easy`, `Groove(Normal)`, `Hard`, `Hazard` (1콤보 이탈 즉시 폭사) 모드 및 전용 게이지 색상/기준선
-- [x] **정밀 판정 오프셋 (Calibration Offset)**
-  - [x] 하드웨어/디스플레이 레이턴시 보정 (F8/F9 조절 지원)
-- [x] **모디파이어 단위 테스트 (2개 테스트 통과, 총 30개 테스트 완료)**
-
----
-
-## 📋 Phase 8: 선곡창 고도화 & 옵션 팝업 모달창 (Completed)
-- [x] **플레이 옵션 모달 UI (`SoftwareRenderer` & `beetle-app`)**
-  - [x] 선곡창에서 `Tab` / `O` 키로 옵션 패널 팝업 오버레이
-  - [x] Hi-Speed, 노트 모디파이어, 게이지, 판정 오프셋, 키 레이아웃 직관적 변경
-- [x] **곡 목록 정렬 (`SortMode`)**
-  - [x] Title / Level / Clear Lamp / Score Rate / BPM 정렬 (`F2` 순환 토글)
-- [x] **정렬 단위 테스트 (1개 테스트 통과, 총 31개 테스트 완료)**
-
----
-
-## 📋 Phase 9: 인게임 UX 디테일 (FAST/SLOW & 레인커버) (Completed)
-- [x] **실시간 FAST / SLOW 밀리초 표시**
-  - [x] 판정선 부근에 `FAST -12ms` / `SLOW +15ms` 실시간 델타 피드백 출력
-- [x] **레인 커버 (Sudden+)**
-  - [x] `F10` / `F11` 키로 상단 가림막 비율 실시간 조절 및 마스킹
-- [x] **페이스메이커 (Target Pacemaker)**
-  - [x] 현재 노트 진행 대비 AAA 목표치와의 실시간 격차 (`PACEMAKER (AAA): +14`) 표시
-
----
-
-## 📋 Phase 10: 인터랙티브 키설정 GUI & `config.dat` 영구화 (Completed)
-- [x] **키 바인딩 GUI 설정 인터페이스 (`AppScreen::KeyConfig`)**
-  - [x] `F12` / `C` 키로 전용 키설정 화면 진입 및 7K + 1S 레인별 키 매핑
-- [x] **설정 파일 (`config.dat`) 영구 입출력**
-  - [x] Hi-Speed, 노트 모디파이어, 게이지, 판정 오프셋, 레인커버, 정렬 모드, 키 프리셋 자동 저장 및 복원
-- [x] **설정 직렬화 단위 테스트 (1개 테스트 통과, 총 32개 테스트 완료)**
-
----
-
-## 📋 Phase 11: OGG Vorbis 키음 디코딩 & 스마트 확장자 매칭 (Completed)
-- [x] **`lewton` 기반 OGG Vorbis 디코더 연동 (`beetle-audio`)**
-  - [x] 순수 Rust 경량 OGG 디코더로 PCM f32 추출
-- [x] **스마트 오디오 파일 로더 (`SampleBank`)**
-  - [x] `#WAVxx file.wav` 정의 시 `.wav`, `.ogg`, `.WAV`, `.OGG` 자동 탐색 및 폴백
-  - [x] 파일 확장자 및 대소문자 무시 검색
-
----
-
-## 📋 Phase 12: 오토플레이(AutoPlay) & 프랙티스/구간 연습 모드 (Completed)
-- [x] **오토플레이 엔진 (`beetle-core` & `beetle-app`)**
-  - [x] 오디오 타임라인 기준 PGREAT 정타이밍 자동 타건 및 키음 재생
-  - [x] 선곡창에서 `A` 키로 오토플레이 토글 및 전용 [AUTO PLAY] 인게임 배너
-- [x] **프랙티스 / 시작 마디 지정 (Practice Mode)**
-  - [x] 특정 마디(Measure)부터 즉시 시작 및 BGM 커서 고속 전진
-- [x] **오토플레이 단위 테스트 (1개 테스트 통과, 총 33개 테스트 완료)**
-
----
-
-## 📋 Phase 13: 리플레이 시스템(Replay) & 고스트 배틀 (Completed)
-- [x] **초경량 리플레이 레코더/파서 (`ReplayData` & `.rep`)**
-  - [x] 타임스탬프 기반 키 다운/업 이벤트 직렬화 및 `replays/` 자동 저장
-- [x] **리플레이 뷰어 모드 (`R` 키)**
-  - [x] 선곡창에서 이전 플레이 리플레이를 100% 동일하게 재생 및 관전
-- [x] **리플레이 직렬화 단위 테스트 (1개 테스트 통과, 총 34개 테스트 완료)**
-
----
-
-## 📋 Phase 14: 미니멀 오디오 스펙트럼 비주얼라이저 (Completed)
-- [x] **실시간 락프리 16밴드 오디오 스냅샷 (`Mixer` & `AudioEngine`)**
-  - [x] 오디오 콜백 스레드에서 무할당/무락(`AtomicU32`)으로 실시간 음압 레벨 추출
-- [x] **2D 실시간 스펙트럼 비주얼라이저 (`SoftwareRenderer`)**
-  - [x] 사이드 BGA 영역에 16밴드 주파수 반응형 그라데이션 이퀄라이저 바 렌더링
-- [x] **단위 테스트 (총 34개 테스트 100% 통과)**
-
----
-
-## 📋 Phase 15: 정적 BGA 및 타이틀 이미지 지원 (`#STAGEFILE` / `#BMP`) (Completed)
-- [x] **순수 Rust 경량 BMP 디코더 구현 (`beetle-render::ImageBuffer`)**
-  - [x] 24-bit / 32-bit BMP 무외부 의존성 파서 및 소프트웨어 텍스처 스케일링 blit
-- [x] **선곡창 STAGEFILE 썸네일 표출**
-  - [x] 선곡 정보 패널 상단에 곡별 아트워크 표출 및 캐싱
-- [x] **인게임 BGA 이미지 액자 렌더링**
-  - [x] BGA 프레임에 곡 대표 이미지 표출 (스펙트럼 비주얼라이저와 통합 배치)
-- [x] **BMP 디코딩 단위 테스트 (1개 테스트 추가, 총 35개 테스트 100% 통과)**
-
----
-
-## 📋 Phase 16: 선곡창 곡 미리듣기 (Preview Audio Loop) (Completed)
-- [x] **선곡창 프리뷰 오디오 루프 시스템 (`beetle-app`)**
-  - [x] 커서 정지 0.25초 후 해당 곡의 프리뷰/BGM 샘플 자동 로드 및 루프 재생
-  - [x] 곡 이동 시 이전 프리뷰 즉시 정지 및 오디오 리소스 전환
-- [x] **안전한 오디오 리소스 전환**
-  - [x] 게임플레이 진입 시 프리뷰 오디오 엔진 안전 종료 후 인게임 사운드뱅크 전환
-
----
-
-## 📋 Phase 17: 인게임 타건 파티클 & 콤보 펄스 애니메이션 (Completed)
-- [x] **판정선 히트 파티클 버스트 시스템 (`HitBurst` in `SoftwareRenderer`)**
-  - [x] 노트 타건 시 8방향 방사형 스파크 및 중심 확장 플레어 파티클 애니메이션
-- [x] **콤보 카운터 탄성 바운스(Scale Pulse)**
-  - [x] 판정 발생 시 콤보 텍스트 탄성 상승 바운스 효과
-- [x] **PGREAT 네온 레인 플래시 효과**
-  - [x] 완벽 판정 시 해당 레인 전체에 은은한 골드/네온 빔 플래시 표출
-
----
-
-## 📋 Phase 18: 5키 / 9키 / 14키(DP) 다중 모드 지원 (Completed)
-- [x] **BMS 채보 모드 감지 (`PlayMode`: 5K, 7K, 9K, 14K)**
-  - [x] `#PLAYER 1/2/3` 및 사용 레인 번호 기반 자동 판별 알고리즘
-- [x] **가변 플레이필드 레이아웃 및 렌더러 분기 (`SkinConfig::set_play_mode`)**
-  - [x] 5키(230px), 7키(300px) 등 모드에 따른 플레이필드 너비 및 활성 레인 분기
-- [x] **다중 모드 단위 테스트 (1개 테스트 추가, 총 36개 테스트 100% 통과)**
-
----
-
-## 📋 Phase 19: `bms-package` 패키지 포맷 및 라이브러리 (`.bmsp`) (Completed)
-- [x] **패키지 포맷 및 Manifest 모델 정의 (`Manifest`)**
-  - [x] `format: 1`, `id`, `version`(SemVer), `name`, `author` 및 forward-compatibility 확장 필드
-- [x] **보안 경로 검증 시스템 (`validate_entry_path`)**
-  - [x] Path traversal(`..`), 절대 경로(`/`, `C:\`), 역슬래시(`\`), 중복 entry, 제어 문자 차단
-- [x] **결정론적 패키지 생성기 (`PackageBuilder`)**
-  - [x] 알파벳순 엔트리 정렬, 정규화된 JSON 직렬화, 고정 에포크 타임스탬프 기반 바이트 단위 결정론 보장
-- [x] **패키지 리더 및 스트리밍 접근 (`Package`)**
-  - [x] ZIP 컨테이너 파싱, 무결성 검증, Decompression size limit(Zip bomb 방어), 메모리/스트리밍 엔트리 읽기
-- [x] **종합 테스트 스위트 (12개 단위 테스트 추가, 총 48개 테스트 100% 통과)**
-
----
-
-## 📋 Phase 20: BMS 폴더 패킹 & 임포트 엔진 (`bms-package-manager`) (Completed)
-- [x] **BMS 폴더 자동 분석 및 패킹 모듈 (`pack_folder` / `analyze_bms_folder`)**
-  - [x] 폴더 내 BMS 파일(`#TITLE`, `#ARTIST`, `#GENRE`) 메타데이터 자동 추출 및 `Manifest` 생성
-  - [x] 폴더 내 모든 에셋(`.bms`, `.wav`, `.ogg`, `.bmp`, `.png` 등)을 `.bmsp`로 묶는 기능
-- [x] **원클릭 폴더 임포트 (`import_folder`)**
-  - [x] 기존 BMS 폴더를 읽어 즉시 패키징 → `packages/` 저장소에 원자적 설치 → `registry.json` 등록
-- [x] **CLI 서브커맨드 구현 (`bpm pack`, `bpm import`)**
-  - [x] `bpm pack <folder> [-o <output.bmsp>]`
-  - [x] `bpm import <folder>`
-- [x] **단위 테스트 작성 및 검증 (6개 단위 테스트 100% 통과)**
-
----
-
-## 📋 Phase 21: 독립형 경량 패키지 매니저 GUI (`bpm-gui`) (Completed)
-- [x] **`crates/bpm-gui` 초경량 소프트웨어 렌더링 데스크톱 UI 구축**
-  - [x] `tiny-skia` + `softbuffer` + `winit` 기반의 800KB대 단일 정적 실행 파일 (`bpm-gui.exe`)
-- [x] **패키지 목록 탐색 및 실시간 검색 필터**
-  - [x] ID, 곡명, 아티스트 실시간 검색 및 키보드(`↑`/`↓`/`K`/`J`) 네비게이션
-- [x] **패키지 상세 메타데이터 & BGA 아트워크 미리보기**
-  - [x] 곡 정보, 패키지 ID, 아티스트, 설치 경로 및 패키지 내 대표 이미지 렌더링
-- [x] **다중 버전 간 활성 버전 전환 (`Activate`) 및 삭제 (`Uninstall`)**
-  - [x] `[A]` 키로 활성 버전 즉시 전환, `[U]` 키로 특정 버전 안전 삭제
-- [x] **로컬 폴더/BMSP 임포트 & 패키지 내보내기 모달 인터페이스**
-  - [x] `[I]` 키로 로컬 BMS 폴더 원클릭 임포트, `[P]` 키로 `.bmsp` 아카이브 패킹
-
----
-
-## 📋 Phase 22: `bpm-gui` 비동기 백그라운드 워커 & 로딩 스피너 UI (Completed)
-- [x] **백그라운드 비동기 작업 큐 및 채널 (`mpsc`) 파이프라인**
-  - [x] 폴더 임포트, 패킹, 패키지 설치를 백그라운드 스레드로 분리하여 UI 프리징 완전 제거
-- [x] **실시간 로딩 스피너 및 프로그레스 렌더링**
-  - [x] 대용량 패키지 처리 중 60 FPS 유지 및 실시간 진행 상태 애니메이션 표출
-- [x] **작업 완료/실패 알림 및 자동 레지스트리 갱신**
-
----
-
-## 📋 Phase 23: `beetle-app` 인게임 로딩 화면 (`AppScreen::Loading`) & 비동기 사운드뱅크 적재 (Completed)
-- [x] **`AppScreen::Loading` 전용 로딩 화면 구현**
-  - [x] 선곡 후 즉시 로딩 화면으로 전환 (곡명, 아티스트, BGA 아트워크, 실시간 펄스 바 & 로딩 인디케이터)
-- [x] **백그라운드 키음 디코딩 & 오디오 엔진 준비 파이프라인**
-  - [x] UI 스레드 블로킹 없이 수백 개 WAV/OGG 키음 사전 적재 완료 후 `Gameplay`로 부드럽게 전환
-  - [x] 로딩 중 `[Esc]` 키로 선곡 화면 안전 취소 복귀 지원
-
-
-
+## 📋 Phase 6: 마일스톤 2 통합 검증 및 바이너리/성능 프로파일링
+- [ ] **바이너리 크기 최적화 재측정**
+  - [ ] 모든 실행 파일(`beetle-app.exe`, `bpm-gui.exe`, `bpm.exe`) 개별 < 1 MB 유지 검증
+- [ ] **렌더링 & 오디오 락프리 불변식 검증**
+  - [ ] 60+ FPS 소프트웨어 렌더링 및 오디오 스레드 무할당/무락 유지 확인
+- [ ] **전체 워크스페이스 단위 테스트 100% 통과 검증**
