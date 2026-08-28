@@ -129,7 +129,7 @@ pub fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
                 let content = String::from_utf8_lossy(&bms_bytes);
                 if let Ok(chart) = parse_bms(&content) {
-                    for filename in chart.header.wav_table.values() {
+                    for filename in chart.header.wav_table.values().take(10) {
                         if let Some(path) = pkg.find_entry_path(&base_dir, filename) {
                             if let Ok(audio_bytes) = pkg.read_entry(&path) {
                                 if let Ok(pcm) = SampleBank::load_audio_from_bytes(&audio_bytes) {
@@ -166,7 +166,7 @@ pub fn load_preview_sample(song: &SongMetadata) -> Option<PcmBuffer> {
     if let Ok(bytes) = fs::read(song_path) {
         let content = String::from_utf8_lossy(&bytes);
         if let Ok(chart) = parse_bms(&content) {
-            for filename in chart.header.wav_table.values() {
+            for filename in chart.header.wav_table.values().take(10) {
                 let p = dir.join(filename);
                 if let Ok(pcm) = SampleBank::load_audio_file(&p) {
                     if pcm.duration_seconds() > 0.4 {

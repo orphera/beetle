@@ -42,6 +42,20 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
     songs
 }
 
+/// Force rescans target directory and packages, invalidating and overwriting `songs.cache`.
+pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
+    let dir_path = dir.as_ref();
+    let songs = scan_directory(dir_path);
+    if !songs.is_empty() {
+        let cache_data = serialize_song_cache(&songs);
+        let _ = fs::write(SONGS_CACHE_FILE, &cache_data);
+        if dir_path.exists() && dir_path.is_dir() {
+            let _ = fs::write(dir_path.join(SONGS_CACHE_FILE), &cache_data);
+        }
+    }
+    songs
+}
+
 /// Recursively scans target directory and packages directory for `.bms`, `.bme`, and `.bml` files.
 pub fn scan_directory<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
     let mut songs = Vec::new();

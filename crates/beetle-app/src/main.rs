@@ -187,7 +187,7 @@ impl ApplicationHandler for BeetleApp {
         self.state = Some(app_state);
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let Some(state) = &mut self.state else {
             return;
         };
@@ -219,29 +219,25 @@ impl ApplicationHandler for BeetleApp {
                     state.loading_anim_time = now;
                     state.window.request_redraw();
                 }
-                event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(16)));
+                std::thread::sleep(Duration::from_millis(16));
             }
             AppScreen::Gameplay => {
                 let elapsed = now.duration_since(state.last_render_time);
                 let target = Duration::from_millis(4);
-                if elapsed >= target {
-                    state.last_render_time = now;
-                    state.window.request_redraw();
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(now + target));
-                } else {
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(state.last_render_time + target));
+                if elapsed < target {
+                    std::thread::sleep(target - elapsed);
                 }
+                state.last_render_time = Instant::now();
+                state.window.request_redraw();
             }
             _ => {
                 let elapsed = now.duration_since(state.last_render_time);
                 let target = Duration::from_millis(16);
-                if elapsed >= target {
-                    state.last_render_time = now;
-                    state.window.request_redraw();
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(now + target));
-                } else {
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(state.last_render_time + target));
+                if elapsed < target {
+                    std::thread::sleep(target - elapsed);
                 }
+                state.last_render_time = Instant::now();
+                state.window.request_redraw();
             }
         }
     }
@@ -330,10 +326,8 @@ impl ApplicationHandler for BeetleApp {
                     AppScreen::SongSelect => {
                         let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
                         if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
-                            if state.preview_timer.elapsed() >= Duration::from_millis(50) {
-                                let img = state.current_selected_song().and_then(load_stage_image);
-                                state.stage_image_cache.insert(selected_hash, img);
-                            }
+                            let img = state.current_selected_song().and_then(load_stage_image);
+                            state.stage_image_cache.insert(selected_hash, img);
                         }
 
                         // Preview audio management (debounced 400ms to prevent lag while scrolling)

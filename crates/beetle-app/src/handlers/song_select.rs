@@ -6,7 +6,7 @@ use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
 use crate::handlers::options::handle_option_modal_input;
-use crate::state::{init_songs_and_scores, AppScreen, AppState, REPLAYS_DIR};
+use crate::state::{AppScreen, AppState, REPLAYS_DIR};
 
 /// Handles keyboard input for the Song Select screen.
 pub fn handle_song_select_input(
@@ -122,9 +122,8 @@ pub fn handle_song_select_input(
             }
         }
         KeyCode::F5 => {
-            let (mut songs, _) = init_songs_and_scores(state.sort_mode);
-            sort_songs(&mut songs, state.sort_mode, &state.score_store);
-            state.songs = songs;
+            state.stage_image_cache.clear();
+            state.songs = crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
             state.recompute_filtered_songs();
         }
         _ => {

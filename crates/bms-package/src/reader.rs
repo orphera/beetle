@@ -231,12 +231,16 @@ impl PackageReader {
 
     /// Resolves an entry path within the package given a base directory and relative name.
     /// Handles backslashes, case-insensitivity, and alternate audio extensions (.wav <-> .ogg).
+    /// Scopes searches strictly to `base_dir` to prevent cross-song asset leakage in multi-song packages.
     pub fn find_entry_path(&self, base_dir: &str, relative_name: &str) -> Option<String> {
         let normalized_name = relative_name.replace('\\', "/");
-        let combined = if base_dir.is_empty() || base_dir == "." {
-            normalized_name.clone()
+        let base_trimmed = base_dir.trim_matches('/').trim_matches('\\');
+        let has_base = !base_trimmed.is_empty() && base_trimmed != ".";
+
+        let combined = if has_base {
+            format!("{}/{}", base_trimmed, normalized_name.trim_start_matches('/'))
         } else {
-            format!("{}/{}", base_dir.trim_end_matches('/'), normalized_name)
+            normalized_name.clone()
         };
 
         // 1. Exact match with combined path
@@ -244,45 +248,79 @@ impl PackageReader {
             return Some(combined);
         }
 
-        // 2. Exact match with raw relative_name
-        if self.contains(&normalized_name) {
-            return Some(normalized_name);
-        }
-
-        // 3. Case-insensitive match with combined
+        // 2. Case-insensitive match with combined
         let combined_lower = combined.to_lowercase();
         if let Some(entry) = self.entries.iter().find(|e| e.path.to_lowercase() == combined_lower) {
             return Some(entry.path.clone());
         }
 
-        // 4. Case-insensitive match with relative_name
-        let rel_lower = normalized_name.to_lowercase();
-        if let Some(entry) = self.entries.iter().find(|e| e.path.to_lowercase() == rel_lower) {
-            return Some(entry.path.clone());
-        }
-
-        // 5. Basename fallback (if filename alone matches anywhere inside archive)
         let filename_only = normalized_name.rsplit('/').next().unwrap_or(&normalized_name).to_lowercase();
-        if let Some(entry) = self.entries.iter().find(|e| {
-            let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
-            e_file == filename_only
-        }) {
-            return Some(entry.path.clone());
-        }
 
-        // 6. Alternate audio extensions (.wav <-> .ogg)
-        let stem = match filename_only.rfind('.') {
-            Some(pos) => &filename_only[..pos],
-            None => &filename_only,
-        };
+        // 3. Basename match strictly within base_dir (or anywhere if no base_dir)
+        if has_base {
+            let base_lower = base_trimmed.to_lowercase();
+            let base_prefix = format!("{}/", base_lower);
 
-        for ext in &["wav", "ogg", "WAV", "OGG"] {
-            let alt_target = format!("{}.{}", stem, ext).to_lowercase();
             if let Some(entry) = self.entries.iter().find(|e| {
-                let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
-                e_file == alt_target
+                let e_lower = e.path.to_lowercase();
+                if e_lower.starts_with(&base_prefix) {
+                    let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
+                    e_file == filename_only
+                } else {
+                    false
+                }
             }) {
                 return Some(entry.path.clone());
+            }
+
+            // 4. Alternate audio extensions within base_dir
+            let stem = match filename_only.rfind('.') {
+                Some(pos) => &filename_only[..pos],
+                None => &filename_only,
+            };
+
+            for ext in &["wav", "ogg", "flac"] {
+                let alt_target = format!("{}.{}", stem, ext).to_lowercase();
+                if let Some(entry) = self.entries.iter().find(|e| {
+                    let e_lower = e.path.to_lowercase();
+                    if e_lower.starts_with(&base_prefix) {
+                        let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
+                        e_file == alt_target
+                    } else {
+                        false
+                    }
+                }) {
+                    return Some(entry.path.clone());
+                }
+            }
+        } else {
+            // No base_dir: match anywhere or at root
+            if self.contains(&normalized_name) {
+                return Some(normalized_name);
+            }
+            let rel_lower = normalized_name.to_lowercase();
+            if let Some(entry) = self.entries.iter().find(|e| e.path.to_lowercase() == rel_lower) {
+                return Some(entry.path.clone());
+            }
+            if let Some(entry) = self.entries.iter().find(|e| {
+                let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
+                e_file == filename_only
+            }) {
+                return Some(entry.path.clone());
+            }
+
+            let stem = match filename_only.rfind('.') {
+                Some(pos) => &filename_only[..pos],
+                None => &filename_only,
+            };
+            for ext in &["wav", "ogg", "flac"] {
+                let alt_target = format!("{}.{}", stem, ext).to_lowercase();
+                if let Some(entry) = self.entries.iter().find(|e| {
+                    let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
+                    e_file == alt_target
+                }) {
+                    return Some(entry.path.clone());
+                }
             }
         }
 

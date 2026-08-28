@@ -285,3 +285,29 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
 
     (songs, score_store)
 }
+
+pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) -> Vec<SongMetadata> {
+    let mut songs = crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR);
+
+    let demo_chart = demo::create_demo_chart();
+    let demo_meta = SongMetadata {
+        hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
+        file_path: ":demo:".to_string(),
+        title: demo_chart.header.title,
+        subtitle: demo_chart.header.subtitle,
+        artist: demo_chart.header.artist,
+        genre: demo_chart.header.genre,
+        bpm: demo_chart.header.bpm,
+        play_level: demo_chart.header.play_level,
+        notes_count: demo_chart.notes.len(),
+        play_mode: beetle_core::PlayMode::Keys7,
+    };
+
+    if !songs.iter().any(|s| s.file_path == ":demo:") {
+        songs.insert(0, demo_meta);
+    }
+
+    sort_songs(&mut songs, sort_mode, score_store);
+
+    songs
+}
