@@ -213,6 +213,93 @@ impl AppState {
             .filter_map(|&idx| self.songs.get(idx).cloned())
             .collect()
     }
+
+    /// Advances BGM notes and BGA timeline events up to `audio_time`.
+    pub fn advance_gameplay_timelines(&mut self, audio_time: f64) {
+        let (Some(chart), Some(timing)) = (&self.active_chart, &self.active_timing) else {
+            return;
+        };
+
+        // 1. Advance BGM notes
+        while self.bgm_cursor < chart.bgm_notes.len() {
+            let (m, f, wav_id) = chart.bgm_notes[self.bgm_cursor];
+            let target_t = timing.beat_to_time_seconds(m, f);
+            if audio_time >= target_t {
+                if let Some(audio) = &mut self.audio_engine {
+                    let _ = audio.send_command(beetle_audio::AudioCommand::PlaySample {
+                        sample_id: wav_id,
+                        volume: 1.0,
+                        pan: 0.0,
+                    });
+                }
+                self.bgm_cursor += 1;
+            } else {
+                break;
+            }
+        }
+
+        // 2. Advance BGA timeline events
+        while self.bga_cursor < chart.bga_events.len() {
+            let ev = &chart.bga_events[self.bga_cursor];
+            let target_t = timing.beat_to_time_seconds(ev.measure, ev.fraction);
+            if audio_time >= target_t {
+                match ev.channel {
+                    beetle_core::BgaChannel::Base => {
+                        self.current_bga_bmp = Some(ev.bmp_id);
+                    }
+                    beetle_core::BgaChannel::Poor => {
+                        self.poor_bga_bmp = Some(ev.bmp_id);
+                    }
+                    beetle_core::BgaChannel::Layer => {
+                        self.current_layer_bmp = Some(ev.bmp_id);
+                    }
+                }
+                self.bga_cursor += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Advances video playback if a video BGA is active.
+    pub fn update_video_bga(&mut self, audio_time: f64) {
+        if let Some(video_player) = &mut self.active_video_player {
+            let _ = video_player.update(audio_time);
+        }
+    }
+}
+
+/// Pure helper to resolve active BGA frame hierarchy without window or surface dependencies.
+pub fn resolve_bga_hierarchy<'a>(
+    poor_until_time: f64,
+    poor_bga_bmp: Option<beetle_core::BmpId>,
+    video_player: Option<&'a beetle_render::BgaVideoPlayer>,
+    current_bga_bmp: Option<beetle_core::BmpId>,
+    bga_bank: &'a std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
+    active_bga_image: Option<&'a ImageBuffer>,
+    audio_time: f64,
+) -> Option<&'a ImageBuffer> {
+    if audio_time < poor_until_time {
+        if let Some(id) = poor_bga_bmp {
+            if let Some(img) = bga_bank.get(&id) {
+                return Some(img);
+            }
+        }
+    }
+
+    if let Some(vp) = video_player {
+        if let Some(frame) = vp.current_frame() {
+            return Some(frame);
+        }
+    }
+
+    if let Some(id) = current_bga_bmp {
+        if let Some(img) = bga_bank.get(&id) {
+            return Some(img);
+        }
+    }
+
+    active_bga_image
 }
 
 pub fn filter_song_indices(

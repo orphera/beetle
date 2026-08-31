@@ -12,6 +12,13 @@ use crate::demo;
 
 pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
+const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
+    "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
+    "stagefile.png", "stage.png", "banner.png", "title.png",
+    "stagefile.jpg", "stage.jpg", "banner.jpg", "title.jpg",
+    "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
+];
+
 fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option<ImageBuffer> {
     let direct = dir.join(filename);
     if let Some(img) = ImageBuffer::load_from_file(&direct) {
@@ -156,12 +163,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 }
             }
 
-            for name in &[
-                "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
-                "stagefile.png", "stage.png", "banner.png", "title.png",
-                "stagefile.jpg", "stage.jpg", "banner.jpg", "title.jpg",
-                "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
-            ] {
+            for name in ARTWORK_CANDIDATE_FILENAMES {
                 if let Some(path) = pkg.find_entry_path(&base_dir, name) {
                     if let Ok(img_bytes) = pkg.read_entry(&path) {
                         if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
@@ -197,12 +199,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     }
 
     // Fallback file scanning for common artwork names
-    for name in &[
-        "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
-        "stagefile.png", "stage.png", "banner.png", "title.png",
-        "stagefile.jpg", "stage.jpg", "banner.jpg", "title.jpg",
-        "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
-    ] {
+    for name in ARTWORK_CANDIDATE_FILENAMES {
         let p = dir.join(name);
         if let Some(img) = ImageBuffer::load_from_file(&p) {
             if let Ok(data) = fs::read(&p) {

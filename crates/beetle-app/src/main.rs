@@ -479,54 +479,10 @@ impl ApplicationHandler for BeetleApp {
                         let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
 
                         if !state.is_gameplay_paused {
-                            // 1. BGM schedule
-                            if let (Some(audio), Some(chart), Some(timing)) =
-                                (&mut state.audio_engine, &state.active_chart, &state.active_timing)
-                            {
-                                while state.bgm_cursor < chart.bgm_notes.len() {
-                                    let (m, f, wav_id) = chart.bgm_notes[state.bgm_cursor];
-                                    let target_t = timing.beat_to_time_seconds(m, f);
+                            // 1. Advance BGM notes and BGA timeline events
+                            state.advance_gameplay_timelines(audio_time);
 
-                                    if audio_time >= target_t {
-                                        let _ = audio.send_command(AudioCommand::PlaySample {
-                                            sample_id: wav_id,
-                                            volume: 1.0,
-                                            pan: 0.0,
-                                        });
-                                        state.bgm_cursor += 1;
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // 2. BGA schedule
-                            if let (Some(chart), Some(timing)) =
-                                (&state.active_chart, &state.active_timing)
-                            {
-                                while state.bga_cursor < chart.bga_events.len() {
-                                    let ev = &chart.bga_events[state.bga_cursor];
-                                    let target_t = timing.beat_to_time_seconds(ev.measure, ev.fraction);
-                                    if audio_time >= target_t {
-                                        match ev.channel {
-                                            beetle_core::BgaChannel::Base => {
-                                                state.current_bga_bmp = Some(ev.bmp_id);
-                                            }
-                                            beetle_core::BgaChannel::Poor => {
-                                                state.poor_bga_bmp = Some(ev.bmp_id);
-                                            }
-                                            beetle_core::BgaChannel::Layer => {
-                                                state.current_layer_bmp = Some(ev.bmp_id);
-                                            }
-                                        }
-                                        state.bga_cursor += 1;
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // 3. Replay Playback driver or Auto-play driver or Manual update misses
+                            // 2. Replay Playback driver, Auto-play driver, or Manual update misses
                             if state.is_replay_playback {
                                 if let Some(replay) = &state.playback_replay {
                                     while state.playback_cursor < replay.events.len() {
@@ -598,23 +554,16 @@ impl ApplicationHandler for BeetleApp {
                             audio.get_visual_levels(&mut visual_levels);
                         }
 
-                        let video_frame = if let Some(video_player) = &mut state.active_video_player {
-                            video_player.update(audio_time)
-                        } else {
-                            None
-                        };
-
-                        let active_bga = if audio_time < state.poor_until_time {
-                            state.poor_bga_bmp
-                                .and_then(|id| state.bga_bank.get(&id))
-                                .or(video_frame)
-                                .or_else(|| state.current_bga_bmp.and_then(|id| state.bga_bank.get(&id)))
-                                .or(state.active_bga_image.as_ref())
-                        } else {
-                            video_frame
-                                .or_else(|| state.current_bga_bmp.and_then(|id| state.bga_bank.get(&id)))
-                                .or(state.active_bga_image.as_ref())
-                        };
+                        state.update_video_bga(audio_time);
+                        let active_bga = state::resolve_bga_hierarchy(
+                            state.poor_until_time,
+                            state.poor_bga_bmp,
+                            state.active_video_player.as_ref(),
+                            state.current_bga_bmp,
+                            &state.bga_bank,
+                            state.active_bga_image.as_ref(),
+                            audio_time,
+                        );
 
                         // Render gameplay frame
                         if let (Some(chart), Some(judge)) =
@@ -876,5 +825,36 @@ mod tests {
         // 5. Non-matching search query
         let empty_indices = filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
         assert_eq!(empty_indices.len(), 0);
+    }
+
+    #[test]
+    fn test_resolve_active_bga_hierarchy() {
+        use beetle_render::{ColorRgba, ImageBuffer};
+        use state::resolve_bga_hierarchy;
+        use std::collections::HashMap;
+
+        let static_stage = ImageBuffer::new(320, 180, ColorRgba::new(10, 10, 10, 255));
+        let bmp_base = ImageBuffer::new(320, 180, ColorRgba::new(50, 50, 50, 255));
+        let bmp_poor = ImageBuffer::new(320, 180, ColorRgba::new(255, 0, 0, 255));
+
+        let mut bga_bank = HashMap::new();
+        bga_bank.insert(beetle_core::BmpId(1), bmp_base);
+        bga_bank.insert(beetle_core::BmpId(2), bmp_poor);
+
+        // 1. Initial state: Static stage artwork fallback
+        let bga = resolve_bga_hierarchy(0.0, None, None, None, &bga_bank, Some(&static_stage), 1.0).unwrap();
+        assert_eq!(bga.pixels[0], ColorRgba::new(10, 10, 10, 255));
+
+        // 2. Base BGA channel active
+        let bga = resolve_bga_hierarchy(0.0, None, None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 2.0).unwrap();
+        assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
+
+        // 3. POOR BGA override active during miss penalty window
+        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 2.5).unwrap();
+        assert_eq!(bga.pixels[0], ColorRgba::new(255, 0, 0, 255));
+
+        // 4. After POOR window expires (t = 3.5), reverts back to Base BGA
+        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 3.5).unwrap();
+        assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
     }
 }
