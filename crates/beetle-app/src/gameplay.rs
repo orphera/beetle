@@ -166,6 +166,7 @@ pub fn finish_gameplay(state: &mut AppState) {
         }
     }
 
+    state.active_video_player = None;
     state.screen = AppScreen::Result;
     state.window.request_redraw();
 }

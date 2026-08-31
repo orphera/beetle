@@ -25,6 +25,7 @@ pub fn handle_gameplay_input(
                 if state.is_auto_play || state.is_replay_playback {
                     state.screen = AppScreen::SongSelect;
                     state.audio_engine = None;
+                    state.active_video_player = None;
                 } else {
                     state.is_gameplay_paused = true;
                     state.pause_selected_option = 0;
@@ -158,6 +159,7 @@ pub fn handle_pause_modal_input(state: &mut AppState, code: KeyCode) {
                     // Quit to Song Select
                     state.is_gameplay_paused = false;
                     state.audio_engine = None;
+                    state.active_video_player = None;
                     state.screen = AppScreen::SongSelect;
                 }
                 _ => (),

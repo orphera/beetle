@@ -239,6 +239,8 @@ mod wmf_backend {
                 let mut media_type_ptr: *mut c_void = ptr::null_mut();
                 if MFCreateMediaType(&mut media_type_ptr) < 0 || media_type_ptr.is_null() {
                     let _ = ((*reader_vtbl).parent.Release)(reader_ptr);
+                    let _ = MFShutdown();
+                    CoUninitialize();
                     return None;
                 }
 
@@ -256,6 +258,8 @@ mod wmf_backend {
 
                 if hr < 0 {
                     let _ = ((*reader_vtbl).parent.Release)(reader_ptr);
+                    let _ = MFShutdown();
+                    CoUninitialize();
                     return None;
                 }
 
@@ -367,16 +371,24 @@ mod wmf_backend {
                     if ((*buf_vtbl).Lock)(buffer_ptr, &mut data_ptr, &mut max_len, &mut cur_len) >= 0
                         && !data_ptr.is_null()
                     {
-                        let expected_len = (self.width * self.height * 4) as usize;
                         let available = cur_len as usize;
+                        let row_bytes = (self.width * 4) as usize;
+                        let stride = if self.height > 0 { available / self.height as usize } else { row_bytes };
 
-                        if available >= expected_len {
-                            let src_slice = std::slice::from_raw_parts(data_ptr, expected_len);
-                            // Convert BGRA / BGRX to RGBA
-                            for (i, chunk) in src_slice.chunks_exact(4).enumerate() {
-                                if i < self.frame_buffer.pixels.len() {
-                                    self.frame_buffer.pixels[i] =
-                                        ColorRgba::new(chunk[2], chunk[1], chunk[0], 255);
+                        if stride >= row_bytes && available >= row_bytes * self.height as usize {
+                            let src_slice = std::slice::from_raw_parts(data_ptr, available);
+                            for row in 0..self.height as usize {
+                                let row_start = row * stride;
+                                if row_start + row_bytes <= available {
+                                    let row_slice = &src_slice[row_start..row_start + row_bytes];
+                                    let dest_row_start = row * self.width as usize;
+                                    for (col, chunk) in row_slice.chunks_exact(4).enumerate() {
+                                        let idx = dest_row_start + col;
+                                        if idx < self.frame_buffer.pixels.len() {
+                                            self.frame_buffer.pixels[idx] =
+                                                ColorRgba::new(chunk[2], chunk[1], chunk[0], 255);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -393,19 +405,21 @@ mod wmf_backend {
         }
 
         pub fn update(&mut self, audio_time_seconds: f64) -> Option<&ImageBuffer> {
-            // Seek if timing drifted or rewound (e.g. practice mode)
-            if self.current_time_seconds > 0.0
-                && (audio_time_seconds < self.current_time_seconds - 1.0
-                    || audio_time_seconds > self.current_time_seconds + 3.0)
+            // Instant seek if timing drifted, rewound, or started far ahead (e.g. practice mode fast forward)
+            if audio_time_seconds < self.current_time_seconds - 0.5
+                || (self.current_time_seconds >= 0.0 && audio_time_seconds > self.current_time_seconds + 1.0)
+                || (self.current_time_seconds < 0.0 && audio_time_seconds > 1.0)
             {
                 self.seek(audio_time_seconds);
             }
 
-            // Catch up to current audio time
-            while !self.is_eof && self.current_time_seconds < audio_time_seconds {
+            // Catch up to current audio time without blocking UI (limit catch-up to max 5 frames per render frame)
+            let mut frames_read = 0;
+            while !self.is_eof && self.current_time_seconds < audio_time_seconds && frames_read < 5 {
                 if !self.read_next_frame() {
                     break;
                 }
+                frames_read += 1;
             }
 
             Some(&self.frame_buffer)
