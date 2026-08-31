@@ -31,15 +31,15 @@
 ---
 
 ## 📋 Phase 2: Windows 네이티브 Direct3D 11 백엔드 구현 (`crates/beetle-render/src/backend/d3d11/`)
-- [ ] **Zero-Crate OS 네이티브 Direct3D 11 / DXGI COM 바인딩**
-  - [ ] 외부 무거운 크레이트(`wgpu`, `ash` 등) 없이 Windows 표준 시스템 DLL(`d3d11.dll`, `dxgi.dll`) 직접 연동
-  - [ ] `D3D11CreateDeviceAndSwapChain` 저지연 플립 스왑체인(`DXGI_SWAP_EFFECT_FLIP_DISCARD`) 초기화
-- [ ] **사전 컴파일 셰이더 바이트코드 임베딩**
-  - [ ] 런타임 셰이더 컴파일러(`D3DCompile`) 배제 및 사전 컴파일된 미니멀 2D CSO 바이트코드 바이너리 임베딩
-  - [ ] 알파 블렌딩 및 가산 블렌딩용 `ID3D11BlendState` 구성
-  - [ ] 텍스처 샘플러(`ID3D11SamplerState`) 바이리니어 및 포인트 필터링 지원
-- [ ] **GPU 디바이스 소실(Device Lost / Reset) 자동 복구**
-  - [ ] `DXGI_ERROR_DEVICE_RESET` / `DEVICE_REMOVED` 감지 시 자원 자동 재성성 또는 `SoftBackend`로 투명한 전환
+- [x] **Zero-Crate OS 네이티브 Direct3D 11 / DXGI COM 바인딩**
+  - [x] 외부 무거운 크레이트(`wgpu`, `ash` 등) 없이 Windows 표준 시스템 DLL(`d3d11.dll`, `dxgi.dll`) 직접 연동
+  - [x] `D3D11CreateDeviceAndSwapChain` 저지연 플립 스왑체인(`DXGI_SWAP_EFFECT_FLIP_DISCARD`) 초기화
+- [x] **사전 컴파일 셰이더 바이트코드 임베딩**
+  - [x] 런타임 셰이더 컴파일러(`D3DCompile`) 배제 및 사전 컴파일된 미니멀 2D CSO 바이트코드 바이너리 임베딩
+  - [x] 알파 블렌딩 및 가산 블렌딩용 `ID3D11BlendState` 구성
+  - [x] 텍스처 샘플러(`ID3D11SamplerState`) 바이리니어 및 포인트 필터링 지원
+- [x] **GPU 디바이스 소실(Device Lost / Reset) 자동 복구**
+  - [x] `DXGI_ERROR_DEVICE_RESET` / `DEVICE_REMOVED` 감지 시 자원 자동 재성성 또는 `SoftBackend`로 투명한 전환
 
 ---
 

@@ -1,7 +1,11 @@
 pub mod batcher;
+#[cfg(target_os = "windows")]
+pub mod d3d11;
 pub mod soft;
 
 pub use batcher::SpriteBatcher;
+#[cfg(target_os = "windows")]
+pub use d3d11::D3d11Backend;
 pub use soft::SoftBackend;
 
 /// Unique identifier for an uploaded GPU / HAL texture.
