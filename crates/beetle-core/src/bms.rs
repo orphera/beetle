@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 /// BMS `#WAVxx` sound identifier (Base36).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct WavId(pub u16);
 
 impl WavId {
@@ -15,7 +15,7 @@ impl WavId {
 }
 
 /// BMS `#BMPxx` picture/bga identifier (Base36).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct BmpId(pub u16);
 
 /// BMS play mode category.
@@ -73,6 +73,38 @@ pub struct NoteEvent {
     pub note_type: NoteType,
 }
 
+/// BGA event channel kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BgaChannel {
+    /// 04: Base background animation frame.
+    Base,
+    /// 06: Poor animation overlay frame shown on miss/poor.
+    Poor,
+    /// 07: Layer animation overlay frame.
+    Layer,
+}
+
+/// A parsed BGA event placed on the timeline.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BgaEvent {
+    pub measure: u32,
+    pub fraction: f64,
+    pub channel: BgaChannel,
+    pub bmp_id: BmpId,
+}
+
+/// BGA slice and coordinate definition from `#BGAxx`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BgaDefinition {
+    pub bmp_id: BmpId,
+    pub sx: i32,
+    pub sy: i32,
+    pub w: u32,
+    pub h: u32,
+    pub dx: i32,
+    pub dy: i32,
+}
+
 /// Header metadata extracted from BMS command lines.
 #[derive(Debug, Clone)]
 pub struct BmsHeader {
@@ -92,6 +124,7 @@ pub struct BmsHeader {
     pub ln_obj: Option<WavId>,
     pub wav_table: HashMap<WavId, String>,
     pub bmp_table: HashMap<BmpId, String>,
+    pub bga_table: HashMap<BmpId, BgaDefinition>,
     pub bpm_table: HashMap<WavId, f64>,
     pub stop_table: HashMap<WavId, f64>,
 }
@@ -115,6 +148,7 @@ impl Default for BmsHeader {
             ln_obj: None,
             wav_table: HashMap::new(),
             bmp_table: HashMap::new(),
+            bga_table: HashMap::new(),
             bpm_table: HashMap::new(),
             stop_table: HashMap::new(),
         }
@@ -144,6 +178,7 @@ pub struct BmsChart {
     pub header: BmsHeader,
     pub notes: Vec<NoteEvent>,
     pub bgm_notes: Vec<(u32, f64, WavId)>,
+    pub bga_events: Vec<BgaEvent>,
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
 }
@@ -288,6 +323,12 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
             .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
     });
 
+    chart.bga_events.sort_by(|a, b| {
+        a.measure
+            .cmp(&b.measure)
+            .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
     chart.timing_events.sort_by(|a, b| {
         a.measure
             .cmp(&b.measure)
@@ -359,6 +400,41 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
             let b = id_str.as_bytes();
             if let Some(id) = decode_base36(b[0], b[1]) {
                 header.bmp_table.insert(BmpId(id.0), val.to_string());
+            }
+        }
+    } else if key.len() >= 4 && key[..3].eq_ignore_ascii_case("BGA") {
+        let id_str = &key[3..];
+        if id_str.len() == 2 {
+            let b = id_str.as_bytes();
+            if let Some(id) = decode_base36(b[0], b[1]) {
+                // Form: #BGAxx bmp_id sx sy w h dx dy
+                let tokens: Vec<&str> = val.split_whitespace().collect();
+                if tokens.len() >= 7 {
+                    let bmp_id_bytes = tokens[0].as_bytes();
+                    let bmp_id = if bmp_id_bytes.len() >= 2 {
+                        decode_base36(bmp_id_bytes[0], bmp_id_bytes[1]).map(|w| BmpId(w.0)).unwrap_or(BmpId(id.0))
+                    } else {
+                        BmpId(id.0)
+                    };
+                    let sx = tokens[1].parse::<i32>().unwrap_or(0);
+                    let sy = tokens[2].parse::<i32>().unwrap_or(0);
+                    let w = tokens[3].parse::<u32>().unwrap_or(0);
+                    let h = tokens[4].parse::<u32>().unwrap_or(0);
+                    let dx = tokens[5].parse::<i32>().unwrap_or(0);
+                    let dy = tokens[6].parse::<i32>().unwrap_or(0);
+                    header.bga_table.insert(
+                        BmpId(id.0),
+                        BgaDefinition {
+                            bmp_id,
+                            sx,
+                            sy,
+                            w,
+                            h,
+                            dx,
+                            dy,
+                        },
+                    );
+                }
             }
         }
     } else if key.len() >= 4 && key[..3].eq_ignore_ascii_case("BPM") {
@@ -443,6 +519,39 @@ fn parse_measure_line(
                             kind: TimingEventKind::BpmChange(bpm_hex as f64),
                         });
                     }
+                }
+            }
+            // 04: BGA Base Channel
+            "04" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.bga_events.push(BgaEvent {
+                        measure,
+                        fraction,
+                        channel: BgaChannel::Base,
+                        bmp_id: BmpId(wav_id.0),
+                    });
+                }
+            }
+            // 06: BGA Poor Channel
+            "06" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.bga_events.push(BgaEvent {
+                        measure,
+                        fraction,
+                        channel: BgaChannel::Poor,
+                        bmp_id: BmpId(wav_id.0),
+                    });
+                }
+            }
+            // 07: BGA Layer Channel
+            "07" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.bga_events.push(BgaEvent {
+                        measure,
+                        fraction,
+                        channel: BgaChannel::Layer,
+                        bmp_id: BmpId(wav_id.0),
+                    });
                 }
             }
             // 08: Extended BPM change via #BPMxx
@@ -738,5 +847,49 @@ mod tests {
 "#;
         let chart_14k = parse_bms(bms_14k).unwrap();
         assert_eq!(chart_14k.detect_play_mode(), PlayMode::Keys14);
+    }
+
+    #[test]
+    fn test_parse_bga_events_and_definitions() {
+        let bms = r#"
+#BMP01 bg.bmp
+#BMP02 miss.bmp
+#BMP03 overlay.bmp
+#BGA04 01 0 0 256 256 0 0
+#00104:01000000
+#00106:02000000
+#00107:03000000
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse BGA");
+        assert_eq!(chart.header.bmp_table.len(), 3);
+        assert_eq!(chart.header.bmp_table.get(&BmpId(1)), Some(&"bg.bmp".to_string()));
+        assert_eq!(chart.header.bga_table.get(&BmpId(4)), Some(&BgaDefinition {
+            bmp_id: BmpId(1),
+            sx: 0,
+            sy: 0,
+            w: 256,
+            h: 256,
+            dx: 0,
+            dy: 0,
+        }));
+        assert_eq!(chart.bga_events.len(), 3);
+        assert_eq!(chart.bga_events[0], BgaEvent {
+            measure: 1,
+            fraction: 0.0,
+            channel: BgaChannel::Base,
+            bmp_id: BmpId(1),
+        });
+        assert_eq!(chart.bga_events[1], BgaEvent {
+            measure: 1,
+            fraction: 0.0,
+            channel: BgaChannel::Poor,
+            bmp_id: BmpId(2),
+        });
+        assert_eq!(chart.bga_events[2], BgaEvent {
+            measure: 1,
+            fraction: 0.0,
+            channel: BgaChannel::Layer,
+            bmp_id: BmpId(3),
+        });
     }
 }
