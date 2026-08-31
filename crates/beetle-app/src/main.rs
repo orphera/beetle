@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use beetle_audio::AudioCommand;
 use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
 use beetle_render::{SkinConfig, SoftwareRenderer};
-use config::AppConfig;
+use config::{AppConfig, DisplayMode};
 use gameplay::{finalize_start_gameplay, finish_gameplay, queue_start_gameplay};
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
@@ -36,6 +36,35 @@ use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
+
+#[cfg(windows)]
+#[link(name = "winmm")]
+extern "system" {
+    fn timeBeginPeriod(uPeriod: u32) -> u32;
+    fn timeEndPeriod(uPeriod: u32) -> u32;
+}
+
+#[cfg(windows)]
+struct MultimediaTimerGuard;
+
+#[cfg(windows)]
+impl MultimediaTimerGuard {
+    pub fn new() -> Self {
+        unsafe {
+            timeBeginPeriod(1);
+        }
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl Drop for MultimediaTimerGuard {
+    fn drop(&mut self) {
+        unsafe {
+            timeEndPeriod(1);
+        }
+    }
+}
 
 struct BeetleApp {
     state: Option<AppState>,
@@ -57,9 +86,11 @@ impl ApplicationHandler for BeetleApp {
             return;
         }
 
+        let saved_config = AppConfig::load();
+
         let window_attributes = Window::default_attributes()
             .with_title("Beetle — BMS Rhythm Engine")
-            .with_inner_size(LogicalSize::new(1024, 768))
+            .with_inner_size(LogicalSize::new(saved_config.window_width, saved_config.window_height))
             .with_min_inner_size(LogicalSize::new(800, 600));
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
@@ -72,7 +103,6 @@ impl ApplicationHandler for BeetleApp {
             NonZeroU32::new(size.height.max(1)).unwrap(),
         );
 
-        let saved_config = AppConfig::load();
         let mut skin = SkinConfig::default();
         skin.hi_speed = saved_config.play_options.hi_speed;
         skin.lane_cover_ratio = saved_config.lane_cover_ratio;
@@ -110,7 +140,14 @@ impl ApplicationHandler for BeetleApp {
             playback_cursor: 0,
             start_measure: 0,
             stage_image_cache: std::collections::HashMap::new(),
+            bga_bank: std::collections::HashMap::new(),
+            bga_cursor: 0,
+            current_bga_bmp: None,
+            current_layer_bmp: None,
+            poor_bga_bmp: None,
+            poor_until_time: 0.0,
             active_bga_image: None,
+            active_video_player: None,
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -127,6 +164,9 @@ impl ApplicationHandler for BeetleApp {
             },
             is_rebinding_key: false,
             master_volume: saved_config.master_volume,
+            display_mode: saved_config.display_mode,
+            target_fps: saved_config.target_fps,
+            is_alt_pressed: false,
             bgm_cursor: 0,
             loading_song: None,
             loading_receiver: None,
@@ -138,6 +178,7 @@ impl ApplicationHandler for BeetleApp {
             stage_image_loading_hash: None,
         };
 
+        app_state.apply_display_mode();
         app_state.recompute_filtered_songs();
 
         // If a specific file path was provided via CLI, launch directly into gameplay
@@ -196,9 +237,17 @@ impl ApplicationHandler for BeetleApp {
                     if let Ok(res) = rx.try_recv() {
                         state.loading_receiver = None;
                         match res {
-                            Ok((chart, timing, soundbank)) => {
+                            Ok((chart, timing, soundbank, bga_bank, video_path)) => {
                                 if let Some(song) = state.loading_song.take() {
-                                    finalize_start_gameplay(state, &song, chart, timing, soundbank);
+                                    finalize_start_gameplay(
+                                        state,
+                                        &song,
+                                        chart,
+                                        timing,
+                                        soundbank,
+                                        bga_bank,
+                                        video_path,
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -219,15 +268,24 @@ impl ApplicationHandler for BeetleApp {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
             }
             AppScreen::Gameplay => {
-                let now = Instant::now();
-                let elapsed = now.duration_since(state.last_render_time);
-                let target = Duration::from_millis(4);
-                if elapsed < target {
-                    std::thread::sleep(target - elapsed);
+                if state.target_fps == 0 {
+                    state.last_render_time = Instant::now();
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::Poll);
+                } else {
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(state.last_render_time);
+                    let target = Duration::from_secs_f64(1.0 / state.target_fps as f64);
+                    if elapsed < target {
+                        let rem = target - elapsed;
+                        if rem >= Duration::from_millis(1) {
+                            std::thread::sleep(rem);
+                        }
+                    }
+                    state.last_render_time = Instant::now();
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::Poll);
                 }
-                state.last_render_time = Instant::now();
-                state.window.request_redraw();
-                event_loop.set_control_flow(ControlFlow::Poll);
             }
             AppScreen::SongSelect => {
                 // 1. Receive background artwork loader results without blocking UI
@@ -388,6 +446,8 @@ impl ApplicationHandler for BeetleApp {
                                 state.is_auto_play,
                                 state.start_measure,
                                 state.master_volume,
+                                state.display_mode.as_str(),
+                                state.target_fps,
                                 state.modal_row,
                             );
                         }
@@ -440,7 +500,33 @@ impl ApplicationHandler for BeetleApp {
                                 }
                             }
 
-                            // 2. Replay Playback driver or Auto-play driver or Manual update misses
+                            // 2. BGA schedule
+                            if let (Some(chart), Some(timing)) =
+                                (&state.active_chart, &state.active_timing)
+                            {
+                                while state.bga_cursor < chart.bga_events.len() {
+                                    let ev = &chart.bga_events[state.bga_cursor];
+                                    let target_t = timing.beat_to_time_seconds(ev.measure, ev.fraction);
+                                    if audio_time >= target_t {
+                                        match ev.channel {
+                                            beetle_core::BgaChannel::Base => {
+                                                state.current_bga_bmp = Some(ev.bmp_id);
+                                            }
+                                            beetle_core::BgaChannel::Poor => {
+                                                state.poor_bga_bmp = Some(ev.bmp_id);
+                                            }
+                                            beetle_core::BgaChannel::Layer => {
+                                                state.current_layer_bmp = Some(ev.bmp_id);
+                                            }
+                                        }
+                                        state.bga_cursor += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // 3. Replay Playback driver or Auto-play driver or Manual update misses
                             if state.is_replay_playback {
                                 if let Some(replay) = &state.playback_replay {
                                     while state.playback_cursor < replay.events.len() {
@@ -450,6 +536,9 @@ impl ApplicationHandler for BeetleApp {
                                                 state.renderer.set_key_state(ev.lane, true);
                                                 if let Some(judge) = &mut state.active_judge {
                                                     if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
+                                                        if res.grade == beetle_core::JudgeGrade::Miss || res.grade == beetle_core::JudgeGrade::Poor {
+                                                            state.poor_until_time = audio_time + 0.4;
+                                                        }
                                                         state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
                                                         if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                                                             let _ = audio.send_command(AudioCommand::PlaySample {
@@ -477,6 +566,7 @@ impl ApplicationHandler for BeetleApp {
                                 if let Some(judge) = &mut state.active_judge {
                                     let misses = judge.update_misses(effective_judge_time);
                                     for (_lane, miss_res) in misses {
+                                        state.poor_until_time = audio_time + 0.4;
                                         state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
                                     }
                                 }
@@ -497,6 +587,7 @@ impl ApplicationHandler for BeetleApp {
                             } else if let Some(judge) = &mut state.active_judge {
                                 let misses = judge.update_misses(effective_judge_time);
                                 for (lane, miss_res) in misses {
+                                    state.poor_until_time = audio_time + 0.4;
                                     state.renderer.trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
                                 }
                             }
@@ -506,6 +597,24 @@ impl ApplicationHandler for BeetleApp {
                         if let Some(audio) = &state.audio_engine {
                             audio.get_visual_levels(&mut visual_levels);
                         }
+
+                        let video_frame = if let Some(video_player) = &mut state.active_video_player {
+                            video_player.update(audio_time)
+                        } else {
+                            None
+                        };
+
+                        let active_bga = if audio_time < state.poor_until_time {
+                            state.poor_bga_bmp
+                                .and_then(|id| state.bga_bank.get(&id))
+                                .or(video_frame)
+                                .or_else(|| state.current_bga_bmp.and_then(|id| state.bga_bank.get(&id)))
+                                .or(state.active_bga_image.as_ref())
+                        } else {
+                            video_frame
+                                .or_else(|| state.current_bga_bmp.and_then(|id| state.bga_bank.get(&id)))
+                                .or(state.active_bga_image.as_ref())
+                        };
 
                         // Render gameplay frame
                         if let (Some(chart), Some(judge)) =
@@ -517,7 +626,7 @@ impl ApplicationHandler for BeetleApp {
                                 audio_time,
                                 judge.score(),
                                 &visual_levels,
-                                state.active_bga_image.as_ref(),
+                                active_bga,
                             );
                         }
 
@@ -619,6 +728,22 @@ fn handle_keyboard_input(
         return;
     };
 
+    // Track Alt key state
+    if code == KeyCode::AltLeft || code == KeyCode::AltRight {
+        state.is_alt_pressed = key_state == ElementState::Pressed;
+    }
+
+    // Alt + Enter to toggle Fullscreen / Windowed
+    if key_state == ElementState::Pressed && (code == KeyCode::Enter || code == KeyCode::NumpadEnter) && state.is_alt_pressed {
+        state.display_mode = match state.display_mode {
+            DisplayMode::Windowed => DisplayMode::Borderless,
+            DisplayMode::Borderless | DisplayMode::ExclusiveFullscreen => DisplayMode::Windowed,
+        };
+        state.apply_display_mode();
+        state.save_config();
+        return;
+    }
+
     // Global Hotkeys (when key is pressed)
     if key_state == ElementState::Pressed && !state.is_search_active && !state.is_rebinding_key {
         if code == KeyCode::F6 {
@@ -667,6 +792,9 @@ fn handle_keyboard_input(
 }
 
 fn main() {
+    #[cfg(windows)]
+    let _timer_guard = MultimediaTimerGuard::new();
+
     let args: Vec<String> = env::args().collect();
     let bms_path = args.get(1).cloned();
 

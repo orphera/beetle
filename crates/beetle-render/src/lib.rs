@@ -8,8 +8,10 @@ pub mod image;
 pub mod renderer;
 pub mod screens;
 pub mod skin;
+pub mod video;
 
 pub use bitmap_font::BitmapFont;
-pub use image::ImageBuffer;
+pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::SoftwareRenderer;
 pub use skin::{ColorRgba, SkinConfig};
+pub use video::{is_video_path, BgaVideoPlayer};

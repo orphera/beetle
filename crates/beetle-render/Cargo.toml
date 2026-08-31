@@ -8,3 +8,9 @@ description = "Lightweight 2D software renderer using tiny-skia and embedded bit
 beetle-core = { workspace = true }
 beetle-audio = { workspace = true }
 tiny-skia = { workspace = true }
+png = { workspace = true, optional = true }
+jpeg-decoder = { workspace = true, optional = true }
+
+[features]
+default = []
+bga-enhanced = ["png", "jpeg-decoder"]

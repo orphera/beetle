@@ -13,7 +13,7 @@ use beetle_render::{ImageBuffer, SoftwareRenderer};
 use softbuffer::{Context, Surface};
 use winit::window::Window;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DisplayMode};
 use crate::demo;
 use crate::input::InputConfig;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
@@ -114,7 +114,14 @@ pub struct AppState {
     pub playback_cursor: usize,
     pub start_measure: u32,
     pub stage_image_cache: std::collections::HashMap<u64, Option<ImageBuffer>>,
+    pub bga_bank: std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
+    pub bga_cursor: usize,
+    pub current_bga_bmp: Option<beetle_core::BmpId>,
+    pub current_layer_bmp: Option<beetle_core::BmpId>,
+    pub poor_bga_bmp: Option<beetle_core::BmpId>,
+    pub poor_until_time: f64,
     pub active_bga_image: Option<ImageBuffer>,
+    pub active_video_player: Option<beetle_render::BgaVideoPlayer>,
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
     pub active_chart_hash: u64,
@@ -125,9 +132,12 @@ pub struct AppState {
     pub input_config: InputConfig,
     pub is_rebinding_key: bool,
     pub master_volume: f32,
+    pub display_mode: DisplayMode,
+    pub target_fps: u32,
+    pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
-    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank), String>>>,
+    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, Option<std::path::PathBuf>), String>>>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,
@@ -137,7 +147,31 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn apply_display_mode(&mut self) {
+        match self.display_mode {
+            DisplayMode::Windowed => {
+                self.window.set_fullscreen(None);
+            }
+            DisplayMode::Borderless => {
+                self.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+            }
+            DisplayMode::ExclusiveFullscreen => {
+                let fullscreen = if let Some(monitor) = self.window.current_monitor() {
+                    if let Some(video_mode) = monitor.video_modes().max_by_key(|m| m.refresh_rate_millihertz()) {
+                        Some(winit::window::Fullscreen::Exclusive(video_mode))
+                    } else {
+                        Some(winit::window::Fullscreen::Borderless(None))
+                    }
+                } else {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                };
+                self.window.set_fullscreen(fullscreen);
+            }
+        }
+    }
+
     pub fn save_config(&self) {
+        let size = self.window.inner_size();
         let app_config = AppConfig {
             play_options: self.play_options.clone(),
             lane_cover_ratio: self.renderer.skin.lane_cover_ratio,
@@ -145,6 +179,10 @@ impl AppState {
             key_preset: self.input_config.preset,
             custom_key_bindings: self.input_config.serialize_bindings(),
             master_volume: self.master_volume,
+            display_mode: self.display_mode,
+            window_width: size.width.max(640),
+            window_height: size.height.max(480),
+            target_fps: self.target_fps,
         };
         app_config.save();
     }

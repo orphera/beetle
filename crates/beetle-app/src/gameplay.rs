@@ -34,6 +34,8 @@ pub fn finalize_start_gameplay(
     chart: BmsChart,
     timing: TimingModel,
     soundbank: SampleBank,
+    bga_bank: std::collections::HashMap<beetle_core::BmpId, beetle_render::ImageBuffer>,
+    video_path: Option<std::path::PathBuf>,
 ) {
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
@@ -50,6 +52,7 @@ pub fn finalize_start_gameplay(
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut bgm_cursor = 0;
+    let mut bga_cursor = 0;
     // Practice mode fast forward
     if state.start_measure > 0 && !state.is_replay_playback {
         let start_time = timing.beat_to_time_seconds(state.start_measure, 0.0);
@@ -59,6 +62,15 @@ pub fn finalize_start_gameplay(
             let (m, f, _) = play_chart.bgm_notes[bgm_cursor];
             if timing.beat_to_time_seconds(m, f) < start_time {
                 bgm_cursor += 1;
+            } else {
+                break;
+            }
+        }
+
+        while bga_cursor < play_chart.bga_events.len() {
+            let ev = &play_chart.bga_events[bga_cursor];
+            if timing.beat_to_time_seconds(ev.measure, ev.fraction) < start_time {
+                bga_cursor += 1;
             } else {
                 break;
             }
@@ -78,6 +90,13 @@ pub fn finalize_start_gameplay(
     state.active_timing = Some(timing);
     state.active_chart_hash = song.hash;
     state.active_judge = Some(judge_engine);
+    state.bga_bank = bga_bank;
+    state.bga_cursor = bga_cursor;
+    state.current_bga_bmp = None;
+    state.current_layer_bmp = None;
+    state.poor_bga_bmp = None;
+    state.poor_until_time = 0.0;
+    state.active_video_player = video_path.and_then(beetle_render::BgaVideoPlayer::open);
     state.active_bga_image = load_stage_image(song).map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;

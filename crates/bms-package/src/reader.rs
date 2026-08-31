@@ -279,7 +279,7 @@ impl PackageReader {
                 None => &filename_only,
             };
 
-            for ext in &["wav", "ogg", "flac"] {
+            for ext in &["wav", "ogg", "flac", "bmp", "png", "jpg", "jpeg"] {
                 let alt_target = format!("{}.{}", stem, ext).to_lowercase();
                 if let Some(entry) = self.entries.iter().find(|e| {
                     let e_lower = e.path.to_lowercase();
@@ -313,7 +313,7 @@ impl PackageReader {
                 Some(pos) => &filename_only[..pos],
                 None => &filename_only,
             };
-            for ext in &["wav", "ogg", "flac"] {
+            for ext in &["wav", "ogg", "flac", "bmp", "png", "jpg", "jpeg"] {
                 let alt_target = format!("{}.{}", stem, ext).to_lowercase();
                 if let Some(entry) = self.entries.iter().find(|e| {
                     let e_file = e.path.rsplit('/').next().unwrap_or(&e.path).to_lowercase();
