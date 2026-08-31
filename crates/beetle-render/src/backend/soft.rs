@@ -118,10 +118,19 @@ impl GpuBackend for SoftBackend {
 
         // Process quads (each quad has 6 indices: 0, 1, 2, 2, 3, 0)
         for quad_indices in indices.chunks_exact(6) {
-            let v0 = &vertices[quad_indices[0] as usize];
-            let v1 = &vertices[quad_indices[1] as usize];
-            let v2 = &vertices[quad_indices[2] as usize];
-            let v3 = &vertices[quad_indices[4] as usize]; // 4th vertex of quad
+            let i0 = quad_indices[0] as usize;
+            let i1 = quad_indices[1] as usize;
+            let i2 = quad_indices[2] as usize;
+            let i3 = quad_indices[4] as usize; // 4th vertex of quad
+
+            if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() || i3 >= vertices.len() {
+                continue;
+            }
+
+            let v0 = &vertices[i0];
+            let v1 = &vertices[i1];
+            let v2 = &vertices[i2];
+            let v3 = &vertices[i3];
 
             let min_x = v0.position[0].min(v1.position[0]).min(v2.position[0]).min(v3.position[0]);
             let max_x = v0.position[0].max(v1.position[0]).max(v2.position[0]).max(v3.position[0]);

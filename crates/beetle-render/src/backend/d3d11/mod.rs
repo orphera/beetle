@@ -421,9 +421,13 @@ impl GpuBackend for D3d11Backend {
         let id = TextureId(self.next_texture_id);
         self.next_texture_id += 1;
 
+        let w = width.max(1);
+        let h = height.max(1);
+        let expected_bytes = (w * h * 4) as usize;
+
         let desc = D3D11_TEXTURE2D_DESC {
-            Width: width.max(1),
-            Height: height.max(1),
+            Width: w,
+            Height: h,
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -436,7 +440,7 @@ impl GpuBackend for D3d11Backend {
 
         let init_data = D3D11_SUBRESOURCE_DATA {
             pSysMem: pixels.as_ptr() as *const c_void,
-            SysMemPitch: width * 4,
+            SysMemPitch: w * 4,
             SysMemSlicePitch: 0,
         };
 
@@ -448,7 +452,7 @@ impl GpuBackend for D3d11Backend {
             let hr = ((*dev_vtbl).CreateTexture2D)(
                 self.device,
                 &desc,
-                if pixels.is_empty() { ptr::null() } else { &init_data },
+                if pixels.len() >= expected_bytes { &init_data } else { ptr::null() },
                 &mut texture,
             );
             if hr < 0 || texture.is_null() {
@@ -473,8 +477,8 @@ impl GpuBackend for D3d11Backend {
             D3d11Texture {
                 texture,
                 srv,
-                width,
-                height,
+                width: w,
+                height: h,
             },
         );
 
@@ -482,6 +486,11 @@ impl GpuBackend for D3d11Backend {
     }
 
     fn update_texture(&mut self, id: TextureId, width: u32, _height: u32, pixels: &[u8]) {
+        let expected_bytes = (width * _height * 4) as usize;
+        if pixels.len() < expected_bytes {
+            return;
+        }
+
         if let Some(tex) = self.textures.get(&id) {
             unsafe {
                 let ctx_vtbl = *(self.context as *mut *mut ID3D11DeviceContextVtbl);
