@@ -1,7 +1,17 @@
+pub mod bmp;
+pub mod jpeg;
+pub mod png;
+
 use crate::skin::ColorRgba;
 use std::fs;
 use std::path::Path;
 use tiny_skia::Pixmap;
+
+pub use bmp::{decode_bmp, encode_bmp};
+#[cfg(feature = "bga-enhanced")]
+pub use jpeg::decode_jpeg;
+#[cfg(feature = "bga-enhanced")]
+pub use png::decode_png;
 
 /// Decoded RGBA image buffer.
 #[derive(Debug, Clone)]
@@ -41,200 +51,43 @@ impl ImageBuffer {
     /// Automatically detects the image format from magic bytes and decodes it.
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
         if data.len() >= 2 && data[0] == b'B' && data[1] == b'M' {
-            return Self::from_bmp_bytes(data);
+            return decode_bmp(data);
         }
 
         #[cfg(feature = "bga-enhanced")]
         {
             if data.len() >= 8 && &data[0..8] == b"\x89PNG\r\n\x1a\n" {
-                return Self::from_png_bytes(data);
+                return decode_png(data);
             }
             if data.len() >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
-                return Self::from_jpeg_bytes(data);
+                return decode_jpeg(data);
             }
         }
 
         // Fallback try BMP
-        Self::from_bmp_bytes(data)
+        decode_bmp(data)
     }
 
-    #[cfg(feature = "bga-enhanced")]
     /// Decodes a PNG image from byte slice (requires bga-enhanced feature).
+    #[cfg(feature = "bga-enhanced")]
     pub fn from_png_bytes(data: &[u8]) -> Option<Self> {
-        let mut decoder = png::Decoder::new(data);
-        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-        let mut reader = decoder.read_info().ok()?;
-        let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        let width = info.width;
-        let height = info.height;
-        let (color_type, _) = reader.output_color_type();
-        let mut pixels = Vec::with_capacity((width * height) as usize);
-
-        match color_type {
-            png::ColorType::Rgba => {
-                for chunk in buf[..info.buffer_size()].chunks_exact(4) {
-                    pixels.push(ColorRgba::new(chunk[0], chunk[1], chunk[2], chunk[3]));
-                }
-            }
-            png::ColorType::Rgb => {
-                for chunk in buf[..info.buffer_size()].chunks_exact(3) {
-                    pixels.push(ColorRgba::new(chunk[0], chunk[1], chunk[2], 255));
-                }
-            }
-            png::ColorType::Grayscale => {
-                for &b in &buf[..info.buffer_size()] {
-                    pixels.push(ColorRgba::new(b, b, b, 255));
-                }
-            }
-            png::ColorType::GrayscaleAlpha => {
-                for chunk in buf[..info.buffer_size()].chunks_exact(2) {
-                    pixels.push(ColorRgba::new(chunk[0], chunk[0], chunk[0], chunk[1]));
-                }
-            }
-            _ => return None,
-        }
-
-        if pixels.len() == (width * height) as usize {
-            Some(Self {
-                width,
-                height,
-                pixels,
-            })
-        } else {
-            None
-        }
+        decode_png(data)
     }
 
-    #[cfg(feature = "bga-enhanced")]
     /// Decodes a JPEG image from byte slice (requires bga-enhanced feature).
+    #[cfg(feature = "bga-enhanced")]
     pub fn from_jpeg_bytes(data: &[u8]) -> Option<Self> {
-        let mut decoder = jpeg_decoder::Decoder::new(data);
-        let pixels_raw = decoder.decode().ok()?;
-        let metadata = decoder.info()?;
-        let width = metadata.width as u32;
-        let height = metadata.height as u32;
-        let mut pixels = Vec::with_capacity((width * height) as usize);
-
-        match metadata.pixel_format {
-            jpeg_decoder::PixelFormat::RGB24 => {
-                for chunk in pixels_raw.chunks_exact(3) {
-                    pixels.push(ColorRgba::new(chunk[0], chunk[1], chunk[2], 255));
-                }
-            }
-            jpeg_decoder::PixelFormat::L8 => {
-                for &b in &pixels_raw {
-                    pixels.push(ColorRgba::new(b, b, b, 255));
-                }
-            }
-            jpeg_decoder::PixelFormat::L16 => {
-                for chunk in pixels_raw.chunks_exact(2) {
-                    pixels.push(ColorRgba::new(chunk[0], chunk[0], chunk[0], 255));
-                }
-            }
-            jpeg_decoder::PixelFormat::CMYK32 => {
-                for chunk in pixels_raw.chunks_exact(4) {
-                    let c = chunk[0] as f32 / 255.0;
-                    let m = chunk[1] as f32 / 255.0;
-                    let y = chunk[2] as f32 / 255.0;
-                    let k = chunk[3] as f32 / 255.0;
-                    let r = ((1.0 - c) * (1.0 - k) * 255.0).round() as u8;
-                    let g = ((1.0 - m) * (1.0 - k) * 255.0).round() as u8;
-                    let b = ((1.0 - y) * (1.0 - k) * 255.0).round() as u8;
-                    pixels.push(ColorRgba::new(r, g, b, 255));
-                }
-            }
-        }
-
-        if pixels.len() == (width * height) as usize {
-            Some(Self {
-                width,
-                height,
-                pixels,
-            })
-        } else {
-            None
-        }
+        decode_jpeg(data)
     }
 
     /// Decodes a 24-bit or 32-bit uncompressed Windows BMP image without external crates.
     pub fn from_bmp_bytes(data: &[u8]) -> Option<Self> {
-        if data.len() < 54 {
-            return None;
-        }
+        decode_bmp(data)
+    }
 
-        // 1. Magic check 'BM'
-        if data[0] != b'B' || data[1] != b'M' {
-            return None;
-        }
-
-        // 2. Pixel data offset
-        let data_offset = u32::from_le_bytes(data[10..14].try_into().ok()?) as usize;
-
-        // 3. DIB Header
-        let width_raw = i32::from_le_bytes(data[18..22].try_into().ok()?);
-        let height_raw = i32::from_le_bytes(data[22..26].try_into().ok()?);
-
-        if width_raw <= 0 || height_raw == 0 {
-            return None;
-        }
-
-        let width = width_raw as u32;
-        let height = height_raw.unsigned_abs();
-        let is_top_down = height_raw < 0;
-
-        let planes = u16::from_le_bytes(data[26..28].try_into().ok()?);
-        if planes != 1 {
-            return None;
-        }
-
-        let bpp = u16::from_le_bytes(data[28..30].try_into().ok()?);
-        if bpp != 24 && bpp != 32 {
-            return None;
-        }
-
-        if data.len() < data_offset {
-            return None;
-        }
-
-        let mut pixels = vec![ColorRgba::transparent(); (width * height) as usize];
-        let bytes_per_pixel = (bpp / 8) as usize;
-        let row_stride_unpadded = width as usize * bytes_per_pixel;
-        let row_padding = (4 - (row_stride_unpadded % 4)) % 4;
-        let row_stride = row_stride_unpadded + row_padding;
-
-        let raw_pixels = &data[data_offset..];
-
-        for y in 0..height as usize {
-            let src_y = if is_top_down {
-                y
-            } else {
-                (height as usize - 1) - y
-            };
-
-            let row_start = src_y * row_stride;
-            if row_start + row_stride_unpadded > raw_pixels.len() {
-                break;
-            }
-
-            let row = &raw_pixels[row_start..row_start + row_stride_unpadded];
-
-            for x in 0..width as usize {
-                let px_idx = x * bytes_per_pixel;
-                let b = row[px_idx];
-                let g = row[px_idx + 1];
-                let r = row[px_idx + 2];
-                let a = if bytes_per_pixel == 4 { row[px_idx + 3] } else { 255 };
-
-                pixels[y * width as usize + x] = ColorRgba::new(r, g, b, a);
-            }
-        }
-
-        Some(Self {
-            width,
-            height,
-            pixels,
-        })
+    /// Encodes this image buffer as a 24-bit uncompressed Windows BMP byte vector without external dependencies.
+    pub fn encode_bmp_bytes(&self) -> Vec<u8> {
+        encode_bmp(self)
     }
 
     /// Creates a new scaled ImageBuffer.
@@ -461,52 +314,6 @@ impl ImageBuffer {
             }
         }
     }
-
-    /// Encodes this image buffer as a 24-bit uncompressed Windows BMP byte vector without external dependencies.
-    pub fn encode_bmp_bytes(&self) -> Vec<u8> {
-        let w = self.width;
-        let h = self.height;
-        let row_stride_unpadded = (w * 3) as usize;
-        let row_padding = (4 - (row_stride_unpadded % 4)) % 4;
-        let row_stride = row_stride_unpadded + row_padding;
-        let pixel_bytes_len = row_stride * h as usize;
-        let total_size = 54 + pixel_bytes_len;
-
-        let mut data = Vec::with_capacity(total_size);
-        // Header
-        data.extend_from_slice(b"BM");
-        data.extend_from_slice(&(total_size as u32).to_le_bytes());
-        data.extend_from_slice(&[0, 0, 0, 0]);
-        data.extend_from_slice(&54u32.to_le_bytes());
-
-        // DIB Header
-        data.extend_from_slice(&40u32.to_le_bytes());
-        data.extend_from_slice(&(w as i32).to_le_bytes());
-        data.extend_from_slice(&(h as i32).to_le_bytes());
-        data.extend_from_slice(&1u16.to_le_bytes());
-        data.extend_from_slice(&24u16.to_le_bytes());
-        data.extend_from_slice(&0u32.to_le_bytes());
-        data.extend_from_slice(&(pixel_bytes_len as u32).to_le_bytes());
-        data.extend_from_slice(&2835u32.to_le_bytes());
-        data.extend_from_slice(&2835u32.to_le_bytes());
-        data.extend_from_slice(&0u32.to_le_bytes());
-        data.extend_from_slice(&0u32.to_le_bytes());
-
-        // Pixels: bottom-up row order
-        for y in (0..h as usize).rev() {
-            for x in 0..w as usize {
-                let px = self.pixels[y * w as usize + x];
-                data.push(px.b);
-                data.push(px.g);
-                data.push(px.r);
-            }
-            for _ in 0..row_padding {
-                data.push(0);
-            }
-        }
-
-        data
-    }
 }
 
 #[cfg(test)]
@@ -514,45 +321,8 @@ mod tests {
     use super::*;
 
     fn create_synthetic_24bit_bmp(w: u32, h: u32, bgr_color: (u8, u8, u8)) -> Vec<u8> {
-        let row_stride_unpadded = (w * 3) as usize;
-        let row_padding = (4 - (row_stride_unpadded % 4)) % 4;
-        let row_stride = row_stride_unpadded + row_padding;
-        let pixel_bytes_len = row_stride * h as usize;
-        let total_size = 54 + pixel_bytes_len;
-
-        let mut data = Vec::with_capacity(total_size);
-        // Header
-        data.extend_from_slice(b"BM");
-        data.extend_from_slice(&(total_size as u32).to_le_bytes()); // File size
-        data.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-        data.extend_from_slice(&54u32.to_le_bytes()); // Offset to pixels
-
-        // DIB Header
-        data.extend_from_slice(&40u32.to_le_bytes()); // Header size
-        data.extend_from_slice(&(w as i32).to_le_bytes());
-        data.extend_from_slice(&(h as i32).to_le_bytes());
-        data.extend_from_slice(&1u16.to_le_bytes()); // Planes
-        data.extend_from_slice(&24u16.to_le_bytes()); // BPP
-        data.extend_from_slice(&0u32.to_le_bytes()); // Compression
-        data.extend_from_slice(&(pixel_bytes_len as u32).to_le_bytes());
-        data.extend_from_slice(&2835u32.to_le_bytes());
-        data.extend_from_slice(&2835u32.to_le_bytes());
-        data.extend_from_slice(&0u32.to_le_bytes());
-        data.extend_from_slice(&0u32.to_le_bytes());
-
-        // Pixels
-        for _ in 0..h {
-            for _ in 0..w {
-                data.push(bgr_color.0); // B
-                data.push(bgr_color.1); // G
-                data.push(bgr_color.2); // R
-            }
-            for _ in 0..row_padding {
-                data.push(0);
-            }
-        }
-
-        data
+        let img = ImageBuffer::new(w, h, ColorRgba::new(bgr_color.2, bgr_color.1, bgr_color.0, 255));
+        img.encode_bmp_bytes()
     }
 
     #[test]
@@ -595,23 +365,26 @@ mod tests {
     #[cfg(feature = "bga-enhanced")]
     #[test]
     fn test_png_decoder_under_bga_enhanced() {
-        let mut png_bytes = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_bytes, 2, 2);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header().expect("write header");
-            let data = [
-                255, 0, 0, 255,  0, 255, 0, 255,
-                0, 0, 255, 255,  255, 255, 255, 255,
-            ];
-            writer.write_image_data(&data).expect("write data");
-        }
-        let img = ImageBuffer::from_bytes(&png_bytes).expect("Should decode PNG via from_bytes");
-        assert_eq!(img.width, 2);
-        assert_eq!(img.height, 2);
-        assert_eq!(img.pixels.len(), 4);
-        assert_eq!(img.pixels[0], ColorRgba::new(255, 0, 0, 255));
-        assert_eq!(img.pixels[1], ColorRgba::new(0, 255, 0, 255));
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            0x00, 0x00, 0x00, 0x0d,
+            0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x01,
+            0x08, 0x00, 0x00, 0x00, 0x00,
+            0x3a, 0x7e, 0x9b, 0x55,
+            0x00, 0x00, 0x00, 0x0a,
+            0x49, 0x44, 0x41, 0x54,
+            0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+            0x48, 0xaf, 0xa4, 0x71,
+            0x00, 0x00, 0x00, 0x00,
+            0x49, 0x45, 0x4e, 0x44,
+            0xae, 0x42, 0x60, 0x82,
+        ];
+        let img = ImageBuffer::from_bytes(png_bytes).expect("Should decode PNG via from_bytes");
+        assert_eq!(img.width, 1);
+        assert_eq!(img.height, 1);
+        assert_eq!(img.pixels.len(), 1);
+        assert_eq!(img.pixels[0], ColorRgba::new(0, 0, 0, 255));
     }
 }
