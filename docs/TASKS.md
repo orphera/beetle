@@ -1,4 +1,4 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 5)
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 6)
 
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
@@ -7,62 +7,67 @@
 > - [archive/tasks_milestone_2.md](archive/tasks_milestone_2.md): UI/UX 전면 개편, 다국어 폰트, 인게임 일시정지, 결과 보상 화면, 1:1 키 리바인딩
 > - [archive/tasks_milestone_3.md](archive/tasks_milestone_3.md): 아키텍처 모듈화 & 클린 구조 리팩토링 (`beetle-render` 및 `beetle-app` 서브모듈화)
 > - [archive/tasks_milestone_4.md](archive/tasks_milestone_4.md): BMS Package Delta(차분) 및 원자적 업데이트 엔진 (`.bmdp` 빌더, 패치 및 GUI 마법사)
+> - [archive/tasks_milestone_5.md](archive/tasks_milestone_5.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화, BGA 엔진 및 WMF 동영상 지원
 
 ---
 
-# 🚀 Milestone 5: 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 엔진
+# 🚀 Milestone 6: 초경량 멀티 백엔드 GPU 하드웨어 가속 렌더링 엔진 (Lightweight Multi-Backend GPU Acceleration)
 
-자세한 기술 설계 및 아키텍처는 [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md)를 참조합니다.
-
----
-
-## 📋 Phase 1: 디스플레이 및 창 모드 시스템 (Display & Window Mode Management)
-- [x] **창 모드 전환 기능 구현 (`crates/beetle-app/`)**
-  - [x] `Fullscreen (독점 전체화면)`: 모니터 최고 주사율 및 독점 제어
-  - [x] `Borderless Fullscreen (테두리 없는 전체화면)`: 데스크톱 해상도/주사율 유지 창 모드
-  - [x] `Windowed (창모드)`: 자유로운 윈도우 크기 조절 및 위치 이동
-  - [x] `Alt + Enter` 또는 옵션 모달(`Tab`)을 통한 실시간 즉시 전환
-- [x] **해상도 조절 및 가상 프레임버퍼 스케일러**
-  - [x] 가상 렌더링 해상도(720p, 1080p, 1440p, 4K) 선택 지원
-  - [x] 창 크기 변경 시 비율 유지 레터박스 또는 정수 배율(Integer Scaling) 출력
-  - [x] `config.dat`에 `display_mode`, `window_width`, `window_height`, `target_fps` 지속 저장 및 복원
+자세한 기술 설계 및 아키텍처는 [proposals/lightweight_gpu_acceleration.md](proposals/lightweight_gpu_acceleration.md)를 참조합니다.
 
 ---
 
-## 📋 Phase 2: 반응형 이미지 종횡비 보존 렌더링 (Aspect-Ratio Aware Image Fitting)
-- [x] **이미지 왜곡 방지 스케일러 구현 (`crates/beetle-render/src/image.rs`)**
-  - [x] `Fill & Center Crop`: 이미지의 원래 종횡비를 엄격하게 보존하며 대상 영역을 채우고 넘치는 영역을 중앙 기준 크롭
-  - [x] `Fit & Letterbox`: 원본 비율을 보존하여 전체 이미지를 표시하고 남는 여백에 다크 패딩/블러 적용
-- [x] **선곡 창 및 인게임 HUD 적용**
-  - [x] 선곡 창 자켓/배너 이미지 영역에서 4:3, 16:9, 1:1 이미지가 찌그러지지 않고 깔끔하게 렌더링되도록 적용
-  - [x] 인게임 $320 \times 180$ 스테이지/BGA 뷰포트에 종횡비 보존 크롭 적용
+## 📋 Phase 1: 2D 배치 렌더러 및 초경량 GPU HAL 인터페이스 설계 (`crates/beetle-render/`)
+- [ ] **초경량 `GpuBackend` 트레이트 정의 (`crates/beetle-render/src/backend/mod.rs`)**
+  - [ ] 2D 리듬게임에 특화된 6개 핵심 API 추상화 (`create_texture`, `update_texture`, `destroy_texture`, `draw_batch`, `resize`, `begin_frame` / `end_frame`)
+  - [ ] 정점 데이터 포맷 `Vertex2D` (`position: [f32; 2]`, `uv: [f32; 2]`, `color: [f32; 4]`) 정의
+  - [ ] 블렌딩 모드 `BlendMode` (`Alpha`: 기본 알파 블렌딩, `Additive`: 판정 빔/레인 가산 혼합)
+- [ ] **2D Sprite / Quad Batcher 구축 (`crates/beetle-render/src/backend/batcher.rs`)**
+  - [ ] 텍스처 단위 버텍스/인덱스 2D 쿼드 자동 배칭 (단 1~3회의 DrawCall로 전체 UI/노트 일괄 출력)
+  - [ ] 다국어 비트맵 폰트 아틀라스 텍스처 업로드 및 일괄 렌더링 지원
+- [ ] **안전한 CPU 소프트웨어 폴백 백엔드 (`SoftBackend`) 구현**
+  - [ ] 기존 `tiny-skia` 기반 렌더러를 `GpuBackend` 구현체로 래핑하여 무중단 폴백 보장
 
 ---
 
-## 📋 Phase 3: 인게임 초고주사율 프레임 페이싱 & 렌더러 극한 최적화 (High-Refresh Rate Performance)
-- [x] **Windows 고정밀 프레임 타이머 연동**
-  - [x] Windows 멀티미디어 타이머 `timeBeginPeriod(1)` 적용으로 1ms 이하 슬립 정밀도 확보 및 마이크로 지터 제거
-  - [x] 144Hz / 240Hz / 360Hz+ 주사율 타겟 고정밀 프레임 페이서 구축
-- [x] **소프트웨어 렌더러 SIMD / 청크 최적화 (`crates/beetle-render/`)**
-  - [x] `draw_rect` 및 픽셀 블릿 루프 32-bit `u32` 청크/SIMD 병렬화
-  - [x] 정적 배경 및 HUD 영역 Dirty Rect 캐싱을 통한 불필요한 재렌더링 절감
+## 📋 Phase 2: Windows 네이티브 Direct3D 11 백엔드 구현 (`crates/beetle-render/src/backend/d3d11/`)
+- [ ] **Zero-Crate OS 네이티브 Direct3D 11 / DXGI COM 바인딩**
+  - [ ] 외부 무거운 크레이트(`wgpu`, `ash` 등) 없이 Windows 표준 시스템 DLL(`d3d11.dll`, `dxgi.dll`) 직접 연동
+  - [ ] `D3D11CreateDeviceAndSwapChain` 저지연 플립 스왑체인(`DXGI_SWAP_EFFECT_FLIP_DISCARD`) 초기화
+- [ ] **사전 컴파일 셰이더 바이트코드 임베딩**
+  - [ ] 런타임 셰이더 컴파일러(`D3DCompile`) 배제 및 사전 컴파일된 미니멀 2D CSO 바이트코드 바이너리 임베딩
+  - [ ] 알파 블렌딩 및 가산 블렌딩용 `ID3D11BlendState` 구성
+  - [ ] 텍스처 샘플러(`ID3D11SamplerState`) 바이리니어 및 포인트 필터링 지원
+- [ ] **GPU 디바이스 소실(Device Lost / Reset) 자동 복구**
+  - [ ] `DXGI_ERROR_DEVICE_RESET` / `DEVICE_REMOVED` 감지 시 자원 자동 재성성 또는 `SoftBackend`로 투명한 전환
 
 ---
 
-## 📋 Phase 4: BGA (BackGround Animation) 시스템 지원 (BGA & Animated Stage Rendering)
-- [x] **BMS BGA 채널 파서 확장 (`crates/beetle-core/src/bms.rs`)**
-  - [x] `#BMPxx` 인덱스별 이미지 시퀀스 및 비디오 파일명 매핑 파싱
-  - [x] `#BGAxx` 좌표 슬라이스 및 투명색(ColorKey) 레이어 정의 파싱
-  - [x] BGA 이벤트 채널(04: Base, 06: Poor, 07: Layer) 타임라인 등록
-- [x] **실시간 BGA 믹서 및 애니메이션 렌더러 (`crates/beetle-render/`, `crates/beetle-app/`)**
-  - [x] 곡 로딩 시 BGA 이미지 시퀀스를 사전 메모리 텍스처 풀로 적재 (`INV-3` 준수)
-  - [x] `AudioClock` 시간에 동기화되어 $O(1)$로 현재 프레임 이미지를 인게임 BGA 뷰포트에 블릿
-  - [x] 미스/POOR 발생 시 POOR BGA 프레임 오버레이
+## 📋 Phase 3: BGA & 동영상 하드웨어 텍스처 스트리밍 최적화
+- [ ] **BGA 이미지 & 동영상 프레임 고속 VRAM 업로드**
+  - [ ] BMS `#BMPxx` 이미지 시퀀스를 GPU 텍스처 풀로 적재
+  - [ ] WMF Video Player의 RGB32 프레임을 동적 텍스처(`update_texture`)로 저지연 스트리밍
+- [ ] **인게임 비주얼 이펙트 GPU 하드웨어 가속**
+  - [ ] 판정선 타격 빔 및 레인 이퀄라이저 가산 블렌딩(`BlendMode::Additive`) GPU 가속
+  - [ ] 종횡비 보존 뷰포트(`ImageFitMode`) 정점 UV 매핑 하드웨어 처리
+
+---
+
+## 📋 Phase 4: 게임 엔진 및 화면 상태 통합 (`crates/beetle-app/`)
+- [ ] **런타임 그래픽 백엔드 자동 감지 및 선택**
+  - [ ] 앱 기동 시 D3D11 하드웨어 가속 시도 -> 실패 시 `SoftBackend` CPU 폴백
+  - [ ] `config.dat`에 `gpu_backend` 설정(`Auto`, `Direct3D11`, `Software`) 추가 및 지속 저장
+- [ ] **옵션 모달(`Tab`) 렌더러 전환 지원**
+  - [ ] 인게임 및 곡 선택 화면에서 렌더러 상태(D3D11 / Soft) 인디케이터 표시
+  - [ ] 옵션 모달에서 실시간 렌더러 백엔드 전환 기능 제공
+- [ ] **전 기능 회귀 테스트 & 바이너리 크기 검증**
+  - [ ] 전체 워크스페이스 65개 이상 단위/통합 테스트 무결성 검증
+  - [ ] 바이너리 크기 다이어트 목표 준수 (< 1.2 MB)
 
 ---
 
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
-- [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 지원 제안서 (Milestone 5).
+- [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 지원 제안서 (Milestone 5 Archive).
 - [proposals/lightweight_gpu_acceleration.md](proposals/lightweight_gpu_acceleration.md): 초경량 멀티 백엔드(D3D11, OpenGL, Vulkan, Metal, Software Fallback) GPU 하드웨어 가속 렌더링 엔진 제안서 (Milestone 6).
 - [proposals/platform_expansion.md](proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
 - [proposals/remote_package_registry.md](proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
