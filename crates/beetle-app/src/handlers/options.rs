@@ -3,6 +3,8 @@ use winit::keyboard::KeyCode;
 
 use crate::state::{AppScreen, AppState};
 
+const FPS_PRESETS: [u32; 6] = [60, 120, 144, 240, 360, 0];
+
 /// Handles keyboard input when the play options modal is open.
 pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
     match code {
@@ -14,7 +16,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             state.modal_row = state.modal_row.saturating_sub(1);
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
-            state.modal_row = (state.modal_row + 1).min(7);
+            state.modal_row = (state.modal_row + 1).min(9);
         }
         KeyCode::ArrowLeft => {
             match state.modal_row {
@@ -48,13 +50,22 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         let _ = audio.set_master_volume(state.master_volume);
                     }
                 }
-                5 => { // Key Layout
+                5 => { // Display Mode
+                    state.display_mode = state.display_mode.prev();
+                    state.apply_display_mode();
+                }
+                6 => { // Target FPS
+                    let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
+                    let prev_idx = if cur_idx == 0 { FPS_PRESETS.len() - 1 } else { cur_idx - 1 };
+                    state.target_fps = FPS_PRESETS[prev_idx];
+                }
+                7 => { // Key Layout
                     state.input_config.toggle_preset();
                 }
-                6 => { // Auto Play
+                8 => { // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                7 => { // Start Measure
+                9 => { // Start Measure
                     state.start_measure = state.start_measure.saturating_sub(1);
                 }
                 _ => (),
@@ -93,7 +104,16 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         let _ = audio.set_master_volume(state.master_volume);
                     }
                 }
-                5 => { // Key Layout
+                5 => { // Display Mode
+                    state.display_mode = state.display_mode.next();
+                    state.apply_display_mode();
+                }
+                6 => { // Target FPS
+                    let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
+                    let next_idx = (cur_idx + 1) % FPS_PRESETS.len();
+                    state.target_fps = FPS_PRESETS[next_idx];
+                }
+                7 => { // Key Layout
                     if code == KeyCode::Enter || code == KeyCode::Space {
                         state.screen = AppScreen::KeyConfig;
                         state.show_option_modal = false;
@@ -101,10 +121,10 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         state.input_config.toggle_preset();
                     }
                 }
-                6 => { // Auto Play
+                8 => { // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                7 => { // Start Measure
+                9 => { // Start Measure
                     state.start_measure = (state.start_measure + 1).min(200);
                 }
                 _ => (),

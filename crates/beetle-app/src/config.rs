@@ -5,6 +5,41 @@ use std::path::Path;
 
 pub const CONFIG_FILE: &str = "config.dat";
 
+/// Display and windowing mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DisplayMode {
+    #[default]
+    Windowed,
+    Borderless,
+    ExclusiveFullscreen,
+}
+
+impl DisplayMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Windowed => "WINDOWED",
+            Self::Borderless => "BORDERLESS",
+            Self::ExclusiveFullscreen => "FULLSCREEN",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Windowed => Self::Borderless,
+            Self::Borderless => Self::ExclusiveFullscreen,
+            Self::ExclusiveFullscreen => Self::Windowed,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Windowed => Self::ExclusiveFullscreen,
+            Self::Borderless => Self::Windowed,
+            Self::ExclusiveFullscreen => Self::Borderless,
+        }
+    }
+}
+
 /// Persistent application configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -14,6 +49,10 @@ pub struct AppConfig {
     pub key_preset: KeyPreset,
     pub custom_key_bindings: String,
     pub master_volume: f32,
+    pub display_mode: DisplayMode,
+    pub window_width: u32,
+    pub window_height: u32,
+    pub target_fps: u32,
 }
 
 impl Default for AppConfig {
@@ -25,6 +64,10 @@ impl Default for AppConfig {
             key_preset: KeyPreset::HomeRow,
             custom_key_bindings: String::new(),
             master_volume: 1.0,
+            display_mode: DisplayMode::Windowed,
+            window_width: 1024,
+            window_height: 768,
+            target_fps: 240,
         }
     }
 }
@@ -124,6 +167,28 @@ impl AppConfig {
                         config.master_volume = v.clamp(0.0, 2.0);
                     }
                 }
+                "display_mode" => {
+                    config.display_mode = match val {
+                        "BORDERLESS" => DisplayMode::Borderless,
+                        "FULLSCREEN" => DisplayMode::ExclusiveFullscreen,
+                        _ => DisplayMode::Windowed,
+                    };
+                }
+                "window_width" => {
+                    if let Ok(w) = val.parse::<u32>() {
+                        config.window_width = w.clamp(640, 7680);
+                    }
+                }
+                "window_height" => {
+                    if let Ok(h) = val.parse::<u32>() {
+                        config.window_height = h.clamp(480, 4320);
+                    }
+                }
+                "target_fps" => {
+                    if let Ok(fps) = val.parse::<u32>() {
+                        config.target_fps = fps;
+                    }
+                }
                 _ => (),
             }
         }
@@ -139,7 +204,7 @@ impl AppConfig {
         };
 
         format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -149,6 +214,10 @@ impl AppConfig {
             preset_str,
             self.custom_key_bindings,
             self.master_volume,
+            self.display_mode.as_str(),
+            self.window_width,
+            self.window_height,
+            self.target_fps,
         )
     }
 }
@@ -171,6 +240,10 @@ mod tests {
             key_preset: KeyPreset::Custom,
             custom_key_bindings: "Scratch:KeyA,Key1:KeyZ".to_string(),
             master_volume: 0.85,
+            display_mode: DisplayMode::Borderless,
+            window_width: 1920,
+            window_height: 1080,
+            target_fps: 360,
         };
 
         let serialized = config.serialize_str();
@@ -185,5 +258,9 @@ mod tests {
         assert_eq!(config.key_preset, parsed.key_preset);
         assert_eq!(config.custom_key_bindings, parsed.custom_key_bindings);
         assert_eq!(config.master_volume, parsed.master_volume);
+        assert_eq!(config.display_mode, parsed.display_mode);
+        assert_eq!(config.window_width, parsed.window_width);
+        assert_eq!(config.window_height, parsed.window_height);
+        assert_eq!(config.target_fps, parsed.target_fps);
     }
 }

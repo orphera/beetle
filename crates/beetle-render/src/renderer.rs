@@ -102,12 +102,37 @@ impl SoftwareRenderer {
         std::fs::write(path, bmp_data)
     }
 
-    /// Draws a solid color rectangle onto the internal framebuffer.
+    /// Draws a solid color rectangle onto the internal framebuffer with fast 32-bit row fill.
     pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
         if w <= 0.0 || h <= 0.0 {
             return;
         }
-        if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+
+        let target_w = self.width() as i32;
+        let target_h = self.height() as i32;
+
+        let ix0 = (x.round() as i32).clamp(0, target_w);
+        let iy0 = (y.round() as i32).clamp(0, target_h);
+        let ix1 = ((x + w).round() as i32).clamp(0, target_w);
+        let iy1 = ((y + h).round() as i32).clamp(0, target_h);
+
+        if ix0 >= ix1 || iy0 >= iy1 {
+            return;
+        }
+
+        if color.a == 255 {
+            let packed = u32::from_ne_bytes([color.r, color.g, color.b, 255]);
+            let data = self.pixmap.data_mut();
+            let u32_slice: &mut [u32] = unsafe {
+                std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
+            };
+
+            let row_len = (ix1 - ix0) as usize;
+            for py in iy0..iy1 {
+                let row_start = (py as usize) * (target_w as usize) + (ix0 as usize);
+                u32_slice[row_start..row_start + row_len].fill(packed);
+            }
+        } else if let Some(rect) = Rect::from_xywh(x, y, w, h) {
             let skia_color = Color::from_rgba8(color.r, color.g, color.b, color.a);
             self.pixmap.fill_rect(
                 rect,
@@ -297,7 +322,7 @@ mod tests {
         assert!(has_content1);
 
         let options = beetle_core::PlayOptions::default();
-        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, 0);
+        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", 240, 0);
         let has_content2 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content2);
     }

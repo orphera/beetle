@@ -12,10 +12,12 @@ impl SoftwareRenderer {
         is_auto_play: bool,
         start_measure: u32,
         master_volume: f32,
+        display_mode_str: &str,
+        target_fps: u32,
         selected_row: usize,
     ) {
-        let modal_w = 460.0;
-        let modal_h = 360.0;
+        let modal_w = 480.0;
+        let modal_h = 410.0;
         let modal_x = (self.width() as f32 - modal_w) / 2.0;
         let modal_y = (self.height() as f32 - modal_h) / 2.0;
 
@@ -34,10 +36,16 @@ impl SoftwareRenderer {
             &mut self.pixmap.as_mut(),
             "PLAY OPTIONS",
             center_x,
-            (modal_y + 16.0) as i32,
+            (modal_y + 14.0) as i32,
             2,
             ColorRgba::new(255, 255, 255, 255),
         );
+
+        let fps_str = if target_fps == 0 {
+            "<  UNLIMITED  >".to_string()
+        } else {
+            format!("<  {} FPS  >", target_fps)
+        };
 
         let rows = [
             ("HI-SPEED", format!("<  {:.0} px/s  >", options.hi_speed)),
@@ -45,12 +53,14 @@ impl SoftwareRenderer {
             ("GAUGE", format!("<  {}  >", options.gauge_type.as_str())),
             ("JUDGE OFFSET", format!("<  {:+.0} ms  >", options.judge_offset_ms)),
             ("MASTER VOLUME", format!("<  {:.0}%  >", master_volume * 100.0)),
+            ("DISPLAY MODE", format!("<  {}  >", display_mode_str)),
+            ("TARGET FPS", fps_str),
             ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
             ("AUTO PLAY", if is_auto_play { "<  ON  >".to_string() } else { "<  OFF  >".to_string() }),
             ("START MEASURE", format!("<  M.{}  >", start_measure)),
         ];
 
-        let mut row_y = (modal_y + 52.0) as i32;
+        let mut row_y = (modal_y + 46.0) as i32;
         for (i, (label, val)) in rows.iter().enumerate() {
             let is_sel = i == selected_row;
             let (text_color, bg_color) = if is_sel {
@@ -66,7 +76,7 @@ impl SoftwareRenderer {
                 self.draw_rect(modal_x + 16.0, row_y as f32 - 3.0, modal_w - 32.0, 24.0, bg);
             }
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (modal_x + 30.0) as i32, row_y, 1, text_color);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (modal_x + 28.0) as i32, row_y, 1, text_color);
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), val, (modal_x + 230.0) as i32, row_y, 1, if is_sel { ColorRgba::new(255, 230, 80, 255) } else { text_color });
 
             row_y += 28;
@@ -256,7 +266,7 @@ impl SoftwareRenderer {
         self.draw_rect(art_x, y, art_w, art_h, ColorRgba::new(12, 12, 18, 255));
 
         if let Some(img) = stage_image {
-            img.draw_scaled(&mut self.pixmap, art_x as i32, y as i32, art_w as u32, art_h as u32);
+            img.draw_fitted(&mut self.pixmap, art_x as i32, y as i32, art_w as u32, art_h as u32, crate::image::ImageFitMode::FillCrop);
         } else {
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
