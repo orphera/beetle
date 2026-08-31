@@ -13,7 +13,7 @@ use beetle_render::{ImageBuffer, SoftwareRenderer};
 use softbuffer::{Context, Surface};
 use winit::window::Window;
 
-use crate::config::{AppConfig, DisplayMode};
+use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
 use crate::demo;
 use crate::input::InputConfig;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
@@ -133,6 +133,7 @@ pub struct AppState {
     pub is_rebinding_key: bool,
     pub master_volume: f32,
     pub display_mode: DisplayMode,
+    pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
@@ -180,6 +181,7 @@ impl AppState {
             custom_key_bindings: self.input_config.serialize_bindings(),
             master_volume: self.master_volume,
             display_mode: self.display_mode,
+            gpu_backend: self.gpu_backend,
             window_width: size.width.max(640),
             window_height: size.height.max(480),
             target_fps: self.target_fps,

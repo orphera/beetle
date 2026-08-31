@@ -40,6 +40,41 @@ impl DisplayMode {
     }
 }
 
+/// GPU Graphics Backend selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GpuBackendSetting {
+    #[default]
+    Auto,
+    Direct3D11,
+    Software,
+}
+
+impl GpuBackendSetting {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "AUTO (D3D11/SOFT)",
+            Self::Direct3D11 => "DIRECT3D 11",
+            Self::Software => "SOFTWARE (CPU)",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Direct3D11,
+            Self::Direct3D11 => Self::Software,
+            Self::Software => Self::Auto,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Auto => Self::Software,
+            Self::Direct3D11 => Self::Auto,
+            Self::Software => Self::Direct3D11,
+        }
+    }
+}
+
 /// Persistent application configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -50,6 +85,7 @@ pub struct AppConfig {
     pub custom_key_bindings: String,
     pub master_volume: f32,
     pub display_mode: DisplayMode,
+    pub gpu_backend: GpuBackendSetting,
     pub window_width: u32,
     pub window_height: u32,
     pub target_fps: u32,
@@ -65,6 +101,7 @@ impl Default for AppConfig {
             custom_key_bindings: String::new(),
             master_volume: 1.0,
             display_mode: DisplayMode::Windowed,
+            gpu_backend: GpuBackendSetting::Auto,
             window_width: 1024,
             window_height: 768,
             target_fps: 240,
@@ -174,6 +211,13 @@ impl AppConfig {
                         _ => DisplayMode::Windowed,
                     };
                 }
+                "gpu_backend" => {
+                    config.gpu_backend = match val {
+                        "DIRECT3D 11" => GpuBackendSetting::Direct3D11,
+                        "SOFTWARE (CPU)" => GpuBackendSetting::Software,
+                        _ => GpuBackendSetting::Auto,
+                    };
+                }
                 "window_width" => {
                     if let Ok(w) = val.parse::<u32>() {
                         config.window_width = w.clamp(640, 7680);
@@ -204,7 +248,7 @@ impl AppConfig {
         };
 
         format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -215,6 +259,7 @@ impl AppConfig {
             self.custom_key_bindings,
             self.master_volume,
             self.display_mode.as_str(),
+            self.gpu_backend.as_str(),
             self.window_width,
             self.window_height,
             self.target_fps,
@@ -241,6 +286,7 @@ mod tests {
             custom_key_bindings: "Scratch:KeyA,Key1:KeyZ".to_string(),
             master_volume: 0.85,
             display_mode: DisplayMode::Borderless,
+            gpu_backend: GpuBackendSetting::Direct3D11,
             window_width: 1920,
             window_height: 1080,
             target_fps: 360,
@@ -259,6 +305,7 @@ mod tests {
         assert_eq!(config.custom_key_bindings, parsed.custom_key_bindings);
         assert_eq!(config.master_volume, parsed.master_volume);
         assert_eq!(config.display_mode, parsed.display_mode);
+        assert_eq!(config.gpu_backend, parsed.gpu_backend);
         assert_eq!(config.window_width, parsed.window_width);
         assert_eq!(config.window_height, parsed.window_height);
         assert_eq!(config.target_fps, parsed.target_fps);

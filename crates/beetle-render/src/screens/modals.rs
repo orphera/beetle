@@ -13,11 +13,12 @@ impl SoftwareRenderer {
         start_measure: u32,
         master_volume: f32,
         display_mode_str: &str,
+        gpu_backend_str: &str,
         target_fps: u32,
         selected_row: usize,
     ) {
         let modal_w = 480.0;
-        let modal_h = 410.0;
+        let modal_h = 436.0;
         let modal_x = (self.width() as f32 - modal_w) / 2.0;
         let modal_y = (self.height() as f32 - modal_h) / 2.0;
 
@@ -54,6 +55,7 @@ impl SoftwareRenderer {
             ("JUDGE OFFSET", format!("<  {:+.0} ms  >", options.judge_offset_ms)),
             ("MASTER VOLUME", format!("<  {:.0}%  >", master_volume * 100.0)),
             ("DISPLAY MODE", format!("<  {}  >", display_mode_str)),
+            ("GRAPHICS GPU", format!("<  {}  >", gpu_backend_str)),
             ("TARGET FPS", fps_str),
             ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
             ("AUTO PLAY", if is_auto_play { "<  ON  >".to_string() } else { "<  OFF  >".to_string() }),

@@ -165,6 +165,7 @@ impl ApplicationHandler for BeetleApp {
             is_rebinding_key: false,
             master_volume: saved_config.master_volume,
             display_mode: saved_config.display_mode,
+            gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,
             is_alt_pressed: false,
             bgm_cursor: 0,
@@ -447,6 +448,7 @@ impl ApplicationHandler for BeetleApp {
                                 state.start_measure,
                                 state.master_volume,
                                 state.display_mode.as_str(),
+                                state.gpu_backend.as_str(),
                                 state.target_fps,
                                 state.modal_row,
                             );

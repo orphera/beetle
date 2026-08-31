@@ -322,7 +322,7 @@ mod tests {
         assert!(has_content1);
 
         let options = beetle_core::PlayOptions::default();
-        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", 240, 0);
+        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "AUTO (D3D11/SOFT)", 240, 0);
         let has_content2 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content2);
     }
