@@ -18,15 +18,15 @@
 ---
 
 ## 📋 Phase 1: 2D 배치 렌더러 및 초경량 GPU HAL 인터페이스 설계 (`crates/beetle-render/`)
-- [ ] **초경량 `GpuBackend` 트레이트 정의 (`crates/beetle-render/src/backend/mod.rs`)**
-  - [ ] 2D 리듬게임에 특화된 6개 핵심 API 추상화 (`create_texture`, `update_texture`, `destroy_texture`, `draw_batch`, `resize`, `begin_frame` / `end_frame`)
-  - [ ] 정점 데이터 포맷 `Vertex2D` (`position: [f32; 2]`, `uv: [f32; 2]`, `color: [f32; 4]`) 정의
-  - [ ] 블렌딩 모드 `BlendMode` (`Alpha`: 기본 알파 블렌딩, `Additive`: 판정 빔/레인 가산 혼합)
-- [ ] **2D Sprite / Quad Batcher 구축 (`crates/beetle-render/src/backend/batcher.rs`)**
-  - [ ] 텍스처 단위 버텍스/인덱스 2D 쿼드 자동 배칭 (단 1~3회의 DrawCall로 전체 UI/노트 일괄 출력)
-  - [ ] 다국어 비트맵 폰트 아틀라스 텍스처 업로드 및 일괄 렌더링 지원
-- [ ] **안전한 CPU 소프트웨어 폴백 백엔드 (`SoftBackend`) 구현**
-  - [ ] 기존 `tiny-skia` 기반 렌더러를 `GpuBackend` 구현체로 래핑하여 무중단 폴백 보장
+- [x] **초경량 `GpuBackend` 트레이트 정의 (`crates/beetle-render/src/backend/mod.rs`)**
+  - [x] 2D 리듬게임에 특화된 6개 핵심 API 추상화 (`create_texture`, `update_texture`, `destroy_texture`, `draw_batch`, `resize`, `begin_frame` / `end_frame`)
+  - [x] 정점 데이터 포맷 `Vertex2D` (`position: [f32; 2]`, `uv: [f32; 2]`, `color: [f32; 4]`) 정의
+  - [x] 블렌딩 모드 `BlendMode` (`Alpha`: 기본 알파 블렌딩, `Additive`: 판정 빔/레인 가산 혼합)
+- [x] **2D Sprite / Quad Batcher 구축 (`crates/beetle-render/src/backend/batcher.rs`)**
+  - [x] 텍스처 단위 버텍스/인덱스 2D 쿼드 자동 배칭 (단 1~3회의 DrawCall로 전체 UI/노트 일괄 출력)
+  - [x] 다국어 비트맵 폰트 아틀라스 텍스처 업로드 및 일괄 렌더링 지원
+- [x] **안전한 CPU 소프트웨어 폴백 백엔드 (`SoftBackend`) 구현**
+  - [x] 기존 `tiny-skia` 기반 렌더러를 `GpuBackend` 구현체로 래핑하여 무중단 폴백 보장
 
 ---
 
