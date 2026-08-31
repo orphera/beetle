@@ -262,7 +262,7 @@ impl SoftwareRenderer {
             self.draw_rect(art_x, cur_y, art_w, art_h, ColorRgba::new(10, 12, 18, 255));
 
             if let Some(img) = stage_image {
-                img.draw_scaled(&mut self.pixmap, art_x as i32, cur_y as i32, art_w as u32, art_h as u32);
+                img.draw_fitted(&mut self.pixmap, art_x as i32, cur_y as i32, art_w as u32, art_h as u32, crate::image::ImageFitMode::FillCrop);
             } else {
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),

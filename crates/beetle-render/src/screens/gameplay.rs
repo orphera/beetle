@@ -590,7 +590,7 @@ impl SoftwareRenderer {
             if img.width == bga_w as u32 && img.height == bga_h as u32 {
                 img.blit_to(&mut self.pixmap, side_x as i32, bga_y as i32);
             } else {
-                img.draw_scaled(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
+                img.draw_fitted(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32, crate::image::ImageFitMode::FillCrop);
             }
         } else {
             BitmapFont::draw_text_centered(
