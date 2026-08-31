@@ -8,14 +8,13 @@ use crate::image::ImageBuffer;
 /// Standard video file extensions supported by the BGA video player.
 pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "mpg", "mpeg", "wmv", "avi", "mov", "webm", "mkv",
-    "MP4", "M4V", "MPG", "MPEG", "WMV", "AVI", "MOV", "WEBM", "MKV",
 ];
 
 /// Checks if a file path has a recognized video extension.
 pub fn is_video_path<P: AsRef<Path>>(path: P) -> bool {
     if let Some(ext) = path.as_ref().extension().and_then(|e| e.to_str()) {
         let ext_lower = ext.to_lowercase();
-        VIDEO_EXTENSIONS.iter().any(|&ve| ve.eq_ignore_ascii_case(&ext_lower))
+        VIDEO_EXTENSIONS.iter().any(|&ve| ve == ext_lower)
     } else {
         false
     }
@@ -102,52 +101,18 @@ mod wmf_backend {
     #[allow(non_snake_case, dead_code)]
     struct IMFMediaTypeVtbl {
         parent: IUnknownVtbl,
-        // IMFAttributes methods (29 methods)
-        GetItem: *const c_void,
-        GetItemType: *const c_void,
-        CompareItem: *const c_void,
-        Compare: *const c_void,
-        GetUINT32: *const c_void,
+        _unused1: [*const c_void; 5],
         GetUINT64: unsafe extern "system" fn(*mut c_void, *const GUID, *mut u64) -> i32,
-        GetDouble: *const c_void,
-        GetGUID: *const c_void,
-        GetStringLength: *const c_void,
-        GetString: *const c_void,
-        GetAllocatedString: *const c_void,
-        GetBlobSize: *const c_void,
-        GetBlob: *const c_void,
-        GetAllocatedBlob: *const c_void,
-        GetUnknown: *const c_void,
-        SetItem: *const c_void,
-        DeleteItem: *const c_void,
-        DeleteAllItems: *const c_void,
-        SetUINT32: *const c_void,
-        SetUINT64: *const c_void,
-        SetDouble: *const c_void,
+        _unused2: [*const c_void; 15],
         SetGUID: unsafe extern "system" fn(*mut c_void, *const GUID, *const GUID) -> i32,
-        SetString: *const c_void,
-        SetBlob: *const c_void,
-        SetUnknown: *const c_void,
-        LockStore: *const c_void,
-        UnlockStore: *const c_void,
-        GetCount: *const c_void,
-        GetItemByIndex: *const c_void,
-        CopyAllItems: *const c_void,
-        // IMFMediaType methods
-        GetMajorType: *const c_void,
-        IsCompressedFormat: *const c_void,
-        IsEqual: *const c_void,
-        GetRepresentation: *const c_void,
-        FreeRepresentation: *const c_void,
+        _unused3: [*const c_void; 13],
     }
 
     #[repr(C)]
     #[allow(non_snake_case, dead_code)]
     struct IMFSourceReaderVtbl {
         parent: IUnknownVtbl,
-        GetStreamSelection: *const c_void,
-        SetStreamSelection: *const c_void,
-        GetNativeMediaType: *const c_void,
+        _unused1: [*const c_void; 3],
         GetCurrentMediaType: unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32,
         SetCurrentMediaType: unsafe extern "system" fn(*mut c_void, u32, *mut u32, *mut c_void) -> i32,
         SetCurrentPosition: unsafe extern "system" fn(*mut c_void, *const GUID, *const PROPVARIANT) -> i32,
@@ -160,18 +125,14 @@ mod wmf_backend {
             *mut i64,
             *mut *mut c_void,
         ) -> i32,
-        Flush: *const c_void,
-        GetServiceForStream: *const c_void,
-        GetPresentationAttribute: *const c_void,
+        _unused2: [*const c_void; 3],
     }
 
     #[repr(C)]
     #[allow(non_snake_case, dead_code)]
     struct IMFSampleVtbl {
         parent: IUnknownVtbl,
-        // IMFAttributes methods (29 methods)
         unused_attributes: [*const c_void; 29],
-        // IMFSample methods
         GetSampleFlags: *const c_void,
         SetSampleFlags: *const c_void,
         GetSampleTime: unsafe extern "system" fn(*mut c_void, *mut i64) -> i32,
@@ -190,8 +151,7 @@ mod wmf_backend {
         Lock: unsafe extern "system" fn(*mut c_void, *mut *mut u8, *mut u32, *mut u32) -> i32,
         Unlock: unsafe extern "system" fn(*mut c_void) -> i32,
         GetCurrentLength: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32,
-        SetCurrentLength: *const c_void,
-        GetMaxLength: *const c_void,
+        _unused: [*const c_void; 2],
     }
 
     #[link(name = "mfplat")]

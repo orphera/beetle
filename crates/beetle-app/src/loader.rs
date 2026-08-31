@@ -101,7 +101,6 @@ fn find_video_file_in_dir(dir: &Path, chart: &BmsChart) -> Option<PathBuf> {
         "bga.avi", "movie.avi", "video.avi", "bg.avi",
         "bga.webm", "movie.webm", "video.webm", "bg.webm",
         "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
-        "BGA.MP4", "MOVIE.MP4", "VIDEO.MP4", "BG.MP4", "PV.MP4",
     ] {
         let p = dir.join(name);
         if p.exists() {
