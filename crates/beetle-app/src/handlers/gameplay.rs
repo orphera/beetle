@@ -84,6 +84,9 @@ pub fn handle_gameplay_input(
                 state.renderer.set_key_state(lane, true);
                 if let Some(judge) = &mut state.active_judge {
                     if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
+                        if judge_result.grade == beetle_core::JudgeGrade::Miss || judge_result.grade == beetle_core::JudgeGrade::Poor {
+                            state.poor_until_time = audio_time + 0.4;
+                        }
                         state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
 
                         if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
