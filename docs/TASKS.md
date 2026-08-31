@@ -44,12 +44,12 @@
 ---
 
 ## 📋 Phase 3: BGA & 동영상 하드웨어 텍스처 스트리밍 최적화
-- [ ] **BGA 이미지 & 동영상 프레임 고속 VRAM 업로드**
-  - [ ] BMS `#BMPxx` 이미지 시퀀스를 GPU 텍스처 풀로 적재
-  - [ ] WMF Video Player의 RGB32 프레임을 동적 텍스처(`update_texture`)로 저지연 스트리밍
-- [ ] **인게임 비주얼 이펙트 GPU 하드웨어 가속**
-  - [ ] 판정선 타격 빔 및 레인 이퀄라이저 가산 블렌딩(`BlendMode::Additive`) GPU 가속
-  - [ ] 종횡비 보존 뷰포트(`ImageFitMode`) 정점 UV 매핑 하드웨어 처리
+- [x] **BGA 이미지 & 동영상 프레임 고속 VRAM 업로드**
+  - [x] BMS `#BMPxx` 이미지 시퀀스를 GPU 텍스처 풀로 적재
+  - [x] WMF Video Player의 RGB32 프레임을 동적 텍스처(`update_texture`)로 저지연 스트리밍
+- [x] **인게임 비주얼 이펙트 GPU 하드웨어 가속**
+  - [x] 판정선 타격 빔 및 레인 이퀄라이저 가산 블렌딩(`BlendMode::Additive`) GPU 가속
+  - [x] 종횡비 보존 뷰포트(`ImageFitMode`) 정점 UV 매핑 하드웨어 처리
 
 ---
 
