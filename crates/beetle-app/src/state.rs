@@ -149,6 +149,11 @@ pub struct AppState {
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
     pub stage_image_loading_hash: Option<u64>,
+    pub is_dirty: bool,
+    pub sprite_batcher: beetle_render::SpriteBatcher,
+    #[cfg(target_os = "windows")]
+    pub font_atlas: Option<beetle_render::FontAtlas>,
+    pub bga_gpu_textures: std::collections::HashMap<beetle_core::BmpId, beetle_render::TextureId>,
     #[cfg(target_os = "windows")]
     pub d3d11_backend: Option<beetle_render::D3d11Backend>,
     #[cfg(target_os = "windows")]
@@ -156,6 +161,9 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn mark_dirty(&mut self) {
+        self.is_dirty = true;
+    }
     pub fn apply_display_mode(&mut self) {
         match self.display_mode {
             DisplayMode::Windowed => {

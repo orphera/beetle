@@ -11,11 +11,12 @@ pub mod screens;
 pub mod skin;
 pub mod video;
 
-pub use backend::{BlendMode, GpuBackend, GpuTexturePool, SoftBackend, SpriteBatcher, TextureId, Vertex2D};
+pub use backend::{BlendMode, FontAtlas, GpuBackend, GpuTexturePool, SoftBackend, SpriteBatcher, TextureId, Vertex2D};
 #[cfg(target_os = "windows")]
 pub use backend::D3d11Backend;
 pub use bitmap_font::BitmapFont;
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
+pub use screens::render_gameplay_gpu;
 pub use skin::{ColorRgba, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};

@@ -25,6 +25,15 @@ impl ColorRgba {
     pub const fn with_alpha(self, a: u8) -> Self {
         Self { r: self.r, g: self.g, b: self.b, a }
     }
+
+    pub fn to_f32_array(self) -> [f32; 4] {
+        [
+            (self.r as f32) / 255.0,
+            (self.g as f32) / 255.0,
+            (self.b as f32) / 255.0,
+            (self.a as f32) / 255.0,
+        ]
+    }
 }
 
 /// Minimal skin configuration (positions, dimensions, colors).

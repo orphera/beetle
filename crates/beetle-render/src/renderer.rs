@@ -86,6 +86,9 @@ pub struct SoftwareRenderer {
     pub(crate) key_pressed: [bool; 8],
     pub(crate) last_judge: Option<(JudgeGrade, f64, f64)>, // (Grade, time_seconds, delta_ms)
     pub(crate) hit_bursts: Vec<HitBurst>,
+    pub(crate) cached_gameplay_bg: Option<Pixmap>,
+    pub(crate) cached_gameplay_title: String,
+    pub(crate) cached_gameplay_artist: String,
 }
 
 impl SoftwareRenderer {
@@ -100,6 +103,9 @@ impl SoftwareRenderer {
             key_pressed: [false; 8],
             last_judge: None,
             hit_bursts: Vec::with_capacity(32),
+            cached_gameplay_bg: None,
+            cached_gameplay_title: String::new(),
+            cached_gameplay_artist: String::new(),
         })
     }
 
@@ -110,9 +116,14 @@ impl SoftwareRenderer {
                     self.pixmap = new_pixmap;
                 }
             }
+            self.cached_gameplay_bg = None;
             self.viewport = Viewport::new(width, height);
             self.skin.update_layout(&self.viewport);
         }
+    }
+
+    pub fn invalidate_gameplay_cache(&mut self) {
+        self.cached_gameplay_bg = None;
     }
 
     pub fn width(&self) -> u32 {
@@ -130,6 +141,18 @@ impl SoftwareRenderer {
     pub fn set_key_state(&mut self, lane: Lane, pressed: bool) {
         let idx = lane_index(lane);
         self.key_pressed[idx] = pressed;
+    }
+
+    pub fn key_pressed(&self) -> &[bool; 8] {
+        &self.key_pressed
+    }
+
+    pub fn hit_bursts(&self) -> &[HitBurst] {
+        &self.hit_bursts
+    }
+
+    pub fn last_judge(&self) -> Option<(JudgeGrade, f64, f64)> {
+        self.last_judge
     }
 
     pub fn trigger_judge(&mut self, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {

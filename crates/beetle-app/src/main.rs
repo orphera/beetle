@@ -227,6 +227,11 @@ impl ApplicationHandler for BeetleApp {
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
             stage_image_loading_hash: None,
+            is_dirty: true,
+            sprite_batcher: beetle_render::SpriteBatcher::new(),
+            #[cfg(target_os = "windows")]
+            font_atlas: None,
+            bga_gpu_textures: std::collections::HashMap::new(),
             #[cfg(target_os = "windows")]
             d3d11_backend,
             #[cfg(target_os = "windows")]
@@ -382,6 +387,7 @@ impl ApplicationHandler for BeetleApp {
                         state.stage_image_cache.insert(hash, img);
                         state.stage_image_receiver = None;
                         state.stage_image_loading_hash = None;
+                        state.mark_dirty();
                         state.window.request_redraw();
                     }
                 }
@@ -450,6 +456,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                         state.d3d11_frame_texture = d3d11.create_texture(size.width, size.height, state.renderer.data());
                     }
+                    state.mark_dirty();
                     state.window.request_redraw();
                 }
             }
@@ -513,62 +520,75 @@ impl ApplicationHandler for BeetleApp {
                 state.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                let audio_time = state
+                    .audio_engine
+                    .as_ref()
+                    .map(|a| a.clock().current_time_seconds())
+                    .unwrap_or(0.0);
+
+                let mut visual_levels = [0.0; 16];
+                if let Some(audio) = &state.audio_engine {
+                    audio.get_visual_levels(&mut visual_levels);
+                }
+
                 match state.screen {
                     AppScreen::SongSelect => {
-                        let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
-                        let visible_songs = state.current_visible_songs();
-                        let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
-                        state.renderer.render_song_select(
-                            &visible_songs,
-                            state.selected_song_idx,
-                            &state.score_store,
-                            state.sort_mode.as_str(),
-                            state.category_mode.as_str(),
-                            &state.search_query,
-                            state.is_search_active,
-                            stage_img,
-                            state.songs.len(),
-                        );
-
-                        // Check replay existence for selected song
-                        let has_replay = state
-                            .current_selected_song()
-                            .map(|s| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash)).exists())
-                            .unwrap_or(false);
-
-                        // Song select options bar
-                        let rep_str = if has_replay { "  [R]: Replay" } else { "" };
-                        let auto_str = if state.is_auto_play { "[AUTO: ON]" } else { "[AUTO: OFF]" };
-                        let opt_bar = format!(
-                            "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}{}  [Tab]: Options  [A]: AutoPlay",
-                            state.play_options.hi_speed,
-                            state.play_options.lane_modifier.as_str(),
-                            state.play_options.gauge_type.as_str(),
-                            auto_str,
-                            rep_str,
-                        );
-                        state.renderer.draw_footer_text(&opt_bar);
-
-                        // If option modal is open, overlay modal on top
-                        if state.show_option_modal {
-                            state.renderer.render_option_modal(
-                                &state.play_options,
-                                state.input_config.preset.as_str(),
-                                state.is_auto_play,
-                                state.start_measure,
-                                state.master_volume,
-                                state.display_mode.as_str(),
-                                &state.current_resolution_label(),
-                                state.gpu_backend.as_str(),
-                                state.target_fps,
-                                state.track_bga.as_str(),
-                                state.modal_row,
+                        if state.is_dirty {
+                            let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
+                            let visible_songs = state.current_visible_songs();
+                            let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
+                            state.renderer.render_song_select(
+                                &visible_songs,
+                                state.selected_song_idx,
+                                &state.score_store,
+                                state.sort_mode.as_str(),
+                                state.category_mode.as_str(),
+                                &state.search_query,
+                                state.is_search_active,
+                                stage_img,
+                                state.songs.len(),
                             );
-                        }
 
-                        // If exit confirmation modal is open, overlay modal on top
-                        if state.show_exit_modal {
-                            state.renderer.render_exit_confirm_modal();
+                            // Check replay existence for selected song
+                            let has_replay = state
+                                .current_selected_song()
+                                .map(|s| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash)).exists())
+                                .unwrap_or(false);
+
+                            // Song select options bar
+                            let rep_str = if has_replay { "  [R]: Replay" } else { "" };
+                            let auto_str = if state.is_auto_play { "[AUTO: ON]" } else { "[AUTO: OFF]" };
+                            let opt_bar = format!(
+                                "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}{}  [Tab]: Options  [A]: AutoPlay",
+                                state.play_options.hi_speed,
+                                state.play_options.lane_modifier.as_str(),
+                                state.play_options.gauge_type.as_str(),
+                                auto_str,
+                                rep_str,
+                            );
+                            state.renderer.draw_footer_text(&opt_bar);
+
+                            // If option modal is open, overlay modal on top
+                            if state.show_option_modal {
+                                state.renderer.render_option_modal(
+                                    &state.play_options,
+                                    state.input_config.preset.as_str(),
+                                    state.is_auto_play,
+                                    state.start_measure,
+                                    state.master_volume,
+                                    state.display_mode.as_str(),
+                                    &state.current_resolution_label(),
+                                    state.gpu_backend.as_str(),
+                                    state.target_fps,
+                                    state.track_bga.as_str(),
+                                    state.modal_row,
+                                );
+                            }
+
+                            // If exit confirmation modal is open, overlay modal on top
+                            if state.show_exit_modal {
+                                state.renderer.render_exit_confirm_modal();
+                            }
                         }
                     }
                     AppScreen::Loading => {
@@ -589,12 +609,6 @@ impl ApplicationHandler for BeetleApp {
                         );
                     }
                     AppScreen::Gameplay => {
-                        let audio_time = state
-                            .audio_engine
-                            .as_ref()
-                            .map(|a| a.clock().current_time_seconds())
-                            .unwrap_or(0.0);
-
                         let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
 
                         if !state.is_gameplay_paused {
@@ -668,11 +682,6 @@ impl ApplicationHandler for BeetleApp {
                             }
                         }
 
-                        let mut visual_levels = [0.0; 16];
-                        if let Some(audio) = &state.audio_engine {
-                            audio.get_visual_levels(&mut visual_levels);
-                        }
-
                         state.update_video_bga(audio_time);
                         let active_bga = state::resolve_bga_hierarchy(
                             state.poor_until_time,
@@ -692,47 +701,50 @@ impl ApplicationHandler for BeetleApp {
                             }
                         });
 
-                        // Render gameplay frame
-                        if let (Some(chart), Some(judge), Some(timing)) =
-                            (&state.active_chart, &state.active_judge, &state.active_timing)
-                        {
-                            state.renderer.render_gameplay(
-                                chart,
-                                judge.notes(),
-                                audio_time,
-                                judge.score(),
-                                &visual_levels,
-                                active_bga,
-                                active_layer,
-                                state.track_bga.opacity(),
-                                timing,
-                            );
-                        }
+                        // Software rendering path: only needed when D3D11 is inactive or when gameplay is paused
+                        let should_render_software = !state.is_d3d11_active() || state.is_gameplay_paused;
+                        if should_render_software {
+                            if let (Some(chart), Some(judge), Some(timing)) =
+                                (&state.active_chart, &state.active_judge, &state.active_timing)
+                            {
+                                state.renderer.render_gameplay(
+                                    chart,
+                                    judge.notes(),
+                                    audio_time,
+                                    judge.score(),
+                                    &visual_levels,
+                                    active_bga,
+                                    active_layer,
+                                    state.track_bga.opacity(),
+                                    timing,
+                                );
+                            }
 
-                        // Overlay Pause Modal if active
-                        if state.is_gameplay_paused {
-                            let title = state.active_chart.as_ref().map(|c| c.header.title.as_str()).unwrap_or("Unknown");
-                            let artist = state.active_chart.as_ref().map(|c| c.header.artist.as_str()).unwrap_or("Unknown");
-                            state.renderer.render_pause_modal(
-                                title,
-                                artist,
-                                audio_time,
-                                state.song_end_time,
-                                state.pause_selected_option,
-                            );
-                        } else {
-                            let footer_text = if state.is_replay_playback {
-                                "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
-                            } else if state.is_auto_play {
-                                "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
+                            // Overlay Pause Modal if active
+                            if state.is_gameplay_paused {
+                                let title = state.active_chart.as_ref().map(|c| c.header.title.as_str()).unwrap_or("Unknown");
+                                let artist = state.active_chart.as_ref().map(|c| c.header.artist.as_str()).unwrap_or("Unknown");
+                                state.renderer.render_pause_modal(
+                                    title,
+                                    artist,
+                                    audio_time,
+                                    state.song_end_time,
+                                    state.pause_selected_option,
+                                );
                             } else {
-                                match state.input_config.preset {
-                                    KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                    KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                    KeyPreset::Custom => "KEYS: Custom Key Layout Active    (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                }
-                            };
-                            state.renderer.draw_footer_text(footer_text);
+                                let footer_text = if state.is_replay_playback {
+                                    "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
+                                } else if state.is_auto_play {
+                                    "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
+                                } else {
+                                    match state.input_config.preset {
+                                        KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                        KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                        KeyPreset::Custom => "KEYS: Custom Key Layout Active    (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                    }
+                                };
+                                state.renderer.draw_footer_text(footer_text);
+                            }
                         }
 
                         // Check Stage Failure (Hard / Hazard gauge depleted to 0)
@@ -753,27 +765,31 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::Result => {
-                        if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
-                            state.renderer.render_result(chart, judge.score(), state.is_new_record, state.previous_best.as_ref());
+                        if state.is_dirty {
+                            if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
+                                state.renderer.render_result(chart, judge.score(), state.is_new_record, state.previous_best.as_ref());
+                            }
                         }
                     }
                     AppScreen::KeyConfig => {
-                        let key_names = [
-                            ("SCRATCH (1S)", state.input_config.get_key_name_for_lane(Lane::Scratch)),
-                            ("KEY 1 (1P)", state.input_config.get_key_name_for_lane(Lane::Key1)),
-                            ("KEY 2 (1P)", state.input_config.get_key_name_for_lane(Lane::Key2)),
-                            ("KEY 3 (1P)", state.input_config.get_key_name_for_lane(Lane::Key3)),
-                            ("KEY 4 (1P)", state.input_config.get_key_name_for_lane(Lane::Key4)),
-                            ("KEY 5 (1P)", state.input_config.get_key_name_for_lane(Lane::Key5)),
-                            ("KEY 6 (1P)", state.input_config.get_key_name_for_lane(Lane::Key6)),
-                            ("KEY 7 (1P)", state.input_config.get_key_name_for_lane(Lane::Key7)),
-                        ];
-                        state.renderer.render_key_config(
-                            &key_names,
-                            state.selected_key_idx,
-                            state.input_config.preset.as_str(),
-                            state.is_rebinding_key,
-                        );
+                        if state.is_dirty {
+                            let key_names = [
+                                ("SCRATCH (1S)", state.input_config.get_key_name_for_lane(Lane::Scratch)),
+                                ("KEY 1 (1P)", state.input_config.get_key_name_for_lane(Lane::Key1)),
+                                ("KEY 2 (1P)", state.input_config.get_key_name_for_lane(Lane::Key2)),
+                                ("KEY 3 (1P)", state.input_config.get_key_name_for_lane(Lane::Key3)),
+                                ("KEY 4 (1P)", state.input_config.get_key_name_for_lane(Lane::Key4)),
+                                ("KEY 5 (1P)", state.input_config.get_key_name_for_lane(Lane::Key5)),
+                                ("KEY 6 (1P)", state.input_config.get_key_name_for_lane(Lane::Key6)),
+                                ("KEY 7 (1P)", state.input_config.get_key_name_for_lane(Lane::Key7)),
+                            ];
+                            state.renderer.render_key_config(
+                                &key_names,
+                                state.selected_key_idx,
+                                state.input_config.preset.as_str(),
+                                state.is_rebinding_key,
+                            );
+                        }
                     }
                 }
 
@@ -786,22 +802,91 @@ impl ApplicationHandler for BeetleApp {
                 if state.is_d3d11_active() && width > 0 && height > 0 {
                     use beetle_render::GpuBackend;
                     if let Some(d3d11) = &mut state.d3d11_backend {
-                        d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-                        if let Some(tex_id) = state.d3d11_frame_texture {
-                            d3d11.update_texture(tex_id, width, height, state.renderer.data());
-                            let w = width as f32;
-                            let h = height as f32;
-                            let quad_vertices = [
-                                beetle_render::Vertex2D::new(0.0, 0.0, 0.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
-                                beetle_render::Vertex2D::new(w, 0.0, 1.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
-                                beetle_render::Vertex2D::new(w, h, 1.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
-                                beetle_render::Vertex2D::new(0.0, h, 0.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
-                            ];
-                            let quad_indices = [0, 1, 2, 0, 2, 3];
-                            d3d11.draw_batch(&quad_vertices, &quad_indices, Some(tex_id), beetle_render::BlendMode::Alpha);
+                        // 1. True GPU batched rendering path for active gameplay
+                        if state.screen == AppScreen::Gameplay && !state.is_gameplay_paused {
+                            if state.font_atlas.is_none() {
+                                state.font_atlas = beetle_render::FontAtlas::new(d3d11);
+                            }
+
+                            if let (Some(chart), Some(judge), Some(timing), Some(font_atlas)) =
+                                (&state.active_chart, &state.active_judge, &state.active_timing, &state.font_atlas)
+                            {
+                                d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+
+                                // Resolve / cache active BGA GPU texture
+                                let bga_tex_id = if let Some(bmp_id) = state.current_bga_bmp {
+                                    if let Some(&t) = state.bga_gpu_textures.get(&bmp_id) {
+                                        Some(t)
+                                    } else if let Some(img) = state.bga_bank.get(&bmp_id) {
+                                        let mut raw = Vec::with_capacity((img.width * img.height * 4) as usize);
+                                        for p in &img.pixels {
+                                            raw.push(p.r);
+                                            raw.push(p.g);
+                                            raw.push(p.b);
+                                            raw.push(p.a);
+                                        }
+                                        let t = d3d11.create_texture(img.width, img.height, &raw);
+                                        if let Some(tex) = t {
+                                            state.bga_gpu_textures.insert(bmp_id, tex);
+                                        }
+                                        t
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                let key_pressed = *state.renderer.key_pressed();
+                                let hit_bursts = state.renderer.hit_bursts();
+                                let last_judge = state.renderer.last_judge();
+
+                                beetle_render::render_gameplay_gpu(
+                                    d3d11,
+                                    &mut state.sprite_batcher,
+                                    &state.renderer.viewport,
+                                    &state.renderer.skin,
+                                    font_atlas,
+                                    chart,
+                                    judge.notes(),
+                                    audio_time,
+                                    judge.score(),
+                                    &visual_levels,
+                                    bga_tex_id,
+                                    None,
+                                    state.track_bga.opacity(),
+                                    timing,
+                                    &key_pressed,
+                                    hit_bursts,
+                                    last_judge,
+                                );
+
+                                d3d11.end_frame();
+                                presented_d3d11 = true;
+                            }
                         }
-                        d3d11.end_frame();
-                        presented_d3d11 = true;
+
+                        // 2. UI, Modal, and Fallback screens via SoftwareRenderer texture
+                        if !presented_d3d11 {
+                            d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+                            if let Some(tex_id) = state.d3d11_frame_texture {
+                                if state.is_dirty || state.screen == AppScreen::Loading || state.is_gameplay_paused {
+                                    d3d11.update_texture(tex_id, width, height, state.renderer.data());
+                                }
+                                let w = width as f32;
+                                let h = height as f32;
+                                let quad_vertices = [
+                                    beetle_render::Vertex2D::new(0.0, 0.0, 0.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
+                                    beetle_render::Vertex2D::new(w, 0.0, 1.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
+                                    beetle_render::Vertex2D::new(w, h, 1.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
+                                    beetle_render::Vertex2D::new(0.0, h, 0.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
+                                ];
+                                let quad_indices = [0, 1, 2, 0, 2, 3];
+                                d3d11.draw_batch(&quad_vertices, &quad_indices, Some(tex_id), beetle_render::BlendMode::Alpha);
+                            }
+                            d3d11.end_frame();
+                            presented_d3d11 = true;
+                        }
                     }
                 }
 
@@ -809,15 +894,19 @@ impl ApplicationHandler for BeetleApp {
                 let presented_d3d11 = false;
 
                 if !presented_d3d11 && width > 0 && height > 0 {
-                    if let Ok(mut buffer) = state.surface.buffer_mut() {
-                        let data = state.renderer.data();
-                        let buffer_slice = buffer.as_mut();
-                        for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
-                            *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
+                    if state.is_dirty || state.screen == AppScreen::Gameplay || state.screen == AppScreen::Loading {
+                        if let Ok(mut buffer) = state.surface.buffer_mut() {
+                            let data = state.renderer.data();
+                            let buffer_slice = buffer.as_mut();
+                            for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
+                                *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
+                            }
+                            let _ = buffer.present();
                         }
-                        let _ = buffer.present();
                     }
                 }
+
+                state.is_dirty = false;
             }
             _ => (),
         }
@@ -831,6 +920,8 @@ fn handle_keyboard_input(
     _repeat: bool,
     text: Option<&str>,
 ) {
+    state.mark_dirty();
+
     let PhysicalKey::Code(code) = physical_key else {
         return;
     };

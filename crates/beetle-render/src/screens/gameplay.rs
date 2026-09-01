@@ -3,8 +3,164 @@ use crate::image::ImageBuffer;
 use crate::renderer::{lane_index, SoftwareRenderer};
 use crate::skin::ColorRgba;
 use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, ScoreTracker, TimingModel};
+use tiny_skia::Pixmap;
+
+#[inline(always)]
+fn draw_rect_on_pixmap(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let target_w = pixmap.width() as i32;
+    let target_h = pixmap.height() as i32;
+
+    let ix0 = (x.round() as i32).clamp(0, target_w);
+    let iy0 = (y.round() as i32).clamp(0, target_h);
+    let ix1 = ((x + w).round() as i32).clamp(0, target_w);
+    let iy1 = ((y + h).round() as i32).clamp(0, target_h);
+
+    if ix0 >= ix1 || iy0 >= iy1 {
+        return;
+    }
+
+    if color.a == 255 {
+        let packed = u32::from_ne_bytes([color.r, color.g, color.b, 255]);
+        let data = pixmap.data_mut();
+        let u32_slice: &mut [u32] = unsafe {
+            std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
+        };
+        let row_len = (ix1 - ix0) as usize;
+        for py in iy0..iy1 {
+            let row_start = (py as usize) * (target_w as usize) + (ix0 as usize);
+            u32_slice[row_start..row_start + row_len].fill(packed);
+        }
+    } else if color.a > 0 {
+        let a = color.a as u32;
+        let inv_a = 255 - a;
+        let sr = (color.r as u32 * a) / 255;
+        let sg = (color.g as u32 * a) / 255;
+        let sb = (color.b as u32 * a) / 255;
+
+        let data = pixmap.data_mut();
+        let u32_slice: &mut [u32] = unsafe {
+            std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
+        };
+        let row_len = (ix1 - ix0) as usize;
+        for py in iy0..iy1 {
+            let row_start = (py as usize) * (target_w as usize) + (ix0 as usize);
+            for pixel in &mut u32_slice[row_start..row_start + row_len] {
+                let p = *pixel;
+                let dr = p & 0xFF;
+                let dg = (p >> 8) & 0xFF;
+                let db = (p >> 16) & 0xFF;
+                let nr = sr + (dr * inv_a) / 255;
+                let ng = sg + (dg * inv_a) / 255;
+                let nb = sb + (db * inv_a) / 255;
+                *pixel = (255 << 24) | (nb << 16) | (ng << 8) | nr;
+            }
+        }
+    }
+}
 
 impl SoftwareRenderer {
+    /// Prepares or validates the pre-rendered static background pixmap for gameplay.
+    ///
+    /// Caches the static playfield frame, separator lines, BGA container, and HUD labels
+    /// to avoid redundant CPU rasterization and bit-loop font rendering every frame.
+    pub fn prepare_gameplay_static_bg(&mut self, chart: &BmsChart) {
+        let w = self.width();
+        let h = self.height();
+        if let Some(bg) = &self.cached_gameplay_bg {
+            if bg.width() == w
+                && bg.height() == h
+                && self.cached_gameplay_title == chart.header.title
+                && self.cached_gameplay_artist == chart.header.artist
+            {
+                return;
+            }
+        }
+
+        let mut bg = match Pixmap::new(w, h) {
+            Some(p) => p,
+            None => return,
+        };
+
+        // 1. Viewport & margins
+        let bg_col = self.skin.bg_color;
+        if !self.viewport.is_letterboxed() && !self.viewport.is_pillarboxed() {
+            bg.fill(tiny_skia::Color::from_rgba8(bg_col.r, bg_col.g, bg_col.b, bg_col.a));
+        } else {
+            bg.fill(tiny_skia::Color::BLACK);
+            draw_rect_on_pixmap(&mut bg, self.viewport.x, self.viewport.y, self.viewport.width, self.viewport.height, bg_col);
+        }
+
+        let s = self.viewport.scale;
+
+        // 2. Playfield main background box
+        draw_rect_on_pixmap(
+            &mut bg,
+            self.skin.playfield_x,
+            self.skin.playfield_y,
+            self.skin.playfield_width,
+            self.skin.playfield_height,
+            self.skin.playfield_bg_color,
+        );
+
+        // 3. Lane vertical separator lines
+        let line_w = (1.0 * s).max(1.0);
+        let line_color = self.skin.lane_line_color;
+        for &lane in self.skin.active_lanes() {
+            let x = self.skin.lane_x(lane);
+            draw_rect_on_pixmap(&mut bg, x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+        }
+        let right_x = self.skin.playfield_x + self.skin.playfield_width;
+        draw_rect_on_pixmap(&mut bg, right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+
+        // 4. Gauge bar background container & border
+        let gauge_x = self.skin.playfield_x + self.skin.playfield_width + 16.0 * s;
+        let gauge_y = self.skin.playfield_y;
+        let gauge_w = 22.0 * s;
+        let gauge_h = self.skin.playfield_height;
+        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, gauge_w, gauge_h, ColorRgba::new(20, 20, 28, 255));
+        let b_line = (1.0 * s).max(1.0);
+        let border_color = ColorRgba::new(80, 80, 100, 255);
+        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, gauge_w, b_line, border_color);
+        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y + gauge_h - b_line, gauge_w, b_line, border_color);
+        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, b_line, gauge_h, border_color);
+        draw_rect_on_pixmap(&mut bg, gauge_x + gauge_w - b_line, gauge_y, b_line, gauge_h, border_color);
+
+        // 5. BGA frame container
+        let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
+        let bga_y = self.skin.playfield_y + 240.0 * s;
+        let max_w = (self.viewport.x + self.viewport.width - side_x - 24.0 * s).max(100.0);
+        let bga_w = (520.0 * s).min(max_w);
+        let bga_h = (bga_w * 9.0 / 16.0).round();
+        draw_rect_on_pixmap(&mut bg, side_x - 2.0 * s, bga_y - 2.0 * s, bga_w + 4.0 * s, bga_h + 4.0 * s, ColorRgba::new(50, 60, 80, 255));
+        draw_rect_on_pixmap(&mut bg, side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255));
+
+        // 6. Static HUD text labels
+        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
+        let mut hud_y = self.skin.playfield_y as i32;
+        let title_scale = (2.0 * s).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
+
+        BitmapFont::draw_text(&mut bg.as_mut(), &chart.header.title, hud_x, hud_y, title_scale, ColorRgba::new(255, 255, 255, 255));
+        hud_y += (22.0 * s) as i32;
+
+        BitmapFont::draw_text(&mut bg.as_mut(), &chart.header.artist, hud_x, hud_y, font_scale, ColorRgba::new(160, 160, 180, 255));
+        hud_y += (28.0 * s) as i32;
+
+        let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
+        BitmapFont::draw_text(&mut bg.as_mut(), &bpm_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+        hud_y += (16.0 * s) as i32;
+
+        let lvl_str = format!("LEVEL: {}", chart.header.play_level);
+        BitmapFont::draw_text(&mut bg.as_mut(), &lvl_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+
+        self.cached_gameplay_bg = Some(bg);
+        self.cached_gameplay_title = chart.header.title.clone();
+        self.cached_gameplay_artist = chart.header.artist.clone();
+    }
+
     /// Renders a single gameplay frame based on current audio time.
     pub fn render_gameplay(
         &mut self,
@@ -18,13 +174,19 @@ impl SoftwareRenderer {
         track_bga_opacity: f32,
         timing: &TimingModel,
     ) {
-        self.clear();
+        self.prepare_gameplay_static_bg(chart);
+
+        if let Some(bg) = &self.cached_gameplay_bg {
+            self.pixmap.data_mut().copy_from_slice(bg.data());
+        } else {
+            self.clear();
+        }
 
         let is_danger = (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
             || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
         let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
 
-        self.draw_playfield_bg(score.current_combo, danger_blink, bga_image, layer_image, track_bga_opacity);
+        self.draw_playfield_dynamic_overlay(score.current_combo, danger_blink, bga_image, layer_image, track_bga_opacity);
         self.draw_key_beams();
         self.draw_measure_lines(audio_time_seconds, timing, chart);
         self.draw_notes(notes, audio_time_seconds);
@@ -37,7 +199,7 @@ impl SoftwareRenderer {
         self.draw_bga_and_visualizer(visual_levels, bga_image, layer_image);
     }
 
-    fn draw_playfield_bg(
+    fn draw_playfield_dynamic_overlay(
         &mut self,
         combo: u32,
         danger_blink: bool,
@@ -47,14 +209,16 @@ impl SoftwareRenderer {
     ) {
         let s = self.viewport.scale;
 
-        // Draw playfield main background box
-        self.draw_rect(
-            self.skin.playfield_x,
-            self.skin.playfield_y,
-            self.skin.playfield_width,
-            self.skin.playfield_height,
-            self.skin.playfield_bg_color,
-        );
+        // If background cache was not available, redraw base playfield box
+        if self.cached_gameplay_bg.is_none() {
+            self.draw_rect(
+                self.skin.playfield_x,
+                self.skin.playfield_y,
+                self.skin.playfield_width,
+                self.skin.playfield_height,
+                self.skin.playfield_bg_color,
+            );
+        }
 
         // Draw playfield track BGA underlay if enabled
         if track_bga_opacity > 0.0 {
@@ -81,35 +245,26 @@ impl SoftwareRenderer {
             }
         }
 
-        let line_color = if combo >= 100 {
-            ColorRgba::new(50, 100, 180, 220) // Subtle ambient blue for active combo
-        } else {
-            self.skin.lane_line_color
-        };
-
-        let line_w = (1.0 * s).max(1.0);
-
-        // Draw lane vertical separator lines
-        for &lane in self.skin.active_lanes() {
-            let x = self.skin.lane_x(lane);
-            self.draw_rect(
-                x,
-                self.skin.playfield_y,
-                line_w,
-                self.skin.playfield_height,
-                line_color,
-            );
+        // Subtle ambient blue for active combo (>= 100)
+        if combo >= 100 {
+            let line_color = ColorRgba::new(50, 100, 180, 220);
+            let line_w = (1.0 * s).max(1.0);
+            for &lane in self.skin.active_lanes() {
+                let x = self.skin.lane_x(lane);
+                self.draw_rect(x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+            }
+            let right_x = self.skin.playfield_x + self.skin.playfield_width;
+            self.draw_rect(right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+        } else if self.cached_gameplay_bg.is_none() {
+            let line_color = self.skin.lane_line_color;
+            let line_w = (1.0 * s).max(1.0);
+            for &lane in self.skin.active_lanes() {
+                let x = self.skin.lane_x(lane);
+                self.draw_rect(x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+            }
+            let right_x = self.skin.playfield_x + self.skin.playfield_width;
+            self.draw_rect(right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
         }
-
-        // Right boundary line
-        let right_x = self.skin.playfield_x + self.skin.playfield_width;
-        self.draw_rect(
-            right_x,
-            self.skin.playfield_y,
-            line_w,
-            self.skin.playfield_height,
-            line_color,
-        );
 
         // Danger pulsing border around entire playfield
         if danger_blink {

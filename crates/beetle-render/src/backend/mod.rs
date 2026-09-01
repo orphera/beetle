@@ -1,9 +1,11 @@
+pub mod atlas;
 pub mod batcher;
 #[cfg(target_os = "windows")]
 pub mod d3d11;
 pub mod soft;
 pub mod texture_pool;
 
+pub use atlas::FontAtlas;
 pub use batcher::SpriteBatcher;
 #[cfg(target_os = "windows")]
 pub use d3d11::D3d11Backend;

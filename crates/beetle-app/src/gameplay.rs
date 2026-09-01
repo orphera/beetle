@@ -25,6 +25,7 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     }
 
     state.loading_receiver = Some(spawn_background_song_loader(song));
+    state.mark_dirty();
     state.window.request_redraw();
 }
 
@@ -157,7 +158,9 @@ pub fn finalize_start_gameplay(
     state.is_gameplay_paused = false;
     state.pause_selected_option = 0;
     state.audio_engine = audio_engine;
-    state.screen = AppScreen::Gameplay;
+    state.renderer.invalidate_gameplay_cache();
+    state.bga_gpu_textures.clear();
+    state.mark_dirty();
     state.window.request_redraw();
 }
 
@@ -216,5 +219,6 @@ pub fn finish_gameplay(state: &mut AppState) {
     state.video_players.clear();
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
+    state.mark_dirty();
     state.window.request_redraw();
 }
