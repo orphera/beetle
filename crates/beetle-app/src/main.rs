@@ -247,6 +247,7 @@ impl ApplicationHandler for BeetleApp {
                             if e_ext.eq_ignore_ascii_case("bms")
                                 || e_ext.eq_ignore_ascii_case("bme")
                                 || e_ext.eq_ignore_ascii_case("bml")
+                                || e_ext.eq_ignore_ascii_case("pms")
                             {
                                 Some(e.path.clone())
                             } else {
@@ -449,6 +450,7 @@ impl ApplicationHandler for BeetleApp {
                                 if e_ext.eq_ignore_ascii_case("bms")
                                     || e_ext.eq_ignore_ascii_case("bme")
                                     || e_ext.eq_ignore_ascii_case("bml")
+                                    || e_ext.eq_ignore_ascii_case("pms")
                                 {
                                     Some(e.path.clone())
                                 } else {
@@ -471,6 +473,7 @@ impl ApplicationHandler for BeetleApp {
                 } else if ext.eq_ignore_ascii_case("bms")
                     || ext.eq_ignore_ascii_case("bme")
                     || ext.eq_ignore_ascii_case("bml")
+                    || ext.eq_ignore_ascii_case("pms")
                 {
                     if let Ok(bytes) = fs::read(&path) {
                         let content = String::from_utf8_lossy(&bytes);
