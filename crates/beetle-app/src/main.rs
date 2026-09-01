@@ -94,22 +94,47 @@ impl ApplicationHandler for BeetleApp {
             .with_min_inner_size(LogicalSize::new(800, 600))
             .with_resizable(false);
 
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        let context = Context::new(window.clone()).unwrap();
-        let mut surface = Surface::new(&context, window.clone()).unwrap();
+        let window = match event_loop.create_window(window_attributes) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                eprintln!("Failed to create window: {e}");
+                return;
+            }
+        };
+        let context = match Context::new(window.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to create softbuffer context: {e}");
+                return;
+            }
+        };
+        let mut surface = match Surface::new(&context, window.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to create softbuffer surface: {e}");
+                return;
+            }
+        };
 
         let size = window.inner_size();
-        let _ = surface.resize(
-            NonZeroU32::new(size.width.max(1)).unwrap(),
-            NonZeroU32::new(size.height.max(1)).unwrap(),
-        );
+        if let (Some(w), Some(h)) = (
+            NonZeroU32::new(size.width.max(1)),
+            NonZeroU32::new(size.height.max(1)),
+        ) {
+            let _ = surface.resize(w, h);
+        }
 
         let mut skin = SkinConfig::default();
         skin.hi_speed = saved_config.play_options.hi_speed;
         skin.lane_cover_ratio = saved_config.lane_cover_ratio;
 
-        let renderer = SoftwareRenderer::new(size.width, size.height, skin)
-            .expect("Failed to initialize software renderer");
+        let renderer = match SoftwareRenderer::new(size.width, size.height, skin) {
+            Some(r) => r,
+            None => {
+                eprintln!("Failed to initialize software renderer");
+                return;
+            }
+        };
 
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
@@ -806,6 +831,12 @@ fn handle_keyboard_input(
 }
 
 fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = format!("PANIC: {info}\n");
+        let _ = std::fs::write("panic.log", &msg);
+        eprintln!("{msg}");
+    }));
+
     #[cfg(windows)]
     let _timer_guard = MultimediaTimerGuard::new();
 

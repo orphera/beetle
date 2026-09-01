@@ -212,9 +212,9 @@ impl D3d11Backend {
                 BindFlags: D3D11_BIND_VERTEX_BUFFER,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE,
                 MiscFlags: 0,
-                StructureByteStride: std::mem::size_of::<Vertex2D>() as u32,
+                StructureByteStride: 0,
             };
-            ((*dev_vtbl).CreateBuffer)(device, &vb_desc, ptr::null(), &mut vertex_buffer);
+            let hr_vb = ((*dev_vtbl).CreateBuffer)(device, &vb_desc, ptr::null(), &mut vertex_buffer);
 
             let ib_desc = D3D11_BUFFER_DESC {
                 ByteWidth: (12288 * std::mem::size_of::<u16>()) as u32,
@@ -222,9 +222,9 @@ impl D3d11Backend {
                 BindFlags: D3D11_BIND_INDEX_BUFFER,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE,
                 MiscFlags: 0,
-                StructureByteStride: std::mem::size_of::<u16>() as u32,
+                StructureByteStride: 0,
             };
-            ((*dev_vtbl).CreateBuffer)(device, &ib_desc, ptr::null(), &mut index_buffer);
+            let hr_ib = ((*dev_vtbl).CreateBuffer)(device, &ib_desc, ptr::null(), &mut index_buffer);
 
             let cb_desc = D3D11_BUFFER_DESC {
                 ByteWidth: 16, // float4 (screen_w, screen_h, 0, 0)
@@ -232,9 +232,17 @@ impl D3d11Backend {
                 BindFlags: D3D11_BIND_CONSTANT_BUFFER,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE,
                 MiscFlags: 0,
-                StructureByteStride: 16,
+                StructureByteStride: 0,
             };
-            ((*dev_vtbl).CreateBuffer)(device, &cb_desc, ptr::null(), &mut constant_buffer);
+            let hr_cb = ((*dev_vtbl).CreateBuffer)(device, &cb_desc, ptr::null(), &mut constant_buffer);
+
+            if hr_vb < 0 || hr_ib < 0 || hr_cb < 0
+                || vertex_buffer.is_null()
+                || index_buffer.is_null()
+                || constant_buffer.is_null()
+            {
+                return Err("Failed to create D3D11 dynamic buffers".to_string());
+            }
         }
 
         // 4. Create Blend States (Alpha & Additive)
@@ -285,7 +293,7 @@ impl D3d11Backend {
                 ComparisonFunc: D3D11_COMPARISON_NEVER,
                 BorderColor: [0.0, 0.0, 0.0, 0.0],
                 MinLOD: 0.0,
-                MaxLOD: 0.0,
+                MaxLOD: f32::MAX,
             };
             ((*dev_vtbl).CreateSamplerState)(device, &samp_desc, &mut sampler_linear);
         }
@@ -485,13 +493,16 @@ impl GpuBackend for D3d11Backend {
         Some(id)
     }
 
-    fn update_texture(&mut self, id: TextureId, width: u32, _height: u32, pixels: &[u8]) {
-        let expected_bytes = (width * _height * 4) as usize;
+    fn update_texture(&mut self, id: TextureId, width: u32, height: u32, pixels: &[u8]) {
+        let expected_bytes = (width * height * 4) as usize;
         if pixels.len() < expected_bytes {
             return;
         }
 
         if let Some(tex) = self.textures.get(&id) {
+            if tex.width != width || tex.height != height {
+                return;
+            }
             unsafe {
                 let ctx_vtbl = *(self.context as *mut *mut ID3D11DeviceContextVtbl);
                 ((*ctx_vtbl).UpdateSubresource)(
@@ -529,7 +540,7 @@ impl GpuBackend for D3d11Backend {
         texture: Option<TextureId>,
         blend_mode: BlendMode,
     ) {
-        if vertices.is_empty() || indices.is_empty() {
+        if vertices.is_empty() || indices.is_empty() || vertices.len() > 8192 || indices.len() > 12288 {
             return;
         }
 
@@ -546,15 +557,16 @@ impl GpuBackend for D3d11Backend {
                 0,
                 &mut mapped_vb,
             );
-            if hr_vb >= 0 && !mapped_vb.pData.is_null() {
-                let byte_count = vertices.len() * std::mem::size_of::<Vertex2D>();
-                ptr::copy_nonoverlapping(
-                    vertices.as_ptr() as *const c_void,
-                    mapped_vb.pData,
-                    byte_count,
-                );
-                ((*ctx_vtbl).Unmap)(self.context, self.vertex_buffer, 0);
+            if hr_vb < 0 || mapped_vb.pData.is_null() {
+                return;
             }
+            let byte_count = vertices.len() * std::mem::size_of::<Vertex2D>();
+            ptr::copy_nonoverlapping(
+                vertices.as_ptr() as *const c_void,
+                mapped_vb.pData,
+                byte_count,
+            );
+            ((*ctx_vtbl).Unmap)(self.context, self.vertex_buffer, 0);
 
             // 2. Upload Indices
             let mut mapped_ib: D3D11_MAPPED_SUBRESOURCE = std::mem::zeroed();
@@ -566,15 +578,16 @@ impl GpuBackend for D3d11Backend {
                 0,
                 &mut mapped_ib,
             );
-            if hr_ib >= 0 && !mapped_ib.pData.is_null() {
-                let byte_count = indices.len() * std::mem::size_of::<u16>();
-                ptr::copy_nonoverlapping(
-                    indices.as_ptr() as *const c_void,
-                    mapped_ib.pData,
-                    byte_count,
-                );
-                ((*ctx_vtbl).Unmap)(self.context, self.index_buffer, 0);
+            if hr_ib < 0 || mapped_ib.pData.is_null() {
+                return;
             }
+            let byte_count = indices.len() * std::mem::size_of::<u16>();
+            ptr::copy_nonoverlapping(
+                indices.as_ptr() as *const c_void,
+                mapped_ib.pData,
+                byte_count,
+            );
+            ((*ctx_vtbl).Unmap)(self.context, self.index_buffer, 0);
 
             // 3. Set Vertex & Index Buffers
             let stride = std::mem::size_of::<Vertex2D>() as u32;
