@@ -19,75 +19,98 @@ const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
     "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
 ];
 
-fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option<ImageBuffer> {
-    let direct = dir.join(filename);
-    if let Some(img) = ImageBuffer::load_from_file(&direct) {
-        return Some(img);
+fn resolve_file_case_insensitive(dir: &Path, relative: &str) -> Option<PathBuf> {
+    let normalized = relative.replace('\\', "/");
+    let direct = dir.join(&normalized);
+    if direct.exists() {
+        return Some(direct);
     }
 
-    // Try case-insensitive matching and alternate extensions (.bmp, .png, .jpg, .jpeg)
-    let stem = match filename.rfind('.') {
-        Some(pos) => &filename[..pos],
-        None => filename,
-    };
+    let parts: Vec<&str> = normalized.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+    if parts.is_empty() {
+        return None;
+    }
 
-    if let Ok(entries) = fs::read_dir(dir) {
-        let entries_list: Vec<_> = entries.flatten().collect();
+    let mut current = dir.to_path_buf();
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        let mut found = None;
 
-        // 1. Direct case-insensitive match
-        for entry in &entries_list {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.eq_ignore_ascii_case(filename) {
-                    if let Some(img) = ImageBuffer::load_from_file(entry.path()) {
-                        return Some(img);
+        if let Ok(entries) = fs::read_dir(&current) {
+            let entries_vec: Vec<_> = entries.flatten().collect();
+
+            // 1. Direct case-insensitive match
+            for entry in &entries_vec {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.eq_ignore_ascii_case(part) {
+                        found = Some(entry.path());
+                        break;
                     }
                 }
             }
-        }
 
-        // 2. Alternate extension match (.bmp, .png, .jpg, .jpeg)
-        for ext in &["bmp", "png", "jpg", "jpeg"] {
-            let alt_target = format!("{}.{}", stem, ext);
-            for entry in &entries_list {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.eq_ignore_ascii_case(&alt_target) {
-                        if let Some(img) = ImageBuffer::load_from_file(entry.path()) {
-                            return Some(img);
+            // 2. If last part (file), try alternate extensions (.bmp, .png, .jpg, .jpeg)
+            if found.is_none() && is_last {
+                if let Some(pos) = part.rfind('.') {
+                    let stem = &part[..pos];
+                    for ext in &["bmp", "png", "jpg", "jpeg"] {
+                        let alt = format!("{}.{}", stem, ext);
+                        for entry in &entries_vec {
+                            if let Some(name) = entry.file_name().to_str() {
+                                if name.eq_ignore_ascii_case(&alt) {
+                                    found = Some(entry.path());
+                                    break;
+                                }
+                            }
+                        }
+                        if found.is_some() {
+                            break;
                         }
                     }
                 }
             }
         }
+
+        if let Some(next) = found {
+            current = next;
+        } else {
+            return None;
+        }
     }
 
-    None
+    Some(current)
+}
+
+fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option<ImageBuffer> {
+    let resolved = resolve_file_case_insensitive(dir, filename)?;
+    ImageBuffer::load_from_file(&resolved)
 }
 
 fn find_video_file_in_dir(dir: &Path, chart: &BmsChart) -> Option<PathBuf> {
-    // 1. Check bmp_table for video files
+    // 1. Check bmp_table for video files or files with matching stems
     for filename in chart.header.bmp_table.values() {
         if is_video_path(filename) {
-            let p = dir.join(filename);
-            if p.exists() {
+            if let Some(p) = resolve_file_case_insensitive(dir, filename) {
                 return Some(p);
             }
-            if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.eq_ignore_ascii_case(filename) {
-                            return Some(entry.path());
-                        }
-                    }
+        } else {
+            let stem = match filename.rfind('.') {
+                Some(pos) => &filename[..pos],
+                None => filename.as_str(),
+            };
+            for ext in beetle_render::VIDEO_EXTENSIONS {
+                let candidate = format!("{}.{}", stem, ext);
+                if let Some(p) = resolve_file_case_insensitive(dir, &candidate) {
+                    return Some(p);
                 }
             }
         }
     }
 
-    // 2. Check stage_file or banner
+    // 2. Check stage_file or banner for video files
     for filename in &[&chart.header.stage_file, &chart.header.banner] {
         if !filename.is_empty() && is_video_path(filename) {
-            let p = dir.join(filename);
-            if p.exists() {
+            if let Some(p) = resolve_file_case_insensitive(dir, filename) {
                 return Some(p);
             }
         }
@@ -135,7 +158,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 .to_string_lossy();
 
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                let content = String::from_utf8_lossy(&bms_bytes);
+                let content = beetle_core::decode_bms_text(&bms_bytes);
                 if let Ok(chart) = parse_bms(&content) {
                     if !chart.header.stage_file.is_empty() {
                         if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file) {
@@ -182,7 +205,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 
     // Check parsed chart header for stagefile or banner
     if let Ok(bytes) = fs::read(song_path) {
-        let content = String::from_utf8_lossy(&bytes);
+        let content = beetle_core::decode_bms_text(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             if !chart.header.stage_file.is_empty() {
                 if let Some(img) = load_image_from_dir_or_case_insensitive(dir, &chart.header.stage_file) {
@@ -233,7 +256,7 @@ pub fn load_chart_and_audio(
                 .to_string_lossy();
 
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                let content = String::from_utf8_lossy(&bms_bytes);
+                let content = beetle_core::decode_bms_text(&bms_bytes);
                 if let Ok(chart) = parse_bms(&content) {
                     let timing = TimingModel::from_chart(&chart);
                     let mut soundbank = SampleBank::new();
@@ -273,7 +296,7 @@ pub fn load_chart_and_audio(
 
     let path = Path::new(&song.file_path);
     if let Ok(bytes) = fs::read(path) {
-        let content = String::from_utf8_lossy(&bytes);
+        let content = beetle_core::decode_bms_text(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             let timing = TimingModel::from_chart(&chart);
             let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));

@@ -18,4 +18,4 @@ pub use bitmap_font::BitmapFont;
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use skin::{ColorRgba, SkinConfig};
-pub use video::{is_video_path, BgaVideoPlayer};
+pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};

@@ -320,6 +320,81 @@ impl ImageBuffer {
             }
         }
     }
+
+    /// Draws this image fitted into the destination box, treating RGB(0,0,0) black or transparent pixels as transparent color-key.
+    /// Used for BMS Layer BGA (Channel 07) overlays on top of background video or images.
+    pub fn draw_color_keyed(
+        &self,
+        pixmap: &mut Pixmap,
+        dst_x: i32,
+        dst_y: i32,
+        dst_w: u32,
+        dst_h: u32,
+    ) {
+        if dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+            return;
+        }
+
+        let target_w = pixmap.width() as i32;
+        let target_h = pixmap.height() as i32;
+        let data = pixmap.data_mut();
+
+        let scale_x = dst_w as f32 / self.width as f32;
+        let scale_y = dst_h as f32 / self.height as f32;
+        let scale = scale_x.max(scale_y);
+
+        let src_view_w = dst_w as f32 / scale;
+        let src_view_h = dst_h as f32 / scale;
+        let src_origin_x = (self.width as f32 - src_view_w) / 2.0;
+        let src_origin_y = (self.height as f32 - src_view_h) / 2.0;
+
+        for dy in 0..dst_h as i32 {
+            let py = dst_y + dy;
+            if py < 0 || py >= target_h {
+                continue;
+            }
+
+            let sy = (src_origin_y + (dy as f32 / dst_h as f32) * src_view_h) as i32;
+            if sy < 0 || sy >= self.height as i32 {
+                continue;
+            }
+            let row_src_idx = (sy as usize) * (self.width as usize);
+
+            for dx in 0..dst_w as i32 {
+                let px = dst_x + dx;
+                if px < 0 || px >= target_w {
+                    continue;
+                }
+
+                let sx = (src_origin_x + (dx as f32 / dst_w as f32) * src_view_w) as i32;
+                if sx < 0 || sx >= self.width as i32 {
+                    continue;
+                }
+
+                let color = self.pixels[row_src_idx + sx as usize];
+                if color.a == 0 || (color.r == 0 && color.g == 0 && color.b == 0) {
+                    continue;
+                }
+
+                let dst_idx = (py as usize * target_w as usize + px as usize) * 4;
+                if dst_idx + 3 < data.len() {
+                    if color.a == 255 {
+                        data[dst_idx] = color.r;
+                        data[dst_idx + 1] = color.g;
+                        data[dst_idx + 2] = color.b;
+                        data[dst_idx + 3] = 255;
+                    } else {
+                        let alpha = color.a as f32 / 255.0;
+                        let inv_a = 1.0 - alpha;
+                        data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                        data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                        data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                        data[dst_idx + 3] = 255;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -340,6 +415,49 @@ mod tests {
         assert_eq!(img.height, 3);
         assert_eq!(img.pixels.len(), 6);
         assert_eq!(img.pixels[0], ColorRgba::new(64, 128, 255, 255));
+    }
+
+    #[test]
+    fn test_bmp_decoder_8bit_paletted() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"BM");
+        let file_size: u32 = 14 + 40 + (256 * 4) + 8;
+        data.extend_from_slice(&file_size.to_le_bytes());
+        data.extend_from_slice(&[0; 4]);
+        let data_offset: u32 = 14 + 40 + (256 * 4);
+        data.extend_from_slice(&data_offset.to_le_bytes());
+
+        // DIB Header
+        data.extend_from_slice(&40u32.to_le_bytes());
+        data.extend_from_slice(&2i32.to_le_bytes()); // w
+        data.extend_from_slice(&2i32.to_le_bytes()); // h
+        data.extend_from_slice(&1u16.to_le_bytes()); // planes
+        data.extend_from_slice(&8u16.to_le_bytes()); // bpp = 8
+        data.extend_from_slice(&0u32.to_le_bytes()); // compression = 0
+        data.extend_from_slice(&8u32.to_le_bytes()); // image size
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&256u32.to_le_bytes()); // colors used
+        data.extend_from_slice(&0u32.to_le_bytes());
+
+        // Palette: color 0 = Red (B=0, G=0, R=255), color 1 = Blue (B=255, G=0, R=0)
+        data.extend_from_slice(&[0, 0, 255, 0]);
+        data.extend_from_slice(&[255, 0, 0, 0]);
+        for _ in 2..256 {
+            data.extend_from_slice(&[0, 0, 0, 0]);
+        }
+
+        // Pixel data (bottom-up: bottom row first, top row second)
+        data.extend_from_slice(&[0, 1, 0, 0]); // bottom row: Red, Blue
+        data.extend_from_slice(&[1, 0, 0, 0]); // top row: Blue, Red
+
+        let img = ImageBuffer::from_bmp_bytes(&data).expect("Failed to decode 8-bit paletted BMP");
+        assert_eq!(img.width, 2);
+        assert_eq!(img.height, 2);
+        assert_eq!(img.pixels[0], ColorRgba::new(0, 0, 255, 255)); // Top-left: Blue
+        assert_eq!(img.pixels[1], ColorRgba::new(255, 0, 0, 255)); // Top-right: Red
+        assert_eq!(img.pixels[2], ColorRgba::new(255, 0, 0, 255)); // Bottom-left: Red
+        assert_eq!(img.pixels[3], ColorRgba::new(0, 0, 255, 255)); // Bottom-right: Blue
     }
 
     #[test]

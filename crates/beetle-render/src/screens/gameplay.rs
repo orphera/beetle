@@ -14,6 +14,7 @@ impl SoftwareRenderer {
         score: &ScoreTracker,
         visual_levels: &[f32; 16],
         bga_image: Option<&ImageBuffer>,
+        layer_image: Option<&ImageBuffer>,
     ) {
         self.clear();
 
@@ -30,7 +31,7 @@ impl SoftwareRenderer {
         self.draw_gauge_bar(score, danger_blink);
         self.draw_combo_and_judge(score, audio_time_seconds);
         self.draw_hud_info(chart, score);
-        self.draw_bga_and_visualizer(visual_levels, bga_image);
+        self.draw_bga_and_visualizer(visual_levels, bga_image, layer_image);
     }
 
     fn draw_playfield_bg(&mut self, combo: u32, danger_blink: bool) {
@@ -596,6 +597,7 @@ impl SoftwareRenderer {
         &mut self,
         levels: &[f32; 16],
         bga_image: Option<&ImageBuffer>,
+        layer_image: Option<&ImageBuffer>,
     ) {
         let s = self.viewport.scale;
         let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
@@ -620,6 +622,11 @@ impl SoftwareRenderer {
                 font_scale,
                 ColorRgba::new(80, 90, 110, 255),
             );
+        }
+
+        // Draw Layer BGA (Channel 07) overlay with color-key transparency
+        if let Some(layer) = layer_image {
+            layer.draw_color_keyed(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
         }
 
         let vis_y = bga_y + bga_h + 16.0 * s;

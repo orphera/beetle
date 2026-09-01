@@ -662,6 +662,8 @@ impl ApplicationHandler for BeetleApp {
                             audio_time,
                         );
 
+                        let active_layer = state.current_layer_bmp.and_then(|id| state.bga_bank.get(&id));
+
                         // Render gameplay frame
                         if let (Some(chart), Some(judge)) =
                             (&state.active_chart, &state.active_judge)
@@ -673,6 +675,7 @@ impl ApplicationHandler for BeetleApp {
                                 judge.score(),
                                 &visual_levels,
                                 active_bga,
+                                active_layer,
                             );
                         }
 
