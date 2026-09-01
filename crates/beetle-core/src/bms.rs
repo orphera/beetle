@@ -186,7 +186,9 @@ pub struct BmsChart {
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
     pub total_notes_count: usize,
+    pub has_scratch: bool,
     pub has_2p_dp: bool,
+    pub has_2p_key1: bool,
     pub has_pms_ch: bool,
     pub has_k67: bool,
 }
@@ -201,15 +203,31 @@ impl BmsChart {
     pub fn detect_play_mode_with_hint(&self, is_pms_ext: bool) -> PlayMode {
         if is_pms_ext {
             PlayMode::Keys9
-        } else if self.header.player == 2 || self.header.player == 3 || self.has_2p_dp {
-            // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play) or 2P note channels present
+        } else if self.header.player == 2 || self.header.player == 3 {
+            // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play)
             if self.has_k67 {
                 PlayMode::Keys14
             } else {
                 PlayMode::Keys10
             }
-        } else if self.has_pms_ch && !self.has_k67 {
-            PlayMode::Keys9
+        } else if self.has_2p_dp {
+            // 2P note channels are present.
+            // Pop'n Music (9KEYS) strictly uses only 1P keys 1..5 (11..15) and 2P channels 22..25,
+            // with NO scratch lanes (16/26), NO key 6/7 lanes (18/19/28/29),
+            // NO 2P key 1 (21/61), and player is 1 or unset.
+            let is_pms_layout = self.has_pms_ch
+                && !self.has_scratch
+                && !self.has_k67
+                && !self.has_2p_key1
+                && (self.header.player <= 1);
+
+            if is_pms_layout {
+                PlayMode::Keys9
+            } else if self.has_k67 {
+                PlayMode::Keys14
+            } else {
+                PlayMode::Keys10
+            }
         } else if self.has_k67 {
             PlayMode::Keys7
         } else {
@@ -653,17 +671,26 @@ fn parse_measure_line(
 
     // Record channel usage for accurate play mode detection (5K, 7K, 9K, 10K, 14K)
     match channel {
+        "16" | "56" => {
+            chart.has_scratch = true;
+        }
         "18" | "19" | "58" | "59" => {
             chart.has_k67 = true;
+        }
+        "26" | "66" => {
+            chart.has_scratch = true;
+            chart.has_2p_dp = true;
         }
         "28" | "29" | "68" | "69" => {
             chart.has_k67 = true;
             chart.has_2p_dp = true;
         }
-        "21" | "26" | "61" | "66" => {
+        "21" | "61" => {
             chart.has_2p_dp = true;
+            chart.has_2p_key1 = true;
         }
         "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
+            chart.has_2p_dp = true;
             chart.has_pms_ch = true;
         }
         _ => {}
@@ -1091,6 +1118,33 @@ mod tests {
 
         let chart_pms_hint = parse_bms(bms_7k).unwrap();
         assert_eq!(chart_pms_hint.detect_play_mode_with_hint(true), PlayMode::Keys9);
+
+        // 10K with #PLAYER 1 but scratch lane 16 + 2P channel 22 (PMS cannot have scratch)
+        let bms_10k_scratch = r#"
+#PLAYER 1
+#00116:01000000
+#00122:02000000
+"#;
+        let chart_10k_scratch = parse_bms(bms_10k_scratch).unwrap();
+        assert_eq!(chart_10k_scratch.detect_play_mode(), PlayMode::Keys10);
+
+        // 10K with #PLAYER 1 and 2P Key 1 (channel 21)
+        let bms_10k_key1 = r#"
+#PLAYER 1
+#00111:01000000
+#00121:02000000
+"#;
+        let chart_10k_key1 = parse_bms(bms_10k_key1).unwrap();
+        assert_eq!(chart_10k_key1.detect_play_mode(), PlayMode::Keys10);
+
+        // 14K with #PLAYER 1, 1P Key 6 (18) and 2P channel 22
+        let bms_14k_p1 = r#"
+#PLAYER 1
+#00118:01000000
+#00122:02000000
+"#;
+        let chart_14k_p1 = parse_bms(bms_14k_p1).unwrap();
+        assert_eq!(chart_14k_p1.detect_play_mode(), PlayMode::Keys14);
     }
 
     #[test]

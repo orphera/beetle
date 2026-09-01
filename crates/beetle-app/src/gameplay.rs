@@ -107,7 +107,8 @@ pub fn finalize_start_gameplay(
         }
     }
 
-    let play_mode = play_chart.detect_play_mode();
+    let is_pms = song.file_path.to_lowercase().ends_with(".pms");
+    let play_mode = play_chart.detect_play_mode_with_hint(is_pms);
     state.renderer.skin.set_play_mode(play_mode);
     state.renderer.skin.hi_speed = state.play_options.hi_speed;
 

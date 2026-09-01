@@ -74,6 +74,13 @@ pub fn scan_directory<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         }
     }
 
+    if let Ok(env_dir) = std::env::var("BMS_DIR") {
+        let p = Path::new(&env_dir);
+        if p.exists() && p != dir_path {
+            scan_recursive(p, &mut songs);
+        }
+    }
+
     // Deduplicate by file_path
     songs.sort_by(|a, b| a.file_path.cmp(&b.file_path));
     songs.dedup_by(|a, b| a.file_path == b.file_path);

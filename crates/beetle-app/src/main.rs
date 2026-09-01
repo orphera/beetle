@@ -988,6 +988,58 @@ mod tests {
         // 5. Non-matching search query
         let empty_indices = filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
         assert_eq!(empty_indices.len(), 0);
+
+        // 6. Strict play mode category filter tests
+        let test_songs = vec![
+            SongMetadata {
+                hash: 1,
+                file_path: "pms_song.pms".to_string(),
+                title: "Popn Track".to_string(),
+                subtitle: "".to_string(),
+                artist: "".to_string(),
+                genre: "".to_string(),
+                bpm: 150.0,
+                play_level: 5,
+                notes_count: 500,
+                play_mode: beetle_core::PlayMode::Keys9,
+            },
+            SongMetadata {
+                hash: 2,
+                file_path: "dp_10k.bms".to_string(),
+                title: "10K DP Track".to_string(),
+                subtitle: "".to_string(),
+                artist: "".to_string(),
+                genre: "".to_string(),
+                bpm: 160.0,
+                play_level: 8,
+                notes_count: 800,
+                play_mode: beetle_core::PlayMode::Keys10,
+            },
+            SongMetadata {
+                hash: 3,
+                file_path: "dp_14k.bme".to_string(),
+                title: "14K DP Track".to_string(),
+                subtitle: "".to_string(),
+                artist: "".to_string(),
+                genre: "".to_string(),
+                bpm: 180.0,
+                play_level: 12,
+                notes_count: 1400,
+                play_mode: beetle_core::PlayMode::Keys14,
+            },
+        ];
+
+        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store);
+        assert_eq!(keys9_indices.len(), 1);
+        assert_eq!(test_songs[keys9_indices[0]].play_mode, beetle_core::PlayMode::Keys9);
+
+        let keys10_indices = filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store);
+        assert_eq!(keys10_indices.len(), 1);
+        assert_eq!(test_songs[keys10_indices[0]].play_mode, beetle_core::PlayMode::Keys10);
+
+        let keys14_indices = filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store);
+        assert_eq!(keys14_indices.len(), 1);
+        assert_eq!(test_songs[keys14_indices[0]].play_mode, beetle_core::PlayMode::Keys14);
     }
 
     #[test]
