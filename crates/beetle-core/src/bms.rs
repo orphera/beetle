@@ -185,27 +185,34 @@ pub struct BmsChart {
     pub bga_events: Vec<BgaEvent>,
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
+    pub has_2p_dp: bool,
+    pub has_pms_ch: bool,
+    pub has_k67: bool,
 }
 
 impl BmsChart {
     /// Detects the play mode based on header commands and note lanes present.
     pub fn detect_play_mode(&self) -> PlayMode {
-        if self.header.player == 3 {
+        self.detect_play_mode_with_hint(false)
+    }
+
+    /// Detects the play mode with an optional file extension hint (e.g. true if `.pms`).
+    pub fn detect_play_mode_with_hint(&self, is_pms_ext: bool) -> PlayMode {
+        if is_pms_ext {
             PlayMode::Keys9
-        } else if self.header.player == 2 {
-            let has_key6_or_7 = self.notes.iter().any(|n| n.lane == Lane::Key6 || n.lane == Lane::Key7);
-            if has_key6_or_7 {
+        } else if self.header.player == 2 || self.header.player == 3 || self.has_2p_dp {
+            // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play) or 2P note channels present
+            if self.has_k67 {
                 PlayMode::Keys14
             } else {
                 PlayMode::Keys10
             }
+        } else if self.has_pms_ch && !self.has_k67 {
+            PlayMode::Keys9
+        } else if self.has_k67 {
+            PlayMode::Keys7
         } else {
-            let has_key6_or_7 = self.notes.iter().any(|n| n.lane == Lane::Key6 || n.lane == Lane::Key7);
-            if has_key6_or_7 {
-                PlayMode::Keys7
-            } else {
-                PlayMode::Keys5
-            }
+            PlayMode::Keys5
         }
     }
 }
@@ -521,6 +528,24 @@ fn parse_measure_line(
     let slot_count = data_bytes.len() / 2;
     if slot_count == 0 {
         return Ok(());
+    }
+
+    // Record channel usage for accurate play mode detection (5K, 7K, 9K, 10K, 14K)
+    match channel {
+        "18" | "19" | "58" | "59" => {
+            chart.has_k67 = true;
+        }
+        "28" | "29" | "68" | "69" => {
+            chart.has_k67 = true;
+            chart.has_2p_dp = true;
+        }
+        "21" | "26" | "61" | "66" => {
+            chart.has_2p_dp = true;
+        }
+        "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
+            chart.has_pms_ch = true;
+        }
+        _ => {}
     }
 
     for i in 0..slot_count {
@@ -903,6 +928,24 @@ mod tests {
 "#;
         let chart_14k = parse_bms(bms_14k).unwrap();
         assert_eq!(chart_14k.detect_play_mode(), PlayMode::Keys14);
+
+        let bms_dp3 = r#"
+#PLAYER 3
+#00118:01000000
+"#;
+        let chart_dp3 = parse_bms(bms_dp3).unwrap();
+        assert_eq!(chart_dp3.detect_play_mode(), PlayMode::Keys14);
+
+        let bms_pms = r#"
+#PLAYER 1
+#00111:01000000
+#00122:02000000
+"#;
+        let chart_pms = parse_bms(bms_pms).unwrap();
+        assert_eq!(chart_pms.detect_play_mode(), PlayMode::Keys9);
+
+        let chart_pms_hint = parse_bms(bms_7k).unwrap();
+        assert_eq!(chart_pms_hint.detect_play_mode_with_hint(true), PlayMode::Keys9);
     }
 
     #[test]

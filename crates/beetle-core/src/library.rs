@@ -67,7 +67,8 @@ impl SongMetadata {
         let chart = parse_bms(content).ok()?;
         let hash = compute_chart_hash(content.as_bytes());
         let notes_count = chart.notes.len();
-        let play_mode = chart.detect_play_mode();
+        let is_pms = file_path.to_lowercase().ends_with(".pms");
+        let play_mode = chart.detect_play_mode_with_hint(is_pms);
 
         let title = if chart.header.title.is_empty() {
             "Unknown Title".to_string()
