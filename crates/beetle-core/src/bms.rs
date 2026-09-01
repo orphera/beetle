@@ -185,6 +185,7 @@ pub struct BmsChart {
     pub bga_events: Vec<BgaEvent>,
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
+    pub total_notes_count: usize,
     pub has_2p_dp: bool,
     pub has_pms_ch: bool,
     pub has_k67: bool,
@@ -326,7 +327,7 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
     }
 
     // Process LNTYPE 1 long notes (pairs of channel 5x events)
-    process_lntype1_notes(&raw_ln_events, &mut chart.notes);
+    process_lntype1_notes(&raw_ln_events, &mut chart.notes, &mut chart.total_notes_count);
 
     // CRITICAL: Sort notes chronologically BEFORE LNOBJ processing
     // In real BMS files, measure lines may appear in arbitrary order. Notes must be strictly sorted by time
@@ -634,6 +635,7 @@ fn parse_measure_line(
             // 11..19: 1P Tap Notes
             "11" | "12" | "13" | "14" | "15" | "16" | "18" | "19" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.total_notes_count += 1;
                     if let Some(lane) = channel_to_lane(channel) {
                         chart.notes.push(NoteEvent {
                             measure,
@@ -645,12 +647,33 @@ fn parse_measure_line(
                     }
                 }
             }
+            // 21..29: 2P Tap Notes (Counted in chart notes total, routed to BGM keysounds in 1P mode)
+            "21" | "22" | "23" | "24" | "25" | "26" | "28" | "29" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.total_notes_count += 1;
+                    chart.bgm_notes.push((measure, fraction, wav_id));
+                }
+            }
+            // 31..39, 41..49: Invisible/Freezone Notes (Plays keysound on beat without visual lane note)
+            "31" | "32" | "33" | "34" | "35" | "36" | "38" | "39"
+            | "41" | "42" | "43" | "44" | "45" | "46" | "48" | "49" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.bgm_notes.push((measure, fraction, wav_id));
+                }
+            }
             // 51..59: 1P Long Notes (LNTYPE 1)
             "51" | "52" | "53" | "54" | "55" | "56" | "58" | "59" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
                     if let Some(lane) = channel_to_lane(channel) {
                         raw_ln_events.push((measure, fraction, lane, wav_id));
                     }
+                }
+            }
+            // 61..69: 2P Long Notes (LNTYPE 1)
+            "61" | "62" | "63" | "64" | "65" | "66" | "68" | "69" => {
+                if let Some(wav_id) = decode_base36(c1, c2) {
+                    chart.total_notes_count += 1;
+                    chart.bgm_notes.push((measure, fraction, wav_id));
                 }
             }
             _ => (),
@@ -677,6 +700,7 @@ fn channel_to_lane(ch: &str) -> Option<Lane> {
 fn process_lntype1_notes(
     raw_lns: &[(u32, f64, Lane, WavId)],
     notes: &mut Vec<NoteEvent>,
+    total_notes_count: &mut usize,
 ) {
     let mut lane_pending: HashMap<Lane, (u32, f64, WavId)> = HashMap::new();
 
@@ -688,6 +712,7 @@ fn process_lntype1_notes(
 
     for (measure, fraction, lane, wav_id) in sorted_lns {
         if let Some((start_m, start_f, start_wav)) = lane_pending.remove(&lane) {
+            *total_notes_count += 1;
             // End of LN
             notes.push(NoteEvent {
                 measure: start_m,
@@ -946,6 +971,23 @@ mod tests {
 
         let chart_pms_hint = parse_bms(bms_7k).unwrap();
         assert_eq!(chart_pms_hint.detect_play_mode_with_hint(true), PlayMode::Keys9);
+    }
+
+    #[test]
+    fn test_2p_and_invisible_notes_handling() {
+        let bms = r#"
+#PLAYER 3
+#00111:01000000
+#00121:02000000
+#00131:03000000
+#00161:04000000
+#00161:00000000
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse DP chart with invisible notes");
+        assert_eq!(chart.notes.len(), 1); // 1P note on key 1
+        assert_eq!(chart.bgm_notes.len(), 3); // 2P note, invisible note, and 2P LN routed to bgm_notes
+        assert_eq!(chart.total_notes_count, 3); // 1 1P note + 1 2P note + 1 2P LN
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys10);
     }
 
     #[test]
