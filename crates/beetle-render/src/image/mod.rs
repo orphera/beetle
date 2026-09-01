@@ -171,6 +171,13 @@ impl ImageBuffer {
         let target_h = pixmap.height() as i32;
         let data = pixmap.data_mut();
 
+        // Precompute horizontal sample mapping to eliminate per-pixel floating point division
+        let mut src_x_table = Vec::with_capacity(dst_w as usize);
+        for dx in 0..dst_w {
+            let sx = (dx as f32 / dst_w as f32 * self.width as f32) as usize;
+            src_x_table.push(sx.min(self.width as usize - 1));
+        }
+
         for dy in 0..dst_h as i32 {
             let py = dst_y + dy;
             if py < 0 || py >= target_h {
@@ -179,6 +186,7 @@ impl ImageBuffer {
 
             let src_y = (dy as f32 / dst_h as f32 * self.height as f32) as usize;
             let src_y = src_y.min(self.height as usize - 1);
+            let row_offset = src_y * self.width as usize;
 
             for dx in 0..dst_w as i32 {
                 let px = dst_x + dx;
@@ -186,10 +194,8 @@ impl ImageBuffer {
                     continue;
                 }
 
-                let src_x = (dx as f32 / dst_w as f32 * self.width as f32) as usize;
-                let src_x = src_x.min(self.width as usize - 1);
-
-                let color = self.pixels[src_y * self.width as usize + src_x];
+                let src_x = src_x_table[dx as usize];
+                let color = self.pixels[row_offset + src_x];
                 if color.a == 0 {
                     continue;
                 }
@@ -202,12 +208,12 @@ impl ImageBuffer {
                         data[dst_idx + 2] = color.b;
                         data[dst_idx + 3] = 255;
                     } else {
-                        // Alpha blend
-                        let alpha = color.a as f32 / 255.0;
-                        let inv_a = 1.0 - alpha;
-                        data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                        data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                        data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                        // Fast integer alpha blend
+                        let a = color.a as u32;
+                        let inv_a = 255 - a;
+                        data[dst_idx] = ((color.r as u32 * a + data[dst_idx] as u32 * inv_a) / 255) as u8;
+                        data[dst_idx + 1] = ((color.g as u32 * a + data[dst_idx + 1] as u32 * inv_a) / 255) as u8;
+                        data[dst_idx + 2] = ((color.b as u32 * a + data[dst_idx + 2] as u32 * inv_a) / 255) as u8;
                         data[dst_idx + 3] = 255;
                     }
                 }

@@ -40,6 +40,7 @@ pub struct D3d11Backend {
     sampler_linear: *mut c_void,
     textures: HashMap<TextureId, D3d11Texture>,
     next_texture_id: u32,
+    vsync: bool,
 }
 
 unsafe impl Send for D3d11Backend {}
@@ -318,7 +319,13 @@ impl D3d11Backend {
             sampler_linear,
             textures: HashMap::new(),
             next_texture_id: 1,
+            vsync: false,
         })
+    }
+
+    /// Sets whether Present synchronizes with display VBlank (VSync).
+    pub fn set_vsync(&mut self, vsync: bool) {
+        self.vsync = vsync;
     }
 }
 
@@ -634,8 +641,8 @@ impl GpuBackend for D3d11Backend {
     fn end_frame(&mut self) {
         unsafe {
             let sc_vtbl = *(self.swap_chain as *mut *mut IDXGISwapChainVtbl);
-            // Present 0: un-throttled presentation (game engine manages target FPS loop)
-            let _ = ((*sc_vtbl).Present)(self.swap_chain, 0, 0);
+            let interval = if self.vsync { 1 } else { 0 };
+            let _ = ((*sc_vtbl).Present)(self.swap_chain, interval, 0);
         }
     }
 

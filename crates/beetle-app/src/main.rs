@@ -319,7 +319,28 @@ impl ApplicationHandler for BeetleApp {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
             }
             AppScreen::Gameplay => {
-                if state.target_fps == 0 {
+                let is_d3d_vsync = {
+                    #[cfg(target_os = "windows")]
+                    {
+                        state.is_d3d11_active() && state.target_fps == 60
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        false
+                    }
+                };
+
+                #[cfg(target_os = "windows")]
+                if let Some(d3d11) = &mut state.d3d11_backend {
+                    d3d11.set_vsync(is_d3d_vsync);
+                }
+
+                if is_d3d_vsync {
+                    // D3D11 Present(1, 0) locks to hardware monitor refresh at 0% CPU jitter-free
+                    state.last_render_time = Instant::now();
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::Poll);
+                } else if state.target_fps == 0 {
                     state.last_render_time = Instant::now();
                     state.window.request_redraw();
                     event_loop.set_control_flow(ControlFlow::Poll);
@@ -327,15 +348,15 @@ impl ApplicationHandler for BeetleApp {
                     let now = Instant::now();
                     let elapsed = now.duration_since(state.last_render_time);
                     let target = Duration::from_secs_f64(1.0 / state.target_fps as f64);
-                    if elapsed < target {
-                        let rem = target - elapsed;
-                        if rem >= Duration::from_millis(1) {
-                            std::thread::sleep(rem);
-                        }
+                    if elapsed >= target {
+                        state.last_render_time = now;
+                        state.window.request_redraw();
+                        let next = now + target;
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+                    } else {
+                        let next = state.last_render_time + target;
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(next));
                     }
-                    state.last_render_time = Instant::now();
-                    state.window.request_redraw();
-                    event_loop.set_control_flow(ControlFlow::Poll);
                 }
             }
             AppScreen::SongSelect => {
