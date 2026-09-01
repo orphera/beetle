@@ -395,6 +395,174 @@ impl ImageBuffer {
             }
         }
     }
+
+    /// Draws this image fitted into the destination box with a specified global opacity (0.0 .. 1.0).
+    pub fn draw_fitted_with_opacity(
+        &self,
+        pixmap: &mut Pixmap,
+        dst_x: i32,
+        dst_y: i32,
+        dst_w: u32,
+        dst_h: u32,
+        fit_mode: ImageFitMode,
+        global_opacity: f32,
+    ) {
+        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+            return;
+        }
+
+        let opacity = global_opacity.clamp(0.0, 1.0);
+        let target_w = pixmap.width() as i32;
+        let target_h = pixmap.height() as i32;
+        let data = pixmap.data_mut();
+
+        match fit_mode {
+            ImageFitMode::Stretch | ImageFitMode::FillCrop => {
+                let (src_view_w, src_view_h, src_origin_x, src_origin_y) = if fit_mode == ImageFitMode::Stretch {
+                    (self.width as f32, self.height as f32, 0.0, 0.0)
+                } else {
+                    let scale_x = dst_w as f32 / self.width as f32;
+                    let scale_y = dst_h as f32 / self.height as f32;
+                    let scale = scale_x.max(scale_y);
+
+                    let src_view_w = dst_w as f32 / scale;
+                    let src_view_h = dst_h as f32 / scale;
+                    let src_origin_x = (self.width as f32 - src_view_w) / 2.0;
+                    let src_origin_y = (self.height as f32 - src_view_h) / 2.0;
+                    (src_view_w, src_view_h, src_origin_x, src_origin_y)
+                };
+
+                for dy in 0..dst_h as i32 {
+                    let py = dst_y + dy;
+                    if py < 0 || py >= target_h {
+                        continue;
+                    }
+
+                    let sy = (src_origin_y + (dy as f32 / dst_h as f32) * src_view_h) as i32;
+                    if sy < 0 || sy >= self.height as i32 {
+                        continue;
+                    }
+                    let row_src_idx = (sy as usize) * (self.width as usize);
+
+                    for dx in 0..dst_w as i32 {
+                        let px = dst_x + dx;
+                        if px < 0 || px >= target_w {
+                            continue;
+                        }
+
+                        let sx = (src_origin_x + (dx as f32 / dst_w as f32) * src_view_w) as i32;
+                        if sx < 0 || sx >= self.width as i32 {
+                            continue;
+                        }
+
+                        let color = self.pixels[row_src_idx + sx as usize];
+                        if color.a == 0 {
+                            continue;
+                        }
+
+                        let dst_idx = (py as usize * target_w as usize + px as usize) * 4;
+                        if dst_idx + 3 < data.len() {
+                            let alpha = (color.a as f32 / 255.0) * opacity;
+                            let inv_a = 1.0 - alpha;
+                            data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                            data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                            data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                            data[dst_idx + 3] = 255;
+                        }
+                    }
+                }
+            }
+            ImageFitMode::FitLetterbox => {
+                let scale_x = dst_w as f32 / self.width as f32;
+                let scale_y = dst_h as f32 / self.height as f32;
+                let scale = scale_x.min(scale_y);
+
+                let fit_w = (self.width as f32 * scale).round() as u32;
+                let fit_h = (self.height as f32 * scale).round() as u32;
+                let offset_x = (dst_w.saturating_sub(fit_w)) / 2;
+                let offset_y = (dst_h.saturating_sub(fit_h)) / 2;
+
+                self.draw_fitted_with_opacity(
+                    pixmap,
+                    dst_x + offset_x as i32,
+                    dst_y + offset_y as i32,
+                    fit_w,
+                    fit_h,
+                    ImageFitMode::FillCrop,
+                    opacity,
+                );
+            }
+        }
+    }
+
+    /// Draws this image fitted into the destination box with color-key transparency and opacity.
+    pub fn draw_color_keyed_with_opacity(
+        &self,
+        pixmap: &mut Pixmap,
+        dst_x: i32,
+        dst_y: i32,
+        dst_w: u32,
+        dst_h: u32,
+        global_opacity: f32,
+    ) {
+        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+            return;
+        }
+
+        let opacity = global_opacity.clamp(0.0, 1.0);
+        let target_w = pixmap.width() as i32;
+        let target_h = pixmap.height() as i32;
+        let data = pixmap.data_mut();
+
+        let scale_x = dst_w as f32 / self.width as f32;
+        let scale_y = dst_h as f32 / self.height as f32;
+        let scale = scale_x.max(scale_y);
+
+        let src_view_w = dst_w as f32 / scale;
+        let src_view_h = dst_h as f32 / scale;
+        let src_origin_x = (self.width as f32 - src_view_w) / 2.0;
+        let src_origin_y = (self.height as f32 - src_view_h) / 2.0;
+
+        for dy in 0..dst_h as i32 {
+            let py = dst_y + dy;
+            if py < 0 || py >= target_h {
+                continue;
+            }
+
+            let sy = (src_origin_y + (dy as f32 / dst_h as f32) * src_view_h) as i32;
+            if sy < 0 || sy >= self.height as i32 {
+                continue;
+            }
+            let row_src_idx = (sy as usize) * (self.width as usize);
+
+            for dx in 0..dst_w as i32 {
+                let px = dst_x + dx;
+                if px < 0 || px >= target_w {
+                    continue;
+                }
+
+                let sx = (src_origin_x + (dx as f32 / dst_w as f32) * src_view_w) as i32;
+                if sx < 0 || sx >= self.width as i32 {
+                    continue;
+                }
+
+                let color = self.pixels[row_src_idx + sx as usize];
+                if color.a == 0 || (color.r == 0 && color.g == 0 && color.b == 0) {
+                    continue;
+                }
+
+                let dst_idx = (py as usize * target_w as usize + px as usize) * 4;
+                if dst_idx + 3 < data.len() {
+                    let alpha = (color.a as f32 / 255.0) * opacity;
+                    let inv_a = 1.0 - alpha;
+                    data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                    data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                    data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                    data[dst_idx + 3] = 255;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

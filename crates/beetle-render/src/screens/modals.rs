@@ -16,6 +16,7 @@ impl SoftwareRenderer {
         resolution_str: &str,
         gpu_backend_str: &str,
         target_fps: u32,
+        track_bga_str: &str,
         selected_row: usize,
     ) {
         let vp = self.viewport;
@@ -23,7 +24,7 @@ impl SoftwareRenderer {
         let font_scale = (s * 0.9).round().max(1.0) as u32;
 
         let modal_w = 500.0 * s;
-        let modal_h = (480.0 * s).min(vp.height - 40.0 * s);
+        let modal_h = (510.0 * s).min(vp.height - 40.0 * s);
         let modal_x = vp.x + (vp.width - modal_w) / 2.0;
         let modal_y = vp.y + (vp.height - modal_h) / 2.0;
 
@@ -67,6 +68,7 @@ impl SoftwareRenderer {
             ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
             ("AUTO PLAY", if is_auto_play { "<  ON  >".to_string() } else { "<  OFF  >".to_string() }),
             ("START MEASURE", format!("<  M.{}  >", start_measure)),
+            ("TRACK BGA", format!("<  {}  >", track_bga_str)),
         ];
 
         let row_step = 28.0 * s;

@@ -216,6 +216,7 @@ impl ApplicationHandler for BeetleApp {
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,
+            track_bga: saved_config.track_bga,
             is_alt_pressed: false,
             bgm_cursor: 0,
             loading_song: None,
@@ -560,6 +561,7 @@ impl ApplicationHandler for BeetleApp {
                                 &state.current_resolution_label(),
                                 state.gpu_backend.as_str(),
                                 state.target_fps,
+                                state.track_bga.as_str(),
                                 state.modal_row,
                             );
                         }
@@ -702,6 +704,7 @@ impl ApplicationHandler for BeetleApp {
                                 &visual_levels,
                                 active_bga,
                                 active_layer,
+                                state.track_bga.opacity(),
                             );
                         }
 

@@ -370,9 +370,26 @@ mod tests {
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         let levels = [0.5f32; 16];
         let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
-        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None, None);
+        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None, None, 0.0);
 
         // Validate buffer is not all blank
+        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_content);
+    }
+
+    #[test]
+    fn test_render_gameplay_with_track_bga() {
+        use crate::image::ImageBuffer;
+        let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
+        let chart = BmsChart::default();
+        let timing = TimingModel::from_chart(&chart);
+        let score = ScoreTracker::new(1, 200.0, GaugeType::Groove);
+        let levels = [0.5f32; 16];
+        let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+        let dummy_bga = ImageBuffer::new(320, 180, ColorRgba::new(200, 100, 50, 255));
+
+        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, Some(&dummy_bga), None, 0.5);
+
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
@@ -435,7 +452,7 @@ mod tests {
         assert!(has_content1);
 
         let options = beetle_core::PlayOptions::default();
-        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "1280x720 (16:9)", "AUTO (D3D11/SOFT)", 240, 0);
+        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "1280x720 (16:9)", "AUTO (D3D11/SOFT)", 240, "OFF (0%)", 0);
         let has_content2 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content2);
     }

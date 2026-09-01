@@ -87,6 +87,63 @@ impl GpuBackendSetting {
     }
 }
 
+/// Playfield Track BGA underlay opacity setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrackBgaSetting {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl TrackBgaSetting {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Off => "OFF (0%)",
+            Self::Low => "LOW (25%)",
+            Self::Medium => "MEDIUM (50%)",
+            Self::High => "HIGH (75%)",
+        }
+    }
+
+    pub fn opacity(&self) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::Low => 0.25,
+            Self::Medium => 0.50,
+            Self::High => 0.75,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Low,
+            Self::Low => Self::Medium,
+            Self::Medium => Self::High,
+            Self::High => Self::Off,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Off => Self::High,
+            Self::Low => Self::Off,
+            Self::Medium => Self::Low,
+            Self::High => Self::Medium,
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "LOW" | "25" | "25%" | "LOW (25%)" => Self::Low,
+            "MEDIUM" | "MED" | "50" | "50%" | "MEDIUM (50%)" => Self::Medium,
+            "HIGH" | "75" | "75%" | "HIGH (75%)" => Self::High,
+            _ => Self::Off,
+        }
+    }
+}
+
 /// Persistent application configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -101,6 +158,7 @@ pub struct AppConfig {
     pub window_width: u32,
     pub window_height: u32,
     pub target_fps: u32,
+    pub track_bga: TrackBgaSetting,
 }
 
 impl Default for AppConfig {
@@ -117,6 +175,7 @@ impl Default for AppConfig {
             window_width: 1280,
             window_height: 720,
             target_fps: 240,
+            track_bga: TrackBgaSetting::Off,
         }
     }
 }
@@ -245,6 +304,9 @@ impl AppConfig {
                         config.target_fps = fps;
                     }
                 }
+                "track_bga" => {
+                    config.track_bga = TrackBgaSetting::from_str(val);
+                }
                 _ => (),
             }
         }
@@ -260,7 +322,7 @@ impl AppConfig {
         };
 
         format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -275,6 +337,7 @@ impl AppConfig {
             self.window_width,
             self.window_height,
             self.target_fps,
+            self.track_bga.as_str(),
         )
     }
 }
@@ -302,6 +365,7 @@ mod tests {
             window_width: 1920,
             window_height: 1080,
             target_fps: 360,
+            track_bga: TrackBgaSetting::Medium,
         };
 
         let serialized = config.serialize_str();
@@ -321,5 +385,6 @@ mod tests {
         assert_eq!(config.window_width, parsed.window_width);
         assert_eq!(config.window_height, parsed.window_height);
         assert_eq!(config.target_fps, parsed.target_fps);
+        assert_eq!(config.track_bga, parsed.track_bga);
     }
 }

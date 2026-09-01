@@ -138,6 +138,7 @@ pub struct AppState {
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
+    pub track_bga: crate::config::TrackBgaSetting,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
@@ -311,6 +312,7 @@ impl AppState {
             window_width: size.width.max(640),
             window_height: size.height.max(480),
             target_fps: self.target_fps,
+            track_bga: self.track_bga,
         };
         app_config.save();
     }

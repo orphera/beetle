@@ -15,6 +15,7 @@ impl SoftwareRenderer {
         visual_levels: &[f32; 16],
         bga_image: Option<&ImageBuffer>,
         layer_image: Option<&ImageBuffer>,
+        track_bga_opacity: f32,
     ) {
         self.clear();
 
@@ -22,7 +23,7 @@ impl SoftwareRenderer {
             || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
         let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
 
-        self.draw_playfield_bg(score.current_combo, danger_blink);
+        self.draw_playfield_bg(score.current_combo, danger_blink, bga_image, layer_image, track_bga_opacity);
         self.draw_key_beams();
         self.draw_notes(notes, audio_time_seconds);
         self.draw_lane_cover();
@@ -34,7 +35,14 @@ impl SoftwareRenderer {
         self.draw_bga_and_visualizer(visual_levels, bga_image, layer_image);
     }
 
-    fn draw_playfield_bg(&mut self, combo: u32, danger_blink: bool) {
+    fn draw_playfield_bg(
+        &mut self,
+        combo: u32,
+        danger_blink: bool,
+        bga_image: Option<&ImageBuffer>,
+        layer_image: Option<&ImageBuffer>,
+        track_bga_opacity: f32,
+    ) {
         let s = self.viewport.scale;
 
         // Draw playfield main background box
@@ -45,6 +53,31 @@ impl SoftwareRenderer {
             self.skin.playfield_height,
             self.skin.playfield_bg_color,
         );
+
+        // Draw playfield track BGA underlay if enabled
+        if track_bga_opacity > 0.0 {
+            if let Some(img) = bga_image {
+                img.draw_fitted_with_opacity(
+                    &mut self.pixmap,
+                    self.skin.playfield_x as i32,
+                    self.skin.playfield_y as i32,
+                    self.skin.playfield_width as u32,
+                    self.skin.playfield_height as u32,
+                    crate::image::ImageFitMode::FillCrop,
+                    track_bga_opacity,
+                );
+            }
+            if let Some(layer) = layer_image {
+                layer.draw_color_keyed_with_opacity(
+                    &mut self.pixmap,
+                    self.skin.playfield_x as i32,
+                    self.skin.playfield_y as i32,
+                    self.skin.playfield_width as u32,
+                    self.skin.playfield_height as u32,
+                    track_bga_opacity,
+                );
+            }
+        }
 
         let line_color = if combo >= 100 {
             ColorRgba::new(50, 100, 180, 220) // Subtle ambient blue for active combo

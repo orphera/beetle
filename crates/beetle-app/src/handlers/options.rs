@@ -16,7 +16,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             state.modal_row = state.modal_row.saturating_sub(1);
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
-            state.modal_row = (state.modal_row + 1).min(11);
+            state.modal_row = (state.modal_row + 1).min(12);
         }
         KeyCode::ArrowLeft => {
             match state.modal_row {
@@ -77,6 +77,9 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 11 => { // Start Measure
                     state.start_measure = state.start_measure.saturating_sub(1);
+                }
+                12 => { // Track BGA
+                    state.track_bga = state.track_bga.prev();
                 }
                 _ => (),
             }
@@ -146,6 +149,9 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 11 => { // Start Measure
                     state.start_measure = (state.start_measure + 1).min(200);
+                }
+                12 => { // Track BGA
+                    state.track_bga = state.track_bga.next();
                 }
                 _ => (),
             }
