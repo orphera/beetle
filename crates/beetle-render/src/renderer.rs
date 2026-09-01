@@ -395,6 +395,32 @@ mod tests {
     }
 
     #[test]
+    fn test_render_gameplay_measure_bar_lines() {
+        let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
+        let mut chart = BmsChart {
+            header: BmsHeader {
+                title: "Gimmick Chart".to_string(),
+                bpm: 120.0,
+                ..Default::default()
+            },
+            max_measure: 10,
+            ..Default::default()
+        };
+        // Channel 02 gimmick: shorter measure length
+        chart.measure_lengths.insert(1, 0.5);
+
+        let timing = TimingModel::from_chart(&chart);
+        let score = ScoreTracker::new(0, 200.0, GaugeType::Groove);
+        let levels = [0.0f32; 16];
+
+        // Render at audio time 1.0s (measure 0 has passed, measure 1 & 2 incoming)
+        renderer.render_gameplay(&chart, &[], 1.0, &score, &levels, None, None, 0.0, &timing);
+
+        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_content);
+    }
+
+    #[test]
     fn test_render_pause_modal() {
         let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
         renderer.render_pause_modal("Sample Song", "Artist Name", 45.0, 120.0, 0);

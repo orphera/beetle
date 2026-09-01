@@ -186,6 +186,7 @@ pub struct BmsChart {
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
     pub total_notes_count: usize,
+    pub max_measure: u32,
     pub has_scratch: bool,
     pub has_2p_dp: bool,
     pub has_2p_key1: bool,
@@ -649,6 +650,7 @@ fn parse_measure_line(
         .parse()
         .map_err(|_| BmsParseError::InvalidMeasure(tag.to_string()))?;
     let channel = &tag[3..5];
+    chart.max_measure = chart.max_measure.max(measure);
 
     // Channel 02: Measure length ratio (e.g. #00102:0.75)
     if channel == "02" {
@@ -669,31 +671,39 @@ fn parse_measure_line(
         return Ok(());
     }
 
-    // Record channel usage for accurate play mode detection (5K, 7K, 9K, 10K, 14K)
-    match channel {
-        "16" | "56" => {
-            chart.has_scratch = true;
+    // Only flag channel usage if the channel contains at least one non-zero slot
+    let has_non_zero_slot = (0..slot_count).any(|i| {
+        let c1 = data_bytes[i * 2];
+        let c2 = data_bytes[i * 2 + 1];
+        c1 != b'0' || c2 != b'0'
+    });
+
+    if has_non_zero_slot {
+        match channel {
+            "16" | "56" => {
+                chart.has_scratch = true;
+            }
+            "18" | "19" | "58" | "59" => {
+                chart.has_k67 = true;
+            }
+            "26" | "66" => {
+                chart.has_scratch = true;
+                chart.has_2p_dp = true;
+            }
+            "28" | "29" | "68" | "69" => {
+                chart.has_k67 = true;
+                chart.has_2p_dp = true;
+            }
+            "21" | "61" => {
+                chart.has_2p_dp = true;
+                chart.has_2p_key1 = true;
+            }
+            "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
+                chart.has_2p_dp = true;
+                chart.has_pms_ch = true;
+            }
+            _ => {}
         }
-        "18" | "19" | "58" | "59" => {
-            chart.has_k67 = true;
-        }
-        "26" | "66" => {
-            chart.has_scratch = true;
-            chart.has_2p_dp = true;
-        }
-        "28" | "29" | "68" | "69" => {
-            chart.has_k67 = true;
-            chart.has_2p_dp = true;
-        }
-        "21" | "61" => {
-            chart.has_2p_dp = true;
-            chart.has_2p_key1 = true;
-        }
-        "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
-            chart.has_2p_dp = true;
-            chart.has_pms_ch = true;
-        }
-        _ => {}
     }
 
     for i in 0..slot_count {

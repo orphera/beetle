@@ -154,36 +154,33 @@ impl SoftwareRenderer {
         let px = self.skin.playfield_x;
         let pw = self.skin.playfield_width;
         let line_h = (1.0 * s).max(1.0);
-        let line_color = ColorRgba::new(255, 255, 255, 50);
+        let line_color = ColorRgba::new(200, 210, 225, 90);
 
         // Determine the visible time window
         let visible_duration = (judge_y - top_y + 50.0 * s) as f64 / effective_speed.max(1.0) as f64;
         let max_time = audio_time_seconds + visible_duration;
 
-        // Find the highest measure number in the chart (from notes and bgm_notes)
-        let max_measure = {
-            let note_max = chart.notes.iter().map(|n| n.measure).max().unwrap_or(0);
-            let bgm_max = chart.bgm_notes.iter().map(|b| b.0).max().unwrap_or(0);
-            note_max.max(bgm_max) + 2 // +2 to cover trailing measures
-        };
+        // Use precomputed max_measure from chart instead of O(N) linear search per frame
+        let max_measure = chart.max_measure + 2;
 
-        // Find starting measure via binary-style scan (avoid iterating from 0 every frame)
-        // We use audio_time_seconds to skip past measures that are already below judge line
+        // Find starting measure via timing model (start 2 measures early for safety in stops/slow BPM)
         let start_measure = {
-            let (m, _) = timing.time_to_beat(audio_time_seconds - 0.5);
-            if m > 0 { m } else { 0 }
+            let (m, _) = timing.time_to_beat(audio_time_seconds);
+            m.saturating_sub(2)
         };
 
         for measure in start_measure..=max_measure {
             let measure_time = timing.beat_to_time_seconds(measure, 0.0);
 
-            // Skip measures that have already passed below judge line
-            if measure_time < audio_time_seconds - 1.0 {
+            // Skip measures that have already fallen past judge line
+            let delta_t = measure_time - audio_time_seconds;
+            let bar_y = judge_y - (delta_t as f32 * effective_speed);
+            if bar_y > judge_y + 20.0 * s {
                 continue;
             }
 
-            // Stop once we're past the visible area
-            if measure_time > max_time {
+            // Stop once we're past the visible area above the top of the playfield
+            if measure_time > max_time && bar_y < top_y - 20.0 * s {
                 break;
             }
 
