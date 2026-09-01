@@ -122,6 +122,8 @@ pub struct BmsHeader {
     pub stage_file: String,
     pub banner: String,
     pub ln_obj: Option<WavId>,
+    pub difficulty: Option<u32>,
+    pub lntype: u32,
     pub wav_table: HashMap<WavId, String>,
     pub bmp_table: HashMap<BmpId, String>,
     pub bga_table: HashMap<BmpId, BgaDefinition>,
@@ -146,6 +148,8 @@ impl Default for BmsHeader {
             stage_file: String::new(),
             banner: String::new(),
             ln_obj: None,
+            difficulty: None,
+            lntype: 1,
             wav_table: HashMap::new(),
             bmp_table: HashMap::new(),
             bga_table: HashMap::new(),
@@ -268,6 +272,15 @@ pub fn decode_hex(c1: u8, c2: u8) -> Option<u8> {
     Some(d1 * 16 + d2)
 }
 
+/// Helper to identify if a trimmed BMS line is a measure data command `#XXXYY:...`
+#[inline(always)]
+pub fn is_measure_line(content: &str) -> bool {
+    let bytes = content.as_bytes();
+    bytes.len() >= 6
+        && bytes[0..3].iter().all(|b| b.is_ascii_digit())
+        && (bytes[5] == b':' || bytes[5] == b' ')
+}
+
 /// Parses raw BMS/BME/BML chart text into a `BmsChart`.
 pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
     let mut chart = BmsChart::default();
@@ -278,45 +291,50 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
         return Err(BmsParseError::EmptyChart);
     }
 
+    // PASS 1: Parse all header commands and definition tables (#WAV, #BMP, #BGA, #BPMxx, #STOPxx, #LNOBJ, etc.)
+    // This ensures that all definitions placed at the bottom of the file are available before measure lines are evaluated.
     for line in trimmed.lines() {
         let line = line.trim();
         if !line.starts_with('#') {
             continue;
         }
-
         let content = &line[1..].trim_start();
-        if content.is_empty() {
+        if content.is_empty() || is_measure_line(content) {
             continue;
         }
+        parse_header_line(content, &mut chart.header);
+    }
 
-        // Check if this line is a measure data command: #XXXYY:ZZ...
-        // Form: 3 digits measure + 2 chars channel + ':'
-        let bytes = content.as_bytes();
-        if bytes.len() >= 6
-            && bytes[0..3].iter().all(|b| b.is_ascii_digit())
-            && (bytes[5] == b':' || bytes[5] == b' ')
-        {
-            parse_measure_line(content, &mut chart, &mut raw_ln_events)?;
-        } else {
-            parse_header_line(content, &mut chart.header);
+    // PASS 2: Parse all measure channels using the fully populated header definition tables
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if !line.starts_with('#') {
+            continue;
         }
+        let content = &line[1..].trim_start();
+        if content.is_empty() || !is_measure_line(content) {
+            continue;
+        }
+        parse_measure_line(content, &mut chart, &mut raw_ln_events)?;
     }
 
     // Process LNTYPE 1 long notes (pairs of channel 5x events)
     process_lntype1_notes(&raw_ln_events, &mut chart.notes);
 
-    // Process #LNOBJ long notes
-    if let Some(ln_obj_id) = chart.header.ln_obj {
-        process_lnobj_notes(ln_obj_id, &mut chart.notes);
-    }
-
-    // Sort notes and timing events chronologically
+    // CRITICAL: Sort notes chronologically BEFORE LNOBJ processing
+    // In real BMS files, measure lines may appear in arbitrary order. Notes must be strictly sorted by time
+    // so that the preceding note on the lane is correctly matched as LongNoteStart.
     chart.notes.sort_by(|a, b| {
         a.measure
             .cmp(&b.measure)
             .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.lane.cmp(&b.lane))
     });
+
+    // Process #LNOBJ long notes on chronologically sorted notes
+    if let Some(ln_obj_id) = chart.header.ln_obj {
+        process_lnobj_notes(ln_obj_id, &mut chart.notes);
+    }
 
     chart.bgm_notes.sort_by(|a, b| {
         a.0.cmp(&b.0)
@@ -346,6 +364,14 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
     if key.eq_ignore_ascii_case("PLAYER") {
         if let Ok(p) = val.parse::<u32>() {
             header.player = p;
+        }
+    } else if key.eq_ignore_ascii_case("DIFFICULTY") {
+        if let Ok(diff) = val.parse::<u32>() {
+            header.difficulty = Some(diff);
+        }
+    } else if key.eq_ignore_ascii_case("LNTYPE") {
+        if let Ok(t) = val.parse::<u32>() {
+            header.lntype = t;
         }
     } else if key.eq_ignore_ascii_case("TITLE") {
         header.title = val.to_string();
@@ -649,7 +675,7 @@ fn process_lntype1_notes(
                 measure,
                 fraction,
                 lane,
-                wav_id: Some(wav_id),
+                wav_id: None,
                 note_type: NoteType::LongNoteEnd,
             });
         } else {
@@ -666,6 +692,7 @@ fn process_lnobj_notes(ln_obj: WavId, notes: &mut [NoteEvent]) {
         let lane = notes[i].lane;
         if notes[i].wav_id == Some(ln_obj) {
             notes[i].note_type = NoteType::LongNoteEnd;
+            notes[i].wav_id = None; // Release of LN does not re-trigger sound
             if let Some(&prev_idx) = last_note_per_lane.get(&lane) {
                 notes[prev_idx].note_type = NoteType::LongNoteStart;
             }
@@ -815,6 +842,35 @@ mod tests {
         assert_eq!(chart.notes.len(), 2);
         assert_eq!(chart.notes[0].note_type, NoteType::LongNoteStart);
         assert_eq!(chart.notes[1].note_type, NoteType::LongNoteEnd);
+        assert_eq!(chart.notes[1].wav_id, None);
+    }
+
+    #[test]
+    fn test_two_pass_parsing_and_bottom_definitions() {
+        let bms = r#"
+#PLAYER 1
+#00211:01000000
+#00111:02000000
+#00108:01
+#00209:02
+#WAV01 kick.wav
+#WAV02 ln_start.wav
+#WAVFF ln_end.wav
+#BPM01 175.5
+#STOP02 96
+#LNOBJ FF
+#DIFFICULTY 4
+#LNTYPE 2
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse two-pass BMS");
+        assert_eq!(chart.header.difficulty, Some(4));
+        assert_eq!(chart.header.lntype, 2);
+        assert_eq!(chart.header.ln_obj, Some(WavId(15 * 36 + 15))); // FF in base36: 15*36+15 = 555
+        assert_eq!(chart.timing_events.len(), 2);
+        assert_eq!(chart.timing_events[0].measure, 1);
+        assert_eq!(chart.timing_events[0].kind, TimingEventKind::BpmChange(175.5));
+        assert_eq!(chart.timing_events[1].measure, 2);
+        assert_eq!(chart.timing_events[1].kind, TimingEventKind::StopMeasures(96.0 / 192.0));
     }
 
     #[test]
