@@ -195,7 +195,8 @@ impl ApplicationHandler for BeetleApp {
             poor_bga_bmp: None,
             poor_until_time: 0.0,
             active_bga_image: None,
-            active_video_player: None,
+            video_players: std::collections::HashMap::new(),
+            video_start_times: std::collections::HashMap::new(),
             active_chart: None,
             active_timing: None,
             active_chart_hash: 0,
@@ -297,7 +298,7 @@ impl ApplicationHandler for BeetleApp {
                     if let Ok(res) = rx.try_recv() {
                         state.loading_receiver = None;
                         match res {
-                            Ok((chart, timing, soundbank, bga_bank, video_path)) => {
+                            Ok((chart, timing, soundbank, bga_bank, video_paths)) => {
                                 if let Some(song) = state.loading_song.take() {
                                     finalize_start_gameplay(
                                         state,
@@ -306,7 +307,7 @@ impl ApplicationHandler for BeetleApp {
                                         timing,
                                         soundbank,
                                         bga_bank,
-                                        video_path,
+                                        video_paths,
                                     );
                                 }
                             }
@@ -674,14 +675,20 @@ impl ApplicationHandler for BeetleApp {
                         let active_bga = state::resolve_bga_hierarchy(
                             state.poor_until_time,
                             state.poor_bga_bmp,
-                            state.active_video_player.as_ref(),
                             state.current_bga_bmp,
                             &state.bga_bank,
+                            &state.video_players,
                             state.active_bga_image.as_ref(),
                             audio_time,
                         );
 
-                        let active_layer = state.current_layer_bmp.and_then(|id| state.bga_bank.get(&id));
+                        let active_layer = state.current_layer_bmp.and_then(|id| {
+                            if let Some(vp) = state.video_players.get(&id) {
+                                vp.current_frame()
+                            } else {
+                                state.bga_bank.get(&id)
+                            }
+                        });
 
                         // Render gameplay frame
                         if let (Some(chart), Some(judge)) =
@@ -993,21 +1000,22 @@ mod tests {
         let mut bga_bank = HashMap::new();
         bga_bank.insert(beetle_core::BmpId(1), bmp_base);
         bga_bank.insert(beetle_core::BmpId(2), bmp_poor);
+        let video_players = HashMap::new();
 
         // 1. Initial state: Static stage artwork fallback
-        let bga = resolve_bga_hierarchy(0.0, None, None, None, &bga_bank, Some(&static_stage), 1.0).unwrap();
+        let bga = resolve_bga_hierarchy(0.0, None, None, &bga_bank, &video_players, Some(&static_stage), 1.0).unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(10, 10, 10, 255));
 
         // 2. Base BGA channel active
-        let bga = resolve_bga_hierarchy(0.0, None, None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 2.0).unwrap();
+        let bga = resolve_bga_hierarchy(0.0, None, Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 2.0).unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
 
         // 3. POOR BGA override active during miss penalty window
-        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 2.5).unwrap();
+        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 2.5).unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(255, 0, 0, 255));
 
         // 4. After POOR window expires (t = 3.5), reverts back to Base BGA
-        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), None, Some(beetle_core::BmpId(1)), &bga_bank, Some(&static_stage), 3.5).unwrap();
+        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 3.5).unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
     }
 }

@@ -123,7 +123,8 @@ pub struct AppState {
     pub poor_bga_bmp: Option<beetle_core::BmpId>,
     pub poor_until_time: f64,
     pub active_bga_image: Option<ImageBuffer>,
-    pub active_video_player: Option<beetle_render::BgaVideoPlayer>,
+    pub video_players: std::collections::HashMap<beetle_core::BmpId, beetle_render::BgaVideoPlayer>,
+    pub video_start_times: std::collections::HashMap<beetle_core::BmpId, f64>,
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
     pub active_chart_hash: u64,
@@ -140,7 +141,7 @@ pub struct AppState {
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
-    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, Option<std::path::PathBuf>), String>>>,
+    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, std::collections::HashMap<beetle_core::BmpId, std::path::PathBuf>), String>>>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,
@@ -373,12 +374,18 @@ impl AppState {
                 match ev.channel {
                     beetle_core::BgaChannel::Base => {
                         self.current_bga_bmp = Some(ev.bmp_id);
+                        if self.video_players.contains_key(&ev.bmp_id) {
+                            self.video_start_times.entry(ev.bmp_id).or_insert(target_t);
+                        }
                     }
                     beetle_core::BgaChannel::Poor => {
                         self.poor_bga_bmp = Some(ev.bmp_id);
                     }
                     beetle_core::BgaChannel::Layer => {
                         self.current_layer_bmp = Some(ev.bmp_id);
+                        if self.video_players.contains_key(&ev.bmp_id) {
+                            self.video_start_times.entry(ev.bmp_id).or_insert(target_t);
+                        }
                     }
                 }
                 self.bga_cursor += 1;
@@ -390,8 +397,19 @@ impl AppState {
 
     /// Advances video playback if a video BGA is active.
     pub fn update_video_bga(&mut self, audio_time: f64) {
-        if let Some(video_player) = &mut self.active_video_player {
-            let _ = video_player.update(audio_time);
+        if let Some(base_id) = self.current_bga_bmp {
+            if let Some(player) = self.video_players.get_mut(&base_id) {
+                let start_t = self.video_start_times.get(&base_id).copied().unwrap_or(0.0);
+                let video_time = (audio_time - start_t).max(0.0);
+                let _ = player.update(video_time);
+            }
+        }
+        if let Some(layer_id) = self.current_layer_bmp {
+            if let Some(player) = self.video_players.get_mut(&layer_id) {
+                let start_t = self.video_start_times.get(&layer_id).copied().unwrap_or(0.0);
+                let video_time = (audio_time - start_t).max(0.0);
+                let _ = player.update(video_time);
+            }
         }
     }
 }
@@ -400,9 +418,9 @@ impl AppState {
 pub fn resolve_bga_hierarchy<'a>(
     poor_until_time: f64,
     poor_bga_bmp: Option<beetle_core::BmpId>,
-    video_player: Option<&'a beetle_render::BgaVideoPlayer>,
     current_bga_bmp: Option<beetle_core::BmpId>,
     bga_bank: &'a std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
+    video_players: &'a std::collections::HashMap<beetle_core::BmpId, beetle_render::BgaVideoPlayer>,
     active_bga_image: Option<&'a ImageBuffer>,
     audio_time: f64,
 ) -> Option<&'a ImageBuffer> {
@@ -411,16 +429,20 @@ pub fn resolve_bga_hierarchy<'a>(
             if let Some(img) = bga_bank.get(&id) {
                 return Some(img);
             }
-        }
-    }
-
-    if let Some(vp) = video_player {
-        if let Some(frame) = vp.current_frame() {
-            return Some(frame);
+            if let Some(vp) = video_players.get(&id) {
+                if let Some(frame) = vp.current_frame() {
+                    return Some(frame);
+                }
+            }
         }
     }
 
     if let Some(id) = current_bga_bmp {
+        if let Some(vp) = video_players.get(&id) {
+            if let Some(frame) = vp.current_frame() {
+                return Some(frame);
+            }
+        }
         if let Some(img) = bga_bank.get(&id) {
             return Some(img);
         }

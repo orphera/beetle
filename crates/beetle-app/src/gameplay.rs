@@ -35,7 +35,7 @@ pub fn finalize_start_gameplay(
     timing: TimingModel,
     soundbank: SampleBank,
     bga_bank: std::collections::HashMap<beetle_core::BmpId, beetle_render::ImageBuffer>,
-    video_path: Option<std::path::PathBuf>,
+    video_paths: std::collections::HashMap<beetle_core::BmpId, std::path::PathBuf>,
 ) {
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
@@ -51,8 +51,20 @@ pub fn finalize_start_gameplay(
     let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
     let total_duration = timing.total_duration_seconds(&play_chart);
 
+    let mut video_players = std::collections::HashMap::new();
+    for (bmp_id, p) in video_paths {
+        if let Some(player) = beetle_render::BgaVideoPlayer::open(&p) {
+            video_players.insert(bmp_id, player);
+        }
+    }
+    let mut video_start_times = std::collections::HashMap::new();
+
     let mut bgm_cursor = 0;
     let mut bga_cursor = 0;
+    let mut initial_base_bmp = None;
+    let mut initial_layer_bmp = None;
+    let mut initial_poor_bmp = None;
+
     // Practice mode fast forward
     if state.start_measure > 0 && !state.is_replay_playback {
         let start_time = timing.beat_to_time_seconds(state.start_measure, 0.0);
@@ -69,7 +81,25 @@ pub fn finalize_start_gameplay(
 
         while bga_cursor < play_chart.bga_events.len() {
             let ev = &play_chart.bga_events[bga_cursor];
-            if timing.beat_to_time_seconds(ev.measure, ev.fraction) < start_time {
+            let ev_t = timing.beat_to_time_seconds(ev.measure, ev.fraction);
+            if ev_t < start_time {
+                match ev.channel {
+                    beetle_core::BgaChannel::Base => {
+                        initial_base_bmp = Some(ev.bmp_id);
+                        if video_players.contains_key(&ev.bmp_id) {
+                            video_start_times.insert(ev.bmp_id, ev_t);
+                        }
+                    }
+                    beetle_core::BgaChannel::Poor => {
+                        initial_poor_bmp = Some(ev.bmp_id);
+                    }
+                    beetle_core::BgaChannel::Layer => {
+                        initial_layer_bmp = Some(ev.bmp_id);
+                        if video_players.contains_key(&ev.bmp_id) {
+                            video_start_times.insert(ev.bmp_id, ev_t);
+                        }
+                    }
+                }
                 bga_cursor += 1;
             } else {
                 break;
@@ -92,11 +122,12 @@ pub fn finalize_start_gameplay(
     state.active_judge = Some(judge_engine);
     state.bga_bank = bga_bank;
     state.bga_cursor = bga_cursor;
-    state.current_bga_bmp = None;
-    state.current_layer_bmp = None;
-    state.poor_bga_bmp = None;
+    state.current_bga_bmp = initial_base_bmp;
+    state.current_layer_bmp = initial_layer_bmp;
+    state.poor_bga_bmp = initial_poor_bmp;
     state.poor_until_time = 0.0;
-    state.active_video_player = video_path.and_then(beetle_render::BgaVideoPlayer::open);
+    state.video_players = video_players;
+    state.video_start_times = video_start_times;
     state.active_bga_image = load_stage_image(song).map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
@@ -166,7 +197,8 @@ pub fn finish_gameplay(state: &mut AppState) {
         }
     }
 
-    state.active_video_player = None;
+    state.video_players.clear();
+    state.video_start_times.clear();
     state.screen = AppScreen::Result;
     state.window.request_redraw();
 }

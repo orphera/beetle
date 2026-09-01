@@ -86,12 +86,14 @@ fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option
     ImageBuffer::load_from_file(&resolved)
 }
 
-fn find_video_file_in_dir(dir: &Path, chart: &BmsChart) -> Option<PathBuf> {
+fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, PathBuf> {
+    let mut videos = HashMap::new();
+
     // 1. Check bmp_table for video files or files with matching stems
-    for filename in chart.header.bmp_table.values() {
+    for (&bmp_id, filename) in &chart.header.bmp_table {
         if is_video_path(filename) {
             if let Some(p) = resolve_file_case_insensitive(dir, filename) {
-                return Some(p);
+                videos.insert(bmp_id, p);
             }
         } else {
             let stem = match filename.rfind('.') {
@@ -101,37 +103,53 @@ fn find_video_file_in_dir(dir: &Path, chart: &BmsChart) -> Option<PathBuf> {
             for ext in beetle_render::VIDEO_EXTENSIONS {
                 let candidate = format!("{}.{}", stem, ext);
                 if let Some(p) = resolve_file_case_insensitive(dir, &candidate) {
-                    return Some(p);
+                    videos.insert(bmp_id, p);
+                    break;
                 }
             }
         }
     }
 
-    // 2. Check stage_file or banner for video files
-    for filename in &[&chart.header.stage_file, &chart.header.banner] {
-        if !filename.is_empty() && is_video_path(filename) {
-            if let Some(p) = resolve_file_case_insensitive(dir, filename) {
-                return Some(p);
+    // 2. Fallback: if no bmp_table entry matched a video, check stage/banner or common names
+    if videos.is_empty() {
+        let mut fallback_path = None;
+        for filename in &[&chart.header.stage_file, &chart.header.banner] {
+            if !filename.is_empty() && is_video_path(filename) {
+                if let Some(p) = resolve_file_case_insensitive(dir, filename) {
+                    fallback_path = Some(p);
+                    break;
+                }
             }
         }
-    }
+        if fallback_path.is_none() {
+            for name in &[
+                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
+                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
+                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
+                "bga.avi", "movie.avi", "video.avi", "bg.avi",
+                "bga.webm", "movie.webm", "video.webm", "bg.webm",
+                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
+            ] {
+                let p = dir.join(name);
+                if p.exists() {
+                    fallback_path = Some(p);
+                    break;
+                }
+            }
+        }
 
-    // 3. Fallback common video names in song directory
-    for name in &[
-        "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
-        "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
-        "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
-        "bga.avi", "movie.avi", "video.avi", "bg.avi",
-        "bga.webm", "movie.webm", "video.webm", "bg.webm",
-        "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
-    ] {
-        let p = dir.join(name);
-        if p.exists() {
-            return Some(p);
+        if let Some(fp) = fallback_path {
+            // Find which BmpId is first triggered on Channel 04 (Base) or default to BmpId(1)
+            let first_bga_id = chart.bga_events
+                .iter()
+                .find(|ev| ev.channel == beetle_core::BgaChannel::Base)
+                .map(|ev| ev.bmp_id)
+                .unwrap_or(BmpId(1));
+            videos.insert(first_bga_id, fp);
         }
     }
 
-    None
+    videos
 }
 
 /// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
@@ -238,13 +256,13 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
 pub fn load_chart_and_audio(
     song: &SongMetadata,
-) -> (BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, Option<PathBuf>) {
+) -> (BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>) {
     if song.file_path == ":demo:" {
         let chart = demo::create_demo_chart();
         let timing = TimingModel::from_chart(&chart);
         let soundbank = demo::create_demo_sample_bank();
         let bga_bank = HashMap::new();
-        return (chart, timing, soundbank, bga_bank, None);
+        return (chart, timing, soundbank, bga_bank, HashMap::new());
     }
 
     // Check if song is inside a .bmsp package
@@ -288,7 +306,7 @@ pub fn load_chart_and_audio(
                         "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames decoded in-memory from archive)",
                         chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len()
                     );
-                    return (chart, timing, soundbank, bga_bank, None);
+                    return (chart, timing, soundbank, bga_bank, HashMap::new());
                 }
             }
         }
@@ -309,16 +327,16 @@ pub fn load_chart_and_audio(
                 }
             }
 
-            let video_path = find_video_file_in_dir(parent_dir, &chart);
-            if let Some(ref vp) = video_path {
+            let video_paths = find_video_files_in_dir(parent_dir, &chart);
+            for vp in video_paths.values() {
                 println!("Detected BGA Video: '{}'", vp.display());
             }
 
             println!(
-                "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded)",
-                chart.header.title, loaded, bga_bank.len()
+                "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
+                chart.header.title, loaded, bga_bank.len(), video_paths.len()
             );
-            return (chart, timing, soundbank, bga_bank, video_path);
+            return (chart, timing, soundbank, bga_bank, video_paths);
         }
     }
 
@@ -326,22 +344,22 @@ pub fn load_chart_and_audio(
     let chart = demo::create_demo_chart();
     let timing = TimingModel::from_chart(&chart);
     let soundbank = demo::create_demo_sample_bank();
-    (chart, timing, soundbank, HashMap::new(), None)
+    (chart, timing, soundbank, HashMap::new(), HashMap::new())
 }
 
-/// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video path.
+/// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video paths.
 pub fn spawn_background_song_loader(
     song: &SongMetadata,
-) -> Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, Option<PathBuf>), String>> {
+) -> Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>> {
     let song_clone = song.clone();
     let (tx, rx): (
-        Sender<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, Option<PathBuf>), String>>,
-        Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, Option<PathBuf>), String>>,
+        Sender<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>>,
+        Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>>,
     ) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_path) = load_chart_and_audio(&song_clone);
-        let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_path)));
+        let (chart, timing, bank, bga_bank, video_paths) = load_chart_and_audio(&song_clone);
+        let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_paths)));
     });
 
     rx
