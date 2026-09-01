@@ -156,6 +156,14 @@ impl AppState {
         match self.display_mode {
             DisplayMode::Windowed => {
                 self.window.set_fullscreen(None);
+                let avail = self.available_resolutions();
+                let size = self.window.inner_size();
+                if !avail.iter().any(|&(w, h, _)| w == size.width && h == size.height) {
+                    if let Some(&(w, h, _)) = avail.first() {
+                        let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(w, h));
+                        self.renderer.resize(w, h);
+                    }
+                }
             }
             DisplayMode::Borderless => {
                 self.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
@@ -206,9 +214,41 @@ impl AppState {
         }
     }
 
+    pub fn available_resolutions(&self) -> Vec<(u32, u32, &'static str)> {
+        let (mon_w, mon_h) = self.window.current_monitor()
+            .or_else(|| self.window.primary_monitor())
+            .map(|m| (m.size().width, m.size().height))
+            .unwrap_or((1920, 1080));
+
+        let is_fullscreen_or_borderless = self.display_mode != DisplayMode::Windowed;
+
+        let list: Vec<_> = crate::config::RESOLUTION_PRESETS
+            .iter()
+            .copied()
+            .filter(|&(w, h, _)| {
+                // Must not exceed current monitor dimensions
+                if w > mon_w || h > mon_h {
+                    return false;
+                }
+                // If not fullscreen/borderless (i.e. Windowed mode), only allow 16:9
+                if !is_fullscreen_or_borderless && (w * 9 != h * 16) {
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        if list.is_empty() {
+            vec![(1280, 720, "1280x720 (16:9 HD)")]
+        } else {
+            list
+        }
+    }
+
     pub fn current_resolution_label(&self) -> &'static str {
         let size = self.window.inner_size();
-        for &(w, h, label) in crate::config::RESOLUTION_PRESETS {
+        let avail = self.available_resolutions();
+        for &(w, h, label) in &avail {
             if size.width == w && size.height == h {
                 return label;
             }
@@ -218,18 +258,29 @@ impl AppState {
 
     pub fn cycle_resolution(&mut self, forward: bool) {
         let size = self.window.inner_size();
-        let cur_idx = crate::config::RESOLUTION_PRESETS
+        let avail = self.available_resolutions();
+        if avail.is_empty() {
+            return;
+        }
+
+        let cur_idx = avail
             .iter()
-            .position(|&(w, h, _)| w == size.width && h == size.height)
-            .unwrap_or(0);
-        let next_idx = if forward {
-            (cur_idx + 1) % crate::config::RESOLUTION_PRESETS.len()
-        } else if cur_idx == 0 {
-            crate::config::RESOLUTION_PRESETS.len() - 1
-        } else {
-            cur_idx - 1
+            .position(|&(w, h, _)| w == size.width && h == size.height);
+
+        let next_idx = match cur_idx {
+            Some(idx) => {
+                if forward {
+                    (idx + 1) % avail.len()
+                } else if idx == 0 {
+                    avail.len() - 1
+                } else {
+                    idx - 1
+                }
+            }
+            None => 0,
         };
-        let (target_w, target_h, _) = crate::config::RESOLUTION_PRESETS[next_idx];
+
+        let (target_w, target_h, _) = avail[next_idx];
         let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
         self.renderer.resize(target_w, target_h);
         #[cfg(target_os = "windows")]

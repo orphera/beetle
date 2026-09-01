@@ -7,6 +7,7 @@ pub const CONFIG_FILE: &str = "config.dat";
 
 /// Standard resolution presets (16:9 standard and non-16:9 letterbox/pillarbox test modes).
 pub const RESOLUTION_PRESETS: &[(u32, u32, &str)] = &[
+    (960, 540, "960x540 (16:9 qHD)"),
     (1280, 720, "1280x720 (16:9 HD)"),
     (1600, 900, "1600x900 (16:9 HD+)"),
     (1920, 1080, "1920x1080 (16:9 FHD)"),
