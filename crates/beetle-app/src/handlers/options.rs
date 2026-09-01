@@ -59,6 +59,10 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 7 => { // Graphics GPU
                     state.gpu_backend = state.gpu_backend.prev();
+                    #[cfg(target_os = "windows")]
+                    if state.gpu_backend != crate::config::GpuBackendSetting::Software {
+                        state.ensure_d3d11_backend();
+                    }
                 }
                 8 => { // Target FPS
                     let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
@@ -119,6 +123,10 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 7 => { // Graphics GPU
                     state.gpu_backend = state.gpu_backend.next();
+                    #[cfg(target_os = "windows")]
+                    if state.gpu_backend != crate::config::GpuBackendSetting::Software {
+                        state.ensure_d3d11_backend();
+                    }
                 }
                 8 => { // Target FPS
                     let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);

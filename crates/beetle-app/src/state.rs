@@ -145,6 +145,10 @@ pub struct AppState {
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
     pub stage_image_loading_hash: Option<u64>,
+    #[cfg(target_os = "windows")]
+    pub d3d11_backend: Option<beetle_render::D3d11Backend>,
+    #[cfg(target_os = "windows")]
+    pub d3d11_frame_texture: Option<beetle_render::TextureId>,
 }
 
 impl AppState {
@@ -167,6 +171,37 @@ impl AppState {
                     Some(winit::window::Fullscreen::Borderless(None))
                 };
                 self.window.set_fullscreen(fullscreen);
+            }
+        }
+    }
+
+    pub fn is_d3d11_active(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            (self.gpu_backend == GpuBackendSetting::Auto || self.gpu_backend == GpuBackendSetting::Direct3D11)
+                && self.d3d11_backend.is_some()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn ensure_d3d11_backend(&mut self) {
+        if self.d3d11_backend.is_none() {
+            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(handle) = self.window.window_handle() {
+                if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+                    let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
+                    let size = self.window.inner_size();
+                    if let Ok(mut d3d) = beetle_render::D3d11Backend::new(hwnd, size.width, size.height) {
+                        use beetle_render::GpuBackend;
+                        let tex = d3d.create_texture(size.width, size.height, self.renderer.data());
+                        self.d3d11_frame_texture = tex;
+                        self.d3d11_backend = Some(d3d);
+                    }
+                }
             }
         }
     }
@@ -197,6 +232,15 @@ impl AppState {
         let (target_w, target_h, _) = crate::config::RESOLUTION_PRESETS[next_idx];
         let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
         self.renderer.resize(target_w, target_h);
+        #[cfg(target_os = "windows")]
+        if let Some(d3d11) = &mut self.d3d11_backend {
+            use beetle_render::GpuBackend;
+            d3d11.resize(target_w, target_h);
+            if let Some(old_tex) = self.d3d11_frame_texture.take() {
+                d3d11.destroy_texture(old_tex);
+            }
+            self.d3d11_frame_texture = d3d11.create_texture(target_w, target_h, self.renderer.data());
+        }
     }
 
     pub fn save_config(&self) {

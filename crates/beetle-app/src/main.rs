@@ -113,6 +113,26 @@ impl ApplicationHandler for BeetleApp {
 
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
+        #[cfg(target_os = "windows")]
+        let (d3d11_backend, d3d11_frame_texture) = {
+            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let mut backend = None;
+            let mut texture = None;
+            if saved_config.gpu_backend != config::GpuBackendSetting::Software {
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+                        let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
+                        if let Ok(mut d3d) = beetle_render::D3d11Backend::new(hwnd, size.width, size.height) {
+                            use beetle_render::GpuBackend;
+                            texture = d3d.create_texture(size.width, size.height, renderer.data());
+                            backend = Some(d3d);
+                        }
+                    }
+                }
+            }
+            (backend, texture)
+        };
+
         let mut app_state = AppState {
             window,
             _context: context,
@@ -178,6 +198,10 @@ impl ApplicationHandler for BeetleApp {
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
             stage_image_loading_hash: None,
+            #[cfg(target_os = "windows")]
+            d3d11_backend,
+            #[cfg(target_os = "windows")]
+            d3d11_frame_texture,
         };
 
         app_state.apply_display_mode();
@@ -343,6 +367,15 @@ impl ApplicationHandler for BeetleApp {
                 if let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                     let _ = state.surface.resize(w, h);
                     state.renderer.resize(size.width, size.height);
+                    #[cfg(target_os = "windows")]
+                    if let Some(d3d11) = &mut state.d3d11_backend {
+                        use beetle_render::GpuBackend;
+                        d3d11.resize(size.width, size.height);
+                        if let Some(old_tex) = state.d3d11_frame_texture.take() {
+                            d3d11.destroy_texture(old_tex);
+                        }
+                        state.d3d11_frame_texture = d3d11.create_texture(size.width, size.height, state.renderer.data());
+                    }
                     state.window.request_redraw();
                 }
             }
@@ -651,10 +684,38 @@ impl ApplicationHandler for BeetleApp {
                     }
                 }
 
-                // Blit to softbuffer
+                // Frame presentation: Hardware Direct3D 11 FLIP swapchain or CPU softbuffer
                 let width = state.renderer.width();
                 let height = state.renderer.height();
-                if width > 0 && height > 0 {
+                #[cfg(target_os = "windows")]
+                let mut presented_d3d11 = false;
+                #[cfg(target_os = "windows")]
+                if state.is_d3d11_active() && width > 0 && height > 0 {
+                    use beetle_render::GpuBackend;
+                    if let Some(d3d11) = &mut state.d3d11_backend {
+                        d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+                        if let Some(tex_id) = state.d3d11_frame_texture {
+                            d3d11.update_texture(tex_id, width, height, state.renderer.data());
+                            let w = width as f32;
+                            let h = height as f32;
+                            let quad_vertices = [
+                                beetle_render::Vertex2D::new(0.0, 0.0, 0.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
+                                beetle_render::Vertex2D::new(w, 0.0, 1.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
+                                beetle_render::Vertex2D::new(w, h, 1.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
+                                beetle_render::Vertex2D::new(0.0, h, 0.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
+                            ];
+                            let quad_indices = [0, 1, 2, 0, 2, 3];
+                            d3d11.draw_batch(&quad_vertices, &quad_indices, Some(tex_id), beetle_render::BlendMode::Alpha);
+                        }
+                        d3d11.end_frame();
+                        presented_d3d11 = true;
+                    }
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                let presented_d3d11 = false;
+
+                if !presented_d3d11 && width > 0 && height > 0 {
                     if let Ok(mut buffer) = state.surface.buffer_mut() {
                         let data = state.renderer.data();
                         let buffer_slice = buffer.as_mut();
