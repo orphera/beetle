@@ -13,5 +13,5 @@ winit = { workspace = true }
 softbuffer = { workspace = true }
 
 [features]
-default = []
+default = ["bga-enhanced"]
 bga-enhanced = ["beetle-render/bga-enhanced"]
