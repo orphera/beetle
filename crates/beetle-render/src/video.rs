@@ -44,9 +44,9 @@ mod wmf_backend {
 
     const MF_MT_MAJOR_TYPE: GUID = GUID {
         data1: 0x48eba18e,
-        data2: 0xf827,
-        data3: 0x49ed,
-        data4: [0x85, 0x5d, 0x25, 0x92, 0x4b, 0x77, 0x82, 0x52],
+        data2: 0xf8c9,
+        data3: 0x4687,
+        data4: [0xbf, 0x11, 0x0a, 0x74, 0xc9, 0xf9, 0x6a, 0x8f],
     };
 
     #[allow(non_upper_case_globals)]
@@ -79,6 +79,13 @@ mod wmf_backend {
         data4: [0xb8, 0x34, 0x72, 0x03, 0x08, 0x49, 0xa3, 0x7d],
     };
 
+    const MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING: GUID = GUID {
+        data1: 0xfb394f3d,
+        data2: 0xccf1,
+        data3: 0x42ee,
+        data4: [0xbb, 0xb3, 0xf9, 0xb8, 0x45, 0xd5, 0x68, 0x1d],
+    };
+
     #[repr(C)]
     #[allow(non_snake_case, dead_code)]
     struct PROPVARIANT {
@@ -99,13 +106,22 @@ mod wmf_backend {
 
     #[repr(C)]
     #[allow(non_snake_case, dead_code)]
+    struct IMFAttributesVtbl {
+        parent: IUnknownVtbl,
+        _unused1: [*const c_void; 18],
+        SetUINT32: unsafe extern "system" fn(*mut c_void, *const GUID, u32) -> i32,
+        _unused2: [*const c_void; 11],
+    }
+
+    #[repr(C)]
+    #[allow(non_snake_case, dead_code)]
     struct IMFMediaTypeVtbl {
         parent: IUnknownVtbl,
         _unused1: [*const c_void; 5],
         GetUINT64: unsafe extern "system" fn(*mut c_void, *const GUID, *mut u64) -> i32,
         _unused2: [*const c_void; 15],
         SetGUID: unsafe extern "system" fn(*mut c_void, *const GUID, *const GUID) -> i32,
-        _unused3: [*const c_void; 13],
+        _unused3: [*const c_void; 14],
     }
 
     #[repr(C)]
@@ -132,7 +148,7 @@ mod wmf_backend {
     #[allow(non_snake_case, dead_code)]
     struct IMFSampleVtbl {
         parent: IUnknownVtbl,
-        unused_attributes: [*const c_void; 29],
+        unused_attributes: [*const c_void; 30],
         GetSampleFlags: *const c_void,
         SetSampleFlags: *const c_void,
         GetSampleTime: unsafe extern "system" fn(*mut c_void, *mut i64) -> i32,
@@ -166,6 +182,7 @@ mod wmf_backend {
             ppSourceReader: *mut *mut c_void,
         ) -> i32;
         fn MFCreateMediaType(ppMFType: *mut *mut c_void) -> i32;
+        fn MFCreateAttributes(ppMFAttributes: *mut *mut c_void, cInitialSize: u32) -> i32;
         fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
         fn CoUninitialize();
     }
@@ -188,8 +205,29 @@ mod wmf_backend {
                 let wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
                 let mut reader_ptr: *mut c_void = ptr::null_mut();
 
-                let hr = MFCreateSourceReaderFromURL(wide_path.as_ptr(), ptr::null_mut(), &mut reader_ptr);
+                // Enable video processing (YUV -> RGB32 conversion) via IMFAttributes
+                let mut attr_ptr: *mut c_void = ptr::null_mut();
+                let hr_attr = MFCreateAttributes(&mut attr_ptr, 1);
+                if hr_attr >= 0 && !attr_ptr.is_null() {
+                    let attr_vtbl = *(attr_ptr as *mut *mut IMFAttributesVtbl);
+                    let _ = ((*attr_vtbl).SetUINT32)(
+                        attr_ptr,
+                        &MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING,
+                        1,
+                    );
+                }
+
+                let hr = MFCreateSourceReaderFromURL(wide_path.as_ptr(), attr_ptr, &mut reader_ptr);
+
+                if !attr_ptr.is_null() {
+                    let attr_vtbl = *(attr_ptr as *mut *mut IMFAttributesVtbl);
+                    let _ = ((*attr_vtbl).parent.Release)(attr_ptr);
+                }
+
                 if hr < 0 || reader_ptr.is_null() {
+                    eprintln!("[WMF] MFCreateSourceReaderFromURL failed: hr=0x{:08X}", hr as u32);
+                    let _ = MFShutdown();
+                    CoUninitialize();
                     return None;
                 }
 
@@ -197,7 +235,9 @@ mod wmf_backend {
 
                 // Create requested media type (RGB32)
                 let mut media_type_ptr: *mut c_void = ptr::null_mut();
-                if MFCreateMediaType(&mut media_type_ptr) < 0 || media_type_ptr.is_null() {
+                let hr_mt = MFCreateMediaType(&mut media_type_ptr);
+                if hr_mt < 0 || media_type_ptr.is_null() {
+                    eprintln!("[WMF] MFCreateMediaType failed: hr=0x{:08X}", hr_mt as u32);
                     let _ = ((*reader_vtbl).parent.Release)(reader_ptr);
                     let _ = MFShutdown();
                     CoUninitialize();
@@ -217,6 +257,7 @@ mod wmf_backend {
                 let _ = ((*mt_vtbl).parent.Release)(media_type_ptr);
 
                 if hr < 0 {
+                    eprintln!("[WMF] SetCurrentMediaType (RGB32) failed: hr=0x{:08X}", hr as u32);
                     let _ = ((*reader_vtbl).parent.Release)(reader_ptr);
                     let _ = MFShutdown();
                     CoUninitialize();
@@ -305,7 +346,17 @@ mod wmf_backend {
                     &mut sample_ptr,
                 );
 
-                if hr < 0 || (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0 {
+                if hr < 0 {
+                    eprintln!("[WMF] ReadSample failed: hr=0x{:08X}", hr as u32);
+                    self.is_eof = true;
+                    if !sample_ptr.is_null() {
+                        let sample_vtbl = *(sample_ptr as *mut *mut IMFSampleVtbl);
+                        let _ = ((*sample_vtbl).parent.Release)(sample_ptr);
+                    }
+                    return false;
+                }
+
+                if (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0 {
                     self.is_eof = true;
                     if !sample_ptr.is_null() {
                         let sample_vtbl = *(sample_ptr as *mut *mut IMFSampleVtbl);
@@ -322,15 +373,18 @@ mod wmf_backend {
                 let mut buffer_ptr: *mut c_void = ptr::null_mut();
 
                 let hr = ((*sample_vtbl).ConvertToContiguousBuffer)(sample_ptr, &mut buffer_ptr);
-                if hr >= 0 && !buffer_ptr.is_null() {
+                if hr < 0 || buffer_ptr.is_null() {
+                    eprintln!("[WMF] ConvertToContiguousBuffer failed: hr=0x{:08X}", hr as u32);
+                } else {
                     let buf_vtbl = *(buffer_ptr as *mut *mut IMFMediaBufferVtbl);
                     let mut data_ptr: *mut u8 = ptr::null_mut();
                     let mut max_len = 0u32;
                     let mut cur_len = 0u32;
 
-                    if ((*buf_vtbl).Lock)(buffer_ptr, &mut data_ptr, &mut max_len, &mut cur_len) >= 0
-                        && !data_ptr.is_null()
-                    {
+                    let hr_lock = ((*buf_vtbl).Lock)(buffer_ptr, &mut data_ptr, &mut max_len, &mut cur_len);
+                    if hr_lock < 0 || data_ptr.is_null() {
+                        eprintln!("[WMF] Buffer Lock failed: hr=0x{:08X}", hr_lock as u32);
+                    } else {
                         let available = cur_len as usize;
                         let row_bytes = (self.width * 4) as usize;
                         let stride = if self.height > 0 { available / self.height as usize } else { row_bytes };
@@ -504,5 +558,27 @@ mod tests {
     fn test_bga_video_player_nonexistent() {
         let player = BgaVideoPlayer::open("nonexistent_video_file.mp4");
         assert!(player.is_none());
+    }
+
+    #[test]
+    fn test_wmf_probe_real_video() {
+        let sample_path = "sample_640x480.mp4";
+        if std::path::Path::new(sample_path).exists() {
+            eprintln!("[TEST] Probing real MP4 file: {}", sample_path);
+            let mut player = BgaVideoPlayer::open(sample_path).expect("Failed to open sample_640x480.mp4");
+            assert_eq!(player.width(), 640);
+            assert_eq!(player.height(), 480);
+            let frame = player.current_frame().expect("Initial frame should be decoded");
+            assert_eq!(frame.width, 640);
+            assert_eq!(frame.height, 480);
+            assert_eq!(frame.pixels.len(), 640 * 480);
+            // Verify non-black pixels are rendered from testsrc pattern
+            let non_black = frame.pixels.iter().any(|c| c.r > 0 || c.g > 0 || c.b > 0);
+            assert!(non_black, "Decoded video frame should have non-black pixels");
+
+            // Advance playback to 0.5s
+            let next_frame = player.update(0.5);
+            assert!(next_frame.is_some());
+        }
     }
 }

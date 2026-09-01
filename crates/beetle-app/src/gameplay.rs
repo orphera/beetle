@@ -107,6 +107,15 @@ pub fn finalize_start_gameplay(
         }
     }
 
+    // If the chart does not define any Base BGA events but a background video exists,
+    // start playing the video from the beginning (0.0s).
+    if initial_base_bmp.is_none() && !play_chart.bga_events.iter().any(|ev| ev.channel == beetle_core::BgaChannel::Base) {
+        if let Some((&first_id, _)) = video_players.iter().next() {
+            initial_base_bmp = Some(first_id);
+            video_start_times.entry(first_id).or_insert(0.0);
+        }
+    }
+
     let is_pms = song.file_path.to_lowercase().ends_with(".pms");
     let play_mode = play_chart.detect_play_mode_with_hint(is_pms);
     state.renderer.skin.set_play_mode(play_mode);

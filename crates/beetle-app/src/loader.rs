@@ -139,13 +139,19 @@ fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, PathB
         }
 
         if let Some(fp) = fallback_path {
-            // Find which BmpId is first triggered on Channel 04 (Base) or default to BmpId(1)
-            let first_bga_id = chart.bga_events
+            let base_ids: Vec<BmpId> = chart
+                .bga_events
                 .iter()
-                .find(|ev| ev.channel == beetle_core::BgaChannel::Base)
+                .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
                 .map(|ev| ev.bmp_id)
-                .unwrap_or(BmpId(1));
-            videos.insert(first_bga_id, fp);
+                .collect();
+            if base_ids.is_empty() {
+                videos.insert(BmpId(1), fp);
+            } else {
+                for id in base_ids {
+                    videos.entry(id).or_insert_with(|| fp.clone());
+                }
+            }
         }
     }
 
