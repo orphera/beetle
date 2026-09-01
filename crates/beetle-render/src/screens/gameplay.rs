@@ -34,6 +34,8 @@ impl SoftwareRenderer {
     }
 
     fn draw_playfield_bg(&mut self, combo: u32, danger_blink: bool) {
+        let s = self.viewport.scale;
+
         // Draw playfield main background box
         self.draw_rect(
             self.skin.playfield_x,
@@ -49,13 +51,15 @@ impl SoftwareRenderer {
             self.skin.lane_line_color
         };
 
+        let line_w = (1.0 * s).max(1.0);
+
         // Draw lane vertical separator lines
         for &lane in self.skin.active_lanes() {
             let x = self.skin.lane_x(lane);
             self.draw_rect(
                 x,
                 self.skin.playfield_y,
-                1.0,
+                line_w,
                 self.skin.playfield_height,
                 line_color,
             );
@@ -66,7 +70,7 @@ impl SoftwareRenderer {
         self.draw_rect(
             right_x,
             self.skin.playfield_y,
-            1.0,
+            line_w,
             self.skin.playfield_height,
             line_color,
         );
@@ -77,11 +81,12 @@ impl SoftwareRenderer {
             let py = self.skin.playfield_y;
             let pw = self.skin.playfield_width;
             let ph = self.skin.playfield_height;
+            let border_thickness = (2.0 * s).max(2.0);
             let danger_col = ColorRgba::new(255, 40, 40, 220);
-            self.draw_rect(px, py, pw, 2.0, danger_col);
-            self.draw_rect(px, py + ph - 2.0, pw, 2.0, danger_col);
-            self.draw_rect(px, py, 2.0, ph, danger_col);
-            self.draw_rect(px + pw - 2.0, py, 2.0, ph, danger_col);
+            self.draw_rect(px, py, pw, border_thickness, danger_col);
+            self.draw_rect(px, py + ph - border_thickness, pw, border_thickness, danger_col);
+            self.draw_rect(px, py, border_thickness, ph, danger_col);
+            self.draw_rect(px + pw - border_thickness, py, border_thickness, ph, danger_col);
         }
     }
 
@@ -101,6 +106,7 @@ impl SoftwareRenderer {
     }
 
     fn draw_judge_line(&mut self, combo: u32) {
+        let s = self.viewport.scale;
         let jy = self.skin.judge_line_y;
         let px = self.skin.playfield_x;
         let pw = self.skin.playfield_width;
@@ -113,25 +119,27 @@ impl SoftwareRenderer {
         } else {
             ColorRgba::new(255, 70, 70, 70) // Reddish
         };
-        self.draw_rect(px, jy - 2.0, pw, 6.0, glow_color);
+        self.draw_rect(px, jy - 3.0 * s, pw, 7.0 * s, glow_color);
 
         // Core bright judge line
+        let line_h = (2.0 * s).max(2.0);
         self.draw_rect(
             px,
             jy,
             pw,
-            2.0,
+            line_h,
             self.skin.judge_line_color,
         );
     }
 
     fn draw_notes(&mut self, notes: &[beetle_core::PlayNote], audio_time_seconds: f64) {
-        let hi_speed = self.skin.hi_speed;
+        let s = self.viewport.scale;
+        let effective_speed = self.skin.hi_speed * s;
         let judge_y = self.skin.judge_line_y;
         let top_y = self.skin.playfield_y;
         let note_h = self.skin.note_height;
 
-        let visible_duration = (judge_y - top_y + 100.0) as f64 / hi_speed as f64;
+        let visible_duration = (judge_y - top_y + 100.0 * s) as f64 / effective_speed.max(1.0) as f64;
         let min_time = audio_time_seconds - 2.0;
         let max_time = audio_time_seconds + visible_duration;
 
@@ -143,7 +151,7 @@ impl SoftwareRenderer {
             }
 
             let delta_t = note.target_time_seconds - audio_time_seconds;
-            let note_y = judge_y - (delta_t as f32 * hi_speed);
+            let note_y = judge_y - (delta_t as f32 * effective_speed);
 
             let lane = note.note_event.lane;
             let lane_x = self.skin.lane_x(lane) + 1.0;
@@ -153,13 +161,13 @@ impl SoftwareRenderer {
             match note.note_event.note_type {
                 NoteType::Tap => {
                     // Only draw if within visible playfield vertical range
-                    if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 {
+                    if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 * s {
                         self.draw_rect(lane_x, note_y - note_h, lane_w, note_h, note_color);
                     }
                 }
                 NoteType::LongNoteStart => {
                     let end_delta = note.end_target_time_seconds - audio_time_seconds;
-                    let end_y = judge_y - (end_delta as f32 * hi_speed);
+                    let end_y = judge_y - (end_delta as f32 * effective_speed);
 
                     let body_top = end_y.max(top_y);
                     let body_bottom = note_y.min(judge_y);
@@ -168,21 +176,21 @@ impl SoftwareRenderer {
                     if body_bottom > body_top {
                         let body_color = note_color.with_alpha(140);
                         self.draw_rect(
-                            lane_x + 3.0,
+                            lane_x + 3.0 * s,
                             body_top,
-                            lane_w - 6.0,
+                            lane_w - 6.0 * s,
                             body_bottom - body_top,
                             body_color,
                         );
                     }
 
                     // Draw start head
-                    if note_y + note_h >= top_y && note_y <= judge_y + 40.0 {
+                    if note_y + note_h >= top_y && note_y <= judge_y + 40.0 * s {
                         self.draw_rect(lane_x, note_y - note_h, lane_w, note_h, note_color);
                     }
 
                     // Draw end tail
-                    if end_y + note_h >= top_y && end_y <= judge_y + 40.0 {
+                    if end_y + note_h >= top_y && end_y <= judge_y + 40.0 * s {
                         self.draw_rect(lane_x, end_y - note_h, lane_w, note_h, note_color);
                     }
                 }
@@ -192,9 +200,10 @@ impl SoftwareRenderer {
     }
 
     fn draw_gauge_bar(&mut self, score: &ScoreTracker, danger_blink: bool) {
-        let gauge_x = self.skin.playfield_x + self.skin.playfield_width + 20.0;
+        let s = self.viewport.scale;
+        let gauge_x = self.skin.playfield_x + self.skin.playfield_width + 16.0 * s;
         let gauge_y = self.skin.playfield_y;
-        let gauge_w = 20.0;
+        let gauge_w = 22.0 * s;
         let gauge_h = self.skin.playfield_height;
 
         // Gauge background
@@ -254,15 +263,16 @@ impl SoftwareRenderer {
         } else {
             ColorRgba::new(80, 80, 100, 255)
         };
-        self.draw_rect(gauge_x, gauge_y, gauge_w, 1.0, border_color);
-        self.draw_rect(gauge_x, gauge_y + gauge_h, gauge_w, 1.0, border_color);
-        self.draw_rect(gauge_x, gauge_y, 1.0, gauge_h, border_color);
-        self.draw_rect(gauge_x + gauge_w, gauge_y, 1.0, gauge_h, border_color);
+        let b_line = (1.0 * s).max(1.0);
+        self.draw_rect(gauge_x, gauge_y, gauge_w, b_line, border_color);
+        self.draw_rect(gauge_x, gauge_y + gauge_h - b_line, gauge_w, b_line, border_color);
+        self.draw_rect(gauge_x, gauge_y, b_line, gauge_h, border_color);
+        self.draw_rect(gauge_x + gauge_w - b_line, gauge_y, b_line, gauge_h, border_color);
 
         // Gauge 80% threshold line for Easy / Groove gauge
         if matches!(score.gauge_type, GaugeType::Easy | GaugeType::Groove) {
             let line_y = gauge_y + gauge_h * 0.2;
-            self.draw_rect(gauge_x - 3.0, line_y, gauge_w + 6.0, 2.0, ColorRgba::new(255, 220, 50, 255));
+            self.draw_rect(gauge_x - 3.0 * s, line_y, gauge_w + 6.0 * s, 2.0 * s, ColorRgba::new(255, 220, 50, 255));
         }
 
         // Percentage text below gauge
@@ -272,17 +282,19 @@ impl SoftwareRenderer {
         } else {
             ColorRgba::new(220, 220, 240, 255)
         };
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &gauge_str,
-            gauge_x as i32 - 10,
-            (gauge_y + gauge_h + 8.0) as i32,
-            1,
+            (gauge_x - 4.0 * s) as i32,
+            (gauge_y + gauge_h + 8.0 * s) as i32,
+            font_scale,
             text_color,
         );
     }
 
     fn draw_hit_bursts(&mut self, audio_time_seconds: f64) {
+        let s = self.viewport.scale;
         let burst_duration = 0.22;
         self.hit_bursts.retain(|b| {
             let elapsed = audio_time_seconds - b.spawn_time;
@@ -323,7 +335,7 @@ impl SoftwareRenderer {
             }
 
             // 2. Central expanding burst flare
-            let flare_size = (1.0 - progress) * 26.0 + 4.0;
+            let flare_size = ((1.0 - progress) * 26.0 + 4.0) * s;
             self.draw_rect(
                 lx - flare_size / 2.0,
                 judge_y - flare_size / 2.0,
@@ -333,8 +345,8 @@ impl SoftwareRenderer {
             );
 
             // 3. Radiating particle sparks
-            let dist = progress * 32.0;
-            let spark_size = (1.0 - progress) * 4.0 + 1.0;
+            let dist = progress * 32.0 * s;
+            let spark_size = ((1.0 - progress) * 4.0 + 1.0) * s;
             let spark_alpha = (alpha / 2).max(1);
             let spark_col = ColorRgba::new(r, g, b, spark_alpha);
 
@@ -362,8 +374,10 @@ impl SoftwareRenderer {
     }
 
     fn draw_combo_and_judge(&mut self, score: &ScoreTracker, audio_time_seconds: f64) {
+        let s = self.viewport.scale;
         let center_x = (self.skin.playfield_x + (self.skin.playfield_width / 2.0)) as i32;
-        let judge_center_y = (self.skin.judge_line_y - 100.0) as i32;
+        let judge_center_y = (self.skin.judge_line_y - 120.0 * s) as i32;
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
 
         // 1. Draw Combo with bounce pulse
         if score.current_combo > 0 {
@@ -371,7 +385,7 @@ impl SoftwareRenderer {
             let pulse_offset = if let Some((_, judge_time, _)) = self.last_judge {
                 let elapsed = audio_time_seconds - judge_time;
                 if elapsed >= 0.0 && elapsed < 0.12 {
-                    ((1.0 - (elapsed / 0.12)) * 6.0) as i32
+                    (((1.0 - (elapsed / 0.12)) * 6.0) * s as f64) as i32
                 } else {
                     0
                 }
@@ -379,14 +393,15 @@ impl SoftwareRenderer {
                 0
             };
 
-            let combo_y = judge_center_y - 30 - pulse_offset;
+            let combo_font_scale = (3.0 * s).round().max(2.0) as u32;
+            let combo_y = judge_center_y - (34.0 * s) as i32 - pulse_offset;
 
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
                 &combo_num,
                 center_x,
                 combo_y,
-                3, // Big font
+                combo_font_scale,
                 ColorRgba::new(255, 255, 255, 255),
             );
 
@@ -394,8 +409,8 @@ impl SoftwareRenderer {
                 &mut self.pixmap.as_mut(),
                 "COMBO",
                 center_x,
-                combo_y + 22,
-                1,
+                combo_y + (24.0 * s) as i32,
+                font_scale,
                 ColorRgba::new(180, 180, 200, 255),
             );
         }
@@ -413,12 +428,13 @@ impl SoftwareRenderer {
                     JudgeGrade::Miss => ("MISS", ColorRgba::new(140, 140, 140, 255)),
                 };
 
+                let judge_font_scale = (2.0 * s).round().max(1.0) as u32;
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),
                     text,
                     center_x,
-                    judge_center_y + 8,
-                    2,
+                    judge_center_y + (8.0 * s) as i32,
+                    judge_font_scale,
                     color,
                 );
 
@@ -434,8 +450,8 @@ impl SoftwareRenderer {
                         &mut self.pixmap.as_mut(),
                         &fast_slow_str,
                         center_x,
-                        judge_center_y + 26,
-                        1,
+                        judge_center_y + (28.0 * s) as i32,
+                        font_scale,
                         fs_color,
                     );
                 }
@@ -445,6 +461,7 @@ impl SoftwareRenderer {
 
     fn draw_lane_cover(&mut self) {
         if self.skin.lane_cover_ratio > 0.0 {
+            let s = self.viewport.scale;
             let ratio = self.skin.lane_cover_ratio.clamp(0.0, 0.85);
             let cover_h = self.skin.playfield_height * ratio;
             self.draw_rect(
@@ -456,17 +473,20 @@ impl SoftwareRenderer {
             );
             self.draw_rect(
                 self.skin.playfield_x,
-                self.skin.playfield_y + cover_h - 2.0,
+                self.skin.playfield_y + cover_h - 2.0 * s,
                 self.skin.playfield_width,
-                2.0,
+                2.0 * s,
                 ColorRgba::new(80, 140, 255, 255),
             );
         }
     }
 
     fn draw_hud_info(&mut self, chart: &BmsChart, score: &ScoreTracker) {
-        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 60.0) as i32;
+        let s = self.viewport.scale;
+        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
         let mut hud_y = self.skin.playfield_y as i32;
+        let title_scale = (2.0 * s).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
 
         // Title & Artist
         BitmapFont::draw_text(
@@ -474,20 +494,20 @@ impl SoftwareRenderer {
             &chart.header.title,
             hud_x,
             hud_y,
-            2,
+            title_scale,
             ColorRgba::new(255, 255, 255, 255),
         );
-        hud_y += 20;
+        hud_y += (22.0 * s) as i32;
 
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &chart.header.artist,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             ColorRgba::new(160, 160, 180, 255),
         );
-        hud_y += 30;
+        hud_y += (28.0 * s) as i32;
 
         // BPM & Play Level
         let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
@@ -496,10 +516,10 @@ impl SoftwareRenderer {
             &bpm_str,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             ColorRgba::new(200, 200, 220, 255),
         );
-        hud_y += 16;
+        hud_y += (16.0 * s) as i32;
 
         let lvl_str = format!("LEVEL: {}", chart.header.play_level);
         BitmapFont::draw_text(
@@ -507,10 +527,10 @@ impl SoftwareRenderer {
             &lvl_str,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             ColorRgba::new(200, 200, 220, 255),
         );
-        hud_y += 30;
+        hud_y += (26.0 * s) as i32;
 
         // EX-Score and Accuracy Rate
         let ex_str = format!("EX SCORE: {} / {}", score.ex_score, score.max_ex_score());
@@ -519,10 +539,10 @@ impl SoftwareRenderer {
             &ex_str,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             ColorRgba::new(255, 230, 100, 255),
         );
-        hud_y += 16;
+        hud_y += (16.0 * s) as i32;
 
         let acc_str = format!("ACCURACY: {:.2}%", score.accuracy_rate());
         BitmapFont::draw_text(
@@ -530,10 +550,10 @@ impl SoftwareRenderer {
             &acc_str,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             ColorRgba::new(100, 220, 255, 255),
         );
-        hud_y += 20;
+        hud_y += (18.0 * s) as i32;
 
         // Pacemaker (AAA target = 8/9 of max possible EX score so far)
         let played_notes = score.pgreat_count + score.great_count + score.good_count + score.bad_count + score.poor_count + score.miss_count;
@@ -550,10 +570,10 @@ impl SoftwareRenderer {
             &pace_str,
             hud_x,
             hud_y,
-            1,
+            font_scale,
             pace_color,
         );
-        hud_y += 24;
+        hud_y += (22.0 * s) as i32;
 
         // Judge breakdown table
         let counts = [
@@ -567,8 +587,8 @@ impl SoftwareRenderer {
 
         for (label, count, color) in counts {
             let row = format!("{}: {:>4}", label, count);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &row, hud_x, hud_y, 1, color);
-            hud_y += 14;
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &row, hud_x, hud_y, font_scale, color);
+            hud_y += (14.0 * s) as i32;
         }
     }
 
@@ -577,62 +597,63 @@ impl SoftwareRenderer {
         levels: &[f32; 16],
         bga_image: Option<&ImageBuffer>,
     ) {
-        let side_x = self.skin.playfield_x + self.skin.playfield_width + 60.0;
-        let bga_y = self.skin.playfield_y + 240.0;
-        let bga_w = 320.0;
-        let bga_h = 180.0;
+        let s = self.viewport.scale;
+        let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
+        let bga_y = self.skin.playfield_y + 240.0 * s;
+        let max_w = (self.viewport.x + self.viewport.width - side_x - 24.0 * s).max(100.0);
+        let bga_w = (520.0 * s).min(max_w);
+        let bga_h = (bga_w * 9.0 / 16.0).round();
 
         // BGA frame
-        self.draw_rect(side_x - 2.0, bga_y - 2.0, bga_w + 4.0, bga_h + 4.0, ColorRgba::new(50, 60, 80, 255));
+        self.draw_rect(side_x - 2.0 * s, bga_y - 2.0 * s, bga_w + 4.0 * s, bga_h + 4.0 * s, ColorRgba::new(50, 60, 80, 255));
         self.draw_rect(side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255));
 
         if let Some(img) = bga_image {
-            if img.width == bga_w as u32 && img.height == bga_h as u32 {
-                img.blit_to(&mut self.pixmap, side_x as i32, bga_y as i32);
-            } else {
-                img.draw_fitted(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32, crate::image::ImageFitMode::FillCrop);
-            }
+            img.draw_fitted(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32, crate::image::ImageFitMode::FillCrop);
         } else {
+            let font_scale = (s * 0.9).round().max(1.0) as u32;
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
                 "[ BGA / STAGE IMAGE ]",
                 (side_x + bga_w / 2.0) as i32,
-                (bga_y + bga_h / 2.0 - 4.0) as i32,
-                1,
+                (bga_y + bga_h / 2.0 - 4.0 * s) as i32,
+                font_scale,
                 ColorRgba::new(80, 90, 110, 255),
             );
         }
 
-        let vis_y = bga_y + bga_h + 20.0;
-        let vis_h = 90.0;
+        let vis_y = bga_y + bga_h + 16.0 * s;
+        let vis_h = 95.0 * s;
+        let b_line = (1.0 * s).max(1.0);
 
         // Visualizer background
         self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(12, 14, 20, 255));
-        self.draw_rect(side_x, vis_y, bga_w, 1.0, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x, vis_y + vis_h, bga_w, 1.0, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x + bga_w, vis_y, 1.0, vis_h, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x, vis_y, bga_w, b_line, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x, vis_y + vis_h - b_line, bga_w, b_line, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x, vis_y, b_line, vis_h, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(side_x + bga_w - b_line, vis_y, b_line, vis_h, ColorRgba::new(60, 70, 90, 255));
 
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "SPECTRUM VISUALIZER",
-            (side_x + 12.0) as i32,
-            (vis_y + 8.0) as i32,
-            1,
+            (side_x + 12.0 * s) as i32,
+            (vis_y + 8.0 * s) as i32,
+            font_scale,
             ColorRgba::new(140, 150, 180, 255),
         );
 
         let bar_count = 16;
-        let padding = 12.0;
+        let padding = 12.0 * s;
         let usable_w = bga_w - (padding * 2.0);
-        let bar_w = (usable_w / bar_count as f32) - 4.0;
-        let max_h = 60.0;
-        let base_y = vis_y + vis_h - 10.0;
+        let bar_w = ((usable_w / bar_count as f32) - 4.0 * s).max(1.0);
+        let max_h = 60.0 * s;
+        let base_y = vis_y + vis_h - 10.0 * s;
 
         for (i, &lvl) in levels.iter().enumerate() {
             let clamped_lvl = lvl.clamp(0.0, 1.0);
-            let h = (clamped_lvl * max_h).max(2.0);
-            let x = side_x + padding + (i as f32 * (bar_w + 4.0));
+            let h = (clamped_lvl * max_h).max(2.0 * s);
+            let x = side_x + padding + (i as f32 * (bar_w + 4.0 * s));
             let y = base_y - h;
 
             // Dynamic frequency-based color gradient

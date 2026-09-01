@@ -11,9 +11,77 @@ pub struct HitBurst {
     pub grade: JudgeGrade,
 }
 
+/// 16:9 Viewport mapping within the physical window surface.
+///
+/// Automatically computes pillarbox / letterbox bounds and reference scale (relative to 1280x720).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Viewport {
+    /// X offset in window surface pixels (pillarboxing)
+    pub x: f32,
+    /// Y offset in window surface pixels (letterboxing)
+    pub y: f32,
+    /// Width of active 16:9 rendering viewport
+    pub width: f32,
+    /// Height of active 16:9 rendering viewport
+    pub height: f32,
+    /// Proportional scale factor relative to standard 720p (1280x720) reference height (height / 720.0)
+    pub scale: f32,
+}
+
+impl Viewport {
+    pub const BASE_WIDTH: f32 = 1280.0;
+    pub const BASE_HEIGHT: f32 = 720.0;
+    pub const TARGET_ASPECT: f32 = 16.0 / 9.0;
+
+    pub fn new(window_width: u32, window_height: u32) -> Self {
+        let w = window_width.max(1) as f32;
+        let h = window_height.max(1) as f32;
+        let aspect = w / h;
+
+        let (vp_w, vp_h, vp_x, vp_y) = if (aspect - Self::TARGET_ASPECT).abs() < 0.005 {
+            (w, h, 0.0, 0.0)
+        } else if aspect > Self::TARGET_ASPECT {
+            // Window is wider than 16:9 -> Pillarbox (bars on left and right)
+            let vp_h = h;
+            let vp_w = (h * Self::TARGET_ASPECT).round();
+            let vp_x = ((w - vp_w) / 2.0).round();
+            let vp_y = 0.0;
+            (vp_w, vp_h, vp_x, vp_y)
+        } else {
+            // Window is taller than 16:9 -> Letterbox (bars on top and bottom)
+            let vp_w = w;
+            let vp_h = (w / Self::TARGET_ASPECT).round();
+            let vp_x = 0.0;
+            let vp_y = ((h - vp_h) / 2.0).round();
+            (vp_w, vp_h, vp_x, vp_y)
+        };
+
+        let scale = vp_h / Self::BASE_HEIGHT;
+
+        Self {
+            x: vp_x,
+            y: vp_y,
+            width: vp_w,
+            height: vp_h,
+            scale,
+        }
+    }
+
+    /// Checks if this viewport has active letterbox (top/bottom bars)
+    pub fn is_letterboxed(&self) -> bool {
+        self.y > 0.5
+    }
+
+    /// Checks if this viewport has active pillarbox (left/right bars)
+    pub fn is_pillarboxed(&self) -> bool {
+        self.x > 0.5
+    }
+}
+
 /// Software 2D renderer powered by tiny-skia.
 pub struct SoftwareRenderer {
     pub(crate) pixmap: Pixmap,
+    pub viewport: Viewport,
     pub skin: SkinConfig,
     pub(crate) key_pressed: [bool; 8],
     pub(crate) last_judge: Option<(JudgeGrade, f64, f64)>, // (Grade, time_seconds, delta_ms)
@@ -21,10 +89,13 @@ pub struct SoftwareRenderer {
 }
 
 impl SoftwareRenderer {
-    pub fn new(width: u32, height: u32, skin: SkinConfig) -> Option<Self> {
+    pub fn new(width: u32, height: u32, mut skin: SkinConfig) -> Option<Self> {
         let pixmap = Pixmap::new(width.max(1), height.max(1))?;
+        let viewport = Viewport::new(width, height);
+        skin.update_layout(&viewport);
         Some(Self {
             pixmap,
+            viewport,
             skin,
             key_pressed: [false; 8],
             last_judge: None,
@@ -33,10 +104,14 @@ impl SoftwareRenderer {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 && (self.pixmap.width() != width || self.pixmap.height() != height) {
-            if let Some(new_pixmap) = Pixmap::new(width, height) {
-                self.pixmap = new_pixmap;
+        if width > 0 && height > 0 {
+            if self.pixmap.width() != width || self.pixmap.height() != height {
+                if let Some(new_pixmap) = Pixmap::new(width, height) {
+                    self.pixmap = new_pixmap;
+                }
             }
+            self.viewport = Viewport::new(width, height);
+            self.skin.update_layout(&self.viewport);
         }
     }
 
@@ -72,10 +147,21 @@ impl SoftwareRenderer {
         }
     }
 
-    /// Clear frame with background color.
+    /// Clear frame with background color inside active 16:9 viewport and pure black on letterbox/pillarbox margins.
     pub fn clear(&mut self) {
         let bg = self.skin.bg_color;
-        self.pixmap.fill(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
+        if !self.viewport.is_letterboxed() && !self.viewport.is_pillarboxed() {
+            self.pixmap.fill(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
+        } else {
+            self.pixmap.fill(Color::BLACK);
+            self.draw_rect(
+                self.viewport.x,
+                self.viewport.y,
+                self.viewport.width,
+                self.viewport.height,
+                bg,
+            );
+        }
     }
 
     /// Saves the current rendered framebuffer directly to a 24-bit BMP screenshot file on disk.
@@ -148,14 +234,16 @@ impl SoftwareRenderer {
 
     /// Draws footer text (e.g. keybindings or layout indicators).
     pub fn draw_footer_text(&mut self, text: &str) {
-        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 60.0) as i32;
-        let y = (self.height() - 40) as i32;
+        let s = self.viewport.scale;
+        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
+        let y = (self.viewport.y + self.viewport.height - 30.0 * s) as i32;
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             text,
             hud_x,
             y,
-            1,
+            font_scale,
             ColorRgba::new(140, 140, 160, 255),
         );
     }
@@ -322,7 +410,7 @@ mod tests {
         assert!(has_content1);
 
         let options = beetle_core::PlayOptions::default();
-        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "AUTO (D3D11/SOFT)", 240, 0);
+        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "1280x720 (16:9)", "AUTO (D3D11/SOFT)", 240, 0);
         let has_content2 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content2);
     }

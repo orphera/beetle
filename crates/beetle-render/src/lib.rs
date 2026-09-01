@@ -16,6 +16,6 @@ pub use backend::{BlendMode, GpuBackend, GpuTexturePool, SoftBackend, SpriteBatc
 pub use backend::D3d11Backend;
 pub use bitmap_font::BitmapFont;
 pub use image::{ImageBuffer, ImageFitMode};
-pub use renderer::SoftwareRenderer;
+pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use skin::{ColorRgba, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer};

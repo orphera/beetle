@@ -171,6 +171,34 @@ impl AppState {
         }
     }
 
+    pub fn current_resolution_label(&self) -> &'static str {
+        let size = self.window.inner_size();
+        for &(w, h, label) in crate::config::RESOLUTION_PRESETS {
+            if size.width == w && size.height == h {
+                return label;
+            }
+        }
+        "CUSTOM"
+    }
+
+    pub fn cycle_resolution(&mut self, forward: bool) {
+        let size = self.window.inner_size();
+        let cur_idx = crate::config::RESOLUTION_PRESETS
+            .iter()
+            .position(|&(w, h, _)| w == size.width && h == size.height)
+            .unwrap_or(0);
+        let next_idx = if forward {
+            (cur_idx + 1) % crate::config::RESOLUTION_PRESETS.len()
+        } else if cur_idx == 0 {
+            crate::config::RESOLUTION_PRESETS.len() - 1
+        } else {
+            cur_idx - 1
+        };
+        let (target_w, target_h, _) = crate::config::RESOLUTION_PRESETS[next_idx];
+        let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
+        self.renderer.resize(target_w, target_h);
+    }
+
     pub fn save_config(&self) {
         let size = self.window.inner_size();
         let app_config = AppConfig {

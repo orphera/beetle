@@ -5,6 +5,17 @@ use std::path::Path;
 
 pub const CONFIG_FILE: &str = "config.dat";
 
+/// Standard resolution presets (16:9 standard and non-16:9 letterbox/pillarbox test modes).
+pub const RESOLUTION_PRESETS: &[(u32, u32, &str)] = &[
+    (1280, 720, "1280x720 (16:9 HD)"),
+    (1600, 900, "1600x900 (16:9 HD+)"),
+    (1920, 1080, "1920x1080 (16:9 FHD)"),
+    (2560, 1440, "2560x1440 (16:9 QHD)"),
+    (3840, 2160, "3840x2160 (16:9 4K)"),
+    (1024, 768, "1024x768 (4:3 Pillarbox)"),
+    (1280, 800, "1280x800 (16:10 Letterbox)"),
+];
+
 /// Display and windowing mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DisplayMode {
@@ -102,8 +113,8 @@ impl Default for AppConfig {
             master_volume: 1.0,
             display_mode: DisplayMode::Windowed,
             gpu_backend: GpuBackendSetting::Auto,
-            window_width: 1024,
-            window_height: 768,
+            window_width: 1280,
+            window_height: 720,
             target_fps: 240,
         }
     }

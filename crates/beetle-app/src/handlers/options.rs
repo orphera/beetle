@@ -16,7 +16,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             state.modal_row = state.modal_row.saturating_sub(1);
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
-            state.modal_row = (state.modal_row + 1).min(10);
+            state.modal_row = (state.modal_row + 1).min(11);
         }
         KeyCode::ArrowLeft => {
             match state.modal_row {
@@ -54,21 +54,24 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     state.display_mode = state.display_mode.prev();
                     state.apply_display_mode();
                 }
-                6 => { // Graphics GPU
+                6 => { // Resolution
+                    state.cycle_resolution(false);
+                }
+                7 => { // Graphics GPU
                     state.gpu_backend = state.gpu_backend.prev();
                 }
-                7 => { // Target FPS
+                8 => { // Target FPS
                     let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
                     let prev_idx = if cur_idx == 0 { FPS_PRESETS.len() - 1 } else { cur_idx - 1 };
                     state.target_fps = FPS_PRESETS[prev_idx];
                 }
-                8 => { // Key Layout
+                9 => { // Key Layout
                     state.input_config.toggle_preset();
                 }
-                9 => { // Auto Play
+                10 => { // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                10 => { // Start Measure
+                11 => { // Start Measure
                     state.start_measure = state.start_measure.saturating_sub(1);
                 }
                 _ => (),
@@ -111,15 +114,18 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     state.display_mode = state.display_mode.next();
                     state.apply_display_mode();
                 }
-                6 => { // Graphics GPU
+                6 => { // Resolution
+                    state.cycle_resolution(true);
+                }
+                7 => { // Graphics GPU
                     state.gpu_backend = state.gpu_backend.next();
                 }
-                7 => { // Target FPS
+                8 => { // Target FPS
                     let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
                     let next_idx = (cur_idx + 1) % FPS_PRESETS.len();
                     state.target_fps = FPS_PRESETS[next_idx];
                 }
-                8 => { // Key Layout
+                9 => { // Key Layout
                     if code == KeyCode::Enter || code == KeyCode::Space {
                         state.screen = AppScreen::KeyConfig;
                         state.show_option_modal = false;
@@ -127,10 +133,10 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         state.input_config.toggle_preset();
                     }
                 }
-                9 => { // Auto Play
+                10 => { // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                10 => { // Start Measure
+                11 => { // Start Measure
                     state.start_measure = (state.start_measure + 1).min(200);
                 }
                 _ => (),

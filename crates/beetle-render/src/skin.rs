@@ -55,20 +55,20 @@ pub struct SkinConfig {
 
 impl Default for SkinConfig {
     fn default() -> Self {
-        let scratch_w = 54.0;
-        let key_w = 42.0;
+        let scratch_w = 72.0;
+        let key_w = 50.0;
         let total_w = scratch_w + (7.0 * key_w);
 
         Self {
             play_mode: PlayMode::Keys7,
-            playfield_x: 60.0,
-            playfield_y: 30.0,
+            playfield_x: 50.0,
+            playfield_y: 24.0,
             playfield_width: total_w,
-            playfield_height: 640.0,
-            judge_line_y: 600.0,
+            playfield_height: 672.0,
+            judge_line_y: 616.0,
             lane_width: key_w,
             scratch_lane_width: scratch_w,
-            note_height: 10.0,
+            note_height: 12.0,
             hi_speed: 400.0, // Pixels per second
             lane_cover_ratio: 0.0,
             bg_color: ColorRgba::new(8, 8, 12, 255),
@@ -86,6 +86,28 @@ impl Default for SkinConfig {
 }
 
 impl SkinConfig {
+    /// Updates playfield geometry and lane dimensions based on the active 16:9 viewport.
+    pub fn update_layout(&mut self, vp: &crate::renderer::Viewport) {
+        let s = vp.scale;
+        self.playfield_x = vp.x + 50.0 * s;
+        self.playfield_y = vp.y + 24.0 * s;
+        self.playfield_height = 672.0 * s;
+        self.judge_line_y = vp.y + 616.0 * s;
+
+        self.scratch_lane_width = 72.0 * s;
+        self.lane_width = 50.0 * s;
+        self.note_height = (12.0 * s).max(4.0);
+
+        match self.play_mode {
+            PlayMode::Keys5 => {
+                self.playfield_width = self.scratch_lane_width + (5.0 * self.lane_width);
+            }
+            PlayMode::Keys7 | PlayMode::Keys9 | PlayMode::Keys10 | PlayMode::Keys14 => {
+                self.playfield_width = self.scratch_lane_width + (7.0 * self.lane_width);
+            }
+        }
+    }
+
     /// Active lane list based on current PlayMode.
     pub fn active_lanes(&self) -> &'static [Lane] {
         match self.play_mode {

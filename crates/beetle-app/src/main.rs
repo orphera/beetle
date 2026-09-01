@@ -91,7 +91,8 @@ impl ApplicationHandler for BeetleApp {
         let window_attributes = Window::default_attributes()
             .with_title("Beetle — BMS Rhythm Engine")
             .with_inner_size(LogicalSize::new(saved_config.window_width, saved_config.window_height))
-            .with_min_inner_size(LogicalSize::new(800, 600));
+            .with_min_inner_size(LogicalSize::new(800, 600))
+            .with_resizable(false);
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         let context = Context::new(window.clone()).unwrap();
@@ -448,6 +449,7 @@ impl ApplicationHandler for BeetleApp {
                                 state.start_measure,
                                 state.master_volume,
                                 state.display_mode.as_str(),
+                                &state.current_resolution_label(),
                                 state.gpu_backend.as_str(),
                                 state.target_fps,
                                 state.modal_row,
