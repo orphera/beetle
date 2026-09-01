@@ -35,7 +35,7 @@ pub fn finalize_start_gameplay(
     timing: TimingModel,
     soundbank: SampleBank,
     bga_bank: std::collections::HashMap<beetle_core::BmpId, beetle_render::ImageBuffer>,
-    video_paths: std::collections::HashMap<beetle_core::BmpId, std::path::PathBuf>,
+    video_sources: std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
 ) {
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
@@ -52,8 +52,14 @@ pub fn finalize_start_gameplay(
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();
-    for (bmp_id, p) in video_paths {
-        if let Some(player) = beetle_render::BgaVideoPlayer::open(&p) {
+    for (bmp_id, source) in video_sources {
+        let player = match source {
+            crate::loader::VideoSource::File(p) => beetle_render::BgaVideoPlayer::open(&p),
+            crate::loader::VideoSource::Memory { bytes, filename_hint } => {
+                beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref())
+            }
+        };
+        if let Some(player) = player {
             video_players.insert(bmp_id, player);
         }
     }

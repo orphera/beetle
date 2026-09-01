@@ -299,7 +299,7 @@ impl ApplicationHandler for BeetleApp {
                     if let Ok(res) = rx.try_recv() {
                         state.loading_receiver = None;
                         match res {
-                            Ok((chart, timing, soundbank, bga_bank, video_paths)) => {
+                            Ok((chart, timing, soundbank, bga_bank, video_sources)) => {
                                 if let Some(song) = state.loading_song.take() {
                                     finalize_start_gameplay(
                                         state,
@@ -308,7 +308,7 @@ impl ApplicationHandler for BeetleApp {
                                         timing,
                                         soundbank,
                                         bga_bank,
-                                        video_paths,
+                                        video_sources,
                                     );
                                 }
                             }

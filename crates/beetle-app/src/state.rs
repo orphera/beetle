@@ -142,7 +142,7 @@ pub struct AppState {
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
-    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, std::collections::HashMap<beetle_core::BmpId, std::path::PathBuf>), String>>>,
+    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>), String>>>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,

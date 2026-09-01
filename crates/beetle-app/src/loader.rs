@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
@@ -12,6 +13,16 @@ use crate::demo;
 
 pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
+/// Unified video data source: either a filesystem path or in-memory byte buffer.
+#[derive(Debug, Clone)]
+pub enum VideoSource {
+    File(PathBuf),
+    Memory {
+        bytes: Arc<[u8]>,
+        filename_hint: Option<String>,
+    },
+}
+
 const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
     "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
     "stagefile.png", "stage.png", "banner.png", "title.png",
@@ -21,59 +32,26 @@ const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
 
 fn resolve_file_case_insensitive(dir: &Path, relative: &str) -> Option<PathBuf> {
     let normalized = relative.replace('\\', "/");
-    let direct = dir.join(&normalized);
-    if direct.exists() {
-        return Some(direct);
-    }
-
     let parts: Vec<&str> = normalized.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
     if parts.is_empty() {
         return None;
     }
 
     let mut current = dir.to_path_buf();
-    for (i, part) in parts.iter().enumerate() {
-        let is_last = i == parts.len() - 1;
-        let mut found = None;
-
+    for part in parts {
+        let mut found = false;
         if let Ok(entries) = fs::read_dir(&current) {
-            let entries_vec: Vec<_> = entries.flatten().collect();
-
-            // 1. Direct case-insensitive match
-            for entry in &entries_vec {
-                if let Some(name) = entry.file_name().to_str() {
+            for entry in entries.flatten() {
+                if let Ok(name) = entry.file_name().into_string() {
                     if name.eq_ignore_ascii_case(part) {
-                        found = Some(entry.path());
+                        current = entry.path();
+                        found = true;
                         break;
                     }
                 }
             }
-
-            // 2. If last part (file), try alternate extensions (.bmp, .png, .jpg, .jpeg)
-            if found.is_none() && is_last {
-                if let Some(pos) = part.rfind('.') {
-                    let stem = &part[..pos];
-                    for ext in &["bmp", "png", "jpg", "jpeg"] {
-                        let alt = format!("{}.{}", stem, ext);
-                        for entry in &entries_vec {
-                            if let Some(name) = entry.file_name().to_str() {
-                                if name.eq_ignore_ascii_case(&alt) {
-                                    found = Some(entry.path());
-                                    break;
-                                }
-                            }
-                        }
-                        if found.is_some() {
-                            break;
-                        }
-                    }
-                }
-            }
         }
-
-        if let Some(next) = found {
-            current = next;
-        } else {
+        if !found {
             return None;
         }
     }
@@ -86,14 +64,14 @@ fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option
     ImageBuffer::load_from_file(&resolved)
 }
 
-fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, PathBuf> {
+fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, VideoSource> {
     let mut videos = HashMap::new();
 
     // 1. Check bmp_table for video files or files with matching stems
     for (&bmp_id, filename) in &chart.header.bmp_table {
         if is_video_path(filename) {
             if let Some(p) = resolve_file_case_insensitive(dir, filename) {
-                videos.insert(bmp_id, p);
+                videos.insert(bmp_id, VideoSource::File(p));
             }
         } else {
             let stem = match filename.rfind('.') {
@@ -103,7 +81,7 @@ fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, PathB
             for ext in beetle_render::VIDEO_EXTENSIONS {
                 let candidate = format!("{}.{}", stem, ext);
                 if let Some(p) = resolve_file_case_insensitive(dir, &candidate) {
-                    videos.insert(bmp_id, p);
+                    videos.insert(bmp_id, VideoSource::File(p));
                     break;
                 }
             }
@@ -145,11 +123,12 @@ fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, PathB
                 .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
                 .map(|ev| ev.bmp_id)
                 .collect();
+            let source = VideoSource::File(fp);
             if base_ids.is_empty() {
-                videos.insert(BmpId(1), fp);
+                videos.insert(BmpId(1), source);
             } else {
                 for id in base_ids {
-                    videos.entry(id).or_insert_with(|| fp.clone());
+                    videos.entry(id).or_insert_with(|| source.clone());
                 }
             }
         }
@@ -262,7 +241,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
 pub fn load_chart_and_audio(
     song: &SongMetadata,
-) -> (BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>) {
+) -> (BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>) {
     if song.file_path == ":demo:" {
         let chart = demo::create_demo_chart();
         let timing = TimingModel::from_chart(&chart);
@@ -285,6 +264,7 @@ pub fn load_chart_and_audio(
                     let timing = TimingModel::from_chart(&chart);
                     let mut soundbank = SampleBank::new();
                     let mut bga_bank = HashMap::new();
+                    let mut video_sources = HashMap::new();
                     let mut loaded_count = 0;
 
                     for (&wav_id, filename) in &chart.header.wav_table {
@@ -299,20 +279,106 @@ pub fn load_chart_and_audio(
                     }
 
                     for (&bmp_id, filename) in &chart.header.bmp_table {
-                        if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                        if is_video_path(filename) {
+                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                    video_sources.insert(
+                                        bmp_id,
+                                        VideoSource::Memory {
+                                            bytes: Arc::from(bytes.into_boxed_slice()),
+                                            filename_hint: Some(filename.clone()),
+                                        },
+                                    );
+                                }
+                            }
+                        } else {
+                            let stem = match filename.rfind('.') {
+                                Some(pos) => &filename[..pos],
+                                None => filename.as_str(),
+                            };
+                            let mut found_video = false;
+                            for ext in beetle_render::VIDEO_EXTENSIONS {
+                                let candidate = format!("{}.{}", stem, ext);
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, &candidate) {
+                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                        video_sources.insert(
+                                            bmp_id,
+                                            VideoSource::Memory {
+                                                bytes: Arc::from(bytes.into_boxed_slice()),
+                                                filename_hint: Some(candidate),
+                                            },
+                                        );
+                                        found_video = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if !found_video {
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                        if let Some(img) = ImageBuffer::from_bytes(&bytes) {
+                                            bga_bank.insert(bmp_id, img);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback video inside .bmsp
+                    if video_sources.is_empty() {
+                        let mut fallback_entry = None;
+                        for filename in &[&chart.header.stage_file, &chart.header.banner] {
+                            if !filename.is_empty() && is_video_path(filename) {
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                    fallback_entry = Some((target_path, filename.to_string()));
+                                    break;
+                                }
+                            }
+                        }
+                        if fallback_entry.is_none() {
+                            for name in &[
+                                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
+                                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
+                                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
+                                "bga.avi", "movie.avi", "video.avi", "bg.avi",
+                                "bga.webm", "movie.webm", "video.webm", "bg.webm",
+                                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
+                            ] {
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, name) {
+                                    fallback_entry = Some((target_path, name.to_string()));
+                                    break;
+                                }
+                            }
+                        }
+                        if let Some((target_path, name)) = fallback_entry {
                             if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                if let Some(img) = ImageBuffer::from_bytes(&bytes) {
-                                    bga_bank.insert(bmp_id, img);
+                                let source = VideoSource::Memory {
+                                    bytes: Arc::from(bytes.into_boxed_slice()),
+                                    filename_hint: Some(name),
+                                };
+                                let base_ids: Vec<BmpId> = chart
+                                    .bga_events
+                                    .iter()
+                                    .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
+                                    .map(|ev| ev.bmp_id)
+                                    .collect();
+                                if base_ids.is_empty() {
+                                    video_sources.insert(BmpId(1), source);
+                                } else {
+                                    for id in base_ids {
+                                        video_sources.entry(id).or_insert_with(|| source.clone());
+                                    }
                                 }
                             }
                         }
                     }
 
                     println!(
-                        "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames decoded in-memory from archive)",
-                        chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len()
+                        "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames, {} BGA videos in-memory from archive)",
+                        chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len()
                     );
-                    return (chart, timing, soundbank, bga_bank, HashMap::new());
+                    return (chart, timing, soundbank, bga_bank, video_sources);
                 }
             }
         }
@@ -333,16 +399,18 @@ pub fn load_chart_and_audio(
                 }
             }
 
-            let video_paths = find_video_files_in_dir(parent_dir, &chart);
-            for vp in video_paths.values() {
-                println!("Detected BGA Video: '{}'", vp.display());
+            let video_sources = find_video_files_in_dir(parent_dir, &chart);
+            for vs in video_sources.values() {
+                if let VideoSource::File(p) = vs {
+                    println!("Detected BGA Video: '{}'", p.display());
+                }
             }
 
             println!(
                 "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
-                chart.header.title, loaded, bga_bank.len(), video_paths.len()
+                chart.header.title, loaded, bga_bank.len(), video_sources.len()
             );
-            return (chart, timing, soundbank, bga_bank, video_paths);
+            return (chart, timing, soundbank, bga_bank, video_sources);
         }
     }
 
@@ -353,19 +421,19 @@ pub fn load_chart_and_audio(
     (chart, timing, soundbank, HashMap::new(), HashMap::new())
 }
 
-/// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video paths.
+/// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
 pub fn spawn_background_song_loader(
     song: &SongMetadata,
-) -> Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>> {
+) -> Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>> {
     let song_clone = song.clone();
     let (tx, rx): (
-        Sender<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>>,
-        Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, PathBuf>), String>>,
+        Sender<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>>,
+        Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>>,
     ) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_paths) = load_chart_and_audio(&song_clone);
-        let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_paths)));
+        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio(&song_clone);
+        let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_sources)));
     });
 
     rx
@@ -385,4 +453,51 @@ pub fn spawn_background_stage_image_loader(
     });
 
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bmsp_in_memory_video_loading() {
+        let pkg_path = "../../songs/bms.bmsp";
+        if !std::path::Path::new(pkg_path).exists() {
+            return;
+        }
+
+        let meta = SongMetadata {
+            hash: 12345,
+            file_path: format!("{}::roop_dotm_ogg/01_roop_dotm7SPN.bms", pkg_path),
+            title: "roop_dotm".to_string(),
+            subtitle: "".to_string(),
+            artist: "roop".to_string(),
+            genre: "".to_string(),
+            bpm: 150.0,
+            play_level: 7,
+            notes_count: 100,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (_chart, _timing, _soundbank, _bga_bank, video_sources) = load_chart_and_audio(&meta);
+        assert!(!video_sources.is_empty(), "Video sources should not be empty for roop_dotm BMSP");
+
+        for (bmp_id, source) in video_sources {
+            eprintln!("[TEST BMSP] Found video source for BMP ID: {:?}", bmp_id);
+            match source {
+                VideoSource::Memory { bytes, filename_hint } => {
+                    eprintln!("[TEST BMSP] Memory video size: {} bytes, hint: {:?}", bytes.len(), filename_hint);
+                    assert!(!bytes.is_empty());
+                    let player = beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref());
+                    assert!(player.is_some(), "In-memory video player should open successfully");
+                    let pl = player.unwrap();
+                    assert!(pl.current_frame().is_some(), "Initial video frame should be decoded");
+                    eprintln!("[TEST BMSP] Video dimension: {}x{}", pl.width(), pl.height());
+                }
+                VideoSource::File(p) => {
+                    panic!("BMSP package video should be in-memory, but got file: {}", p.display());
+                }
+            }
+        }
+    }
 }
