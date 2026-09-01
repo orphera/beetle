@@ -21,6 +21,7 @@ use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::{AppConfig, DisplayMode};
 use gameplay::{finalize_start_gameplay, finish_gameplay, queue_start_gameplay};
+
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
@@ -303,27 +304,35 @@ impl ApplicationHandler for BeetleApp {
         match state.screen {
             AppScreen::Loading => {
                 if let Some(rx) = &state.loading_receiver {
-                    if let Ok(res) = rx.try_recv() {
-                        state.loading_receiver = None;
-                        match res {
-                            Ok((chart, timing, soundbank, bga_bank, video_sources)) => {
-                                if let Some(song) = state.loading_song.take() {
-                                    finalize_start_gameplay(
-                                        state,
-                                        &song,
-                                        chart,
-                                        timing,
-                                        soundbank,
-                                        bga_bank,
-                                        video_sources,
-                                    );
+                    match rx.try_recv() {
+                        Ok(res) => {
+                            state.loading_receiver = None;
+                            match res {
+                                Ok((chart, timing, soundbank, bga_bank, video_sources)) => {
+                                    if let Some(song) = state.loading_song.take() {
+                                        finalize_start_gameplay(
+                                            state,
+                                            &song,
+                                            chart,
+                                            timing,
+                                            soundbank,
+                                            bga_bank,
+                                            video_sources,
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to load song: {e}");
+                                    state.screen = AppScreen::SongSelect;
+                                    state.window.request_redraw();
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("Failed to load song: {e}");
-                                state.screen = AppScreen::SongSelect;
-                                state.window.request_redraw();
-                            }
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            state.loading_receiver = None;
+                            state.screen = AppScreen::SongSelect;
+                            state.window.request_redraw();
                         }
                     }
                 }
@@ -519,6 +528,7 @@ impl ApplicationHandler for BeetleApp {
                 ..
             } => {
                 handle_keyboard_input(state, physical_key, key_state, repeat, key_event.text.as_deref());
+                state.mark_dirty();
                 state.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
@@ -771,9 +781,11 @@ impl ApplicationHandler for BeetleApp {
                                 let _ = audio.stop_all();
                             }
                             finish_gameplay(state);
+                            return;
                         } else if audio_time >= state.song_end_time + 1.5 {
                             // Check Song End
                             finish_gameplay(state);
+                            return;
                         }
                     }
                     AppScreen::Result => {

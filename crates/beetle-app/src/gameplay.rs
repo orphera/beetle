@@ -36,7 +36,7 @@ pub fn finalize_start_gameplay(
     timing: TimingModel,
     soundbank: SampleBank,
     bga_bank: std::collections::HashMap<beetle_core::BmpId, beetle_render::ImageBuffer>,
-    video_sources: std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
+    mut video_sources: std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
 ) {
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
@@ -53,15 +53,49 @@ pub fn finalize_start_gameplay(
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();
-    for (bmp_id, source) in video_sources {
-        let player = match source {
-            crate::loader::VideoSource::File(p) => beetle_render::BgaVideoPlayer::open(&p),
-            crate::loader::VideoSource::Memory { bytes, filename_hint } => {
-                beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref())
+
+    // Filter to only video IDs actually referenced by the chart's BGA timeline events
+    let referenced_video_ids: Vec<beetle_core::BmpId> = {
+        let mut ids = Vec::new();
+        for ev in &play_chart.bga_events {
+            if video_sources.contains_key(&ev.bmp_id) && !ids.contains(&ev.bmp_id) {
+                ids.push(ev.bmp_id);
             }
-        };
-        if let Some(player) = player {
-            video_players.insert(bmp_id, player);
+        }
+        // If no BGA events explicitly referenced a video, pick the first video as background fallback
+        if ids.is_empty() {
+            if let Some(&first_id) = video_sources.keys().next() {
+                ids.push(first_id);
+            }
+        }
+        ids
+    };
+
+    let mut consecutive_failures = 0;
+    const MAX_ACTIVE_VIDEO_PLAYERS: usize = 2;
+
+    for bmp_id in referenced_video_ids {
+        if video_players.len() >= MAX_ACTIVE_VIDEO_PLAYERS {
+            break;
+        }
+        if consecutive_failures >= 2 {
+            // Fail-fast on consecutive unsupported video formats to prevent UI freeze
+            break;
+        }
+
+        if let Some(source) = video_sources.remove(&bmp_id) {
+            let player = match source {
+                crate::loader::VideoSource::File(p) => beetle_render::BgaVideoPlayer::open(&p),
+                crate::loader::VideoSource::Memory { bytes, filename_hint } => {
+                    beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref())
+                }
+            };
+            if let Some(player) = player {
+                video_players.insert(bmp_id, player);
+                consecutive_failures = 0;
+            } else {
+                consecutive_failures += 1;
+            }
         }
     }
     let mut video_start_times = std::collections::HashMap::new();
@@ -221,5 +255,15 @@ pub fn finish_gameplay(state: &mut AppState) {
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
     state.mark_dirty();
+
+    if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
+        state.renderer.render_result(
+            chart,
+            judge.score(),
+            state.is_new_record,
+            state.previous_best.as_ref(),
+        );
+    }
+
     state.window.request_redraw();
 }

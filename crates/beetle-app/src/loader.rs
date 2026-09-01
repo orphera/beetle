@@ -296,7 +296,6 @@ pub fn load_chart_and_audio(
                                 Some(pos) => &filename[..pos],
                                 None => filename.as_str(),
                             };
-                            let mut found_video = false;
                             for ext in beetle_render::VIDEO_EXTENSIONS {
                                 let candidate = format!("{}.{}", stem, ext);
                                 if let Some(target_path) = pkg.find_entry_path(&base_dir, &candidate) {
@@ -308,17 +307,15 @@ pub fn load_chart_and_audio(
                                                 filename_hint: Some(candidate),
                                             },
                                         );
-                                        found_video = true;
                                         break;
                                     }
                                 }
                             }
-                            if !found_video {
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                        if let Some(img) = ImageBuffer::from_bytes(&bytes) {
-                                            bga_bank.insert(bmp_id, img);
-                                        }
+                            // Always load still image if available as BGA fallback
+                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                    if let Some(img) = ImageBuffer::from_bytes(&bytes) {
+                                        bga_bank.insert(bmp_id, img);
                                     }
                                 }
                             }
