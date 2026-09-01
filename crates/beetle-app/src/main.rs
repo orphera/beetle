@@ -258,7 +258,7 @@ impl ApplicationHandler for BeetleApp {
 
                     for entry_path in chart_entries {
                         if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                            let content = String::from_utf8_lossy(&bytes);
+                            let content = beetle_core::decode_bms_text(&bytes);
                             let virtual_path = format!("{}::{}", path_str, entry_path);
                             if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
                                 queue_start_gameplay(&mut app_state, &meta);
@@ -268,7 +268,7 @@ impl ApplicationHandler for BeetleApp {
                     }
                 }
             } else if let Ok(bytes) = fs::read(cli_path) {
-                let content = String::from_utf8_lossy(&bytes);
+                let content = beetle_core::decode_bms_text(&bytes);
                 if let Some(meta) = SongMetadata::from_content(cli_path, &content) {
                     queue_start_gameplay(&mut app_state, &meta);
                 }
@@ -461,7 +461,7 @@ impl ApplicationHandler for BeetleApp {
 
                         for entry_path in chart_entries {
                             if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                                let content = String::from_utf8_lossy(&bytes);
+                                let content = beetle_core::decode_bms_text(&bytes);
                                 let virtual_path = format!("{}::{}", path_str, entry_path);
                                 if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
                                     queue_start_gameplay(state, &meta);
@@ -476,7 +476,7 @@ impl ApplicationHandler for BeetleApp {
                     || ext.eq_ignore_ascii_case("pms")
                 {
                     if let Ok(bytes) = fs::read(&path) {
-                        let content = String::from_utf8_lossy(&bytes);
+                        let content = beetle_core::decode_bms_text(&bytes);
                         if let Some(meta) = SongMetadata::from_content(&path.to_string_lossy(), &content) {
                             queue_start_gameplay(state, &meta);
                         }

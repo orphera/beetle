@@ -13,8 +13,8 @@ pub mod score;
 pub mod timing;
 
 pub use bms::{
-    parse_bms, BgaChannel, BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError,
-    Lane, NoteEvent, NoteType, PlayMode, WavId,
+    decode_bms_text, parse_bms, BgaChannel, BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader,
+    BmsParseError, Lane, NoteEvent, NoteType, PlayMode, WavId,
 };
 pub use judge::{GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker};
 pub use library::{

@@ -280,6 +280,126 @@ pub fn decode_hex(c1: u8, c2: u8) -> Option<u8> {
     Some(d1 * 16 + d2)
 }
 
+/// Safely decodes BMS chart text bytes into a UTF-8 Rust `String`.
+/// Attempts:
+/// 1. Strict UTF-8 first (if valid UTF-8, returns immediately)
+/// 2. On Windows: Native Win32 `MultiByteToWideChar` with CP932 (Shift-JIS) then CP949 (Korean)
+/// 3. Fallback: `String::from_utf8_lossy(bytes)`
+#[cfg(target_os = "windows")]
+pub fn decode_bms_text(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // 1. Strict UTF-8
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+
+    // 2. Shift-JIS (CP932)
+    if let Some(s) = win32_decode_cp(bytes, 932) {
+        return s;
+    }
+
+    // 3. Korean CP949 (EUC-KR)
+    if let Some(s) = win32_decode_cp(bytes, 949) {
+        return s;
+    }
+
+    // 4. Current ANSI codepage (CP_ACP = 0)
+    if let Some(s) = win32_decode_cp(bytes, 0) {
+        return s;
+    }
+
+    // 5. Lossy UTF-8 fallback
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn decode_bms_text(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        s.to_string()
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn win32_decode_cp(bytes: &[u8], code_page: u32) -> Option<String> {
+    extern "system" {
+        fn MultiByteToWideChar(
+            code_page: u32,
+            dw_flags: u32,
+            lp_multi_byte_str: *const u8,
+            cb_multi_byte: i32,
+            lp_wide_char_str: *mut u16,
+            cch_wide_char: i32,
+        ) -> i32;
+    }
+
+    if bytes.is_empty() {
+        return Some(String::new());
+    }
+
+    const MB_ERR_INVALID_CHARS: u32 = 0x00000008;
+
+    unsafe {
+        // Query length with strict character validation
+        let len = MultiByteToWideChar(
+            code_page,
+            MB_ERR_INVALID_CHARS,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        );
+
+        if len <= 0 {
+            // For CP_ACP (0), try non-strict validation
+            if code_page == 0 {
+                let len_lenient = MultiByteToWideChar(
+                    code_page,
+                    0,
+                    bytes.as_ptr(),
+                    bytes.len() as i32,
+                    std::ptr::null_mut(),
+                    0,
+                );
+                if len_lenient > 0 {
+                    let mut buf = vec![0u16; len_lenient as usize];
+                    let written = MultiByteToWideChar(
+                        code_page,
+                        0,
+                        bytes.as_ptr(),
+                        bytes.len() as i32,
+                        buf.as_mut_ptr(),
+                        len_lenient,
+                    );
+                    if written > 0 {
+                        return Some(String::from_utf16_lossy(&buf[..written as usize]));
+                    }
+                }
+            }
+            return None;
+        }
+
+        let mut buf = vec![0u16; len as usize];
+        let written = MultiByteToWideChar(
+            code_page,
+            MB_ERR_INVALID_CHARS,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            buf.as_mut_ptr(),
+            len,
+        );
+
+        if written > 0 {
+            Some(String::from_utf16_lossy(&buf[..written as usize]))
+        } else {
+            None
+        }
+    }
+}
+
 /// Helper to identify if a trimmed BMS line is a measure data command `#XXXYY:...`
 #[inline(always)]
 pub fn is_measure_line(content: &str) -> bool {
@@ -1033,4 +1153,20 @@ mod tests {
             bmp_id: BmpId(3),
         });
     }
+
+    #[test]
+    fn test_decode_bms_text_utf8_and_sjis() {
+        // UTF-8 test
+        let utf8_bytes = "Hello World, 音ゲー #TITLE".as_bytes();
+        assert_eq!(decode_bms_text(utf8_bytes), "Hello World, 音ゲー #TITLE");
+
+        // Shift-JIS test (0x8C 0xDC = 五, 0x82 0xC2 = つ)
+        let sjis_bytes: &[u8] = &[0x8C, 0xDC, 0x82, 0xC2];
+        let decoded = decode_bms_text(sjis_bytes);
+        #[cfg(target_os = "windows")]
+        assert_eq!(decoded, "五つ");
+        #[cfg(not(target_os = "windows"))]
+        assert!(!decoded.is_empty());
+    }
 }
+
