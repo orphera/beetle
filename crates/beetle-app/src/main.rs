@@ -139,10 +139,11 @@ impl ApplicationHandler for BeetleApp {
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
         #[cfg(target_os = "windows")]
-        let (d3d11_backend, d3d11_frame_texture) = {
+        let (d3d11_backend, d3d11_frame_texture, font_atlas) = {
             use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
             let mut backend = None;
             let mut texture = None;
+            let mut atlas = None;
             if saved_config.gpu_backend != config::GpuBackendSetting::Software {
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
@@ -150,12 +151,13 @@ impl ApplicationHandler for BeetleApp {
                         if let Ok(mut d3d) = beetle_render::D3d11Backend::new(hwnd, size.width, size.height) {
                             use beetle_render::GpuBackend;
                             texture = d3d.create_texture(size.width, size.height, renderer.data());
+                            atlas = beetle_render::FontAtlas::new(&mut d3d);
                             backend = Some(d3d);
                         }
                     }
                 }
             }
-            (backend, texture)
+            (backend, texture, atlas)
         };
 
         let mut app_state = AppState {
@@ -230,7 +232,7 @@ impl ApplicationHandler for BeetleApp {
             is_dirty: true,
             sprite_batcher: beetle_render::SpriteBatcher::new(),
             #[cfg(target_os = "windows")]
-            font_atlas: None,
+            font_atlas,
             bga_gpu_textures: std::collections::HashMap::new(),
             #[cfg(target_os = "windows")]
             d3d11_backend,
@@ -701,8 +703,18 @@ impl ApplicationHandler for BeetleApp {
                             }
                         });
 
-                        // Software rendering path: only needed when D3D11 is inactive or when gameplay is paused
-                        let should_render_software = !state.is_d3d11_active() || state.is_gameplay_paused;
+                        // Software rendering path: only needed when GPU pipeline is inactive or when gameplay is paused
+                        let is_gpu_gameplay = {
+                            #[cfg(target_os = "windows")]
+                            {
+                                state.is_d3d11_active() && !state.is_gameplay_paused && state.font_atlas.is_some()
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            {
+                                false
+                            }
+                        };
+                        let should_render_software = !is_gpu_gameplay;
                         if should_render_software {
                             if let (Some(chart), Some(judge), Some(timing)) =
                                 (&state.active_chart, &state.active_judge, &state.active_timing)
@@ -818,13 +830,7 @@ impl ApplicationHandler for BeetleApp {
                                     if let Some(&t) = state.bga_gpu_textures.get(&bmp_id) {
                                         Some(t)
                                     } else if let Some(img) = state.bga_bank.get(&bmp_id) {
-                                        let mut raw = Vec::with_capacity((img.width * img.height * 4) as usize);
-                                        for p in &img.pixels {
-                                            raw.push(p.r);
-                                            raw.push(p.g);
-                                            raw.push(p.b);
-                                            raw.push(p.a);
-                                        }
+                                        let raw = img.to_raw_rgba_bytes();
                                         let t = d3d11.create_texture(img.width, img.height, &raw);
                                         if let Some(tex) = t {
                                             state.bga_gpu_textures.insert(bmp_id, tex);
@@ -838,6 +844,7 @@ impl ApplicationHandler for BeetleApp {
                                 };
 
                                 let key_pressed = *state.renderer.key_pressed();
+                                state.renderer.clean_expired_hit_bursts(audio_time);
                                 let hit_bursts = state.renderer.hit_bursts();
                                 let last_judge = state.renderer.last_judge();
 

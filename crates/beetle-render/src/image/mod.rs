@@ -90,6 +90,18 @@ impl ImageBuffer {
         encode_bmp(self)
     }
 
+    /// Returns a flat RGBA8 byte buffer of this image.
+    pub fn to_raw_rgba_bytes(&self) -> Vec<u8> {
+        let mut raw = Vec::with_capacity((self.width * self.height * 4) as usize);
+        for p in &self.pixels {
+            raw.push(p.r);
+            raw.push(p.g);
+            raw.push(p.b);
+            raw.push(p.a);
+        }
+        raw
+    }
+
     /// Creates a new scaled ImageBuffer.
     pub fn create_scaled(&self, dst_w: u32, dst_h: u32) -> Self {
         if dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {

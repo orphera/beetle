@@ -219,6 +219,7 @@ impl AppState {
                         use beetle_render::GpuBackend;
                         let tex = d3d.create_texture(size.width, size.height, self.renderer.data());
                         self.d3d11_frame_texture = tex;
+                        self.font_atlas = beetle_render::FontAtlas::new(&mut d3d);
                         self.d3d11_backend = Some(d3d);
                     }
                 }

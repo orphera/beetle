@@ -151,6 +151,14 @@ impl SoftwareRenderer {
         &self.hit_bursts
     }
 
+    pub fn clean_expired_hit_bursts(&mut self, audio_time_seconds: f64) {
+        let burst_duration = 0.22;
+        self.hit_bursts.retain(|b| {
+            let elapsed = audio_time_seconds - b.spawn_time;
+            elapsed >= 0.0 && elapsed < burst_duration
+        });
+    }
+
     pub fn last_judge(&self) -> Option<(JudgeGrade, f64, f64)> {
         self.last_judge
     }

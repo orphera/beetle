@@ -158,6 +158,7 @@ pub fn finalize_start_gameplay(
     state.is_gameplay_paused = false;
     state.pause_selected_option = 0;
     state.audio_engine = audio_engine;
+    state.screen = AppScreen::Gameplay;
     state.renderer.invalidate_gameplay_cache();
     state.bga_gpu_textures.clear();
     state.mark_dirty();
