@@ -4,7 +4,7 @@ pub mod hangul;
 pub mod kana;
 
 use crate::skin::ColorRgba;
-use tiny_skia::{Color, Paint, PixmapMut, Rect, Shader, Transform};
+use tiny_skia::PixmapMut;
 
 pub use ascii::get_ascii_glyph;
 pub use bold_digits::{get_bold_digit, BOLD_DIGITS_8X12};
@@ -99,11 +99,6 @@ impl BitmapFont {
         color: ColorRgba,
     ) {
         let scale = scale.max(1);
-        let skia_color = Color::from_rgba8(color.r, color.g, color.b, color.a);
-        let paint = Paint {
-            shader: Shader::SolidColor(skia_color),
-            ..Default::default()
-        };
 
         // 1. ASCII 5x7 character
         if let Some(glyph) = get_ascii_glyph(c) {
@@ -113,7 +108,7 @@ impl BitmapFont {
                     if (col_bits & (1 << row)) != 0 {
                         let px = x + (col as i32 * scale as i32);
                         let py = y + (row as i32 * scale as i32);
-                        fill_pixel_block(pixmap, px, py, scale, &paint);
+                        fill_pixel_block(pixmap, px, py, scale, color);
                     }
                 }
             }
@@ -122,13 +117,13 @@ impl BitmapFont {
 
         // 2. Korean Hangul 10x8 syllable or Jamo
         if let Some(glyph) = get_hangul_glyph(c) {
-            draw_10x8_glyph(pixmap, &glyph, x, y, scale, &paint);
+            draw_10x8_glyph(pixmap, &glyph, x, y, scale, color);
             return;
         }
 
         // 3. Japanese Kana or CJK special symbols (10x8)
         if let Some(glyph) = get_kana_or_symbol_glyph(c) {
-            draw_10x8_glyph(pixmap, &glyph, x, y, scale, &paint);
+            draw_10x8_glyph(pixmap, &glyph, x, y, scale, color);
             return;
         }
 
@@ -141,7 +136,7 @@ impl BitmapFont {
         let fallback_glyph = [
             0x3FE, 0x202, 0x202, 0x202, 0x202, 0x202, 0x3FE, 0x000,
         ];
-        draw_10x8_glyph(pixmap, &fallback_glyph, x, y, scale, &paint);
+        draw_10x8_glyph(pixmap, &fallback_glyph, x, y, scale, color);
     }
 
     /// Renders a text string at (x, y) with support for mixed ASCII, Korean, and Japanese.
@@ -223,31 +218,13 @@ impl BitmapFont {
         let h = (Self::CJK_HEIGHT * scale) as i32 + (padding_y * 2);
 
         // Fill background
-        if let Some(rect) = Rect::from_xywh(x as f32, y as f32, w as f32, h as f32) {
-            pixmap.fill_rect(
-                rect,
-                &Paint {
-                    shader: Shader::SolidColor(Color::from_rgba8(bg_color.r, bg_color.g, bg_color.b, bg_color.a)),
-                    ..Default::default()
-                },
-                Transform::identity(),
-                None,
-            );
-        }
+        draw_rect_fast(pixmap, x, y, w, h, bg_color);
 
-        // Draw border
-        if let Some(rect) = Rect::from_xywh(x as f32, y as f32, w as f32, 1.0) {
-            pixmap.fill_rect(rect, &Paint { shader: Shader::SolidColor(Color::from_rgba8(border_color.r, border_color.g, border_color.b, border_color.a)), ..Default::default() }, Transform::identity(), None);
-        }
-        if let Some(rect) = Rect::from_xywh(x as f32, (y + h - 1) as f32, w as f32, 1.0) {
-            pixmap.fill_rect(rect, &Paint { shader: Shader::SolidColor(Color::from_rgba8(border_color.r, border_color.g, border_color.b, border_color.a)), ..Default::default() }, Transform::identity(), None);
-        }
-        if let Some(rect) = Rect::from_xywh(x as f32, y as f32, 1.0, h as f32) {
-            pixmap.fill_rect(rect, &Paint { shader: Shader::SolidColor(Color::from_rgba8(border_color.r, border_color.g, border_color.b, border_color.a)), ..Default::default() }, Transform::identity(), None);
-        }
-        if let Some(rect) = Rect::from_xywh((x + w - 1) as f32, y as f32, 1.0, h as f32) {
-            pixmap.fill_rect(rect, &Paint { shader: Shader::SolidColor(Color::from_rgba8(border_color.r, border_color.g, border_color.b, border_color.a)), ..Default::default() }, Transform::identity(), None);
-        }
+        // Draw border (1px)
+        draw_rect_fast(pixmap, x, y, w, 1, border_color);
+        draw_rect_fast(pixmap, x, y + h - 1, w, 1, border_color);
+        draw_rect_fast(pixmap, x, y, 1, h, border_color);
+        draw_rect_fast(pixmap, x + w - 1, y, 1, h, border_color);
 
         // Draw centered text
         Self::draw_text(pixmap, text, x + padding_x, y + padding_y, scale, text_color);
@@ -264,19 +241,13 @@ impl BitmapFont {
     ) {
         if let Some(glyph) = get_bold_digit(c) {
             let scale = scale.max(1);
-            let skia_color = Color::from_rgba8(color.r, color.g, color.b, color.a);
-            let paint = Paint {
-                shader: Shader::SolidColor(skia_color),
-                ..Default::default()
-            };
-
             for row in 0..12 {
                 let row_bits = glyph[row];
                 for col in 0..8 {
                     if (row_bits & (0x80 >> col)) != 0 {
                         let px = x + (col as i32 * scale as i32);
                         let py = y + (row as i32 * scale as i32);
-                        fill_pixel_block(pixmap, px, py, scale, &paint);
+                        fill_pixel_block(pixmap, px, py, scale, color);
                     }
                 }
             }
@@ -331,17 +302,110 @@ impl BitmapFont {
 }
 
 #[inline(always)]
-fn fill_pixel_block(pixmap: &mut PixmapMut, px: i32, py: i32, scale: u32, paint: &Paint) {
-    if px < 0 || py < 0 || px as u32 >= pixmap.width() || py as u32 >= pixmap.height() {
+fn draw_rect_fast(pixmap: &mut PixmapMut, x: i32, y: i32, w: i32, h: i32, color: ColorRgba) {
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let target_w = pixmap.width() as i32;
+    let target_h = pixmap.height() as i32;
+
+    let ix0 = x.clamp(0, target_w);
+    let iy0 = y.clamp(0, target_h);
+    let ix1 = (x + w).clamp(0, target_w);
+    let iy1 = (y + h).clamp(0, target_h);
+
+    if ix0 >= ix1 || iy0 >= iy1 {
         return;
     }
 
-    if scale == 1 {
-        if let Some(rect) = Rect::from_xywh(px as f32, py as f32, 1.0, 1.0) {
-            pixmap.fill_rect(rect, paint, Transform::identity(), None);
+    let data = pixmap.data_mut();
+    let u32_slice: &mut [u32] = unsafe {
+        std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
+    };
+
+    let row_len = (ix1 - ix0) as usize;
+    if color.a == 255 {
+        let packed = u32::from_ne_bytes([color.r, color.g, color.b, 255]);
+        for py in iy0..iy1 {
+            let row_start = (py as usize) * (target_w as usize) + (ix0 as usize);
+            u32_slice[row_start..row_start + row_len].fill(packed);
         }
-    } else if let Some(rect) = Rect::from_xywh(px as f32, py as f32, scale as f32, scale as f32) {
-        pixmap.fill_rect(rect, paint, Transform::identity(), None);
+    } else if color.a > 0 {
+        let a = color.a as u32;
+        let inv_a = 255 - a;
+        let sr = (color.r as u32 * a) / 255;
+        let sg = (color.g as u32 * a) / 255;
+        let sb = (color.b as u32 * a) / 255;
+        for py in iy0..iy1 {
+            let row_start = (py as usize) * (target_w as usize) + (ix0 as usize);
+            for pixel in &mut u32_slice[row_start..row_start + row_len] {
+                let p = *pixel;
+                let dr = p & 0xFF;
+                let dg = (p >> 8) & 0xFF;
+                let db = (p >> 16) & 0xFF;
+                let nr = sr + (dr * inv_a) / 255;
+                let ng = sg + (dg * inv_a) / 255;
+                let nb = sb + (db * inv_a) / 255;
+                *pixel = (255 << 24) | (nb << 16) | (ng << 8) | nr;
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn fill_pixel_block(pixmap: &mut PixmapMut, px: i32, py: i32, scale: u32, color: ColorRgba) {
+    let pw = pixmap.width() as i32;
+    let ph = pixmap.height() as i32;
+    if px < 0 || py < 0 || px >= pw || py >= ph {
+        return;
+    }
+
+    let data = pixmap.data_mut();
+    let u32_slice: &mut [u32] = unsafe {
+        std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
+    };
+
+    if color.a == 255 {
+        let packed = u32::from_ne_bytes([color.r, color.g, color.b, 255]);
+        if scale == 1 {
+            let idx = (py as usize) * (pw as usize) + (px as usize);
+            if idx < u32_slice.len() {
+                u32_slice[idx] = packed;
+            }
+        } else {
+            let x_end = (px + scale as i32).min(pw);
+            let y_end = (py + scale as i32).min(ph);
+            let row_len = (x_end - px) as usize;
+            for y in py..y_end {
+                let row_start = (y as usize) * (pw as usize) + (px as usize);
+                if row_start + row_len <= u32_slice.len() {
+                    u32_slice[row_start..row_start + row_len].fill(packed);
+                }
+            }
+        }
+    } else if color.a > 0 {
+        let a = color.a as u32;
+        let inv_a = 255 - a;
+        let sr = (color.r as u32 * a) / 255;
+        let sg = (color.g as u32 * a) / 255;
+        let sb = (color.b as u32 * a) / 255;
+
+        let x_end = (px + scale as i32).min(pw);
+        let y_end = (py + scale as i32).min(ph);
+        let row_len = (x_end - px) as usize;
+        for y in py..y_end {
+            let row_start = (y as usize) * (pw as usize) + (px as usize);
+            for pixel in &mut u32_slice[row_start..row_start + row_len] {
+                let p = *pixel;
+                let dr = p & 0xFF;
+                let dg = (p >> 8) & 0xFF;
+                let db = (p >> 16) & 0xFF;
+                let nr = sr + (dr * inv_a) / 255;
+                let ng = sg + (dg * inv_a) / 255;
+                let nb = sb + (db * inv_a) / 255;
+                *pixel = (255 << 24) | (nb << 16) | (ng << 8) | nr;
+            }
+        }
     }
 }
 
@@ -352,7 +416,7 @@ fn draw_10x8_glyph(
     x: i32,
     y: i32,
     scale: u32,
-    paint: &Paint,
+    color: ColorRgba,
 ) {
     for row in 0..8 {
         let row_bits = glyph[row];
@@ -361,7 +425,7 @@ fn draw_10x8_glyph(
             if (row_bits & (1 << (9 - col))) != 0 {
                 let px = x + (col as i32 * scale as i32);
                 let py = y + (row as i32 * scale as i32);
-                fill_pixel_block(pixmap, px, py, scale, paint);
+                fill_pixel_block(pixmap, px, py, scale, color);
             }
         }
     }
@@ -370,7 +434,7 @@ fn draw_10x8_glyph(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tiny_skia::Pixmap;
+    use tiny_skia::{Color, Pixmap};
 
     #[test]
     fn test_ascii_and_multilingual_text_width() {

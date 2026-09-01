@@ -360,6 +360,11 @@ impl ApplicationHandler for BeetleApp {
                 }
             }
             AppScreen::SongSelect => {
+                #[cfg(target_os = "windows")]
+                if let Some(d3d11) = &mut state.d3d11_backend {
+                    d3d11.set_vsync(true);
+                }
+
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
                     if let Ok((hash, img)) = rx.try_recv() {
@@ -370,10 +375,16 @@ impl ApplicationHandler for BeetleApp {
                     }
                 }
 
-                // 2. Dispatch background loading for selected song
+                // 2. Dispatch background loading ONLY if cursor has settled for at least 150ms
+                let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
                 let selected_hash = selected_song.as_ref().map(|s| s.hash).unwrap_or(0);
-                if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
+
+                if !is_settled {
+                    // While holding arrow key or scrolling, don't spawn background threads
+                    let rem = Duration::from_millis(150).saturating_sub(state.cursor_settle_time.elapsed());
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + rem));
+                } else if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
                     if state.stage_image_loading_hash != Some(selected_hash) {
                         if let Some(song) = selected_song {
                             state.stage_image_loading_hash = Some(selected_hash);
