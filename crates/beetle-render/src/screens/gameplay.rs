@@ -2,7 +2,7 @@ use crate::bitmap_font::BitmapFont;
 use crate::image::ImageBuffer;
 use crate::renderer::{lane_index, SoftwareRenderer};
 use crate::skin::ColorRgba;
-use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, ScoreTracker};
+use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, ScoreTracker, TimingModel};
 
 impl SoftwareRenderer {
     /// Renders a single gameplay frame based on current audio time.
@@ -16,6 +16,7 @@ impl SoftwareRenderer {
         bga_image: Option<&ImageBuffer>,
         layer_image: Option<&ImageBuffer>,
         track_bga_opacity: f32,
+        timing: &TimingModel,
     ) {
         self.clear();
 
@@ -25,6 +26,7 @@ impl SoftwareRenderer {
 
         self.draw_playfield_bg(score.current_combo, danger_blink, bga_image, layer_image, track_bga_opacity);
         self.draw_key_beams();
+        self.draw_measure_lines(audio_time_seconds, timing, chart);
         self.draw_notes(notes, audio_time_seconds);
         self.draw_lane_cover();
         self.draw_judge_line(score.current_combo);
@@ -135,6 +137,62 @@ impl SoftwareRenderer {
                 let beam_height = self.skin.judge_line_y - self.skin.playfield_y;
 
                 self.draw_rect(x, self.skin.playfield_y, w, beam_height, beam_color);
+            }
+        }
+    }
+
+    fn draw_measure_lines(
+        &mut self,
+        audio_time_seconds: f64,
+        timing: &TimingModel,
+        chart: &BmsChart,
+    ) {
+        let s = self.viewport.scale;
+        let effective_speed = self.skin.hi_speed * s;
+        let judge_y = self.skin.judge_line_y;
+        let top_y = self.skin.playfield_y;
+        let px = self.skin.playfield_x;
+        let pw = self.skin.playfield_width;
+        let line_h = (1.0 * s).max(1.0);
+        let line_color = ColorRgba::new(255, 255, 255, 50);
+
+        // Determine the visible time window
+        let visible_duration = (judge_y - top_y + 50.0 * s) as f64 / effective_speed.max(1.0) as f64;
+        let max_time = audio_time_seconds + visible_duration;
+
+        // Find the highest measure number in the chart (from notes and bgm_notes)
+        let max_measure = {
+            let note_max = chart.notes.iter().map(|n| n.measure).max().unwrap_or(0);
+            let bgm_max = chart.bgm_notes.iter().map(|b| b.0).max().unwrap_or(0);
+            note_max.max(bgm_max) + 2 // +2 to cover trailing measures
+        };
+
+        // Find starting measure via binary-style scan (avoid iterating from 0 every frame)
+        // We use audio_time_seconds to skip past measures that are already below judge line
+        let start_measure = {
+            let (m, _) = timing.time_to_beat(audio_time_seconds - 0.5);
+            if m > 0 { m } else { 0 }
+        };
+
+        for measure in start_measure..=max_measure {
+            let measure_time = timing.beat_to_time_seconds(measure, 0.0);
+
+            // Skip measures that have already passed below judge line
+            if measure_time < audio_time_seconds - 1.0 {
+                continue;
+            }
+
+            // Stop once we're past the visible area
+            if measure_time > max_time {
+                break;
+            }
+
+            let delta_t = measure_time - audio_time_seconds;
+            let bar_y = judge_y - (delta_t as f32 * effective_speed);
+
+            // Only draw within the playfield vertical bounds
+            if bar_y >= top_y && bar_y <= judge_y {
+                self.draw_rect(px, bar_y - line_h * 0.5, pw, line_h, line_color);
             }
         }
     }

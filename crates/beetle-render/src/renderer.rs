@@ -370,7 +370,7 @@ mod tests {
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         let levels = [0.5f32; 16];
         let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
-        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None, None, 0.0);
+        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None, None, 0.0, &timing);
 
         // Validate buffer is not all blank
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
@@ -388,7 +388,7 @@ mod tests {
         let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
         let dummy_bga = ImageBuffer::new(320, 180, ColorRgba::new(200, 100, 50, 255));
 
-        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, Some(&dummy_bga), None, 0.5);
+        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, Some(&dummy_bga), None, 0.5, &timing);
 
         let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);

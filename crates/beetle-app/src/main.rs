@@ -693,8 +693,8 @@ impl ApplicationHandler for BeetleApp {
                         });
 
                         // Render gameplay frame
-                        if let (Some(chart), Some(judge)) =
-                            (&state.active_chart, &state.active_judge)
+                        if let (Some(chart), Some(judge), Some(timing)) =
+                            (&state.active_chart, &state.active_judge, &state.active_timing)
                         {
                             state.renderer.render_gameplay(
                                 chart,
@@ -705,6 +705,7 @@ impl ApplicationHandler for BeetleApp {
                                 active_bga,
                                 active_layer,
                                 state.track_bga.opacity(),
+                                timing,
                             );
                         }
 
