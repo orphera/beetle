@@ -387,6 +387,15 @@ mod tests {
     }
 
     #[test]
+    fn test_render_exit_confirm_modal() {
+        let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
+        renderer.render_exit_confirm_modal();
+
+        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        assert!(has_content);
+    }
+
+    #[test]
     fn test_render_result_screen() {
         let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
         let chart = BmsChart {

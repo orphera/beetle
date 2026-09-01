@@ -237,6 +237,108 @@ impl SoftwareRenderer {
         }
     }
 
+    /// Renders an exit confirmation modal overlay when Esc is pressed in Song Select.
+    pub fn render_exit_confirm_modal(&mut self) {
+        let w = self.width() as f32;
+        let h = self.height() as f32;
+        let vp = self.viewport;
+        let s = vp.scale;
+        let font_scale = (s * 0.9).round().max(1.0) as u32;
+
+        // 1. Semi-transparent dark overlay dimming the whole window
+        self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 190));
+
+        // 2. Center Glassmorphic Modal Box
+        let modal_w = 440.0 * s;
+        let modal_h = 220.0 * s;
+        let modal_x = vp.x + (vp.width - modal_w) / 2.0;
+        let modal_y = vp.y + (vp.height - modal_h) / 2.0;
+
+        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(16, 20, 32, 255));
+        self.draw_rect(modal_x, modal_y, modal_w, 2.0 * s, ColorRgba::new(255, 90, 90, 255));
+        self.draw_rect(modal_x, modal_y + modal_h - 2.0 * s, modal_w, 2.0 * s, ColorRgba::new(255, 90, 90, 255));
+        self.draw_rect(modal_x, modal_y, 2.0 * s, modal_h, ColorRgba::new(255, 90, 90, 255));
+        self.draw_rect(modal_x + modal_w - 2.0 * s, modal_y, 2.0 * s, modal_h, ColorRgba::new(255, 90, 90, 255));
+
+        // 3. Exit Header
+        let center_x = (vp.x + vp.width / 2.0) as i32;
+        let mut cur_y = modal_y + 24.0 * s;
+        let title_scale = (2.0 * s).round().max(1.0) as u32;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "QUIT BEETLE",
+            center_x,
+            cur_y as i32,
+            title_scale,
+            ColorRgba::new(255, 100, 100, 255),
+        );
+        cur_y += 36.0 * s;
+
+        // Prompt message
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "Are you sure you want to exit?",
+            center_x,
+            cur_y as i32,
+            font_scale,
+            ColorRgba::new(230, 235, 245, 255),
+        );
+        cur_y += 40.0 * s;
+
+        // Action Buttons
+        let btn_w = 160.0 * s;
+        let btn_h = 36.0 * s;
+        let gap = 24.0 * s;
+        let total_btn_w = btn_w * 2.0 + gap;
+        let btn_start_x = vp.x + (vp.width - total_btn_w) / 2.0;
+
+        // Confirm Button (Exit)
+        let yes_x = btn_start_x;
+        self.draw_rect(yes_x, cur_y, btn_w, btn_h, ColorRgba::new(140, 30, 30, 255));
+        self.draw_rect(yes_x, cur_y, btn_w, 1.0 * s, ColorRgba::new(255, 100, 100, 255));
+        self.draw_rect(yes_x, cur_y + btn_h - 1.0 * s, btn_w, 1.0 * s, ColorRgba::new(255, 100, 100, 255));
+        self.draw_rect(yes_x, cur_y, 1.0 * s, btn_h, ColorRgba::new(255, 100, 100, 255));
+        self.draw_rect(yes_x + btn_w - 1.0 * s, cur_y, 1.0 * s, btn_h, ColorRgba::new(255, 100, 100, 255));
+
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "YES (Enter / Y)",
+            (yes_x + btn_w / 2.0) as i32,
+            (cur_y + 10.0 * s) as i32,
+            font_scale,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+
+        // Cancel Button
+        let no_x = yes_x + btn_w + gap;
+        self.draw_rect(no_x, cur_y, btn_w, btn_h, ColorRgba::new(28, 38, 56, 255));
+        self.draw_rect(no_x, cur_y, btn_w, 1.0 * s, ColorRgba::new(70, 130, 210, 255));
+        self.draw_rect(no_x, cur_y + btn_h - 1.0 * s, btn_w, 1.0 * s, ColorRgba::new(70, 130, 210, 255));
+        self.draw_rect(no_x, cur_y, 1.0 * s, btn_h, ColorRgba::new(70, 130, 210, 255));
+        self.draw_rect(no_x + btn_w - 1.0 * s, cur_y, 1.0 * s, btn_h, ColorRgba::new(70, 130, 210, 255));
+
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "NO (Esc / N)",
+            (no_x + btn_w / 2.0) as i32,
+            (cur_y + 10.0 * s) as i32,
+            font_scale,
+            ColorRgba::new(200, 220, 255, 255),
+        );
+
+        // Footer hint
+        let footer_y = modal_y + modal_h - 22.0 * s;
+        let hint_scale = (font_scale * 8 / 10).max(1);
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "Enter / Y: Confirm Exit    Esc / N: Cancel",
+            center_x,
+            footer_y as i32,
+            hint_scale,
+            ColorRgba::new(120, 130, 150, 255),
+        );
+    }
+
     /// Renders the transition loading screen while soundbanks and charts are decoded in the background.
     pub fn render_loading_screen(
         &mut self,

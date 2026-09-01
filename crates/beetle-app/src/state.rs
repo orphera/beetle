@@ -101,6 +101,8 @@ pub struct AppState {
     pub category_mode: SongCategory,
     pub sort_mode: SortMode,
     pub show_option_modal: bool,
+    pub show_exit_modal: bool,
+    pub should_exit_app: bool,
     pub modal_row: usize,
     pub selected_key_idx: usize,
     pub score_store: ScoreStore,

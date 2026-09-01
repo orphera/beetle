@@ -54,6 +54,20 @@ pub fn handle_song_select_input(
         return;
     }
 
+    // If exit confirmation modal is open, handle confirm/cancel
+    if state.show_exit_modal {
+        match code {
+            KeyCode::Enter | KeyCode::KeyY => {
+                state.should_exit_app = true;
+            }
+            KeyCode::Escape | KeyCode::KeyN => {
+                state.show_exit_modal = false;
+            }
+            _ => (),
+        }
+        return;
+    }
+
     // If option modal is open, delegate to options handler
     if state.show_option_modal {
         handle_option_modal_input(state, code);
@@ -62,6 +76,9 @@ pub fn handle_song_select_input(
 
     // Normal SongSelect navigation & hotkeys
     match code {
+        KeyCode::Escape => {
+            state.show_exit_modal = true;
+        }
         KeyCode::Slash => {
             state.is_search_active = true;
         }

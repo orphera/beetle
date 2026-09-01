@@ -173,6 +173,8 @@ impl ApplicationHandler for BeetleApp {
             category_mode: SongCategory::All,
             sort_mode: saved_config.sort_mode,
             show_option_modal: false,
+            show_exit_modal: false,
+            should_exit_app: false,
             modal_row: 0,
             selected_key_idx: 0,
             score_store,
@@ -282,6 +284,12 @@ impl ApplicationHandler for BeetleApp {
         let Some(state) = &mut self.state else {
             return;
         };
+
+        if state.should_exit_app {
+            state.save_config();
+            event_loop.exit();
+            return;
+        }
 
         match state.screen {
             AppScreen::Loading => {
@@ -416,6 +424,12 @@ impl ApplicationHandler for BeetleApp {
             return;
         };
 
+        if state.should_exit_app {
+            state.save_config();
+            event_loop.exit();
+            return;
+        }
+
         match event {
             WindowEvent::CloseRequested => {
                 state.save_config();
@@ -547,6 +561,11 @@ impl ApplicationHandler for BeetleApp {
                                 state.target_fps,
                                 state.modal_row,
                             );
+                        }
+
+                        // If exit confirmation modal is open, overlay modal on top
+                        if state.show_exit_modal {
+                            state.renderer.render_exit_confirm_modal();
                         }
                     }
                     AppScreen::Loading => {
