@@ -263,6 +263,12 @@ impl SoftwareRenderer {
             ColorRgba::new(140, 140, 160, 255),
         );
     }
+
+    /// Clears the runtime font glyph cache on Windows.
+    #[cfg(target_os = "windows")]
+    pub fn clear_font_cache(&mut self) {
+        crate::bitmap_font::gdi_fallback::clear_cache();
+    }
 }
 
 pub(crate) fn level_color(level: u32) -> ColorRgba {

@@ -66,6 +66,18 @@
 
 ---
 
+## 📋 Phase 5: CJK 한자 런타임 폴백 렌더링 (`crates/beetle-render/src/bitmap_font/`)
+- [x] **Windows GDI FFI 런타임 글리프 래스터화 계층 구축 (`crates/beetle-render/src/bitmap_font/gdi_fallback.rs`)**
+  - [x] 외부 크레이트 0개, Windows 내장 `gdi32.dll` 직접 FFI 바인딩 (`CreateCompatibleDC`, `CreateFontW`, `GetGlyphOutlineW`)
+  - [x] `GGO_GRAY8_BITMAP` 8bpp 안티에일리어싱 글리프 비트맵 추출 및 0..255 정규화
+- [x] **렌더 스레드 전용 글리프 캐시 및 5단계 폴백 체인 통합 (`BitmapFont::draw_char`)**
+  - [x] 1: ASCII 5x7 -> 2: 한글 10x8 -> 3: 가나/특수기호 10x8 -> 4: (신규) GDI 런타임 캐시 -> 5: 네모 박스 폴백
+  - [x] `HashMap<char, Option<GlyphBitmap>>` 기반 성공/실패 양방향 캐싱 (중복 GDI 호출 방지)
+  - [x] 고속 정수 알파 블렌딩 AA 블릿 함수 (`blit_glyph_aa`) 구현
+  - [x] 비Windows 조건부 컴파일(`#[cfg(target_os = "windows")]`) 및 5번 네모 박스 안전 폴백 검증
+
+---
+
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
 - [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화 및 BGA 지원 제안서 (Milestone 5 Archive).
 - [proposals/lightweight_gpu_acceleration.md](proposals/lightweight_gpu_acceleration.md): 초경량 멀티 백엔드(D3D11, OpenGL, Vulkan, Metal, Software Fallback) GPU 하드웨어 가속 렌더링 엔진 제안서 (Milestone 6).

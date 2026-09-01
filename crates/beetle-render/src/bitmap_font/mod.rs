@@ -2,6 +2,8 @@ pub mod ascii;
 pub mod bold_digits;
 pub mod hangul;
 pub mod kana;
+#[cfg(target_os = "windows")]
+pub mod gdi_fallback;
 
 use crate::skin::ColorRgba;
 use tiny_skia::PixmapMut;
@@ -127,8 +129,14 @@ impl BitmapFont {
             return;
         }
 
-        // 4. Space character
+        // Space character
         if c == ' ' || c == '\u{3000}' {
+            return;
+        }
+
+        // 4. Runtime GDI glyph cache fallback for CJK Kanji / ideographs (Windows only)
+        #[cfg(target_os = "windows")]
+        if gdi_fallback::draw_char_fallback(pixmap, c, x, y, scale, color) {
             return;
         }
 
@@ -457,15 +465,20 @@ mod tests {
 
     #[test]
     fn test_draw_multilingual_text_pixmap() {
-        let mut pixmap = Pixmap::new(200, 100).unwrap();
+        let mut pixmap = Pixmap::new(240, 100).unwrap();
         pixmap.fill(Color::BLACK);
 
         let white = ColorRgba::new(255, 255, 255, 255);
-        BitmapFont::draw_text(&mut pixmap.as_mut(), "BEETLE 한글 さくら ★", 10, 10, 1, white);
+        BitmapFont::draw_text(&mut pixmap.as_mut(), "BEETLE 한글 さくら 桜 龍 ★", 10, 10, 1, white);
 
         // Verify that pixels are drawn
         let has_white_pixel = pixmap.data().chunks_exact(4).any(|p| p[0] == 255 && p[1] == 255 && p[2] == 255);
         assert!(has_white_pixel);
+
+        #[cfg(target_os = "windows")]
+        {
+            assert!(gdi_fallback::cache_len() >= 2);
+        }
     }
 
     #[test]
@@ -479,5 +492,24 @@ mod tests {
 
         let has_yellow = pixmap.data().chunks_exact(4).any(|p| p[0] == 255 && p[1] == 220 && p[2] == 50);
         assert!(has_yellow);
+    }
+
+    #[test]
+    fn test_draw_fallback_square_for_unmapped_character() {
+        let mut pixmap = Pixmap::new(50, 50).unwrap();
+        pixmap.fill(Color::BLACK);
+
+        let white = ColorRgba::new(255, 255, 255, 255);
+        // Null character has no printable ASCII, Hangul, or Kana glyph,
+        // and GDI fallback returns None for it. It falls through to step 5 (square glyph).
+        BitmapFont::draw_char(&mut pixmap.as_mut(), '\0', 10, 10, 1, white);
+
+        let white_pixels = pixmap
+            .data()
+            .chunks_exact(4)
+            .filter(|p| p[0] == 255 && p[1] == 255 && p[2] == 255)
+            .count();
+        // The fallback square glyph has exactly 28 pixels (9 + 2*5 + 9)
+        assert_eq!(white_pixels, 28);
     }
 }
