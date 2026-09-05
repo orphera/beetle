@@ -25,7 +25,10 @@ pub use delta::{
 };
 pub use entry::PackageEntry;
 pub use error::PackageError;
-pub use manifest::{Manifest, CURRENT_FORMAT_VERSION, MANIFEST_FILENAME};
+pub use manifest::{
+    BgaCompanionInfo, CompanionPackages, Manifest, PackageType, CURRENT_FORMAT_VERSION,
+    MANIFEST_FILENAME,
+};
 pub use path::validate_entry_path;
 pub use reader::{Package, PackageReader, DEFAULT_MAX_ENTRY_SIZE};
 
