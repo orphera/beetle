@@ -4,6 +4,29 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+/// BGA video integration status of an installed package.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BgaStatus {
+    /// High-entropy BGA video is packaged directly inside the primary .bmsp package.
+    Embedded,
+    /// Decoupled BGA companion package is installed alongside the core package.
+    Companion,
+    /// No BGA video is installed (pure lightweight core package).
+    #[default]
+    None,
+}
+
+impl BgaStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Embedded => "Embedded",
+            Self::Companion => "Companion",
+            Self::None => "None",
+        }
+    }
+}
+
 /// Metadata record for a specific installed state of a package.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageStateRecord {
@@ -18,6 +41,10 @@ pub struct PackageRecord {
     pub name: String,
     pub author: Option<String>,
     pub active_state: String,
+    #[serde(default)]
+    pub bga_status: BgaStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bga_companion_path: Option<String>,
     pub state_hashes: BTreeMap<String, PackageStateRecord>,
 }
 
@@ -73,6 +100,19 @@ impl Registry {
         rel_path: &str,
         installed_at: &str,
     ) -> Result<(), PackageManagerError> {
+        self.register_with_bga(manifest, state_hash, rel_path, installed_at, BgaStatus::None, None)
+    }
+
+    /// Registers a new installed package state with explicit BGA status.
+    pub fn register_with_bga(
+        &mut self,
+        manifest: &Manifest,
+        state_hash: &str,
+        rel_path: &str,
+        installed_at: &str,
+        bga_status: BgaStatus,
+        bga_companion_path: Option<String>,
+    ) -> Result<(), PackageManagerError> {
         let package_id = manifest.id.clone();
         let package_name = manifest.name.clone();
         let package_author = manifest.author.clone();
@@ -82,12 +122,18 @@ impl Registry {
             name: package_name.clone(),
             author: package_author.clone(),
             active_state: state_hash.to_string(),
+            bga_status,
+            bga_companion_path: bga_companion_path.clone(),
             state_hashes: BTreeMap::new(),
         });
 
         entry.name = package_name;
         entry.author = package_author;
         entry.active_state = state_hash.to_string();
+        entry.bga_status = bga_status;
+        if bga_companion_path.is_some() {
+            entry.bga_companion_path = bga_companion_path;
+        }
 
         entry.state_hashes.insert(
             state_hash.to_string(),
@@ -97,6 +143,22 @@ impl Registry {
             },
         );
 
+        Ok(())
+    }
+
+    /// Updates the BGA status and optional companion file path for an installed package.
+    pub fn update_bga_status(
+        &mut self,
+        package_id: &str,
+        status: BgaStatus,
+        companion_path: Option<String>,
+    ) -> Result<(), PackageManagerError> {
+        let entry = self
+            .packages
+            .get_mut(package_id)
+            .ok_or_else(|| PackageManagerError::PackageNotFound(package_id.to_string()))?;
+        entry.bga_status = status;
+        entry.bga_companion_path = companion_path;
         Ok(())
     }
 

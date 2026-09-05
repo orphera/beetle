@@ -1,5 +1,5 @@
 use crate::error::PackageManagerError;
-use crate::registry::{PackageRecord, Registry, REGISTRY_FILENAME};
+use crate::registry::{BgaStatus, PackageRecord, Registry, REGISTRY_FILENAME};
 use crate::storage::PackageStorage;
 use bms_package::{Manifest, Package, MANIFEST_FILENAME};
 use std::fs;
@@ -14,6 +14,7 @@ pub struct InstalledPackage {
     pub author: Option<String>,
     pub location: PathBuf,
     pub is_active: bool,
+    pub bga_status: BgaStatus,
 }
 
 impl InstalledPackage {
@@ -103,6 +104,10 @@ impl PackageManager {
         &self.registry
     }
 
+    pub fn storage(&self) -> &PackageStorage {
+        &self.storage
+    }
+
     fn save_registry(&self) -> Result<(), PackageManagerError> {
         let registry_path = self.root_dir.join(REGISTRY_FILENAME);
         self.registry.save_to_file(&registry_path)
@@ -161,9 +166,17 @@ impl PackageManager {
         // 3. Atomically extract and install files into managed storage
         let (location, rel_path) = self.storage.install_package_with_progress(&pkg, &bytes, cancel_flag, on_progress)?;
 
-        // 4. Update registry
+        // 4. Determine initial BGA status
+        let has_video = pkg.entries().iter().any(|e| beetle_render::is_video_path(&e.path));
+        let bga_status = if has_video {
+            BgaStatus::Embedded
+        } else {
+            BgaStatus::None
+        };
+
+        // 5. Update registry
         let now_str = "2026-08-28T02:00:00Z".to_string(); // Or ISO timestamp
-        self.registry.register(&manifest, &state_hash, &rel_path, &now_str)?;
+        self.registry.register_with_bga(&manifest, &state_hash, &rel_path, &now_str, bga_status, None)?;
         self.save_registry()?;
 
         Ok(InstalledPackage {
@@ -173,6 +186,7 @@ impl PackageManager {
             author: manifest.author,
             location,
             is_active: true,
+            bga_status,
         })
     }
 
@@ -307,16 +321,74 @@ impl PackageManager {
         crate::export::export_package_to_folder(pkg_path, destination_dir)
     }
 
-    /// Creates a Virtual BMS File System (VFS) mounting all active packages in storage.
+    /// Creates a Virtual BMS File System (VFS) mounting all active packages in storage,
+    /// including associated BGA companions if present.
     pub fn create_vfs(&self) -> Result<crate::vfs::VirtualBmsFs, PackageManagerError> {
         let mut vfs = crate::vfs::VirtualBmsFs::new();
         for record in self.registry.packages.values() {
-            let pkg_path = self.storage.state_dir(&record.id, &record.active_state).join("package.bmsp");
+            let state_dir = self.storage.state_dir(&record.id, &record.active_state);
+            let pkg_path = state_dir.join("package.bmsp");
             if pkg_path.exists() {
                 let _ = vfs.mount_package(&record.id, &pkg_path);
             }
+            let companion_path = state_dir.join(format!("{}.bga.bmsp", record.id));
+            if companion_path.exists() {
+                let _ = vfs.mount_package(&record.id, &companion_path);
+            }
         }
         Ok(vfs)
+    }
+
+    /// Installs a decoupled BGA companion package (.bga.bmsp) for an existing installed package.
+    pub fn install_bga_companion<P: AsRef<Path>>(
+        &mut self,
+        bga_bmsp_path: P,
+    ) -> Result<String, PackageManagerError> {
+        let bytes = fs::read(bga_bmsp_path)?;
+        self.install_bga_companion_from_bytes(bytes)
+    }
+
+    /// Installs a decoupled BGA companion package from raw bytes for an existing installed package.
+    pub fn install_bga_companion_from_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<String, PackageManagerError> {
+        let bga_pkg = Package::from_bytes(bytes.clone())?;
+        let bga_manifest = bga_pkg.manifest();
+
+        let target_id = bga_manifest
+            .target_package_id
+            .as_ref()
+            .ok_or_else(|| PackageManagerError::InvalidPackage("BGA companion package must specify target_package_id".to_string()))?;
+
+        let record = self
+            .registry
+            .get_package(target_id)
+            .ok_or_else(|| PackageManagerError::PackageNotFound(target_id.clone()))?;
+
+        let active_state = record.active_state.clone();
+        let companion_path = self.storage.install_companion(target_id, &active_state, &bga_pkg, &bytes)?;
+
+        self.registry.update_bga_status(target_id, BgaStatus::Companion, Some(companion_path.to_string_lossy().to_string()))?;
+        self.save_registry()?;
+
+        Ok(target_id.clone())
+    }
+
+    /// Removes the BGA companion files from an installed package, reclaiming disk space while preserving song charts and keysounds.
+    pub fn remove_bga_companion(&mut self, package_id: &str) -> Result<u64, PackageManagerError> {
+        let record = self
+            .registry
+            .get_package(package_id)
+            .ok_or_else(|| PackageManagerError::PackageNotFound(package_id.to_string()))?;
+
+        let active_state = record.active_state.clone();
+        let reclaimed = self.storage.remove_companion(package_id, &active_state)?;
+
+        self.registry.update_bga_status(package_id, BgaStatus::None, None)?;
+        self.save_registry()?;
+
+        Ok(reclaimed)
     }
 
     /// Uninstalls a specific package state.
@@ -351,6 +423,7 @@ impl PackageManager {
                     author: record.author.clone(),
                     location,
                     is_active: true,
+                    bga_status: record.bga_status,
                 });
             }
         }
@@ -370,6 +443,7 @@ impl PackageManager {
                     author: record.author.clone(),
                     location,
                     is_active: state_hash == &record.active_state,
+                    bga_status: record.bga_status,
                 });
             }
         }
@@ -393,6 +467,7 @@ impl PackageManager {
             author: record.author.clone(),
             location,
             is_active: state_hash == &record.active_state,
+            bga_status: record.bga_status,
         })
     }
 
@@ -407,6 +482,7 @@ impl PackageManager {
             author: record.author.clone(),
             location,
             is_active: true,
+            bga_status: record.bga_status,
         })
     }
 

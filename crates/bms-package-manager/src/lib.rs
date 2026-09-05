@@ -19,7 +19,7 @@ pub use pack::{
     pack_bms_folder_profile, pack_bms_folder_profile_with_progress, BgaPackMode, PackOptions,
     PackOutput, PackProfile,
 };
-pub use registry::{PackageRecord, PackageStateRecord, Registry};
+pub use registry::{BgaStatus, PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
 pub use updater::PackageUpdater;
 pub use vfs::{VfsEntry, VirtualBmsFs, VirtualFile, WebDavServer};
@@ -244,6 +244,63 @@ mod tests {
 
         let orphan_res = manager.apply_delta_bytes(&orphan_delta);
         assert!(matches!(orphan_res, Err(PackageManagerError::BaseStateNotInstalled { .. })));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_bga_companion_install_and_remove_lifecycle() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_test_bga_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let mut manager = PackageManager::new(&temp_dir).unwrap();
+
+        // 1. Install base package without video
+        let manifest = Manifest::new("com.example.bgasong", "BGA Song");
+        let mut builder = PackageBuilder::new(manifest);
+        builder.add_file("song.bms", b"#TITLE BGA Song\n#00111:01".to_vec()).unwrap();
+        builder.add_file("01.wav", vec![1, 2, 3]).unwrap();
+        let base_bytes = builder.build_to_bytes().unwrap();
+
+        let installed = manager.install_from_bytes(base_bytes).unwrap();
+        assert_eq!(installed.bga_status, BgaStatus::None);
+
+        // 2. Create BGA companion package
+        let bga_manifest = Manifest::new_bga_companion("com.example.bgasong.bga", "BGA Song Companion", "com.example.bgasong");
+        let mut bga_builder = PackageBuilder::new(bga_manifest);
+        bga_builder.add_file("video.mp4", vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02]).unwrap();
+        let bga_bytes = bga_builder.build_to_bytes().unwrap();
+
+        // 3. Install BGA companion
+        let target_id = manager.install_bga_companion_from_bytes(bga_bytes).unwrap();
+        assert_eq!(target_id, "com.example.bgasong");
+
+        // Verify status is Companion
+        let pkg = manager.get_active_package("com.example.bgasong").unwrap();
+        assert_eq!(pkg.bga_status, BgaStatus::Companion);
+
+        // Verify storage files exist
+        let state_dir = manager.storage().state_dir("com.example.bgasong", &installed.state_hash);
+        assert!(state_dir.join("video.mp4").exists());
+        assert!(state_dir.join("com.example.bgasong.bga.bmsp").exists());
+
+        // 4. Remove BGA companion (diet)
+        let reclaimed = manager.remove_bga_companion("com.example.bgasong").unwrap();
+        assert!(reclaimed > 0);
+
+        // Verify status is None
+        let pkg_after = manager.get_active_package("com.example.bgasong").unwrap();
+        assert_eq!(pkg_after.bga_status, BgaStatus::None);
+        assert!(!state_dir.join("video.mp4").exists());
+        assert!(!state_dir.join("com.example.bgasong.bga.bmsp").exists());
+        // Base files still exist
+        assert!(state_dir.join("song.bms").exists());
+        assert!(state_dir.join("01.wav").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

@@ -7,12 +7,15 @@ fn print_usage() {
     println!("BMS Package Manager (bpm)");
     println!();
     println!("Usage:");
-    println!("  bpm install <package.bmsp>             Install a local .bmsp package");
+    println!("  bpm install <package.bmsp> [--with-bga] Install a local .bmsp package (with optional BGA companion)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
-    println!("  bpm pack <folder> [-o <out>] [--turbo] Pack a BMS folder into a .bmsp archive (Classic or Turbo Dual Atlas)");
+    println!("  bpm pack <folder> [-o <out>] [--turbo] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!("  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff");
     println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
+    println!("  bpm bga install <package.bga.bmsp>     Install a decoupled BGA companion package");
+    println!("  bpm bga remove <package_id>            Remove BGA companion from package to save disk space");
+    println!("  bpm bga status <package_id>            Check BGA status of an installed package");
     println!("  bpm mount [--port <port>] [--drive <Z:>] Mount packages onto on-the-fly virtual VFS drive");
     println!("  bpm unmount [--drive <Z:>]             Unmount virtual VFS network drive");
     println!("  bpm list                               List all active installed packages");
@@ -103,6 +106,20 @@ fn main() -> Result<(), PackageManagerError> {
                 bms_package_manager::PackProfile::Classic
             };
 
+            let split_bga = args.iter().any(|a| a == "--split-bga");
+            let no_video = args.iter().any(|a| a == "--no-video");
+            let bga_mode = if split_bga {
+                bms_package_manager::BgaPackMode::Split
+            } else if no_video {
+                bms_package_manager::BgaPackMode::NoVideo
+            } else {
+                bms_package_manager::BgaPackMode::Embed
+            };
+            let pack_options = bms_package_manager::PackOptions {
+                profile,
+                bga_mode,
+            };
+
             let roots = bms_package_manager::find_bms_song_roots(folder);
             if roots.is_empty() {
                 eprintln!("Error: No BMS chart files (.bms, .bme, .bml, .pms) found in '{}' or any subdirectories.", folder);
@@ -141,13 +158,27 @@ fn main() -> Result<(), PackageManagerError> {
                     println!("Detected BMS song root at '{}'", target_root.display());
                 }
 
-                match manager.pack_folder_profile(target_root, None, profile) {
-                    Ok(bytes) => {
-                        if let Err(e) = fs::write(&out_file, bytes) {
+                match bms_package_manager::pack_bms_folder_advanced_with_progress(
+                    target_root,
+                    None,
+                    pack_options,
+                    None,
+                    |_, _, _, _| {},
+                ) {
+                    Ok(pack_out) => {
+                        if let Err(e) = fs::write(&out_file, &pack_out.base_package) {
                             eprintln!("Failed to write output package file: {e}");
                             std::process::exit(1);
                         }
                         println!("Successfully packed '{}' into '{}' [{}]", target_root.display(), out_file.display(), profile_tag);
+                        if let Some(bga_bytes) = pack_out.bga_package {
+                            let companion_file = out_file.with_extension("bga.bmsp");
+                            if let Err(e) = fs::write(&companion_file, &bga_bytes) {
+                                eprintln!("Failed to write BGA companion file: {e}");
+                                std::process::exit(1);
+                            }
+                            println!("Companion BGA package written to '{}' ({} bytes)", companion_file.display(), bga_bytes.len());
+                        }
                     }
                     Err(e) => {
                         eprintln!("Packaging failed: {e}");
@@ -182,12 +213,24 @@ fn main() -> Result<(), PackageManagerError> {
                     };
 
                     print!("[{}/{}] Packing '{}' into '{}' [{}]... ", i + 1, roots.len(), target_root.display(), out_file.display(), profile_tag);
-                    match manager.pack_folder_profile(target_root, None, profile) {
-                        Ok(bytes) => {
-                            if let Err(e) = fs::write(&out_file, &bytes) {
+                    match bms_package_manager::pack_bms_folder_advanced_with_progress(
+                        target_root,
+                        None,
+                        pack_options,
+                        None,
+                        |_, _, _, _| {},
+                    ) {
+                        Ok(pack_out) => {
+                            if let Err(e) = fs::write(&out_file, &pack_out.base_package) {
                                 println!("FAILED (Write error: {})", e);
                             } else {
-                                println!("OK ({} bytes)", bytes.len());
+                                if let Some(bga_bytes) = pack_out.bga_package {
+                                    let companion_file = out_file.with_extension("bga.bmsp");
+                                    let _ = fs::write(&companion_file, &bga_bytes);
+                                    println!("OK ({} bytes + {} bytes BGA)", pack_out.base_package.len(), bga_bytes.len());
+                                } else {
+                                    println!("OK ({} bytes)", pack_out.base_package.len());
+                                }
                                 success_count += 1;
                             }
                         }
@@ -333,12 +376,13 @@ fn main() -> Result<(), PackageManagerError> {
             }
         }
         "install" => {
-            if args.len() < 3 {
+            let with_bga = args.iter().any(|a| a == "--with-bga");
+            let path_arg = args.iter().skip(2).find(|a| *a != "--with-bga");
+            let Some(path) = path_arg else {
                 eprintln!("Error: Missing package file path.");
-                eprintln!("Usage: bpm install <package.bmsp>");
+                eprintln!("Usage: bpm install <package.bmsp> [--with-bga]");
                 std::process::exit(1);
-            }
-            let path = &args[2];
+            };
             match manager.install(path) {
                 Ok(installed) => {
                     println!(
@@ -346,9 +390,110 @@ fn main() -> Result<(), PackageManagerError> {
                         installed.name, installed.id, installed.state_hash
                     );
                     println!("Location: {}", installed.location.display());
+
+                    // Check for companion package if --with-bga is passed or if adjacent
+                    let base_path = Path::new(path);
+                    let file_name = base_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let companion_name = if file_name.ends_with(".bmsp") {
+                        format!("{}.bga.bmsp", file_name.trim_end_matches(".bmsp"))
+                    } else {
+                        format!("{}.bga.bmsp", file_name)
+                    };
+                    let candidate = base_path.parent().map(|p| p.join(&companion_name)).unwrap_or_else(|| PathBuf::from(&companion_name));
+
+                    if with_bga {
+                        if candidate.exists() {
+                            match manager.install_bga_companion(&candidate) {
+                                Ok(t_id) => {
+                                    println!("Installed companion BGA package for '{}' from '{}'", t_id, candidate.display());
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to install BGA companion '{}': {e}", candidate.display());
+                                }
+                            }
+                        } else {
+                            eprintln!("Warning: --with-bga was specified, but companion package '{}' was not found.", candidate.display());
+                        }
+                    } else if candidate.exists() {
+                        println!("Notice: Decoupled BGA companion '{}' is available.", candidate.display());
+                        println!("        Install it using: bpm bga install \"{}\"", candidate.display());
+                    }
                 }
                 Err(e) => {
                     eprintln!("Installation failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "bga" => {
+            if args.len() < 3 {
+                eprintln!("Error: Missing BGA subcommand.");
+                eprintln!("Usage: bpm bga <install|remove|status> <args...>");
+                std::process::exit(1);
+            }
+            match args[2].as_str() {
+                "install" => {
+                    if args.len() < 4 {
+                        eprintln!("Error: Missing companion package path.");
+                        eprintln!("Usage: bpm bga install <package.bga.bmsp>");
+                        std::process::exit(1);
+                    }
+                    let bga_path = &args[3];
+                    match manager.install_bga_companion(bga_path) {
+                        Ok(target_id) => {
+                            println!("Successfully installed BGA companion for package '{}' from '{}'", target_id, bga_path);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to install BGA companion: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                "remove" => {
+                    if args.len() < 4 {
+                        eprintln!("Error: Missing package ID.");
+                        eprintln!("Usage: bpm bga remove <package_id>");
+                        std::process::exit(1);
+                    }
+                    let target_id = &args[3];
+                    match manager.remove_bga_companion(target_id) {
+                        Ok(reclaimed) => {
+                            let mb = reclaimed as f64 / (1024.0 * 1024.0);
+                            println!(
+                                "Successfully removed BGA companion for '{}' (reclaimed {:.2} MB / {} bytes)",
+                                target_id, mb, reclaimed
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to remove BGA companion: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                "status" => {
+                    if args.len() < 4 {
+                        eprintln!("Error: Missing package ID.");
+                        eprintln!("Usage: bpm bga status <package_id>");
+                        std::process::exit(1);
+                    }
+                    let target_id = &args[3];
+                    match manager.get_package(target_id) {
+                        Some(pkg) => {
+                            println!("Package ID:    {}", pkg.id);
+                            println!("BGA Status:    {}", pkg.bga_status.as_str());
+                            if let Some(ref path) = pkg.bga_companion_path {
+                                println!("Companion:     {}", path);
+                            }
+                        }
+                        None => {
+                            eprintln!("Package '{}' not found.", target_id);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                other => {
+                    eprintln!("Unknown bga command: '{other}'");
+                    eprintln!("Usage: bpm bga <install|remove|status>");
                     std::process::exit(1);
                 }
             }
@@ -360,8 +505,8 @@ fn main() -> Result<(), PackageManagerError> {
                 return Ok(());
             }
 
-            println!("{:<25} {:<16} {:<30} {}", "ID", "STATE", "NAME", "AUTHOR");
-            println!("{:-<80}", "");
+            println!("{:<25} {:<16} {:<12} {:<30} {}", "ID", "STATE", "BGA", "NAME", "AUTHOR");
+            println!("{:-<95}", "");
             for pkg in packages {
                 let author = pkg.author.as_deref().unwrap_or("-");
                 let short_hash = if pkg.state_hash.len() > 12 {
@@ -370,8 +515,8 @@ fn main() -> Result<(), PackageManagerError> {
                     &pkg.state_hash
                 };
                 println!(
-                    "{:<25} {:<16} {:<30} {}",
-                    pkg.id, short_hash, pkg.name, author
+                    "{:<25} {:<16} {:<12} {:<30} {}",
+                    pkg.id, short_hash, pkg.bga_status.as_str(), pkg.name, author
                 );
             }
         }
@@ -388,6 +533,10 @@ fn main() -> Result<(), PackageManagerError> {
                     println!("Name:            {}", record.name);
                     println!("Author:          {}", record.author.as_deref().unwrap_or("-"));
                     println!("Active State:    {}", record.active_state);
+                    println!("BGA Status:      {}", record.bga_status.as_str());
+                    if let Some(ref path) = record.bga_companion_path {
+                        println!("BGA Companion:   {}", path);
+                    }
                     println!("Installed States:");
                     for (state_hash, state_record) in &record.state_hashes {
                         let marker = if state_hash == &record.active_state { "* (active)" } else { "" };

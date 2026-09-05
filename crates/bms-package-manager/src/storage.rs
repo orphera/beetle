@@ -156,4 +156,89 @@ impl PackageStorage {
 
         Ok(())
     }
+
+    /// Installs a BGA companion package into an existing installed package state directory.
+    pub fn install_companion(
+        &self,
+        id: &str,
+        state_hash: &str,
+        bga_pkg: &Package,
+        bga_raw_bytes: &[u8],
+    ) -> Result<PathBuf, PackageManagerError> {
+        let target_dir = self.state_dir(id, state_hash);
+        if !target_dir.exists() {
+            return Err(PackageManagerError::PackageNotFound(format!("{id}@{state_hash}")));
+        }
+
+        let companion_filename = format!("{}.bga.bmsp", id);
+        let companion_archive_path = target_dir.join(&companion_filename);
+        fs::write(&companion_archive_path, bga_raw_bytes)?;
+
+        for entry in bga_pkg.entries() {
+            if entry.path == MANIFEST_FILENAME {
+                continue;
+            }
+            if beetle_render::is_video_path(&entry.path) {
+                let dest = target_dir.join(&entry.path);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                let data = bga_pkg.read_entry(&entry.path)?;
+                fs::write(&dest, data)?;
+            }
+        }
+
+        Ok(companion_archive_path)
+    }
+
+    /// Removes BGA companion files and videos from an installed package state, returning reclaimed bytes.
+    pub fn remove_companion(
+        &self,
+        id: &str,
+        state_hash: &str,
+    ) -> Result<u64, PackageManagerError> {
+        let target_dir = self.state_dir(id, state_hash);
+        if !target_dir.exists() {
+            return Err(PackageManagerError::PackageNotFound(format!("{id}@{state_hash}")));
+        }
+
+        let mut reclaimed_bytes: u64 = 0;
+
+        // 1. Remove companion archives (*.bga.bmsp)
+        if let Ok(entries) = fs::read_dir(&target_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if name.ends_with(".bga.bmsp") {
+                        if let Ok(meta) = p.metadata() {
+                            reclaimed_bytes += meta.len();
+                        }
+                        let _ = fs::remove_file(&p);
+                    }
+                }
+            }
+        }
+
+        // 2. Remove extracted video files
+        fn clean_videos(dir: &Path, reclaimed: &mut u64) {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        clean_videos(&p, reclaimed);
+                    } else if p.is_file() && beetle_render::is_video_path(&p) {
+                        if let Ok(meta) = p.metadata() {
+                            *reclaimed += meta.len();
+                        }
+                        let _ = fs::remove_file(&p);
+                    }
+                }
+            }
+        }
+
+        clean_videos(&target_dir, &mut reclaimed_bytes);
+
+        Ok(reclaimed_bytes)
+    }
 }
