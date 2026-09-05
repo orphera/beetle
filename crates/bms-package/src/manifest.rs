@@ -1,14 +1,15 @@
+use crate::atlas::{BgaAtlasMeta, SoundAtlasMeta};
 use crate::error::PackageError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const CURRENT_FORMAT_VERSION: u32 = 1;
+pub const CURRENT_FORMAT_VERSION: u32 = 2;
 pub const MANIFEST_FILENAME: &str = "manifest.json";
 
 /// Package metadata and identity structure (`manifest.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Format specification version (currently 1).
+    /// Format specification version (currently 1 or 2).
     pub format: u32,
     /// Stable, persistent package identifier (e.g. `example.song`).
     pub id: String,
@@ -17,6 +18,12 @@ pub struct Manifest {
     /// Optional author or creator name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// Optional Sound Atlas metadata for Turbo profile packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_atlas: Option<SoundAtlasMeta>,
+    /// Optional BGA Texture Atlas metadata for Turbo profile packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bga_atlas: Option<BgaAtlasMeta>,
     /// Additional optional fields preserved for forward-compatibility.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -30,6 +37,8 @@ impl Manifest {
             id: id.into(),
             name: name.into(),
             author: None,
+            sound_atlas: None,
+            bga_atlas: None,
             extra: BTreeMap::new(),
         }
     }
@@ -37,6 +46,20 @@ impl Manifest {
     /// Builder method to attach an author.
     pub fn with_author<A: Into<String>>(mut self, author: A) -> Self {
         self.author = Some(author.into());
+        self
+    }
+
+    /// Builder method to attach a sound atlas.
+    pub fn with_sound_atlas(mut self, sound_atlas: SoundAtlasMeta) -> Self {
+        self.sound_atlas = Some(sound_atlas);
+        self.format = 2;
+        self
+    }
+
+    /// Builder method to attach a BGA texture atlas.
+    pub fn with_bga_atlas(mut self, bga_atlas: BgaAtlasMeta) -> Self {
+        self.bga_atlas = Some(bga_atlas);
+        self.format = 2;
         self
     }
 
@@ -78,6 +101,18 @@ impl Manifest {
             return Err(PackageError::InvalidManifest("Field 'name' cannot be empty".to_string()));
         }
 
+        // 4. Sound Atlas validation if present
+        if let Some(ref sa) = self.sound_atlas {
+            sa.validate()
+                .map_err(|e| PackageError::InvalidManifest(format!("Invalid sound_atlas: {e}")))?;
+        }
+
+        // 5. BGA Atlas validation if present
+        if let Some(ref ba) = self.bga_atlas {
+            ba.validate()
+                .map_err(|e| PackageError::InvalidManifest(format!("Invalid bga_atlas: {e}")))?;
+        }
+
         Ok(())
     }
 }
@@ -115,5 +150,32 @@ mod tests {
         let mut m = Manifest::new("id", "Name");
         m.format = 99;
         assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn test_manifest_v2_with_atlases_roundtrip() {
+        use crate::atlas::{BgaFrame, SoundAtlasCodec, SoundSlice};
+
+        let mut sound_slices = BTreeMap::new();
+        sound_slices.insert("01".to_string(), SoundSlice::new(0, 44100, Some("01.wav".to_string())));
+        let sound_atlas = SoundAtlasMeta::new("audio/atlas.bin", SoundAtlasCodec::Pcm16, 44100, 2, 44100, 128, sound_slices);
+
+        let mut bga_frames = BTreeMap::new();
+        bga_frames.insert("stage".to_string(), BgaFrame::new(0, 0, 640, 480, Some("stage.png".to_string())));
+        let bga_atlas = BgaAtlasMeta::new("visual/atlas.png", 1024, 1024, bga_frames);
+
+        let manifest = Manifest::new("turbo.song", "Turbo Song")
+            .with_sound_atlas(sound_atlas)
+            .with_bga_atlas(bga_atlas);
+
+        assert_eq!(manifest.format, 2);
+        let json = manifest.to_json_string().unwrap();
+        let parsed = Manifest::from_json_str(&json).unwrap();
+
+        assert_eq!(parsed.format, 2);
+        assert!(parsed.sound_atlas.is_some());
+        assert!(parsed.bga_atlas.is_some());
+        assert_eq!(parsed.sound_atlas.unwrap().file, "audio/atlas.bin");
+        assert_eq!(parsed.bga_atlas.unwrap().file, "visual/atlas.png");
     }
 }

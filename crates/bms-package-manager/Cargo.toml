@@ -9,6 +9,12 @@ name = "bpm"
 path = "src/main.rs"
 
 [dependencies]
+beetle-core = { workspace = true }
+beetle-audio = { workspace = true }
+beetle-render = { workspace = true }
 bms-package = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+hound = { workspace = true }

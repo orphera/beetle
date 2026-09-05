@@ -224,7 +224,11 @@ dependencies = [
 name = "bms-package-manager"
 version = "0.1.0"
 dependencies = [
+ "beetle-audio",
+ "beetle-core",
+ "beetle-render",
  "bms-package",
+ "hound",
  "serde",
  "serde_json",
 ]

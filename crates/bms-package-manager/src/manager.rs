@@ -185,7 +185,7 @@ impl PackageManager {
         self.pack_folder_with_progress(folder_path, manifest_override, None, |_, _, _, _| {})
     }
 
-    /// Packs a local BMS directory with cancellation and progress reporting.
+    /// Packs a local BMS directory with cancellation and progress reporting (Classic profile).
     pub fn pack_folder_with_progress<P: AsRef<Path>, F>(
         &self,
         folder_path: P,
@@ -196,7 +196,32 @@ impl PackageManager {
     where
         F: FnMut(&str, usize, usize, &str),
     {
-        crate::pack::pack_bms_folder_with_progress(folder_path, manifest_override, cancel_flag, on_progress)
+        crate::pack::pack_bms_folder_profile_with_progress(folder_path, manifest_override, crate::pack::PackProfile::Classic, cancel_flag, on_progress)
+    }
+
+    /// Packs a local BMS directory using a specified packaging profile.
+    pub fn pack_folder_profile<P: AsRef<Path>>(
+        &self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+        profile: crate::pack::PackProfile,
+    ) -> Result<Vec<u8>, PackageManagerError> {
+        self.pack_folder_profile_with_progress(folder_path, manifest_override, profile, None, |_, _, _, _| {})
+    }
+
+    /// Packs a local BMS directory using a specified packaging profile with cancellation and progress reporting.
+    pub fn pack_folder_profile_with_progress<P: AsRef<Path>, F>(
+        &self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+        profile: crate::pack::PackProfile,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<Vec<u8>, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
+        crate::pack::pack_bms_folder_profile_with_progress(folder_path, manifest_override, profile, cancel_flag, on_progress)
     }
 
     /// Ingests and installs an existing local BMS directory directly into managed storage.

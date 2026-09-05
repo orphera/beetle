@@ -9,7 +9,7 @@ fn print_usage() {
     println!("Usage:");
     println!("  bpm install <package.bmsp>             Install a local .bmsp package");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
-    println!("  bpm pack <folder> [-o <out>]           Pack a BMS folder into a .bmsp archive");
+    println!("  bpm pack <folder> [-o <out>] [--turbo] Pack a BMS folder into a .bmsp archive (Classic or Turbo Dual Atlas)");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!("  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff");
     println!("  bpm update <delta.bmdp>                Atomically apply a delta package to installed library");
@@ -93,24 +93,42 @@ fn main() -> Result<(), PackageManagerError> {
                 return Ok(());
             }
 
-            let out_file = if args.len() >= 5 && args[3] == "-o" {
-                args[4].clone()
+            let is_turbo = args.iter().any(|a| a == "--atlas" || a == "--turbo")
+                || args.windows(2).any(|w| w[0] == "--profile" && w[1] == "turbo");
+            let profile = if is_turbo {
+                bms_package_manager::PackProfile::Turbo
             } else {
-                let folder_name = PathBuf::from(folder)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("package")
-                    .to_string();
+                bms_package_manager::PackProfile::Classic
+            };
+
+            let out_idx = args.iter().position(|a| a == "-o");
+            let folder_name = PathBuf::from(folder)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("package")
+                .to_string();
+
+            let out_file = if let Some(idx) = out_idx {
+                if idx + 1 < args.len() {
+                    args[idx + 1].clone()
+                } else {
+                    format!("{}.bmsp", folder_name)
+                }
+            } else {
                 format!("{}.bmsp", folder_name)
             };
 
-            match manager.pack_folder(folder, None) {
+            match manager.pack_folder_profile(folder, None, profile) {
                 Ok(bytes) => {
                     if let Err(e) = fs::write(&out_file, bytes) {
                         eprintln!("Failed to write output package file: {e}");
                         std::process::exit(1);
                     }
-                    println!("Successfully packed '{}' into '{}'", folder, out_file);
+                    let profile_tag = match profile {
+                        bms_package_manager::PackProfile::Classic => "Classic",
+                        bms_package_manager::PackProfile::Turbo => "Turbo (Dual Atlas)",
+                    };
+                    println!("Successfully packed '{}' into '{}' [{}]", folder, out_file, profile_tag);
                 }
                 Err(e) => {
                     eprintln!("Packaging failed: {e}");

@@ -45,13 +45,13 @@
 ---
 
 ## 📋 Phase 3: Manifest v2 확장 및 결정론적 패커 통합 (`crates/bms-package/`, `crates/bms-package-manager/`)
-- [ ] **`manifest.json` v2.0 스키마 확장 (`crates/bms-package/src/manifest.rs`)**
-  - [ ] 선택적 `sound_atlas` 및 `bga_atlas` 필드 추가
-  - [ ] 기존 v1.0 Manifest와의 100% 하위 호환 파싱 지원
-- [ ] **`bpm pack` CLI 듀얼 프로파일 지원 (`crates/bms-package-manager/src/pack.rs`)**
-  - [ ] `bpm pack --profile turbo` (또는 `--atlas`): 듀얼 아틀라스 고속 패키지 생성
-  - [ ] `bpm pack --profile classic`: 기존 파일 분산형 ZIP 패키지 생성
-  - [ ] 결정론적 바이트 패키징 불변식(`INV-6`) 보장 (엔트리 정렬 및 에포크 타임스탬프)
+- [x] **`manifest.json` v2.0 스키마 확장 (`crates/bms-package/src/manifest.rs`)**
+  - [x] 선택적 `sound_atlas` 및 `bga_atlas` 필드 추가
+  - [x] 기존 v1.0 Manifest와의 100% 하위 호환 파싱 지원
+- [x] **`bpm pack` CLI 듀얼 프로파일 지원 (`crates/bms-package-manager/src/pack.rs`)**
+  - [x] `bpm pack --profile turbo` (또는 `--atlas`): 듀얼 아틀라스 고속 패키지 생성
+  - [x] `bpm pack --profile classic`: 기존 파일 분산형 ZIP 패키지 생성
+  - [x] 결정론적 바이트 패키징 불변식(`INV-6`) 보장 (엔트리 정렬 및 에포크 타임스탬프)
 
 ---
 

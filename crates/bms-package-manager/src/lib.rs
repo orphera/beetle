@@ -11,7 +11,7 @@ pub mod updater;
 
 pub use error::PackageManagerError;
 pub use manager::{InstalledPackage, PackageManager};
-pub use pack::{analyze_bms_folder, pack_bms_folder};
+pub use pack::{analyze_bms_folder, pack_bms_folder, pack_bms_folder_profile, PackProfile};
 pub use registry::{PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
 pub use updater::PackageUpdater;
