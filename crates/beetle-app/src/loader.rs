@@ -150,6 +150,98 @@ fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, Video
     videos
 }
 
+fn load_videos_from_package_archive(
+    pkg: &mut bms_package::PackageReader,
+    base_dir: &str,
+    chart: &BmsChart,
+    video_sources: &mut HashMap<BmpId, VideoSource>,
+) {
+    for (&bmp_id, filename) in &chart.header.bmp_table {
+        if is_video_path(filename) {
+            if let Some(target_path) = pkg.find_entry_path(base_dir, filename) {
+                if let Ok(bytes) = pkg.read_entry(&target_path) {
+                    video_sources.insert(
+                        bmp_id,
+                        VideoSource::Memory {
+                            bytes: Arc::from(bytes.into_boxed_slice()),
+                            filename_hint: Some(filename.clone()),
+                        },
+                    );
+                }
+            }
+        } else {
+            let stem = match filename.rfind('.') {
+                Some(pos) => &filename[..pos],
+                None => filename.as_str(),
+            };
+            for ext in beetle_render::VIDEO_EXTENSIONS {
+                let candidate = format!("{}.{}", stem, ext);
+                if let Some(target_path) = pkg.find_entry_path(base_dir, &candidate) {
+                    if let Ok(bytes) = pkg.read_entry(&target_path) {
+                        video_sources.insert(
+                            bmp_id,
+                            VideoSource::Memory {
+                                bytes: Arc::from(bytes.into_boxed_slice()),
+                                filename_hint: Some(candidate),
+                            },
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback video inside package
+    if video_sources.is_empty() {
+        let mut fallback_entry = None;
+        for filename in &[&chart.header.stage_file, &chart.header.banner] {
+            if !filename.is_empty() && is_video_path(filename) {
+                if let Some(target_path) = pkg.find_entry_path(base_dir, filename) {
+                    fallback_entry = Some((target_path, filename.to_string()));
+                    break;
+                }
+            }
+        }
+        if fallback_entry.is_none() {
+            for name in &[
+                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
+                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
+                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
+                "bga.avi", "movie.avi", "video.avi", "bg.avi",
+                "bga.webm", "movie.webm", "video.webm", "bg.webm",
+                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
+            ] {
+                if let Some(target_path) = pkg.find_entry_path(base_dir, name) {
+                    fallback_entry = Some((target_path, name.to_string()));
+                    break;
+                }
+            }
+        }
+        if let Some((target_path, name)) = fallback_entry {
+            if let Ok(bytes) = pkg.read_entry(&target_path) {
+                let source = VideoSource::Memory {
+                    bytes: Arc::from(bytes.into_boxed_slice()),
+                    filename_hint: Some(name),
+                };
+                let base_ids: Vec<BmpId> = chart
+                    .bga_events
+                    .iter()
+                    .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
+                    .map(|ev| ev.bmp_id)
+                    .collect();
+                if base_ids.is_empty() {
+                    video_sources.insert(BmpId(1), source);
+                } else {
+                    for id in base_ids {
+                        video_sources.entry(id).or_insert_with(|| source.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     if song.file_path == ":demo:" {
@@ -409,41 +501,9 @@ pub fn load_chart_and_audio(
                         }
                     }
 
-                    for (&bmp_id, filename) in &chart.header.bmp_table {
-                        if is_video_path(filename) {
-                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                                if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                    video_sources.insert(
-                                        bmp_id,
-                                        VideoSource::Memory {
-                                            bytes: Arc::from(bytes.into_boxed_slice()),
-                                            filename_hint: Some(filename.clone()),
-                                        },
-                                    );
-                                }
-                            }
-                        } else {
-                            let stem = match filename.rfind('.') {
-                                Some(pos) => &filename[..pos],
-                                None => filename.as_str(),
-                            };
-                            for ext in beetle_render::VIDEO_EXTENSIONS {
-                                let candidate = format!("{}.{}", stem, ext);
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, &candidate) {
-                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                        video_sources.insert(
-                                            bmp_id,
-                                            VideoSource::Memory {
-                                                bytes: Arc::from(bytes.into_boxed_slice()),
-                                                filename_hint: Some(candidate),
-                                            },
-                                        );
-                                        break;
-                                    }
-                                }
-                            }
-                            // Only load still images file-by-file if not loaded from BGA atlas
-                            if !loaded_bga_from_atlas {
+                    if !loaded_bga_from_atlas {
+                        for (&bmp_id, filename) in &chart.header.bmp_table {
+                            if !is_video_path(filename) {
                                 if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
                                     if let Ok(bytes) = pkg.read_entry(&target_path) {
                                         if let Some(img) = ImageBuffer::from_bytes(&bytes) {
@@ -455,49 +515,37 @@ pub fn load_chart_and_audio(
                         }
                     }
 
-                    // Fallback video inside .bmsp
+                    // 1. Search videos inside primary .bmsp package
+                    load_videos_from_package_archive(&mut pkg, &base_dir, &chart, &mut video_sources);
+
+                    // 2. Search companion BGA package if no video was found in primary package
                     if video_sources.is_empty() {
-                        let mut fallback_entry = None;
-                        for filename in &[&chart.header.stage_file, &chart.header.banner] {
-                            if !filename.is_empty() && is_video_path(filename) {
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                                    fallback_entry = Some((target_path, filename.to_string()));
-                                    break;
-                                }
+                        let pkg_file_path = Path::new(pkg_path);
+                        let parent_dir = pkg_file_path.parent().unwrap_or_else(|| Path::new("."));
+                        let pkg_stem = pkg_file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+                        let mut companion_candidates = Vec::new();
+
+                        if let Some(ref companions) = pkg.manifest().companion_packages {
+                            if let Some(ref bga_info) = companions.bga {
+                                companion_candidates.push(parent_dir.join(&bga_info.recommended_filename));
                             }
                         }
-                        if fallback_entry.is_none() {
-                            for name in &[
-                                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
-                                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
-                                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
-                                "bga.avi", "movie.avi", "video.avi", "bg.avi",
-                                "bga.webm", "movie.webm", "video.webm", "bg.webm",
-                                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
-                            ] {
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, name) {
-                                    fallback_entry = Some((target_path, name.to_string()));
-                                    break;
-                                }
-                            }
+
+                        if !pkg_stem.is_empty() {
+                            companion_candidates.push(parent_dir.join(format!("{}.bga.bmsp", pkg_stem)));
                         }
-                        if let Some((target_path, name)) = fallback_entry {
-                            if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                let source = VideoSource::Memory {
-                                    bytes: Arc::from(bytes.into_boxed_slice()),
-                                    filename_hint: Some(name),
-                                };
-                                let base_ids: Vec<BmpId> = chart
-                                    .bga_events
-                                    .iter()
-                                    .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
-                                    .map(|ev| ev.bmp_id)
-                                    .collect();
-                                if base_ids.is_empty() {
-                                    video_sources.insert(BmpId(1), source);
-                                } else {
-                                    for id in base_ids {
-                                        video_sources.entry(id).or_insert_with(|| source.clone());
+
+                        companion_candidates.push(parent_dir.join(format!("{}.bga.bmsp", pkg.manifest().id)));
+                        companion_candidates.push(parent_dir.join(&pkg.manifest().id).join("bga").join(format!("{}.bga.bmsp", pkg.manifest().id)));
+
+                        for cand in companion_candidates {
+                            if cand.is_file() {
+                                if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
+                                    load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
+                                    if !video_sources.is_empty() {
+                                        println!("[Loader] Successfully loaded BGA companion package: '{}'", cand.display());
+                                        break;
                                     }
                                 }
                             }
@@ -530,7 +578,28 @@ pub fn load_chart_and_audio(
                 }
             }
 
-            let video_sources = find_video_files_in_dir(parent_dir, &chart);
+            let mut video_sources = find_video_files_in_dir(parent_dir, &chart);
+
+            // If folder has no videos, check for adjacent companion package
+            if video_sources.is_empty() {
+                let dir_name = parent_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let candidates = [
+                    parent_dir.join(format!("{}.bga.bmsp", dir_name)),
+                    parent_dir.join("bga.bmsp"),
+                ];
+                for cand in candidates {
+                    if cand.is_file() {
+                        if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
+                            load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
+                            if !video_sources.is_empty() {
+                                println!("[Loader] Successfully loaded BGA companion package for folder: '{}'", cand.display());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             for vs in video_sources.values() {
                 if let VideoSource::File(p) = vs {
                     println!("Detected BGA Video: '{}'", p.display());
@@ -882,6 +951,92 @@ mod tests {
         assert!(turbo_load_time < classic_load_time, "Turbo loading should be faster than Classic loading");
 
         // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_decoupled_bga_companion() {
+        use bms_package_manager::{pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions};
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "beetle_bga_companion_load_{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let src_dir = temp_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        let bms_content = r#"
+#TITLE Companion Test Song
+#ARTIST Beetle Dev
+#WAV01 01.wav
+#BMP01 movie.mp4
+#00111:01
+#00104:01
+"#;
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut cur = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+            w.write_sample(1000i16).unwrap();
+            w.finalize().unwrap();
+        }
+        let valid_wav = cur.into_inner();
+
+        fs::write(src_dir.join("main.bms"), bms_content).unwrap();
+        fs::write(src_dir.join("01.wav"), &valid_wav).unwrap();
+        let video_data = vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE];
+        fs::write(src_dir.join("movie.mp4"), &video_data).unwrap();
+
+        // 1. Pack with Split BGA mode (Turbo)
+        let split_opts = PackOptions::turbo(BgaPackMode::Split);
+        let out = pack_bms_folder_advanced_with_progress(&src_dir, None, split_opts, None, |_, _, _, _| {})
+            .expect("pack failed");
+
+        let target_dir = temp_dir.join("installed");
+        fs::create_dir_all(&target_dir).unwrap();
+        let base_bmsp = target_dir.join("test_song.bmsp");
+        let bga_bmsp = target_dir.join("test_song.bga.bmsp");
+        fs::write(&base_bmsp, &out.base_package).unwrap();
+        fs::write(&bga_bmsp, out.bga_package.unwrap()).unwrap();
+
+        let song_meta = SongMetadata {
+            hash: 77777,
+            file_path: format!("{}::main.bms", base_bmsp.to_string_lossy().replace('\\', "/")),
+            title: "Companion Test Song".to_string(),
+            subtitle: "".to_string(),
+            artist: "Beetle Dev".to_string(),
+            genre: "".to_string(),
+            bpm: 150.0,
+            play_level: 5,
+            notes_count: 1,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        // 2. Load with BGA companion present
+        let (chart, _timing, soundbank, _bga_bank, video_sources) = load_chart_and_audio(&song_meta);
+        assert_eq!(chart.header.title, "Companion Test Song");
+        assert_eq!(soundbank.len(), 1);
+        assert_eq!(video_sources.len(), 1, "Should load video from companion package");
+
+        let vs = video_sources.values().next().unwrap();
+        if let VideoSource::Memory { bytes, filename_hint } = vs {
+            assert_eq!(bytes.as_ref(), &video_data);
+            assert_eq!(filename_hint.as_deref(), Some("movie.mp4"));
+        } else {
+            panic!("Expected VideoSource::Memory");
+        }
+
+        // 3. Delete companion package -> Verify Graceful Fallback
+        fs::remove_file(&bga_bmsp).unwrap();
+        let (_chart2, _timing2, soundbank2, _bga_bank2, video_sources2) = load_chart_and_audio(&song_meta);
+        assert_eq!(soundbank2.len(), 1, "Audio still loads perfectly");
+        assert!(video_sources2.is_empty(), "Video is gracefully omitted when companion is missing");
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 }

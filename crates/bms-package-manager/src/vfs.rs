@@ -260,28 +260,74 @@ impl VirtualBmsFs {
         }
 
         if let VfsNode::Directory { ref mut children } = self.root {
-            children.insert(
-                mount_name.to_string(),
-                VfsNode::Directory { children: song_dir },
-            );
+            match children.entry(mount_name.to_string()) {
+                std::collections::hash_map::Entry::Occupied(mut occ) => {
+                    if let VfsNode::Directory { children: ref mut existing } = occ.get_mut() {
+                        existing.extend(song_dir);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(vac) => {
+                    vac.insert(VfsNode::Directory { children: song_dir });
+                }
+            }
         }
 
         Ok(())
     }
 
-    /// Mounts all packages in a directory (e.g. `packages/`).
+    /// Mounts all packages in a directory (e.g. `packages/`), pairing base packages and BGA companions.
     pub fn mount_directory<P: AsRef<Path>>(&mut self, dir_path: P) -> Result<usize, PackageManagerError> {
         let mut count = 0;
         let dir = dir_path.as_ref();
         if dir.exists() {
+            let mut base_packages = Vec::new();
+            let mut companion_packages = Vec::new();
+
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let p = entry.path();
                 if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("bmsp") {
-                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("song");
-                    if self.mount_package(stem, &p).is_ok() {
-                        count += 1;
+                    let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if file_name.ends_with(".bga.bmsp") {
+                        companion_packages.push(p);
+                    } else {
+                        base_packages.push(p);
                     }
+                }
+            }
+
+            // 1. Mount base packages first
+            for p in base_packages {
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("song");
+                if self.mount_package(stem, &p).is_ok() {
+                    count += 1;
+                }
+            }
+
+            // 2. Mount and overlay companion packages onto their target directories
+            for p in companion_packages {
+                let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let mut target_mount = file_name.strip_suffix(".bga.bmsp").unwrap_or("").to_string();
+
+                // If possible, read companion manifest to obtain target_package_id
+                if let Ok(pkg) = PackageReader::open_file(&p) {
+                    if let Some(ref target_id) = pkg.manifest().target_package_id {
+                        if !target_id.is_empty() {
+                            if let VfsNode::Directory { ref children } = self.root {
+                                if children.contains_key(target_id) {
+                                    target_mount = target_id.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if target_mount.is_empty() {
+                    target_mount = p.file_stem().and_then(|s| s.to_str()).unwrap_or("bga").to_string();
+                }
+
+                if self.mount_package(&target_mount, &p).is_ok() {
+                    count += 1;
                 }
             }
         }
@@ -299,10 +345,18 @@ impl VirtualBmsFs {
 
     fn navigate(&self, parts: &[String]) -> Option<&VfsNode> {
         let mut curr = &self.root;
-        for part in parts {
+        let mut i = 0;
+        while i < parts.len() {
             match curr {
                 VfsNode::Directory { children } => {
-                    curr = children.get(part)?;
+                    // Check if the remaining path joined with '/' matches a direct entry
+                    let remainder = parts[i..].join("/");
+                    if let Some(node) = children.get(&remainder) {
+                        return Some(node);
+                    }
+                    // Otherwise navigate to next segment
+                    curr = children.get(&parts[i])?;
+                    i += 1;
                 }
                 VfsNode::File(_) => return None,
             }
@@ -730,5 +784,53 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_dir_all(&temp_src);
+    }
+
+    #[test]
+    fn test_vfs_bga_companion_pairing_and_overlay() {
+        use bms_package::{Manifest, PackageBuilder};
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_vfs_companion_{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Create base package (song.bmsp)
+        let base_manifest = Manifest::new("com.example.paired", "Paired Song");
+        let mut base_builder = PackageBuilder::new(base_manifest);
+        base_builder.add_file("main.bms", b"#TITLE Paired Song\n#BMP01 movie.mp4".to_vec()).unwrap();
+        base_builder.add_file("audio/01.wav", vec![1, 2, 3, 4]).unwrap();
+        let base_bytes = base_builder.build_to_bytes().unwrap();
+        fs::write(temp_dir.join("paired_song.bmsp"), base_bytes).unwrap();
+
+        // 2. Create companion package (song.bga.bmsp)
+        let bga_manifest = Manifest::new_bga_companion(
+            "com.example.paired_bga",
+            "Paired Song (BGA)",
+            "com.example.paired",
+        );
+        let mut bga_builder = PackageBuilder::new(bga_manifest);
+        bga_builder.add_file("visual/movie.mp4", vec![0x99, 0x88, 0x77, 0x66]).unwrap();
+        let bga_bytes = bga_builder.build_to_bytes().unwrap();
+        fs::write(temp_dir.join("paired_song.bga.bmsp"), bga_bytes).unwrap();
+
+        // 3. Mount directory with VirtualBmsFs
+        let mut vfs = VirtualBmsFs::new();
+        let count = vfs.mount_directory(&temp_dir).expect("mount directory failed");
+        assert_eq!(count, 2);
+
+        // 4. Verify that paired_song contains both base files and BGA companion files
+        let entries = vfs.list_dir("/paired_song").expect("list paired_song");
+        let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+        assert!(names.contains(&"main.bms".to_string()));
+        assert!(names.contains(&"audio/01.wav".to_string()));
+        assert!(names.contains(&"visual/movie.mp4".to_string()));
+
+        // 5. Read BGA companion file from the unified mount
+        let video_data = vfs.read_file("/paired_song/visual/movie.mp4").expect("read movie.mp4");
+        assert_eq!(video_data, vec![0x99, 0x88, 0x77, 0x66]);
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
