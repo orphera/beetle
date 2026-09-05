@@ -253,7 +253,6 @@ pub fn load_sample_bank_from_sound_atlas_for_chart(
     // Build filename, stem, and key lookups for slice matching
     let mut slices_by_key: HashMap<&str, &SoundSlice> = HashMap::new();
     let mut slices_by_filename: HashMap<String, &SoundSlice> = HashMap::new();
-    let mut slices_by_stem: HashMap<String, &SoundSlice> = HashMap::new();
 
     for (key, slice) in &meta.slices {
         slices_by_key.insert(key.as_str(), slice);
@@ -264,15 +263,8 @@ pub fn load_sample_bank_from_sound_atlas_for_chart(
                 .and_then(|n| n.to_str())
                 .unwrap_or(&norm)
                 .to_string();
-            let stem = std::path::Path::new(&file_only)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(&file_only)
-                .to_string();
-
             slices_by_filename.entry(norm.clone()).or_insert(slice);
             slices_by_filename.entry(file_only.clone()).or_insert(slice);
-            slices_by_stem.entry(stem.clone()).or_insert(slice);
 
             if norm.ends_with(".wav") {
                 let base = &norm[..norm.len() - 4];
@@ -302,21 +294,14 @@ pub fn load_sample_bank_from_sound_atlas_for_chart(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&norm);
-        let stem = std::path::Path::new(file_only)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(file_only);
-
         if let Some(s) = slices_by_filename.get(&norm).copied() {
             return Some(s);
         }
         if let Some(s) = slices_by_filename.get(file_only).copied() {
             return Some(s);
         }
-        if let Some(s) = slices_by_stem.get(stem).copied() {
-            return Some(s);
-        }
-
+        // New atlases are keyed by normalized file path and must resolve via
+        // the chart's filename. Keep the ID lookup only for legacy atlases.
         let base36_key = encode_base36(wav_id);
         if let Some(s) = slices_by_key.get(base36_key.as_str()).copied() {
             return Some(s);

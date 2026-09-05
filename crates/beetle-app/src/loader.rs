@@ -79,19 +79,6 @@ fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option
     ImageBuffer::load_from_file(&resolved)
 }
 
-fn parse_bmp_id(key: &str) -> Option<BmpId> {
-    let bytes = key.as_bytes();
-    if bytes.len() == 2 {
-        if let Some(id) = beetle_core::decode_base36(bytes[0], bytes[1]) {
-            return Some(BmpId(id.0));
-        }
-    }
-    if let Ok(v) = u16::from_str_radix(key, 16) {
-        return Some(BmpId(v));
-    }
-    key.parse::<u16>().ok().map(BmpId)
-}
-
 fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, VideoSource> {
     let mut videos = HashMap::new();
 
@@ -348,15 +335,15 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                                                     .file_name()
                                                     .and_then(|n| n.to_str())
                                                     .unwrap_or(&norm);
-                                                if let Some(f) =
+                                                let f = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
                                                     bga_meta.frames.values().find(|f| {
-                                                        f.original_filename
-                                                            .as_deref()
-                                                            .map(|s| {
-                                                                s.eq_ignore_ascii_case(file_name)
-                                                            })
-                                                            .unwrap_or(false)
+                                                        f.original_filename.as_deref().map(|s| {
+                                                            s.eq_ignore_ascii_case(&norm)
+                                                                || s.eq_ignore_ascii_case(file_name)
+                                                        }).unwrap_or(false)
                                                     })
+                                                });
+                                                if let Some(f) = f
                                                 {
                                                     stage_frame = Some(f);
                                                     break;
@@ -557,20 +544,7 @@ pub fn load_chart_and_audio(
                         if let Some(path) = atlas_path {
                             if let Ok(atlas_bytes) = pkg.read_entry(&path) {
                                 if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
-                                    // A. Map hex/decimal key frames directly to BmpId
-                                    for (key, frame) in &bga_meta.frames {
-                                        if let Some(bmp_id) = parse_bmp_id(key) {
-                                            if let Some(sub_img) = atlas_img.crop(
-                                                frame.x,
-                                                frame.y,
-                                                frame.width,
-                                                frame.height,
-                                            ) {
-                                                bga_bank.insert(bmp_id, sub_img);
-                                            }
-                                        }
-                                    }
-                                    // B. Map any chart bmp_table entry by original_file name if not yet mapped
+                                    // Map chart BmpId -> chart filename -> atlas frame.
                                     for (&bmp_id, filename) in &chart.header.bmp_table {
                                         if !bga_bank.contains_key(&bmp_id) {
                                             let norm = filename.replace('\\', "/");
@@ -578,13 +552,15 @@ pub fn load_chart_and_audio(
                                                 .file_name()
                                                 .and_then(|n| n.to_str())
                                                 .unwrap_or(&norm);
-                                            if let Some(frame) =
+                                            let frame = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
                                                 bga_meta.frames.values().find(|f| {
-                                                    f.original_filename
-                                                        .as_deref()
-                                                        .map(|s| s.eq_ignore_ascii_case(file_name))
-                                                        .unwrap_or(false)
+                                                    f.original_filename.as_deref().map(|s| {
+                                                        s.eq_ignore_ascii_case(&norm)
+                                                            || s.eq_ignore_ascii_case(file_name)
+                                                    }).unwrap_or(false)
                                                 })
+                                            });
+                                            if let Some(frame) = frame
                                             {
                                                 if let Some(sub_img) = atlas_img.crop(
                                                     frame.x,
