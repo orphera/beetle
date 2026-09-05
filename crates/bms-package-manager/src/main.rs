@@ -12,7 +12,9 @@ fn print_usage() {
     println!("  bpm pack <folder> [-o <out>] [--turbo] Pack a BMS folder into a .bmsp archive (Classic or Turbo Dual Atlas)");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!("  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff");
-    println!("  bpm update <delta.bmdp>                Atomically apply a delta package to installed library");
+    println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
+    println!("  bpm mount [--port <port>] [--drive <Z:>] Mount packages onto on-the-fly virtual VFS drive");
+    println!("  bpm unmount [--drive <Z:>]             Unmount virtual VFS network drive");
     println!("  bpm list                               List all active installed packages");
     println!("  bpm info <package_id>                  Show package metadata and installed states");
     println!("  bpm states <package_id>                List all installed states of a package");
@@ -355,6 +357,135 @@ fn main() -> Result<(), PackageManagerError> {
                     eprintln!("Failed to uninstall package: {e}");
                     std::process::exit(1);
                 }
+            }
+        }
+        "export" => {
+            if args.len() < 3 {
+                eprintln!("Error: Missing package path or ID.");
+                eprintln!("Usage: bpm export <package_path_or_id> [-o <output_dir>]");
+                std::process::exit(1);
+            }
+            let target = &args[2];
+            let out_dir = if let Some(o_idx) = args.iter().position(|a| a == "-o" || a == "--output" || a == "--to") {
+                if o_idx + 1 < args.len() {
+                    args[o_idx + 1].clone()
+                } else {
+                    format!("{}_exported", target.trim_end_matches(".bmsp"))
+                }
+            } else {
+                format!("{}_exported", target.trim_end_matches(".bmsp"))
+            };
+
+            println!("Exporting '{}' to '{}'...", target, out_dir);
+            match manager.export_package(target, &out_dir) {
+                Ok(stats) => {
+                    println!(
+                        "Export completed successfully! Total: {} files ({} charts, {} WAVs, {} BGAs, {} videos, {} others)",
+                        stats.total_files, stats.bms_files, stats.wav_files, stats.bga_files, stats.video_files, stats.other_files
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Export failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "mount" => {
+            let mut port = 8989u16;
+            let mut drive_letter: Option<String> = None;
+            let mut target_path: Option<String> = None;
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--port" | "-p" => {
+                        if i + 1 < args.len() {
+                            port = args[i + 1].parse().unwrap_or(8989);
+                            i += 2;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    "--drive" | "-d" => {
+                        if i + 1 < args.len() {
+                            drive_letter = Some(args[i + 1].trim_end_matches(':').to_string());
+                            i += 2;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    other if !other.starts_with('-') => {
+                        target_path = Some(other.to_string());
+                        i += 1;
+                    }
+                    _ => {
+                        i += 1;
+                    }
+                }
+            }
+
+            let mut vfs = bms_package_manager::VirtualBmsFs::new();
+            if let Some(target) = target_path {
+                let p = std::path::Path::new(&target);
+                if p.is_file() {
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("song");
+                    vfs.mount_package(stem, p)?;
+                    println!("Mounted single package '{}' as '/{}'", p.display(), stem);
+                } else if p.is_dir() {
+                    let count = vfs.mount_directory(p)?;
+                    println!("Mounted {} packages from directory '{}'", count, p.display());
+                }
+            } else {
+                vfs = manager.create_vfs()?;
+                println!("Mounted all active library packages from '{}'", storage_dir.display());
+            }
+
+            let vfs_arc = std::sync::Arc::new(vfs);
+            let server = bms_package_manager::WebDavServer::start(vfs_arc, port)
+                .map_err(|e| PackageManagerError::StorageError(format!("Failed to start WebDAV server: {e}")))?;
+
+            let actual_port = server.port();
+            println!("WebDAV VFS server listening on http://127.0.0.1:{}/", actual_port);
+
+            if let Some(drive) = drive_letter {
+                #[cfg(target_os = "windows")]
+                {
+                    println!("Mounting virtual network drive {}: -> http://127.0.0.1:{}/...", drive, actual_port);
+                    let cmd = format!("net use {}: http://127.0.0.1:{}/ /persistent:no", drive, actual_port);
+                    let _ = std::process::Command::new("cmd").args(["/C", &cmd]).status();
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    println!("Network drive mounting via drive letter is only supported on Windows.");
+                }
+            }
+
+            println!("VFS active! Legacy players (LR2, beatoraja) can read virtual WAV/BMP files.");
+            println!("Press Ctrl+C to terminate VFS daemon.");
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+        "unmount" => {
+            let drive = args.iter().position(|a| a == "--drive" || a == "-d")
+                .and_then(|idx| args.get(idx + 1))
+                .map(|d| d.trim_end_matches(':'))
+                .unwrap_or("Z");
+
+            #[cfg(target_os = "windows")]
+            {
+                println!("Unmounting virtual drive {}:...", drive);
+                let cmd = format!("net use {}: /delete /y", drive);
+                let status = std::process::Command::new("cmd").args(["/C", &cmd]).status();
+                match status {
+                    Ok(s) if s.success() => println!("Successfully unmounted {}:", drive),
+                    _ => println!("Drive {}: unmounted (or was not mounted).", drive),
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                println!("Unmount command is only needed on Windows.");
             }
         }
         other => {

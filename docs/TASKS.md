@@ -68,12 +68,12 @@
 ---
 
 ## 📋 Phase 5: 레거시 하위 호환 역변환 및 VFS 스트리밍 (`crates/bms-package-manager/`)
-- [ ] **초고속 역변환 익스포터 (`bpm export`)**
-  - [ ] 아틀라스 패키지에서 슬라이스를 분할 추출하여 전통 BMS 폴더(WAV/BMP 수백 개)로 1초 만에 복원
-  - [ ] `manifest.json`에 보존된 `original_filename` 기반 100% 무결점 복원
-- [ ] **VFS 온더플라이 가상 WAV 생성기 (`bpm mount`)**
-  - [ ] LR2, beatoraja가 가상 드라이브(`Z:\`)를 조회할 때 아틀라스 슬라이스를 기반으로 개별 파일 목록 노출
-  - [ ] 파일 읽기 요청 시 44바이트 RIFF WAV 헤더를 동적 합성하여 실시간 스트리밍 서빙
+- [x] **초고속 역변환 익스포터 (`bpm export`)**
+  - [x] 아틀라스 패키지에서 슬라이스를 분할 추출하여 전통 BMS 폴더(WAV/BMP 수백 개)로 1초 만에 복원
+  - [x] `manifest.json`에 보존된 `original_filename` 기반 100% 무결점 복원
+- [x] **VFS 온더플라이 가상 WAV 생성기 (`bpm mount`)**
+  - [x] LR2, beatoraja가 가상 드라이브(`Z:\`)를 조회할 때 아틀라스 슬라이스를 기반으로 개별 파일 목록 노출
+  - [x] 파일 읽기 요청 시 44바이트 RIFF WAV 헤더를 동적 합성하여 실시간 스트리밍 서빙
 
 ---
 

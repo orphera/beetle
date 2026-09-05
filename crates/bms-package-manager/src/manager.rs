@@ -264,6 +264,46 @@ impl PackageManager {
         crate::updater::PackageUpdater::apply_delta_bytes(self, delta_bytes)
     }
 
+    /// Exports an installed package or a package file into a traditional BMS folder.
+    pub fn export_package<P: AsRef<Path>>(
+        &self,
+        package_id_or_path: &str,
+        destination_dir: P,
+    ) -> Result<crate::export::ExportStats, PackageManagerError> {
+        let pkg_path = if Path::new(package_id_or_path).exists() {
+            PathBuf::from(package_id_or_path)
+        } else {
+            let record = self
+                .registry
+                .packages
+                .get(package_id_or_path)
+                .ok_or_else(|| PackageManagerError::PackageNotFound(package_id_or_path.to_string()))?;
+            let bmsp_file = self.storage.state_dir(&record.id, &record.active_state).join("package.bmsp");
+            if !bmsp_file.exists() {
+                return Err(PackageManagerError::PackageNotFound(format!(
+                    "{}: package file not found at {}",
+                    package_id_or_path,
+                    bmsp_file.display()
+                )));
+            }
+            bmsp_file
+        };
+
+        crate::export::export_package_to_folder(pkg_path, destination_dir)
+    }
+
+    /// Creates a Virtual BMS File System (VFS) mounting all active packages in storage.
+    pub fn create_vfs(&self) -> Result<crate::vfs::VirtualBmsFs, PackageManagerError> {
+        let mut vfs = crate::vfs::VirtualBmsFs::new();
+        for record in self.registry.packages.values() {
+            let pkg_path = self.storage.state_dir(&record.id, &record.active_state).join("package.bmsp");
+            if pkg_path.exists() {
+                let _ = vfs.mount_package(&record.id, &pkg_path);
+            }
+        }
+        Ok(vfs)
+    }
+
     /// Uninstalls a specific package state.
     pub fn uninstall(&mut self, id: &str, state_hash: &str) -> Result<(), PackageManagerError> {
         // 1. Remove from storage

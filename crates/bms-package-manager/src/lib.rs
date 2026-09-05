@@ -3,18 +3,22 @@
 //! Package lifecycle, installation, registry management, and discovery layer for `.bmsp` packages.
 
 pub mod error;
+pub mod export;
 pub mod manager;
 pub mod pack;
 pub mod registry;
 pub mod storage;
 pub mod updater;
+pub mod vfs;
 
 pub use error::PackageManagerError;
+pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use manager::{InstalledPackage, PackageManager};
 pub use pack::{analyze_bms_folder, pack_bms_folder, pack_bms_folder_profile, PackProfile};
 pub use registry::{PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
 pub use updater::PackageUpdater;
+pub use vfs::{VfsEntry, VirtualBmsFs, VirtualFile, WebDavServer};
 
 #[cfg(test)]
 mod tests {
