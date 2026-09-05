@@ -46,7 +46,7 @@ impl VirtualFile {
                 let pcm_len = match codec {
                     SoundAtlasCodec::Pcm16 => (*frame_count as usize) * 4,
                     SoundAtlasCodec::PcmF32 => (*frame_count as usize) * 4, // converted to 16-bit
-                    SoundAtlasCodec::OggBundle => *frame_count as usize,
+                    SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => *frame_count as usize,
                 };
                 44 + pcm_len
             }
@@ -140,7 +140,8 @@ impl VirtualBmsFs {
             if let Some(ref sound_meta) = manifest.sound_atlas {
                 if let Ok(atlas_bytes) = pkg.read_entry(&sound_meta.file) {
                     let atlas_arc: Arc<[u8]> = Arc::from(atlas_bytes.into_boxed_slice());
-                    if sound_meta.codec == SoundAtlasCodec::OggBundle {
+                    if sound_meta.codec.is_bundle() {
+                        let default_ext = if sound_meta.codec == SoundAtlasCodec::OggBundle { ".ogg" } else { ".wav" };
                         for (key, slice) in &sound_meta.slices {
                             let filename = slice
                                 .original_filename
@@ -150,7 +151,7 @@ impl VirtualBmsFs {
                             let filename = if !filename.to_lowercase().ends_with(".wav")
                                 && !filename.to_lowercase().ends_with(".ogg")
                             {
-                                format!("{}.ogg", filename)
+                                format!("{}{}", filename, default_ext)
                             } else {
                                 filename.to_string()
                             };
@@ -704,7 +705,7 @@ mod tests {
 
         // Verify with hound decoder
         let wav_reader = hound::WavReader::new(std::io::Cursor::new(wav_data)).unwrap();
-        assert_eq!(wav_reader.spec().channels, 2);
+        assert_eq!(wav_reader.spec().channels, 1);
         assert_eq!(wav_reader.spec().sample_rate, 44100);
 
         // 6. Read on-the-fly synthesized BMP file

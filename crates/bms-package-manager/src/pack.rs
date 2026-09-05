@@ -364,13 +364,15 @@ where
         rel.to_ascii_lowercase().ends_with(".wav")
     }).count();
 
-    let is_ogg_bundle = ogg_count > 0 && ogg_count >= wav_count;
-    let sound_codec = if is_ogg_bundle {
+    let sound_codec = if ogg_count > 0 && ogg_count >= wav_count {
         SoundAtlasCodec::OggBundle
+    } else if wav_count > 0 {
+        SoundAtlasCodec::WavBundle
     } else {
         SoundAtlasCodec::Pcm16
     };
 
+    let is_bundle = sound_codec.is_bundle();
     let mut sound_builder = SoundAtlasBuilder::new(sound_codec).with_padding_frames(128);
     let mut bga_builder = BgaAtlasBuilder::new(1);
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
@@ -427,7 +429,7 @@ where
                 }
             });
 
-            if is_ogg_bundle {
+            if is_bundle {
                 sound_builder.add_raw(key, data, Some(file_name.to_string()));
                 continue;
             } else if let Ok(pcm) = SampleBank::load_audio_from_bytes(&data) {
@@ -853,6 +855,50 @@ mod tests {
         let slice2 = sound_meta.slices.get("02").unwrap();
         assert_eq!(slice1.byte_len(), ogg1_bytes.len() as u64);
         assert_eq!(slice2.byte_len(), ogg2_bytes.len() as u64);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_bms_folder_turbo_wav_bundle() {
+        use bms_package::Package;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_wav_bundle_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let song_dir = temp_dir.join("WavSong");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        let bms_content = r#"
+#TITLE Wav Bundle Song
+#ARTIST WavMaster
+#WAV01 01.wav
+#WAV02 02.wav
+#00111:0102
+"#;
+        fs::write(song_dir.join("play.bms"), bms_content).unwrap();
+        let wav1_bytes = b"RIFF_test_payload_sample_01_wav_stream_data_here";
+        let wav2_bytes = b"RIFF_test_payload_sample_02_wav_stream_data_here_longer";
+        fs::write(song_dir.join("01.wav"), wav1_bytes).unwrap();
+        fs::write(song_dir.join("02.wav"), wav2_bytes).unwrap();
+
+        let pkg_bytes = pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
+        let pkg = Package::from_bytes(pkg_bytes).expect("package open failed");
+        let manifest = pkg.manifest();
+
+        assert_eq!(manifest.name, "Wav Bundle Song");
+        let sound_meta = manifest.sound_atlas.as_ref().expect("sound atlas missing");
+        assert_eq!(sound_meta.codec, bms_package::SoundAtlasCodec::WavBundle);
+        assert_eq!(sound_meta.slices.len(), 2);
+
+        let slice1 = sound_meta.slices.get("01").unwrap();
+        let slice2 = sound_meta.slices.get("02").unwrap();
+        assert_eq!(slice1.byte_len(), wav1_bytes.len() as u64);
+        assert_eq!(slice2.byte_len(), wav2_bytes.len() as u64);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

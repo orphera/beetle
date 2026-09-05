@@ -11,6 +11,8 @@ pub enum SoundAtlasCodec {
     PcmF32,
     /// Bundled raw Vorbis OGG bitstreams indexed by byte offsets.
     OggBundle,
+    /// Bundled raw WAV audio streams indexed by byte offsets.
+    WavBundle,
 }
 
 impl SoundAtlasCodec {
@@ -19,7 +21,13 @@ impl SoundAtlasCodec {
             Self::Pcm16 => "pcm16",
             Self::PcmF32 => "pcm_f32",
             Self::OggBundle => "ogg_bundle",
+            Self::WavBundle => "wav_bundle",
         }
+    }
+
+    /// Whether this codec represents byte-indexed bundled raw audio files.
+    pub fn is_bundle(&self) -> bool {
+        matches!(self, Self::OggBundle | Self::WavBundle)
     }
 }
 
@@ -114,7 +122,7 @@ impl SoundAtlasMeta {
 
     /// Validates that all slices fit within total_frames and do not overlap illegally.
     pub fn validate(&self) -> Result<(), String> {
-        if self.codec != SoundAtlasCodec::OggBundle && self.channels != 2 {
+        if !self.codec.is_bundle() && self.channels != 2 {
             return Err(format!("SoundAtlas must be stereo (2 channels), got {}", self.channels));
         }
         if self.sample_rate == 0 {
@@ -223,5 +231,39 @@ mod tests {
         assert_eq!(deserialized.codec, SoundAtlasCodec::OggBundle);
         assert_eq!(deserialized.slices.get("01").unwrap().byte_offset(), 0);
         assert_eq!(deserialized.slices.get("01").unwrap().byte_len(), 1024);
+    }
+
+    #[test]
+    fn test_sound_atlas_meta_wav_bundle_roundtrip() {
+        let mut slices = BTreeMap::new();
+        slices.insert(
+            "01".to_string(),
+            SoundSlice::new(0, 5000, Some("kick.wav".to_string())),
+        );
+        slices.insert(
+            "02".to_string(),
+            SoundSlice::new(5000, 7000, Some("synth.wav".to_string())),
+        );
+
+        let meta = SoundAtlasMeta::new(
+            "audio/atlas.bin",
+            SoundAtlasCodec::WavBundle,
+            44100,
+            2,
+            12000,
+            0,
+            slices,
+        );
+
+        assert!(meta.validate().is_ok());
+
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"codec\":\"wav_bundle\""));
+
+        let deserialized: SoundAtlasMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(meta, deserialized);
+        assert_eq!(deserialized.codec, SoundAtlasCodec::WavBundle);
+        assert_eq!(deserialized.slices.get("02").unwrap().byte_offset(), 5000);
+        assert_eq!(deserialized.slices.get("02").unwrap().byte_len(), 7000);
     }
 }

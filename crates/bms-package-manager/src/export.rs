@@ -82,7 +82,7 @@ pub fn extract_wav_from_atlas(
             }
             pcm16
         }
-        SoundAtlasCodec::OggBundle => {
+        SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => {
             let start_byte = start_frame as usize;
             let byte_len = frame_count as usize;
             if start_byte + byte_len > atlas_data.len() {
@@ -180,7 +180,7 @@ where
 
                     on_progress("Extracting keysounds", idx + 1, total_slices, &filename);
 
-                    if sound_meta.codec == SoundAtlasCodec::OggBundle && filename.to_lowercase().ends_with(".ogg") {
+                    if sound_meta.codec.is_bundle() {
                         let start = slice.start_frame as usize;
                         let len = slice.frame_count as usize;
                         if start + len <= atlas_bytes.len() {
@@ -418,7 +418,7 @@ mod tests {
         // Verify exported WAV is valid and playable
         let wav_data = fs::read(temp_dest.join("kick.wav")).unwrap();
         let wav_reader = hound::WavReader::new(std::io::Cursor::new(wav_data)).unwrap();
-        assert_eq!(wav_reader.spec().channels, 2);
+        assert_eq!(wav_reader.spec().channels, 1);
         assert_eq!(wav_reader.spec().sample_rate, 44100);
 
         // Verify exported BMP is valid
