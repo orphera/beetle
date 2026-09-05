@@ -64,6 +64,13 @@ fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option
     ImageBuffer::load_from_file(&resolved)
 }
 
+fn parse_bmp_id(key: &str) -> Option<BmpId> {
+    if let Ok(v) = u16::from_str_radix(key, 16) {
+        return Some(BmpId(v));
+    }
+    key.parse::<u16>().ok().map(BmpId)
+}
+
 fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, VideoSource> {
     let mut videos = HashMap::new();
 
@@ -159,6 +166,54 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 .parent()
                 .unwrap_or_else(|| Path::new(""))
                 .to_string_lossy();
+
+            // 2a. Check if package has BGA Atlas with stagefile/banner
+            let bga_meta = pkg.manifest().bga_atlas.clone();
+            if let Some(bga_meta) = bga_meta {
+                let atlas_path = if pkg.contains(&bga_meta.file) {
+                    Some(bga_meta.file.clone())
+                } else {
+                    pkg.find_entry_path(&base_dir, &bga_meta.file)
+                };
+
+                if let Some(path) = atlas_path {
+                    if let Ok(atlas_bytes) = pkg.read_entry(&path) {
+                        if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
+                            let mut stage_frame = bga_meta.frames.get("stagefile")
+                                .or_else(|| bga_meta.frames.get("banner"));
+
+                            if stage_frame.is_none() {
+                                if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
+                                    let content = beetle_core::decode_bms_text(&bms_bytes);
+                                    if let Ok(chart) = parse_bms(&content) {
+                                        for name in &[&chart.header.stage_file, &chart.header.banner] {
+                                            if !name.is_empty() {
+                                                let norm = name.replace('\\', "/");
+                                                let file_name = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
+                                                if let Some(f) = bga_meta.frames.values().find(|f| {
+                                                    f.original_filename.as_deref().map(|s| s.eq_ignore_ascii_case(file_name)).unwrap_or(false)
+                                                }) {
+                                                    stage_frame = Some(f);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(frame) = stage_frame {
+                                if let Some(img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                    let _ = fs::create_dir_all(cache_dir);
+                                    let bmp_bytes = img.encode_bmp_bytes();
+                                    let _ = fs::write(&cache_file, &bmp_bytes);
+                                    return Some(img);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
                 let content = beetle_core::decode_bms_text(&bms_bytes);
@@ -267,12 +322,82 @@ pub fn load_chart_and_audio(
                     let mut video_sources = HashMap::new();
                     let mut loaded_count = 0;
 
-                    for (&wav_id, filename) in &chart.header.wav_table {
-                        if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                            if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
-                                    soundbank.insert(wav_id, pcm);
-                                    loaded_count += 1;
+                    // 1. Keysounds: FAST-PATH via Sound Atlas (1-pass zero-allocation decoding)
+                    let mut loaded_sound_from_atlas = false;
+                    let sound_meta = pkg.manifest().sound_atlas.clone();
+                    if let Some(sound_meta) = sound_meta {
+                        let atlas_path = if pkg.contains(&sound_meta.file) {
+                            Some(sound_meta.file.clone())
+                        } else {
+                            pkg.find_entry_path(&base_dir, &sound_meta.file)
+                        };
+
+                        if let Some(path) = atlas_path {
+                            if let Ok(atlas_bytes) = pkg.read_entry(&path) {
+                                match SampleBank::load_from_sound_atlas(&sound_meta, &atlas_bytes) {
+                                    Ok(bank) => {
+                                        loaded_count = bank.len();
+                                        soundbank = bank;
+                                        loaded_sound_from_atlas = true;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[Loader] Sound Atlas decode error: {e}, falling back to individual file scan");
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback for sound: Classic file-by-file loading if Sound Atlas was not present or failed
+                    if !loaded_sound_from_atlas {
+                        for (&wav_id, filename) in &chart.header.wav_table {
+                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                    if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
+                                        soundbank.insert(wav_id, pcm);
+                                        loaded_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. BGA Frames: FAST-PATH via BGA Texture Atlas (1-pass decode and memory crop)
+                    let mut loaded_bga_from_atlas = false;
+                    let bga_meta = pkg.manifest().bga_atlas.clone();
+                    if let Some(bga_meta) = bga_meta {
+                        let atlas_path = if pkg.contains(&bga_meta.file) {
+                            Some(bga_meta.file.clone())
+                        } else {
+                            pkg.find_entry_path(&base_dir, &bga_meta.file)
+                        };
+
+                        if let Some(path) = atlas_path {
+                            if let Ok(atlas_bytes) = pkg.read_entry(&path) {
+                                if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
+                                    // A. Map hex/decimal key frames directly to BmpId
+                                    for (key, frame) in &bga_meta.frames {
+                                        if let Some(bmp_id) = parse_bmp_id(key) {
+                                            if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                                bga_bank.insert(bmp_id, sub_img);
+                                            }
+                                        }
+                                    }
+                                    // B. Map any chart bmp_table entry by original_file name if not yet mapped
+                                    for (&bmp_id, filename) in &chart.header.bmp_table {
+                                        if !bga_bank.contains_key(&bmp_id) {
+                                            let norm = filename.replace('\\', "/");
+                                            let file_name = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
+                                            if let Some(frame) = bga_meta.frames.values().find(|f| {
+                                                f.original_filename.as_deref().map(|s| s.eq_ignore_ascii_case(file_name)).unwrap_or(false)
+                                            }) {
+                                                if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                                    bga_bank.insert(bmp_id, sub_img);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    loaded_bga_from_atlas = true;
                                 }
                             }
                         }
@@ -311,11 +436,13 @@ pub fn load_chart_and_audio(
                                     }
                                 }
                             }
-                            // Always load still image if available as BGA fallback
-                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                                if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                    if let Some(img) = ImageBuffer::from_bytes(&bytes) {
-                                        bga_bank.insert(bmp_id, img);
+                            // Only load still images file-by-file if not loaded from BGA atlas
+                            if !loaded_bga_from_atlas {
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
+                                        if let Some(img) = ImageBuffer::from_bytes(&bytes) {
+                                            bga_bank.insert(bmp_id, img);
+                                        }
                                     }
                                 }
                             }
@@ -372,8 +499,9 @@ pub fn load_chart_and_audio(
                     }
 
                     println!(
-                        "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames, {} BGA videos in-memory from archive)",
-                        chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len()
+                        "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames, {} BGA videos in-memory from archive, fast-atlas: sound={}, bga={})",
+                        chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len(),
+                        loaded_sound_from_atlas, loaded_bga_from_atlas
                     );
                     return (chart, timing, soundbank, bga_bank, video_sources);
                 }
@@ -497,4 +625,117 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_turbo_bmsp_loading() {
+        use beetle_render::skin::ColorRgba;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "beetle_loader_test_{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Create a minimal BMS chart file
+        let bms_content = "#TITLE Turbo Test\n#ARTIST Tester\n#BPM 130\n#STAGEFILE stage.bmp\n#WAV01 kick.wav\n#BMP01 bg.bmp\n#00111:01\n#00104:01\n";
+        fs::write(temp_dir.join("test.bms"), bms_content).unwrap();
+
+        // 2. Create minimal WAV file
+        let wav_bytes = {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut cur = std::io::Cursor::new(Vec::new());
+            {
+                let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+                for &s in &[1000i16, 2000, 3000, -1000, -2000, 0] {
+                    w.write_sample(s).unwrap();
+                }
+                w.finalize().unwrap();
+            }
+            cur.into_inner()
+        };
+        fs::write(temp_dir.join("kick.wav"), wav_bytes).unwrap();
+
+        // 3. Create minimal BMP images
+        let img1 = ImageBuffer::new(32, 32, ColorRgba::new(255, 0, 0, 255));
+        let img2 = ImageBuffer::new(64, 48, ColorRgba::new(0, 255, 0, 255));
+        fs::write(temp_dir.join("bg.bmp"), img1.encode_bmp_bytes()).unwrap();
+        fs::write(temp_dir.join("stage.bmp"), img2.encode_bmp_bytes()).unwrap();
+
+        // 4. Pack folder with Turbo profile
+        let turbo_pkg_bytes = bms_package_manager::pack_bms_folder_profile(
+            &temp_dir,
+            None,
+            bms_package_manager::PackProfile::Turbo,
+        ).expect("turbo pack failed");
+        let pkg_path = temp_dir.join("turbo.bmsp");
+        fs::write(&pkg_path, turbo_pkg_bytes).unwrap();
+
+        // 5. Test Turbo loading via load_chart_and_audio
+        let meta = SongMetadata {
+            hash: 99999,
+            file_path: format!("{}::test.bms", pkg_path.to_string_lossy().replace('\\', "/")),
+            title: "Turbo Test".to_string(),
+            subtitle: "".to_string(),
+            artist: "Tester".to_string(),
+            genre: "".to_string(),
+            bpm: 130.0,
+            play_level: 5,
+            notes_count: 1,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (chart, _timing, soundbank, bga_bank, video_sources) = load_chart_and_audio(&meta);
+        assert_eq!(chart.header.title, "Turbo Test");
+        assert_eq!(soundbank.len(), 1, "Soundbank should load 1 keysound from Sound Atlas");
+        assert!(soundbank.get(beetle_core::WavId(1)).is_some(), "WAV01 should be loaded");
+        assert_eq!(bga_bank.len(), 1, "BGA bank should load 1 frame from BGA Atlas");
+        assert!(bga_bank.get(&beetle_core::BmpId(1)).is_some(), "BMP01 should be loaded");
+        assert!(video_sources.is_empty());
+
+        // 6. Test Stage image loading from Turbo BGA Atlas
+        let stage_img = load_stage_image(&meta);
+        assert!(stage_img.is_some(), "Stage image should load from BGA Atlas");
+        let stage = stage_img.unwrap();
+        assert_eq!(stage.width, 64);
+        assert_eq!(stage.height, 48);
+
+        // 7. Test Classic fallback loading
+        let classic_pkg_bytes = bms_package_manager::pack_bms_folder_profile(
+            &temp_dir,
+            None,
+            bms_package_manager::PackProfile::Classic,
+        ).expect("classic pack failed");
+        let classic_pkg_path = temp_dir.join("classic.bmsp");
+        fs::write(&classic_pkg_path, classic_pkg_bytes).unwrap();
+
+        let classic_meta = SongMetadata {
+            hash: 88888,
+            file_path: format!("{}::test.bms", classic_pkg_path.to_string_lossy().replace('\\', "/")),
+            title: "Turbo Test".to_string(),
+            subtitle: "".to_string(),
+            artist: "Tester".to_string(),
+            genre: "".to_string(),
+            bpm: 130.0,
+            play_level: 5,
+            notes_count: 1,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (c_chart, _c_timing, c_soundbank, c_bga_bank, _c_videos) = load_chart_and_audio(&classic_meta);
+        assert_eq!(c_chart.header.title, "Turbo Test");
+        assert_eq!(c_soundbank.len(), 1, "Soundbank should load 1 keysound from Classic package");
+        assert_eq!(c_bga_bank.len(), 1, "BGA bank should load 1 frame from Classic package");
+
+        let c_stage = load_stage_image(&classic_meta);
+        assert!(c_stage.is_some(), "Stage image should load from Classic package");
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
+

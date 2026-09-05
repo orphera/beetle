@@ -140,6 +140,8 @@ dependencies = [
  "beetle-core",
  "beetle-render",
  "bms-package",
+ "bms-package-manager",
+ "hound",
  "softbuffer",
  "winit",
 ]

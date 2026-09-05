@@ -15,3 +15,7 @@ softbuffer = { workspace = true }
 [features]
 default = ["bga-enhanced"]
 bga-enhanced = ["beetle-render/bga-enhanced"]
+
+[dev-dependencies]
+bms-package-manager = { workspace = true }
+hound = { workspace = true }

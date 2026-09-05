@@ -194,6 +194,28 @@ impl ImageBuffer {
         }
     }
 
+    /// Extracts a sub-rectangle from this image as a new ImageBuffer.
+    /// Returns None if the requested rectangle is out of bounds or has zero width/height.
+    pub fn crop(&self, x: u32, y: u32, w: u32, h: u32) -> Option<Self> {
+        if w == 0 || h == 0 || x.saturating_add(w) > self.width || y.saturating_add(h) > self.height {
+            return None;
+        }
+
+        let mut pixels = Vec::with_capacity((w * h) as usize);
+        for row in 0..h {
+            let src_row = (y + row) * self.width;
+            let start = (src_row + x) as usize;
+            let end = start + w as usize;
+            pixels.extend_from_slice(&self.pixels[start..end]);
+        }
+
+        Some(Self {
+            width: w,
+            height: h,
+            pixels,
+        })
+    }
+
     /// Blits and scales the image into a target area on the tiny-skia Pixmap.
     pub fn draw_scaled(
         &self,
@@ -719,4 +741,19 @@ mod tests {
         assert_eq!(img.pixels.len(), 1);
         assert_eq!(img.pixels[0], ColorRgba::new(0, 0, 0, 255));
     }
+
+    #[test]
+    fn test_image_buffer_crop() {
+        let mut img = ImageBuffer::new(10, 10, ColorRgba::new(0, 0, 0, 255));
+        img.pixels[2 * 10 + 3] = ColorRgba::new(255, 128, 64, 255);
+
+        let cropped = img.crop(3, 2, 4, 4).expect("crop failed");
+        assert_eq!(cropped.width, 4);
+        assert_eq!(cropped.height, 4);
+        assert_eq!(cropped.pixels[0], ColorRgba::new(255, 128, 64, 255));
+
+        assert!(img.crop(8, 8, 4, 4).is_none());
+        assert!(img.crop(0, 0, 0, 5).is_none());
+    }
 }
+
