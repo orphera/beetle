@@ -12,19 +12,41 @@ use std::sync::Arc;
 pub struct PcmBuffer {
     pub sample_rate: u32,
     pub samples: Arc<[f32]>, // Interleaved [L0, R0, L1, R1, ...]
+    pub offset: usize,       // Start sample index (even number for stereo alignment)
+    pub length: usize,       // Number of interleaved samples in this slice
 }
 
 impl PcmBuffer {
     pub fn new(sample_rate: u32, samples: Vec<f32>) -> Self {
+        let len = samples.len();
         Self {
             sample_rate,
             samples: samples.into(),
+            offset: 0,
+            length: len,
         }
     }
 
-    /// Total number of stereo frames (sample count / 2).
+    /// Creates a sub-slice view over a shared PCM buffer with zero copy.
+    pub fn from_slice(sample_rate: u32, samples: Arc<[f32]>, offset: usize, length: usize) -> Self {
+        assert!(
+            offset + length <= samples.len(),
+            "PcmBuffer slice bounds out of range: offset {} + len {} > total {}",
+            offset,
+            length,
+            samples.len()
+        );
+        Self {
+            sample_rate,
+            samples,
+            offset,
+            length,
+        }
+    }
+
+    /// Total number of stereo frames in this buffer/slice (sample count / 2).
     pub fn frame_count(&self) -> usize {
-        self.samples.len() / 2
+        self.length / 2
     }
 
     /// Duration of audio buffer in seconds.
@@ -82,6 +104,14 @@ impl SampleBank {
         Self {
             samples: HashMap::new(),
         }
+    }
+
+    /// Loads an entire soundbank from a pre-compiled Sound Atlas metadata and binary buffer with zero-copy slice references.
+    pub fn load_from_sound_atlas(
+        meta: &bms_package::SoundAtlasMeta,
+        atlas_data: &[u8],
+    ) -> Result<Self, AudioDecodeError> {
+        crate::atlas::load_sample_bank_from_sound_atlas(meta, atlas_data)
     }
 
     pub fn insert(&mut self, id: WavId, buffer: PcmBuffer) {

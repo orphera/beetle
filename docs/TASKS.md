@@ -19,15 +19,15 @@
 ---
 
 ## 📋 Phase 1: Sound Atlas 빌더 및 디코딩 엔진 (`crates/bms-package/`, `crates/beetle-audio/`)
-- [ ] **Sound Atlas 슬라이스 데이터 모델 및 인터페이스 정의 (`crates/bms-package/src/atlas/sound.rs`)**
-  - [ ] `SoundSlice` 구조체 (`start_sample: u64`, `length_samples: u64`, `channels: u8`, `sample_rate: u32`, `original_filename: String`) 정의
-  - [ ] `SoundAtlasMeta` 및 직렬화/역직렬화 구현
-- [ ] **AOT 오디오 사전 정규화 및 합성 빌더 (`SoundAtlasBuilder`)**
-  - [ ] 복수의 키음(WAV/OGG)을 44.1kHz Stereo PCM으로 일괄 리샘플링/업믹싱
-  - [ ] 키음 간 주파수 신호 번짐 방지 무음 패딩(Zero-Padding, 128 samples) 삽입
-  - [ ] 단일 연속 오디오 스트림(FLAC 무손실 압축 / PCM) 생성
-- [ ] **`SampleBank` 슬라이스 뷰(Zero-Copy Slice Reference) 연동 (`crates/beetle-audio/src/sample.rs`)**
-  - [ ] 거대 단일 PCM 버퍼(`Arc<[f32]>`)에서 슬라이스 단위로 키음을 발음하는 참조형 사운드 구조체 지원
+- [x] **Sound Atlas 슬라이스 데이터 모델 및 인터페이스 정의 (`crates/bms-package/src/atlas/sound.rs`)**
+  - [x] `SoundSlice` 구조체 (`start_sample: u64`, `length_samples: u64`, `channels: u8`, `sample_rate: u32`, `original_filename: String`) 정의
+  - [x] `SoundAtlasMeta` 및 직렬화/역직렬화 구현
+- [x] **AOT 오디오 사전 정규화 및 합성 빌더 (`SoundAtlasBuilder`)**
+  - [x] 복수의 키음(WAV/OGG)을 44.1kHz Stereo PCM으로 일괄 리샘플링/업믹싱
+  - [x] 키음 간 주파수 신호 번짐 방지 무음 패딩(Zero-Padding, 128 samples) 삽입
+  - [x] 단일 연속 오디오 스트림(FLAC 무손실 압축 / PCM) 생성
+- [x] **`SampleBank` 슬라이스 뷰(Zero-Copy Slice Reference) 연동 (`crates/beetle-audio/src/sample.rs`)**
+  - [x] 거대 단일 PCM 버퍼(`Arc<[f32]>`)에서 슬라이스 단위로 키음을 발음하는 참조형 사운드 구조체 지원
 
 ---
 

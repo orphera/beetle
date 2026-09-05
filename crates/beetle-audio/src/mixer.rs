@@ -147,10 +147,11 @@ impl Mixer {
                 let alpha = (frame_idx - f0 as f64) as f32;
                 let f1 = (f0 + 1).min(total_pcm_frames - 1);
 
-                let l0 = pcm.samples[f0 * 2];
-                let r0 = pcm.samples[f0 * 2 + 1];
-                let l1 = pcm.samples[f1 * 2];
-                let r1 = pcm.samples[f1 * 2 + 1];
+                let base = pcm.offset;
+                let l0 = pcm.samples[base + f0 * 2];
+                let r0 = pcm.samples[base + f0 * 2 + 1];
+                let l1 = pcm.samples[base + f1 * 2];
+                let r1 = pcm.samples[base + f1 * 2 + 1];
 
                 let sample_l = l0 + alpha * (l1 - l0);
                 let sample_r = r0 + alpha * (r1 - r0);

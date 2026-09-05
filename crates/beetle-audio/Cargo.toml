@@ -6,6 +6,7 @@ description = "Lightweight audio engine, mixer, audio clock, and PCM soundbank f
 
 [dependencies]
 beetle-core = { workspace = true }
+bms-package = { workspace = true }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 hound = { workspace = true }

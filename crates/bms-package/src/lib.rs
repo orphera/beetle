@@ -3,6 +3,7 @@
 //! Standardized BMS package format (`.bmsp`) container, manifest, and archive library.
 //! Designed for secure, deterministic, self-contained packaging and distribution of BMS content.
 
+pub mod atlas;
 pub mod builder;
 pub mod checksum;
 pub mod delta;
@@ -12,6 +13,7 @@ pub mod manifest;
 pub mod path;
 pub mod reader;
 
+pub use atlas::{SoundAtlasCodec, SoundAtlasMeta, SoundSlice};
 pub use builder::PackageBuilder;
 pub use checksum::{sha256_digest, sha256_hex};
 pub use delta::{

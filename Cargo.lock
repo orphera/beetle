@@ -149,6 +149,7 @@ name = "beetle-audio"
 version = "0.1.0"
 dependencies = [
  "beetle-core",
+ "bms-package",
  "cpal",
  "hound",
  "lewton",
