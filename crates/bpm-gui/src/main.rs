@@ -486,52 +486,114 @@ impl ApplicationHandler for BpmGuiApp {
                             }
                         });
                     } else if path.is_dir() {
-                        let folder_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("folder").to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Importing '{}'", folder_name),
-                            phase: "Scanning folder...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.import_folder_with_progress(
-                                        &path_buf,
-                                        None,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
-                                            let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Imported '{}' (#{})",
-                                                installed.name, short_h
-                                            )));
-                                        }
-                                        Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                            let _ = tx.send(BgTaskMessage::Failed("Import cancelled by user".to_string()));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!("Import error: {e}")));
+                        let roots = bms_package_manager::find_bms_song_roots(&path_buf);
+                        if roots.is_empty() {
+                            state.status_msg = format!("No BMS chart files found in '{}'", path_buf.display());
+                            return;
+                        }
+
+                        if roots.len() == 1 {
+                            let target_root = roots[0].clone();
+                            let folder_name = target_root.file_name().and_then(|n| n.to_str()).unwrap_or("folder").to_string();
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Importing '{}'", folder_name),
+                                phase: "Scanning folder...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let res = mgr.import_folder_with_progress(
+                                            &target_root,
+                                            None,
+                                            Some(&cancel_flag),
+                                            move |phase, curr, tot, detail| {
+                                                let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                    phase: phase.to_string(),
+                                                    current: curr,
+                                                    total: tot,
+                                                    detail: detail.to_string(),
+                                                });
+                                            },
+                                        );
+                                        match res {
+                                            Ok(installed) => {
+                                                let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                                    "Imported '{}' (#{})",
+                                                    installed.name, short_h
+                                                )));
+                                            }
+                                            Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                let _ = tx.send(BgTaskMessage::Failed("Import cancelled by user".to_string()));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(BgTaskMessage::Failed(format!("Import error: {e}")));
+                                            }
                                         }
                                     }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            });
+                        } else {
+                            let total_count = roots.len();
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Batch importing {} songs", total_count),
+                                phase: "Starting batch import...".to_string(),
+                                current: 0,
+                                total: total_count,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let mut success_count = 0;
+                                        for (i, r) in roots.iter().enumerate() {
+                                            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                                let _ = tx.send(BgTaskMessage::Failed("Batch import cancelled by user".to_string()));
+                                                return;
+                                            }
+                                            let s_name = r.file_name().and_then(|n| n.to_str()).unwrap_or("song").to_string();
+                                            let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                phase: format!("[{}/{}] Importing '{}'", i + 1, total_count, s_name),
+                                                current: i + 1,
+                                                total: total_count,
+                                                detail: s_name.clone(),
+                                            });
+
+                                            match mgr.import_folder_with_progress(
+                                                r,
+                                                None,
+                                                Some(&cancel_flag),
+                                                |_, _, _, _| {},
+                                            ) {
+                                                Ok(_) => {
+                                                    success_count += 1;
+                                                }
+                                                Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                    let _ = tx.send(BgTaskMessage::Failed("Batch import cancelled by user".to_string()));
+                                                    return;
+                                                }
+                                                Err(_) => {}
+                                            }
+                                        }
+                                        let _ = tx.send(BgTaskMessage::Completed(format!(
+                                            "Batch imported {}/{} songs into registry",
+                                            success_count, total_count
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                     state.window.request_redraw();
                 }
@@ -590,56 +652,119 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
 
                 match m {
                     ModalMode::ImportFolder => {
-                        let folder_name = Path::new(&target_path)
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("folder")
-                            .to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Importing '{}'", folder_name),
-                            phase: "Scanning folder...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.import_folder_with_progress(
-                                        &target_path,
-                                        None,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
-                                            let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Imported '{}' (#{})",
-                                                installed.name, short_h
-                                            )));
-                                        }
-                                        Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                            let _ = tx.send(BgTaskMessage::Failed("Import cancelled by user".to_string()));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!("Import error: {e}")));
+                        let clean_path = target_path.trim().trim_matches('"').to_string();
+                        let roots = bms_package_manager::find_bms_song_roots(&clean_path);
+                        if roots.is_empty() {
+                            state.status_msg = format!("No BMS chart files found in '{}'", clean_path);
+                            return;
+                        }
+
+                        if roots.len() == 1 {
+                            let target_root = roots[0].clone();
+                            let folder_name = target_root
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("folder")
+                                .to_string();
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Importing '{}'", folder_name),
+                                phase: "Scanning folder...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let res = mgr.import_folder_with_progress(
+                                            &target_root,
+                                            None,
+                                            Some(&cancel_flag),
+                                            move |phase, curr, tot, detail| {
+                                                let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                    phase: phase.to_string(),
+                                                    current: curr,
+                                                    total: tot,
+                                                    detail: detail.to_string(),
+                                                });
+                                            },
+                                        );
+                                        match res {
+                                            Ok(installed) => {
+                                                let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                                    "Imported '{}' (#{})",
+                                                    installed.name, short_h
+                                                )));
+                                            }
+                                            Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                let _ = tx.send(BgTaskMessage::Failed("Import cancelled by user".to_string()));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(BgTaskMessage::Failed(format!("Import error: {e}")));
+                                            }
                                         }
                                     }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            });
+                        } else {
+                            let total_count = roots.len();
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Batch importing {} songs", total_count),
+                                phase: "Starting batch import...".to_string(),
+                                current: 0,
+                                total: total_count,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let mut success_count = 0;
+                                        for (i, r) in roots.iter().enumerate() {
+                                            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                                let _ = tx.send(BgTaskMessage::Failed("Batch import cancelled by user".to_string()));
+                                                return;
+                                            }
+                                            let s_name = r.file_name().and_then(|n| n.to_str()).unwrap_or("song").to_string();
+                                            let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                phase: format!("[{}/{}] Importing '{}'", i + 1, total_count, s_name),
+                                                current: i + 1,
+                                                total: total_count,
+                                                detail: s_name.clone(),
+                                            });
+
+                                            match mgr.import_folder_with_progress(
+                                                r,
+                                                None,
+                                                Some(&cancel_flag),
+                                                |_, _, _, _| {},
+                                            ) {
+                                                Ok(_) => {
+                                                    success_count += 1;
+                                                }
+                                                Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                    let _ = tx.send(BgTaskMessage::Failed("Batch import cancelled by user".to_string()));
+                                                    return;
+                                                }
+                                                Err(_) => {}
+                                            }
+                                        }
+                                        let _ = tx.send(BgTaskMessage::Completed(format!(
+                                            "Batch imported {}/{} songs into registry",
+                                            success_count, total_count
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                     ModalMode::InstallBmsp => {
                         let pkg_name = Path::new(&target_path)
@@ -716,6 +841,8 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                         };
                         let mode_str = if is_turbo { "Turbo (Dual Atlas)" } else { "Classic" };
 
+                        let base_path = PathBuf::from(&clean_path);
+
                         if roots.len() == 1 {
                             let target_root = roots[0].clone();
                             let folder_name = target_root
@@ -723,7 +850,11 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("package")
                                 .to_string();
-                            let out_name = format!("{}.bmsp", folder_name);
+                            let out_path = if target_root == base_path {
+                                base_path.parent().unwrap_or(&base_path).join(format!("{}.bmsp", folder_name))
+                            } else {
+                                base_path.join(format!("{}.bmsp", folder_name))
+                            };
 
                             state.bg_task_running = Some(BgTaskState {
                                 title: format!("Packing {} folder '{}'", mode_str, folder_name),
@@ -752,10 +883,10 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                         );
                                         match res {
                                             Ok(bytes) => {
-                                                if let Err(e) = fs::write(&out_name, bytes) {
+                                                if let Err(e) = fs::write(&out_path, bytes) {
                                                     let _ = tx.send(BgTaskMessage::Failed(format!("Write error: {e}")));
                                                 } else {
-                                                    let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_name)));
+                                                    let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_path.display())));
                                                 }
                                             }
                                             Err(bms_package_manager::PackageManagerError::Cancelled) => {
@@ -791,12 +922,12 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                                 return;
                                             }
                                             let s_name = r.file_name().and_then(|n| n.to_str()).unwrap_or("song").to_string();
-                                            let out_name = format!("{}.bmsp", s_name);
+                                            let out_path = base_path.join(format!("{}.bmsp", s_name));
                                             let _ = tx_progress.send(BgTaskMessage::Progress {
                                                 phase: format!("[{}/{}] Packing '{}'", i + 1, total_count, s_name),
                                                 current: i + 1,
                                                 total: total_count,
-                                                detail: out_name.clone(),
+                                                detail: out_path.display().to_string(),
                                             });
 
                                             match mgr.pack_folder_profile_with_progress(
@@ -807,7 +938,7 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                                 |_, _, _, _| {},
                                             ) {
                                                 Ok(bytes) => {
-                                                    if fs::write(&out_name, bytes).is_ok() {
+                                                    if fs::write(&out_path, bytes).is_ok() {
                                                         success_count += 1;
                                                     }
                                                 }
@@ -819,8 +950,8 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                             }
                                         }
                                         let _ = tx.send(BgTaskMessage::Completed(format!(
-                                            "Batch packed {}/{} songs [{}] into .bmsp",
-                                            success_count, total_count, mode_str
+                                            "Batch packed {}/{} songs [{}] into '{}'",
+                                            success_count, total_count, mode_str, base_path.display()
                                         )));
                                     }
                                     Err(e) => {

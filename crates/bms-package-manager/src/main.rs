@@ -1,7 +1,7 @@
 use bms_package_manager::{PackageManager, PackageManagerError, PackageUpdater};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn print_usage() {
     println!("BMS Package Manager (bpm)");
@@ -115,6 +115,7 @@ fn main() -> Result<(), PackageManagerError> {
             };
 
             let out_idx = args.iter().position(|a| a == "-o");
+            let out_arg = out_idx.and_then(|idx| args.get(idx + 1));
 
             if roots.len() == 1 {
                 let target_root = &roots[0];
@@ -124,14 +125,16 @@ fn main() -> Result<(), PackageManagerError> {
                     .unwrap_or("package")
                     .to_string();
 
-                let out_file = if let Some(idx) = out_idx {
-                    if idx + 1 < args.len() {
-                        args[idx + 1].clone()
+                let out_file: PathBuf = if let Some(dest) = out_arg {
+                    let dest_path = Path::new(dest);
+                    if dest_path.is_dir() || dest.ends_with('/') || dest.ends_with('\\') {
+                        let _ = fs::create_dir_all(dest_path);
+                        dest_path.join(format!("{}.bmsp", folder_name))
                     } else {
-                        format!("{}.bmsp", folder_name)
+                        PathBuf::from(dest)
                     }
                 } else {
-                    format!("{}.bmsp", folder_name)
+                    PathBuf::from(format!("{}.bmsp", folder_name))
                 };
 
                 if target_root != std::path::Path::new(folder) {
@@ -144,7 +147,7 @@ fn main() -> Result<(), PackageManagerError> {
                             eprintln!("Failed to write output package file: {e}");
                             std::process::exit(1);
                         }
-                        println!("Successfully packed '{}' into '{}' [{}]", target_root.display(), out_file, profile_tag);
+                        println!("Successfully packed '{}' into '{}' [{}]", target_root.display(), out_file.display(), profile_tag);
                     }
                     Err(e) => {
                         eprintln!("Packaging failed: {e}");
@@ -153,6 +156,12 @@ fn main() -> Result<(), PackageManagerError> {
                 }
             } else {
                 println!("Found {} BMS song directories under '{}'. Batch packing each song...", roots.len(), folder);
+                let out_dir: Option<PathBuf> = out_arg.map(|dest| {
+                    let p = PathBuf::from(dest);
+                    let _ = fs::create_dir_all(&p);
+                    p
+                });
+
                 let mut success_count = 0;
                 for (i, target_root) in roots.iter().enumerate() {
                     let folder_name = target_root
@@ -160,9 +169,19 @@ fn main() -> Result<(), PackageManagerError> {
                         .and_then(|n| n.to_str())
                         .unwrap_or("song")
                         .to_string();
-                    let out_file = format!("{}.bmsp", folder_name);
+                    let out_file = match &out_dir {
+                        Some(dir) => dir.join(format!("{}.bmsp", folder_name)),
+                        None => {
+                            let parent = Path::new(folder);
+                            if parent.is_dir() {
+                                parent.join(format!("{}.bmsp", folder_name))
+                            } else {
+                                PathBuf::from(format!("{}.bmsp", folder_name))
+                            }
+                        }
+                    };
 
-                    print!("[{}/{}] Packing '{}' into '{}' [{}]... ", i + 1, roots.len(), target_root.display(), out_file, profile_tag);
+                    print!("[{}/{}] Packing '{}' into '{}' [{}]... ", i + 1, roots.len(), target_root.display(), out_file.display(), profile_tag);
                     match manager.pack_folder_profile(target_root, None, profile) {
                         Ok(bytes) => {
                             if let Err(e) = fs::write(&out_file, &bytes) {
@@ -271,18 +290,46 @@ fn main() -> Result<(), PackageManagerError> {
                 std::process::exit(1);
             }
             let folder = &args[2];
-            match manager.import_folder(folder, None) {
-                Ok(installed) => {
-                    println!(
-                        "Successfully imported and installed '{}' ({}) -> state {}",
-                        installed.name, installed.id, installed.state_hash
-                    );
-                    println!("Location: {}", installed.location.display());
+            let roots = bms_package_manager::find_bms_song_roots(folder);
+            if roots.is_empty() {
+                eprintln!("Error: No BMS chart files found in '{}'", folder);
+                std::process::exit(1);
+            }
+
+            if roots.len() == 1 {
+                let target_root = &roots[0];
+                if target_root != Path::new(folder) {
+                    println!("Detected BMS song root at '{}'", target_root.display());
                 }
-                Err(e) => {
-                    eprintln!("Import failed: {e}");
-                    std::process::exit(1);
+                match manager.import_folder(target_root, None) {
+                    Ok(installed) => {
+                        println!(
+                            "Successfully imported and installed '{}' ({}) -> state {}",
+                            installed.name, installed.id, installed.state_hash
+                        );
+                        println!("Location: {}", installed.location.display());
+                    }
+                    Err(e) => {
+                        eprintln!("Import failed: {e}");
+                        std::process::exit(1);
+                    }
                 }
+            } else {
+                println!("Found {} BMS song directories under '{}'. Batch importing each...", roots.len(), folder);
+                let mut success = 0;
+                for (i, target_root) in roots.iter().enumerate() {
+                    print!("[{}/{}] Importing '{}'... ", i + 1, roots.len(), target_root.display());
+                    match manager.import_folder(target_root, None) {
+                        Ok(installed) => {
+                            println!("OK -> '{}' ({})", installed.name, installed.id);
+                            success += 1;
+                        }
+                        Err(e) => {
+                            println!("FAILED ({e})");
+                        }
+                    }
+                }
+                println!("Batch import finished: {}/{} songs imported into registry.", success, roots.len());
             }
         }
         "install" => {
