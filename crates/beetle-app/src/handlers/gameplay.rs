@@ -143,7 +143,7 @@ pub fn handle_gameplay_input(
                                     }
                                 }
 
-                                if let (Some((_, wav_id)), Some(audio)) = (best.map(|b| b.1), &mut state.audio_engine) {
+                                if let (Some(wav_id), Some(audio)) = (best.map(|b| b.1), &mut state.audio_engine) {
                                     let _ = audio.send_command(AudioCommand::PlaySample {
                                         sample_id: wav_id,
                                         volume: 1.0,
