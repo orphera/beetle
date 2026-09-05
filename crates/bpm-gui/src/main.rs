@@ -28,6 +28,7 @@ enum ModalMode {
     ImportFolder,
     InstallBmsp,
     PackFolder,
+    PackTurboFolder,
     ApplyDelta,
     CreateDelta,
 }
@@ -356,7 +357,8 @@ impl ApplicationHandler for BpmGuiApp {
                         let prompt = match mode {
                             ModalMode::ImportFolder => "Import BMS Folder (enter directory path):",
                             ModalMode::InstallBmsp => "Install .bmsp Package (enter file path):",
-                            ModalMode::PackFolder => "Pack BMS Folder (enter directory path):",
+                            ModalMode::PackFolder => "Pack BMS Folder [Classic] (enter directory path):",
+                            ModalMode::PackTurboFolder => "Pack Turbo Folder [Dual Atlas] (enter directory path):",
                             ModalMode::ApplyDelta => "Apply Delta .bmdp (enter file path):",
                             ModalMode::CreateDelta => "Create Delta (enter '<base_path> <target_path>'):",
                         };
@@ -690,14 +692,30 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                             }
                         });
                     }
-                    ModalMode::PackFolder => {
-                        let folder_p = PathBuf::from(&target_path);
+                    ModalMode::PackFolder | ModalMode::PackTurboFolder => {
+                        let is_turbo = m == ModalMode::PackTurboFolder
+                            || target_path.contains("--turbo")
+                            || target_path.contains("--atlas");
+                        let clean_path = target_path
+                            .replace("--turbo", "")
+                            .replace("--atlas", "")
+                            .trim()
+                            .trim_matches('"')
+                            .to_string();
+
+                        let folder_p = PathBuf::from(&clean_path);
                         let out_name = format!(
                             "{}.bmsp",
                             folder_p.file_name().and_then(|n| n.to_str()).unwrap_or("package")
                         );
+                        let profile = if is_turbo {
+                            bms_package_manager::PackProfile::Turbo
+                        } else {
+                            bms_package_manager::PackProfile::Classic
+                        };
+                        let title_label = if is_turbo { "Packing Turbo (Dual Atlas) folder" } else { "Packing Classic folder" };
                         state.bg_task_running = Some(BgTaskState {
-                            title: format!("Packing folder '{}'", target_path),
+                            title: format!("{} '{}'", title_label, clean_path),
                             phase: "Scanning folder...".to_string(),
                             current: 0,
                             total: 0,
@@ -707,9 +725,10 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                         thread::spawn(move || {
                             match PackageManager::new(&root_dir) {
                                 Ok(mgr) => {
-                                    let res = mgr.pack_folder_with_progress(
-                                        &target_path,
+                                    let res = mgr.pack_folder_profile_with_progress(
+                                        &clean_path,
                                         None,
+                                        profile,
                                         Some(&cancel_flag),
                                         move |phase, curr, tot, detail| {
                                             let _ = tx_progress.send(BgTaskMessage::Progress {
@@ -725,7 +744,8 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                             if let Err(e) = fs::write(&out_name, bytes) {
                                                 let _ = tx.send(BgTaskMessage::Failed(format!("Write error: {e}")));
                                             } else {
-                                                let _ = tx.send(BgTaskMessage::Completed(format!("Packed into '{}'", out_name)));
+                                                let mode_str = if is_turbo { "Turbo (Dual Atlas)" } else { "Classic" };
+                                                let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_name)));
                                             }
                                         }
                                         Err(bms_package_manager::PackageManagerError::Cancelled) => {
@@ -944,6 +964,9 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
         }
         KeyCode::KeyP => {
             state.modal = Some((ModalMode::PackFolder, String::new()));
+        }
+        KeyCode::KeyT => {
+            state.modal = Some((ModalMode::PackTurboFolder, String::new()));
         }
         KeyCode::KeyD | KeyCode::F3 => {
             state.modal = Some((ModalMode::ApplyDelta, String::new()));

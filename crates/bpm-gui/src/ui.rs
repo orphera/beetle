@@ -273,7 +273,7 @@ impl GuiRenderer {
         self.draw_rect(0.0, footer_y, w, 1.0, ColorRgba::new(35, 35, 50, 255));
 
         // Help shortcuts
-        let help_text = "[↑/↓]: Move  [I]: Import  [P]: Pack  [D]: Apply Delta  [C]: Create Delta  [F5]: Refresh";
+        let help_text = "[↑/↓]: Move  [I]: Import  [P]: Pack  [T]: Turbo Pack  [D]: Delta  [C]: Create Delta  [F5]: Refresh";
         BitmapFont::draw_text(&mut self.pixmap.as_mut(), help_text, 16, (footer_y + 14.0) as i32, 1, ColorRgba::new(160, 160, 180, 255));
 
         // Status message
