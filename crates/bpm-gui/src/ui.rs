@@ -4,6 +4,19 @@ use beetle_render::skin::ColorRgba;
 use bms_package_manager::PackageRecord;
 use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackModalOptionsDisplay {
+    pub is_turbo: bool,
+    pub bga_mode: bms_package_manager::BgaPackMode,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModalDisplayInfo<'a> {
+    pub prompt: &'a str,
+    pub input: &'a str,
+    pub pack_options: Option<PackModalOptionsDisplay>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskProgressInfo<'a> {
     pub message: &'a str,
@@ -63,7 +76,7 @@ impl GuiRenderer {
         is_search_active: bool,
         status_msg: &str,
         preview_img: Option<&ImageBuffer>,
-        modal_info: Option<(&str, &str)>, // (Prompt, input)
+        modal_info: Option<ModalDisplayInfo>,
         bg_task_info: Option<TaskProgressInfo>,
     ) {
         let w = self.pixmap.width() as f32;
@@ -334,9 +347,10 @@ impl GuiRenderer {
         }
 
         // 6. Input Modal (if active)
-        if let Some((prompt, input)) = modal_info {
-            let modal_w = 540.0;
-            let modal_h = 160.0;
+        if let Some(modal) = modal_info {
+            let is_pack = modal.pack_options.is_some();
+            let modal_w = if is_pack { 580.0 } else { 540.0 };
+            let modal_h = if is_pack { 226.0 } else { 160.0 };
             let modal_x = (w - modal_w) / 2.0;
             let modal_y = (h - modal_h) / 2.0;
 
@@ -347,24 +361,81 @@ impl GuiRenderer {
             self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(26, 26, 38, 255));
             self.draw_rect(modal_x, modal_y, modal_w, 2.0, ColorRgba::new(255, 210, 80, 255));
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), prompt, (modal_x + 20.0) as i32, (modal_y + 24.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), modal.prompt, (modal_x + 20.0) as i32, (modal_y + 18.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
 
             // Input line box
-            let inp_box_y = modal_y + 60.0;
-            self.draw_rect(modal_x + 20.0, inp_box_y, modal_w - 40.0, 36.0, ColorRgba::new(16, 16, 24, 255));
+            let inp_box_y = modal_y + 46.0;
+            self.draw_rect(modal_x + 20.0, inp_box_y, modal_w - 40.0, 32.0, ColorRgba::new(16, 16, 24, 255));
             self.draw_rect(modal_x + 20.0, inp_box_y, modal_w - 40.0, 1.0, ColorRgba::new(80, 180, 255, 255));
 
-            let input_display = format!("{}_", input);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &input_display, (modal_x + 30.0) as i32, (inp_box_y + 12.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+            let input_display = format!("{}_", modal.input);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &input_display, (modal_x + 28.0) as i32, (inp_box_y + 10.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
 
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                "[Enter]: Confirm   [Ctrl+V]: Paste   [Esc]: Cancel",
-                (modal_x + 20.0) as i32,
-                (modal_y + 118.0) as i32,
-                1,
-                ColorRgba::new(140, 140, 160, 255),
-            );
+            if let Some(pack_opts) = modal.pack_options {
+                let opts_y = inp_box_y + 40.0;
+                self.draw_rect(modal_x + 20.0, opts_y, modal_w - 40.0, 1.0, ColorRgba::new(45, 45, 65, 255));
+
+                // Turbo Option Row
+                let turbo_check = if pack_opts.is_turbo { "[X]" } else { "[ ]" };
+                let (turbo_label, turbo_col) = if pack_opts.is_turbo {
+                    ("Turbo Dual Atlas (Pre-decoded audio & GPU texture atlas)", ColorRgba::new(255, 220, 80, 255))
+                } else {
+                    ("Classic Packaging (Standard WAV/OGG files)", ColorRgba::new(150, 150, 170, 255))
+                };
+                let turbo_line = format!("{} [Tab/F2]  Profile: {}", turbo_check, turbo_label);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &turbo_line, (modal_x + 22.0) as i32, (opts_y + 10.0) as i32, 1, turbo_col);
+
+                // BGA Option Row
+                let (bga_check, bga_label, bga_col) = match pack_opts.bga_mode {
+                    bms_package_manager::BgaPackMode::Split => (
+                        "[X]",
+                        "Split BGA Companion (.bga.bmsp - diet friendly)",
+                        ColorRgba::new(80, 200, 255, 255),
+                    ),
+                    bms_package_manager::BgaPackMode::Embed => (
+                        "[ ]",
+                        "Embed Video (All-in-one .bmsp)",
+                        ColorRgba::new(130, 210, 150, 255),
+                    ),
+                    bms_package_manager::BgaPackMode::NoVideo => (
+                        "[ ]",
+                        "No Video (Pure audio/charts, minimal size)",
+                        ColorRgba::new(160, 160, 180, 255),
+                    ),
+                };
+                let bga_line = format!("{} [Ctrl+S/F3] BGA: {}", bga_check, bga_label);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bga_line, (modal_x + 22.0) as i32, (opts_y + 30.0) as i32, 1, bga_col);
+
+                // Combined Mode Badge
+                let profile_tag = if pack_opts.is_turbo { "TURBO DUAL ATLAS" } else { "CLASSIC" };
+                let bga_tag = match pack_opts.bga_mode {
+                    bms_package_manager::BgaPackMode::Split => "SPLIT BGA COMPANION",
+                    bms_package_manager::BgaPackMode::Embed => "EMBEDDED VIDEO",
+                    bms_package_manager::BgaPackMode::NoVideo => "NO VIDEO",
+                };
+                let combo_disp = format!("Output: [{}] + [{}]", profile_tag, bga_tag);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &combo_disp, (modal_x + 22.0) as i32, (opts_y + 50.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+
+                // Hints line
+                let hint_y = modal_y + modal_h - 22.0;
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    "[Enter]: Pack   [Tab]: Turbo   [Ctrl+S]: BGA Mode   [Ctrl+V]: Paste   [Esc]: Cancel",
+                    (modal_x + 20.0) as i32,
+                    hint_y as i32,
+                    1,
+                    ColorRgba::new(140, 150, 175, 255),
+                );
+            } else {
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    "[Enter]: Confirm   [Ctrl+V]: Paste   [Esc]: Cancel",
+                    (modal_x + 20.0) as i32,
+                    (modal_y + 118.0) as i32,
+                    1,
+                    ColorRgba::new(140, 140, 160, 255),
+                );
+            }
         }
 
         // 7. Background Task Running Banner (if active)

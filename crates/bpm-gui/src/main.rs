@@ -27,9 +27,10 @@ use winit::window::{Window, WindowId};
 enum ModalMode {
     ImportFolder,
     InstallBmsp,
-    PackFolder,
-    PackTurboFolder,
-    PackSplitBgaFolder,
+    PackFolder {
+        is_turbo: bool,
+        bga_mode: bms_package_manager::BgaPackMode,
+    },
     ApplyDelta,
     CreateDelta,
 }
@@ -355,16 +356,36 @@ impl ApplicationHandler for BpmGuiApp {
                         .collect();
 
                     let modal_info = state.modal.as_ref().map(|(mode, input)| {
-                        let prompt = match mode {
-                            ModalMode::ImportFolder => "Import BMS Folder (enter directory path):",
-                            ModalMode::InstallBmsp => "Install .bmsp Package (enter file path):",
-                            ModalMode::PackFolder => "Pack BMS Folder [Classic] (enter directory path):",
-                            ModalMode::PackTurboFolder => "Pack Turbo Folder [Dual Atlas] (enter directory path):",
-                            ModalMode::PackSplitBgaFolder => "Pack BMS Folder [Split BGA Companion] (enter directory path):",
-                            ModalMode::ApplyDelta => "Apply Delta .bmdp (enter file path):",
-                            ModalMode::CreateDelta => "Create Delta (enter '<base_path> <target_path>'):",
-                        };
-                        (prompt, input.as_str())
+                        match mode {
+                            ModalMode::ImportFolder => ui::ModalDisplayInfo {
+                                prompt: "Import BMS Folder (enter directory path):",
+                                input: input.as_str(),
+                                pack_options: None,
+                            },
+                            ModalMode::InstallBmsp => ui::ModalDisplayInfo {
+                                prompt: "Install .bmsp Package (enter file path):",
+                                input: input.as_str(),
+                                pack_options: None,
+                            },
+                            ModalMode::PackFolder { is_turbo, bga_mode } => ui::ModalDisplayInfo {
+                                prompt: "Pack BMS Folder (configure options & path below):",
+                                input: input.as_str(),
+                                pack_options: Some(ui::PackModalOptionsDisplay {
+                                    is_turbo: *is_turbo,
+                                    bga_mode: *bga_mode,
+                                }),
+                            },
+                            ModalMode::ApplyDelta => ui::ModalDisplayInfo {
+                                prompt: "Apply Delta .bmdp (enter file path):",
+                                input: input.as_str(),
+                                pack_options: None,
+                            },
+                            ModalMode::CreateDelta => ui::ModalDisplayInfo {
+                                prompt: "Create Delta (enter '<base_path> <target_path>'):",
+                                input: input.as_str(),
+                                pack_options: None,
+                            },
+                        }
                     });
 
                     let bg_task_info = state
@@ -665,6 +686,33 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
             return;
         }
 
+        // Option toggle hotkeys in PackFolder modal
+        if let ModalMode::PackFolder { ref mut is_turbo, ref mut bga_mode } = mode {
+            if code == KeyCode::Tab || code == KeyCode::F2 || (state.modifiers.control_key() && code == KeyCode::KeyT) {
+                *is_turbo = !*is_turbo;
+                state.status_msg = if *is_turbo {
+                    "Turbo Profile: ENABLED (Dual Atlas)".to_string()
+                } else {
+                    "Turbo Profile: DISABLED (Classic)".to_string()
+                };
+                return;
+            }
+
+            if code == KeyCode::F3 || (state.modifiers.control_key() && code == KeyCode::KeyS) {
+                *bga_mode = match *bga_mode {
+                    bms_package_manager::BgaPackMode::Embed => bms_package_manager::BgaPackMode::Split,
+                    bms_package_manager::BgaPackMode::Split => bms_package_manager::BgaPackMode::NoVideo,
+                    bms_package_manager::BgaPackMode::NoVideo => bms_package_manager::BgaPackMode::Embed,
+                };
+                state.status_msg = match *bga_mode {
+                    bms_package_manager::BgaPackMode::Split => "BGA Mode: SPLIT COMPANION (.bga.bmsp)".to_string(),
+                    bms_package_manager::BgaPackMode::Embed => "BGA Mode: EMBEDDED (All-in-one)".to_string(),
+                    bms_package_manager::BgaPackMode::NoVideo => "BGA Mode: NO VIDEO (Omit video)".to_string(),
+                };
+                return;
+            }
+        }
+
         match code {
             KeyCode::Escape => {
                 state.modal = None;
@@ -897,11 +945,12 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                             });
                         }
                     }
-                    ModalMode::PackFolder | ModalMode::PackTurboFolder | ModalMode::PackSplitBgaFolder => {
-                        let is_split_bga = m == ModalMode::PackSplitBgaFolder
+                    ModalMode::PackFolder { is_turbo, bga_mode } => {
+                        let is_split_bga = bga_mode == bms_package_manager::BgaPackMode::Split
                             || target_path.contains("--split-bga");
-                        let is_no_video = target_path.contains("--no-video");
-                        let is_turbo = m == ModalMode::PackTurboFolder
+                        let is_no_video = bga_mode == bms_package_manager::BgaPackMode::NoVideo
+                            || target_path.contains("--no-video");
+                        let is_turbo_effective = is_turbo
                             || target_path.contains("--turbo")
                             || target_path.contains("--atlas");
                         let clean_path = target_path
@@ -919,25 +968,26 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                             return;
                         }
 
-                        let profile = if is_turbo {
+                        let profile = if is_turbo_effective {
                             bms_package_manager::PackProfile::Turbo
                         } else {
                             bms_package_manager::PackProfile::Classic
                         };
-                        let bga_mode = if is_split_bga {
+                        let bga_mode_effective = if is_split_bga {
                             bms_package_manager::BgaPackMode::Split
                         } else if is_no_video {
                             bms_package_manager::BgaPackMode::NoVideo
                         } else {
-                            bms_package_manager::BgaPackMode::Embed
+                            bga_mode
                         };
                         let pack_options = bms_package_manager::PackOptions {
                             profile,
-                            bga_mode,
+                            bga_mode: bga_mode_effective,
                         };
 
-                        let mode_str = match (profile, bga_mode) {
+                        let mode_str = match (profile, bga_mode_effective) {
                             (bms_package_manager::PackProfile::Turbo, bms_package_manager::BgaPackMode::Split) => "Turbo + Split BGA",
+                            (bms_package_manager::PackProfile::Turbo, bms_package_manager::BgaPackMode::NoVideo) => "Turbo (No Video)",
                             (bms_package_manager::PackProfile::Turbo, _) => "Turbo (Dual Atlas)",
                             (_, bms_package_manager::BgaPackMode::Split) => "Classic + Split BGA",
                             (_, bms_package_manager::BgaPackMode::NoVideo) => "Classic (No Video)",
@@ -1279,10 +1329,22 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
             state.modal = Some((ModalMode::InstallBmsp, String::new()));
         }
         KeyCode::KeyP => {
-            state.modal = Some((ModalMode::PackFolder, String::new()));
+            state.modal = Some((
+                ModalMode::PackFolder {
+                    is_turbo: false,
+                    bga_mode: bms_package_manager::BgaPackMode::Embed,
+                },
+                String::new(),
+            ));
         }
         KeyCode::KeyT => {
-            state.modal = Some((ModalMode::PackTurboFolder, String::new()));
+            state.modal = Some((
+                ModalMode::PackFolder {
+                    is_turbo: true,
+                    bga_mode: bms_package_manager::BgaPackMode::Embed,
+                },
+                String::new(),
+            ));
         }
         KeyCode::KeyB => {
             // Diet / Remove BGA companion to reclaim disk space
@@ -1307,7 +1369,13 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
             }
         }
         KeyCode::KeyS => {
-            state.modal = Some((ModalMode::PackSplitBgaFolder, String::new()));
+            state.modal = Some((
+                ModalMode::PackFolder {
+                    is_turbo: false,
+                    bga_mode: bms_package_manager::BgaPackMode::Split,
+                },
+                String::new(),
+            ));
         }
         KeyCode::KeyD | KeyCode::F3 => {
             state.modal = Some((ModalMode::ApplyDelta, String::new()));
