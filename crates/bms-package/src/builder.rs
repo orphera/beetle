@@ -24,6 +24,21 @@ impl PackageBuilder {
         }
     }
 
+    /// Returns a reference to the package manifest.
+    pub fn manifest(&self) -> &Manifest {
+        &self.manifest
+    }
+
+    /// Returns a mutable reference to the package manifest.
+    pub fn manifest_mut(&mut self) -> &mut Manifest {
+        &mut self.manifest
+    }
+
+    /// Sets or updates the package manifest.
+    pub fn set_manifest(&mut self, manifest: Manifest) {
+        self.manifest = manifest;
+    }
+
     /// Adds a file entry with in-memory byte contents to the package.
     pub fn add_file<S: Into<String>, D: Into<Vec<u8>>>(
         &mut self,

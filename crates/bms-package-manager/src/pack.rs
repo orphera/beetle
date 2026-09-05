@@ -16,6 +16,59 @@ pub enum PackProfile {
     Turbo,
 }
 
+/// Mode controlling how high-entropy BGA video files are handled during packaging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BgaPackMode {
+    /// Embed: Default legacy behavior. Video files are packaged directly inside the base .bmsp.
+    #[default]
+    Embed,
+    /// Split: Videos are decoupled into a separate companion package (<id>.bga.bmsp),
+    /// and companion metadata is attached to the base package manifest.
+    Split,
+    /// NoVideo: High-entropy video files are completely omitted from the package for minimal footprint.
+    NoVideo,
+}
+
+/// Comprehensive options controlling package generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PackOptions {
+    pub profile: PackProfile,
+    pub bga_mode: BgaPackMode,
+}
+
+impl PackOptions {
+    pub fn new(profile: PackProfile, bga_mode: BgaPackMode) -> Self {
+        Self { profile, bga_mode }
+    }
+
+    pub fn classic(bga_mode: BgaPackMode) -> Self {
+        Self {
+            profile: PackProfile::Classic,
+            bga_mode,
+        }
+    }
+
+    pub fn turbo(bga_mode: BgaPackMode) -> Self {
+        Self {
+            profile: PackProfile::Turbo,
+            bga_mode,
+        }
+    }
+}
+
+/// Result of a packaging operation, supporting both single packages and decoupled base+companion pairs.
+#[derive(Debug, Clone)]
+pub struct PackOutput {
+    /// The primary (base) package bytes (.bmsp).
+    pub base_package: Vec<u8>,
+    /// The BGA companion package bytes (.bga.bmsp), if split and videos exist.
+    pub bga_package: Option<Vec<u8>>,
+    /// Manifest of the base package.
+    pub base_manifest: Manifest,
+    /// Manifest of the BGA companion package, if generated.
+    pub bga_manifest: Option<Manifest>,
+}
+
 /// Finds all BMS song root directories under a given directory.
 ///
 /// A directory is considered a song root if it directly contains at least one BMS chart file
@@ -197,8 +250,24 @@ pub fn pack_bms_folder_profile_with_progress<P: AsRef<Path>, F>(
     manifest_override: Option<Manifest>,
     profile: PackProfile,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
-    mut on_progress: F,
+    on_progress: F,
 ) -> Result<Vec<u8>, PackageManagerError>
+where
+    F: FnMut(&str, usize, usize, &str),
+{
+    let options = PackOptions::new(profile, BgaPackMode::Embed);
+    let output = pack_bms_folder_advanced_with_progress(folder_path, manifest_override, options, cancel_flag, on_progress)?;
+    Ok(output.base_package)
+}
+
+/// Packs a BMS directory using advanced packaging options (profile and BGA mode).
+pub fn pack_bms_folder_advanced_with_progress<P: AsRef<Path>, F>(
+    folder_path: P,
+    manifest_override: Option<Manifest>,
+    options: PackOptions,
+    cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+    mut on_progress: F,
+) -> Result<PackOutput, PackageManagerError>
 where
     F: FnMut(&str, usize, usize, &str),
 {
@@ -214,19 +283,21 @@ where
         [first, ..] => first.as_path(),
     };
 
-    match profile {
+    match options.profile {
         PackProfile::Classic => {
             let p = target_dir;
-            let manifest = match manifest_override {
+            let mut manifest = match manifest_override {
                 Some(m) => m,
                 None => analyze_bms_folder(p)?,
             };
 
-            let mut builder = PackageBuilder::new(manifest);
             let mut files_to_read = Vec::new();
             collect_file_paths(p, p, &mut files_to_read)?;
 
             let total = files_to_read.len();
+            let mut base_files = Vec::new();
+            let mut bga_files = Vec::new();
+
             for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
                 if let Some(flag) = cancel_flag {
                     if flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -235,17 +306,69 @@ where
                 }
                 on_progress("Reading files", i + 1, total, &rel_path);
                 let data = fs::read(&abs_path)?;
+
+                if is_video_path(&rel_path) {
+                    match options.bga_mode {
+                        BgaPackMode::NoVideo => continue,
+                        BgaPackMode::Split => {
+                            bga_files.push((rel_path, data));
+                            continue;
+                        }
+                        BgaPackMode::Embed => {
+                            base_files.push((rel_path, data));
+                        }
+                    }
+                } else {
+                    base_files.push((rel_path, data));
+                }
+            }
+
+            let mut bga_package_bytes = None;
+            let mut bga_manifest_opt = None;
+
+            if options.bga_mode == BgaPackMode::Split && !bga_files.is_empty() {
+                let bga_id = format!("{}_bga", manifest.id);
+                let bga_name = format!("{} (BGA Companion)", manifest.name);
+                let mut bga_manifest = Manifest::new_bga_companion(&bga_id, &bga_name, &manifest.id);
+                bga_manifest.author = manifest.author.clone();
+
+                let mut bga_builder = PackageBuilder::new(bga_manifest.clone());
+                for (rel_path, data) in bga_files {
+                    bga_builder.add_file(rel_path, data)?;
+                }
+
+                let bga_bytes = bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+                    on_progress("Compressing .bga.bmsp", curr, tot, name);
+                })?;
+
+                let bga_sha = bms_package::sha256_hex(&bga_bytes);
+                let bga_size = bga_bytes.len() as u64;
+                let rec_filename = format!("{}.bga.bmsp", manifest.id);
+                let companion_info = bms_package::BgaCompanionInfo::new(rec_filename, bga_size, bga_sha);
+                manifest = manifest.with_bga_companion(companion_info);
+
+                bga_package_bytes = Some(bga_bytes);
+                bga_manifest_opt = Some(bga_manifest);
+            }
+
+            let mut builder = PackageBuilder::new(manifest.clone());
+            for (rel_path, data) in base_files {
                 builder.add_file(rel_path, data)?;
             }
 
-            let bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+            let base_bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
                 on_progress("Compressing .bmsp", curr, tot, name);
             })?;
 
-            Ok(bytes)
+            Ok(PackOutput {
+                base_package: base_bytes,
+                bga_package: bga_package_bytes,
+                base_manifest: manifest,
+                bga_manifest: bga_manifest_opt,
+            })
         }
         PackProfile::Turbo => {
-            pack_bms_folder_turbo_with_progress(target_dir, manifest_override, cancel_flag, on_progress)
+            pack_bms_folder_turbo_with_progress(target_dir, manifest_override, options.bga_mode, cancel_flag, on_progress)
         }
     }
 }
@@ -254,9 +377,10 @@ where
 fn pack_bms_folder_turbo_with_progress<P: AsRef<Path>, F>(
     folder_path: P,
     manifest_override: Option<Manifest>,
+    bga_mode: BgaPackMode,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
     mut on_progress: F,
-) -> Result<Vec<u8>, PackageManagerError>
+) -> Result<PackOutput, PackageManagerError>
 where
     F: FnMut(&str, usize, usize, &str),
 {
@@ -376,6 +500,7 @@ where
     let mut sound_builder = SoundAtlasBuilder::new(sound_codec).with_padding_frames(128);
     let mut bga_builder = BgaAtlasBuilder::new(1);
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut bga_files: Vec<(String, Vec<u8>)> = Vec::new();
 
     let total = files_to_read.len();
     for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
@@ -402,10 +527,19 @@ where
         let norm_name = file_name.to_ascii_lowercase();
         let file_stem = Path::new(&norm_name).file_stem().and_then(|s| s.to_str()).unwrap_or(&norm_name);
 
-        // A. Video files -> Passthrough directly
+        // A. Video files
         if is_video_path(&rel_path) {
-            passthrough_files.push((rel_path, data));
-            continue;
+            match bga_mode {
+                BgaPackMode::NoVideo => continue,
+                BgaPackMode::Split => {
+                    bga_files.push((rel_path, data));
+                    continue;
+                }
+                BgaPackMode::Embed => {
+                    passthrough_files.push((rel_path, data));
+                    continue;
+                }
+            }
         }
 
         // B. Chart files -> Passthrough directly
@@ -462,13 +596,42 @@ where
         passthrough_files.push((rel_path, data));
     }
 
-    // 2. Build Sound Atlas
+    // 2. Build BGA Companion Package if split mode and videos exist
+    let mut bga_package_bytes = None;
+    let mut bga_manifest_opt = None;
+
+    if bga_mode == BgaPackMode::Split && !bga_files.is_empty() {
+        let bga_id = format!("{}_bga", manifest.id);
+        let bga_name = format!("{} (BGA Companion)", manifest.name);
+        let mut bga_manifest = Manifest::new_bga_companion(&bga_id, &bga_name, &manifest.id);
+        bga_manifest.author = manifest.author.clone();
+
+        let mut bga_builder = PackageBuilder::new(bga_manifest.clone());
+        for (rel_path, data) in bga_files {
+            bga_builder.add_file(rel_path, data)?;
+        }
+
+        let bga_bytes = bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+            on_progress("Compressing .bga.bmsp (Turbo)", curr, tot, name);
+        })?;
+
+        let bga_sha = bms_package::sha256_hex(&bga_bytes);
+        let bga_size = bga_bytes.len() as u64;
+        let rec_filename = format!("{}.bga.bmsp", manifest.id);
+        let companion_info = bms_package::BgaCompanionInfo::new(rec_filename, bga_size, bga_sha);
+        manifest = manifest.with_bga_companion(companion_info);
+
+        bga_package_bytes = Some(bga_bytes);
+        bga_manifest_opt = Some(bga_manifest);
+    }
+
+    // 3. Build Sound Atlas
     let (sound_meta, sound_bytes) = sound_builder
         .build("audio/atlas.bin")
         .map_err(|e| PackageManagerError::InvalidPackage(format!("Sound Atlas build error: {e}")))?;
     manifest = manifest.with_sound_atlas(sound_meta);
 
-    // 3. Build BGA Texture Atlas
+    // 4. Build BGA Texture Atlas
     if let Some((bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
         let bga_bytes = bga_image.encode_bmp_bytes();
         manifest = manifest.with_bga_atlas(bga_meta);
@@ -477,17 +640,22 @@ where
 
     passthrough_files.push(("audio/atlas.bin".to_string(), sound_bytes));
 
-    // 4. Assemble package archive with v2 Manifest
-    let mut builder = PackageBuilder::new(manifest);
+    // 5. Assemble package archive with v2 Manifest
+    let mut builder = PackageBuilder::new(manifest.clone());
     for (rel_path, data) in passthrough_files {
         builder.add_file(rel_path, data)?;
     }
 
-    let bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+    let base_bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
         on_progress("Compressing .bmsp (Turbo)", curr, tot, name);
     })?;
 
-    Ok(bytes)
+    Ok(PackOutput {
+        base_package: base_bytes,
+        bga_package: bga_package_bytes,
+        base_manifest: manifest,
+        bga_manifest: bga_manifest_opt,
+    })
 }
 
 fn collect_file_paths(
@@ -899,6 +1067,101 @@ mod tests {
         let slice2 = sound_meta.slices.get("02").unwrap();
         assert_eq!(slice1.byte_len(), wav1_bytes.len() as u64);
         assert_eq!(slice2.byte_len(), wav2_bytes.len() as u64);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_bga_split_and_no_video_modes() {
+        use bms_package::{Package, PackageType};
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_bga_split_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let song_dir = temp_dir.join("VideoSong");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        let bms_content = r#"
+#TITLE Video Song
+#ARTIST BGA Master
+#WAV01 01.wav
+#BMP01 bga.mp4
+#00111:01
+#00104:01
+"#;
+        fs::write(song_dir.join("main.bms"), bms_content).unwrap();
+        fs::write(song_dir.join("01.wav"), b"RIFF_sample_sound_data_wav").unwrap();
+        fs::write(song_dir.join("bga.mp4"), vec![0x11u8; 4000]).unwrap(); // 4000 bytes video
+        fs::write(song_dir.join("movie.mpg"), vec![0x55u8; 1000]).unwrap(); // 1000 bytes video
+
+        // 1. Test BgaPackMode::Embed (Turbo)
+        let embed_opts = PackOptions::turbo(BgaPackMode::Embed);
+        let embed_out = pack_bms_folder_advanced_with_progress(&song_dir, None, embed_opts, None, |_, _, _, _| {})
+            .expect("embed pack failed");
+        assert!(embed_out.bga_package.is_none());
+        assert!(embed_out.bga_manifest.is_none());
+        assert!(embed_out.base_manifest.companion_packages.is_none());
+
+        let embed_pkg = Package::from_bytes(embed_out.base_package).unwrap();
+        assert!(embed_pkg.contains("bga.mp4"));
+        assert!(embed_pkg.contains("movie.mpg"));
+
+        // 2. Test BgaPackMode::NoVideo (Turbo)
+        let novideo_opts = PackOptions::turbo(BgaPackMode::NoVideo);
+        let novideo_out = pack_bms_folder_advanced_with_progress(&song_dir, None, novideo_opts, None, |_, _, _, _| {})
+            .expect("novideo pack failed");
+        assert!(novideo_out.bga_package.is_none());
+        assert!(novideo_out.bga_manifest.is_none());
+        assert!(novideo_out.base_manifest.companion_packages.is_none());
+
+        let novideo_pkg = Package::from_bytes(novideo_out.base_package).unwrap();
+        assert!(!novideo_pkg.contains("bga.mp4"));
+        assert!(!novideo_pkg.contains("movie.mpg"));
+
+        // 3. Test BgaPackMode::Split (Turbo)
+        let split_opts = PackOptions::turbo(BgaPackMode::Split);
+        let split_out = pack_bms_folder_advanced_with_progress(&song_dir, None, split_opts, None, |_, _, _, _| {})
+            .expect("split pack failed");
+        assert!(split_out.bga_package.is_some());
+        assert!(split_out.bga_manifest.is_some());
+
+        // Base package checks
+        let base_pkg = Package::from_bytes(split_out.base_package).unwrap();
+        assert!(!base_pkg.contains("bga.mp4"));
+        assert!(!base_pkg.contains("movie.mpg"));
+        assert_eq!(base_pkg.manifest().package_type, PackageType::Standard);
+
+        // Companion metadata attached to base package
+        let bga_comp = base_pkg.manifest().companion_packages.as_ref().unwrap().bga.as_ref().unwrap();
+        assert_eq!(bga_comp.recommended_filename, format!("{}.bga.bmsp", base_pkg.manifest().id));
+
+        // Companion package checks
+        let bga_pkg_bytes = split_out.bga_package.unwrap();
+        assert_eq!(bga_comp.size_bytes, bga_pkg_bytes.len() as u64);
+        assert_eq!(bga_comp.sha256, bms_package::sha256_hex(&bga_pkg_bytes));
+
+        let bga_pkg = Package::from_bytes(bga_pkg_bytes).unwrap();
+        assert!(bga_pkg.contains("bga.mp4"));
+        assert!(bga_pkg.contains("movie.mpg"));
+        assert_eq!(bga_pkg.manifest().package_type, PackageType::BgaCompanion);
+        assert_eq!(bga_pkg.manifest().target_package_id.as_deref(), Some(base_pkg.manifest().id.as_str()));
+
+        // 4. Test BgaPackMode::Split (Classic)
+        let classic_split_opts = PackOptions::classic(BgaPackMode::Split);
+        let classic_out = pack_bms_folder_advanced_with_progress(&song_dir, None, classic_split_opts, None, |_, _, _, _| {})
+            .expect("classic split pack failed");
+        assert!(classic_out.bga_package.is_some());
+        let classic_base = Package::from_bytes(classic_out.base_package).unwrap();
+        assert!(!classic_base.contains("bga.mp4"));
+        assert!(classic_base.contains("01.wav"));
+
+        let classic_bga = Package::from_bytes(classic_out.bga_package.unwrap()).unwrap();
+        assert!(classic_bga.contains("bga.mp4"));
+        assert_eq!(classic_bga.manifest().package_type, PackageType::BgaCompanion);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

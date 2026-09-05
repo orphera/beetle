@@ -224,6 +224,21 @@ impl PackageManager {
         crate::pack::pack_bms_folder_profile_with_progress(folder_path, manifest_override, profile, cancel_flag, on_progress)
     }
 
+    /// Packs a local BMS directory with advanced options (profile and BGA mode), cancellation, and progress reporting.
+    pub fn pack_folder_advanced_with_progress<P: AsRef<Path>, F>(
+        &self,
+        folder_path: P,
+        manifest_override: Option<Manifest>,
+        options: crate::pack::PackOptions,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        on_progress: F,
+    ) -> Result<crate::pack::PackOutput, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
+        crate::pack::pack_bms_folder_advanced_with_progress(folder_path, manifest_override, options, cancel_flag, on_progress)
+    }
+
     /// Ingests and installs an existing local BMS directory directly into managed storage.
     pub fn import_folder<P: AsRef<Path>>(
         &mut self,
