@@ -282,6 +282,19 @@ pub fn decode_base36(c1: u8, c2: u8) -> Option<WavId> {
     }
 }
 
+/// Encode a `WavId` (1..=1295) to a 2-character Base36 string (`01`..`ZZ`).
+pub fn encode_base36(id: WavId) -> String {
+    let val = id.0;
+    let d1 = ((val / 36) % 36) as u8;
+    let d2 = (val % 36) as u8;
+    let c1 = if d1 < 10 { b'0' + d1 } else { b'A' + (d1 - 10) };
+    let c2 = if d2 < 10 { b'0' + d2 } else { b'A' + (d2 - 10) };
+    let mut s = String::with_capacity(2);
+    s.push(c1 as char);
+    s.push(c2 as char);
+    s
+}
+
 /// Decode a 2-character hexadecimal string (`00`..`FF`) to `u8`.
 pub fn decode_hex(c1: u8, c2: u8) -> Option<u8> {
     let d1 = match c1 {
@@ -923,6 +936,24 @@ mod tests {
         assert_eq!(decode_base36(b'1', b'0'), Some(WavId(36)));
         assert_eq!(decode_base36(b'Z', b'Z'), Some(WavId(35 * 36 + 35)));
         assert_eq!(decode_base36(b'!', b'A'), None);
+    }
+
+    #[test]
+    fn test_encode_base36() {
+        assert_eq!(encode_base36(WavId(1)), "01");
+        assert_eq!(encode_base36(WavId(9)), "09");
+        assert_eq!(encode_base36(WavId(10)), "0A");
+        assert_eq!(encode_base36(WavId(35)), "0Z");
+        assert_eq!(encode_base36(WavId(36)), "10");
+        assert_eq!(encode_base36(WavId(1295)), "ZZ");
+
+        // Round-trip test for all 1..=1295 IDs
+        for id in 1..=1295 {
+            let encoded = encode_base36(WavId(id));
+            let b = encoded.as_bytes();
+            let decoded = decode_base36(b[0], b[1]).unwrap();
+            assert_eq!(decoded.0, id);
+        }
     }
 
     #[test]

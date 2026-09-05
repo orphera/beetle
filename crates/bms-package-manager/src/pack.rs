@@ -200,12 +200,12 @@ where
                 let content = beetle_core::decode_bms_text(&bytes);
                 if let Ok(chart) = beetle_core::parse_bms(&content) {
                     for (&wav_id, filename) in &chart.header.wav_table {
-                        let key = format!("{:02X}", wav_id.0);
+                        let key = beetle_core::encode_base36(wav_id);
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
                         wav_targets.insert(norm, key);
                     }
                     for (&bmp_id, filename) in &chart.header.bmp_table {
-                        let key = format!("{:02X}", bmp_id.0);
+                        let key = beetle_core::encode_base36(beetle_core::WavId(bmp_id.0));
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
                         bmp_targets.insert(norm, key);
                     }

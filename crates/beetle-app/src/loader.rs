@@ -65,6 +65,12 @@ fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option
 }
 
 fn parse_bmp_id(key: &str) -> Option<BmpId> {
+    let bytes = key.as_bytes();
+    if bytes.len() == 2 {
+        if let Some(id) = beetle_core::decode_base36(bytes[0], bytes[1]) {
+            return Some(BmpId(id.0));
+        }
+    }
     if let Ok(v) = u16::from_str_radix(key, 16) {
         return Some(BmpId(v));
     }
@@ -737,5 +743,147 @@ mod tests {
         // Clean up
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_large_song_dual_atlas_benchmark() {
+        use std::time::Instant;
+        use beetle_render::skin::ColorRgba;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "beetle_benchmark_{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Generate 250 keysounds (full 2-digit hex space) and 50 BGA frames
+        let sound_count = 250;
+        let bga_count = 50;
+
+        let mut bms_lines = vec![
+            "#TITLE Benchmark Song".to_string(),
+            "#ARTIST Large Ensemble".to_string(),
+            "#BPM 175".to_string(),
+            "#STAGEFILE stage.bmp".to_string(),
+        ];
+
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let wav_bytes = {
+            let mut cur = std::io::Cursor::new(Vec::new());
+            {
+                let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+                for s in 0..50 {
+                    w.write_sample(((s % 20) * 1000) as i16).unwrap();
+                }
+                w.finalize().unwrap();
+            }
+            cur.into_inner()
+        };
+
+        for i in 1..=sound_count {
+            let wav_name = format!("snd_{:03}.wav", i);
+            fs::write(temp_dir.join(&wav_name), &wav_bytes).unwrap();
+            let key = beetle_core::encode_base36(beetle_core::WavId(i as u16));
+            bms_lines.push(format!("#WAV{} {}", key, wav_name));
+        }
+
+        let dummy_bmp = ImageBuffer::new(32, 32, ColorRgba::new(100, 150, 200, 255)).encode_bmp_bytes();
+        for i in 1..=bga_count {
+            let bmp_name = format!("bga_{:02}.bmp", i);
+            fs::write(temp_dir.join(&bmp_name), &dummy_bmp).unwrap();
+            let key = beetle_core::encode_base36(beetle_core::WavId(i as u16));
+            bms_lines.push(format!("#BMP{} {}", key, bmp_name));
+        }
+        fs::write(temp_dir.join("stage.bmp"), &dummy_bmp).unwrap();
+
+        // Add note events
+        bms_lines.push("#00111:01".to_string());
+        bms_lines.push("#00104:01".to_string());
+        fs::write(temp_dir.join("bench.bms"), bms_lines.join("\n")).unwrap();
+
+        // 2. Pack Classic vs Turbo
+        let t0 = Instant::now();
+        let classic_bytes = bms_package_manager::pack_bms_folder_profile(
+            &temp_dir,
+            None,
+            bms_package_manager::PackProfile::Classic,
+        ).expect("classic pack failed");
+        let classic_pack_time = t0.elapsed();
+
+        let t1 = Instant::now();
+        let turbo_bytes = bms_package_manager::pack_bms_folder_profile(
+            &temp_dir,
+            None,
+            bms_package_manager::PackProfile::Turbo,
+        ).expect("turbo pack failed");
+        let turbo_pack_time = t1.elapsed();
+
+        let classic_path = temp_dir.join("classic.bmsp");
+        let turbo_path = temp_dir.join("turbo.bmsp");
+        fs::write(&classic_path, &classic_bytes).unwrap();
+        fs::write(&turbo_path, &turbo_bytes).unwrap();
+
+        println!("[BENCHMARK] Packages created:");
+        println!("  - Classic: {} bytes (pack time: {:?})", classic_bytes.len(), classic_pack_time);
+        println!("  - Turbo:   {} bytes (pack time: {:?})", turbo_bytes.len(), turbo_pack_time);
+
+        // 3. Measure Loading Time: Classic vs Turbo
+        let classic_meta = SongMetadata {
+            hash: 10001,
+            file_path: format!("{}::bench.bms", classic_path.to_string_lossy().replace('\\', "/")),
+            title: "Benchmark Song".to_string(),
+            subtitle: "".to_string(),
+            artist: "Large Ensemble".to_string(),
+            genre: "".to_string(),
+            bpm: 175.0,
+            play_level: 10,
+            notes_count: 500,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let turbo_meta = SongMetadata {
+            hash: 10002,
+            file_path: format!("{}::bench.bms", turbo_path.to_string_lossy().replace('\\', "/")),
+            title: "Benchmark Song".to_string(),
+            subtitle: "".to_string(),
+            artist: "Large Ensemble".to_string(),
+            genre: "".to_string(),
+            bpm: 175.0,
+            play_level: 10,
+            notes_count: 250,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        // Classic load
+        let start_classic = Instant::now();
+        let (_c_chart, _c_timing, c_bank, c_bga, _) = load_chart_and_audio(&classic_meta);
+        let classic_load_time = start_classic.elapsed();
+
+        // Turbo load
+        let start_turbo = Instant::now();
+        let (_t_chart, _t_timing, t_bank, t_bga, _) = load_chart_and_audio(&turbo_meta);
+        let turbo_load_time = start_turbo.elapsed();
+
+        println!("[BENCHMARK] 250 Keysounds & 50 BGAs In-Game Load Time:");
+        println!("  - Classic: {:?}", classic_load_time);
+        println!("  - Turbo:   {:?} (Speedup: {:.1}x)", turbo_load_time, classic_load_time.as_secs_f64() / turbo_load_time.as_secs_f64().max(0.0001));
+
+        assert_eq!(c_bank.len(), sound_count, "Classic loaded all keysounds");
+        assert_eq!(t_bank.len(), sound_count, "Turbo loaded all keysounds");
+        assert_eq!(c_bga.len(), bga_count, "Classic loaded all BGA frames");
+        assert_eq!(t_bga.len(), bga_count, "Turbo loaded all BGA frames");
+
+        assert!(turbo_load_time.as_millis() < 80, "Turbo loading should be under 80ms even in debug profile");
+        assert!(turbo_load_time < classic_load_time, "Turbo loading should be faster than Classic loading");
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
+
 
