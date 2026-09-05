@@ -103,39 +103,81 @@ fn main() -> Result<(), PackageManagerError> {
                 bms_package_manager::PackProfile::Classic
             };
 
-            let out_idx = args.iter().position(|a| a == "-o");
-            let folder_name = PathBuf::from(folder)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("package")
-                .to_string();
+            let roots = bms_package_manager::find_bms_song_roots(folder);
+            if roots.is_empty() {
+                eprintln!("Error: No BMS chart files (.bms, .bme, .bml, .pms) found in '{}' or any subdirectories.", folder);
+                std::process::exit(1);
+            }
 
-            let out_file = if let Some(idx) = out_idx {
-                if idx + 1 < args.len() {
-                    args[idx + 1].clone()
-                } else {
-                    format!("{}.bmsp", folder_name)
-                }
-            } else {
-                format!("{}.bmsp", folder_name)
+            let profile_tag = match profile {
+                bms_package_manager::PackProfile::Classic => "Classic",
+                bms_package_manager::PackProfile::Turbo => "Turbo (Dual Atlas)",
             };
 
-            match manager.pack_folder_profile(folder, None, profile) {
-                Ok(bytes) => {
-                    if let Err(e) = fs::write(&out_file, bytes) {
-                        eprintln!("Failed to write output package file: {e}");
+            let out_idx = args.iter().position(|a| a == "-o");
+
+            if roots.len() == 1 {
+                let target_root = &roots[0];
+                let folder_name = target_root
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("package")
+                    .to_string();
+
+                let out_file = if let Some(idx) = out_idx {
+                    if idx + 1 < args.len() {
+                        args[idx + 1].clone()
+                    } else {
+                        format!("{}.bmsp", folder_name)
+                    }
+                } else {
+                    format!("{}.bmsp", folder_name)
+                };
+
+                if target_root != std::path::Path::new(folder) {
+                    println!("Detected BMS song root at '{}'", target_root.display());
+                }
+
+                match manager.pack_folder_profile(target_root, None, profile) {
+                    Ok(bytes) => {
+                        if let Err(e) = fs::write(&out_file, bytes) {
+                            eprintln!("Failed to write output package file: {e}");
+                            std::process::exit(1);
+                        }
+                        println!("Successfully packed '{}' into '{}' [{}]", target_root.display(), out_file, profile_tag);
+                    }
+                    Err(e) => {
+                        eprintln!("Packaging failed: {e}");
                         std::process::exit(1);
                     }
-                    let profile_tag = match profile {
-                        bms_package_manager::PackProfile::Classic => "Classic",
-                        bms_package_manager::PackProfile::Turbo => "Turbo (Dual Atlas)",
-                    };
-                    println!("Successfully packed '{}' into '{}' [{}]", folder, out_file, profile_tag);
                 }
-                Err(e) => {
-                    eprintln!("Packaging failed: {e}");
-                    std::process::exit(1);
+            } else {
+                println!("Found {} BMS song directories under '{}'. Batch packing each song...", roots.len(), folder);
+                let mut success_count = 0;
+                for (i, target_root) in roots.iter().enumerate() {
+                    let folder_name = target_root
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("song")
+                        .to_string();
+                    let out_file = format!("{}.bmsp", folder_name);
+
+                    print!("[{}/{}] Packing '{}' into '{}' [{}]... ", i + 1, roots.len(), target_root.display(), out_file, profile_tag);
+                    match manager.pack_folder_profile(target_root, None, profile) {
+                        Ok(bytes) => {
+                            if let Err(e) = fs::write(&out_file, &bytes) {
+                                println!("FAILED (Write error: {})", e);
+                            } else {
+                                println!("OK ({} bytes)", bytes.len());
+                                success_count += 1;
+                            }
+                        }
+                        Err(e) => {
+                            println!("FAILED ({})", e);
+                        }
+                    }
                 }
+                println!("Batch packing finished: {}/{} packages created successfully.", success_count, roots.len());
             }
         }
         "diff" => {

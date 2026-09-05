@@ -703,64 +703,132 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                             .trim_matches('"')
                             .to_string();
 
-                        let folder_p = PathBuf::from(&clean_path);
-                        let out_name = format!(
-                            "{}.bmsp",
-                            folder_p.file_name().and_then(|n| n.to_str()).unwrap_or("package")
-                        );
+                        let roots = bms_package_manager::find_bms_song_roots(&clean_path);
+                        if roots.is_empty() {
+                            state.status_msg = format!("No BMS chart files found in '{}'", clean_path);
+                            return;
+                        }
+
                         let profile = if is_turbo {
                             bms_package_manager::PackProfile::Turbo
                         } else {
                             bms_package_manager::PackProfile::Classic
                         };
-                        let title_label = if is_turbo { "Packing Turbo (Dual Atlas) folder" } else { "Packing Classic folder" };
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("{} '{}'", title_label, clean_path),
-                            phase: "Scanning folder...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mgr) => {
-                                    let res = mgr.pack_folder_profile_with_progress(
-                                        &clean_path,
-                                        None,
-                                        profile,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(bytes) => {
-                                            if let Err(e) = fs::write(&out_name, bytes) {
-                                                let _ = tx.send(BgTaskMessage::Failed(format!("Write error: {e}")));
-                                            } else {
-                                                let mode_str = if is_turbo { "Turbo (Dual Atlas)" } else { "Classic" };
-                                                let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_name)));
+                        let mode_str = if is_turbo { "Turbo (Dual Atlas)" } else { "Classic" };
+
+                        if roots.len() == 1 {
+                            let target_root = roots[0].clone();
+                            let folder_name = target_root
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("package")
+                                .to_string();
+                            let out_name = format!("{}.bmsp", folder_name);
+
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Packing {} folder '{}'", mode_str, folder_name),
+                                phase: "Scanning folder...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mgr) => {
+                                        let res = mgr.pack_folder_profile_with_progress(
+                                            &target_root,
+                                            None,
+                                            profile,
+                                            Some(&cancel_flag),
+                                            move |phase, curr, tot, detail| {
+                                                let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                    phase: phase.to_string(),
+                                                    current: curr,
+                                                    total: tot,
+                                                    detail: detail.to_string(),
+                                                });
+                                            },
+                                        );
+                                        match res {
+                                            Ok(bytes) => {
+                                                if let Err(e) = fs::write(&out_name, bytes) {
+                                                    let _ = tx.send(BgTaskMessage::Failed(format!("Write error: {e}")));
+                                                } else {
+                                                    let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_name)));
+                                                }
+                                            }
+                                            Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                let _ = tx.send(BgTaskMessage::Failed("Packing cancelled by user".to_string()));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(BgTaskMessage::Failed(format!("Pack error: {e}")));
                                             }
                                         }
-                                        Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                            let _ = tx.send(BgTaskMessage::Failed("Packing cancelled by user".to_string()));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!("Pack error: {e}")));
-                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            });
+                        } else {
+                            let total_count = roots.len();
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Batch packing {} songs [{}]", total_count, mode_str),
+                                phase: "Starting batch...".to_string(),
+                                current: 0,
+                                total: total_count,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mgr) => {
+                                        let mut success_count = 0;
+                                        for (i, r) in roots.iter().enumerate() {
+                                            if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                                let _ = tx.send(BgTaskMessage::Failed("Batch packing cancelled by user".to_string()));
+                                                return;
+                                            }
+                                            let s_name = r.file_name().and_then(|n| n.to_str()).unwrap_or("song").to_string();
+                                            let out_name = format!("{}.bmsp", s_name);
+                                            let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                phase: format!("[{}/{}] Packing '{}'", i + 1, total_count, s_name),
+                                                current: i + 1,
+                                                total: total_count,
+                                                detail: out_name.clone(),
+                                            });
+
+                                            match mgr.pack_folder_profile_with_progress(
+                                                r,
+                                                None,
+                                                profile,
+                                                Some(&cancel_flag),
+                                                |_, _, _, _| {},
+                                            ) {
+                                                Ok(bytes) => {
+                                                    if fs::write(&out_name, bytes).is_ok() {
+                                                        success_count += 1;
+                                                    }
+                                                }
+                                                Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                    let _ = tx.send(BgTaskMessage::Failed("Batch packing cancelled by user".to_string()));
+                                                    return;
+                                                }
+                                                Err(_) => {}
+                                            }
+                                        }
+                                        let _ = tx.send(BgTaskMessage::Completed(format!(
+                                            "Batch packed {}/{} songs [{}] into .bmsp",
+                                            success_count, total_count, mode_str
+                                        )));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                     ModalMode::ApplyDelta => {
                         state.bg_task_running = Some(BgTaskState {

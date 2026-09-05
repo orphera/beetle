@@ -19,3 +19,5 @@ scratch/
 *.dat
 /replays/
 /songs/
+*.bmsp
+*.bmdp

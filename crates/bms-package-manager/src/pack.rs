@@ -4,7 +4,7 @@ use beetle_render::{is_video_path, BgaAtlasBuilder, ImageBuffer};
 use bms_package::{Manifest, PackageBuilder, SoundAtlasCodec, MANIFEST_FILENAME};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Packaging profile selecting between legacy file-preserved ZIP and Dual Atlas instant-load package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -14,6 +14,72 @@ pub enum PackProfile {
     Classic,
     /// Turbo package: Audio and image files compiled into Sound Atlas and BGA Texture Atlas for instant loading.
     Turbo,
+}
+
+/// Finds all BMS song root directories under a given directory.
+///
+/// A directory is considered a song root if it directly contains at least one BMS chart file
+/// (`.bms`, `.bme`, `.bml`, `.pms`).
+///
+/// If `root` itself directly contains BMS files, `[root]` is returned immediately.
+/// Otherwise, subdirectories are searched recursively using breadth-first traversal (BFS),
+/// returning the shallowest subdirectories containing BMS files.
+pub fn find_bms_song_roots<P: AsRef<Path>>(root: P) -> Vec<PathBuf> {
+    let root = root.as_ref();
+    if !root.is_dir() {
+        return Vec::new();
+    }
+
+    fn has_bms_files(dir: &Path) -> bool {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                        let ext_lower = ext.to_ascii_lowercase();
+                        if matches!(ext_lower.as_str(), "bms" | "bme" | "bml" | "pms") {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    if has_bms_files(root) {
+        return vec![root.to_path_buf()];
+    }
+
+    let mut song_roots = Vec::new();
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(root.to_path_buf());
+
+    while let Some(current_dir) = queue.pop_front() {
+        if let Ok(entries) = fs::read_dir(&current_dir) {
+            let mut subdirs = Vec::new();
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !name.starts_with('.') {
+                        subdirs.push(p);
+                    }
+                }
+            }
+            subdirs.sort();
+
+            for subdir in subdirs {
+                if has_bms_files(&subdir) {
+                    song_roots.push(subdir);
+                } else {
+                    queue.push_back(subdir);
+                }
+            }
+        }
+    }
+
+    song_roots
 }
 
 /// Analyzes a directory containing BMS files to automatically generate a `Manifest`.
@@ -26,7 +92,14 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
         )));
     }
 
-    let dir_name = p
+    let roots = find_bms_song_roots(p);
+    let target_dir = match roots.as_slice() {
+        [] => p,
+        [single] => single.as_path(),
+        [first, ..] => first.as_path(),
+    };
+
+    let dir_name = target_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("bms_song");
@@ -35,8 +108,8 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
     let mut found_artist = String::new();
     let mut found_genre = String::new();
 
-    // Look for .bms, .bme, .bml, .pms files in the directory
-    for entry in fs::read_dir(p)? {
+    // Look for .bms, .bme, .bml, .pms files in target_dir
+    for entry in fs::read_dir(target_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
@@ -129,9 +202,21 @@ pub fn pack_bms_folder_profile_with_progress<P: AsRef<Path>, F>(
 where
     F: FnMut(&str, usize, usize, &str),
 {
+    let roots = find_bms_song_roots(&folder_path);
+    let target_dir = match roots.as_slice() {
+        [] => {
+            return Err(PackageManagerError::InvalidPackage(format!(
+                "No BMS chart files (.bms, .bme, .bml, .pms) found in '{}' or any subdirectories",
+                folder_path.as_ref().display()
+            )));
+        }
+        [single] => single.as_path(),
+        [first, ..] => first.as_path(),
+    };
+
     match profile {
         PackProfile::Classic => {
-            let p = folder_path.as_ref();
+            let p = target_dir;
             let manifest = match manifest_override {
                 Some(m) => m,
                 None => analyze_bms_folder(p)?,
@@ -160,7 +245,7 @@ where
             Ok(bytes)
         }
         PackProfile::Turbo => {
-            pack_bms_folder_turbo_with_progress(folder_path, manifest_override, cancel_flag, on_progress)
+            pack_bms_folder_turbo_with_progress(target_dir, manifest_override, cancel_flag, on_progress)
         }
     }
 }
@@ -175,7 +260,14 @@ fn pack_bms_folder_turbo_with_progress<P: AsRef<Path>, F>(
 where
     F: FnMut(&str, usize, usize, &str),
 {
-    let p = folder_path.as_ref();
+    let roots = find_bms_song_roots(&folder_path);
+    let target_dir = match roots.as_slice() {
+        [] => folder_path.as_ref(),
+        [single] => single.as_path(),
+        [first, ..] => first.as_path(),
+    };
+
+    let p = target_dir;
     let mut manifest = match manifest_override {
         Some(m) => m,
         None => analyze_bms_folder(p)?,
@@ -185,8 +277,10 @@ where
     collect_file_paths(p, p, &mut files_to_read)?;
 
     // 1. Scan charts to map WavId and BmpId references to filenames
-    let mut wav_targets: HashMap<String, String> = HashMap::new(); // norm_filename -> key ("01", "ZZ")
-    let mut bmp_targets: HashMap<String, String> = HashMap::new(); // norm_filename -> key ("01", "stagefile", "banner")
+    let mut wav_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "ZZ")
+    let mut wav_stems: HashMap<String, String> = HashMap::new();   // stem -> key
+    let mut bmp_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "stagefile", "banner")
+    let mut bmp_stems: HashMap<String, String> = HashMap::new();   // stem -> key
 
     for (rel_path, abs_path) in &files_to_read {
         let ext = Path::new(rel_path)
@@ -202,20 +296,61 @@ where
                     for (&wav_id, filename) in &chart.header.wav_table {
                         let key = beetle_core::encode_base36(wav_id);
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
-                        wav_targets.insert(norm, key);
+                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
+                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+
+                        wav_targets.insert(norm.clone(), key.clone());
+                        wav_targets.insert(file_only.clone(), key.clone());
+                        wav_stems.entry(stem.clone()).or_insert_with(|| key.clone());
+
+                        // Cross-extension matching (.wav <-> .ogg)
+                        if norm.ends_with(".wav") {
+                            let base = &norm[..norm.len() - 4];
+                            wav_targets.insert(format!("{}.ogg", base), key.clone());
+                            let fbase = &file_only[..file_only.len() - 4];
+                            wav_targets.insert(format!("{}.ogg", fbase), key.clone());
+                        } else if norm.ends_with(".ogg") {
+                            let base = &norm[..norm.len() - 4];
+                            wav_targets.insert(format!("{}.wav", base), key.clone());
+                            let fbase = &file_only[..file_only.len() - 4];
+                            wav_targets.insert(format!("{}.wav", fbase), key.clone());
+                        }
                     }
                     for (&bmp_id, filename) in &chart.header.bmp_table {
                         let key = beetle_core::encode_base36(beetle_core::WavId(bmp_id.0));
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
-                        bmp_targets.insert(norm, key);
+                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
+                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+
+                        bmp_targets.insert(norm.clone(), key.clone());
+                        bmp_targets.insert(file_only.clone(), key.clone());
+                        bmp_stems.entry(stem.clone()).or_insert_with(|| key.clone());
+
+                        for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
+                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), key.clone());
+                        }
                     }
                     if !chart.header.stage_file.is_empty() {
                         let norm = chart.header.stage_file.replace('\\', "/").to_ascii_lowercase();
+                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
+                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
                         bmp_targets.insert(norm, "stagefile".to_string());
+                        bmp_targets.insert(file_only, "stagefile".to_string());
+                        bmp_stems.entry(stem.clone()).or_insert_with(|| "stagefile".to_string());
+                        for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
+                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), "stagefile".to_string());
+                        }
                     }
                     if !chart.header.banner.is_empty() {
                         let norm = chart.header.banner.replace('\\', "/").to_ascii_lowercase();
+                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
+                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
                         bmp_targets.insert(norm, "banner".to_string());
+                        bmp_targets.insert(file_only, "banner".to_string());
+                        bmp_stems.entry(stem.clone()).or_insert_with(|| "banner".to_string());
+                        for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
+                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), "banner".to_string());
+                        }
                     }
                 }
             }
@@ -237,6 +372,7 @@ where
         on_progress("Compiling assets into Atlases", i + 1, total, &rel_path);
 
         let data = fs::read(&abs_path)?;
+        let norm_rel = rel_path.replace('\\', "/").to_ascii_lowercase();
         let file_name = Path::new(&rel_path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -248,6 +384,7 @@ where
             .to_ascii_lowercase();
 
         let norm_name = file_name.to_ascii_lowercase();
+        let file_stem = Path::new(&norm_name).file_stem().and_then(|s| s.to_str()).unwrap_or(&norm_name);
 
         // A. Video files -> Passthrough directly
         if is_video_path(&rel_path) {
@@ -262,16 +399,19 @@ where
         }
 
         // C. Audio files -> Compile into Sound Atlas
-        let matched_wav_key = wav_targets.get(&norm_name).cloned();
+        let matched_wav_key = wav_targets.get(&norm_rel)
+            .or_else(|| wav_targets.get(&norm_name))
+            .or_else(|| wav_stems.get(file_stem))
+            .cloned();
         let is_audio = matches!(ext.as_str(), "wav" | "ogg") || matched_wav_key.is_some();
         if is_audio {
             if let Ok(pcm) = SampleBank::load_audio_from_bytes(&data) {
                 let key = matched_wav_key.unwrap_or_else(|| {
-                    Path::new(file_name)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("sound")
-                        .to_string()
+                    if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
+                        file_stem.to_ascii_uppercase()
+                    } else {
+                        file_stem.to_string()
+                    }
                 });
                 sound_builder.add_sample(key, &pcm, Some(file_name.to_string()));
                 continue;
@@ -279,16 +419,19 @@ where
         }
 
         // D. Image files -> Compile into BGA Texture Atlas
-        let matched_bmp_key = bmp_targets.get(&norm_name).cloned();
+        let matched_bmp_key = bmp_targets.get(&norm_rel)
+            .or_else(|| bmp_targets.get(&norm_name))
+            .or_else(|| bmp_stems.get(file_stem))
+            .cloned();
         let is_image = matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key.is_some();
         if is_image {
             if let Some(img) = ImageBuffer::from_bytes(&data) {
                 let key = matched_bmp_key.unwrap_or_else(|| {
-                    Path::new(file_name)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("image")
-                        .to_string()
+                    if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
+                        file_stem.to_ascii_uppercase()
+                    } else {
+                        file_stem.to_string()
+                    }
                 });
                 bga_builder.add_frame(key, &img, Some(file_name.to_string()));
                 continue;
@@ -532,5 +675,123 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_find_bms_song_roots_nested_and_batch() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_roots_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Direct song
+        let song_a = temp_dir.join("SongA");
+        fs::create_dir_all(&song_a).unwrap();
+        fs::write(song_a.join("track.bms"), "#TITLE Track A").unwrap();
+
+        let roots_a = find_bms_song_roots(&song_a);
+        assert_eq!(roots_a.len(), 1);
+        assert_eq!(roots_a[0], song_a);
+
+        // 2. Nested wrapper song (wrapper/actual/track.bms)
+        let wrapper = temp_dir.join("Wrapper");
+        let nested_song = wrapper.join("ActualSong");
+        fs::create_dir_all(&nested_song).unwrap();
+        fs::write(nested_song.join("track.bme"), "#TITLE Nested").unwrap();
+
+        let roots_wrapper = find_bms_song_roots(&wrapper);
+        assert_eq!(roots_wrapper.len(), 1);
+        assert_eq!(roots_wrapper[0], nested_song);
+
+        // 3. Multi-song pack (temp_dir contains SongA and Wrapper/ActualSong)
+        let all_roots = find_bms_song_roots(&temp_dir);
+        assert_eq!(all_roots.len(), 2);
+        assert!(all_roots.contains(&song_a));
+        assert!(all_roots.contains(&nested_song));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_cross_format_and_nested_subfolder_matching() {
+        use bms_package::Package;
+        use beetle_render::skin::ColorRgba;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_cross_fmt_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested_song = temp_dir.join("ArchiveFolder").join("SongRoot");
+        fs::create_dir_all(&nested_song).unwrap();
+
+        // Chart references .wav and .bmp
+        let bms_content = r#"
+#TITLE Cross Format Song
+#ARTIST Specialist
+#BPM 180
+#WAV01 kick.wav
+#WAV02 sound/snare.wav
+#BMP01 bg.bmp
+#STAGEFILE stage.bmp
+#00111:0102
+"#;
+        fs::write(nested_song.join("play.bms"), bms_content).unwrap();
+
+        // Disk has .wav and .bmp or .png
+        let create_wav = |samples: &[i16]| -> Vec<u8> {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut cur = std::io::Cursor::new(Vec::new());
+            {
+                let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+                for &s in samples {
+                    w.write_sample(s).unwrap();
+                }
+                w.finalize().unwrap();
+            }
+            cur.into_inner()
+        };
+
+        // kick.wav directly, and snare.wav in sound/ subfolder
+        let snd_dir = nested_song.join("sound");
+        fs::create_dir_all(&snd_dir).unwrap();
+        fs::write(nested_song.join("kick.wav"), create_wav(&[100, 200])).unwrap();
+        fs::write(snd_dir.join("snare.wav"), create_wav(&[300, -300])).unwrap();
+
+        // bg.bmp and stage.bmp
+        let img = ImageBuffer::new(16, 16, ColorRgba::new(255, 128, 0, 255)).encode_bmp_bytes();
+        fs::write(nested_song.join("bg.bmp"), &img).unwrap();
+        fs::write(nested_song.join("stage.bmp"), &img).unwrap();
+
+        // Pack from the TOP outer wrapper folder (ArchiveFolder)
+        let outer_dir = temp_dir.join("ArchiveFolder");
+        let pkg_bytes = pack_bms_folder_profile(&outer_dir, None, PackProfile::Turbo)
+            .expect("should automatically resolve nested song root and pack");
+
+        let pkg = Package::from_bytes(pkg_bytes).expect("inspect package failed");
+        let manifest = pkg.manifest();
+        assert_eq!(manifest.name, "Cross Format Song");
+        assert_eq!(manifest.author.as_deref(), Some("Specialist"));
+
+        let sound_meta = manifest.sound_atlas.as_ref().unwrap();
+        assert!(sound_meta.slices.contains_key("01"), "kick.wav matched");
+        assert!(sound_meta.slices.contains_key("02"), "sound/snare.wav matched");
+
+        let bga_meta = manifest.bga_atlas.as_ref().unwrap();
+        assert!(bga_meta.frames.contains_key("01"), "bg.bmp matched");
+        assert!(bga_meta.frames.contains_key("stagefile"), "stage.bmp matched");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

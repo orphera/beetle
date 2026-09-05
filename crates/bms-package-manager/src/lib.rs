@@ -14,7 +14,7 @@ pub mod vfs;
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use manager::{InstalledPackage, PackageManager};
-pub use pack::{analyze_bms_folder, pack_bms_folder, pack_bms_folder_profile, PackProfile};
+pub use pack::{analyze_bms_folder, find_bms_song_roots, pack_bms_folder, pack_bms_folder_profile, PackProfile};
 pub use registry::{PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
 pub use updater::PackageUpdater;
