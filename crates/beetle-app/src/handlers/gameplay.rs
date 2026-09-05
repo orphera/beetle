@@ -88,8 +88,8 @@ pub fn handle_gameplay_input(
                 state.renderer.set_key_state(lane, true);
                 if let Some(judge) = &mut state.active_judge {
                     if let Some((judge_result, wav_id)) =
-                        judge.handle_key_down(lane, effective_judge_time)
-                    {
+                            judge.handle_key_down(lane, effective_judge_time)
+                        {
                         if judge_result.grade == beetle_core::JudgeGrade::Miss
                             || judge_result.grade == beetle_core::JudgeGrade::Poor
                         {
@@ -108,6 +108,49 @@ pub fn handle_gameplay_input(
                                 volume: 1.0,
                                 pan: 0.0,
                             });
+                        }
+                    } else {
+                        // No visible note was judged on this lane. Implement transparent-note
+                        // fallback: if there are no visible unjudged notes near the judgment
+                        // line, play the nearest BGM/freezone sample (3x/4x) if available.
+                        let mut visible_near = false;
+                        if let (Some(chart), Some(timing)) = (&state.active_chart, &state.active_timing) {
+                            // Use judge window poor threshold based on chart rank
+                            let window = beetle_core::JudgeWindow::from_rank(chart.header.rank);
+                            let poor_ms = window.poor_ms;
+
+                            if let Some(j) = &state.active_judge {
+                                for pn in j.notes() {
+                                    if pn.is_judged {
+                                        continue;
+                                    }
+                                    let delta_ms = (effective_judge_time - pn.target_time_seconds).abs() * 1000.0;
+                                    if delta_ms <= poor_ms {
+                                        visible_near = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if !visible_near {
+                                // Find nearest bgm/freezone sample by absolute time distance
+                                let mut best: Option<(f64, beetle_core::WavId)> = None;
+                                for (m, f, wav_id) in &chart.bgm_notes {
+                                    let t = timing.beat_to_time_seconds(*m, *f);
+                                    let dms = (effective_judge_time - t).abs() * 1000.0;
+                                    if best.is_none() || dms < best.unwrap().0 {
+                                        best = Some((dms, *wav_id));
+                                    }
+                                }
+
+                                if let (Some((_, wav_id)), Some(audio)) = (best.map(|b| b.1), &mut state.audio_engine) {
+                                    let _ = audio.send_command(AudioCommand::PlaySample {
+                                        sample_id: wav_id,
+                                        volume: 1.0,
+                                        pan: 0.0,
+                                    });
+                                }
+                            }
                         }
                     }
                 }
