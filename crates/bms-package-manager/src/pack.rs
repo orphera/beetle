@@ -403,8 +403,10 @@ where
     // 1. Scan charts to map WavId and BmpId references to filenames
     let mut wav_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "ZZ")
     let mut wav_stems: HashMap<String, String> = HashMap::new();   // stem -> key
+    let mut wav_all_keys: HashMap<String, Vec<String>> = HashMap::new(); // norm_filename, file_only, or stem -> all keys
     let mut bmp_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "stagefile", "banner")
     let mut bmp_stems: HashMap<String, String> = HashMap::new();   // stem -> key
+    let mut bmp_all_keys: HashMap<String, Vec<String>> = HashMap::new(); // norm_filename, file_only, or stem -> all keys
 
     for (rel_path, abs_path) in &files_to_read {
         let ext = Path::new(rel_path)
@@ -427,17 +429,25 @@ where
                         wav_targets.insert(file_only.clone(), key.clone());
                         wav_stems.entry(stem.clone()).or_insert_with(|| key.clone());
 
+                        wav_all_keys.entry(norm.clone()).or_default().push(key.clone());
+                        wav_all_keys.entry(file_only.clone()).or_default().push(key.clone());
+                        wav_all_keys.entry(stem.clone()).or_default().push(key.clone());
+
                         // Cross-extension matching (.wav <-> .ogg)
                         if norm.ends_with(".wav") {
                             let base = &norm[..norm.len() - 4];
                             wav_targets.insert(format!("{}.ogg", base), key.clone());
                             let fbase = &file_only[..file_only.len() - 4];
                             wav_targets.insert(format!("{}.ogg", fbase), key.clone());
+                            wav_all_keys.entry(format!("{}.ogg", base)).or_default().push(key.clone());
+                            wav_all_keys.entry(format!("{}.ogg", fbase)).or_default().push(key.clone());
                         } else if norm.ends_with(".ogg") {
                             let base = &norm[..norm.len() - 4];
                             wav_targets.insert(format!("{}.wav", base), key.clone());
                             let fbase = &file_only[..file_only.len() - 4];
                             wav_targets.insert(format!("{}.wav", fbase), key.clone());
+                            wav_all_keys.entry(format!("{}.wav", base)).or_default().push(key.clone());
+                            wav_all_keys.entry(format!("{}.wav", fbase)).or_default().push(key.clone());
                         }
                     }
                     for (&bmp_id, filename) in &chart.header.bmp_table {
@@ -450,8 +460,13 @@ where
                         bmp_targets.insert(file_only.clone(), key.clone());
                         bmp_stems.entry(stem.clone()).or_insert_with(|| key.clone());
 
+                        bmp_all_keys.entry(norm.clone()).or_default().push(key.clone());
+                        bmp_all_keys.entry(file_only.clone()).or_default().push(key.clone());
+                        bmp_all_keys.entry(stem.clone()).or_default().push(key.clone());
+
                         for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
                             bmp_targets.insert(format!("{}.{}", stem, alt_ext), key.clone());
+                            bmp_all_keys.entry(format!("{}.{}", stem, alt_ext)).or_default().push(key.clone());
                         }
                     }
                     if !chart.header.stage_file.is_empty() {
@@ -626,13 +641,53 @@ where
     }
 
     // 3. Build Sound Atlas
-    let (sound_meta, sound_bytes) = sound_builder
+    let (mut sound_meta, sound_bytes) = sound_builder
         .build("audio/atlas.bin")
         .map_err(|e| PackageManagerError::InvalidPackage(format!("Sound Atlas build error: {e}")))?;
+
+    // Populate all alias WavId keys pointing to the same slices across charts
+    for slice in sound_meta.slices.values().cloned().collect::<Vec<_>>() {
+        if let Some(ref orig) = slice.original_filename {
+            let norm = orig.replace('\\', "/").to_ascii_lowercase();
+            let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
+            let stem = Path::new(file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(file_only);
+
+            let empty = Vec::new();
+            let keys = wav_all_keys.get(&norm)
+                .or_else(|| wav_all_keys.get(file_only))
+                .or_else(|| wav_all_keys.get(stem))
+                .unwrap_or(&empty);
+
+            for k in keys {
+                if !sound_meta.slices.contains_key(k) {
+                    sound_meta.slices.insert(k.clone(), slice.clone());
+                }
+            }
+        }
+    }
     manifest = manifest.with_sound_atlas(sound_meta);
 
     // 4. Build BGA Texture Atlas
-    if let Some((bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
+    if let Some((mut bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
+        for frame in bga_meta.frames.values().cloned().collect::<Vec<_>>() {
+            if let Some(ref orig) = frame.original_filename {
+                let norm = orig.replace('\\', "/").to_ascii_lowercase();
+                let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
+                let stem = Path::new(file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(file_only);
+
+                let empty = Vec::new();
+                let keys = bmp_all_keys.get(&norm)
+                    .or_else(|| bmp_all_keys.get(file_only))
+                    .or_else(|| bmp_all_keys.get(stem))
+                    .unwrap_or(&empty);
+
+                for k in keys {
+                    if !bga_meta.frames.contains_key(k) {
+                        bga_meta.frames.insert(k.clone(), frame.clone());
+                    }
+                }
+            }
+        }
         let bga_bytes = bga_image.encode_bmp_bytes();
         manifest = manifest.with_bga_atlas(bga_meta);
         passthrough_files.push(("visual/atlas.bmp".to_string(), bga_bytes));

@@ -432,7 +432,7 @@ pub fn load_chart_and_audio(
 
                         if let Some(path) = atlas_path {
                             if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                                match SampleBank::load_from_sound_atlas(&sound_meta, &atlas_bytes) {
+                                match SampleBank::load_from_sound_atlas_for_chart(&chart, &sound_meta, &atlas_bytes) {
                                     Ok(bank) => {
                                         loaded_count = bank.len();
                                         soundbank = bank;
@@ -446,9 +446,9 @@ pub fn load_chart_and_audio(
                         }
                     }
 
-                    // Fallback for sound: Classic file-by-file loading if Sound Atlas was not present or failed
-                    if !loaded_sound_from_atlas {
-                        for (&wav_id, filename) in &chart.header.wav_table {
+                    // Fallback for sound: Classic file-by-file loading for any keysound missing from Sound Atlas
+                    for (&wav_id, filename) in &chart.header.wav_table {
+                        if !soundbank.contains_key(wav_id) {
                             if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
                                 if let Ok(bytes) = pkg.read_entry(&target_path) {
                                     if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
@@ -1038,6 +1038,146 @@ mod tests {
         assert!(video_sources2.is_empty(), "Video is gracefully omitted when companion is missing");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_turbo_package_with_duplicate_wav_ids() {
+        use bms_package_manager::{pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions};
+
+        let temp_dir = std::env::temp_dir().join(format!("beetle_test_dup_wav_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let song_dir = temp_dir.join("src_song");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        // 1. Write BMS with multiple #WAV ids pointing to the same file
+        let bms_content = "\
+#TITLE Duplicate WAV Test
+#ARTIST Beetle Dev
+#BPM 130
+#PLAYER 1
+#WAV01 kick.wav
+#WAV02 kick.wav
+#WAV03 snare.wav
+#00111:01020300
+";
+        fs::write(song_dir.join("main.bms"), bms_content).unwrap();
+
+        // Create synthetic kick and snare WAV files
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut cur1 = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = hound::WavWriter::new(&mut cur1, spec).unwrap();
+            w.write_sample(2000i16).unwrap();
+            w.finalize().unwrap();
+        }
+        let kick_wav = cur1.into_inner();
+
+        let mut cur2 = std::io::Cursor::new(Vec::new());
+        {
+            let mut w = hound::WavWriter::new(&mut cur2, spec).unwrap();
+            w.write_sample(1500i16).unwrap();
+            w.finalize().unwrap();
+        }
+        let snare_wav = cur2.into_inner();
+
+        fs::write(song_dir.join("kick.wav"), kick_wav).unwrap();
+        fs::write(song_dir.join("snare.wav"), snare_wav).unwrap();
+
+        // Pack as Turbo package
+        let turbo_opts = PackOptions::turbo(BgaPackMode::Embed);
+        let out = pack_bms_folder_advanced_with_progress(
+            &song_dir,
+            None,
+            turbo_opts,
+            None,
+            |_, _, _, _| {},
+        ).unwrap();
+
+        let out_bmsp = temp_dir.join("dup_test.bmsp");
+        fs::write(&out_bmsp, &out.base_package).unwrap();
+
+        let song_meta = SongMetadata {
+            hash: 88888,
+            file_path: format!("{}::main.bms", out_bmsp.to_string_lossy().replace('\\', "/")),
+            title: "Duplicate WAV Test".to_string(),
+            subtitle: "".to_string(),
+            artist: "Beetle Dev".to_string(),
+            genre: "".to_string(),
+            bpm: 130.0,
+            play_level: 5,
+            notes_count: 3,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        // Load chart and audio from the packed Turbo package
+        let (_chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
+
+        assert_eq!(soundbank.len(), 3, "All 3 #WAV entries must be populated in soundbank");
+        assert!(soundbank.contains_key(beetle_core::WavId(1)), "WavId 1 (kick.wav) must exist");
+        assert!(soundbank.contains_key(beetle_core::WavId(2)), "WavId 2 (kick.wav duplicate) must exist");
+        assert!(soundbank.contains_key(beetle_core::WavId(3)), "WavId 3 (snare.wav) must exist");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_real_aliceblue_package() {
+        println!("Current dir: {:?}", std::env::current_dir());
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+        let pkg_path = Path::new(&manifest_dir).join("../../songs/aliceblue.bmsp");
+        println!("Checking pkg_path: {:?} (exists: {})", pkg_path, pkg_path.exists());
+        if !pkg_path.exists() {
+            return;
+        }
+
+        let song_meta = SongMetadata {
+            hash: 11111,
+            file_path: format!("{}::alice7-1.bme", pkg_path.to_string_lossy().replace('\\', "/")),
+            title: "aliceblue (Radio Edit)".to_string(),
+            subtitle: "".to_string(),
+            artist: "nekodex".to_string(),
+            genre: "".to_string(),
+            bpm: 175.0,
+            play_level: 10,
+            notes_count: 1000,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
+        println!("[VERIFICATION] alice7-1.bme wav_table count: {}, loaded in soundbank: {}", chart.header.wav_table.len(), soundbank.len());
+        assert!(soundbank.len() >= 193, "Should load at least 193 keysounds, got {}", soundbank.len());
+    }
+
+    #[test]
+    fn test_load_real_andromeda_package() {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+        let pkg_path = Path::new(&manifest_dir).join("../../songs/星の器.bmsp");
+        if !pkg_path.exists() {
+            return;
+        }
+
+        let song_meta = SongMetadata {
+            hash: 22222,
+            file_path: format!("{}::marisa(NORMAL7).bme", pkg_path.to_string_lossy().replace('\\', "/")),
+            title: "STAR OF ANDROMEDA".to_string(),
+            subtitle: "".to_string(),
+            artist: "D.Watt".to_string(),
+            genre: "".to_string(),
+            bpm: 170.0,
+            play_level: 6,
+            notes_count: 500,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
+        println!("[VERIFICATION] marisa(NORMAL7).bme wav_table count: {}, loaded in soundbank: {}", chart.header.wav_table.len(), soundbank.len());
+        assert!(soundbank.len() >= chart.header.wav_table.len(), "All keysounds in wav_table should be loaded");
+        assert!(soundbank.contains_key(beetle_core::WavId(2)), "WavId 02 (bd.wav) must be loaded");
+        assert!(soundbank.contains_key(beetle_core::decode_base36(b'0', b'W').unwrap()), "WavId 0W (bass-01.wav) must be loaded");
     }
 }
 

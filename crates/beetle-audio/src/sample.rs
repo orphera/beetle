@@ -114,12 +114,25 @@ impl SampleBank {
         crate::atlas::load_sample_bank_from_sound_atlas(meta, atlas_data)
     }
 
+    /// Loads keysounds from a Sound Atlas mapped specifically for the provided BMS chart.
+    pub fn load_from_sound_atlas_for_chart(
+        chart: &beetle_core::BmsChart,
+        meta: &bms_package::SoundAtlasMeta,
+        atlas_data: &[u8],
+    ) -> Result<Self, AudioDecodeError> {
+        crate::atlas::load_sample_bank_from_sound_atlas_for_chart(Some(chart), meta, atlas_data)
+    }
+
     pub fn insert(&mut self, id: WavId, buffer: PcmBuffer) {
         self.samples.insert(id, buffer);
     }
 
     pub fn get(&self, id: WavId) -> Option<&PcmBuffer> {
         self.samples.get(&id)
+    }
+
+    pub fn contains_key(&self, id: WavId) -> bool {
+        self.samples.contains_key(&id)
     }
 
     pub fn len(&self) -> usize {
@@ -353,5 +366,40 @@ mod tests {
         assert_eq!(pcm.sample_rate, 48000);
         assert_eq!(pcm.samples.len(), 4);
         assert_eq!(pcm.frame_count(), 2);
+    }
+
+    #[test]
+    fn test_load_8bit_unsigned_wav() {
+        // Create synthetic 8-bit mono WAV manually:
+        // Format: RIFF WAV, 1 channel, 44100 Hz, 8-bit
+        // Samples: 128 (silence / 0.0), 0 (-1.0), 255 (+0.992)
+        let mut wav_bytes = Vec::new();
+        wav_bytes.extend_from_slice(b"RIFF");
+        let chunk_size: u32 = 36 + 3;
+        wav_bytes.extend_from_slice(&chunk_size.to_le_bytes());
+        wav_bytes.extend_from_slice(b"WAVE");
+        wav_bytes.extend_from_slice(b"fmt ");
+        wav_bytes.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // PCM
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // 1 channel (mono)
+        wav_bytes.extend_from_slice(&44100u32.to_le_bytes()); // sample rate
+        wav_bytes.extend_from_slice(&44100u32.to_le_bytes()); // byte rate
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // block align
+        wav_bytes.extend_from_slice(&8u16.to_le_bytes());   // bits per sample
+        wav_bytes.extend_from_slice(b"data");
+        wav_bytes.extend_from_slice(&3u32.to_le_bytes());  // data size
+        wav_bytes.push(128); // center / silence -> 0.0
+        wav_bytes.push(0);   // min -> -1.0
+        wav_bytes.push(255); // max -> ~+0.992
+
+        let pcm = SampleBank::load_wav_from_reader(Cursor::new(wav_bytes)).expect("Failed to load 8-bit WAV");
+        assert_eq!(pcm.sample_rate, 44100);
+        assert_eq!(pcm.frame_count(), 3);
+        // Mono duplicated to stereo
+        assert!((pcm.samples[0] - 0.0).abs() < 0.001, "Expected 0.0 for 128 silence, got {}", pcm.samples[0]);
+        assert!((pcm.samples[1] - 0.0).abs() < 0.001, "Expected 0.0 for 128 silence, got {}", pcm.samples[1]);
+        assert!((pcm.samples[2] - (-1.0)).abs() < 0.001, "Expected -1.0 for 0 min, got {}", pcm.samples[2]);
+        assert!((pcm.samples[3] - (-1.0)).abs() < 0.001, "Expected -1.0 for 0 min, got {}", pcm.samples[3]);
+        assert!((pcm.samples[4] - 0.9921875).abs() < 0.01, "Expected ~0.992 for 255 max, got {}", pcm.samples[4]);
     }
 }

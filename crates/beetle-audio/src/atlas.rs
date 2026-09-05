@@ -1,8 +1,8 @@
 use crate::sample::{AudioDecodeError, PcmBuffer, SampleBank};
-use beetle_core::bms::decode_base36;
+use beetle_core::bms::{decode_base36, encode_base36};
 use beetle_core::WavId;
 use bms_package::{SoundAtlasCodec, SoundAtlasMeta, SoundSlice};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 pub const STANDARD_SAMPLE_RATE: u32 = 44100;
@@ -227,17 +227,101 @@ pub fn load_sample_bank_from_sound_atlas(
     meta: &SoundAtlasMeta,
     atlas_data: &[u8],
 ) -> Result<SampleBank, AudioDecodeError> {
+    load_sample_bank_from_sound_atlas_for_chart(None, meta, atlas_data)
+}
+
+/// Decodes a Sound Atlas byte stream into a `SampleBank` mapped directly for a specific BMS chart.
+///
+/// Resolves keysounds by chart `#WAV` table filename, stem, and `WavId` fallbacks,
+/// ensuring that duplicate files across different `#WAV` IDs and multiple charts within
+/// the same package are properly populated without missing notes.
+pub fn load_sample_bank_from_sound_atlas_for_chart(
+    chart: Option<&beetle_core::BmsChart>,
+    meta: &SoundAtlasMeta,
+    atlas_data: &[u8],
+) -> Result<SampleBank, AudioDecodeError> {
     if let Err(e) = meta.validate() {
         return Err(AudioDecodeError::UnsupportedFormat(e));
     }
 
+    // Build filename, stem, and key lookups for slice matching
+    let mut slices_by_key: HashMap<&str, &SoundSlice> = HashMap::new();
+    let mut slices_by_filename: HashMap<String, &SoundSlice> = HashMap::new();
+    let mut slices_by_stem: HashMap<String, &SoundSlice> = HashMap::new();
+
+    for (key, slice) in &meta.slices {
+        slices_by_key.insert(key.as_str(), slice);
+        if let Some(ref orig) = slice.original_filename {
+            let norm = orig.replace('\\', "/").to_ascii_lowercase();
+            let file_only = std::path::Path::new(&norm)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&norm)
+                .to_string();
+            let stem = std::path::Path::new(&file_only)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&file_only)
+                .to_string();
+
+            slices_by_filename.entry(norm.clone()).or_insert(slice);
+            slices_by_filename.entry(file_only.clone()).or_insert(slice);
+            slices_by_stem.entry(stem.clone()).or_insert(slice);
+
+            if norm.ends_with(".wav") {
+                let base = &norm[..norm.len() - 4];
+                slices_by_filename.entry(format!("{}.ogg", base)).or_insert(slice);
+                let fbase = &file_only[..file_only.len() - 4];
+                slices_by_filename.entry(format!("{}.ogg", fbase)).or_insert(slice);
+            } else if norm.ends_with(".ogg") {
+                let base = &norm[..norm.len() - 4];
+                slices_by_filename.entry(format!("{}.wav", base)).or_insert(slice);
+                let fbase = &file_only[..file_only.len() - 4];
+                slices_by_filename.entry(format!("{}.wav", fbase)).or_insert(slice);
+            }
+        }
+    }
+
+    let find_slice_for = |wav_id: WavId, filename: &str| -> Option<&SoundSlice> {
+        let norm = filename.replace('\\', "/").to_ascii_lowercase();
+        let file_only = std::path::Path::new(&norm)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&norm);
+        let stem = std::path::Path::new(file_only)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(file_only);
+
+        if let Some(s) = slices_by_filename.get(&norm).copied() {
+            return Some(s);
+        }
+        if let Some(s) = slices_by_filename.get(file_only).copied() {
+            return Some(s);
+        }
+        if let Some(s) = slices_by_stem.get(stem).copied() {
+            return Some(s);
+        }
+
+        let base36_key = encode_base36(wav_id);
+        if let Some(s) = slices_by_key.get(base36_key.as_str()).copied() {
+            return Some(s);
+        }
+        let dec_key = wav_id.0.to_string();
+        if let Some(s) = slices_by_key.get(dec_key.as_str()).copied() {
+            return Some(s);
+        }
+        None
+    };
+
     if meta.codec.is_bundle() {
         let mut bank = SampleBank::new();
-        for (key, slice) in &meta.slices {
-            let Some(wav_id) = parse_wav_id(key) else {
-                continue;
-            };
+        let mut decoded_cache: HashMap<u64, PcmBuffer> = HashMap::new();
 
+        let mut decode_slice = |slice: &SoundSlice| -> Result<PcmBuffer, AudioDecodeError> {
+            if let Some(cached) = decoded_cache.get(&slice.start_frame) {
+                return Ok(cached.clone());
+            }
             let offset = slice.start_frame as usize;
             let length = slice.frame_count as usize;
 
@@ -245,13 +329,41 @@ pub fn load_sample_bank_from_sound_atlas(
                 let slice_data = &atlas_data[offset..offset + length];
                 let pcm = SampleBank::load_audio_from_bytes(slice_data)?;
                 let normalized = resample_to_44k_stereo(&pcm);
-                bank.insert(wav_id, normalized);
+                decoded_cache.insert(slice.start_frame, normalized.clone());
+                Ok(normalized)
+            } else {
+                Err(AudioDecodeError::UnsupportedFormat(
+                    "Sound slice offset/length out of atlas bounds".to_string(),
+                ))
+            }
+        };
+
+        // 1. Chart-specific mapping
+        if let Some(c) = chart {
+            for (&wav_id, filename) in &c.header.wav_table {
+                if let Some(slice) = find_slice_for(wav_id, filename) {
+                    if let Ok(pcm) = decode_slice(slice) {
+                        bank.insert(wav_id, pcm);
+                    }
+                }
             }
         }
+
+        // 2. Direct key mapping for any slices not yet mapped
+        for (key, slice) in &meta.slices {
+            if let Some(wav_id) = parse_wav_id(key) {
+                if !bank.contains_key(wav_id) {
+                    if let Ok(pcm) = decode_slice(slice) {
+                        bank.insert(wav_id, pcm);
+                    }
+                }
+            }
+        }
+
         return Ok(bank);
     }
 
-    // 1. Single-shot decode of raw byte stream into continuous stereo f32 PCM buffer
+    // Single-shot decode of raw byte stream into continuous stereo f32 PCM buffer
     let shared_samples: Arc<[f32]> = match meta.codec {
         SoundAtlasCodec::Pcm16 => {
             let sample_count = atlas_data.len() / 2;
@@ -274,25 +386,43 @@ pub fn load_sample_bank_from_sound_atlas(
         SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => unreachable!(),
     };
 
-    // 2. Build SampleBank containing zero-copy slice views over the shared buffer
     let mut bank = SampleBank::new();
 
-    for (key, slice) in &meta.slices {
-        let Some(wav_id) = parse_wav_id(key) else {
-            continue;
-        };
-
+    let make_slice_pcm = |slice: &SoundSlice| -> Option<PcmBuffer> {
         let offset = (slice.start_frame * 2) as usize;
         let length = (slice.frame_count * 2) as usize;
 
         if offset + length <= shared_samples.len() {
-            let pcm = PcmBuffer::from_slice(
+            Some(PcmBuffer::from_slice(
                 meta.sample_rate,
                 Arc::clone(&shared_samples),
                 offset,
                 length,
-            );
-            bank.insert(wav_id, pcm);
+            ))
+        } else {
+            None
+        }
+    };
+
+    // 1. Chart-specific mapping
+    if let Some(c) = chart {
+        for (&wav_id, filename) in &c.header.wav_table {
+            if let Some(slice) = find_slice_for(wav_id, filename) {
+                if let Some(pcm) = make_slice_pcm(slice) {
+                    bank.insert(wav_id, pcm);
+                }
+            }
+        }
+    }
+
+    // 2. Direct key mapping for any slices not yet mapped
+    for (key, slice) in &meta.slices {
+        if let Some(wav_id) = parse_wav_id(key) {
+            if !bank.contains_key(wav_id) {
+                if let Some(pcm) = make_slice_pcm(slice) {
+                    bank.insert(wav_id, pcm);
+                }
+            }
         }
     }
 
