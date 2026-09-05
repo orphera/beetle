@@ -46,6 +46,7 @@ impl VirtualFile {
                 let pcm_len = match codec {
                     SoundAtlasCodec::Pcm16 => (*frame_count as usize) * 4,
                     SoundAtlasCodec::PcmF32 => (*frame_count as usize) * 4, // converted to 16-bit
+                    SoundAtlasCodec::OggBundle => *frame_count as usize,
                 };
                 44 + pcm_len
             }
@@ -139,29 +140,53 @@ impl VirtualBmsFs {
             if let Some(ref sound_meta) = manifest.sound_atlas {
                 if let Ok(atlas_bytes) = pkg.read_entry(&sound_meta.file) {
                     let atlas_arc: Arc<[u8]> = Arc::from(atlas_bytes.into_boxed_slice());
-                    for (key, slice) in &sound_meta.slices {
-                        let filename = slice
-                            .original_filename
-                            .as_deref()
-                            .unwrap_or(key);
+                    if sound_meta.codec == SoundAtlasCodec::OggBundle {
+                        for (key, slice) in &sound_meta.slices {
+                            let filename = slice
+                                .original_filename
+                                .as_deref()
+                                .unwrap_or(key);
 
-                        let filename = if !filename.to_lowercase().ends_with(".wav")
-                            && !filename.to_lowercase().ends_with(".ogg")
-                        {
-                            format!("{}.wav", filename)
-                        } else {
-                            filename.to_string()
-                        };
+                            let filename = if !filename.to_lowercase().ends_with(".wav")
+                                && !filename.to_lowercase().ends_with(".ogg")
+                            {
+                                format!("{}.ogg", filename)
+                            } else {
+                                filename.to_string()
+                            };
 
-                        let vfile = VirtualFile::SynthesizedWav {
-                            atlas_bytes: Arc::clone(&atlas_arc),
-                            codec: sound_meta.codec,
-                            sample_rate: sound_meta.sample_rate,
-                            start_frame: slice.start_frame,
-                            frame_count: slice.frame_count,
-                        };
+                            let start = slice.start_frame as usize;
+                            let len = slice.frame_count as usize;
+                            if start + len <= atlas_arc.len() {
+                                let vfile = VirtualFile::Memory(Arc::from(&atlas_arc[start..start + len]));
+                                song_dir.insert(filename, VfsNode::File(vfile));
+                            }
+                        }
+                    } else {
+                        for (key, slice) in &sound_meta.slices {
+                            let filename = slice
+                                .original_filename
+                                .as_deref()
+                                .unwrap_or(key);
 
-                        song_dir.insert(filename, VfsNode::File(vfile));
+                            let filename = if !filename.to_lowercase().ends_with(".wav")
+                                && !filename.to_lowercase().ends_with(".ogg")
+                            {
+                                format!("{}.wav", filename)
+                            } else {
+                                filename.to_string()
+                            };
+
+                            let vfile = VirtualFile::SynthesizedWav {
+                                atlas_bytes: Arc::clone(&atlas_arc),
+                                codec: sound_meta.codec,
+                                sample_rate: sound_meta.sample_rate,
+                                start_frame: slice.start_frame,
+                                frame_count: slice.frame_count,
+                            };
+
+                            song_dir.insert(filename, VfsNode::File(vfile));
+                        }
                     }
                 }
             }

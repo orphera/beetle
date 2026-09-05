@@ -67,7 +67,8 @@ pub struct SoundAtlasBuilder {
     codec: SoundAtlasCodec,
     sample_rate: u32,
     padding_frames: u32,
-    entries: Vec<(String, PcmBuffer, Option<String>)>, // (key, pcm, original_filename)
+    entries: Vec<(String, PcmBuffer, Option<String>)>, // for PCM (key, pcm, original_filename)
+    raw_entries: Vec<(String, Vec<u8>, Option<String>)>, // for OggBundle (key, raw_bytes, original_filename)
 }
 
 impl SoundAtlasBuilder {
@@ -77,6 +78,7 @@ impl SoundAtlasBuilder {
             sample_rate: STANDARD_SAMPLE_RATE,
             padding_frames: DEFAULT_PADDING_FRAMES,
             entries: Vec::new(),
+            raw_entries: Vec::new(),
         }
     }
 
@@ -85,7 +87,7 @@ impl SoundAtlasBuilder {
         self
     }
 
-    /// Adds a keysound sample to be packed into the atlas.
+    /// Adds a keysound sample to be packed into the atlas (for PCM codecs).
     pub fn add_sample(
         &mut self,
         key: impl Into<String>,
@@ -96,8 +98,57 @@ impl SoundAtlasBuilder {
         self.entries.push((key.into(), normalized, original_filename));
     }
 
+    /// Adds a raw keysound audio byte stream (e.g. Vorbis OGG) to be bundled.
+    pub fn add_raw(
+        &mut self,
+        key: impl Into<String>,
+        raw_bytes: Vec<u8>,
+        original_filename: Option<String>,
+    ) {
+        self.raw_entries.push((key.into(), raw_bytes, original_filename));
+    }
+
     /// Compiles all added samples into a single continuous byte buffer and metadata.
     pub fn build(mut self, file_path: impl Into<String>) -> Result<(SoundAtlasMeta, Vec<u8>), AudioDecodeError> {
+        if self.codec == SoundAtlasCodec::OggBundle {
+            // Sort entries deterministically by key for reproducible packaging (INV-6)
+            self.raw_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            let mut slices = BTreeMap::new();
+            let mut total_bytes: Vec<u8> = Vec::new();
+            let mut current_offset: u64 = 0;
+
+            for (key, raw_data, orig_name) in self.raw_entries {
+                let len = raw_data.len() as u64;
+                if len == 0 {
+                    continue;
+                }
+
+                let slice = SoundSlice::new(current_offset, len, orig_name);
+                slices.insert(key, slice);
+
+                total_bytes.extend_from_slice(&raw_data);
+                current_offset += len;
+            }
+
+            let total_frames = current_offset; // represents total byte length
+            let meta = SoundAtlasMeta::new(
+                file_path,
+                self.codec,
+                self.sample_rate,
+                STANDARD_CHANNELS,
+                total_frames,
+                0,
+                slices,
+            );
+
+            if let Err(e) = meta.validate() {
+                return Err(AudioDecodeError::UnsupportedFormat(e));
+            }
+
+            return Ok((meta, total_bytes));
+        }
+
         // Sort entries deterministically by key for reproducible packaging (INV-6)
         self.entries.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -150,6 +201,7 @@ impl SoundAtlasBuilder {
                 }
                 bytes
             }
+            SoundAtlasCodec::OggBundle => unreachable!(),
         };
 
         let meta = SoundAtlasMeta::new(
@@ -170,13 +222,33 @@ impl SoundAtlasBuilder {
     }
 }
 
-/// Decodes a Sound Atlas byte stream into a `SampleBank` where each keysound is a zero-copy slice view.
+/// Decodes a Sound Atlas byte stream into a `SampleBank` where each keysound is a pre-decoded PCM buffer.
 pub fn load_sample_bank_from_sound_atlas(
     meta: &SoundAtlasMeta,
     atlas_data: &[u8],
 ) -> Result<SampleBank, AudioDecodeError> {
     if let Err(e) = meta.validate() {
         return Err(AudioDecodeError::UnsupportedFormat(e));
+    }
+
+    if meta.codec == SoundAtlasCodec::OggBundle {
+        let mut bank = SampleBank::new();
+        for (key, slice) in &meta.slices {
+            let Some(wav_id) = parse_wav_id(key) else {
+                continue;
+            };
+
+            let offset = slice.start_frame as usize;
+            let length = slice.frame_count as usize;
+
+            if offset + length <= atlas_data.len() {
+                let slice_data = &atlas_data[offset..offset + length];
+                let pcm = SampleBank::load_audio_from_bytes(slice_data)?;
+                let normalized = resample_to_44k_stereo(&pcm);
+                bank.insert(wav_id, normalized);
+            }
+        }
+        return Ok(bank);
     }
 
     // 1. Single-shot decode of raw byte stream into continuous stereo f32 PCM buffer
@@ -199,6 +271,7 @@ pub fn load_sample_bank_from_sound_atlas(
             }
             samples.into()
         }
+        SoundAtlasCodec::OggBundle => unreachable!(),
     };
 
     // 2. Build SampleBank containing zero-copy slice views over the shared buffer
@@ -279,5 +352,39 @@ mod tests {
         let pcm = bank.get(id_0a).expect("sound 0A missing");
         assert_eq!(pcm.frame_count(), 50);
         assert_eq!(pcm.samples[pcm.offset], 0.123456f32);
+    }
+
+    #[test]
+    fn test_sound_atlas_builder_roundtrip_ogg_bundle() {
+        let mut builder = SoundAtlasBuilder::new(SoundAtlasCodec::OggBundle);
+        // Create valid tiny WAV bytes to test raw stream bundle decoding
+        let mut wav_bytes = Vec::new();
+        {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::new(std::io::Cursor::new(&mut wav_bytes), spec).unwrap();
+            for _ in 0..100 {
+                writer.write_sample(1000i16).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+
+        builder.add_raw("01", wav_bytes.clone(), Some("kick.wav".to_string()));
+        builder.add_raw("02", wav_bytes.clone(), Some("snare.wav".to_string()));
+
+        let (meta, bytes) = builder.build("audio/atlas.bin").expect("build failed");
+        assert_eq!(meta.codec, SoundAtlasCodec::OggBundle);
+        assert_eq!(meta.slices.len(), 2);
+        assert!(meta.validate().is_ok());
+
+        let bank = load_sample_bank_from_sound_atlas(&meta, &bytes).expect("load failed");
+        let pcm1 = bank.get(WavId(1)).expect("sound 1 missing");
+        assert_eq!(pcm1.frame_count(), 100);
+        let pcm2 = bank.get(WavId(2)).expect("sound 2 missing");
+        assert_eq!(pcm2.frame_count(), 100);
     }
 }

@@ -9,6 +9,8 @@ pub enum SoundAtlasCodec {
     Pcm16,
     /// 32-bit floating point little-endian interleaved stereo PCM.
     PcmF32,
+    /// Bundled raw Vorbis OGG bitstreams indexed by byte offsets.
+    OggBundle,
 }
 
 impl SoundAtlasCodec {
@@ -16,6 +18,7 @@ impl SoundAtlasCodec {
         match self {
             Self::Pcm16 => "pcm16",
             Self::PcmF32 => "pcm_f32",
+            Self::OggBundle => "ogg_bundle",
         }
     }
 }
@@ -29,9 +32,9 @@ impl Default for SoundAtlasCodec {
 /// A slice referencing a single keysound within a continuous Sound Atlas audio stream.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SoundSlice {
-    /// Start frame index in the atlas audio stream (1 frame = 2 interleaved samples for stereo).
+    /// Start frame index (for PCM) or byte offset (for OggBundle) in the atlas stream.
     pub start_frame: u64,
-    /// Number of audio frames for this keysound.
+    /// Number of audio frames (for PCM) or byte length (for OggBundle).
     pub frame_count: u64,
     /// Original audio filename before packing (e.g. "kick.wav"), preserved for unpacking/VFS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,9 +50,19 @@ impl SoundSlice {
         }
     }
 
-    /// End frame index (exclusive).
+    /// End frame / byte index (exclusive).
     pub fn end_frame(&self) -> u64 {
         self.start_frame + self.frame_count
+    }
+
+    /// Byte offset within the atlas binary (alias for start_frame).
+    pub fn byte_offset(&self) -> u64 {
+        self.start_frame
+    }
+
+    /// Byte length within the atlas binary (alias for frame_count).
+    pub fn byte_len(&self) -> u64 {
+        self.frame_count
     }
 }
 
@@ -65,9 +78,9 @@ pub struct SoundAtlasMeta {
     pub sample_rate: u32,
     /// Standardized channel count (default 2 for stereo).
     pub channels: u8,
-    /// Total audio frames in the atlas.
+    /// Total audio frames (for PCM) or total bytes (for OggBundle) in the atlas.
     pub total_frames: u64,
-    /// Zero-padding frames placed between keysound slices to prevent bleeding (default 128).
+    /// Zero-padding frames placed between keysound slices to prevent bleeding (default 128 for PCM).
     #[serde(default = "default_padding_frames")]
     pub padding_frames: u32,
     /// Mapping from WavId / key (e.g. "01", "0A", "ZZ") to its sound slice.
@@ -101,7 +114,7 @@ impl SoundAtlasMeta {
 
     /// Validates that all slices fit within total_frames and do not overlap illegally.
     pub fn validate(&self) -> Result<(), String> {
-        if self.channels != 2 {
+        if self.codec != SoundAtlasCodec::OggBundle && self.channels != 2 {
             return Err(format!("SoundAtlas must be stereo (2 channels), got {}", self.channels));
         }
         if self.sample_rate == 0 {
@@ -111,7 +124,7 @@ impl SoundAtlasMeta {
         for (key, slice) in &self.slices {
             if slice.end_frame() > self.total_frames {
                 return Err(format!(
-                    "Slice '{}' ends at frame {} which exceeds total_frames {}",
+                    "Slice '{}' ends at {} which exceeds total_frames/bytes {}",
                     key,
                     slice.end_frame(),
                     self.total_frames
@@ -176,5 +189,39 @@ mod tests {
         );
 
         assert!(meta.validate().is_err());
+    }
+
+    #[test]
+    fn test_sound_atlas_meta_ogg_bundle_roundtrip() {
+        let mut slices = BTreeMap::new();
+        slices.insert(
+            "01".to_string(),
+            SoundSlice::new(0, 1024, Some("kick.ogg".to_string())),
+        );
+        slices.insert(
+            "02".to_string(),
+            SoundSlice::new(1024, 2048, Some("snare.ogg".to_string())),
+        );
+
+        let meta = SoundAtlasMeta::new(
+            "audio/atlas.bin",
+            SoundAtlasCodec::OggBundle,
+            44100,
+            2,
+            3072,
+            0,
+            slices,
+        );
+
+        assert!(meta.validate().is_ok());
+
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"codec\":\"ogg_bundle\""));
+
+        let deserialized: SoundAtlasMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(meta, deserialized);
+        assert_eq!(deserialized.codec, SoundAtlasCodec::OggBundle);
+        assert_eq!(deserialized.slices.get("01").unwrap().byte_offset(), 0);
+        assert_eq!(deserialized.slices.get("01").unwrap().byte_len(), 1024);
     }
 }

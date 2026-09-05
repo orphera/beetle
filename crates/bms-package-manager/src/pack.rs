@@ -357,7 +357,21 @@ where
         }
     }
 
-    let mut sound_builder = SoundAtlasBuilder::new(SoundAtlasCodec::Pcm16).with_padding_frames(128);
+    let ogg_count = files_to_read.iter().filter(|(rel, _)| {
+        rel.to_ascii_lowercase().ends_with(".ogg")
+    }).count();
+    let wav_count = files_to_read.iter().filter(|(rel, _)| {
+        rel.to_ascii_lowercase().ends_with(".wav")
+    }).count();
+
+    let is_ogg_bundle = ogg_count > 0 && ogg_count >= wav_count;
+    let sound_codec = if is_ogg_bundle {
+        SoundAtlasCodec::OggBundle
+    } else {
+        SoundAtlasCodec::Pcm16
+    };
+
+    let mut sound_builder = SoundAtlasBuilder::new(sound_codec).with_padding_frames(128);
     let mut bga_builder = BgaAtlasBuilder::new(1);
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
 
@@ -405,14 +419,18 @@ where
             .cloned();
         let is_audio = matches!(ext.as_str(), "wav" | "ogg") || matched_wav_key.is_some();
         if is_audio {
-            if let Ok(pcm) = SampleBank::load_audio_from_bytes(&data) {
-                let key = matched_wav_key.unwrap_or_else(|| {
-                    if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
-                        file_stem.to_ascii_uppercase()
-                    } else {
-                        file_stem.to_string()
-                    }
-                });
+            let key = matched_wav_key.unwrap_or_else(|| {
+                if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
+                    file_stem.to_ascii_uppercase()
+                } else {
+                    file_stem.to_string()
+                }
+            });
+
+            if is_ogg_bundle {
+                sound_builder.add_raw(key, data, Some(file_name.to_string()));
+                continue;
+            } else if let Ok(pcm) = SampleBank::load_audio_from_bytes(&data) {
                 sound_builder.add_sample(key, &pcm, Some(file_name.to_string()));
                 continue;
             }
@@ -791,6 +809,50 @@ mod tests {
         let bga_meta = manifest.bga_atlas.as_ref().unwrap();
         assert!(bga_meta.frames.contains_key("01"), "bg.bmp matched");
         assert!(bga_meta.frames.contains_key("stagefile"), "stage.bmp matched");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_bms_folder_turbo_ogg_bundle() {
+        use bms_package::Package;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_ogg_bundle_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let song_dir = temp_dir.join("OggSong");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        let bms_content = r#"
+#TITLE Ogg Bundle Song
+#ARTIST SoundMaster
+#WAV01 01.ogg
+#WAV02 02.ogg
+#00111:0102
+"#;
+        fs::write(song_dir.join("play.bms"), bms_content).unwrap();
+        let ogg1_bytes = b"OggS_test_payload_sample_01_sound_stream_data_here";
+        let ogg2_bytes = b"OggS_test_payload_sample_02_sound_stream_data_here_longer";
+        fs::write(song_dir.join("01.ogg"), ogg1_bytes).unwrap();
+        fs::write(song_dir.join("02.ogg"), ogg2_bytes).unwrap();
+
+        let pkg_bytes = pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
+        let pkg = Package::from_bytes(pkg_bytes).expect("package open failed");
+        let manifest = pkg.manifest();
+
+        assert_eq!(manifest.name, "Ogg Bundle Song");
+        let sound_meta = manifest.sound_atlas.as_ref().expect("sound atlas missing");
+        assert_eq!(sound_meta.codec, bms_package::SoundAtlasCodec::OggBundle);
+        assert_eq!(sound_meta.slices.len(), 2);
+
+        let slice1 = sound_meta.slices.get("01").unwrap();
+        let slice2 = sound_meta.slices.get("02").unwrap();
+        assert_eq!(slice1.byte_len(), ogg1_bytes.len() as u64);
+        assert_eq!(slice2.byte_len(), ogg2_bytes.len() as u64);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

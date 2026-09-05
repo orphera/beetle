@@ -82,6 +82,30 @@ pub fn extract_wav_from_atlas(
             }
             pcm16
         }
+        SoundAtlasCodec::OggBundle => {
+            let start_byte = start_frame as usize;
+            let byte_len = frame_count as usize;
+            if start_byte + byte_len > atlas_data.len() {
+                return None;
+            }
+            let slice = &atlas_data[start_byte..start_byte + byte_len];
+            if slice.starts_with(b"RIFF") {
+                return Some(slice.to_vec());
+            }
+            if let Ok(pcm) = beetle_audio::SampleBank::load_audio_from_bytes(slice) {
+                let mut pcm16 = Vec::with_capacity(pcm.length * 2);
+                for i in 0..pcm.length {
+                    let s = (pcm.samples[pcm.offset + i].clamp(-1.0, 1.0) * 32767.0) as i16;
+                    pcm16.extend_from_slice(&s.to_le_bytes());
+                }
+                let header = create_riff_wav_header(channels, sample_rate, bits_per_sample, pcm16.len());
+                let mut wav = Vec::with_capacity(44 + pcm16.len());
+                wav.extend_from_slice(&header);
+                wav.extend_from_slice(&pcm16);
+                return Some(wav);
+            }
+            return Some(slice.to_vec());
+        }
     };
 
     let header = create_riff_wav_header(channels, sample_rate, bits_per_sample, pcm16_bytes.len());
@@ -145,12 +169,31 @@ where
                     let filename = if !filename.to_lowercase().ends_with(".wav")
                         && !filename.to_lowercase().ends_with(".ogg")
                     {
-                        format!("{}.wav", filename)
+                        if sound_meta.codec == SoundAtlasCodec::OggBundle {
+                            format!("{}.ogg", filename)
+                        } else {
+                            format!("{}.wav", filename)
+                        }
                     } else {
                         filename.to_string()
                     };
 
                     on_progress("Extracting keysounds", idx + 1, total_slices, &filename);
+
+                    if sound_meta.codec == SoundAtlasCodec::OggBundle && filename.to_lowercase().ends_with(".ogg") {
+                        let start = slice.start_frame as usize;
+                        let len = slice.frame_count as usize;
+                        if start + len <= atlas_bytes.len() {
+                            let out_path = dest.join(&filename);
+                            if let Some(parent) = out_path.parent() {
+                                let _ = fs::create_dir_all(parent);
+                            }
+                            fs::write(out_path, &atlas_bytes[start..start + len])?;
+                            stats.wav_files += 1;
+                            stats.total_files += 1;
+                            continue;
+                        }
+                    }
 
                     if let Some(wav_data) = extract_wav_from_atlas(
                         sound_meta.codec,
