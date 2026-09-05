@@ -204,8 +204,7 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
 
     let package_id = generate_slug_id(&final_artist, &final_title);
 
-    let mut manifest = Manifest::new(package_id, final_title)
-        .with_author(final_artist);
+    let mut manifest = Manifest::new(package_id, final_title).with_author(final_artist);
 
     if !found_genre.is_empty() {
         manifest = manifest.with_extra("genre", serde_json::json!(found_genre));
@@ -228,7 +227,13 @@ pub fn pack_bms_folder_profile<P: AsRef<Path>>(
     manifest_override: Option<Manifest>,
     profile: PackProfile,
 ) -> Result<Vec<u8>, PackageManagerError> {
-    pack_bms_folder_profile_with_progress(folder_path, manifest_override, profile, None, |_, _, _, _| {})
+    pack_bms_folder_profile_with_progress(
+        folder_path,
+        manifest_override,
+        profile,
+        None,
+        |_, _, _, _| {},
+    )
 }
 
 /// Packs a BMS directory with cancellation check and progress reporting callback (Classic profile).
@@ -241,7 +246,13 @@ pub fn pack_bms_folder_with_progress<P: AsRef<Path>, F>(
 where
     F: FnMut(&str, usize, usize, &str),
 {
-    pack_bms_folder_profile_with_progress(folder_path, manifest_override, PackProfile::Classic, cancel_flag, on_progress)
+    pack_bms_folder_profile_with_progress(
+        folder_path,
+        manifest_override,
+        PackProfile::Classic,
+        cancel_flag,
+        on_progress,
+    )
 }
 
 /// Packs a BMS directory with profile, cancellation check, and progress reporting callback.
@@ -256,7 +267,13 @@ where
     F: FnMut(&str, usize, usize, &str),
 {
     let options = PackOptions::new(profile, BgaPackMode::Embed);
-    let output = pack_bms_folder_advanced_with_progress(folder_path, manifest_override, options, cancel_flag, on_progress)?;
+    let output = pack_bms_folder_advanced_with_progress(
+        folder_path,
+        manifest_override,
+        options,
+        cancel_flag,
+        on_progress,
+    )?;
     Ok(output.base_package)
 }
 
@@ -329,7 +346,8 @@ where
             if options.bga_mode == BgaPackMode::Split && !bga_files.is_empty() {
                 let bga_id = format!("{}_bga", manifest.id);
                 let bga_name = format!("{} (BGA Companion)", manifest.name);
-                let mut bga_manifest = Manifest::new_bga_companion(&bga_id, &bga_name, &manifest.id);
+                let mut bga_manifest =
+                    Manifest::new_bga_companion(&bga_id, &bga_name, &manifest.id);
                 bga_manifest.author = manifest.author.clone();
 
                 let mut bga_builder = PackageBuilder::new(bga_manifest.clone());
@@ -337,14 +355,16 @@ where
                     bga_builder.add_file(rel_path, data)?;
                 }
 
-                let bga_bytes = bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
-                    on_progress("Compressing .bga.bmsp", curr, tot, name);
-                })?;
+                let bga_bytes =
+                    bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+                        on_progress("Compressing .bga.bmsp", curr, tot, name);
+                    })?;
 
                 let bga_sha = bms_package::sha256_hex(&bga_bytes);
                 let bga_size = bga_bytes.len() as u64;
                 let rec_filename = format!("{}.bga.bmsp", manifest.id);
-                let companion_info = bms_package::BgaCompanionInfo::new(rec_filename, bga_size, bga_sha);
+                let companion_info =
+                    bms_package::BgaCompanionInfo::new(rec_filename, bga_size, bga_sha);
                 manifest = manifest.with_bga_companion(companion_info);
 
                 bga_package_bytes = Some(bga_bytes);
@@ -356,9 +376,10 @@ where
                 builder.add_file(rel_path, data)?;
             }
 
-            let base_bytes = builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
-                on_progress("Compressing .bmsp", curr, tot, name);
-            })?;
+            let base_bytes =
+                builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+                    on_progress("Compressing .bmsp", curr, tot, name);
+                })?;
 
             Ok(PackOutput {
                 base_package: base_bytes,
@@ -367,9 +388,13 @@ where
                 bga_manifest: bga_manifest_opt,
             })
         }
-        PackProfile::Turbo => {
-            pack_bms_folder_turbo_with_progress(target_dir, manifest_override, options.bga_mode, cancel_flag, on_progress)
-        }
+        PackProfile::Turbo => pack_bms_folder_turbo_with_progress(
+            target_dir,
+            manifest_override,
+            options.bga_mode,
+            cancel_flag,
+            on_progress,
+        ),
     }
 }
 
@@ -402,10 +427,10 @@ where
 
     // 1. Scan charts to map WavId and BmpId references to filenames
     let mut wav_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "ZZ")
-    let mut wav_stems: HashMap<String, String> = HashMap::new();   // stem -> key
+    let mut wav_stems: HashMap<String, String> = HashMap::new(); // stem -> key
     let mut wav_all_keys: HashMap<String, Vec<String>> = HashMap::new(); // norm_filename, file_only, or stem -> all keys
     let mut bmp_targets: HashMap<String, String> = HashMap::new(); // norm_filename or norm_rel -> key ("01", "stagefile", "banner")
-    let mut bmp_stems: HashMap<String, String> = HashMap::new();   // stem -> key
+    let mut bmp_stems: HashMap<String, String> = HashMap::new(); // stem -> key
     let mut bmp_all_keys: HashMap<String, Vec<String>> = HashMap::new(); // norm_filename, file_only, or stem -> all keys
 
     for (rel_path, abs_path) in &files_to_read {
@@ -422,73 +447,166 @@ where
                     for (&wav_id, filename) in &chart.header.wav_table {
                         let key = beetle_core::encode_base36(wav_id);
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
-                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
-                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+                        let file_only = Path::new(&norm)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&norm)
+                            .to_string();
+                        let stem = Path::new(&file_only)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_only)
+                            .to_string();
 
-                        wav_targets.insert(norm.clone(), key.clone());
-                        wav_targets.insert(file_only.clone(), key.clone());
+                        wav_targets
+                            .entry(norm.clone())
+                            .or_insert_with(|| key.clone());
+                        wav_targets
+                            .entry(file_only.clone())
+                            .or_insert_with(|| key.clone());
                         wav_stems.entry(stem.clone()).or_insert_with(|| key.clone());
 
-                        wav_all_keys.entry(norm.clone()).or_default().push(key.clone());
-                        wav_all_keys.entry(file_only.clone()).or_default().push(key.clone());
-                        wav_all_keys.entry(stem.clone()).or_default().push(key.clone());
+                        wav_all_keys
+                            .entry(norm.clone())
+                            .or_default()
+                            .push(key.clone());
+                        wav_all_keys
+                            .entry(file_only.clone())
+                            .or_default()
+                            .push(key.clone());
+                        wav_all_keys
+                            .entry(stem.clone())
+                            .or_default()
+                            .push(key.clone());
 
                         // Cross-extension matching (.wav <-> .ogg)
                         if norm.ends_with(".wav") {
                             let base = &norm[..norm.len() - 4];
-                            wav_targets.insert(format!("{}.ogg", base), key.clone());
+                            wav_targets
+                                .entry(format!("{}.ogg", base))
+                                .or_insert_with(|| key.clone());
                             let fbase = &file_only[..file_only.len() - 4];
-                            wav_targets.insert(format!("{}.ogg", fbase), key.clone());
-                            wav_all_keys.entry(format!("{}.ogg", base)).or_default().push(key.clone());
-                            wav_all_keys.entry(format!("{}.ogg", fbase)).or_default().push(key.clone());
+                            wav_targets
+                                .entry(format!("{}.ogg", fbase))
+                                .or_insert_with(|| key.clone());
+                            wav_all_keys
+                                .entry(format!("{}.ogg", base))
+                                .or_default()
+                                .push(key.clone());
+                            wav_all_keys
+                                .entry(format!("{}.ogg", fbase))
+                                .or_default()
+                                .push(key.clone());
                         } else if norm.ends_with(".ogg") {
                             let base = &norm[..norm.len() - 4];
-                            wav_targets.insert(format!("{}.wav", base), key.clone());
+                            wav_targets
+                                .entry(format!("{}.wav", base))
+                                .or_insert_with(|| key.clone());
                             let fbase = &file_only[..file_only.len() - 4];
-                            wav_targets.insert(format!("{}.wav", fbase), key.clone());
-                            wav_all_keys.entry(format!("{}.wav", base)).or_default().push(key.clone());
-                            wav_all_keys.entry(format!("{}.wav", fbase)).or_default().push(key.clone());
+                            wav_targets
+                                .entry(format!("{}.wav", fbase))
+                                .or_insert_with(|| key.clone());
+                            wav_all_keys
+                                .entry(format!("{}.wav", base))
+                                .or_default()
+                                .push(key.clone());
+                            wav_all_keys
+                                .entry(format!("{}.wav", fbase))
+                                .or_default()
+                                .push(key.clone());
                         }
                     }
                     for (&bmp_id, filename) in &chart.header.bmp_table {
                         let key = beetle_core::encode_base36(beetle_core::WavId(bmp_id.0));
                         let norm = filename.replace('\\', "/").to_ascii_lowercase();
-                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
-                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+                        let file_only = Path::new(&norm)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&norm)
+                            .to_string();
+                        let stem = Path::new(&file_only)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_only)
+                            .to_string();
 
-                        bmp_targets.insert(norm.clone(), key.clone());
-                        bmp_targets.insert(file_only.clone(), key.clone());
+                        bmp_targets
+                            .entry(norm.clone())
+                            .or_insert_with(|| key.clone());
+                        bmp_targets
+                            .entry(file_only.clone())
+                            .or_insert_with(|| key.clone());
                         bmp_stems.entry(stem.clone()).or_insert_with(|| key.clone());
 
-                        bmp_all_keys.entry(norm.clone()).or_default().push(key.clone());
-                        bmp_all_keys.entry(file_only.clone()).or_default().push(key.clone());
-                        bmp_all_keys.entry(stem.clone()).or_default().push(key.clone());
+                        bmp_all_keys
+                            .entry(norm.clone())
+                            .or_default()
+                            .push(key.clone());
+                        bmp_all_keys
+                            .entry(file_only.clone())
+                            .or_default()
+                            .push(key.clone());
+                        bmp_all_keys
+                            .entry(stem.clone())
+                            .or_default()
+                            .push(key.clone());
 
                         for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
-                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), key.clone());
-                            bmp_all_keys.entry(format!("{}.{}", stem, alt_ext)).or_default().push(key.clone());
+                            bmp_targets
+                                .entry(format!("{}.{}", stem, alt_ext))
+                                .or_insert_with(|| key.clone());
+                            bmp_all_keys
+                                .entry(format!("{}.{}", stem, alt_ext))
+                                .or_default()
+                                .push(key.clone());
                         }
                     }
                     if !chart.header.stage_file.is_empty() {
-                        let norm = chart.header.stage_file.replace('\\', "/").to_ascii_lowercase();
-                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
-                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+                        let norm = chart
+                            .header
+                            .stage_file
+                            .replace('\\', "/")
+                            .to_ascii_lowercase();
+                        let file_only = Path::new(&norm)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&norm)
+                            .to_string();
+                        let stem = Path::new(&file_only)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_only)
+                            .to_string();
                         bmp_targets.insert(norm, "stagefile".to_string());
                         bmp_targets.insert(file_only, "stagefile".to_string());
-                        bmp_stems.entry(stem.clone()).or_insert_with(|| "stagefile".to_string());
+                        bmp_stems
+                            .entry(stem.clone())
+                            .or_insert_with(|| "stagefile".to_string());
                         for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
-                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), "stagefile".to_string());
+                            bmp_targets
+                                .insert(format!("{}.{}", stem, alt_ext), "stagefile".to_string());
                         }
                     }
                     if !chart.header.banner.is_empty() {
                         let norm = chart.header.banner.replace('\\', "/").to_ascii_lowercase();
-                        let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm).to_string();
-                        let stem = Path::new(&file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only).to_string();
+                        let file_only = Path::new(&norm)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&norm)
+                            .to_string();
+                        let stem = Path::new(&file_only)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_only)
+                            .to_string();
                         bmp_targets.insert(norm, "banner".to_string());
                         bmp_targets.insert(file_only, "banner".to_string());
-                        bmp_stems.entry(stem.clone()).or_insert_with(|| "banner".to_string());
+                        bmp_stems
+                            .entry(stem.clone())
+                            .or_insert_with(|| "banner".to_string());
                         for alt_ext in &["bmp", "png", "jpg", "jpeg"] {
-                            bmp_targets.insert(format!("{}.{}", stem, alt_ext), "banner".to_string());
+                            bmp_targets
+                                .insert(format!("{}.{}", stem, alt_ext), "banner".to_string());
                         }
                     }
                 }
@@ -496,12 +614,14 @@ where
         }
     }
 
-    let ogg_count = files_to_read.iter().filter(|(rel, _)| {
-        rel.to_ascii_lowercase().ends_with(".ogg")
-    }).count();
-    let wav_count = files_to_read.iter().filter(|(rel, _)| {
-        rel.to_ascii_lowercase().ends_with(".wav")
-    }).count();
+    let ogg_count = files_to_read
+        .iter()
+        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".ogg"))
+        .count();
+    let wav_count = files_to_read
+        .iter()
+        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".wav"))
+        .count();
 
     let sound_codec = if ogg_count > 0 && ogg_count >= wav_count {
         SoundAtlasCodec::OggBundle
@@ -516,6 +636,37 @@ where
     let mut bga_builder = BgaAtlasBuilder::new(1);
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut bga_files: Vec<(String, Vec<u8>)> = Vec::new();
+    // Track which atlas key is assigned to which physical file to detect cross-chart collisions
+    // e.g. 7key chart: #WAVC4 lovinit.wav, 14key chart: #WAVC4 lovinitl.wav
+    let mut sound_key_owner: HashMap<String, String> = HashMap::new(); // key -> norm_name
+    let mut bga_key_owner: HashMap<String, String> = HashMap::new();
+
+    // A BMS package may contain charts whose numeric IDs overlap while their
+    // filenames differ. Atlas keys must remain unique in that case; the chart
+    // loader still resolves the correct slice through original_filename.
+    let unique_atlas_key =
+        |owners: &mut HashMap<String, String>, candidate: String, fallback: &str, owner: &str| {
+            let base = if fallback.is_empty() {
+                candidate.clone()
+            } else {
+                fallback.to_string()
+            };
+            let mut key = candidate;
+            let mut suffix = 2u32;
+            loop {
+                match owners.get(&key) {
+                    None => {
+                        owners.insert(key.clone(), owner.to_string());
+                        return key;
+                    }
+                    Some(existing) if existing == owner => return key,
+                    Some(_) => {
+                        key = format!("{}_{}", base, suffix);
+                        suffix += 1;
+                    }
+                }
+            }
+        };
 
     let total = files_to_read.len();
     for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
@@ -540,7 +691,10 @@ where
             .to_ascii_lowercase();
 
         let norm_name = file_name.to_ascii_lowercase();
-        let file_stem = Path::new(&norm_name).file_stem().and_then(|s| s.to_str()).unwrap_or(&norm_name);
+        let file_stem = Path::new(&norm_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&norm_name);
 
         // A. Video files
         if is_video_path(&rel_path) {
@@ -564,19 +718,24 @@ where
         }
 
         // C. Audio files -> Compile into Sound Atlas
-        let matched_wav_key = wav_targets.get(&norm_rel)
+        let matched_wav_key = wav_targets
+            .get(&norm_rel)
             .or_else(|| wav_targets.get(&norm_name))
             .or_else(|| wav_stems.get(file_stem))
             .cloned();
         let is_audio = matches!(ext.as_str(), "wav" | "ogg") || matched_wav_key.is_some();
         if is_audio {
-            let key = matched_wav_key.unwrap_or_else(|| {
-                if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
+            let candidate_key = matched_wav_key.unwrap_or_else(|| {
+                if file_stem.len() == 2
+                    && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1])
+                        .is_some()
+                {
                     file_stem.to_ascii_uppercase()
                 } else {
                     file_stem.to_string()
                 }
             });
+            let key = unique_atlas_key(&mut sound_key_owner, candidate_key, file_stem, &norm_rel);
 
             if is_bundle {
                 sound_builder.add_raw(key, data, Some(file_name.to_string()));
@@ -588,20 +747,29 @@ where
         }
 
         // D. Image files -> Compile into BGA Texture Atlas
-        let matched_bmp_key = bmp_targets.get(&norm_rel)
+        let matched_bmp_key = bmp_targets
+            .get(&norm_rel)
             .or_else(|| bmp_targets.get(&norm_name))
             .or_else(|| bmp_stems.get(file_stem))
             .cloned();
-        let is_image = matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key.is_some();
+        let is_image =
+            matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key.is_some();
         if is_image {
             if let Some(img) = ImageBuffer::from_bytes(&data) {
-                let key = matched_bmp_key.unwrap_or_else(|| {
-                    if file_stem.len() == 2 && beetle_core::decode_base36(file_stem.as_bytes()[0], file_stem.as_bytes()[1]).is_some() {
+                let candidate_key = matched_bmp_key.unwrap_or_else(|| {
+                    if file_stem.len() == 2
+                        && beetle_core::decode_base36(
+                            file_stem.as_bytes()[0],
+                            file_stem.as_bytes()[1],
+                        )
+                        .is_some()
+                    {
                         file_stem.to_ascii_uppercase()
                     } else {
                         file_stem.to_string()
                     }
                 });
+                let key = unique_atlas_key(&mut bga_key_owner, candidate_key, file_stem, &norm_rel);
                 bga_builder.add_frame(key, &img, Some(file_name.to_string()));
                 continue;
             }
@@ -626,9 +794,10 @@ where
             bga_builder.add_file(rel_path, data)?;
         }
 
-        let bga_bytes = bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
-            on_progress("Compressing .bga.bmsp (Turbo)", curr, tot, name);
-        })?;
+        let bga_bytes =
+            bga_builder.build_to_bytes_with_progress(cancel_flag, |curr, tot, name| {
+                on_progress("Compressing .bga.bmsp (Turbo)", curr, tot, name);
+            })?;
 
         let bga_sha = bms_package::sha256_hex(&bga_bytes);
         let bga_size = bga_bytes.len() as u64;
@@ -641,19 +810,26 @@ where
     }
 
     // 3. Build Sound Atlas
-    let (mut sound_meta, sound_bytes) = sound_builder
-        .build("audio/atlas.bin")
-        .map_err(|e| PackageManagerError::InvalidPackage(format!("Sound Atlas build error: {e}")))?;
+    let (mut sound_meta, sound_bytes) = sound_builder.build("audio/atlas.bin").map_err(|e| {
+        PackageManagerError::InvalidPackage(format!("Sound Atlas build error: {e}"))
+    })?;
 
     // Populate all alias WavId keys pointing to the same slices across charts
     for slice in sound_meta.slices.values().cloned().collect::<Vec<_>>() {
         if let Some(ref orig) = slice.original_filename {
             let norm = orig.replace('\\', "/").to_ascii_lowercase();
-            let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
-            let stem = Path::new(file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(file_only);
+            let file_only = Path::new(&norm)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&norm);
+            let stem = Path::new(file_only)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(file_only);
 
             let empty = Vec::new();
-            let keys = wav_all_keys.get(&norm)
+            let keys = wav_all_keys
+                .get(&norm)
                 .or_else(|| wav_all_keys.get(file_only))
                 .or_else(|| wav_all_keys.get(stem))
                 .unwrap_or(&empty);
@@ -672,11 +848,18 @@ where
         for frame in bga_meta.frames.values().cloned().collect::<Vec<_>>() {
             if let Some(ref orig) = frame.original_filename {
                 let norm = orig.replace('\\', "/").to_ascii_lowercase();
-                let file_only = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
-                let stem = Path::new(file_only).file_stem().and_then(|s| s.to_str()).unwrap_or(file_only);
+                let file_only = Path::new(&norm)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&norm);
+                let stem = Path::new(file_only)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(file_only);
 
                 let empty = Vec::new();
-                let keys = bmp_all_keys.get(&norm)
+                let keys = bmp_all_keys
+                    .get(&norm)
                     .or_else(|| bmp_all_keys.get(file_only))
                     .or_else(|| bmp_all_keys.get(stem))
                     .unwrap_or(&empty);
@@ -725,7 +908,10 @@ fn collect_file_paths(
             collect_file_paths(base_dir, &path, out)?;
         } else if path.is_file() {
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if file_name == MANIFEST_FILENAME || file_name.ends_with(".bmsp") || file_name.starts_with('.') {
+            if file_name == MANIFEST_FILENAME
+                || file_name.ends_with(".bmsp")
+                || file_name.starts_with('.')
+            {
                 continue;
             }
 
@@ -802,10 +988,7 @@ mod tests {
     fn test_slugify_and_id_generation() {
         assert_eq!(slugify("DJ MAX - Techno"), "dj_max_techno");
         assert_eq!(slugify("곡 제목 (2026)"), "2026");
-        assert_eq!(
-            generate_slug_id("Tatsh", "RED ZONE"),
-            "tatsh.red_zone"
-        );
+        assert_eq!(generate_slug_id("Tatsh", "RED ZONE"), "tatsh.red_zone");
     }
 
     #[test]
@@ -825,8 +1008,8 @@ mod tests {
 
     #[test]
     fn test_pack_bms_folder_turbo_dual_atlas() {
-        use bms_package::Package;
         use beetle_render::skin::ColorRgba;
+        use bms_package::Package;
 
         let temp_dir = std::env::temp_dir().join(format!(
             "bpm_turbo_test_{}",
@@ -879,7 +1062,8 @@ mod tests {
         fs::write(temp_dir.join("stage.bmp"), img2.encode_bmp_bytes()).unwrap();
 
         // 4. Pack with Turbo profile
-        let pkg_bytes = pack_bms_folder_profile(&temp_dir, None, PackProfile::Turbo).expect("turbo pack failed");
+        let pkg_bytes = pack_bms_folder_profile(&temp_dir, None, PackProfile::Turbo)
+            .expect("turbo pack failed");
 
         // 5. Inspect and verify package structure
         let pkg = Package::from_bytes(pkg_bytes).expect("package inspect failed");
@@ -911,7 +1095,9 @@ mod tests {
         assert!(!pkg.contains("stage.bmp"));
 
         // 6. Test decoding sound atlas into SampleBank
-        let atlas_bytes = pkg.read_entry("audio/atlas.bin").expect("read atlas bin failed");
+        let atlas_bytes = pkg
+            .read_entry("audio/atlas.bin")
+            .expect("read atlas bin failed");
         let sample_bank = SampleBank::load_from_sound_atlas(sound_atlas, &atlas_bytes)
             .expect("load sound atlas failed");
         assert_eq!(sample_bank.len(), 2);
@@ -961,8 +1147,8 @@ mod tests {
 
     #[test]
     fn test_pack_cross_format_and_nested_subfolder_matching() {
-        use bms_package::Package;
         use beetle_render::skin::ColorRgba;
+        use bms_package::Package;
 
         let temp_dir = std::env::temp_dir().join(format!(
             "bpm_cross_fmt_test_{}",
@@ -1029,11 +1215,17 @@ mod tests {
 
         let sound_meta = manifest.sound_atlas.as_ref().unwrap();
         assert!(sound_meta.slices.contains_key("01"), "kick.wav matched");
-        assert!(sound_meta.slices.contains_key("02"), "sound/snare.wav matched");
+        assert!(
+            sound_meta.slices.contains_key("02"),
+            "sound/snare.wav matched"
+        );
 
         let bga_meta = manifest.bga_atlas.as_ref().unwrap();
         assert!(bga_meta.frames.contains_key("01"), "bg.bmp matched");
-        assert!(bga_meta.frames.contains_key("stagefile"), "stage.bmp matched");
+        assert!(
+            bga_meta.frames.contains_key("stagefile"),
+            "stage.bmp matched"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -1065,7 +1257,8 @@ mod tests {
         fs::write(song_dir.join("01.ogg"), ogg1_bytes).unwrap();
         fs::write(song_dir.join("02.ogg"), ogg2_bytes).unwrap();
 
-        let pkg_bytes = pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
+        let pkg_bytes =
+            pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
         let pkg = Package::from_bytes(pkg_bytes).expect("package open failed");
         let manifest = pkg.manifest();
 
@@ -1109,7 +1302,8 @@ mod tests {
         fs::write(song_dir.join("01.wav"), wav1_bytes).unwrap();
         fs::write(song_dir.join("02.wav"), wav2_bytes).unwrap();
 
-        let pkg_bytes = pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
+        let pkg_bytes =
+            pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo).expect("pack failed");
         let pkg = Package::from_bytes(pkg_bytes).expect("package open failed");
         let manifest = pkg.manifest();
 
@@ -1122,6 +1316,58 @@ mod tests {
         let slice2 = sound_meta.slices.get("02").unwrap();
         assert_eq!(slice1.byte_len(), wav1_bytes.len() as u64);
         assert_eq!(slice2.byte_len(), wav2_bytes.len() as u64);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_turbo_preserves_same_wav_id_across_charts() {
+        use bms_package::Package;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_wav_id_collision_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let chart_7key = "#TITLE Collision\n#WAVC4 lovinit.wav\n#00111:C4\n";
+        let chart_14key = "#TITLE Collision\n#WAVC4 lovinitl.wav\n#00111:C4\n";
+        fs::write(temp_dir.join("7key.bms"), chart_7key).unwrap();
+        fs::write(temp_dir.join("14key.bms"), chart_14key).unwrap();
+
+        let make_wav = |sample: i16| {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            let mut writer = hound::WavWriter::new(&mut cursor, spec).unwrap();
+            writer.write_sample(sample).unwrap();
+            writer.finalize().unwrap();
+            cursor.into_inner()
+        };
+        fs::write(temp_dir.join("lovinit.wav"), make_wav(1000)).unwrap();
+        fs::write(temp_dir.join("lovinitl.wav"), make_wav(-1000)).unwrap();
+
+        let package_bytes = pack_bms_folder_profile(&temp_dir, None, PackProfile::Turbo)
+            .expect("turbo pack failed");
+        let package = Package::from_bytes(package_bytes).expect("package inspect failed");
+        let meta = package.manifest().sound_atlas.as_ref().unwrap();
+
+        assert_eq!(meta.slices.len(), 2);
+        assert!(meta
+            .slices
+            .values()
+            .any(|s| s.original_filename.as_deref() == Some("lovinit.wav")));
+        assert!(meta
+            .slices
+            .values()
+            .any(|s| s.original_filename.as_deref() == Some("lovinitl.wav")));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -1155,8 +1401,14 @@ mod tests {
 
         // 1. Test BgaPackMode::Embed (Turbo)
         let embed_opts = PackOptions::turbo(BgaPackMode::Embed);
-        let embed_out = pack_bms_folder_advanced_with_progress(&song_dir, None, embed_opts, None, |_, _, _, _| {})
-            .expect("embed pack failed");
+        let embed_out = pack_bms_folder_advanced_with_progress(
+            &song_dir,
+            None,
+            embed_opts,
+            None,
+            |_, _, _, _| {},
+        )
+        .expect("embed pack failed");
         assert!(embed_out.bga_package.is_none());
         assert!(embed_out.bga_manifest.is_none());
         assert!(embed_out.base_manifest.companion_packages.is_none());
@@ -1167,8 +1419,14 @@ mod tests {
 
         // 2. Test BgaPackMode::NoVideo (Turbo)
         let novideo_opts = PackOptions::turbo(BgaPackMode::NoVideo);
-        let novideo_out = pack_bms_folder_advanced_with_progress(&song_dir, None, novideo_opts, None, |_, _, _, _| {})
-            .expect("novideo pack failed");
+        let novideo_out = pack_bms_folder_advanced_with_progress(
+            &song_dir,
+            None,
+            novideo_opts,
+            None,
+            |_, _, _, _| {},
+        )
+        .expect("novideo pack failed");
         assert!(novideo_out.bga_package.is_none());
         assert!(novideo_out.bga_manifest.is_none());
         assert!(novideo_out.base_manifest.companion_packages.is_none());
@@ -1179,8 +1437,14 @@ mod tests {
 
         // 3. Test BgaPackMode::Split (Turbo)
         let split_opts = PackOptions::turbo(BgaPackMode::Split);
-        let split_out = pack_bms_folder_advanced_with_progress(&song_dir, None, split_opts, None, |_, _, _, _| {})
-            .expect("split pack failed");
+        let split_out = pack_bms_folder_advanced_with_progress(
+            &song_dir,
+            None,
+            split_opts,
+            None,
+            |_, _, _, _| {},
+        )
+        .expect("split pack failed");
         assert!(split_out.bga_package.is_some());
         assert!(split_out.bga_manifest.is_some());
 
@@ -1191,8 +1455,18 @@ mod tests {
         assert_eq!(base_pkg.manifest().package_type, PackageType::Standard);
 
         // Companion metadata attached to base package
-        let bga_comp = base_pkg.manifest().companion_packages.as_ref().unwrap().bga.as_ref().unwrap();
-        assert_eq!(bga_comp.recommended_filename, format!("{}.bga.bmsp", base_pkg.manifest().id));
+        let bga_comp = base_pkg
+            .manifest()
+            .companion_packages
+            .as_ref()
+            .unwrap()
+            .bga
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            bga_comp.recommended_filename,
+            format!("{}.bga.bmsp", base_pkg.manifest().id)
+        );
 
         // Companion package checks
         let bga_pkg_bytes = split_out.bga_package.unwrap();
@@ -1203,12 +1477,21 @@ mod tests {
         assert!(bga_pkg.contains("bga.mp4"));
         assert!(bga_pkg.contains("movie.mpg"));
         assert_eq!(bga_pkg.manifest().package_type, PackageType::BgaCompanion);
-        assert_eq!(bga_pkg.manifest().target_package_id.as_deref(), Some(base_pkg.manifest().id.as_str()));
+        assert_eq!(
+            bga_pkg.manifest().target_package_id.as_deref(),
+            Some(base_pkg.manifest().id.as_str())
+        );
 
         // 4. Test BgaPackMode::Split (Classic)
         let classic_split_opts = PackOptions::classic(BgaPackMode::Split);
-        let classic_out = pack_bms_folder_advanced_with_progress(&song_dir, None, classic_split_opts, None, |_, _, _, _| {})
-            .expect("classic split pack failed");
+        let classic_out = pack_bms_folder_advanced_with_progress(
+            &song_dir,
+            None,
+            classic_split_opts,
+            None,
+            |_, _, _, _| {},
+        )
+        .expect("classic split pack failed");
         assert!(classic_out.bga_package.is_some());
         let classic_base = Package::from_bytes(classic_out.base_package).unwrap();
         assert!(!classic_base.contains("bga.mp4"));
@@ -1216,7 +1499,10 @@ mod tests {
 
         let classic_bga = Package::from_bytes(classic_out.bga_package.unwrap()).unwrap();
         assert!(classic_bga.contains("bga.mp4"));
-        assert_eq!(classic_bga.manifest().package_type, PackageType::BgaCompanion);
+        assert_eq!(
+            classic_bga.manifest().package_type,
+            PackageType::BgaCompanion
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
