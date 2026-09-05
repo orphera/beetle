@@ -29,6 +29,7 @@ enum ModalMode {
     InstallBmsp,
     PackFolder,
     PackTurboFolder,
+    PackSplitBgaFolder,
     ApplyDelta,
     CreateDelta,
 }
@@ -359,6 +360,7 @@ impl ApplicationHandler for BpmGuiApp {
                             ModalMode::InstallBmsp => "Install .bmsp Package (enter file path):",
                             ModalMode::PackFolder => "Pack BMS Folder [Classic] (enter directory path):",
                             ModalMode::PackTurboFolder => "Pack Turbo Folder [Dual Atlas] (enter directory path):",
+                            ModalMode::PackSplitBgaFolder => "Pack BMS Folder [Split BGA Companion] (enter directory path):",
                             ModalMode::ApplyDelta => "Apply Delta .bmdp (enter file path):",
                             ModalMode::CreateDelta => "Create Delta (enter '<base_path> <target_path>'):",
                         };
@@ -440,51 +442,89 @@ impl ApplicationHandler for BpmGuiApp {
                             }
                         });
                     } else if ext == "bmsp" {
-                        let pkg_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("package.bmsp").to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Installing '{}'", pkg_name),
-                            phase: "Reading package...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.install_with_progress(
-                                        &path_buf,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                        let file_str = path.file_name().and_then(|n| n.to_str()).unwrap_or("package.bmsp").to_string();
+                        let is_bga_companion = file_str.ends_with(".bga.bmsp");
+                        if is_bga_companion {
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Installing BGA companion '{}'", file_str),
+                                phase: "Installing companion...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let p_buf = path.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => match mgr.install_bga_companion(&p_buf) {
+                                        Ok(target_id) => {
                                             let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Installed '{}' (#{})",
-                                                installed.name, short_h
+                                                "Installed BGA companion for '{}'",
+                                                target_id
                                             )));
                                         }
-                                        Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                            let _ = tx.send(BgTaskMessage::Failed("Install cancelled by user".to_string()));
-                                        }
                                         Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!("Install error: {e}")));
+                                            let _ = tx.send(BgTaskMessage::Failed(format!("BGA companion error: {e}")));
                                         }
+                                    },
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            });
+                        } else {
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Installing '{}'", file_str),
+                                phase: "Reading package...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let res = mgr.install_with_progress(
+                                            &path_buf,
+                                            Some(&cancel_flag),
+                                            move |phase, curr, tot, detail| {
+                                                let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                    phase: phase.to_string(),
+                                                    current: curr,
+                                                    total: tot,
+                                                    detail: detail.to_string(),
+                                                });
+                                            },
+                                        );
+                                        match res {
+                                            Ok(installed) => {
+                                                // Check for adjacent companion package (.bga.bmsp)
+                                                let companion_name = format!("{}.bga.bmsp", file_str.trim_end_matches(".bmsp"));
+                                                if let Some(parent) = path_buf.parent() {
+                                                    let candidate = parent.join(&companion_name);
+                                                    if candidate.exists() {
+                                                        let _ = mgr.install_bga_companion(&candidate);
+                                                    }
+                                                }
+                                                let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                                    "Installed '{}' (#{})",
+                                                    installed.name, short_h
+                                                )));
+                                            }
+                                            Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                let _ = tx.send(BgTaskMessage::Failed("Install cancelled by user".to_string()));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(BgTaskMessage::Failed(format!("Install error: {e}")));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     } else if path.is_dir() {
                         let roots = bms_package_manager::find_bms_song_roots(&path_buf);
                         if roots.is_empty() {
@@ -767,61 +807,106 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                         }
                     }
                     ModalMode::InstallBmsp => {
-                        let pkg_name = Path::new(&target_path)
+                        let path_obj = Path::new(&target_path);
+                        let file_str = path_obj
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("package.bmsp")
                             .to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Installing '{}'", pkg_name),
-                            phase: "Reading package...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.install_with_progress(
-                                        &target_path,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                        let is_bga_companion = file_str.ends_with(".bga.bmsp");
+                        if is_bga_companion {
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Installing BGA companion '{}'", file_str),
+                                phase: "Installing companion...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let target_p = target_path.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => match mgr.install_bga_companion(&target_p) {
+                                        Ok(target_id) => {
                                             let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Installed '{}' (#{})",
-                                                installed.name, short_h
+                                                "Installed BGA companion for '{}'",
+                                                target_id
                                             )));
                                         }
-                                        Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                            let _ = tx.send(BgTaskMessage::Failed("Install cancelled by user".to_string()));
-                                        }
                                         Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!("Install error: {e}")));
+                                            let _ = tx.send(BgTaskMessage::Failed(format!("BGA companion error: {e}")));
                                         }
+                                    },
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
                                     }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            });
+                        } else {
+                            state.bg_task_running = Some(BgTaskState {
+                                title: format!("Installing '{}'", file_str),
+                                phase: "Reading package...".to_string(),
+                                current: 0,
+                                total: 0,
+                                detail: String::new(),
+                            });
+                            let tx_progress = tx.clone();
+                            let target_p = target_path.clone();
+                            thread::spawn(move || {
+                                match PackageManager::new(&root_dir) {
+                                    Ok(mut mgr) => {
+                                        let res = mgr.install_with_progress(
+                                            &target_p,
+                                            Some(&cancel_flag),
+                                            move |phase, curr, tot, detail| {
+                                                let _ = tx_progress.send(BgTaskMessage::Progress {
+                                                    phase: phase.to_string(),
+                                                    current: curr,
+                                                    total: tot,
+                                                    detail: detail.to_string(),
+                                                });
+                                            },
+                                        );
+                                        match res {
+                                            Ok(installed) => {
+                                                // Check for adjacent companion package
+                                                let companion_name = format!("{}.bga.bmsp", file_str.trim_end_matches(".bmsp"));
+                                                if let Some(parent) = Path::new(&target_p).parent() {
+                                                    let candidate = parent.join(&companion_name);
+                                                    if candidate.exists() {
+                                                        let _ = mgr.install_bga_companion(&candidate);
+                                                    }
+                                                }
+                                                let short_h = if installed.state_hash.len() > 8 { &installed.state_hash[..8] } else { &installed.state_hash };
+                                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                                    "Installed '{}' (#{})",
+                                                    installed.name, short_h
+                                                )));
+                                            }
+                                            Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                                let _ = tx.send(BgTaskMessage::Failed("Install cancelled by user".to_string()));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(BgTaskMessage::Failed(format!("Install error: {e}")));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
-                    ModalMode::PackFolder | ModalMode::PackTurboFolder => {
+                    ModalMode::PackFolder | ModalMode::PackTurboFolder | ModalMode::PackSplitBgaFolder => {
+                        let is_split_bga = m == ModalMode::PackSplitBgaFolder
+                            || target_path.contains("--split-bga");
+                        let is_no_video = target_path.contains("--no-video");
                         let is_turbo = m == ModalMode::PackTurboFolder
                             || target_path.contains("--turbo")
                             || target_path.contains("--atlas");
                         let clean_path = target_path
+                            .replace("--split-bga", "")
+                            .replace("--no-video", "")
                             .replace("--turbo", "")
                             .replace("--atlas", "")
                             .trim()
@@ -839,7 +924,25 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                         } else {
                             bms_package_manager::PackProfile::Classic
                         };
-                        let mode_str = if is_turbo { "Turbo (Dual Atlas)" } else { "Classic" };
+                        let bga_mode = if is_split_bga {
+                            bms_package_manager::BgaPackMode::Split
+                        } else if is_no_video {
+                            bms_package_manager::BgaPackMode::NoVideo
+                        } else {
+                            bms_package_manager::BgaPackMode::Embed
+                        };
+                        let pack_options = bms_package_manager::PackOptions {
+                            profile,
+                            bga_mode,
+                        };
+
+                        let mode_str = match (profile, bga_mode) {
+                            (bms_package_manager::PackProfile::Turbo, bms_package_manager::BgaPackMode::Split) => "Turbo + Split BGA",
+                            (bms_package_manager::PackProfile::Turbo, _) => "Turbo (Dual Atlas)",
+                            (_, bms_package_manager::BgaPackMode::Split) => "Classic + Split BGA",
+                            (_, bms_package_manager::BgaPackMode::NoVideo) => "Classic (No Video)",
+                            _ => "Classic",
+                        };
 
                         let base_path = PathBuf::from(&clean_path);
 
@@ -867,10 +970,10 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                             thread::spawn(move || {
                                 match PackageManager::new(&root_dir) {
                                     Ok(mgr) => {
-                                        let res = mgr.pack_folder_profile_with_progress(
+                                        let res = mgr.pack_folder_advanced_with_progress(
                                             &target_root,
                                             None,
-                                            profile,
+                                            pack_options,
                                             Some(&cancel_flag),
                                             move |phase, curr, tot, detail| {
                                                 let _ = tx_progress.send(BgTaskMessage::Progress {
@@ -882,11 +985,21 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                             },
                                         );
                                         match res {
-                                            Ok(bytes) => {
-                                                if let Err(e) = fs::write(&out_path, bytes) {
+                                            Ok(pack_out) => {
+                                                if let Err(e) = fs::write(&out_path, &pack_out.base_package) {
                                                     let _ = tx.send(BgTaskMessage::Failed(format!("Write error: {e}")));
                                                 } else {
-                                                    let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_path.display())));
+                                                    if let Some(bga_bytes) = pack_out.bga_package {
+                                                        let companion_file = out_path.with_extension("bga.bmsp");
+                                                        let _ = fs::write(&companion_file, bga_bytes);
+                                                        let _ = tx.send(BgTaskMessage::Completed(format!(
+                                                            "Packed into '{}' and companion '{}'",
+                                                            out_path.display(),
+                                                            companion_file.display()
+                                                        )));
+                                                    } else {
+                                                        let _ = tx.send(BgTaskMessage::Completed(format!("Packed {} into '{}'", mode_str, out_path.display())));
+                                                    }
                                                 }
                                             }
                                             Err(bms_package_manager::PackageManagerError::Cancelled) => {
@@ -930,15 +1043,19 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
                                                 detail: out_path.display().to_string(),
                                             });
 
-                                            match mgr.pack_folder_profile_with_progress(
+                                            match mgr.pack_folder_advanced_with_progress(
                                                 r,
                                                 None,
-                                                profile,
+                                                pack_options,
                                                 Some(&cancel_flag),
                                                 |_, _, _, _| {},
                                             ) {
-                                                Ok(bytes) => {
-                                                    if fs::write(&out_path, bytes).is_ok() {
+                                                Ok(pack_out) => {
+                                                    if fs::write(&out_path, &pack_out.base_package).is_ok() {
+                                                        if let Some(bga_bytes) = pack_out.bga_package {
+                                                            let companion_file = out_path.with_extension("bga.bmsp");
+                                                            let _ = fs::write(&companion_file, bga_bytes);
+                                                        }
                                                         success_count += 1;
                                                     }
                                                 }
@@ -1166,6 +1283,31 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>, eve
         }
         KeyCode::KeyT => {
             state.modal = Some((ModalMode::PackTurboFolder, String::new()));
+        }
+        KeyCode::KeyB => {
+            // Diet / Remove BGA companion to reclaim disk space
+            if let Some(&pkg_idx) = state.filtered_indices.get(state.selected_idx) {
+                if let Some(pkg) = state.packages.get(pkg_idx) {
+                    if pkg.bga_status == bms_package_manager::BgaStatus::Companion {
+                        let id = pkg.id.clone();
+                        match state.manager.remove_bga_companion(&id) {
+                            Ok(reclaimed) => {
+                                let mb = reclaimed as f64 / (1024.0 * 1024.0);
+                                state.status_msg = format!("BGA removed for '{}' (saved {:.2} MB)", id, mb);
+                                state.refresh_packages();
+                            }
+                            Err(e) => {
+                                state.status_msg = format!("Diet error: {e}");
+                            }
+                        }
+                    } else {
+                        state.status_msg = "Package has no companion BGA to remove".to_string();
+                    }
+                }
+            }
+        }
+        KeyCode::KeyS => {
+            state.modal = Some((ModalMode::PackSplitBgaFolder, String::new()));
         }
         KeyCode::KeyD | KeyCode::F3 => {
             state.modal = Some((ModalMode::ApplyDelta, String::new()));

@@ -142,12 +142,37 @@ impl GuiRenderer {
             }
 
             // Name
+            // Name
             let name_col = if is_selected {
                 ColorRgba::new(255, 255, 255, 255)
             } else {
                 ColorRgba::new(210, 210, 225, 255)
             };
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &pkg.name, 30, (row_y + 6.0) as i32, 1, name_col);
+
+            // BGA Status Badge
+            let (bga_tag, bga_bg, bga_fg) = match pkg.bga_status {
+                bms_package_manager::BgaStatus::Embedded => (
+                    "EMBED",
+                    ColorRgba::new(20, 50, 40, 255),
+                    ColorRgba::new(80, 220, 140, 255),
+                ),
+                bms_package_manager::BgaStatus::Companion => (
+                    "COMPANION",
+                    ColorRgba::new(20, 45, 75, 255),
+                    ColorRgba::new(90, 190, 255, 255),
+                ),
+                bms_package_manager::BgaStatus::None => (
+                    "NO-BGA",
+                    ColorRgba::new(32, 32, 42, 255),
+                    ColorRgba::new(130, 130, 150, 255),
+                ),
+            };
+            let badge_w = 72.0;
+            let badge_x = 18.0 + list_w - badge_w - 8.0;
+            self.draw_rect(badge_x, row_y + 5.0, badge_w, 14.0, bga_bg);
+            self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, bga_fg);
+            BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), bga_tag, (badge_x + badge_w / 2.0) as i32, (row_y + 8.0) as i32, 1, bga_fg);
 
             // ID & Author & State
             let author = pkg.author.as_deref().unwrap_or("Unknown");
@@ -215,7 +240,23 @@ impl GuiRenderer {
 
             let author_line = format!("Author: {}", selected_pkg.author.as_deref().unwrap_or("Unknown"));
             BitmapFont::draw_text(&mut self.pixmap.as_mut(), &author_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(180, 180, 200, 255));
-            dy += 26.0;
+            dy += 20.0;
+
+            let (bga_label, bga_col) = match selected_pkg.bga_status {
+                bms_package_manager::BgaStatus::Embedded => ("Embedded in package.bmsp (All-in-one)", ColorRgba::new(80, 220, 140, 255)),
+                bms_package_manager::BgaStatus::Companion => ("Decoupled Companion (.bga.bmsp installed)", ColorRgba::new(90, 190, 255, 255)),
+                bms_package_manager::BgaStatus::None => ("None (Audio & charts only)", ColorRgba::new(150, 150, 170, 255)),
+            };
+            let bga_line = format!("BGA:    {}", bga_label);
+            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bga_line, detail_x as i32 + 14, dy as i32, 1, bga_col);
+            dy += 20.0;
+
+            if let Some(ref comp_path) = selected_pkg.bga_companion_path {
+                let comp_line = format!("Path:   {}", comp_path);
+                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &comp_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(130, 150, 180, 255));
+                dy += 20.0;
+            }
+            dy += 6.0;
 
             // Installed States Management Box
             self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
@@ -256,7 +297,11 @@ impl GuiRenderer {
             self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
             dy += 8.0;
 
-            let action_text = "[A]: Set Active State   [U]/[Del]: Uninstall Selected State";
+            let action_text = if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
+                "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
+            } else {
+                "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
+            };
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 action_text,
@@ -273,7 +318,7 @@ impl GuiRenderer {
         self.draw_rect(0.0, footer_y, w, 1.0, ColorRgba::new(35, 35, 50, 255));
 
         // Help shortcuts
-        let help_text = "[↑/↓]: Move  [I]: Import  [P]: Pack  [T]: Turbo Pack  [D]: Delta  [C]: Create Delta  [F5]: Refresh";
+        let help_text = "[↑/↓]: Move  [I]: Import  [P]: Pack  [T]: Turbo  [S]: Split BGA  [B]: Diet BGA  [F5]: Refresh";
         BitmapFont::draw_text(&mut self.pixmap.as_mut(), help_text, 16, (footer_y + 14.0) as i32, 1, ColorRgba::new(160, 160, 180, 255));
 
         // Status message
