@@ -182,6 +182,8 @@ pub struct BmsChart {
     pub header: BmsHeader,
     pub notes: Vec<NoteEvent>,
     pub bgm_notes: Vec<(u32, f64, WavId)>,
+    /// Freezone / transparent-note samples (channels 31..39, 41..49)
+    pub freezone_notes: Vec<(u32, f64, WavId)>,
     pub bga_events: Vec<BgaEvent>,
     pub timing_events: Vec<TimingEvent>,
     pub measure_lengths: HashMap<u32, f64>,
@@ -838,11 +840,11 @@ fn parse_measure_line(
                     chart.bgm_notes.push((measure, fraction, wav_id));
                 }
             }
-            // 31..39, 41..49: Invisible/Freezone Notes (Plays keysound on beat without visual lane note)
+            // 31..39, 41..49: Invisible/Freezone Notes (Transparent notes)
             "31" | "32" | "33" | "34" | "35" | "36" | "38" | "39" | "41" | "42" | "43" | "44"
             | "45" | "46" | "48" | "49" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
-                    chart.bgm_notes.push((measure, fraction, wav_id));
+                    chart.freezone_notes.push((measure, fraction, wav_id));
                 }
             }
             // 51..59: 1P Long Notes (LNTYPE 1)

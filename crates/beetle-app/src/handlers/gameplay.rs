@@ -133,9 +133,9 @@ pub fn handle_gameplay_input(
                             }
 
                             if !visible_near {
-                                // Find nearest bgm/freezone sample by absolute time distance
+                                // Find nearest freezone (transparent) sample by absolute time distance
                                 let mut best: Option<(f64, beetle_core::WavId)> = None;
-                                for (m, f, wav_id) in &chart.bgm_notes {
+                                for (m, f, wav_id) in &chart.freezone_notes {
                                     let t = timing.beat_to_time_seconds(*m, *f);
                                     let dms = (effective_judge_time - t).abs() * 1000.0;
                                     if best.is_none() || dms < best.unwrap().0 {
