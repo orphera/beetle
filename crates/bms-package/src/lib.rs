@@ -13,7 +13,10 @@ pub mod manifest;
 pub mod path;
 pub mod reader;
 
-pub use atlas::{SoundAtlasCodec, SoundAtlasMeta, SoundSlice};
+pub use atlas::{
+    BgaAtlasMeta, BgaFrame, GuillotineBinPacker, PackedAtlas, PackedRect, SoundAtlasCodec,
+    SoundAtlasMeta, SoundSlice,
+};
 pub use builder::PackageBuilder;
 pub use checksum::{sha256_digest, sha256_hex};
 pub use delta::{

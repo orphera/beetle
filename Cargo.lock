@@ -166,6 +166,7 @@ version = "0.1.0"
 dependencies = [
  "beetle-audio",
  "beetle-core",
+ "bms-package",
  "jpeg-decoder",
  "png",
  "tiny-skia",

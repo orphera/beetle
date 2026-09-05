@@ -11,7 +11,10 @@ pub mod screens;
 pub mod skin;
 pub mod video;
 
-pub use backend::{BlendMode, FontAtlas, GpuBackend, GpuTexturePool, SoftBackend, SpriteBatcher, TextureId, Vertex2D};
+pub use backend::{
+    BgaAtlasBuilder, BlendMode, FontAtlas, GpuBackend, GpuBgaAtlas, GpuTexturePool, SoftBackend,
+    SpriteBatcher, TextureId, Vertex2D,
+};
 #[cfg(target_os = "windows")]
 pub use backend::D3d11Backend;
 pub use bitmap_font::BitmapFont;

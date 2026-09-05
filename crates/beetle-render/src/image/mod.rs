@@ -166,6 +166,34 @@ impl ImageBuffer {
         }
     }
 
+    /// Copies this image directly into another destination ImageBuffer at the specified (dst_x, dst_y) coordinates.
+    pub fn blit_into(&self, dst: &mut ImageBuffer, dst_x: u32, dst_y: u32) {
+        let src_w = self.width;
+        let src_h = self.height;
+        let dst_w = dst.width;
+        let dst_h = dst.height;
+
+        for dy in 0..src_h {
+            let py = dst_y + dy;
+            if py >= dst_h {
+                break;
+            }
+            let src_row = (dy * src_w) as usize;
+            let dst_row = (py * dst_w) as usize;
+
+            let copy_w = src_w.min(dst_w.saturating_sub(dst_x)) as usize;
+            if copy_w == 0 {
+                continue;
+            }
+            let src_start = src_row;
+            let src_end = src_start + copy_w;
+            let dst_start = dst_row + dst_x as usize;
+            let dst_end = dst_start + copy_w;
+
+            dst.pixels[dst_start..dst_end].copy_from_slice(&self.pixels[src_start..src_end]);
+        }
+    }
+
     /// Blits and scales the image into a target area on the tiny-skia Pixmap.
     pub fn draw_scaled(
         &self,

@@ -32,15 +32,15 @@
 ---
 
 ## 📋 Phase 2: BGA Texture Atlas 빌더 및 렌더러 연동 (`crates/bms-package/`, `crates/beetle-render/`)
-- [ ] **순수 Rust 경량 2D 직사각형 패킹(Bin Packing) 알고리즘 구축 (`crates/bms-package/src/atlas/binpack.rs`)**
-  - [ ] 외부 무거운 크레이트 0개, Guillotine / MaxRects 기반 직사각형 패커 구현
-  - [ ] 스프라이트 간 색상 번짐 방지 1px 투명 여백(Padding) 처리
-- [ ] **BGA Texture Atlas 합성 빌더 (`BgaAtlasBuilder`)**
-  - [ ] BMS `#BMPxx` 이미지 시퀀스, 스테이지 이미지, 배너, 타이틀을 단 1장의 PNG 아틀라스로 합성
-  - [ ] 각 이미지별 정규화된 UV 사각형 좌표(`[u1, v1, u2, v2]`) 테이블 생성
-- [ ] **`SpriteBatcher` BGA Atlas 하드웨어 가속 연동 (`crates/beetle-render/src/backend/batcher.rs`)**
-  - [ ] 텍스처 스위칭 0회: BGA 교체 시 단일 텍스처에서 UV 좌표만 매핑하여 쿼드 배치 드로우
-  - [ ] 소프트웨어 렌더러 및 D3D11 하드웨어 백엔드 양방향 지원
+- [x] **순수 Rust 경량 2D 직사각형 패킹(Bin Packing) 알고리즘 구축 (`crates/bms-package/src/atlas/binpack.rs`)**
+  - [x] 외부 무거운 크레이트 0개, Guillotine / MaxRects 기반 직사각형 패커 구현
+  - [x] 스프라이트 간 색상 번짐 방지 1px 투명 여백(Padding) 처리
+- [x] **BGA Texture Atlas 합성 빌더 (`BgaAtlasBuilder`)**
+  - [x] BMS `#BMPxx` 이미지 시퀀스, 스테이지 이미지, 배너, 타이틀을 단 1장의 PNG 아틀라스로 합성
+  - [x] 각 이미지별 정규화된 UV 사각형 좌표(`[u1, v1, u2, v2]`) 테이블 생성
+- [x] **`SpriteBatcher` BGA Atlas 하드웨어 가속 연동 (`crates/beetle-render/src/backend/batcher.rs`)**
+  - [x] 텍스처 스위칭 0회: BGA 교체 시 단일 텍스처에서 UV 좌표만 매핑하여 쿼드 배치 드로우
+  - [x] 소프트웨어 렌더러 및 D3D11 하드웨어 백엔드 양방향 지원
 
 ---
 

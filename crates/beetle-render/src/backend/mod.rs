@@ -1,5 +1,6 @@
 pub mod atlas;
 pub mod batcher;
+pub mod bga_atlas;
 #[cfg(target_os = "windows")]
 pub mod d3d11;
 pub mod soft;
@@ -7,6 +8,7 @@ pub mod texture_pool;
 
 pub use atlas::FontAtlas;
 pub use batcher::SpriteBatcher;
+pub use bga_atlas::{BgaAtlasBuilder, GpuBgaAtlas};
 #[cfg(target_os = "windows")]
 pub use d3d11::D3d11Backend;
 pub use soft::SoftBackend;
