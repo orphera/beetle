@@ -99,13 +99,28 @@ pub fn render_gameplay_gpu(
 
     for &lane in skin.active_lanes() {
         let x = skin.lane_x(lane);
-        batcher.draw_rect(backend, x, skin.playfield_y, line_w, skin.playfield_height, line_col_f32);
+        batcher.draw_rect(
+            backend,
+            x,
+            skin.playfield_y,
+            line_w,
+            skin.playfield_height,
+            line_col_f32,
+        );
     }
     let right_x = skin.playfield_x + skin.playfield_width;
-    batcher.draw_rect(backend, right_x, skin.playfield_y, line_w, skin.playfield_height, line_col_f32);
+    batcher.draw_rect(
+        backend,
+        right_x,
+        skin.playfield_y,
+        line_w,
+        skin.playfield_height,
+        line_col_f32,
+    );
 
     // Danger pulsing border around playfield
-    let is_danger = (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
+    let is_danger = (score.gauge < 30.0
+        && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
         || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
     let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
     if danger_blink {
@@ -149,7 +164,14 @@ pub fn render_gameplay_gpu(
             break;
         }
         if bar_y >= top_y && bar_y <= judge_y {
-            batcher.draw_rect(backend, px, bar_y - bar_line_h * 0.5, pw, bar_line_h, bar_line_col);
+            batcher.draw_rect(
+                backend,
+                px,
+                bar_y - bar_line_h * 0.5,
+                pw,
+                bar_line_h,
+                bar_line_col,
+            );
         }
     }
 
@@ -177,7 +199,14 @@ pub fn render_gameplay_gpu(
         match note.note_event.note_type {
             NoteType::Tap => {
                 if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 * s {
-                    batcher.draw_rect(backend, lane_x, note_y - note_h, lane_w, note_h, note_col_f32);
+                    batcher.draw_rect(
+                        backend,
+                        lane_x,
+                        note_y - note_h,
+                        lane_w,
+                        note_h,
+                        note_col_f32,
+                    );
                 }
             }
             NoteType::LongNoteStart => {
@@ -198,10 +227,24 @@ pub fn render_gameplay_gpu(
                     );
                 }
                 if note_y + note_h >= top_y && note_y <= judge_y + 40.0 * s {
-                    batcher.draw_rect(backend, lane_x, note_y - note_h, lane_w, note_h, note_col_f32);
+                    batcher.draw_rect(
+                        backend,
+                        lane_x,
+                        note_y - note_h,
+                        lane_w,
+                        note_h,
+                        note_col_f32,
+                    );
                 }
                 if end_y + note_h >= top_y && end_y <= judge_y + 40.0 * s {
-                    batcher.draw_rect(backend, lane_x, end_y - note_h, lane_w, note_h, note_col_f32);
+                    batcher.draw_rect(
+                        backend,
+                        lane_x,
+                        end_y - note_h,
+                        lane_w,
+                        note_h,
+                        note_col_f32,
+                    );
                 }
             }
             _ => (),
@@ -214,13 +257,34 @@ pub fn render_gameplay_gpu(
         let cover_h = skin.playfield_height * ratio;
         let cover_col = ColorRgba::new(12, 12, 18, 255).to_f32_array();
         let border_col = ColorRgba::new(80, 140, 255, 255).to_f32_array();
-        batcher.draw_rect(backend, skin.playfield_x, skin.playfield_y, skin.playfield_width, cover_h, cover_col);
-        batcher.draw_rect(backend, skin.playfield_x, skin.playfield_y + cover_h - 2.0 * s, skin.playfield_width, 2.0 * s, border_col);
+        batcher.draw_rect(
+            backend,
+            skin.playfield_x,
+            skin.playfield_y,
+            skin.playfield_width,
+            cover_h,
+            cover_col,
+        );
+        batcher.draw_rect(
+            backend,
+            skin.playfield_x,
+            skin.playfield_y + cover_h - 2.0 * s,
+            skin.playfield_width,
+            2.0 * s,
+            border_col,
+        );
     }
 
     // 8. Core Judge Line
     let judge_line_h = (2.0 * s).max(2.0);
-    batcher.draw_rect(backend, px, judge_y, pw, judge_line_h, skin.judge_line_color.to_f32_array());
+    batcher.draw_rect(
+        backend,
+        px,
+        judge_y,
+        pw,
+        judge_line_h,
+        skin.judge_line_color.to_f32_array(),
+    );
 
     // 9. Gauge Bar Box & Fill
     let gauge_x = skin.playfield_x + skin.playfield_width + 16.0 * s;
@@ -228,7 +292,14 @@ pub fn render_gameplay_gpu(
     let gauge_w = 22.0 * s;
     let gauge_h = skin.playfield_height;
 
-    batcher.draw_rect(backend, gauge_x, gauge_y, gauge_w, gauge_h, ColorRgba::new(20, 20, 28, 255).to_f32_array());
+    batcher.draw_rect(
+        backend,
+        gauge_x,
+        gauge_y,
+        gauge_w,
+        gauge_h,
+        ColorRgba::new(20, 20, 28, 255).to_f32_array(),
+    );
 
     let fill_ratio = (score.gauge / 100.0).clamp(0.0, 1.0) as f32;
     let fill_h = gauge_h * fill_ratio;
@@ -268,7 +339,14 @@ pub fn render_gameplay_gpu(
             }
         }
     };
-    batcher.draw_rect(backend, gauge_x, fill_y, gauge_w, fill_h, fill_color.to_f32_array());
+    batcher.draw_rect(
+        backend,
+        gauge_x,
+        fill_y,
+        gauge_w,
+        fill_h,
+        fill_color.to_f32_array(),
+    );
 
     let b_border_col = if danger_blink {
         ColorRgba::new(255, 60, 60, 255).to_f32_array()
@@ -277,13 +355,34 @@ pub fn render_gameplay_gpu(
     };
     let b_line = (1.0 * s).max(1.0);
     batcher.draw_rect(backend, gauge_x, gauge_y, gauge_w, b_line, b_border_col);
-    batcher.draw_rect(backend, gauge_x, gauge_y + gauge_h - b_line, gauge_w, b_line, b_border_col);
+    batcher.draw_rect(
+        backend,
+        gauge_x,
+        gauge_y + gauge_h - b_line,
+        gauge_w,
+        b_line,
+        b_border_col,
+    );
     batcher.draw_rect(backend, gauge_x, gauge_y, b_line, gauge_h, b_border_col);
-    batcher.draw_rect(backend, gauge_x + gauge_w - b_line, gauge_y, b_line, gauge_h, b_border_col);
+    batcher.draw_rect(
+        backend,
+        gauge_x + gauge_w - b_line,
+        gauge_y,
+        b_line,
+        gauge_h,
+        b_border_col,
+    );
 
     if matches!(score.gauge_type, GaugeType::Easy | GaugeType::Groove) {
         let line_y = gauge_y + gauge_h * 0.2;
-        batcher.draw_rect(backend, gauge_x - 3.0 * s, line_y, gauge_w + 6.0 * s, 2.0 * s, ColorRgba::new(255, 220, 50, 255).to_f32_array());
+        batcher.draw_rect(
+            backend,
+            gauge_x - 3.0 * s,
+            line_y,
+            gauge_w + 6.0 * s,
+            2.0 * s,
+            ColorRgba::new(255, 220, 50, 255).to_f32_array(),
+        );
     }
 
     // 10. BGA Frame container
@@ -293,15 +392,45 @@ pub fn render_gameplay_gpu(
     let bga_w = (520.0 * s).min(max_w);
     let bga_h = (bga_w * 9.0 / 16.0).round();
 
-    batcher.draw_rect(backend, side_x - 2.0 * s, bga_y - 2.0 * s, bga_w + 4.0 * s, bga_h + 4.0 * s, ColorRgba::new(50, 60, 80, 255).to_f32_array());
-    batcher.draw_rect(backend, side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255).to_f32_array());
+    batcher.draw_rect(
+        backend,
+        side_x - 2.0 * s,
+        bga_y - 2.0 * s,
+        bga_w + 4.0 * s,
+        bga_h + 4.0 * s,
+        ColorRgba::new(50, 60, 80, 255).to_f32_array(),
+    );
+    batcher.draw_rect(
+        backend,
+        side_x,
+        bga_y,
+        bga_w,
+        bga_h,
+        ColorRgba::new(8, 8, 12, 255).to_f32_array(),
+    );
 
     // PASS 2: BGA Sprites (Texture: BGA Texture, Blend: Alpha)
     if let Some(tex) = bga_texture {
-        batcher.draw_sprite(backend, tex, side_x, bga_y, bga_w, bga_h, [1.0, 1.0, 1.0, 1.0]);
+        batcher.draw_sprite(
+            backend,
+            tex,
+            side_x,
+            bga_y,
+            bga_w,
+            bga_h,
+            [1.0, 1.0, 1.0, 1.0],
+        );
     }
     if let Some(tex) = layer_texture {
-        batcher.draw_sprite(backend, tex, side_x, bga_y, bga_w, bga_h, [1.0, 1.0, 1.0, 1.0]);
+        batcher.draw_sprite(
+            backend,
+            tex,
+            side_x,
+            bga_y,
+            bga_w,
+            bga_h,
+            [1.0, 1.0, 1.0, 1.0],
+        );
     }
 
     // PASS 3: Additive Blended Beams & Glows (Texture: None, Blend: Additive)
@@ -313,7 +442,15 @@ pub fn render_gameplay_gpu(
             let w = skin.lane_width(lane) - 1.0;
             let beam_h = skin.judge_line_y - skin.playfield_y;
             let beam_color = skin.key_beam_color(lane).to_f32_array();
-            batcher.draw_rect_with_blend(backend, x, skin.playfield_y, w, beam_h, beam_color, BlendMode::Additive);
+            batcher.draw_rect_with_blend(
+                backend,
+                x,
+                skin.playfield_y,
+                w,
+                beam_h,
+                beam_color,
+                BlendMode::Additive,
+            );
         }
     }
 
@@ -325,7 +462,15 @@ pub fn render_gameplay_gpu(
     } else {
         ColorRgba::new(255, 70, 70, 70).to_f32_array()
     };
-    batcher.draw_rect_with_blend(backend, px, judge_y - 3.0 * s, pw, 7.0 * s, glow_color, BlendMode::Additive);
+    batcher.draw_rect_with_blend(
+        backend,
+        px,
+        judge_y - 3.0 * s,
+        pw,
+        7.0 * s,
+        glow_color,
+        BlendMode::Additive,
+    );
 
     // 3. Hit Bursts
     let burst_duration = 0.22;
@@ -407,7 +552,15 @@ pub fn render_gameplay_gpu(
         } else {
             ColorRgba::new(60, 180, 255, 180).to_f32_array()
         };
-        batcher.draw_rect_with_blend(backend, bx, by, single_bar_w, bar_h, col, BlendMode::Additive);
+        batcher.draw_rect_with_blend(
+            backend,
+            bx,
+            by,
+            single_bar_w,
+            bar_h,
+            col,
+            BlendMode::Additive,
+        );
     }
 
     // PASS 4: Font Atlas Batched Text (Texture: FontAtlas, Blend: Alpha)
@@ -492,9 +645,15 @@ pub fn render_gameplay_gpu(
 
             if grade != JudgeGrade::Miss && delta_ms.abs() >= 4.0 {
                 let (fs_str, fs_col) = if delta_ms < 0.0 {
-                    (format!("FAST {:.0}ms", delta_ms), ColorRgba::new(80, 210, 255, 255))
+                    (
+                        format!("FAST {:.0}ms", delta_ms),
+                        ColorRgba::new(80, 210, 255, 255),
+                    )
                 } else {
-                    (format!("SLOW +{:.0}ms", delta_ms), ColorRgba::new(255, 140, 60, 255))
+                    (
+                        format!("SLOW +{:.0}ms", delta_ms),
+                        ColorRgba::new(255, 140, 60, 255),
+                    )
                 };
                 font_atlas.draw_ascii_text_centered(
                     batcher,
@@ -514,47 +673,124 @@ pub fn render_gameplay_gpu(
     let mut hud_y = skin.playfield_y;
     let font_scale = (s * 0.9).round().max(1.0);
 
-    font_atlas.draw_ascii_text(batcher, backend, &chart.header.title, hud_x, hud_y, (2.0 * s).round().max(1.0), ColorRgba::new(255, 255, 255, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &chart.header.title,
+        hud_x,
+        hud_y,
+        (2.0 * s).round().max(1.0),
+        ColorRgba::new(255, 255, 255, 255),
+    );
     hud_y += 22.0 * s;
 
-    font_atlas.draw_ascii_text(batcher, backend, &chart.header.artist, hud_x, hud_y, font_scale, ColorRgba::new(160, 160, 180, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &chart.header.artist,
+        hud_x,
+        hud_y,
+        font_scale,
+        ColorRgba::new(160, 160, 180, 255),
+    );
     hud_y += 28.0 * s;
 
     let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
-    font_atlas.draw_ascii_text(batcher, backend, &bpm_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &bpm_str,
+        hud_x,
+        hud_y,
+        font_scale,
+        ColorRgba::new(200, 200, 220, 255),
+    );
     hud_y += 16.0 * s;
 
     let lvl_str = format!("LEVEL: {}", chart.header.play_level);
-    font_atlas.draw_ascii_text(batcher, backend, &lvl_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &lvl_str,
+        hud_x,
+        hud_y,
+        font_scale,
+        ColorRgba::new(200, 200, 220, 255),
+    );
     hud_y += 26.0 * s;
 
     let ex_str = format!("EX SCORE: {} / {}", score.ex_score, score.max_ex_score());
-    font_atlas.draw_ascii_text(batcher, backend, &ex_str, hud_x, hud_y, font_scale, ColorRgba::new(255, 230, 100, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &ex_str,
+        hud_x,
+        hud_y,
+        font_scale,
+        ColorRgba::new(255, 230, 100, 255),
+    );
     hud_y += 16.0 * s;
 
     let acc_str = format!("ACCURACY: {:.2}%", score.accuracy_rate());
-    font_atlas.draw_ascii_text(batcher, backend, &acc_str, hud_x, hud_y, font_scale, ColorRgba::new(100, 220, 255, 255));
+    font_atlas.draw_ascii_text(
+        batcher,
+        backend,
+        &acc_str,
+        hud_x,
+        hud_y,
+        font_scale,
+        ColorRgba::new(100, 220, 255, 255),
+    );
     hud_y += 18.0 * s;
 
-    let played_notes = score.pgreat_count + score.great_count + score.good_count + score.bad_count + score.poor_count + score.miss_count;
+    let played_notes = score.pgreat_count
+        + score.great_count
+        + score.good_count
+        + score.bad_count
+        + score.poor_count
+        + score.miss_count;
     let max_so_far = played_notes * 2;
     let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
     let pace_diff = score.ex_score as i32 - aaa_target;
     let (pace_str, pace_col) = if pace_diff >= 0 {
-        (format!("PACEMAKER (AAA): +{}", pace_diff), ColorRgba::new(100, 255, 120, 255))
+        (
+            format!("PACEMAKER (AAA): +{}", pace_diff),
+            ColorRgba::new(100, 255, 120, 255),
+        )
     } else {
-        (format!("PACEMAKER (AAA): {}", pace_diff), ColorRgba::new(255, 90, 90, 255))
+        (
+            format!("PACEMAKER (AAA): {}", pace_diff),
+            ColorRgba::new(255, 90, 90, 255),
+        )
     };
-    font_atlas.draw_ascii_text(batcher, backend, &pace_str, hud_x, hud_y, font_scale, pace_col);
+    font_atlas.draw_ascii_text(
+        batcher, backend, &pace_str, hud_x, hud_y, font_scale, pace_col,
+    );
     hud_y += 22.0 * s;
 
     let counts = [
-        ("PGREAT", score.pgreat_count, ColorRgba::new(255, 230, 80, 255)),
-        ("GREAT ", score.great_count, ColorRgba::new(255, 170, 50, 255)),
-        ("GOOD  ", score.good_count, ColorRgba::new(60, 220, 120, 255)),
+        (
+            "PGREAT",
+            score.pgreat_count,
+            ColorRgba::new(255, 230, 80, 255),
+        ),
+        (
+            "GREAT ",
+            score.great_count,
+            ColorRgba::new(255, 170, 50, 255),
+        ),
+        (
+            "GOOD  ",
+            score.good_count,
+            ColorRgba::new(60, 220, 120, 255),
+        ),
         ("BAD   ", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
         ("POOR  ", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
-        ("MISS  ", score.miss_count, ColorRgba::new(140, 140, 140, 255)),
+        (
+            "MISS  ",
+            score.miss_count,
+            ColorRgba::new(140, 140, 140, 255),
+        ),
     ];
     for (label, count, col) in counts {
         let row = format!("{}: {:>4}", label, count);

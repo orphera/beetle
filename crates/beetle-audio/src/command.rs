@@ -10,9 +10,7 @@ pub enum AudioCommand {
         pan: f32,
     },
     /// Stop all active voices for a specific sample.
-    StopSample {
-        sample_id: WavId,
-    },
+    StopSample { sample_id: WavId },
     /// Stop all currently playing voices.
     StopAll,
     /// Pause audio playback and clock advancement.

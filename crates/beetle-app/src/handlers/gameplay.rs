@@ -49,12 +49,14 @@ pub fn handle_gameplay_input(
                 return;
             }
             KeyCode::F10 => {
-                state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
+                state.renderer.skin.lane_cover_ratio =
+                    (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
                 state.save_config();
                 return;
             }
             KeyCode::F11 => {
-                state.renderer.skin.lane_cover_ratio = (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
+                state.renderer.skin.lane_cover_ratio =
+                    (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
                 state.save_config();
                 return;
             }
@@ -85,11 +87,20 @@ pub fn handle_gameplay_input(
 
                 state.renderer.set_key_state(lane, true);
                 if let Some(judge) = &mut state.active_judge {
-                    if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time) {
-                        if judge_result.grade == beetle_core::JudgeGrade::Miss || judge_result.grade == beetle_core::JudgeGrade::Poor {
+                    if let Some((judge_result, wav_id)) =
+                        judge.handle_key_down(lane, effective_judge_time)
+                    {
+                        if judge_result.grade == beetle_core::JudgeGrade::Miss
+                            || judge_result.grade == beetle_core::JudgeGrade::Poor
+                        {
                             state.poor_until_time = audio_time + 0.4;
                         }
-                        state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
+                        state.renderer.trigger_judge_with_lane(
+                            lane,
+                            judge_result.grade,
+                            audio_time,
+                            judge_result.delta_ms,
+                        );
 
                         if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
                             let _ = audio.send_command(AudioCommand::PlaySample {
@@ -109,7 +120,12 @@ pub fn handle_gameplay_input(
                 state.renderer.set_key_state(lane, false);
                 if let Some(judge) = &mut state.active_judge {
                     if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                        state.renderer.trigger_judge_with_lane(lane, judge_result.grade, audio_time, judge_result.delta_ms);
+                        state.renderer.trigger_judge_with_lane(
+                            lane,
+                            judge_result.grade,
+                            audio_time,
+                            judge_result.delta_ms,
+                        );
                     }
                 }
             }

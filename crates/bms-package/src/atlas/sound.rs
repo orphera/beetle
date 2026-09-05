@@ -123,7 +123,10 @@ impl SoundAtlasMeta {
     /// Validates that all slices fit within total_frames and do not overlap illegally.
     pub fn validate(&self) -> Result<(), String> {
         if !self.codec.is_bundle() && self.channels != 2 {
-            return Err(format!("SoundAtlas must be stereo (2 channels), got {}", self.channels));
+            return Err(format!(
+                "SoundAtlas must be stereo (2 channels), got {}",
+                self.channels
+            ));
         }
         if self.sample_rate == 0 {
             return Err("SoundAtlas sample_rate must be greater than 0".to_string());

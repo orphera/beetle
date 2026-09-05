@@ -25,7 +25,8 @@ impl BgaAtlasBuilder {
         image: &ImageBuffer,
         original_filename: Option<String>,
     ) {
-        self.frames.push((key.into(), image.clone(), original_filename));
+        self.frames
+            .push((key.into(), image.clone(), original_filename));
     }
 
     /// Packs all added images using the 2D Guillotine bin packer and blits them into a single canvas.
@@ -89,7 +90,8 @@ impl GpuBgaAtlas {
         atlas_image: &ImageBuffer,
     ) -> Option<Self> {
         let raw_bytes = atlas_image.to_raw_rgba_bytes();
-        let texture_id = backend.create_texture(atlas_image.width, atlas_image.height, &raw_bytes)?;
+        let texture_id =
+            backend.create_texture(atlas_image.width, atlas_image.height, &raw_bytes)?;
 
         Some(Self { texture_id, meta })
     }

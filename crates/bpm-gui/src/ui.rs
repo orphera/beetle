@@ -38,7 +38,10 @@ impl GuiRenderer {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 && (self.pixmap.width() != width || self.pixmap.height() != height) {
+        if width > 0
+            && height > 0
+            && (self.pixmap.width() != width || self.pixmap.height() != height)
+        {
             if let Some(new_pixmap) = Pixmap::new(width, height) {
                 self.pixmap = new_pixmap;
             }
@@ -46,7 +49,8 @@ impl GuiRenderer {
     }
 
     pub fn clear(&mut self, color: ColorRgba) {
-        self.pixmap.fill(Color::from_rgba8(color.r, color.g, color.b, color.a));
+        self.pixmap
+            .fill(Color::from_rgba8(color.r, color.g, color.b, color.a));
     }
 
     pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
@@ -105,14 +109,24 @@ impl GuiRenderer {
         } else {
             ColorRgba::new(60, 60, 80, 255)
         };
-        self.draw_rect(search_box_x, 14.0, 320.0, 28.0, ColorRgba::new(16, 16, 24, 255));
+        self.draw_rect(
+            search_box_x,
+            14.0,
+            320.0,
+            28.0,
+            ColorRgba::new(16, 16, 24, 255),
+        );
         self.draw_rect(search_box_x, 14.0, 320.0, 1.0, search_border_col);
         self.draw_rect(search_box_x, 41.0, 320.0, 1.0, search_border_col);
         self.draw_rect(search_box_x, 14.0, 1.0, 28.0, search_border_col);
         self.draw_rect(search_box_x + 319.0, 14.0, 1.0, 28.0, search_border_col);
 
         let search_display = if search_query.is_empty() {
-            if is_search_active { "Type to search..._" } else { "Search (press [/])..." }
+            if is_search_active {
+                "Type to search..._"
+            } else {
+                "Search (press [/])..."
+            }
         } else {
             search_query
         };
@@ -121,18 +135,44 @@ impl GuiRenderer {
         } else {
             ColorRgba::new(120, 120, 140, 255)
         };
-        BitmapFont::draw_text(&mut self.pixmap.as_mut(), search_display, (search_box_x + 10.0) as i32, 22, 1, search_text_col);
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            search_display,
+            (search_box_x + 10.0) as i32,
+            22,
+            1,
+            search_text_col,
+        );
 
         // 3. Left Panel: Package List View
         let list_w = 420.0;
         let content_y = 68.0;
         let content_h = h - content_y - 48.0;
 
-        self.draw_rect(16.0, content_y, list_w, content_h, ColorRgba::new(18, 18, 26, 255));
-        self.draw_rect(16.0, content_y, list_w, 28.0, ColorRgba::new(26, 26, 38, 255));
+        self.draw_rect(
+            16.0,
+            content_y,
+            list_w,
+            content_h,
+            ColorRgba::new(18, 18, 26, 255),
+        );
+        self.draw_rect(
+            16.0,
+            content_y,
+            list_w,
+            28.0,
+            ColorRgba::new(26, 26, 38, 255),
+        );
 
         let list_title = format!("INSTALLED PACKAGES ({})", packages.len());
-        BitmapFont::draw_text(&mut self.pixmap.as_mut(), &list_title, 26, (content_y + 8.0) as i32, 1, ColorRgba::new(170, 170, 190, 255));
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            &list_title,
+            26,
+            (content_y + 8.0) as i32,
+            1,
+            ColorRgba::new(170, 170, 190, 255),
+        );
 
         let row_h = 44.0;
         let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
@@ -143,15 +183,38 @@ impl GuiRenderer {
         };
 
         let mut row_y = content_y + 32.0;
-        for (i, &pkg) in packages.iter().skip(scroll_offset).take(max_visible_rows).enumerate() {
+        for (i, &pkg) in packages
+            .iter()
+            .skip(scroll_offset)
+            .take(max_visible_rows)
+            .enumerate()
+        {
             let actual_idx = scroll_offset + i;
             let is_selected = actual_idx == selected_idx;
 
             if is_selected {
-                self.draw_rect(18.0, row_y, list_w - 4.0, row_h - 2.0, ColorRgba::new(35, 45, 70, 255));
-                self.draw_rect(18.0, row_y, 4.0, row_h - 2.0, ColorRgba::new(255, 210, 80, 255));
+                self.draw_rect(
+                    18.0,
+                    row_y,
+                    list_w - 4.0,
+                    row_h - 2.0,
+                    ColorRgba::new(35, 45, 70, 255),
+                );
+                self.draw_rect(
+                    18.0,
+                    row_y,
+                    4.0,
+                    row_h - 2.0,
+                    ColorRgba::new(255, 210, 80, 255),
+                );
             } else if actual_idx % 2 == 1 {
-                self.draw_rect(18.0, row_y, list_w - 4.0, row_h - 2.0, ColorRgba::new(22, 22, 30, 255));
+                self.draw_rect(
+                    18.0,
+                    row_y,
+                    list_w - 4.0,
+                    row_h - 2.0,
+                    ColorRgba::new(22, 22, 30, 255),
+                );
             }
 
             // Name
@@ -161,7 +224,14 @@ impl GuiRenderer {
             } else {
                 ColorRgba::new(210, 210, 225, 255)
             };
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &pkg.name, 30, (row_y + 6.0) as i32, 1, name_col);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &pkg.name,
+                30,
+                (row_y + 6.0) as i32,
+                1,
+                name_col,
+            );
 
             // BGA Status Badge
             let (bga_tag, bga_bg, bga_fg) = match pkg.bga_status {
@@ -185,12 +255,29 @@ impl GuiRenderer {
             let badge_x = 18.0 + list_w - badge_w - 8.0;
             self.draw_rect(badge_x, row_y + 5.0, badge_w, 14.0, bga_bg);
             self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, bga_fg);
-            BitmapFont::draw_text_centered(&mut self.pixmap.as_mut(), bga_tag, (badge_x + badge_w / 2.0) as i32, (row_y + 8.0) as i32, 1, bga_fg);
+            BitmapFont::draw_text_centered(
+                &mut self.pixmap.as_mut(),
+                bga_tag,
+                (badge_x + badge_w / 2.0) as i32,
+                (row_y + 8.0) as i32,
+                1,
+                bga_fg,
+            );
 
             // ID & Author & State
             let author = pkg.author.as_deref().unwrap_or("Unknown");
-            let short_active = if pkg.active_state.len() > 10 { &pkg.active_state[..10] } else { &pkg.active_state };
-            let sub_info = format!("{} | by {} | #{} ({} states)", pkg.id, author, short_active, pkg.state_hashes.len());
+            let short_active = if pkg.active_state.len() > 10 {
+                &pkg.active_state[..10]
+            } else {
+                &pkg.active_state
+            };
+            let sub_info = format!(
+                "{} | by {} | #{} ({} states)",
+                pkg.id,
+                author,
+                short_active,
+                pkg.state_hashes.len()
+            );
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 &sub_info,
@@ -207,8 +294,20 @@ impl GuiRenderer {
         let detail_x = 16.0 + list_w + 16.0;
         let detail_w = w - detail_x - 16.0;
 
-        self.draw_rect(detail_x, content_y, detail_w, content_h, ColorRgba::new(18, 18, 26, 255));
-        self.draw_rect(detail_x, content_y, detail_w, 28.0, ColorRgba::new(26, 26, 38, 255));
+        self.draw_rect(
+            detail_x,
+            content_y,
+            detail_w,
+            content_h,
+            ColorRgba::new(18, 18, 26, 255),
+        );
+        self.draw_rect(
+            detail_x,
+            content_y,
+            detail_w,
+            28.0,
+            ColorRgba::new(26, 26, 38, 255),
+        );
 
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
@@ -229,7 +328,13 @@ impl GuiRenderer {
 
             self.draw_rect(art_x, dy, art_w, art_h, ColorRgba::new(10, 10, 16, 255));
             if let Some(img) = preview_img {
-                img.draw_scaled(&mut self.pixmap, art_x as i32, dy as i32, art_w as u32, art_h as u32);
+                img.draw_scaled(
+                    &mut self.pixmap,
+                    art_x as i32,
+                    dy as i32,
+                    art_w as u32,
+                    art_h as u32,
+                );
             } else {
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),
@@ -244,38 +349,98 @@ impl GuiRenderer {
 
             // Metadata Lines
             let title_line = format!("Title: {}", selected_pkg.name);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &title_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(240, 240, 250, 255));
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &title_line,
+                detail_x as i32 + 14,
+                dy as i32,
+                1,
+                ColorRgba::new(240, 240, 250, 255),
+            );
             dy += 20.0;
 
             let id_line = format!("ID:    {}", selected_pkg.id);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &id_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(180, 180, 200, 255));
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &id_line,
+                detail_x as i32 + 14,
+                dy as i32,
+                1,
+                ColorRgba::new(180, 180, 200, 255),
+            );
             dy += 20.0;
 
-            let author_line = format!("Author: {}", selected_pkg.author.as_deref().unwrap_or("Unknown"));
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &author_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(180, 180, 200, 255));
+            let author_line = format!(
+                "Author: {}",
+                selected_pkg.author.as_deref().unwrap_or("Unknown")
+            );
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &author_line,
+                detail_x as i32 + 14,
+                dy as i32,
+                1,
+                ColorRgba::new(180, 180, 200, 255),
+            );
             dy += 20.0;
 
             let (bga_label, bga_col) = match selected_pkg.bga_status {
-                bms_package_manager::BgaStatus::Embedded => ("Embedded in package.bmsp (All-in-one)", ColorRgba::new(80, 220, 140, 255)),
-                bms_package_manager::BgaStatus::Companion => ("Decoupled Companion (.bga.bmsp installed)", ColorRgba::new(90, 190, 255, 255)),
-                bms_package_manager::BgaStatus::None => ("None (Audio & charts only)", ColorRgba::new(150, 150, 170, 255)),
+                bms_package_manager::BgaStatus::Embedded => (
+                    "Embedded in package.bmsp (All-in-one)",
+                    ColorRgba::new(80, 220, 140, 255),
+                ),
+                bms_package_manager::BgaStatus::Companion => (
+                    "Decoupled Companion (.bga.bmsp installed)",
+                    ColorRgba::new(90, 190, 255, 255),
+                ),
+                bms_package_manager::BgaStatus::None => (
+                    "None (Audio & charts only)",
+                    ColorRgba::new(150, 150, 170, 255),
+                ),
             };
             let bga_line = format!("BGA:    {}", bga_label);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bga_line, detail_x as i32 + 14, dy as i32, 1, bga_col);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &bga_line,
+                detail_x as i32 + 14,
+                dy as i32,
+                1,
+                bga_col,
+            );
             dy += 20.0;
 
             if let Some(ref comp_path) = selected_pkg.bga_companion_path {
                 let comp_line = format!("Path:   {}", comp_path);
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &comp_line, detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(130, 150, 180, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &comp_line,
+                    detail_x as i32 + 14,
+                    dy as i32,
+                    1,
+                    ColorRgba::new(130, 150, 180, 255),
+                );
                 dy += 20.0;
             }
             dy += 6.0;
 
             // Installed States Management Box
-            self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
+            self.draw_rect(
+                detail_x + 10.0,
+                dy,
+                detail_w - 20.0,
+                1.0,
+                ColorRgba::new(45, 45, 60, 255),
+            );
             dy += 8.0;
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), "Installed States (Use [<-/->] to select):", detail_x as i32 + 14, dy as i32, 1, ColorRgba::new(255, 210, 80, 255));
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                "Installed States (Use [<-/->] to select):",
+                detail_x as i32 + 14,
+                dy as i32,
+                1,
+                ColorRgba::new(255, 210, 80, 255),
+            );
             dy += 20.0;
 
             let state_keys: Vec<&String> = selected_pkg.state_hashes.keys().collect();
@@ -300,21 +465,35 @@ impl GuiRenderer {
                     ColorRgba::new(150, 150, 170, 255)
                 };
 
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &ver_tag, detail_x as i32 + 20, dy as i32, 1, ver_col);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &ver_tag,
+                    detail_x as i32 + 20,
+                    dy as i32,
+                    1,
+                    ver_col,
+                );
                 dy += 18.0;
             }
 
             dy += 12.0;
 
             // Actions box
-            self.draw_rect(detail_x + 10.0, dy, detail_w - 20.0, 1.0, ColorRgba::new(45, 45, 60, 255));
+            self.draw_rect(
+                detail_x + 10.0,
+                dy,
+                detail_w - 20.0,
+                1.0,
+                ColorRgba::new(45, 45, 60, 255),
+            );
             dy += 8.0;
 
-            let action_text = if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
-                "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
-            } else {
-                "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
-            };
+            let action_text =
+                if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
+                    "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
+                } else {
+                    "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
+                };
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 action_text,
@@ -332,7 +511,14 @@ impl GuiRenderer {
 
         // Help shortcuts
         let help_text = "[↑/↓]: Move  [I]: Import  [P]: Pack  [T]: Turbo  [S]: Split BGA  [B]: Diet BGA  [F5]: Refresh";
-        BitmapFont::draw_text(&mut self.pixmap.as_mut(), help_text, 16, (footer_y + 14.0) as i32, 1, ColorRgba::new(160, 160, 180, 255));
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            help_text,
+            16,
+            (footer_y + 14.0) as i32,
+            1,
+            ColorRgba::new(160, 160, 180, 255),
+        );
 
         // Status message
         if !status_msg.is_empty() {
@@ -358,32 +544,89 @@ impl GuiRenderer {
             self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 160));
 
             // Modal box
-            self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(26, 26, 38, 255));
-            self.draw_rect(modal_x, modal_y, modal_w, 2.0, ColorRgba::new(255, 210, 80, 255));
+            self.draw_rect(
+                modal_x,
+                modal_y,
+                modal_w,
+                modal_h,
+                ColorRgba::new(26, 26, 38, 255),
+            );
+            self.draw_rect(
+                modal_x,
+                modal_y,
+                modal_w,
+                2.0,
+                ColorRgba::new(255, 210, 80, 255),
+            );
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), modal.prompt, (modal_x + 20.0) as i32, (modal_y + 18.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                modal.prompt,
+                (modal_x + 20.0) as i32,
+                (modal_y + 18.0) as i32,
+                1,
+                ColorRgba::new(255, 255, 255, 255),
+            );
 
             // Input line box
             let inp_box_y = modal_y + 46.0;
-            self.draw_rect(modal_x + 20.0, inp_box_y, modal_w - 40.0, 32.0, ColorRgba::new(16, 16, 24, 255));
-            self.draw_rect(modal_x + 20.0, inp_box_y, modal_w - 40.0, 1.0, ColorRgba::new(80, 180, 255, 255));
+            self.draw_rect(
+                modal_x + 20.0,
+                inp_box_y,
+                modal_w - 40.0,
+                32.0,
+                ColorRgba::new(16, 16, 24, 255),
+            );
+            self.draw_rect(
+                modal_x + 20.0,
+                inp_box_y,
+                modal_w - 40.0,
+                1.0,
+                ColorRgba::new(80, 180, 255, 255),
+            );
 
             let input_display = format!("{}_", modal.input);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &input_display, (modal_x + 28.0) as i32, (inp_box_y + 10.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &input_display,
+                (modal_x + 28.0) as i32,
+                (inp_box_y + 10.0) as i32,
+                1,
+                ColorRgba::new(255, 255, 255, 255),
+            );
 
             if let Some(pack_opts) = modal.pack_options {
                 let opts_y = inp_box_y + 40.0;
-                self.draw_rect(modal_x + 20.0, opts_y, modal_w - 40.0, 1.0, ColorRgba::new(45, 45, 65, 255));
+                self.draw_rect(
+                    modal_x + 20.0,
+                    opts_y,
+                    modal_w - 40.0,
+                    1.0,
+                    ColorRgba::new(45, 45, 65, 255),
+                );
 
                 // Turbo Option Row
                 let turbo_check = if pack_opts.is_turbo { "[X]" } else { "[ ]" };
                 let (turbo_label, turbo_col) = if pack_opts.is_turbo {
-                    ("Turbo Dual Atlas (Pre-decoded audio & GPU texture atlas)", ColorRgba::new(255, 220, 80, 255))
+                    (
+                        "Turbo Dual Atlas (Pre-decoded audio & GPU texture atlas)",
+                        ColorRgba::new(255, 220, 80, 255),
+                    )
                 } else {
-                    ("Classic Packaging (Standard WAV/OGG files)", ColorRgba::new(150, 150, 170, 255))
+                    (
+                        "Classic Packaging (Standard WAV/OGG files)",
+                        ColorRgba::new(150, 150, 170, 255),
+                    )
                 };
                 let turbo_line = format!("{} [Tab/F2]  Profile: {}", turbo_check, turbo_label);
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &turbo_line, (modal_x + 22.0) as i32, (opts_y + 10.0) as i32, 1, turbo_col);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &turbo_line,
+                    (modal_x + 22.0) as i32,
+                    (opts_y + 10.0) as i32,
+                    1,
+                    turbo_col,
+                );
 
                 // BGA Option Row
                 let (bga_check, bga_label, bga_col) = match pack_opts.bga_mode {
@@ -404,17 +647,35 @@ impl GuiRenderer {
                     ),
                 };
                 let bga_line = format!("{} [Ctrl+S/F3] BGA: {}", bga_check, bga_label);
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &bga_line, (modal_x + 22.0) as i32, (opts_y + 30.0) as i32, 1, bga_col);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &bga_line,
+                    (modal_x + 22.0) as i32,
+                    (opts_y + 30.0) as i32,
+                    1,
+                    bga_col,
+                );
 
                 // Combined Mode Badge
-                let profile_tag = if pack_opts.is_turbo { "TURBO DUAL ATLAS" } else { "CLASSIC" };
+                let profile_tag = if pack_opts.is_turbo {
+                    "TURBO DUAL ATLAS"
+                } else {
+                    "CLASSIC"
+                };
                 let bga_tag = match pack_opts.bga_mode {
                     bms_package_manager::BgaPackMode::Split => "SPLIT BGA COMPANION",
                     bms_package_manager::BgaPackMode::Embed => "EMBEDDED VIDEO",
                     bms_package_manager::BgaPackMode::NoVideo => "NO VIDEO",
                 };
                 let combo_disp = format!("Output: [{}] + [{}]", profile_tag, bga_tag);
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &combo_disp, (modal_x + 22.0) as i32, (opts_y + 50.0) as i32, 1, ColorRgba::new(255, 255, 255, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &combo_disp,
+                    (modal_x + 22.0) as i32,
+                    (opts_y + 50.0) as i32,
+                    1,
+                    ColorRgba::new(255, 255, 255, 255),
+                );
 
                 // Hints line
                 let hint_y = modal_y + modal_h - 22.0;
@@ -445,9 +706,27 @@ impl GuiRenderer {
             let banner_x = (w - banner_w) / 2.0;
             let banner_y = 66.0;
 
-            self.draw_rect(banner_x, banner_y, banner_w, banner_h, ColorRgba::new(20, 28, 44, 250));
-            self.draw_rect(banner_x, banner_y, banner_w, 2.0, ColorRgba::new(80, 180, 255, 255));
-            self.draw_rect(banner_x, banner_y + banner_h - 1.0, banner_w, 1.0, ColorRgba::new(60, 140, 200, 255));
+            self.draw_rect(
+                banner_x,
+                banner_y,
+                banner_w,
+                banner_h,
+                ColorRgba::new(20, 28, 44, 250),
+            );
+            self.draw_rect(
+                banner_x,
+                banner_y,
+                banner_w,
+                2.0,
+                ColorRgba::new(80, 180, 255, 255),
+            );
+            self.draw_rect(
+                banner_x,
+                banner_y + banner_h - 1.0,
+                banner_w,
+                1.0,
+                ColorRgba::new(60, 140, 200, 255),
+            );
 
             let spinner_chars = ['|', '/', '-', '\\'];
             let spinner = spinner_chars[info.spinner_frame % 4];
@@ -456,11 +735,24 @@ impl GuiRenderer {
                 // Title & counts
                 let pct = ((info.current as f32 / info.total.max(1) as f32) * 100.0) as u32;
                 let phase_disp = if !info.phase.is_empty() {
-                    format!("[{}] {} ({}% - {}/{})", spinner, info.phase, pct, info.current, info.total)
+                    format!(
+                        "[{}] {} ({}% - {}/{})",
+                        spinner, info.phase, pct, info.current, info.total
+                    )
                 } else {
-                    format!("[{}] {} ({}% - {}/{})", spinner, info.message, pct, info.current, info.total)
+                    format!(
+                        "[{}] {} ({}% - {}/{})",
+                        spinner, info.message, pct, info.current, info.total
+                    )
                 };
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &phase_disp, (banner_x + 16.0) as i32, (banner_y + 12.0) as i32, 1, ColorRgba::new(255, 230, 90, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &phase_disp,
+                    (banner_x + 16.0) as i32,
+                    (banner_y + 12.0) as i32,
+                    1,
+                    ColorRgba::new(255, 230, 90, 255),
+                );
 
                 // Progress Bar
                 let bar_x = banner_x + 16.0;
@@ -473,7 +765,13 @@ impl GuiRenderer {
                 let ratio = (info.current as f32 / info.total.max(1) as f32).clamp(0.0, 1.0);
                 let fill_w = bar_w * ratio;
                 if fill_w > 0.0 {
-                    self.draw_rect(bar_x, bar_y, fill_w, bar_h, ColorRgba::new(40, 180, 240, 255));
+                    self.draw_rect(
+                        bar_x,
+                        bar_y,
+                        fill_w,
+                        bar_h,
+                        ColorRgba::new(40, 180, 240, 255),
+                    );
                 }
 
                 // Detail filename & Cancel text
@@ -482,15 +780,43 @@ impl GuiRenderer {
                 } else {
                     info.detail.to_string()
                 };
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &detail_str, (banner_x + 16.0) as i32, (banner_y + 60.0) as i32, 1, ColorRgba::new(170, 190, 215, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &detail_str,
+                    (banner_x + 16.0) as i32,
+                    (banner_y + 60.0) as i32,
+                    1,
+                    ColorRgba::new(170, 190, 215, 255),
+                );
 
                 let cancel_hint = "[ESC] Cancel";
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), cancel_hint, (banner_x + banner_w - 110.0) as i32, (banner_y + 60.0) as i32, 1, ColorRgba::new(255, 120, 120, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    cancel_hint,
+                    (banner_x + banner_w - 110.0) as i32,
+                    (banner_y + 60.0) as i32,
+                    1,
+                    ColorRgba::new(255, 120, 120, 255),
+                );
             } else {
                 let disp = format!("[{}] {}", spinner, info.message);
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), &disp, (banner_x + 16.0) as i32, (banner_y + 16.0) as i32, 1, ColorRgba::new(255, 230, 90, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &disp,
+                    (banner_x + 16.0) as i32,
+                    (banner_y + 16.0) as i32,
+                    1,
+                    ColorRgba::new(255, 230, 90, 255),
+                );
                 let cancel_hint = "[ESC] Cancel";
-                BitmapFont::draw_text(&mut self.pixmap.as_mut(), cancel_hint, (banner_x + banner_w - 110.0) as i32, (banner_y + 16.0) as i32, 1, ColorRgba::new(255, 120, 120, 255));
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    cancel_hint,
+                    (banner_x + banner_w - 110.0) as i32,
+                    (banner_y + 16.0) as i32,
+                    1,
+                    ColorRgba::new(255, 120, 120, 255),
+                );
             }
         }
     }

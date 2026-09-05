@@ -136,7 +136,8 @@ pub fn handle_song_select_input(
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
             if !state.filtered_indices.is_empty() {
-                state.selected_song_idx = (state.selected_song_idx + 1) % state.filtered_indices.len();
+                state.selected_song_idx =
+                    (state.selected_song_idx + 1) % state.filtered_indices.len();
             }
             state.cursor_settle_time = std::time::Instant::now();
         }
@@ -148,7 +149,8 @@ pub fn handle_song_select_input(
         }
         KeyCode::PageDown => {
             if !state.filtered_indices.is_empty() {
-                state.selected_song_idx = (state.selected_song_idx + 10).min(state.filtered_indices.len() - 1);
+                state.selected_song_idx =
+                    (state.selected_song_idx + 10).min(state.filtered_indices.len() - 1);
             }
             state.cursor_settle_time = std::time::Instant::now();
         }
@@ -172,7 +174,8 @@ pub fn handle_song_select_input(
             state.stage_image_cache.clear();
             state.stage_image_receiver = None;
             state.stage_image_loading_hash = None;
-            state.songs = crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
+            state.songs =
+                crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
         }

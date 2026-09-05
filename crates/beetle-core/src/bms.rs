@@ -479,7 +479,11 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
     }
 
     // Process LNTYPE 1 long notes (pairs of channel 5x events)
-    process_lntype1_notes(&raw_ln_events, &mut chart.notes, &mut chart.total_notes_count);
+    process_lntype1_notes(
+        &raw_ln_events,
+        &mut chart.notes,
+        &mut chart.total_notes_count,
+    );
 
     // CRITICAL: Sort notes chronologically BEFORE LNOBJ processing
     // In real BMS files, measure lines may appear in arbitrary order. Notes must be strictly sorted by time
@@ -487,7 +491,11 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
     chart.notes.sort_by(|a, b| {
         a.measure
             .cmp(&b.measure)
-            .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| {
+                a.fraction
+                    .partial_cmp(&b.fraction)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.lane.cmp(&b.lane))
     });
 
@@ -502,15 +510,19 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
     });
 
     chart.bga_events.sort_by(|a, b| {
-        a.measure
-            .cmp(&b.measure)
-            .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
+        a.measure.cmp(&b.measure).then_with(|| {
+            a.fraction
+                .partial_cmp(&b.fraction)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     chart.timing_events.sort_by(|a, b| {
-        a.measure
-            .cmp(&b.measure)
-            .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
+        a.measure.cmp(&b.measure).then_with(|| {
+            a.fraction
+                .partial_cmp(&b.fraction)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     Ok(chart)
@@ -598,7 +610,9 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
                 if tokens.len() >= 7 {
                     let bmp_id_bytes = tokens[0].as_bytes();
                     let bmp_id = if bmp_id_bytes.len() >= 2 {
-                        decode_base36(bmp_id_bytes[0], bmp_id_bytes[1]).map(|w| BmpId(w.0)).unwrap_or(BmpId(id.0))
+                        decode_base36(bmp_id_bytes[0], bmp_id_bytes[1])
+                            .map(|w| BmpId(w.0))
+                            .unwrap_or(BmpId(id.0))
                     } else {
                         BmpId(id.0)
                     };
@@ -825,8 +839,8 @@ fn parse_measure_line(
                 }
             }
             // 31..39, 41..49: Invisible/Freezone Notes (Plays keysound on beat without visual lane note)
-            "31" | "32" | "33" | "34" | "35" | "36" | "38" | "39"
-            | "41" | "42" | "43" | "44" | "45" | "46" | "48" | "49" => {
+            "31" | "32" | "33" | "34" | "35" | "36" | "38" | "39" | "41" | "42" | "43" | "44"
+            | "45" | "46" | "48" | "49" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
                     chart.bgm_notes.push((measure, fraction, wav_id));
                 }
@@ -992,7 +1006,10 @@ mod tests {
         assert_eq!(chart.header.play_level, 10);
         assert_eq!(chart.header.total, 300.0);
         assert_eq!(chart.header.ln_obj, Some(WavId(35)));
-        assert_eq!(chart.header.wav_table.get(&WavId(1)), Some(&"kick.wav".to_string()));
+        assert_eq!(
+            chart.header.wav_table.get(&WavId(1)),
+            Some(&"kick.wav".to_string())
+        );
         assert_eq!(chart.header.bpm_table.get(&WavId(1)), Some(&190.0));
         assert_eq!(chart.header.stop_table.get(&WavId(1)), Some(&192.0));
     }
@@ -1021,38 +1038,53 @@ mod tests {
 
         // Timing checks (BPM hex, BPM extended, STOP)
         assert_eq!(chart.timing_events.len(), 3);
-        assert_eq!(chart.timing_events[0], TimingEvent {
-            measure: 1,
-            fraction: 0.0,
-            kind: TimingEventKind::BpmChange(150.0),
-        });
-        assert_eq!(chart.timing_events[1], TimingEvent {
-            measure: 1,
-            fraction: 0.5,
-            kind: TimingEventKind::BpmChange(200.0),
-        });
-        assert_eq!(chart.timing_events[2], TimingEvent {
-            measure: 1,
-            fraction: 0.5,
-            kind: TimingEventKind::StopMeasures(0.5),
-        });
+        assert_eq!(
+            chart.timing_events[0],
+            TimingEvent {
+                measure: 1,
+                fraction: 0.0,
+                kind: TimingEventKind::BpmChange(150.0),
+            }
+        );
+        assert_eq!(
+            chart.timing_events[1],
+            TimingEvent {
+                measure: 1,
+                fraction: 0.5,
+                kind: TimingEventKind::BpmChange(200.0),
+            }
+        );
+        assert_eq!(
+            chart.timing_events[2],
+            TimingEvent {
+                measure: 1,
+                fraction: 0.5,
+                kind: TimingEventKind::StopMeasures(0.5),
+            }
+        );
 
         // 1P notes check
         assert_eq!(chart.notes.len(), 2);
-        assert_eq!(chart.notes[0], NoteEvent {
-            measure: 1,
-            fraction: 0.0,
-            lane: Lane::Key1,
-            wav_id: Some(WavId(1)),
-            note_type: NoteType::Tap,
-        });
-        assert_eq!(chart.notes[1], NoteEvent {
-            measure: 1,
-            fraction: 0.5,
-            lane: Lane::Scratch,
-            wav_id: Some(WavId(2)),
-            note_type: NoteType::Tap,
-        });
+        assert_eq!(
+            chart.notes[0],
+            NoteEvent {
+                measure: 1,
+                fraction: 0.0,
+                lane: Lane::Key1,
+                wav_id: Some(WavId(1)),
+                note_type: NoteType::Tap,
+            }
+        );
+        assert_eq!(
+            chart.notes[1],
+            NoteEvent {
+                measure: 1,
+                fraction: 0.5,
+                lane: Lane::Scratch,
+                wav_id: Some(WavId(2)),
+                note_type: NoteType::Tap,
+            }
+        );
     }
 
     #[test]
@@ -1106,9 +1138,15 @@ mod tests {
         assert_eq!(chart.header.ln_obj, Some(WavId(15 * 36 + 15))); // FF in base36: 15*36+15 = 555
         assert_eq!(chart.timing_events.len(), 2);
         assert_eq!(chart.timing_events[0].measure, 1);
-        assert_eq!(chart.timing_events[0].kind, TimingEventKind::BpmChange(175.5));
+        assert_eq!(
+            chart.timing_events[0].kind,
+            TimingEventKind::BpmChange(175.5)
+        );
         assert_eq!(chart.timing_events[1].measure, 2);
-        assert_eq!(chart.timing_events[1].kind, TimingEventKind::StopMeasures(96.0 / 192.0));
+        assert_eq!(
+            chart.timing_events[1].kind,
+            TimingEventKind::StopMeasures(96.0 / 192.0)
+        );
     }
 
     #[test]
@@ -1158,7 +1196,10 @@ mod tests {
         assert_eq!(chart_pms.detect_play_mode(), PlayMode::Keys9);
 
         let chart_pms_hint = parse_bms(bms_7k).unwrap();
-        assert_eq!(chart_pms_hint.detect_play_mode_with_hint(true), PlayMode::Keys9);
+        assert_eq!(
+            chart_pms_hint.detect_play_mode_with_hint(true),
+            PlayMode::Keys9
+        );
 
         // 10K with #PLAYER 1 but scratch lane 16 + 2P channel 22 (PMS cannot have scratch)
         let bms_10k_scratch = r#"
@@ -1218,35 +1259,50 @@ mod tests {
 "#;
         let chart = parse_bms(bms).expect("Failed to parse BGA");
         assert_eq!(chart.header.bmp_table.len(), 3);
-        assert_eq!(chart.header.bmp_table.get(&BmpId(1)), Some(&"bg.bmp".to_string()));
-        assert_eq!(chart.header.bga_table.get(&BmpId(4)), Some(&BgaDefinition {
-            bmp_id: BmpId(1),
-            sx: 0,
-            sy: 0,
-            w: 256,
-            h: 256,
-            dx: 0,
-            dy: 0,
-        }));
+        assert_eq!(
+            chart.header.bmp_table.get(&BmpId(1)),
+            Some(&"bg.bmp".to_string())
+        );
+        assert_eq!(
+            chart.header.bga_table.get(&BmpId(4)),
+            Some(&BgaDefinition {
+                bmp_id: BmpId(1),
+                sx: 0,
+                sy: 0,
+                w: 256,
+                h: 256,
+                dx: 0,
+                dy: 0,
+            })
+        );
         assert_eq!(chart.bga_events.len(), 3);
-        assert_eq!(chart.bga_events[0], BgaEvent {
-            measure: 1,
-            fraction: 0.0,
-            channel: BgaChannel::Base,
-            bmp_id: BmpId(1),
-        });
-        assert_eq!(chart.bga_events[1], BgaEvent {
-            measure: 1,
-            fraction: 0.0,
-            channel: BgaChannel::Poor,
-            bmp_id: BmpId(2),
-        });
-        assert_eq!(chart.bga_events[2], BgaEvent {
-            measure: 1,
-            fraction: 0.0,
-            channel: BgaChannel::Layer,
-            bmp_id: BmpId(3),
-        });
+        assert_eq!(
+            chart.bga_events[0],
+            BgaEvent {
+                measure: 1,
+                fraction: 0.0,
+                channel: BgaChannel::Base,
+                bmp_id: BmpId(1),
+            }
+        );
+        assert_eq!(
+            chart.bga_events[1],
+            BgaEvent {
+                measure: 1,
+                fraction: 0.0,
+                channel: BgaChannel::Poor,
+                bmp_id: BmpId(2),
+            }
+        );
+        assert_eq!(
+            chart.bga_events[2],
+            BgaEvent {
+                measure: 1,
+                fraction: 0.0,
+                channel: BgaChannel::Layer,
+                bmp_id: BmpId(3),
+            }
+        );
     }
 
     #[test]
@@ -1264,4 +1320,3 @@ mod tests {
         assert!(!decoded.is_empty());
     }
 }
-

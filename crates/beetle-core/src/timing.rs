@@ -64,7 +64,8 @@ impl TimingModel {
         });
 
         for event in &chart.timing_events {
-            let event_beat = Self::calculate_beat_pos(event.measure, event.fraction, &measure_lengths);
+            let event_beat =
+                Self::calculate_beat_pos(event.measure, event.fraction, &measure_lengths);
             if event_beat < last_beat {
                 continue;
             }
@@ -185,11 +186,14 @@ impl TimingModel {
             }
         }
 
-        let beat = if time_seconds < best_segment.start_time_seconds + best_segment.stop_duration_seconds {
+        let beat = if time_seconds
+            < best_segment.start_time_seconds + best_segment.stop_duration_seconds
+        {
             // Frozen in STOP
             best_segment.start_beat
         } else {
-            let delta_time = time_seconds - (best_segment.start_time_seconds + best_segment.stop_duration_seconds);
+            let delta_time = time_seconds
+                - (best_segment.start_time_seconds + best_segment.stop_duration_seconds);
             let delta_beats = (delta_time * best_segment.bpm) / 60.0;
             best_segment.start_beat + delta_beats
         };

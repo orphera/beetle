@@ -1,9 +1,9 @@
 pub mod com;
 pub mod shaders;
 
+use super::{BlendMode, GpuBackend, TextureId, Vertex2D};
 #[cfg(target_os = "windows")]
 use com::*;
-use super::{BlendMode, GpuBackend, TextureId, Vertex2D};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
@@ -99,7 +99,10 @@ impl D3d11Backend {
         };
 
         if hr < 0 || device.is_null() || context.is_null() || swap_chain.is_null() {
-            return Err(format!("D3D11CreateDeviceAndSwapChain failed: 0x{:08X}", hr as u32));
+            return Err(format!(
+                "D3D11CreateDeviceAndSwapChain failed: 0x{:08X}",
+                hr as u32
+            ));
         }
 
         // 1. Create Render Target View for Backbuffer
@@ -107,7 +110,8 @@ impl D3d11Backend {
         unsafe {
             let sc_vtbl = *(swap_chain as *mut *mut IDXGISwapChainVtbl);
             let mut backbuffer: *mut c_void = ptr::null_mut();
-            let hr_bb = ((*sc_vtbl).GetBuffer)(swap_chain, 0, &IID_ID3D11TEXTURE2D, &mut backbuffer);
+            let hr_bb =
+                ((*sc_vtbl).GetBuffer)(swap_chain, 0, &IID_ID3D11TEXTURE2D, &mut backbuffer);
             if hr_bb >= 0 && !backbuffer.is_null() {
                 let dev_vtbl = *(device as *mut *mut ID3D11DeviceVtbl);
                 ((*dev_vtbl).CreateRenderTargetView)(
@@ -123,7 +127,8 @@ impl D3d11Backend {
 
         // 2. Compile Shaders
         let vs_bytes = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "VS_Main", "vs_4_0")?;
-        let ps_sprite_bytes = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Sprite", "ps_4_0")?;
+        let ps_sprite_bytes =
+            shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Sprite", "ps_4_0")?;
         let ps_color_bytes = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Color", "ps_4_0")?;
 
         let mut vertex_shader = ptr::null_mut();
@@ -215,7 +220,8 @@ impl D3d11Backend {
                 MiscFlags: 0,
                 StructureByteStride: 0,
             };
-            let hr_vb = ((*dev_vtbl).CreateBuffer)(device, &vb_desc, ptr::null(), &mut vertex_buffer);
+            let hr_vb =
+                ((*dev_vtbl).CreateBuffer)(device, &vb_desc, ptr::null(), &mut vertex_buffer);
 
             let ib_desc = D3D11_BUFFER_DESC {
                 ByteWidth: (12288 * std::mem::size_of::<u16>()) as u32,
@@ -225,7 +231,8 @@ impl D3d11Backend {
                 MiscFlags: 0,
                 StructureByteStride: 0,
             };
-            let hr_ib = ((*dev_vtbl).CreateBuffer)(device, &ib_desc, ptr::null(), &mut index_buffer);
+            let hr_ib =
+                ((*dev_vtbl).CreateBuffer)(device, &ib_desc, ptr::null(), &mut index_buffer);
 
             let cb_desc = D3D11_BUFFER_DESC {
                 ByteWidth: 16, // float4 (screen_w, screen_h, 0, 0)
@@ -235,9 +242,12 @@ impl D3d11Backend {
                 MiscFlags: 0,
                 StructureByteStride: 0,
             };
-            let hr_cb = ((*dev_vtbl).CreateBuffer)(device, &cb_desc, ptr::null(), &mut constant_buffer);
+            let hr_cb =
+                ((*dev_vtbl).CreateBuffer)(device, &cb_desc, ptr::null(), &mut constant_buffer);
 
-            if hr_vb < 0 || hr_ib < 0 || hr_cb < 0
+            if hr_vb < 0
+                || hr_ib < 0
+                || hr_cb < 0
                 || vertex_buffer.is_null()
                 || index_buffer.is_null()
                 || constant_buffer.is_null()
@@ -392,11 +402,7 @@ impl GpuBackend for D3d11Backend {
             );
             if hr >= 0 && !mapped.pData.is_null() {
                 let screen_size = [self.width as f32, self.height as f32, 0.0f32, 0.0f32];
-                ptr::copy_nonoverlapping(
-                    screen_size.as_ptr() as *const c_void,
-                    mapped.pData,
-                    16,
-                );
+                ptr::copy_nonoverlapping(screen_size.as_ptr() as *const c_void, mapped.pData, 16);
                 ((*ctx_vtbl).Unmap)(self.context, self.constant_buffer, 0);
             }
 
@@ -424,7 +430,10 @@ impl GpuBackend for D3d11Backend {
             ((*ctx_vtbl).RSSetViewports)(self.context, 1, &vp);
 
             // Bind Pipeline State
-            ((*ctx_vtbl).IASetPrimitiveTopology)(self.context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ((*ctx_vtbl).IASetPrimitiveTopology)(
+                self.context,
+                D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+            );
             ((*ctx_vtbl).IASetInputLayout)(self.context, self.input_layout);
             ((*ctx_vtbl).VSSetShader)(self.context, self.vertex_shader, ptr::null(), 0);
             ((*ctx_vtbl).VSSetConstantBuffers)(self.context, 0, 1, &self.constant_buffer);
@@ -446,7 +455,10 @@ impl GpuBackend for D3d11Backend {
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Usage: D3D11_USAGE_DEFAULT,
             BindFlags: D3D11_BIND_SHADER_RESOURCE,
             CPUAccessFlags: 0,
@@ -467,19 +479,19 @@ impl GpuBackend for D3d11Backend {
             let hr = ((*dev_vtbl).CreateTexture2D)(
                 self.device,
                 &desc,
-                if pixels.len() >= expected_bytes { &init_data } else { ptr::null() },
+                if pixels.len() >= expected_bytes {
+                    &init_data
+                } else {
+                    ptr::null()
+                },
                 &mut texture,
             );
             if hr < 0 || texture.is_null() {
                 return None;
             }
 
-            let hr_srv = ((*dev_vtbl).CreateShaderResourceView)(
-                self.device,
-                texture,
-                ptr::null(),
-                &mut srv,
-            );
+            let hr_srv =
+                ((*dev_vtbl).CreateShaderResourceView)(self.device, texture, ptr::null(), &mut srv);
             if hr_srv < 0 || srv.is_null() {
                 let vtbl = *(texture as *mut *mut IUnknownVtbl);
                 let _ = ((*vtbl).Release)(texture);
@@ -547,7 +559,11 @@ impl GpuBackend for D3d11Backend {
         texture: Option<TextureId>,
         blend_mode: BlendMode,
     ) {
-        if vertices.is_empty() || indices.is_empty() || vertices.len() > 8192 || indices.len() > 12288 {
+        if vertices.is_empty()
+            || indices.is_empty()
+            || vertices.len() > 8192
+            || indices.len() > 12288
+        {
             return;
         }
 
@@ -624,10 +640,20 @@ impl GpuBackend for D3d11Backend {
             // 5. Set Texture & Pixel Shader
             if let Some(id) = texture {
                 if let Some(tex) = self.textures.get(&id) {
-                    ((*ctx_vtbl).PSSetShader)(self.context, self.pixel_shader_sprite, ptr::null(), 0);
+                    ((*ctx_vtbl).PSSetShader)(
+                        self.context,
+                        self.pixel_shader_sprite,
+                        ptr::null(),
+                        0,
+                    );
                     ((*ctx_vtbl).PSSetShaderResources)(self.context, 0, 1, &tex.srv);
                 } else {
-                    ((*ctx_vtbl).PSSetShader)(self.context, self.pixel_shader_color, ptr::null(), 0);
+                    ((*ctx_vtbl).PSSetShader)(
+                        self.context,
+                        self.pixel_shader_color,
+                        ptr::null(),
+                        0,
+                    );
                 }
             } else {
                 ((*ctx_vtbl).PSSetShader)(self.context, self.pixel_shader_color, ptr::null(), 0);
@@ -665,18 +691,13 @@ impl GpuBackend for D3d11Backend {
 
             ((*ctx_vtbl).OMSetRenderTargets)(self.context, 0, ptr::null(), ptr::null_mut());
 
-            let _ = ((*sc_vtbl).ResizeBuffers)(
-                self.swap_chain,
-                0,
-                w,
-                h,
-                DXGI_FORMAT_R8G8B8A8_UNORM,
-                0,
-            );
+            let _ =
+                ((*sc_vtbl).ResizeBuffers)(self.swap_chain, 0, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
 
             // Re-create RTV
             let mut backbuffer: *mut c_void = ptr::null_mut();
-            let hr = ((*sc_vtbl).GetBuffer)(self.swap_chain, 0, &IID_ID3D11TEXTURE2D, &mut backbuffer);
+            let hr =
+                ((*sc_vtbl).GetBuffer)(self.swap_chain, 0, &IID_ID3D11TEXTURE2D, &mut backbuffer);
             if hr >= 0 && !backbuffer.is_null() {
                 let dev_vtbl = *(self.device as *mut *mut ID3D11DeviceVtbl);
                 ((*dev_vtbl).CreateRenderTargetView)(
@@ -703,14 +724,26 @@ mod tests {
     #[test]
     fn test_d3d11_shader_compilation() {
         let vs_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "VS_Main", "vs_4_0");
-        assert!(vs_res.is_ok(), "VS compilation should succeed: {:?}", vs_res.err());
+        assert!(
+            vs_res.is_ok(),
+            "VS compilation should succeed: {:?}",
+            vs_res.err()
+        );
         let vs_bytes = vs_res.unwrap();
         assert!(!vs_bytes.is_empty());
 
         let ps_sprite_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Sprite", "ps_4_0");
-        assert!(ps_sprite_res.is_ok(), "PS_Sprite compilation should succeed: {:?}", ps_sprite_res.err());
+        assert!(
+            ps_sprite_res.is_ok(),
+            "PS_Sprite compilation should succeed: {:?}",
+            ps_sprite_res.err()
+        );
 
         let ps_color_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Color", "ps_4_0");
-        assert!(ps_color_res.is_ok(), "PS_Color compilation should succeed: {:?}", ps_color_res.err());
+        assert!(
+            ps_color_res.is_ok(),
+            "PS_Color compilation should succeed: {:?}",
+            ps_color_res.err()
+        );
     }
 }

@@ -170,7 +170,11 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
             songs.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
         }
         SortMode::Level => {
-            songs.sort_by(|a, b| a.play_level.cmp(&b.play_level).then_with(|| a.title.cmp(&b.title)));
+            songs.sort_by(|a, b| {
+                a.play_level
+                    .cmp(&b.play_level)
+                    .then_with(|| a.title.cmp(&b.title))
+            });
         }
         SortMode::ClearLamp => {
             songs.sort_by(|a, b| {
@@ -183,12 +187,18 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
             songs.sort_by(|a, b| {
                 let acc_a = store.get(a.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
                 let acc_b = store.get(b.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
-                acc_b.partial_cmp(&acc_a).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.title.cmp(&b.title))
+                acc_b
+                    .partial_cmp(&acc_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.title.cmp(&b.title))
             });
         }
         SortMode::Bpm => {
             songs.sort_by(|a, b| {
-                a.bpm.partial_cmp(&b.bpm).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.title.cmp(&b.title))
+                a.bpm
+                    .partial_cmp(&b.bpm)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.title.cmp(&b.title))
             });
         }
     }

@@ -7,7 +7,9 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
 use crate::checksum::sha256_hex;
-use crate::delta::manifest::{DeltaManifest, DeltaOpKind, DeltaResourceEntry, DELTA_MANIFEST_FILENAME};
+use crate::delta::manifest::{
+    DeltaManifest, DeltaOpKind, DeltaResourceEntry, DELTA_MANIFEST_FILENAME,
+};
 use crate::error::PackageError;
 use crate::path::validate_entry_path;
 use crate::reader::Package;

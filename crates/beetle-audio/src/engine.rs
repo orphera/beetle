@@ -23,7 +23,9 @@ impl std::fmt::Display for AudioEngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoOutputDevice => write!(f, "No audio output device found"),
-            Self::DefaultStreamConfigError(e) => write!(f, "Failed to get default stream config: {e}"),
+            Self::DefaultStreamConfigError(e) => {
+                write!(f, "Failed to get default stream config: {e}")
+            }
             Self::BuildStreamError(e) => write!(f, "Failed to build audio stream: {e}"),
             Self::PlayStreamError(e) => write!(f, "Failed to start audio stream: {e}"),
         }
@@ -58,7 +60,8 @@ impl AudioEngine {
         let samples_played = Arc::new(AtomicU64::new(0));
         let clock = AudioClock::new(Arc::clone(&samples_played), sample_rate);
 
-        let visual_levels: Arc<[AtomicU32; 16]> = Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
+        let visual_levels: Arc<[AtomicU32; 16]> =
+            Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
         let (producer, consumer) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
         let mut mixer = Mixer::new(
             sample_bank,

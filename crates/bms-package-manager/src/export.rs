@@ -98,7 +98,8 @@ pub fn extract_wav_from_atlas(
                     let s = (pcm.samples[pcm.offset + i].clamp(-1.0, 1.0) * 32767.0) as i16;
                     pcm16.extend_from_slice(&s.to_le_bytes());
                 }
-                let header = create_riff_wav_header(channels, sample_rate, bits_per_sample, pcm16.len());
+                let header =
+                    create_riff_wav_header(channels, sample_rate, bits_per_sample, pcm16.len());
                 let mut wav = Vec::with_capacity(44 + pcm16.len());
                 wav.extend_from_slice(&header);
                 wav.extend_from_slice(&pcm16);
@@ -161,10 +162,7 @@ where
             if let Ok(atlas_bytes) = pkg.read_entry(&sound_meta.file) {
                 let total_slices = sound_meta.slices.len();
                 for (idx, (key, slice)) in sound_meta.slices.iter().enumerate() {
-                    let filename = slice
-                        .original_filename
-                        .as_deref()
-                        .unwrap_or(key);
+                    let filename = slice.original_filename.as_deref().unwrap_or(key);
 
                     let filename = if !filename.to_lowercase().ends_with(".wav")
                         && !filename.to_lowercase().ends_with(".ogg")
@@ -220,10 +218,7 @@ where
                 if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
                     let total_frames = bga_meta.frames.len();
                     for (idx, (key, frame)) in bga_meta.frames.iter().enumerate() {
-                        let filename = frame
-                            .original_filename
-                            .as_deref()
-                            .unwrap_or(key);
+                        let filename = frame.original_filename.as_deref().unwrap_or(key);
 
                         let filename = if !filename.to_lowercase().ends_with(".bmp")
                             && !filename.to_lowercase().ends_with(".png")
@@ -236,7 +231,9 @@ where
 
                         on_progress("Extracting BGA frames", idx + 1, total_frames, &filename);
 
-                        if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                        if let Some(sub_img) =
+                            atlas_img.crop(frame.x, frame.y, frame.width, frame.height)
+                        {
                             let bmp_bytes = sub_img.encode_bmp_bytes();
                             let out_path = dest.join(&filename);
                             if let Some(parent) = out_path.parent() {
@@ -369,16 +366,26 @@ mod tests {
     fn test_export_turbo_package_restores_all_files() {
         let temp_src = std::env::temp_dir().join(format!(
             "bpm_export_test_src_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         let temp_dest = std::env::temp_dir().join(format!(
             "bpm_export_test_dest_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&temp_src).unwrap();
 
         // 1. Create chart, audio, and bga
-        fs::write(temp_src.join("main.bms"), "#TITLE Export Test\n#WAV01 kick.wav\n#BMP01 bg.bmp\n").unwrap();
+        fs::write(
+            temp_src.join("main.bms"),
+            "#TITLE Export Test\n#WAV01 kick.wav\n#BMP01 bg.bmp\n",
+        )
+        .unwrap();
 
         let spec = hound::WavSpec {
             channels: 1,
@@ -399,7 +406,8 @@ mod tests {
         fs::write(temp_src.join("bg.bmp"), img.encode_bmp_bytes()).unwrap();
 
         // 2. Pack as Turbo package
-        let pkg_bytes = crate::pack_bms_folder_profile(&temp_src, None, crate::PackProfile::Turbo).unwrap();
+        let pkg_bytes =
+            crate::pack_bms_folder_profile(&temp_src, None, crate::PackProfile::Turbo).unwrap();
         let pkg_path = temp_src.join("test.bmsp");
         fs::write(&pkg_path, pkg_bytes).unwrap();
 

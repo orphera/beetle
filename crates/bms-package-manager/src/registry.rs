@@ -100,7 +100,14 @@ impl Registry {
         rel_path: &str,
         installed_at: &str,
     ) -> Result<(), PackageManagerError> {
-        self.register_with_bga(manifest, state_hash, rel_path, installed_at, BgaStatus::None, None)
+        self.register_with_bga(
+            manifest,
+            state_hash,
+            rel_path,
+            installed_at,
+            BgaStatus::None,
+            None,
+        )
     }
 
     /// Registers a new installed package state with explicit BGA status.
@@ -117,15 +124,18 @@ impl Registry {
         let package_name = manifest.name.clone();
         let package_author = manifest.author.clone();
 
-        let entry = self.packages.entry(package_id.clone()).or_insert_with(|| PackageRecord {
-            id: package_id,
-            name: package_name.clone(),
-            author: package_author.clone(),
-            active_state: state_hash.to_string(),
-            bga_status,
-            bga_companion_path: bga_companion_path.clone(),
-            state_hashes: BTreeMap::new(),
-        });
+        let entry = self
+            .packages
+            .entry(package_id.clone())
+            .or_insert_with(|| PackageRecord {
+                id: package_id,
+                name: package_name.clone(),
+                author: package_author.clone(),
+                active_state: state_hash.to_string(),
+                bga_status,
+                bga_companion_path: bga_companion_path.clone(),
+                state_hashes: BTreeMap::new(),
+            });
 
         entry.name = package_name;
         entry.author = package_author;
@@ -163,7 +173,11 @@ impl Registry {
     }
 
     /// Unregisters an installed package state. If no states remain, removes the package record completely.
-    pub fn unregister(&mut self, package_id: &str, state_hash: &str) -> Result<bool, PackageManagerError> {
+    pub fn unregister(
+        &mut self,
+        package_id: &str,
+        state_hash: &str,
+    ) -> Result<bool, PackageManagerError> {
         let pkg = self
             .packages
             .get_mut(package_id)
@@ -254,26 +268,50 @@ mod tests {
         let mut reg = Registry::default();
         let manifest = Manifest::new("com.example.song", "Test Song");
 
-        reg.register(&manifest, "hash_v1", "packages/com.example.song/hash_v1", "2026-08-28T00:00:00Z").unwrap();
-        assert_eq!(reg.get_installed_states("com.example.song"), vec!["hash_v1".to_string()]);
+        reg.register(
+            &manifest,
+            "hash_v1",
+            "packages/com.example.song/hash_v1",
+            "2026-08-28T00:00:00Z",
+        )
+        .unwrap();
+        assert_eq!(
+            reg.get_installed_states("com.example.song"),
+            vec!["hash_v1".to_string()]
+        );
 
         let (pkg, state) = reg.get_active_state("com.example.song").unwrap();
         assert_eq!(pkg.active_state, "hash_v1");
         assert_eq!(state.path, "packages/com.example.song/hash_v1");
 
         // Register state 2
-        reg.register(&manifest, "hash_v2", "packages/com.example.song/hash_v2", "2026-08-28T01:00:00Z").unwrap();
+        reg.register(
+            &manifest,
+            "hash_v2",
+            "packages/com.example.song/hash_v2",
+            "2026-08-28T01:00:00Z",
+        )
+        .unwrap();
         assert_eq!(reg.get_installed_states("com.example.song").len(), 2);
-        assert_eq!(reg.get_package("com.example.song").unwrap().active_state, "hash_v2");
+        assert_eq!(
+            reg.get_package("com.example.song").unwrap().active_state,
+            "hash_v2"
+        );
 
         // Switch active state back to hash_v1
         reg.set_active("com.example.song", "hash_v1").unwrap();
-        assert_eq!(reg.get_package("com.example.song").unwrap().active_state, "hash_v1");
+        assert_eq!(
+            reg.get_package("com.example.song").unwrap().active_state,
+            "hash_v1"
+        );
 
         // Unregister hash_v1 -> active switches to hash_v2
         let removed_all = reg.unregister("com.example.song", "hash_v1").unwrap();
         assert!(!removed_all);
-        assert_eq!(reg.get_package("com.example.song").unwrap().active_state, "hash_v2");
+        assert_eq!(
+            reg.get_package("com.example.song").unwrap().active_state,
+            "hash_v2"
+        );
 
         // Unregister hash_v2 -> completely removed
         let removed_all = reg.unregister("com.example.song", "hash_v2").unwrap();

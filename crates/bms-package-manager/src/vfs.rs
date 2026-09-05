@@ -46,7 +46,9 @@ impl VirtualFile {
                 let pcm_len = match codec {
                     SoundAtlasCodec::Pcm16 => (*frame_count as usize) * 4,
                     SoundAtlasCodec::PcmF32 => (*frame_count as usize) * 4, // converted to 16-bit
-                    SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => *frame_count as usize,
+                    SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => {
+                        *frame_count as usize
+                    }
                 };
                 44 + pcm_len
             }
@@ -78,7 +80,13 @@ impl VirtualFile {
                 sample_rate,
                 start_frame,
                 frame_count,
-            } => extract_wav_from_atlas(*codec, *sample_rate, atlas_bytes, *start_frame, *frame_count),
+            } => extract_wav_from_atlas(
+                *codec,
+                *sample_rate,
+                atlas_bytes,
+                *start_frame,
+                *frame_count,
+            ),
             Self::ArchiveEntry {
                 package_path,
                 entry_path,
@@ -100,9 +108,7 @@ pub struct VfsEntry {
 
 /// Tree node in the Virtual BMS File System.
 enum VfsNode {
-    Directory {
-        children: HashMap<String, VfsNode>,
-    },
+    Directory { children: HashMap<String, VfsNode> },
     File(VirtualFile),
 }
 
@@ -141,12 +147,13 @@ impl VirtualBmsFs {
                 if let Ok(atlas_bytes) = pkg.read_entry(&sound_meta.file) {
                     let atlas_arc: Arc<[u8]> = Arc::from(atlas_bytes.into_boxed_slice());
                     if sound_meta.codec.is_bundle() {
-                        let default_ext = if sound_meta.codec == SoundAtlasCodec::OggBundle { ".ogg" } else { ".wav" };
+                        let default_ext = if sound_meta.codec == SoundAtlasCodec::OggBundle {
+                            ".ogg"
+                        } else {
+                            ".wav"
+                        };
                         for (key, slice) in &sound_meta.slices {
-                            let filename = slice
-                                .original_filename
-                                .as_deref()
-                                .unwrap_or(key);
+                            let filename = slice.original_filename.as_deref().unwrap_or(key);
 
                             let filename = if !filename.to_lowercase().ends_with(".wav")
                                 && !filename.to_lowercase().ends_with(".ogg")
@@ -159,16 +166,14 @@ impl VirtualBmsFs {
                             let start = slice.start_frame as usize;
                             let len = slice.frame_count as usize;
                             if start + len <= atlas_arc.len() {
-                                let vfile = VirtualFile::Memory(Arc::from(&atlas_arc[start..start + len]));
+                                let vfile =
+                                    VirtualFile::Memory(Arc::from(&atlas_arc[start..start + len]));
                                 song_dir.insert(filename, VfsNode::File(vfile));
                             }
                         }
                     } else {
                         for (key, slice) in &sound_meta.slices {
-                            let filename = slice
-                                .original_filename
-                                .as_deref()
-                                .unwrap_or(key);
+                            let filename = slice.original_filename.as_deref().unwrap_or(key);
 
                             let filename = if !filename.to_lowercase().ends_with(".wav")
                                 && !filename.to_lowercase().ends_with(".ogg")
@@ -197,10 +202,7 @@ impl VirtualBmsFs {
                 if let Ok(atlas_bytes) = pkg.read_entry(&bga_meta.file) {
                     if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
                         for (key, frame) in &bga_meta.frames {
-                            let filename = frame
-                                .original_filename
-                                .as_deref()
-                                .unwrap_or(key);
+                            let filename = frame.original_filename.as_deref().unwrap_or(key);
 
                             let filename = if !filename.to_lowercase().ends_with(".bmp")
                                 && !filename.to_lowercase().ends_with(".png")
@@ -211,9 +213,13 @@ impl VirtualBmsFs {
                                 filename.to_string()
                             };
 
-                            if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                            if let Some(sub_img) =
+                                atlas_img.crop(frame.x, frame.y, frame.width, frame.height)
+                            {
                                 let bmp_bytes = sub_img.encode_bmp_bytes();
-                                let vfile = VirtualFile::SynthesizedBmp(Arc::from(bmp_bytes.into_boxed_slice()));
+                                let vfile = VirtualFile::SynthesizedBmp(Arc::from(
+                                    bmp_bytes.into_boxed_slice(),
+                                ));
                                 song_dir.insert(filename, VfsNode::File(vfile));
                             }
                         }
@@ -262,7 +268,10 @@ impl VirtualBmsFs {
         if let VfsNode::Directory { ref mut children } = self.root {
             match children.entry(mount_name.to_string()) {
                 std::collections::hash_map::Entry::Occupied(mut occ) => {
-                    if let VfsNode::Directory { children: ref mut existing } = occ.get_mut() {
+                    if let VfsNode::Directory {
+                        children: ref mut existing,
+                    } = occ.get_mut()
+                    {
                         existing.extend(song_dir);
                     }
                 }
@@ -276,7 +285,10 @@ impl VirtualBmsFs {
     }
 
     /// Mounts all packages in a directory (e.g. `packages/`), pairing base packages and BGA companions.
-    pub fn mount_directory<P: AsRef<Path>>(&mut self, dir_path: P) -> Result<usize, PackageManagerError> {
+    pub fn mount_directory<P: AsRef<Path>>(
+        &mut self,
+        dir_path: P,
+    ) -> Result<usize, PackageManagerError> {
         let mut count = 0;
         let dir = dir_path.as_ref();
         if dir.exists() {
@@ -307,7 +319,10 @@ impl VirtualBmsFs {
             // 2. Mount and overlay companion packages onto their target directories
             for p in companion_packages {
                 let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let mut target_mount = file_name.strip_suffix(".bga.bmsp").unwrap_or("").to_string();
+                let mut target_mount = file_name
+                    .strip_suffix(".bga.bmsp")
+                    .unwrap_or("")
+                    .to_string();
 
                 // If possible, read companion manifest to obtain target_package_id
                 if let Ok(pkg) = PackageReader::open_file(&p) {
@@ -323,7 +338,11 @@ impl VirtualBmsFs {
                 }
 
                 if target_mount.is_empty() {
-                    target_mount = p.file_stem().and_then(|s| s.to_str()).unwrap_or("bga").to_string();
+                    target_mount = p
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("bga")
+                        .to_string();
                 }
 
                 if self.mount_package(&target_mount, &p).is_ok() {
@@ -547,7 +566,8 @@ fn handle_client(mut stream: TcpStream, fs: Arc<VirtualBmsFs>) -> std::io::Resul
             } else if fs.is_dir(path) {
                 handle_propfind(&mut stream, &fs, path, "1")?;
             } else {
-                let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let response =
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 stream.write_all(response.as_bytes())?;
             }
         }
@@ -566,7 +586,8 @@ fn handle_client(mut stream: TcpStream, fs: Arc<VirtualBmsFs>) -> std::io::Resul
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: httpd/unix-directory\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 stream.write_all(header.as_bytes())?;
             } else {
-                let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let response =
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 stream.write_all(response.as_bytes())?;
             }
         }
@@ -587,13 +608,23 @@ fn handle_propfind(
     depth: &str,
 ) -> std::io::Result<()> {
     let normalized = path.trim_end_matches('/');
-    let target_path = if normalized.is_empty() { "/" } else { normalized };
+    let target_path = if normalized.is_empty() {
+        "/"
+    } else {
+        normalized
+    };
 
-    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\" ?>\r\n<D:multistatus xmlns:D=\"DAV:\">\r\n");
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\r\n<D:multistatus xmlns:D=\"DAV:\">\r\n",
+    );
 
     if fs.is_dir(target_path) {
         // Target directory response
-        let href = if target_path == "/" { "/".to_string() } else { format!("{}/", target_path) };
+        let href = if target_path == "/" {
+            "/".to_string()
+        } else {
+            format!("{}/", target_path)
+        };
         xml.push_str(&format!(
             "  <D:response>\r\n\
             \x20   <D:href>{}</D:href>\r\n\
@@ -617,11 +648,7 @@ fn handle_propfind(
                         format!("{}/{}", target_path, entry.name)
                     };
 
-                    let resourcetype = if entry.is_dir {
-                        "<D:collection/>"
-                    } else {
-                        ""
-                    };
+                    let resourcetype = if entry.is_dir { "<D:collection/>" } else { "" };
 
                     xml.push_str(&format!(
                         "  <D:response>\r\n\
@@ -705,12 +732,19 @@ mod tests {
     fn test_vfs_mount_and_synthesized_wav_streaming() {
         let temp_src = std::env::temp_dir().join(format!(
             "bpm_vfs_test_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&temp_src).unwrap();
 
         // 1. Create chart, wav, and bmp
-        fs::write(temp_src.join("track.bms"), "#TITLE VFS Test\n#WAV01 kick.wav\n#BMP01 bg.bmp\n").unwrap();
+        fs::write(
+            temp_src.join("track.bms"),
+            "#TITLE VFS Test\n#WAV01 kick.wav\n#BMP01 bg.bmp\n",
+        )
+        .unwrap();
 
         let spec = hound::WavSpec {
             channels: 1,
@@ -731,13 +765,15 @@ mod tests {
         fs::write(temp_src.join("bg.bmp"), img.encode_bmp_bytes()).unwrap();
 
         // 2. Pack as Turbo package
-        let pkg_bytes = crate::pack_bms_folder_profile(&temp_src, None, crate::PackProfile::Turbo).unwrap();
+        let pkg_bytes =
+            crate::pack_bms_folder_profile(&temp_src, None, crate::PackProfile::Turbo).unwrap();
         let pkg_path = temp_src.join("vfs_song.bmsp");
         fs::write(&pkg_path, pkg_bytes).unwrap();
 
         // 3. Mount in VirtualBmsFs
         let mut vfs = VirtualBmsFs::new();
-        vfs.mount_package("vfs_song", &pkg_path).expect("mount failed");
+        vfs.mount_package("vfs_song", &pkg_path)
+            .expect("mount failed");
 
         // 4. Verify virtual directory structure
         let root_entries = vfs.list_dir("/").expect("list root");
@@ -774,13 +810,20 @@ mod tests {
         let port = server.port();
 
         // Test GET /vfs_song/kick.wav via raw TCP stream
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).expect("connect to webdav");
-        stream.write_all(b"GET /vfs_song/kick.wav HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let mut stream =
+            TcpStream::connect(format!("127.0.0.1:{}", port)).expect("connect to webdav");
+        stream
+            .write_all(b"GET /vfs_song/kick.wav HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
 
         let mut reader = BufReader::new(stream);
         let mut status_line = String::new();
         reader.read_line(&mut status_line).unwrap();
-        assert!(status_line.contains("200 OK"), "Expected 200 OK, got: {}", status_line);
+        assert!(
+            status_line.contains("200 OK"),
+            "Expected 200 OK, got: {}",
+            status_line
+        );
 
         // Clean up
         let _ = fs::remove_dir_all(&temp_src);
@@ -792,15 +835,22 @@ mod tests {
 
         let temp_dir = std::env::temp_dir().join(format!(
             "bpm_vfs_companion_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&temp_dir).unwrap();
 
         // 1. Create base package (song.bmsp)
         let base_manifest = Manifest::new("com.example.paired", "Paired Song");
         let mut base_builder = PackageBuilder::new(base_manifest);
-        base_builder.add_file("main.bms", b"#TITLE Paired Song\n#BMP01 movie.mp4".to_vec()).unwrap();
-        base_builder.add_file("audio/01.wav", vec![1, 2, 3, 4]).unwrap();
+        base_builder
+            .add_file("main.bms", b"#TITLE Paired Song\n#BMP01 movie.mp4".to_vec())
+            .unwrap();
+        base_builder
+            .add_file("audio/01.wav", vec![1, 2, 3, 4])
+            .unwrap();
         let base_bytes = base_builder.build_to_bytes().unwrap();
         fs::write(temp_dir.join("paired_song.bmsp"), base_bytes).unwrap();
 
@@ -811,13 +861,17 @@ mod tests {
             "com.example.paired",
         );
         let mut bga_builder = PackageBuilder::new(bga_manifest);
-        bga_builder.add_file("visual/movie.mp4", vec![0x99, 0x88, 0x77, 0x66]).unwrap();
+        bga_builder
+            .add_file("visual/movie.mp4", vec![0x99, 0x88, 0x77, 0x66])
+            .unwrap();
         let bga_bytes = bga_builder.build_to_bytes().unwrap();
         fs::write(temp_dir.join("paired_song.bga.bmsp"), bga_bytes).unwrap();
 
         // 3. Mount directory with VirtualBmsFs
         let mut vfs = VirtualBmsFs::new();
-        let count = vfs.mount_directory(&temp_dir).expect("mount directory failed");
+        let count = vfs
+            .mount_directory(&temp_dir)
+            .expect("mount directory failed");
         assert_eq!(count, 2);
 
         // 4. Verify that paired_song contains both base files and BGA companion files
@@ -828,7 +882,9 @@ mod tests {
         assert!(names.contains(&"visual/movie.mp4".to_string()));
 
         // 5. Read BGA companion file from the unified mount
-        let video_data = vfs.read_file("/paired_song/visual/movie.mp4").expect("read movie.mp4");
+        let video_data = vfs
+            .read_file("/paired_song/visual/movie.mp4")
+            .expect("read movie.mp4");
         assert_eq!(video_data, vec![0x99, 0x88, 0x77, 0x66]);
 
         let _ = fs::remove_dir_all(&temp_dir);

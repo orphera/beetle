@@ -158,10 +158,7 @@ impl SampleBank {
         }
 
         let raw_samples: Vec<f32> = match spec.sample_format {
-            SampleFormat::Float => wav_reader
-                .samples::<f32>()
-                .filter_map(|s| s.ok())
-                .collect(),
+            SampleFormat::Float => wav_reader.samples::<f32>().filter_map(|s| s.ok()).collect(),
             SampleFormat::Int => match spec.bits_per_sample {
                 8 => wav_reader
                     .samples::<i8>()
@@ -208,8 +205,8 @@ impl SampleBank {
 
     /// Decode OGG Vorbis from any `Read + Seek` stream into stereo normalized `PcmBuffer`.
     pub fn load_ogg_from_reader<R: Read + Seek>(reader: R) -> Result<PcmBuffer, AudioDecodeError> {
-        let mut ogg_reader =
-            OggStreamReader::new(reader).map_err(|e| AudioDecodeError::OggDecodeError(e.to_string()))?;
+        let mut ogg_reader = OggStreamReader::new(reader)
+            .map_err(|e| AudioDecodeError::OggDecodeError(e.to_string()))?;
 
         let channels = ogg_reader.ident_hdr.audio_channels as usize;
         let sample_rate = ogg_reader.ident_hdr.audio_sample_rate;
@@ -322,7 +319,12 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    fn create_synthetic_wav(channels: u16, sample_rate: u32, bits: u16, samples: &[i16]) -> Vec<u8> {
+    fn create_synthetic_wav(
+        channels: u16,
+        sample_rate: u32,
+        bits: u16,
+        samples: &[i16],
+    ) -> Vec<u8> {
         let mut buffer = Cursor::new(Vec::new());
         let spec = hound::WavSpec {
             channels,
@@ -342,7 +344,8 @@ mod tests {
     fn test_load_mono_16bit_wav() {
         let samples = vec![0, 16384, 32767, -16384, -32768];
         let wav_data = create_synthetic_wav(1, 44100, 16, &samples);
-        let pcm = SampleBank::load_wav_from_reader(Cursor::new(wav_data)).expect("Failed to load WAV");
+        let pcm =
+            SampleBank::load_wav_from_reader(Cursor::new(wav_data)).expect("Failed to load WAV");
 
         assert_eq!(pcm.sample_rate, 44100);
         // Mono duplicated to stereo: 5 frames * 2 channels = 10 samples
@@ -361,7 +364,8 @@ mod tests {
     fn test_load_stereo_16bit_wav() {
         let samples = vec![0, 16384, -16384, 0]; // 2 frames
         let wav_data = create_synthetic_wav(2, 48000, 16, &samples);
-        let pcm = SampleBank::load_wav_from_reader(Cursor::new(wav_data)).expect("Failed to load WAV");
+        let pcm =
+            SampleBank::load_wav_from_reader(Cursor::new(wav_data)).expect("Failed to load WAV");
 
         assert_eq!(pcm.sample_rate, 48000);
         assert_eq!(pcm.samples.len(), 4);
@@ -380,26 +384,47 @@ mod tests {
         wav_bytes.extend_from_slice(b"WAVE");
         wav_bytes.extend_from_slice(b"fmt ");
         wav_bytes.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size
-        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // PCM
-        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // 1 channel (mono)
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // 1 channel (mono)
         wav_bytes.extend_from_slice(&44100u32.to_le_bytes()); // sample rate
         wav_bytes.extend_from_slice(&44100u32.to_le_bytes()); // byte rate
-        wav_bytes.extend_from_slice(&1u16.to_le_bytes());  // block align
-        wav_bytes.extend_from_slice(&8u16.to_le_bytes());   // bits per sample
+        wav_bytes.extend_from_slice(&1u16.to_le_bytes()); // block align
+        wav_bytes.extend_from_slice(&8u16.to_le_bytes()); // bits per sample
         wav_bytes.extend_from_slice(b"data");
-        wav_bytes.extend_from_slice(&3u32.to_le_bytes());  // data size
+        wav_bytes.extend_from_slice(&3u32.to_le_bytes()); // data size
         wav_bytes.push(128); // center / silence -> 0.0
-        wav_bytes.push(0);   // min -> -1.0
+        wav_bytes.push(0); // min -> -1.0
         wav_bytes.push(255); // max -> ~+0.992
 
-        let pcm = SampleBank::load_wav_from_reader(Cursor::new(wav_bytes)).expect("Failed to load 8-bit WAV");
+        let pcm = SampleBank::load_wav_from_reader(Cursor::new(wav_bytes))
+            .expect("Failed to load 8-bit WAV");
         assert_eq!(pcm.sample_rate, 44100);
         assert_eq!(pcm.frame_count(), 3);
         // Mono duplicated to stereo
-        assert!((pcm.samples[0] - 0.0).abs() < 0.001, "Expected 0.0 for 128 silence, got {}", pcm.samples[0]);
-        assert!((pcm.samples[1] - 0.0).abs() < 0.001, "Expected 0.0 for 128 silence, got {}", pcm.samples[1]);
-        assert!((pcm.samples[2] - (-1.0)).abs() < 0.001, "Expected -1.0 for 0 min, got {}", pcm.samples[2]);
-        assert!((pcm.samples[3] - (-1.0)).abs() < 0.001, "Expected -1.0 for 0 min, got {}", pcm.samples[3]);
-        assert!((pcm.samples[4] - 0.9921875).abs() < 0.01, "Expected ~0.992 for 255 max, got {}", pcm.samples[4]);
+        assert!(
+            (pcm.samples[0] - 0.0).abs() < 0.001,
+            "Expected 0.0 for 128 silence, got {}",
+            pcm.samples[0]
+        );
+        assert!(
+            (pcm.samples[1] - 0.0).abs() < 0.001,
+            "Expected 0.0 for 128 silence, got {}",
+            pcm.samples[1]
+        );
+        assert!(
+            (pcm.samples[2] - (-1.0)).abs() < 0.001,
+            "Expected -1.0 for 0 min, got {}",
+            pcm.samples[2]
+        );
+        assert!(
+            (pcm.samples[3] - (-1.0)).abs() < 0.001,
+            "Expected -1.0 for 0 min, got {}",
+            pcm.samples[3]
+        );
+        assert!(
+            (pcm.samples[4] - 0.9921875).abs() < 0.01,
+            "Expected ~0.992 for 255 max, got {}",
+            pcm.samples[4]
+        );
     }
 }

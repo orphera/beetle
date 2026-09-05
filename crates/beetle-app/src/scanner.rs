@@ -102,7 +102,11 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
         let path = entry.path();
         if path.is_dir() {
             // Avoid recursion into temp folders
-            if path.file_name().map(|n| n == ".tmp_install").unwrap_or(false) {
+            if path
+                .file_name()
+                .map(|n| n == ".tmp_install")
+                .unwrap_or(false)
+            {
                 continue;
             }
             scan_recursive(&path, songs);
@@ -114,7 +118,9 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
             {
                 if let Ok(bytes) = fs::read(&path) {
                     let content = beetle_core::decode_bms_text(&bytes);
-                    if let Some(meta) = SongMetadata::from_content(&path.to_string_lossy(), &content) {
+                    if let Some(meta) =
+                        SongMetadata::from_content(&path.to_string_lossy(), &content)
+                    {
                         songs.push(meta);
                     }
                 }
@@ -143,7 +149,8 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
                         if let Ok(bytes) = pkg.read_entry(&entry_path) {
                             let content = beetle_core::decode_bms_text(&bytes);
                             let virtual_path = format!("{}::{}", path_str, entry_path);
-                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
+                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content)
+                            {
                                 songs.push(meta);
                             }
                         }

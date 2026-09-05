@@ -50,9 +50,7 @@ mod tests {
         builder1
             .add_file("bms/main.bms", b"#TITLE Test Song\n#BPM 150".to_vec())
             .unwrap();
-        builder1
-            .add_file("audio/01.wav", vec![0u8; 100])
-            .unwrap();
+        builder1.add_file("audio/01.wav", vec![0u8; 100]).unwrap();
         builder1
             .add_file("image/stage.png", vec![255u8; 50])
             .unwrap();
@@ -64,9 +62,7 @@ mod tests {
         builder2
             .add_file("image/stage.png", vec![255u8; 50])
             .unwrap();
-        builder2
-            .add_file("audio/01.wav", vec![0u8; 100])
-            .unwrap();
+        builder2.add_file("audio/01.wav", vec![0u8; 100]).unwrap();
         builder2
             .add_file("bms/main.bms", b"#TITLE Test Song\n#BPM 150".to_vec())
             .unwrap();
@@ -102,7 +98,8 @@ mod tests {
         let mut cursor = std::io::Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            zip.start_file("bms/main.bms", SimpleFileOptions::default()).unwrap();
+            zip.start_file("bms/main.bms", SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(b"test").unwrap();
             zip.finish().unwrap();
         }
@@ -117,7 +114,8 @@ mod tests {
         let mut cursor = std::io::Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default()).unwrap();
+            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(b"{ not a valid json").unwrap();
             zip.finish().unwrap();
         }
@@ -132,8 +130,10 @@ mod tests {
         let mut cursor = std::io::Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default()).unwrap();
-            zip.write_all(br#"{"format": 999, "id": "test", "name": "Test"}"#).unwrap();
+            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(br#"{"format": 999, "id": "test", "name": "Test"}"#)
+                .unwrap();
             zip.finish().unwrap();
         }
 
@@ -147,9 +147,12 @@ mod tests {
         let mut cursor = std::io::Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut cursor);
-            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default()).unwrap();
-            zip.write_all(br#"{"format": 1, "id": "test", "name": "Test"}"#).unwrap();
-            zip.start_file("../outside.txt", SimpleFileOptions::default()).unwrap();
+            zip.start_file(MANIFEST_FILENAME, SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(br#"{"format": 1, "id": "test", "name": "Test"}"#)
+                .unwrap();
+            zip.start_file("../outside.txt", SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(b"malicious").unwrap();
             zip.finish().unwrap();
         }

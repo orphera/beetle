@@ -95,7 +95,8 @@ impl GpuBackend for SoftBackend {
             tex.pixels.clear();
             tex.pixels.reserve((width * height) as usize);
             for chunk in pixels.chunks_exact(4) {
-                tex.pixels.push(ColorRgba::new(chunk[0], chunk[1], chunk[2], chunk[3]));
+                tex.pixels
+                    .push(ColorRgba::new(chunk[0], chunk[1], chunk[2], chunk[3]));
             }
         }
     }
@@ -123,7 +124,11 @@ impl GpuBackend for SoftBackend {
             let i2 = quad_indices[2] as usize;
             let i3 = quad_indices[4] as usize; // 4th vertex of quad
 
-            if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() || i3 >= vertices.len() {
+            if i0 >= vertices.len()
+                || i1 >= vertices.len()
+                || i2 >= vertices.len()
+                || i3 >= vertices.len()
+            {
                 continue;
             }
 
@@ -132,10 +137,22 @@ impl GpuBackend for SoftBackend {
             let v2 = &vertices[i2];
             let v3 = &vertices[i3];
 
-            let min_x = v0.position[0].min(v1.position[0]).min(v2.position[0]).min(v3.position[0]);
-            let max_x = v0.position[0].max(v1.position[0]).max(v2.position[0]).max(v3.position[0]);
-            let min_y = v0.position[1].min(v1.position[1]).min(v2.position[1]).min(v3.position[1]);
-            let max_y = v0.position[1].max(v1.position[1]).max(v2.position[1]).max(v3.position[1]);
+            let min_x = v0.position[0]
+                .min(v1.position[0])
+                .min(v2.position[0])
+                .min(v3.position[0]);
+            let max_x = v0.position[0]
+                .max(v1.position[0])
+                .max(v2.position[0])
+                .max(v3.position[0]);
+            let min_y = v0.position[1]
+                .min(v1.position[1])
+                .min(v2.position[1])
+                .min(v3.position[1]);
+            let max_y = v0.position[1]
+                .max(v1.position[1])
+                .max(v2.position[1])
+                .max(v3.position[1]);
 
             let start_x = (min_x.floor() as i32).clamp(0, target_w);
             let end_x = (max_x.ceil() as i32).clamp(0, target_w);
@@ -162,13 +179,15 @@ impl GpuBackend for SoftBackend {
                 for y in start_y..end_y {
                     let ty = (y as f32 - min_y) / quad_h;
                     let tex_v = (v_top + ty * (v_bottom - v_top)).clamp(0.0, 1.0);
-                    let src_y = ((tex_v * (tex_h - 1.0)).round() as usize).min(tex.height as usize - 1);
+                    let src_y =
+                        ((tex_v * (tex_h - 1.0)).round() as usize).min(tex.height as usize - 1);
                     let row_offset = src_y * tex.width as usize;
 
                     for x in start_x..end_x {
                         let tx = (x as f32 - min_x) / quad_w;
                         let tex_u = (u0 + tx * (u1 - u0)).clamp(0.0, 1.0);
-                        let src_x = ((tex_u * (tex_w - 1.0)).round() as usize).min(tex.width as usize - 1);
+                        let src_x =
+                            ((tex_u * (tex_w - 1.0)).round() as usize).min(tex.width as usize - 1);
 
                         let src_color = tex.pixels[row_offset + src_x];
                         let alpha = (src_color.a as f32 / 255.0) * tint_a;
@@ -191,16 +210,27 @@ impl GpuBackend for SoftBackend {
                                         data[dst_idx + 3] = 255;
                                     } else {
                                         let inv_a = 1.0 - alpha;
-                                        data[dst_idx] = (sr as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                                        data[dst_idx + 1] = (sg as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                                        data[dst_idx + 2] = (sb as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                                        data[dst_idx] = (sr as f32 * alpha
+                                            + data[dst_idx] as f32 * inv_a)
+                                            as u8;
+                                        data[dst_idx + 1] = (sg as f32 * alpha
+                                            + data[dst_idx + 1] as f32 * inv_a)
+                                            as u8;
+                                        data[dst_idx + 2] = (sb as f32 * alpha
+                                            + data[dst_idx + 2] as f32 * inv_a)
+                                            as u8;
                                         data[dst_idx + 3] = 255;
                                     }
                                 }
                                 BlendMode::Additive => {
-                                    data[dst_idx] = (data[dst_idx] as f32 + sr as f32 * alpha).min(255.0) as u8;
-                                    data[dst_idx + 1] = (data[dst_idx + 1] as f32 + sg as f32 * alpha).min(255.0) as u8;
-                                    data[dst_idx + 2] = (data[dst_idx + 2] as f32 + sb as f32 * alpha).min(255.0) as u8;
+                                    data[dst_idx] =
+                                        (data[dst_idx] as f32 + sr as f32 * alpha).min(255.0) as u8;
+                                    data[dst_idx + 1] =
+                                        (data[dst_idx + 1] as f32 + sg as f32 * alpha).min(255.0)
+                                            as u8;
+                                    data[dst_idx + 2] =
+                                        (data[dst_idx + 2] as f32 + sb as f32 * alpha).min(255.0)
+                                            as u8;
                                     data[dst_idx + 3] = 255;
                                 }
                             }
@@ -231,16 +261,27 @@ impl GpuBackend for SoftBackend {
                                         data[dst_idx + 3] = 255;
                                     } else {
                                         let inv_a = 1.0 - alpha;
-                                        data[dst_idx] = (sr as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                                        data[dst_idx + 1] = (sg as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                                        data[dst_idx + 2] = (sb as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                                        data[dst_idx] = (sr as f32 * alpha
+                                            + data[dst_idx] as f32 * inv_a)
+                                            as u8;
+                                        data[dst_idx + 1] = (sg as f32 * alpha
+                                            + data[dst_idx + 1] as f32 * inv_a)
+                                            as u8;
+                                        data[dst_idx + 2] = (sb as f32 * alpha
+                                            + data[dst_idx + 2] as f32 * inv_a)
+                                            as u8;
                                         data[dst_idx + 3] = 255;
                                     }
                                 }
                                 BlendMode::Additive => {
-                                    data[dst_idx] = (data[dst_idx] as f32 + sr as f32 * alpha).min(255.0) as u8;
-                                    data[dst_idx + 1] = (data[dst_idx + 1] as f32 + sg as f32 * alpha).min(255.0) as u8;
-                                    data[dst_idx + 2] = (data[dst_idx + 2] as f32 + sb as f32 * alpha).min(255.0) as u8;
+                                    data[dst_idx] =
+                                        (data[dst_idx] as f32 + sr as f32 * alpha).min(255.0) as u8;
+                                    data[dst_idx + 1] =
+                                        (data[dst_idx + 1] as f32 + sg as f32 * alpha).min(255.0)
+                                            as u8;
+                                    data[dst_idx + 2] =
+                                        (data[dst_idx + 2] as f32 + sb as f32 * alpha).min(255.0)
+                                            as u8;
                                     data[dst_idx + 3] = 255;
                                 }
                             }
@@ -306,16 +347,25 @@ mod tests {
 
         // 2x2 Texture: Top-left Red, Top-right Green, Bottom-left Blue, Bottom-right White
         let tex_raw = [
-            255, 0, 0, 255,   0, 255, 0, 255,
-            0, 0, 255, 255,   255, 255, 255, 255,
+            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
         ];
-        let tex_id = backend.create_texture(2, 2, &tex_raw).expect("create texture");
+        let tex_id = backend
+            .create_texture(2, 2, &tex_raw)
+            .expect("create texture");
 
         backend.begin_frame(100, 100, [0.0, 0.0, 0.0, 1.0]);
         batcher.begin();
 
         // Draw textured sprite at (0, 0, 50, 50)
-        batcher.draw_sprite(&mut backend, tex_id, 0.0, 0.0, 50.0, 50.0, [1.0, 1.0, 1.0, 1.0]);
+        batcher.draw_sprite(
+            &mut backend,
+            tex_id,
+            0.0,
+            0.0,
+            50.0,
+            50.0,
+            [1.0, 1.0, 1.0, 1.0],
+        );
 
         // Draw additive beam at (0, 0, 50, 50)
         batcher.draw_rect_with_blend(

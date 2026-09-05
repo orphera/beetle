@@ -35,15 +35,9 @@ pub enum PackageError {
         actual_hash: String,
     },
     /// The base and target states are identical; no delta needed.
-    DeltaSameState {
-        id: String,
-        hash: String,
-    },
+    DeltaSameState { id: String, hash: String },
     /// The calculated checksum of the base or target package did not match the manifest.
-    DeltaChecksumMismatch {
-        expected: String,
-        actual: String,
-    },
+    DeltaChecksumMismatch { expected: String, actual: String },
     /// Delta patch application failed.
     DeltaApplyFailed(String),
     /// Operation was cancelled by user.

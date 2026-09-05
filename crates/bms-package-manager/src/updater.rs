@@ -80,11 +80,8 @@ impl PackageUpdater {
         };
 
         // 4. Apply delta and reconstruct target package bytes
-        let target_bytes = DeltaApplicator::apply_to_bytes(
-            &base_pkg,
-            &mut delta_pkg,
-            base_raw_bytes.as_deref(),
-        )?;
+        let target_bytes =
+            DeltaApplicator::apply_to_bytes(&base_pkg, &mut delta_pkg, base_raw_bytes.as_deref())?;
 
         // 5. Install reconstructed target package into manager
         manager.install_from_bytes(target_bytes)

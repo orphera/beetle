@@ -28,9 +28,7 @@ use handlers::{
 use input::{InputConfig, KeyPreset};
 use loader::spawn_background_stage_image_loader;
 use softbuffer::{Context, Surface};
-use state::{
-    init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR,
-};
+use state::{init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -91,7 +89,10 @@ impl ApplicationHandler for BeetleApp {
 
         let window_attributes = Window::default_attributes()
             .with_title("Beetle — BMS Rhythm Engine")
-            .with_inner_size(LogicalSize::new(saved_config.window_width, saved_config.window_height))
+            .with_inner_size(LogicalSize::new(
+                saved_config.window_width,
+                saved_config.window_height,
+            ))
             .with_min_inner_size(LogicalSize::new(800, 600))
             .with_resizable(false);
 
@@ -149,7 +150,9 @@ impl ApplicationHandler for BeetleApp {
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
                         let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
-                        if let Ok(mut d3d) = beetle_render::D3d11Backend::new(hwnd, size.width, size.height) {
+                        if let Ok(mut d3d) =
+                            beetle_render::D3d11Backend::new(hwnd, size.width, size.height)
+                        {
                             use beetle_render::GpuBackend;
                             texture = d3d.create_texture(size.width, size.height, renderer.data());
                             atlas = beetle_render::FontAtlas::new(&mut d3d);
@@ -272,7 +275,8 @@ impl ApplicationHandler for BeetleApp {
                         if let Ok(bytes) = pkg.read_entry(&entry_path) {
                             let content = beetle_core::decode_bms_text(&bytes);
                             let virtual_path = format!("{}::{}", path_str, entry_path);
-                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
+                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content)
+                            {
                                 queue_start_gameplay(&mut app_state, &meta);
                                 break;
                             }
@@ -343,7 +347,9 @@ impl ApplicationHandler for BeetleApp {
                     state.loading_anim_time = now;
                     state.window.request_redraw();
                 }
-                event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(16),
+                ));
             }
             AppScreen::Gameplay => {
                 let is_d3d_vsync = {
@@ -410,18 +416,26 @@ impl ApplicationHandler for BeetleApp {
 
                 if !is_settled {
                     // While holding arrow key or scrolling, don't spawn background threads
-                    let rem = Duration::from_millis(150).saturating_sub(state.cursor_settle_time.elapsed());
+                    let rem = Duration::from_millis(150)
+                        .saturating_sub(state.cursor_settle_time.elapsed());
                     event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + rem));
-                } else if selected_hash != 0 && !state.stage_image_cache.contains_key(&selected_hash) {
+                } else if selected_hash != 0
+                    && !state.stage_image_cache.contains_key(&selected_hash)
+                {
                     if state.stage_image_loading_hash != Some(selected_hash) {
                         if let Some(song) = selected_song {
                             state.stage_image_loading_hash = Some(selected_hash);
-                            state.stage_image_receiver = Some(spawn_background_stage_image_loader(&song));
+                            state.stage_image_receiver =
+                                Some(spawn_background_stage_image_loader(&song));
                         }
                     }
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(16),
+                    ));
                 } else if state.stage_image_receiver.is_some() {
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(16),
+                    ));
                 } else {
                     event_loop.set_control_flow(ControlFlow::Wait);
                 }
@@ -455,7 +469,9 @@ impl ApplicationHandler for BeetleApp {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
+                if let (Some(w), Some(h)) =
+                    (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                {
                     let _ = state.surface.resize(w, h);
                     state.renderer.resize(size.width, size.height);
                     #[cfg(target_os = "windows")]
@@ -465,7 +481,8 @@ impl ApplicationHandler for BeetleApp {
                         if let Some(old_tex) = state.d3d11_frame_texture.take() {
                             d3d11.destroy_texture(old_tex);
                         }
-                        state.d3d11_frame_texture = d3d11.create_texture(size.width, size.height, state.renderer.data());
+                        state.d3d11_frame_texture =
+                            d3d11.create_texture(size.width, size.height, state.renderer.data());
                     }
                     state.mark_dirty();
                     state.window.request_redraw();
@@ -497,7 +514,9 @@ impl ApplicationHandler for BeetleApp {
                             if let Ok(bytes) = pkg.read_entry(&entry_path) {
                                 let content = beetle_core::decode_bms_text(&bytes);
                                 let virtual_path = format!("{}::{}", path_str, entry_path);
-                                if let Some(meta) = SongMetadata::from_content(&virtual_path, &content) {
+                                if let Some(meta) =
+                                    SongMetadata::from_content(&virtual_path, &content)
+                                {
                                     queue_start_gameplay(state, &meta);
                                     break;
                                 }
@@ -511,7 +530,9 @@ impl ApplicationHandler for BeetleApp {
                 {
                     if let Ok(bytes) = fs::read(&path) {
                         let content = beetle_core::decode_bms_text(&bytes);
-                        if let Some(meta) = SongMetadata::from_content(&path.to_string_lossy(), &content) {
+                        if let Some(meta) =
+                            SongMetadata::from_content(&path.to_string_lossy(), &content)
+                        {
                             queue_start_gameplay(state, &meta);
                         }
                     }
@@ -527,7 +548,13 @@ impl ApplicationHandler for BeetleApp {
                     },
                 ..
             } => {
-                handle_keyboard_input(state, physical_key, key_state, repeat, key_event.text.as_deref());
+                handle_keyboard_input(
+                    state,
+                    physical_key,
+                    key_state,
+                    repeat,
+                    key_event.text.as_deref(),
+                );
                 state.mark_dirty();
                 state.window.request_redraw();
             }
@@ -546,9 +573,13 @@ impl ApplicationHandler for BeetleApp {
                 match state.screen {
                     AppScreen::SongSelect => {
                         if state.is_dirty {
-                            let selected_hash = state.current_selected_song().map(|s| s.hash).unwrap_or(0);
+                            let selected_hash =
+                                state.current_selected_song().map(|s| s.hash).unwrap_or(0);
                             let visible_songs = state.current_visible_songs();
-                            let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
+                            let stage_img = state
+                                .stage_image_cache
+                                .get(&selected_hash)
+                                .and_then(|opt| opt.as_ref());
                             state.renderer.render_song_select(
                                 &visible_songs,
                                 state.selected_song_idx,
@@ -564,12 +595,19 @@ impl ApplicationHandler for BeetleApp {
                             // Check replay existence for selected song
                             let has_replay = state
                                 .current_selected_song()
-                                .map(|s| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash)).exists())
+                                .map(|s| {
+                                    Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash))
+                                        .exists()
+                                })
                                 .unwrap_or(false);
 
                             // Song select options bar
                             let rep_str = if has_replay { "  [R]: Replay" } else { "" };
-                            let auto_str = if state.is_auto_play { "[AUTO: ON]" } else { "[AUTO: OFF]" };
+                            let auto_str = if state.is_auto_play {
+                                "[AUTO: ON]"
+                            } else {
+                                "[AUTO: OFF]"
+                            };
                             let opt_bar = format!(
                                 "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}{}  [Tab]: Options  [A]: AutoPlay",
                                 state.play_options.hi_speed,
@@ -604,12 +642,28 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::Loading => {
-                        let selected_hash = state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
-                        let stage_img = state.stage_image_cache.get(&selected_hash).and_then(|opt| opt.as_ref());
+                        let selected_hash =
+                            state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
+                        let stage_img = state
+                            .stage_image_cache
+                            .get(&selected_hash)
+                            .and_then(|opt| opt.as_ref());
 
-                        let title = state.loading_song.as_ref().map(|s| s.title.as_str()).unwrap_or("Unknown");
-                        let artist = state.loading_song.as_ref().map(|s| s.artist.as_str()).unwrap_or("Unknown");
-                        let genre = state.loading_song.as_ref().map(|s| s.genre.as_str()).unwrap_or("");
+                        let title = state
+                            .loading_song
+                            .as_ref()
+                            .map(|s| s.title.as_str())
+                            .unwrap_or("Unknown");
+                        let artist = state
+                            .loading_song
+                            .as_ref()
+                            .map(|s| s.artist.as_str())
+                            .unwrap_or("Unknown");
+                        let genre = state
+                            .loading_song
+                            .as_ref()
+                            .map(|s| s.genre.as_str())
+                            .unwrap_or("");
 
                         state.renderer.render_loading_screen(
                             title,
@@ -621,7 +675,8 @@ impl ApplicationHandler for BeetleApp {
                         );
                     }
                     AppScreen::Gameplay => {
-                        let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
+                        let effective_judge_time =
+                            audio_time + (state.play_options.judge_offset_ms / 1000.0);
 
                         if !state.is_gameplay_paused {
                             // 1. Advance BGM notes and BGA timeline events
@@ -636,25 +691,48 @@ impl ApplicationHandler for BeetleApp {
                                             if ev.is_down {
                                                 state.renderer.set_key_state(ev.lane, true);
                                                 if let Some(judge) = &mut state.active_judge {
-                                                    if let Some((res, wav_id)) = judge.handle_key_down(ev.lane, ev.time_seconds) {
-                                                        if res.grade == beetle_core::JudgeGrade::Miss || res.grade == beetle_core::JudgeGrade::Poor {
-                                                            state.poor_until_time = audio_time + 0.4;
+                                                    if let Some((res, wav_id)) = judge
+                                                        .handle_key_down(ev.lane, ev.time_seconds)
+                                                    {
+                                                        if res.grade
+                                                            == beetle_core::JudgeGrade::Miss
+                                                            || res.grade
+                                                                == beetle_core::JudgeGrade::Poor
+                                                        {
+                                                            state.poor_until_time =
+                                                                audio_time + 0.4;
                                                         }
-                                                        state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
-                                                        if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                                                            let _ = audio.send_command(AudioCommand::PlaySample {
-                                                                sample_id: id,
-                                                                volume: 1.0,
-                                                                pan: 0.0,
-                                                            });
+                                                        state.renderer.trigger_judge_with_lane(
+                                                            ev.lane,
+                                                            res.grade,
+                                                            audio_time,
+                                                            res.delta_ms,
+                                                        );
+                                                        if let (Some(id), Some(audio)) =
+                                                            (wav_id, &mut state.audio_engine)
+                                                        {
+                                                            let _ = audio.send_command(
+                                                                AudioCommand::PlaySample {
+                                                                    sample_id: id,
+                                                                    volume: 1.0,
+                                                                    pan: 0.0,
+                                                                },
+                                                            );
                                                         }
                                                     }
                                                 }
                                             } else {
                                                 state.renderer.set_key_state(ev.lane, false);
                                                 if let Some(judge) = &mut state.active_judge {
-                                                    if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
-                                                        state.renderer.trigger_judge_with_lane(ev.lane, res.grade, audio_time, res.delta_ms);
+                                                    if let Some(res) = judge
+                                                        .handle_key_up(ev.lane, ev.time_seconds)
+                                                    {
+                                                        state.renderer.trigger_judge_with_lane(
+                                                            ev.lane,
+                                                            res.grade,
+                                                            audio_time,
+                                                            res.delta_ms,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -668,15 +746,26 @@ impl ApplicationHandler for BeetleApp {
                                     let misses = judge.update_misses(effective_judge_time);
                                     for (_lane, miss_res) in misses {
                                         state.poor_until_time = audio_time + 0.4;
-                                        state.renderer.trigger_judge(miss_res.grade, audio_time, 0.0);
+                                        state.renderer.trigger_judge(
+                                            miss_res.grade,
+                                            audio_time,
+                                            0.0,
+                                        );
                                     }
                                 }
                             } else if state.is_auto_play {
                                 if let Some(judge) = &mut state.active_judge {
                                     let hits = judge.auto_play_update(audio_time);
                                     for (lane, hit_res, wav_id) in hits {
-                                        state.renderer.trigger_judge_with_lane(lane, hit_res.grade, audio_time, hit_res.delta_ms);
-                                        if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                                        state.renderer.trigger_judge_with_lane(
+                                            lane,
+                                            hit_res.grade,
+                                            audio_time,
+                                            hit_res.delta_ms,
+                                        );
+                                        if let (Some(id), Some(audio)) =
+                                            (wav_id, &mut state.audio_engine)
+                                        {
                                             let _ = audio.send_command(AudioCommand::PlaySample {
                                                 sample_id: id,
                                                 volume: 1.0,
@@ -689,7 +778,12 @@ impl ApplicationHandler for BeetleApp {
                                 let misses = judge.update_misses(effective_judge_time);
                                 for (lane, miss_res) in misses {
                                     state.poor_until_time = audio_time + 0.4;
-                                    state.renderer.trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
+                                    state.renderer.trigger_judge_with_lane(
+                                        lane,
+                                        miss_res.grade,
+                                        audio_time,
+                                        0.0,
+                                    );
                                 }
                             }
                         }
@@ -717,7 +811,9 @@ impl ApplicationHandler for BeetleApp {
                         let is_gpu_gameplay = {
                             #[cfg(target_os = "windows")]
                             {
-                                state.is_d3d11_active() && !state.is_gameplay_paused && state.font_atlas.is_some()
+                                state.is_d3d11_active()
+                                    && !state.is_gameplay_paused
+                                    && state.font_atlas.is_some()
                             }
                             #[cfg(not(target_os = "windows"))]
                             {
@@ -726,9 +822,11 @@ impl ApplicationHandler for BeetleApp {
                         };
                         let should_render_software = !is_gpu_gameplay;
                         if should_render_software {
-                            if let (Some(chart), Some(judge), Some(timing)) =
-                                (&state.active_chart, &state.active_judge, &state.active_timing)
-                            {
+                            if let (Some(chart), Some(judge), Some(timing)) = (
+                                &state.active_chart,
+                                &state.active_judge,
+                                &state.active_timing,
+                            ) {
                                 state.renderer.render_gameplay(
                                     chart,
                                     judge.notes(),
@@ -744,8 +842,16 @@ impl ApplicationHandler for BeetleApp {
 
                             // Overlay Pause Modal if active
                             if state.is_gameplay_paused {
-                                let title = state.active_chart.as_ref().map(|c| c.header.title.as_str()).unwrap_or("Unknown");
-                                let artist = state.active_chart.as_ref().map(|c| c.header.artist.as_str()).unwrap_or("Unknown");
+                                let title = state
+                                    .active_chart
+                                    .as_ref()
+                                    .map(|c| c.header.title.as_str())
+                                    .unwrap_or("Unknown");
+                                let artist = state
+                                    .active_chart
+                                    .as_ref()
+                                    .map(|c| c.header.artist.as_str())
+                                    .unwrap_or("Unknown");
                                 state.renderer.render_pause_modal(
                                     title,
                                     artist,
@@ -790,22 +896,53 @@ impl ApplicationHandler for BeetleApp {
                     }
                     AppScreen::Result => {
                         if state.is_dirty {
-                            if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
-                                state.renderer.render_result(chart, judge.score(), state.is_new_record, state.previous_best.as_ref());
+                            if let (Some(chart), Some(judge)) =
+                                (&state.active_chart, &state.active_judge)
+                            {
+                                state.renderer.render_result(
+                                    chart,
+                                    judge.score(),
+                                    state.is_new_record,
+                                    state.previous_best.as_ref(),
+                                );
                             }
                         }
                     }
                     AppScreen::KeyConfig => {
                         if state.is_dirty {
                             let key_names = [
-                                ("SCRATCH (1S)", state.input_config.get_key_name_for_lane(Lane::Scratch)),
-                                ("KEY 1 (1P)", state.input_config.get_key_name_for_lane(Lane::Key1)),
-                                ("KEY 2 (1P)", state.input_config.get_key_name_for_lane(Lane::Key2)),
-                                ("KEY 3 (1P)", state.input_config.get_key_name_for_lane(Lane::Key3)),
-                                ("KEY 4 (1P)", state.input_config.get_key_name_for_lane(Lane::Key4)),
-                                ("KEY 5 (1P)", state.input_config.get_key_name_for_lane(Lane::Key5)),
-                                ("KEY 6 (1P)", state.input_config.get_key_name_for_lane(Lane::Key6)),
-                                ("KEY 7 (1P)", state.input_config.get_key_name_for_lane(Lane::Key7)),
+                                (
+                                    "SCRATCH (1S)",
+                                    state.input_config.get_key_name_for_lane(Lane::Scratch),
+                                ),
+                                (
+                                    "KEY 1 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key1),
+                                ),
+                                (
+                                    "KEY 2 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key2),
+                                ),
+                                (
+                                    "KEY 3 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key3),
+                                ),
+                                (
+                                    "KEY 4 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key4),
+                                ),
+                                (
+                                    "KEY 5 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key5),
+                                ),
+                                (
+                                    "KEY 6 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key6),
+                                ),
+                                (
+                                    "KEY 7 (1P)",
+                                    state.input_config.get_key_name_for_lane(Lane::Key7),
+                                ),
                             ];
                             state.renderer.render_key_config(
                                 &key_names,
@@ -832,9 +969,12 @@ impl ApplicationHandler for BeetleApp {
                                 state.font_atlas = beetle_render::FontAtlas::new(d3d11);
                             }
 
-                            if let (Some(chart), Some(judge), Some(timing), Some(font_atlas)) =
-                                (&state.active_chart, &state.active_judge, &state.active_timing, &state.font_atlas)
-                            {
+                            if let (Some(chart), Some(judge), Some(timing), Some(font_atlas)) = (
+                                &state.active_chart,
+                                &state.active_judge,
+                                &state.active_timing,
+                                &state.font_atlas,
+                            ) {
                                 d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
 
                                 // Resolve / cache active BGA GPU texture
@@ -889,19 +1029,56 @@ impl ApplicationHandler for BeetleApp {
                         if !presented_d3d11 {
                             d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
                             if let Some(tex_id) = state.d3d11_frame_texture {
-                                if state.is_dirty || state.screen == AppScreen::Loading || state.is_gameplay_paused {
-                                    d3d11.update_texture(tex_id, width, height, state.renderer.data());
+                                if state.is_dirty
+                                    || state.screen == AppScreen::Loading
+                                    || state.is_gameplay_paused
+                                {
+                                    d3d11.update_texture(
+                                        tex_id,
+                                        width,
+                                        height,
+                                        state.renderer.data(),
+                                    );
                                 }
                                 let w = width as f32;
                                 let h = height as f32;
                                 let quad_vertices = [
-                                    beetle_render::Vertex2D::new(0.0, 0.0, 0.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
-                                    beetle_render::Vertex2D::new(w, 0.0, 1.0, 0.0, [1.0, 1.0, 1.0, 1.0]),
-                                    beetle_render::Vertex2D::new(w, h, 1.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
-                                    beetle_render::Vertex2D::new(0.0, h, 0.0, 1.0, [1.0, 1.0, 1.0, 1.0]),
+                                    beetle_render::Vertex2D::new(
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        [1.0, 1.0, 1.0, 1.0],
+                                    ),
+                                    beetle_render::Vertex2D::new(
+                                        w,
+                                        0.0,
+                                        1.0,
+                                        0.0,
+                                        [1.0, 1.0, 1.0, 1.0],
+                                    ),
+                                    beetle_render::Vertex2D::new(
+                                        w,
+                                        h,
+                                        1.0,
+                                        1.0,
+                                        [1.0, 1.0, 1.0, 1.0],
+                                    ),
+                                    beetle_render::Vertex2D::new(
+                                        0.0,
+                                        h,
+                                        0.0,
+                                        1.0,
+                                        [1.0, 1.0, 1.0, 1.0],
+                                    ),
                                 ];
                                 let quad_indices = [0, 1, 2, 0, 2, 3];
-                                d3d11.draw_batch(&quad_vertices, &quad_indices, Some(tex_id), beetle_render::BlendMode::Alpha);
+                                d3d11.draw_batch(
+                                    &quad_vertices,
+                                    &quad_indices,
+                                    Some(tex_id),
+                                    beetle_render::BlendMode::Alpha,
+                                );
                             }
                             d3d11.end_frame();
                             presented_d3d11 = true;
@@ -913,12 +1090,17 @@ impl ApplicationHandler for BeetleApp {
                 let presented_d3d11 = false;
 
                 if !presented_d3d11 && width > 0 && height > 0 {
-                    if state.is_dirty || state.screen == AppScreen::Gameplay || state.screen == AppScreen::Loading {
+                    if state.is_dirty
+                        || state.screen == AppScreen::Gameplay
+                        || state.screen == AppScreen::Loading
+                    {
                         if let Ok(mut buffer) = state.surface.buffer_mut() {
                             let data = state.renderer.data();
                             let buffer_slice = buffer.as_mut();
                             for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
-                                *dest = ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
+                                *dest = ((src[0] as u32) << 16)
+                                    | ((src[1] as u32) << 8)
+                                    | (src[2] as u32);
                             }
                             let _ = buffer.present();
                         }
@@ -951,7 +1133,10 @@ fn handle_keyboard_input(
     }
 
     // Alt + Enter to toggle Fullscreen / Windowed
-    if key_state == ElementState::Pressed && (code == KeyCode::Enter || code == KeyCode::NumpadEnter) && state.is_alt_pressed {
+    if key_state == ElementState::Pressed
+        && (code == KeyCode::Enter || code == KeyCode::NumpadEnter)
+        && state.is_alt_pressed
+    {
         state.display_mode = match state.display_mode {
             DisplayMode::Windowed => DisplayMode::Borderless,
             DisplayMode::Borderless | DisplayMode::ExclusiveFullscreen => DisplayMode::Windowed,
@@ -983,11 +1168,13 @@ fn handle_keyboard_input(
             state.save_config();
             return;
         } else if code == KeyCode::F8 {
-            state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 2.0).max(-100.0);
+            state.play_options.judge_offset_ms =
+                (state.play_options.judge_offset_ms - 2.0).max(-100.0);
             state.save_config();
             return;
         } else if code == KeyCode::F9 {
-            state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 2.0).min(100.0);
+            state.play_options.judge_offset_ms =
+                (state.play_options.judge_offset_ms + 2.0).min(100.0);
             state.save_config();
             return;
         }
@@ -1087,17 +1274,20 @@ mod tests {
         assert_eq!(match_song.title, "First Anthem");
 
         // 3. Filter by artist "dj beat"
-        let artist_indices = filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store);
+        let artist_indices =
+            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store);
         assert_eq!(artist_indices.len(), 1);
         assert_eq!(songs[artist_indices[0]].title, "Second Beat");
 
         // 4. Filter by genre "hardcore"
-        let genre_indices = filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store);
+        let genre_indices =
+            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store);
         assert_eq!(genre_indices.len(), 1);
         assert_eq!(songs[genre_indices[0]].title, "Second Beat");
 
         // 5. Non-matching search query
-        let empty_indices = filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
+        let empty_indices =
+            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
         assert_eq!(empty_indices.len(), 0);
 
         // 6. Strict play mode category filter tests
@@ -1142,15 +1332,26 @@ mod tests {
 
         let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store);
         assert_eq!(keys9_indices.len(), 1);
-        assert_eq!(test_songs[keys9_indices[0]].play_mode, beetle_core::PlayMode::Keys9);
+        assert_eq!(
+            test_songs[keys9_indices[0]].play_mode,
+            beetle_core::PlayMode::Keys9
+        );
 
-        let keys10_indices = filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store);
+        let keys10_indices =
+            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store);
         assert_eq!(keys10_indices.len(), 1);
-        assert_eq!(test_songs[keys10_indices[0]].play_mode, beetle_core::PlayMode::Keys10);
+        assert_eq!(
+            test_songs[keys10_indices[0]].play_mode,
+            beetle_core::PlayMode::Keys10
+        );
 
-        let keys14_indices = filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store);
+        let keys14_indices =
+            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store);
         assert_eq!(keys14_indices.len(), 1);
-        assert_eq!(test_songs[keys14_indices[0]].play_mode, beetle_core::PlayMode::Keys14);
+        assert_eq!(
+            test_songs[keys14_indices[0]].play_mode,
+            beetle_core::PlayMode::Keys14
+        );
     }
 
     #[test]
@@ -1169,19 +1370,55 @@ mod tests {
         let video_players = HashMap::new();
 
         // 1. Initial state: Static stage artwork fallback
-        let bga = resolve_bga_hierarchy(0.0, None, None, &bga_bank, &video_players, Some(&static_stage), 1.0).unwrap();
+        let bga = resolve_bga_hierarchy(
+            0.0,
+            None,
+            None,
+            &bga_bank,
+            &video_players,
+            Some(&static_stage),
+            1.0,
+        )
+        .unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(10, 10, 10, 255));
 
         // 2. Base BGA channel active
-        let bga = resolve_bga_hierarchy(0.0, None, Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 2.0).unwrap();
+        let bga = resolve_bga_hierarchy(
+            0.0,
+            None,
+            Some(beetle_core::BmpId(1)),
+            &bga_bank,
+            &video_players,
+            Some(&static_stage),
+            2.0,
+        )
+        .unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
 
         // 3. POOR BGA override active during miss penalty window
-        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 2.5).unwrap();
+        let bga = resolve_bga_hierarchy(
+            3.0,
+            Some(beetle_core::BmpId(2)),
+            Some(beetle_core::BmpId(1)),
+            &bga_bank,
+            &video_players,
+            Some(&static_stage),
+            2.5,
+        )
+        .unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(255, 0, 0, 255));
 
         // 4. After POOR window expires (t = 3.5), reverts back to Base BGA
-        let bga = resolve_bga_hierarchy(3.0, Some(beetle_core::BmpId(2)), Some(beetle_core::BmpId(1)), &bga_bank, &video_players, Some(&static_stage), 3.5).unwrap();
+        let bga = resolve_bga_hierarchy(
+            3.0,
+            Some(beetle_core::BmpId(2)),
+            Some(beetle_core::BmpId(1)),
+            &bga_bank,
+            &video_players,
+            Some(&static_stage),
+            3.5,
+        )
+        .unwrap();
         assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
     }
 }

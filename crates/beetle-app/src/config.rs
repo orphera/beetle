@@ -1,5 +1,5 @@
-use beetle_core::{GaugeType, LaneModifier, PlayOptions, SortMode};
 use crate::input::KeyPreset;
+use beetle_core::{GaugeType, LaneModifier, PlayOptions, SortMode};
 use std::fs;
 use std::path::Path;
 
@@ -372,9 +372,18 @@ mod tests {
         let parsed = AppConfig::parse_str(&serialized);
 
         assert_eq!(config.play_options.hi_speed, parsed.play_options.hi_speed);
-        assert_eq!(config.play_options.lane_modifier, parsed.play_options.lane_modifier);
-        assert_eq!(config.play_options.gauge_type, parsed.play_options.gauge_type);
-        assert_eq!(config.play_options.judge_offset_ms, parsed.play_options.judge_offset_ms);
+        assert_eq!(
+            config.play_options.lane_modifier,
+            parsed.play_options.lane_modifier
+        );
+        assert_eq!(
+            config.play_options.gauge_type,
+            parsed.play_options.gauge_type
+        );
+        assert_eq!(
+            config.play_options.judge_offset_ms,
+            parsed.play_options.judge_offset_ms
+        );
         assert_eq!(config.lane_cover_ratio, parsed.lane_cover_ratio);
         assert_eq!(config.sort_mode, parsed.sort_mode);
         assert_eq!(config.key_preset, parsed.key_preset);

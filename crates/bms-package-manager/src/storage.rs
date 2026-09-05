@@ -73,7 +73,12 @@ impl PackageStorage {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let temp_dir = temp_base.join(format!("{}_{}_{}", id, &state_hash[..8.min(state_hash.len())], nonce));
+        let temp_dir = temp_base.join(format!(
+            "{}_{}_{}",
+            id,
+            &state_hash[..8.min(state_hash.len())],
+            nonce
+        ));
         fs::create_dir_all(&temp_dir)?;
 
         // Ensure temp_dir is cleaned up if any step fails
@@ -167,7 +172,9 @@ impl PackageStorage {
     ) -> Result<PathBuf, PackageManagerError> {
         let target_dir = self.state_dir(id, state_hash);
         if !target_dir.exists() {
-            return Err(PackageManagerError::PackageNotFound(format!("{id}@{state_hash}")));
+            return Err(PackageManagerError::PackageNotFound(format!(
+                "{id}@{state_hash}"
+            )));
         }
 
         let companion_filename = format!("{}.bga.bmsp", id);
@@ -192,14 +199,12 @@ impl PackageStorage {
     }
 
     /// Removes BGA companion files and videos from an installed package state, returning reclaimed bytes.
-    pub fn remove_companion(
-        &self,
-        id: &str,
-        state_hash: &str,
-    ) -> Result<u64, PackageManagerError> {
+    pub fn remove_companion(&self, id: &str, state_hash: &str) -> Result<u64, PackageManagerError> {
         let target_dir = self.state_dir(id, state_hash);
         if !target_dir.exists() {
-            return Err(PackageManagerError::PackageNotFound(format!("{id}@{state_hash}")));
+            return Err(PackageManagerError::PackageNotFound(format!(
+                "{id}@{state_hash}"
+            )));
         }
 
         let mut reclaimed_bytes: u64 = 0;

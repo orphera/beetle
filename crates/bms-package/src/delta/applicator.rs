@@ -124,7 +124,9 @@ impl DeltaApplicator {
         }
 
         // 2. If Base Package Checksum is specified, verify it
-        if let (Some(expected_base_hash), Some(raw_bytes)) = (&delta_man.base_package_sha256, base_raw_bytes) {
+        if let (Some(expected_base_hash), Some(raw_bytes)) =
+            (&delta_man.base_package_sha256, base_raw_bytes)
+        {
             let actual_base_hash = sha256_hex(raw_bytes);
             if actual_base_hash != *expected_base_hash {
                 return Err(PackageError::DeltaChecksumMismatch {

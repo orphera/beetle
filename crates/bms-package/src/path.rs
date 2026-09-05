@@ -13,7 +13,9 @@ use crate::error::PackageError;
 /// - Control characters (< 0x20 or 0x7F) are rejected.
 pub fn validate_entry_path(path: &str) -> Result<(), PackageError> {
     if path.is_empty() {
-        return Err(PackageError::InvalidEntryPath("Path cannot be empty".to_string()));
+        return Err(PackageError::InvalidEntryPath(
+            "Path cannot be empty".to_string(),
+        ));
     }
 
     // Reject backslashes completely

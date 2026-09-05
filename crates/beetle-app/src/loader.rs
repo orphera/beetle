@@ -24,15 +24,30 @@ pub enum VideoSource {
 }
 
 const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
-    "stagefile.bmp", "stage.bmp", "banner.bmp", "title.bmp",
-    "stagefile.png", "stage.png", "banner.png", "title.png",
-    "stagefile.jpg", "stage.jpg", "banner.jpg", "title.jpg",
-    "STAGEFILE.BMP", "STAGE.BMP", "BANNER.BMP", "TITLE.BMP",
+    "stagefile.bmp",
+    "stage.bmp",
+    "banner.bmp",
+    "title.bmp",
+    "stagefile.png",
+    "stage.png",
+    "banner.png",
+    "title.png",
+    "stagefile.jpg",
+    "stage.jpg",
+    "banner.jpg",
+    "title.jpg",
+    "STAGEFILE.BMP",
+    "STAGE.BMP",
+    "BANNER.BMP",
+    "TITLE.BMP",
 ];
 
 fn resolve_file_case_insensitive(dir: &Path, relative: &str) -> Option<PathBuf> {
     let normalized = relative.replace('\\', "/");
-    let parts: Vec<&str> = normalized.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+    let parts: Vec<&str> = normalized
+        .split('/')
+        .filter(|p| !p.is_empty() && *p != ".")
+        .collect();
     if parts.is_empty() {
         return None;
     }
@@ -114,12 +129,31 @@ fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, Video
         }
         if fallback_path.is_none() {
             for name in &[
-                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
-                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
-                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
-                "bga.avi", "movie.avi", "video.avi", "bg.avi",
-                "bga.webm", "movie.webm", "video.webm", "bg.webm",
-                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
+                "bga.mp4",
+                "movie.mp4",
+                "video.mp4",
+                "bg.mp4",
+                "pv.mp4",
+                "bga.mpg",
+                "movie.mpg",
+                "video.mpg",
+                "bg.mpg",
+                "bga.wmv",
+                "movie.wmv",
+                "video.wmv",
+                "bg.wmv",
+                "bga.avi",
+                "movie.avi",
+                "video.avi",
+                "bg.avi",
+                "bga.webm",
+                "movie.webm",
+                "video.webm",
+                "bg.webm",
+                "bga.mkv",
+                "movie.mkv",
+                "video.mkv",
+                "bg.mkv",
             ] {
                 let p = dir.join(name);
                 if p.exists() {
@@ -205,12 +239,31 @@ fn load_videos_from_package_archive(
         }
         if fallback_entry.is_none() {
             for name in &[
-                "bga.mp4", "movie.mp4", "video.mp4", "bg.mp4", "pv.mp4",
-                "bga.mpg", "movie.mpg", "video.mpg", "bg.mpg",
-                "bga.wmv", "movie.wmv", "video.wmv", "bg.wmv",
-                "bga.avi", "movie.avi", "video.avi", "bg.avi",
-                "bga.webm", "movie.webm", "video.webm", "bg.webm",
-                "bga.mkv", "movie.mkv", "video.mkv", "bg.mkv",
+                "bga.mp4",
+                "movie.mp4",
+                "video.mp4",
+                "bg.mp4",
+                "pv.mp4",
+                "bga.mpg",
+                "movie.mpg",
+                "video.mpg",
+                "bg.mpg",
+                "bga.wmv",
+                "movie.wmv",
+                "video.wmv",
+                "bg.wmv",
+                "bga.avi",
+                "movie.avi",
+                "video.avi",
+                "bg.avi",
+                "bga.webm",
+                "movie.webm",
+                "video.webm",
+                "bg.webm",
+                "bga.mkv",
+                "movie.mkv",
+                "video.mkv",
+                "bg.mkv",
             ] {
                 if let Some(target_path) = pkg.find_entry_path(base_dir, name) {
                     fallback_entry = Some((target_path, name.to_string()));
@@ -277,20 +330,34 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 if let Some(path) = atlas_path {
                     if let Ok(atlas_bytes) = pkg.read_entry(&path) {
                         if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
-                            let mut stage_frame = bga_meta.frames.get("stagefile")
+                            let mut stage_frame = bga_meta
+                                .frames
+                                .get("stagefile")
                                 .or_else(|| bga_meta.frames.get("banner"));
 
                             if stage_frame.is_none() {
                                 if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
                                     let content = beetle_core::decode_bms_text(&bms_bytes);
                                     if let Ok(chart) = parse_bms(&content) {
-                                        for name in &[&chart.header.stage_file, &chart.header.banner] {
+                                        for name in
+                                            &[&chart.header.stage_file, &chart.header.banner]
+                                        {
                                             if !name.is_empty() {
                                                 let norm = name.replace('\\', "/");
-                                                let file_name = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
-                                                if let Some(f) = bga_meta.frames.values().find(|f| {
-                                                    f.original_filename.as_deref().map(|s| s.eq_ignore_ascii_case(file_name)).unwrap_or(false)
-                                                }) {
+                                                let file_name = Path::new(&norm)
+                                                    .file_name()
+                                                    .and_then(|n| n.to_str())
+                                                    .unwrap_or(&norm);
+                                                if let Some(f) =
+                                                    bga_meta.frames.values().find(|f| {
+                                                        f.original_filename
+                                                            .as_deref()
+                                                            .map(|s| {
+                                                                s.eq_ignore_ascii_case(file_name)
+                                                            })
+                                                            .unwrap_or(false)
+                                                    })
+                                                {
                                                     stage_frame = Some(f);
                                                     break;
                                                 }
@@ -301,7 +368,9 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                             }
 
                             if let Some(frame) = stage_frame {
-                                if let Some(img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                if let Some(img) =
+                                    atlas_img.crop(frame.x, frame.y, frame.width, frame.height)
+                                {
                                     let _ = fs::create_dir_all(cache_dir);
                                     let bmp_bytes = img.encode_bmp_bytes();
                                     let _ = fs::write(&cache_file, &bmp_bytes);
@@ -317,7 +386,8 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 let content = beetle_core::decode_bms_text(&bms_bytes);
                 if let Ok(chart) = parse_bms(&content) {
                     if !chart.header.stage_file.is_empty() {
-                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file) {
+                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file)
+                        {
                             if let Ok(img_bytes) = pkg.read_entry(&path) {
                                 if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
                                     let _ = fs::create_dir_all(cache_dir);
@@ -364,12 +434,16 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
         let content = beetle_core::decode_bms_text(&bytes);
         if let Ok(chart) = parse_bms(&content) {
             if !chart.header.stage_file.is_empty() {
-                if let Some(img) = load_image_from_dir_or_case_insensitive(dir, &chart.header.stage_file) {
+                if let Some(img) =
+                    load_image_from_dir_or_case_insensitive(dir, &chart.header.stage_file)
+                {
                     return Some(img);
                 }
             }
             if !chart.header.banner.is_empty() {
-                if let Some(img) = load_image_from_dir_or_case_insensitive(dir, &chart.header.banner) {
+                if let Some(img) =
+                    load_image_from_dir_or_case_insensitive(dir, &chart.header.banner)
+                {
                     return Some(img);
                 }
             }
@@ -394,7 +468,13 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
 pub fn load_chart_and_audio(
     song: &SongMetadata,
-) -> (BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>) {
+) -> (
+    BmsChart,
+    TimingModel,
+    SampleBank,
+    HashMap<BmpId, ImageBuffer>,
+    HashMap<BmpId, VideoSource>,
+) {
     if song.file_path == ":demo:" {
         let chart = demo::create_demo_chart();
         let timing = TimingModel::from_chart(&chart);
@@ -432,7 +512,11 @@ pub fn load_chart_and_audio(
 
                         if let Some(path) = atlas_path {
                             if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                                match SampleBank::load_from_sound_atlas_for_chart(&chart, &sound_meta, &atlas_bytes) {
+                                match SampleBank::load_from_sound_atlas_for_chart(
+                                    &chart,
+                                    &sound_meta,
+                                    &atlas_bytes,
+                                ) {
                                     Ok(bank) => {
                                         loaded_count = bank.len();
                                         soundbank = bank;
@@ -476,7 +560,12 @@ pub fn load_chart_and_audio(
                                     // A. Map hex/decimal key frames directly to BmpId
                                     for (key, frame) in &bga_meta.frames {
                                         if let Some(bmp_id) = parse_bmp_id(key) {
-                                            if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                            if let Some(sub_img) = atlas_img.crop(
+                                                frame.x,
+                                                frame.y,
+                                                frame.width,
+                                                frame.height,
+                                            ) {
                                                 bga_bank.insert(bmp_id, sub_img);
                                             }
                                         }
@@ -485,11 +574,24 @@ pub fn load_chart_and_audio(
                                     for (&bmp_id, filename) in &chart.header.bmp_table {
                                         if !bga_bank.contains_key(&bmp_id) {
                                             let norm = filename.replace('\\', "/");
-                                            let file_name = Path::new(&norm).file_name().and_then(|n| n.to_str()).unwrap_or(&norm);
-                                            if let Some(frame) = bga_meta.frames.values().find(|f| {
-                                                f.original_filename.as_deref().map(|s| s.eq_ignore_ascii_case(file_name)).unwrap_or(false)
-                                            }) {
-                                                if let Some(sub_img) = atlas_img.crop(frame.x, frame.y, frame.width, frame.height) {
+                                            let file_name = Path::new(&norm)
+                                                .file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or(&norm);
+                                            if let Some(frame) =
+                                                bga_meta.frames.values().find(|f| {
+                                                    f.original_filename
+                                                        .as_deref()
+                                                        .map(|s| s.eq_ignore_ascii_case(file_name))
+                                                        .unwrap_or(false)
+                                                })
+                                            {
+                                                if let Some(sub_img) = atlas_img.crop(
+                                                    frame.x,
+                                                    frame.y,
+                                                    frame.width,
+                                                    frame.height,
+                                                ) {
                                                     bga_bank.insert(bmp_id, sub_img);
                                                 }
                                             }
@@ -504,7 +606,8 @@ pub fn load_chart_and_audio(
                     if !loaded_bga_from_atlas {
                         for (&bmp_id, filename) in &chart.header.bmp_table {
                             if !is_video_path(filename) {
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
+                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename)
+                                {
                                     if let Ok(bytes) = pkg.read_entry(&target_path) {
                                         if let Some(img) = ImageBuffer::from_bytes(&bytes) {
                                             bga_bank.insert(bmp_id, img);
@@ -516,33 +619,56 @@ pub fn load_chart_and_audio(
                     }
 
                     // 1. Search videos inside primary .bmsp package
-                    load_videos_from_package_archive(&mut pkg, &base_dir, &chart, &mut video_sources);
+                    load_videos_from_package_archive(
+                        &mut pkg,
+                        &base_dir,
+                        &chart,
+                        &mut video_sources,
+                    );
 
                     // 2. Search companion BGA package if no video was found in primary package
                     if video_sources.is_empty() {
                         let pkg_file_path = Path::new(pkg_path);
                         let parent_dir = pkg_file_path.parent().unwrap_or_else(|| Path::new("."));
-                        let pkg_stem = pkg_file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                        let pkg_stem = pkg_file_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("");
 
                         let mut companion_candidates = Vec::new();
 
                         if let Some(ref companions) = pkg.manifest().companion_packages {
                             if let Some(ref bga_info) = companions.bga {
-                                companion_candidates.push(parent_dir.join(&bga_info.recommended_filename));
+                                companion_candidates
+                                    .push(parent_dir.join(&bga_info.recommended_filename));
                             }
                         }
 
                         if !pkg_stem.is_empty() {
-                            companion_candidates.push(parent_dir.join(format!("{}.bga.bmsp", pkg_stem)));
+                            companion_candidates
+                                .push(parent_dir.join(format!("{}.bga.bmsp", pkg_stem)));
                         }
 
-                        companion_candidates.push(parent_dir.join(format!("{}.bga.bmsp", pkg.manifest().id)));
-                        companion_candidates.push(parent_dir.join(&pkg.manifest().id).join("bga").join(format!("{}.bga.bmsp", pkg.manifest().id)));
+                        companion_candidates
+                            .push(parent_dir.join(format!("{}.bga.bmsp", pkg.manifest().id)));
+                        companion_candidates.push(
+                            parent_dir
+                                .join(&pkg.manifest().id)
+                                .join("bga")
+                                .join(format!("{}.bga.bmsp", pkg.manifest().id)),
+                        );
 
                         for cand in companion_candidates {
                             if cand.is_file() {
-                                if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
-                                    load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
+                                if let Ok(mut bga_pkg) =
+                                    bms_package::PackageReader::open_file(&cand)
+                                {
+                                    load_videos_from_package_archive(
+                                        &mut bga_pkg,
+                                        "",
+                                        &chart,
+                                        &mut video_sources,
+                                    );
                                     if !video_sources.is_empty() {
                                         println!("[Loader] Successfully loaded BGA companion package: '{}'", cand.display());
                                         break;
@@ -582,7 +708,10 @@ pub fn load_chart_and_audio(
 
             // If folder has no videos, check for adjacent companion package
             if video_sources.is_empty() {
-                let dir_name = parent_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let dir_name = parent_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
                 let candidates = [
                     parent_dir.join(format!("{}.bga.bmsp", dir_name)),
                     parent_dir.join("bga.bmsp"),
@@ -590,7 +719,12 @@ pub fn load_chart_and_audio(
                 for cand in candidates {
                     if cand.is_file() {
                         if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
-                            load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
+                            load_videos_from_package_archive(
+                                &mut bga_pkg,
+                                "",
+                                &chart,
+                                &mut video_sources,
+                            );
                             if !video_sources.is_empty() {
                                 println!("[Loader] Successfully loaded BGA companion package for folder: '{}'", cand.display());
                                 break;
@@ -608,7 +742,10 @@ pub fn load_chart_and_audio(
 
             println!(
                 "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
-                chart.header.title, loaded, bga_bank.len(), video_sources.len()
+                chart.header.title,
+                loaded,
+                bga_bank.len(),
+                video_sources.len()
             );
             return (chart, timing, soundbank, bga_bank, video_sources);
         }
@@ -624,11 +761,44 @@ pub fn load_chart_and_audio(
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
 pub fn spawn_background_song_loader(
     song: &SongMetadata,
-) -> Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>> {
+) -> Receiver<
+    Result<
+        (
+            BmsChart,
+            TimingModel,
+            SampleBank,
+            HashMap<BmpId, ImageBuffer>,
+            HashMap<BmpId, VideoSource>,
+        ),
+        String,
+    >,
+> {
     let song_clone = song.clone();
     let (tx, rx): (
-        Sender<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>>,
-        Receiver<Result<(BmsChart, TimingModel, SampleBank, HashMap<BmpId, ImageBuffer>, HashMap<BmpId, VideoSource>), String>>,
+        Sender<
+            Result<
+                (
+                    BmsChart,
+                    TimingModel,
+                    SampleBank,
+                    HashMap<BmpId, ImageBuffer>,
+                    HashMap<BmpId, VideoSource>,
+                ),
+                String,
+            >,
+        >,
+        Receiver<
+            Result<
+                (
+                    BmsChart,
+                    TimingModel,
+                    SampleBank,
+                    HashMap<BmpId, ImageBuffer>,
+                    HashMap<BmpId, VideoSource>,
+                ),
+                String,
+            >,
+        >,
     ) = channel();
 
     thread::spawn(move || {
@@ -680,22 +850,48 @@ mod tests {
         };
 
         let (_chart, _timing, _soundbank, _bga_bank, video_sources) = load_chart_and_audio(&meta);
-        assert!(!video_sources.is_empty(), "Video sources should not be empty for roop_dotm BMSP");
+        assert!(
+            !video_sources.is_empty(),
+            "Video sources should not be empty for roop_dotm BMSP"
+        );
 
         for (bmp_id, source) in video_sources {
             eprintln!("[TEST BMSP] Found video source for BMP ID: {:?}", bmp_id);
             match source {
-                VideoSource::Memory { bytes, filename_hint } => {
-                    eprintln!("[TEST BMSP] Memory video size: {} bytes, hint: {:?}", bytes.len(), filename_hint);
+                VideoSource::Memory {
+                    bytes,
+                    filename_hint,
+                } => {
+                    eprintln!(
+                        "[TEST BMSP] Memory video size: {} bytes, hint: {:?}",
+                        bytes.len(),
+                        filename_hint
+                    );
                     assert!(!bytes.is_empty());
-                    let player = beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref());
-                    assert!(player.is_some(), "In-memory video player should open successfully");
+                    let player = beetle_render::BgaVideoPlayer::open_from_memory(
+                        &bytes,
+                        filename_hint.as_deref(),
+                    );
+                    assert!(
+                        player.is_some(),
+                        "In-memory video player should open successfully"
+                    );
                     let pl = player.unwrap();
-                    assert!(pl.current_frame().is_some(), "Initial video frame should be decoded");
-                    eprintln!("[TEST BMSP] Video dimension: {}x{}", pl.width(), pl.height());
+                    assert!(
+                        pl.current_frame().is_some(),
+                        "Initial video frame should be decoded"
+                    );
+                    eprintln!(
+                        "[TEST BMSP] Video dimension: {}x{}",
+                        pl.width(),
+                        pl.height()
+                    );
                 }
                 VideoSource::File(p) => {
-                    panic!("BMSP package video should be in-memory, but got file: {}", p.display());
+                    panic!(
+                        "BMSP package video should be in-memory, but got file: {}",
+                        p.display()
+                    );
                 }
             }
         }
@@ -707,7 +903,10 @@ mod tests {
 
         let temp_dir = std::env::temp_dir().join(format!(
             "beetle_loader_test_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -746,14 +945,18 @@ mod tests {
             &temp_dir,
             None,
             bms_package_manager::PackProfile::Turbo,
-        ).expect("turbo pack failed");
+        )
+        .expect("turbo pack failed");
         let pkg_path = temp_dir.join("turbo.bmsp");
         fs::write(&pkg_path, turbo_pkg_bytes).unwrap();
 
         // 5. Test Turbo loading via load_chart_and_audio
         let meta = SongMetadata {
             hash: 99999,
-            file_path: format!("{}::test.bms", pkg_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::test.bms",
+                pkg_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "Turbo Test".to_string(),
             subtitle: "".to_string(),
             artist: "Tester".to_string(),
@@ -766,15 +969,32 @@ mod tests {
 
         let (chart, _timing, soundbank, bga_bank, video_sources) = load_chart_and_audio(&meta);
         assert_eq!(chart.header.title, "Turbo Test");
-        assert_eq!(soundbank.len(), 1, "Soundbank should load 1 keysound from Sound Atlas");
-        assert!(soundbank.get(beetle_core::WavId(1)).is_some(), "WAV01 should be loaded");
-        assert_eq!(bga_bank.len(), 1, "BGA bank should load 1 frame from BGA Atlas");
-        assert!(bga_bank.get(&beetle_core::BmpId(1)).is_some(), "BMP01 should be loaded");
+        assert_eq!(
+            soundbank.len(),
+            1,
+            "Soundbank should load 1 keysound from Sound Atlas"
+        );
+        assert!(
+            soundbank.get(beetle_core::WavId(1)).is_some(),
+            "WAV01 should be loaded"
+        );
+        assert_eq!(
+            bga_bank.len(),
+            1,
+            "BGA bank should load 1 frame from BGA Atlas"
+        );
+        assert!(
+            bga_bank.get(&beetle_core::BmpId(1)).is_some(),
+            "BMP01 should be loaded"
+        );
         assert!(video_sources.is_empty());
 
         // 6. Test Stage image loading from Turbo BGA Atlas
         let stage_img = load_stage_image(&meta);
-        assert!(stage_img.is_some(), "Stage image should load from BGA Atlas");
+        assert!(
+            stage_img.is_some(),
+            "Stage image should load from BGA Atlas"
+        );
         let stage = stage_img.unwrap();
         assert_eq!(stage.width, 64);
         assert_eq!(stage.height, 48);
@@ -784,13 +1004,17 @@ mod tests {
             &temp_dir,
             None,
             bms_package_manager::PackProfile::Classic,
-        ).expect("classic pack failed");
+        )
+        .expect("classic pack failed");
         let classic_pkg_path = temp_dir.join("classic.bmsp");
         fs::write(&classic_pkg_path, classic_pkg_bytes).unwrap();
 
         let classic_meta = SongMetadata {
             hash: 88888,
-            file_path: format!("{}::test.bms", classic_pkg_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::test.bms",
+                classic_pkg_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "Turbo Test".to_string(),
             subtitle: "".to_string(),
             artist: "Tester".to_string(),
@@ -801,13 +1025,25 @@ mod tests {
             play_mode: beetle_core::PlayMode::Keys7,
         };
 
-        let (c_chart, _c_timing, c_soundbank, c_bga_bank, _c_videos) = load_chart_and_audio(&classic_meta);
+        let (c_chart, _c_timing, c_soundbank, c_bga_bank, _c_videos) =
+            load_chart_and_audio(&classic_meta);
         assert_eq!(c_chart.header.title, "Turbo Test");
-        assert_eq!(c_soundbank.len(), 1, "Soundbank should load 1 keysound from Classic package");
-        assert_eq!(c_bga_bank.len(), 1, "BGA bank should load 1 frame from Classic package");
+        assert_eq!(
+            c_soundbank.len(),
+            1,
+            "Soundbank should load 1 keysound from Classic package"
+        );
+        assert_eq!(
+            c_bga_bank.len(),
+            1,
+            "BGA bank should load 1 frame from Classic package"
+        );
 
         let c_stage = load_stage_image(&classic_meta);
-        assert!(c_stage.is_some(), "Stage image should load from Classic package");
+        assert!(
+            c_stage.is_some(),
+            "Stage image should load from Classic package"
+        );
 
         // Clean up
         let _ = fs::remove_dir_all(&temp_dir);
@@ -815,12 +1051,15 @@ mod tests {
 
     #[test]
     fn test_large_song_dual_atlas_benchmark() {
-        use std::time::Instant;
         use beetle_render::skin::ColorRgba;
+        use std::time::Instant;
 
         let temp_dir = std::env::temp_dir().join(format!(
             "beetle_benchmark_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -861,7 +1100,8 @@ mod tests {
             bms_lines.push(format!("#WAV{} {}", key, wav_name));
         }
 
-        let dummy_bmp = ImageBuffer::new(32, 32, ColorRgba::new(100, 150, 200, 255)).encode_bmp_bytes();
+        let dummy_bmp =
+            ImageBuffer::new(32, 32, ColorRgba::new(100, 150, 200, 255)).encode_bmp_bytes();
         for i in 1..=bga_count {
             let bmp_name = format!("bga_{:02}.bmp", i);
             fs::write(temp_dir.join(&bmp_name), &dummy_bmp).unwrap();
@@ -881,7 +1121,8 @@ mod tests {
             &temp_dir,
             None,
             bms_package_manager::PackProfile::Classic,
-        ).expect("classic pack failed");
+        )
+        .expect("classic pack failed");
         let classic_pack_time = t0.elapsed();
 
         let t1 = Instant::now();
@@ -889,7 +1130,8 @@ mod tests {
             &temp_dir,
             None,
             bms_package_manager::PackProfile::Turbo,
-        ).expect("turbo pack failed");
+        )
+        .expect("turbo pack failed");
         let turbo_pack_time = t1.elapsed();
 
         let classic_path = temp_dir.join("classic.bmsp");
@@ -898,13 +1140,24 @@ mod tests {
         fs::write(&turbo_path, &turbo_bytes).unwrap();
 
         println!("[BENCHMARK] Packages created:");
-        println!("  - Classic: {} bytes (pack time: {:?})", classic_bytes.len(), classic_pack_time);
-        println!("  - Turbo:   {} bytes (pack time: {:?})", turbo_bytes.len(), turbo_pack_time);
+        println!(
+            "  - Classic: {} bytes (pack time: {:?})",
+            classic_bytes.len(),
+            classic_pack_time
+        );
+        println!(
+            "  - Turbo:   {} bytes (pack time: {:?})",
+            turbo_bytes.len(),
+            turbo_pack_time
+        );
 
         // 3. Measure Loading Time: Classic vs Turbo
         let classic_meta = SongMetadata {
             hash: 10001,
-            file_path: format!("{}::bench.bms", classic_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::bench.bms",
+                classic_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "Benchmark Song".to_string(),
             subtitle: "".to_string(),
             artist: "Large Ensemble".to_string(),
@@ -917,7 +1170,10 @@ mod tests {
 
         let turbo_meta = SongMetadata {
             hash: 10002,
-            file_path: format!("{}::bench.bms", turbo_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::bench.bms",
+                turbo_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "Benchmark Song".to_string(),
             subtitle: "".to_string(),
             artist: "Large Ensemble".to_string(),
@@ -940,15 +1196,25 @@ mod tests {
 
         println!("[BENCHMARK] 250 Keysounds & 50 BGAs In-Game Load Time:");
         println!("  - Classic: {:?}", classic_load_time);
-        println!("  - Turbo:   {:?} (Speedup: {:.1}x)", turbo_load_time, classic_load_time.as_secs_f64() / turbo_load_time.as_secs_f64().max(0.0001));
+        println!(
+            "  - Turbo:   {:?} (Speedup: {:.1}x)",
+            turbo_load_time,
+            classic_load_time.as_secs_f64() / turbo_load_time.as_secs_f64().max(0.0001)
+        );
 
         assert_eq!(c_bank.len(), sound_count, "Classic loaded all keysounds");
         assert_eq!(t_bank.len(), sound_count, "Turbo loaded all keysounds");
         assert_eq!(c_bga.len(), bga_count, "Classic loaded all BGA frames");
         assert_eq!(t_bga.len(), bga_count, "Turbo loaded all BGA frames");
 
-        assert!(turbo_load_time.as_millis() < 80, "Turbo loading should be under 80ms even in debug profile");
-        assert!(turbo_load_time < classic_load_time, "Turbo loading should be faster than Classic loading");
+        assert!(
+            turbo_load_time.as_millis() < 80,
+            "Turbo loading should be under 80ms even in debug profile"
+        );
+        assert!(
+            turbo_load_time < classic_load_time,
+            "Turbo loading should be faster than Classic loading"
+        );
 
         // Clean up
         let _ = fs::remove_dir_all(&temp_dir);
@@ -956,11 +1222,16 @@ mod tests {
 
     #[test]
     fn test_load_decoupled_bga_companion() {
-        use bms_package_manager::{pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions};
+        use bms_package_manager::{
+            pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions,
+        };
 
         let temp_dir = std::env::temp_dir().join(format!(
             "beetle_bga_companion_load_{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         let src_dir = temp_dir.join("src");
         fs::create_dir_all(&src_dir).unwrap();
@@ -994,8 +1265,14 @@ mod tests {
 
         // 1. Pack with Split BGA mode (Turbo)
         let split_opts = PackOptions::turbo(BgaPackMode::Split);
-        let out = pack_bms_folder_advanced_with_progress(&src_dir, None, split_opts, None, |_, _, _, _| {})
-            .expect("pack failed");
+        let out = pack_bms_folder_advanced_with_progress(
+            &src_dir,
+            None,
+            split_opts,
+            None,
+            |_, _, _, _| {},
+        )
+        .expect("pack failed");
 
         let target_dir = temp_dir.join("installed");
         fs::create_dir_all(&target_dir).unwrap();
@@ -1006,7 +1283,10 @@ mod tests {
 
         let song_meta = SongMetadata {
             hash: 77777,
-            file_path: format!("{}::main.bms", base_bmsp.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::main.bms",
+                base_bmsp.to_string_lossy().replace('\\', "/")
+            ),
             title: "Companion Test Song".to_string(),
             subtitle: "".to_string(),
             artist: "Beetle Dev".to_string(),
@@ -1018,13 +1298,22 @@ mod tests {
         };
 
         // 2. Load with BGA companion present
-        let (chart, _timing, soundbank, _bga_bank, video_sources) = load_chart_and_audio(&song_meta);
+        let (chart, _timing, soundbank, _bga_bank, video_sources) =
+            load_chart_and_audio(&song_meta);
         assert_eq!(chart.header.title, "Companion Test Song");
         assert_eq!(soundbank.len(), 1);
-        assert_eq!(video_sources.len(), 1, "Should load video from companion package");
+        assert_eq!(
+            video_sources.len(),
+            1,
+            "Should load video from companion package"
+        );
 
         let vs = video_sources.values().next().unwrap();
-        if let VideoSource::Memory { bytes, filename_hint } = vs {
+        if let VideoSource::Memory {
+            bytes,
+            filename_hint,
+        } = vs
+        {
             assert_eq!(bytes.as_ref(), &video_data);
             assert_eq!(filename_hint.as_deref(), Some("movie.mp4"));
         } else {
@@ -1033,18 +1322,30 @@ mod tests {
 
         // 3. Delete companion package -> Verify Graceful Fallback
         fs::remove_file(&bga_bmsp).unwrap();
-        let (_chart2, _timing2, soundbank2, _bga_bank2, video_sources2) = load_chart_and_audio(&song_meta);
+        let (_chart2, _timing2, soundbank2, _bga_bank2, video_sources2) =
+            load_chart_and_audio(&song_meta);
         assert_eq!(soundbank2.len(), 1, "Audio still loads perfectly");
-        assert!(video_sources2.is_empty(), "Video is gracefully omitted when companion is missing");
+        assert!(
+            video_sources2.is_empty(),
+            "Video is gracefully omitted when companion is missing"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_load_turbo_package_with_duplicate_wav_ids() {
-        use bms_package_manager::{pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions};
+        use bms_package_manager::{
+            pack_bms_folder_advanced_with_progress, BgaPackMode, PackOptions,
+        };
 
-        let temp_dir = std::env::temp_dir().join(format!("beetle_test_dup_wav_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "beetle_test_dup_wav_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let song_dir = temp_dir.join("src_song");
         fs::create_dir_all(&song_dir).unwrap();
 
@@ -1095,14 +1396,18 @@ mod tests {
             turbo_opts,
             None,
             |_, _, _, _| {},
-        ).unwrap();
+        )
+        .unwrap();
 
         let out_bmsp = temp_dir.join("dup_test.bmsp");
         fs::write(&out_bmsp, &out.base_package).unwrap();
 
         let song_meta = SongMetadata {
             hash: 88888,
-            file_path: format!("{}::main.bms", out_bmsp.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::main.bms",
+                out_bmsp.to_string_lossy().replace('\\', "/")
+            ),
             title: "Duplicate WAV Test".to_string(),
             subtitle: "".to_string(),
             artist: "Beetle Dev".to_string(),
@@ -1116,10 +1421,23 @@ mod tests {
         // Load chart and audio from the packed Turbo package
         let (_chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
 
-        assert_eq!(soundbank.len(), 3, "All 3 #WAV entries must be populated in soundbank");
-        assert!(soundbank.contains_key(beetle_core::WavId(1)), "WavId 1 (kick.wav) must exist");
-        assert!(soundbank.contains_key(beetle_core::WavId(2)), "WavId 2 (kick.wav duplicate) must exist");
-        assert!(soundbank.contains_key(beetle_core::WavId(3)), "WavId 3 (snare.wav) must exist");
+        assert_eq!(
+            soundbank.len(),
+            3,
+            "All 3 #WAV entries must be populated in soundbank"
+        );
+        assert!(
+            soundbank.contains_key(beetle_core::WavId(1)),
+            "WavId 1 (kick.wav) must exist"
+        );
+        assert!(
+            soundbank.contains_key(beetle_core::WavId(2)),
+            "WavId 2 (kick.wav duplicate) must exist"
+        );
+        assert!(
+            soundbank.contains_key(beetle_core::WavId(3)),
+            "WavId 3 (snare.wav) must exist"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -1129,14 +1447,21 @@ mod tests {
         println!("Current dir: {:?}", std::env::current_dir());
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
         let pkg_path = Path::new(&manifest_dir).join("../../songs/aliceblue.bmsp");
-        println!("Checking pkg_path: {:?} (exists: {})", pkg_path, pkg_path.exists());
+        println!(
+            "Checking pkg_path: {:?} (exists: {})",
+            pkg_path,
+            pkg_path.exists()
+        );
         if !pkg_path.exists() {
             return;
         }
 
         let song_meta = SongMetadata {
             hash: 11111,
-            file_path: format!("{}::alice7-1.bme", pkg_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::alice7-1.bme",
+                pkg_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "aliceblue (Radio Edit)".to_string(),
             subtitle: "".to_string(),
             artist: "nekodex".to_string(),
@@ -1148,8 +1473,16 @@ mod tests {
         };
 
         let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
-        println!("[VERIFICATION] alice7-1.bme wav_table count: {}, loaded in soundbank: {}", chart.header.wav_table.len(), soundbank.len());
-        assert!(soundbank.len() >= 193, "Should load at least 193 keysounds, got {}", soundbank.len());
+        println!(
+            "[VERIFICATION] alice7-1.bme wav_table count: {}, loaded in soundbank: {}",
+            chart.header.wav_table.len(),
+            soundbank.len()
+        );
+        assert!(
+            soundbank.len() >= 193,
+            "Should load at least 193 keysounds, got {}",
+            soundbank.len()
+        );
     }
 
     #[test]
@@ -1162,7 +1495,10 @@ mod tests {
 
         let song_meta = SongMetadata {
             hash: 22222,
-            file_path: format!("{}::marisa(NORMAL7).bme", pkg_path.to_string_lossy().replace('\\', "/")),
+            file_path: format!(
+                "{}::marisa(NORMAL7).bme",
+                pkg_path.to_string_lossy().replace('\\', "/")
+            ),
             title: "STAR OF ANDROMEDA".to_string(),
             subtitle: "".to_string(),
             artist: "D.Watt".to_string(),
@@ -1174,11 +1510,22 @@ mod tests {
         };
 
         let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
-        println!("[VERIFICATION] marisa(NORMAL7).bme wav_table count: {}, loaded in soundbank: {}", chart.header.wav_table.len(), soundbank.len());
-        assert!(soundbank.len() >= chart.header.wav_table.len(), "All keysounds in wav_table should be loaded");
-        assert!(soundbank.contains_key(beetle_core::WavId(2)), "WavId 02 (bd.wav) must be loaded");
-        assert!(soundbank.contains_key(beetle_core::decode_base36(b'0', b'W').unwrap()), "WavId 0W (bass-01.wav) must be loaded");
+        println!(
+            "[VERIFICATION] marisa(NORMAL7).bme wav_table count: {}, loaded in soundbank: {}",
+            chart.header.wav_table.len(),
+            soundbank.len()
+        );
+        assert!(
+            soundbank.len() >= chart.header.wav_table.len(),
+            "All keysounds in wav_table should be loaded"
+        );
+        assert!(
+            soundbank.contains_key(beetle_core::WavId(2)),
+            "WavId 02 (bd.wav) must be loaded"
+        );
+        assert!(
+            soundbank.contains_key(beetle_core::decode_base36(b'0', b'W').unwrap()),
+            "WavId 0W (bass-01.wav) must be loaded"
+        );
     }
 }
-
-

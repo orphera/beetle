@@ -42,7 +42,11 @@ pub struct BgaCompanionInfo {
 }
 
 impl BgaCompanionInfo {
-    pub fn new<F: Into<String>, H: Into<String>>(recommended_filename: F, size_bytes: u64, sha256: H) -> Self {
+    pub fn new<F: Into<String>, H: Into<String>>(
+        recommended_filename: F,
+        size_bytes: u64,
+        sha256: H,
+    ) -> Self {
         Self {
             required: false,
             recommended_filename: recommended_filename.into(),
@@ -243,12 +247,16 @@ impl Manifest {
 
         // 2. Id
         if self.id.trim().is_empty() {
-            return Err(PackageError::InvalidManifest("Field 'id' cannot be empty".to_string()));
+            return Err(PackageError::InvalidManifest(
+                "Field 'id' cannot be empty".to_string(),
+            ));
         }
 
         // 3. Name
         if self.name.trim().is_empty() {
-            return Err(PackageError::InvalidManifest("Field 'name' cannot be empty".to_string()));
+            return Err(PackageError::InvalidManifest(
+                "Field 'name' cannot be empty".to_string(),
+            ));
         }
 
         // 4. Package type and target_package_id
@@ -257,12 +265,14 @@ impl Manifest {
                 if let Some(ref target) = self.target_package_id {
                     if target.trim().is_empty() {
                         return Err(PackageError::InvalidManifest(
-                            "Field 'target_package_id' cannot be empty for BGA companion package".to_string(),
+                            "Field 'target_package_id' cannot be empty for BGA companion package"
+                                .to_string(),
                         ));
                     }
                 } else {
                     return Err(PackageError::InvalidManifest(
-                        "Field 'target_package_id' is required for BGA companion package".to_string(),
+                        "Field 'target_package_id' is required for BGA companion package"
+                            .to_string(),
                     ));
                 }
             }
@@ -330,11 +340,25 @@ mod tests {
         use crate::atlas::{BgaFrame, SoundAtlasCodec, SoundSlice};
 
         let mut sound_slices = BTreeMap::new();
-        sound_slices.insert("01".to_string(), SoundSlice::new(0, 44100, Some("01.wav".to_string())));
-        let sound_atlas = SoundAtlasMeta::new("audio/atlas.bin", SoundAtlasCodec::Pcm16, 44100, 2, 44100, 128, sound_slices);
+        sound_slices.insert(
+            "01".to_string(),
+            SoundSlice::new(0, 44100, Some("01.wav".to_string())),
+        );
+        let sound_atlas = SoundAtlasMeta::new(
+            "audio/atlas.bin",
+            SoundAtlasCodec::Pcm16,
+            44100,
+            2,
+            44100,
+            128,
+            sound_slices,
+        );
 
         let mut bga_frames = BTreeMap::new();
-        bga_frames.insert("stage".to_string(), BgaFrame::new(0, 0, 640, 480, Some("stage.png".to_string())));
+        bga_frames.insert(
+            "stage".to_string(),
+            BgaFrame::new(0, 0, 640, 480, Some("stage.png".to_string())),
+        );
         let bga_atlas = BgaAtlasMeta::new("visual/atlas.png", 1024, 1024, bga_frames);
 
         let manifest = Manifest::new("turbo.song", "Turbo Song")
@@ -361,7 +385,10 @@ mod tests {
         );
 
         assert_eq!(bga_manifest.package_type, PackageType::BgaCompanion);
-        assert_eq!(bga_manifest.target_package_id.as_deref(), Some("junk_g2r2018_ogg"));
+        assert_eq!(
+            bga_manifest.target_package_id.as_deref(),
+            Some("junk_g2r2018_ogg")
+        );
 
         let json = bga_manifest.to_json_string().unwrap();
         assert!(json.contains("\"type\": \"bga_companion\""));
@@ -369,10 +396,14 @@ mod tests {
 
         let parsed = Manifest::from_json_str(&json).unwrap();
         assert_eq!(parsed.package_type, PackageType::BgaCompanion);
-        assert_eq!(parsed.target_package_id.as_deref(), Some("junk_g2r2018_ogg"));
+        assert_eq!(
+            parsed.target_package_id.as_deref(),
+            Some("junk_g2r2018_ogg")
+        );
 
         // Invalid: missing target_package_id for bga_companion
-        let mut invalid_bga = Manifest::new("id", "name").with_package_type(PackageType::BgaCompanion);
+        let mut invalid_bga =
+            Manifest::new("id", "name").with_package_type(PackageType::BgaCompanion);
         assert!(invalid_bga.validate().is_err());
 
         // Invalid: empty target_package_id
@@ -382,9 +413,13 @@ mod tests {
 
     #[test]
     fn test_manifest_with_companion_packages_roundtrip() {
-        let comp_info = BgaCompanionInfo::new("junk.bga.bmsp", 92_460_000, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-        let manifest = Manifest::new("junk_g2r2018_ogg", "Junk G2R 2018")
-            .with_bga_companion(comp_info);
+        let comp_info = BgaCompanionInfo::new(
+            "junk.bga.bmsp",
+            92_460_000,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        );
+        let manifest =
+            Manifest::new("junk_g2r2018_ogg", "Junk G2R 2018").with_bga_companion(comp_info);
 
         let json = manifest.to_json_string().unwrap();
         assert!(json.contains("\"companion_packages\""));
@@ -392,10 +427,19 @@ mod tests {
 
         let parsed = Manifest::from_json_str(&json).unwrap();
         assert_eq!(parsed.package_type, PackageType::Standard);
-        let bga_comp = parsed.companion_packages.as_ref().unwrap().bga.as_ref().unwrap();
+        let bga_comp = parsed
+            .companion_packages
+            .as_ref()
+            .unwrap()
+            .bga
+            .as_ref()
+            .unwrap();
         assert_eq!(bga_comp.recommended_filename, "junk.bga.bmsp");
         assert_eq!(bga_comp.size_bytes, 92_460_000);
-        assert_eq!(bga_comp.sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            bga_comp.sha256,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
         assert!(!bga_comp.required);
     }
 

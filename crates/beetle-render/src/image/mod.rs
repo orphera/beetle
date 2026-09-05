@@ -197,7 +197,8 @@ impl ImageBuffer {
     /// Extracts a sub-rectangle from this image as a new ImageBuffer.
     /// Returns None if the requested rectangle is out of bounds or has zero width/height.
     pub fn crop(&self, x: u32, y: u32, w: u32, h: u32) -> Option<Self> {
-        if w == 0 || h == 0 || x.saturating_add(w) > self.width || y.saturating_add(h) > self.height {
+        if w == 0 || h == 0 || x.saturating_add(w) > self.width || y.saturating_add(h) > self.height
+        {
             return None;
         }
 
@@ -217,14 +218,7 @@ impl ImageBuffer {
     }
 
     /// Blits and scales the image into a target area on the tiny-skia Pixmap.
-    pub fn draw_scaled(
-        &self,
-        pixmap: &mut Pixmap,
-        dst_x: i32,
-        dst_y: i32,
-        dst_w: u32,
-        dst_h: u32,
-    ) {
+    pub fn draw_scaled(&self, pixmap: &mut Pixmap, dst_x: i32, dst_y: i32, dst_w: u32, dst_h: u32) {
         if dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
             return;
         }
@@ -273,9 +267,12 @@ impl ImageBuffer {
                         // Fast integer alpha blend
                         let a = color.a as u32;
                         let inv_a = 255 - a;
-                        data[dst_idx] = ((color.r as u32 * a + data[dst_idx] as u32 * inv_a) / 255) as u8;
-                        data[dst_idx + 1] = ((color.g as u32 * a + data[dst_idx + 1] as u32 * inv_a) / 255) as u8;
-                        data[dst_idx + 2] = ((color.b as u32 * a + data[dst_idx + 2] as u32 * inv_a) / 255) as u8;
+                        data[dst_idx] =
+                            ((color.r as u32 * a + data[dst_idx] as u32 * inv_a) / 255) as u8;
+                        data[dst_idx + 1] =
+                            ((color.g as u32 * a + data[dst_idx + 1] as u32 * inv_a) / 255) as u8;
+                        data[dst_idx + 2] =
+                            ((color.b as u32 * a + data[dst_idx + 2] as u32 * inv_a) / 255) as u8;
                         data[dst_idx + 3] = 255;
                     }
                 }
@@ -353,9 +350,14 @@ impl ImageBuffer {
                             } else {
                                 let alpha = color.a as f32 / 255.0;
                                 let inv_a = 1.0 - alpha;
-                                data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                                data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                                data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                                data[dst_idx] =
+                                    (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                                data[dst_idx + 1] = (color.g as f32 * alpha
+                                    + data[dst_idx + 1] as f32 * inv_a)
+                                    as u8;
+                                data[dst_idx + 2] = (color.b as f32 * alpha
+                                    + data[dst_idx + 2] as f32 * inv_a)
+                                    as u8;
                                 data[dst_idx + 3] = 255;
                             }
                         }
@@ -448,9 +450,12 @@ impl ImageBuffer {
                     } else {
                         let alpha = color.a as f32 / 255.0;
                         let inv_a = 1.0 - alpha;
-                        data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                        data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                        data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                        data[dst_idx] =
+                            (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                        data[dst_idx + 1] =
+                            (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                        data[dst_idx + 2] =
+                            (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
                         data[dst_idx + 3] = 255;
                     }
                 }
@@ -469,7 +474,8 @@ impl ImageBuffer {
         fit_mode: ImageFitMode,
         global_opacity: f32,
     ) {
-        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0
+        {
             return;
         }
 
@@ -480,19 +486,20 @@ impl ImageBuffer {
 
         match fit_mode {
             ImageFitMode::Stretch | ImageFitMode::FillCrop => {
-                let (src_view_w, src_view_h, src_origin_x, src_origin_y) = if fit_mode == ImageFitMode::Stretch {
-                    (self.width as f32, self.height as f32, 0.0, 0.0)
-                } else {
-                    let scale_x = dst_w as f32 / self.width as f32;
-                    let scale_y = dst_h as f32 / self.height as f32;
-                    let scale = scale_x.max(scale_y);
+                let (src_view_w, src_view_h, src_origin_x, src_origin_y) =
+                    if fit_mode == ImageFitMode::Stretch {
+                        (self.width as f32, self.height as f32, 0.0, 0.0)
+                    } else {
+                        let scale_x = dst_w as f32 / self.width as f32;
+                        let scale_y = dst_h as f32 / self.height as f32;
+                        let scale = scale_x.max(scale_y);
 
-                    let src_view_w = dst_w as f32 / scale;
-                    let src_view_h = dst_h as f32 / scale;
-                    let src_origin_x = (self.width as f32 - src_view_w) / 2.0;
-                    let src_origin_y = (self.height as f32 - src_view_h) / 2.0;
-                    (src_view_w, src_view_h, src_origin_x, src_origin_y)
-                };
+                        let src_view_w = dst_w as f32 / scale;
+                        let src_view_h = dst_h as f32 / scale;
+                        let src_origin_x = (self.width as f32 - src_view_w) / 2.0;
+                        let src_origin_y = (self.height as f32 - src_view_h) / 2.0;
+                        (src_view_w, src_view_h, src_origin_x, src_origin_y)
+                    };
 
                 for dy in 0..dst_h as i32 {
                     let py = dst_y + dy;
@@ -526,9 +533,12 @@ impl ImageBuffer {
                         if dst_idx + 3 < data.len() {
                             let alpha = (color.a as f32 / 255.0) * opacity;
                             let inv_a = 1.0 - alpha;
-                            data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                            data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                            data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                            data[dst_idx] =
+                                (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
+                            data[dst_idx + 1] =
+                                (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                            data[dst_idx + 2] =
+                                (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
                             data[dst_idx + 3] = 255;
                         }
                     }
@@ -567,7 +577,8 @@ impl ImageBuffer {
         dst_h: u32,
         global_opacity: f32,
     ) {
-        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0 {
+        if global_opacity <= 0.0 || dst_w == 0 || dst_h == 0 || self.width == 0 || self.height == 0
+        {
             return;
         }
 
@@ -618,8 +629,10 @@ impl ImageBuffer {
                     let alpha = (color.a as f32 / 255.0) * opacity;
                     let inv_a = 1.0 - alpha;
                     data[dst_idx] = (color.r as f32 * alpha + data[dst_idx] as f32 * inv_a) as u8;
-                    data[dst_idx + 1] = (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
-                    data[dst_idx + 2] = (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
+                    data[dst_idx + 1] =
+                        (color.g as f32 * alpha + data[dst_idx + 1] as f32 * inv_a) as u8;
+                    data[dst_idx + 2] =
+                        (color.b as f32 * alpha + data[dst_idx + 2] as f32 * inv_a) as u8;
                     data[dst_idx + 3] = 255;
                 }
             }
@@ -632,7 +645,11 @@ mod tests {
     use super::*;
 
     fn create_synthetic_24bit_bmp(w: u32, h: u32, bgr_color: (u8, u8, u8)) -> Vec<u8> {
-        let img = ImageBuffer::new(w, h, ColorRgba::new(bgr_color.2, bgr_color.1, bgr_color.0, 255));
+        let img = ImageBuffer::new(
+            w,
+            h,
+            ColorRgba::new(bgr_color.2, bgr_color.1, bgr_color.0, 255),
+        );
         img.encode_bmp_bytes()
     }
 
@@ -698,13 +715,21 @@ mod tests {
         // 1. FillCrop: Should completely fill target 100x100
         pixmap.fill(tiny_skia::Color::BLACK);
         img.draw_fitted(&mut pixmap, 0, 0, 100, 100, ImageFitMode::FillCrop);
-        let non_black_count = pixmap.data().chunks_exact(4).filter(|p| p[0] == 255).count();
+        let non_black_count = pixmap
+            .data()
+            .chunks_exact(4)
+            .filter(|p| p[0] == 255)
+            .count();
         assert_eq!(non_black_count, 10000);
 
         // 2. FitLetterbox: 2:1 image in 1:1 box should be 100x50 centered
         pixmap.fill(tiny_skia::Color::BLACK);
         img.draw_fitted(&mut pixmap, 0, 0, 100, 100, ImageFitMode::FitLetterbox);
-        let filled_count = pixmap.data().chunks_exact(4).filter(|p| p[0] == 255).count();
+        let filled_count = pixmap
+            .data()
+            .chunks_exact(4)
+            .filter(|p| p[0] == 255)
+            .count();
         assert_eq!(filled_count, 100 * 50);
     }
 
@@ -720,20 +745,11 @@ mod tests {
     #[test]
     fn test_png_decoder_under_bga_enhanced() {
         let png_bytes: &[u8] = &[
-            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-            0x00, 0x00, 0x00, 0x0d,
-            0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x01,
-            0x08, 0x00, 0x00, 0x00, 0x00,
-            0x3a, 0x7e, 0x9b, 0x55,
-            0x00, 0x00, 0x00, 0x0a,
-            0x49, 0x44, 0x41, 0x54,
-            0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-            0x48, 0xaf, 0xa4, 0x71,
-            0x00, 0x00, 0x00, 0x00,
-            0x49, 0x45, 0x4e, 0x44,
-            0xae, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00,
+            0x00, 0x3a, 0x7e, 0x9b, 0x55, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x48, 0xaf, 0xa4, 0x71, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ];
         let img = ImageBuffer::from_bytes(png_bytes).expect("Should decode PNG via from_bytes");
         assert_eq!(img.width, 1);
@@ -756,4 +772,3 @@ mod tests {
         assert!(img.crop(0, 0, 0, 5).is_none());
     }
 }
-

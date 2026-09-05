@@ -334,15 +334,16 @@ pub fn clear_cache() {
 /// Returns the number of times GDI GetGlyphOutline was called for rasterization on the current thread.
 pub fn rasterize_count() -> usize {
     LOCAL_FALLBACK.with(|cell| {
-        cell.borrow().as_ref().map(|f| f.rasterize_count()).unwrap_or(0)
+        cell.borrow()
+            .as_ref()
+            .map(|f| f.rasterize_count())
+            .unwrap_or(0)
     })
 }
 
 /// Returns the number of cached glyph entries on the current thread.
 pub fn cache_len() -> usize {
-    LOCAL_FALLBACK.with(|cell| {
-        cell.borrow().as_ref().map(|f| f.cache_len()).unwrap_or(0)
-    })
+    LOCAL_FALLBACK.with(|cell| cell.borrow().as_ref().map(|f| f.cache_len()).unwrap_or(0))
 }
 
 /// Blits an antialiased 8bpp glyph bitmap onto a tiny-skia pixmap with scaling.
@@ -367,9 +368,8 @@ pub fn blit_glyph_aa(
     let base_y = y + (8 - glyph.origin_y) * scale as i32;
 
     let data = pixmap.data_mut();
-    let u32_slice: &mut [u32] = unsafe {
-        std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
-    };
+    let u32_slice: &mut [u32] =
+        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4) };
 
     let gw = glyph.width as usize;
     let gh = glyph.height as usize;

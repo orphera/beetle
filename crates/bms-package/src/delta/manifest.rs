@@ -71,11 +71,15 @@ impl DeltaManifest {
         }
 
         if self.package_id.trim().is_empty() {
-            return Err(PackageError::InvalidDeltaManifest("Empty package_id".to_string()));
+            return Err(PackageError::InvalidDeltaManifest(
+                "Empty package_id".to_string(),
+            ));
         }
 
         if self.base_hash.trim().is_empty() || self.target_hash.trim().is_empty() {
-            return Err(PackageError::InvalidDeltaManifest("Empty base or target hash".to_string()));
+            return Err(PackageError::InvalidDeltaManifest(
+                "Empty base or target hash".to_string(),
+            ));
         }
 
         if self.base_hash == self.target_hash {
@@ -108,7 +112,8 @@ impl DeltaManifest {
 
     /// Serializes to normalized JSON bytes.
     pub fn to_json_bytes(&self) -> Result<Vec<u8>, PackageError> {
-        serde_json::to_vec_pretty(self).map_err(|e| PackageError::InvalidDeltaManifest(e.to_string()))
+        serde_json::to_vec_pretty(self)
+            .map_err(|e| PackageError::InvalidDeltaManifest(e.to_string()))
     }
 
     /// Parses from JSON bytes.
@@ -128,12 +133,8 @@ mod tests {
     #[test]
     fn test_delta_manifest_roundtrip() {
         let target_man = Manifest::new("com.example.song", "Example Song");
-        let mut delta = DeltaManifest::new(
-            "com.example.song",
-            "a3f8c2d1...",
-            "7b1d0e9f...",
-            target_man,
-        );
+        let mut delta =
+            DeltaManifest::new("com.example.song", "a3f8c2d1...", "7b1d0e9f...", target_man);
         delta.resources.push(DeltaResourceEntry {
             path: "bms/insane.bms".to_string(),
             op: DeltaOpKind::Added,

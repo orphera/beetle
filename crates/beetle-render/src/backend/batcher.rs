@@ -115,7 +115,8 @@ impl SpriteBatcher {
 
         self.vertices.push(Vertex2D::new(x, y, 0.0, 0.0, color));
         self.vertices.push(Vertex2D::new(x + w, y, 1.0, 0.0, color));
-        self.vertices.push(Vertex2D::new(x + w, y + h, 1.0, 1.0, color));
+        self.vertices
+            .push(Vertex2D::new(x + w, y + h, 1.0, 1.0, color));
         self.vertices.push(Vertex2D::new(x, y + h, 0.0, 1.0, color));
 
         self.indices.push(base_idx);
@@ -137,7 +138,20 @@ impl SpriteBatcher {
         h: f32,
         color: [f32; 4],
     ) {
-        self.draw_sub_sprite(backend, texture, x, y, w, h, 0.0, 0.0, 1.0, 1.0, color, BlendMode::Alpha);
+        self.draw_sub_sprite(
+            backend,
+            texture,
+            x,
+            y,
+            w,
+            h,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            color,
+            BlendMode::Alpha,
+        );
     }
 
     /// Appends a textured sub-sprite rectangle with custom UV coordinates and blend mode.
@@ -163,7 +177,8 @@ impl SpriteBatcher {
 
         self.vertices.push(Vertex2D::new(x, y, u0, v0, color));
         self.vertices.push(Vertex2D::new(x + w, y, u1, v0, color));
-        self.vertices.push(Vertex2D::new(x + w, y + h, u1, v1, color));
+        self.vertices
+            .push(Vertex2D::new(x + w, y + h, u1, v1, color));
         self.vertices.push(Vertex2D::new(x, y + h, u0, v1, color));
 
         self.indices.push(base_idx);

@@ -21,8 +21,7 @@ mod tests {
     #[test]
     fn test_delta_diff_and_apply_roundtrip_determinism() {
         // 1. Build Base Package
-        let manifest_v1 = Manifest::new("com.example.song", "Example Song")
-            .with_author("Composer");
+        let manifest_v1 = Manifest::new("com.example.song", "Example Song").with_author("Composer");
         let kick_data: Vec<u8> = (0..20000).map(|i| (i % 251) as u8).collect();
 
         let mut builder_v1 = PackageBuilder::new(manifest_v1);
@@ -47,8 +46,8 @@ mod tests {
         // - "audio/snare.wav": modified (remastered)
         // - "image/old_banner.png": removed
         // - "bms/insane.bms": added (new chart)
-        let manifest_v2 = Manifest::new("com.example.song", "Example Song (Remaster)")
-            .with_author("Composer");
+        let manifest_v2 =
+            Manifest::new("com.example.song", "Example Song (Remaster)").with_author("Composer");
         let mut builder_v2 = PackageBuilder::new(manifest_v2);
         builder_v2
             .add_file("bms/normal.bms", b"#TITLE Example Song\n#BPM 140".to_vec())
@@ -60,7 +59,10 @@ mod tests {
             .add_file("audio/snare.wav", vec![9u8; 600])
             .unwrap(); // modified
         builder_v2
-            .add_file("bms/insane.bms", b"#TITLE Example Song\n#BPM 140\n#PLAYLEVEL 12".to_vec())
+            .add_file(
+                "bms/insane.bms",
+                b"#TITLE Example Song\n#BPM 140\n#PLAYLEVEL 12".to_vec(),
+            )
             .unwrap(); // added
         let bytes_v2 = builder_v2.build_to_bytes().unwrap();
         let hash_v2 = sha256_hex(&bytes_v2);
@@ -83,12 +85,9 @@ mod tests {
         let base_for_patch = Package::from_bytes(bytes_v1.clone()).unwrap();
         let mut delta_pkg = DeltaPackage::from_bytes(delta_bytes.clone()).unwrap();
 
-        let reconstructed_bytes = DeltaApplicator::apply_to_bytes(
-            &base_for_patch,
-            &mut delta_pkg,
-            Some(&bytes_v1),
-        )
-        .unwrap();
+        let reconstructed_bytes =
+            DeltaApplicator::apply_to_bytes(&base_for_patch, &mut delta_pkg, Some(&bytes_v1))
+                .unwrap();
 
         // 5. Verify reconstructed package is 100% byte-for-byte identical to Target Package!
         assert_eq!(
@@ -134,7 +133,10 @@ mod tests {
         let mut delta_pkg = DeltaPackage::from_bytes(delta_bytes).unwrap();
 
         let result = DeltaApplicator::apply_to_bytes(&wrong_base, &mut delta_pkg, None);
-        assert!(matches!(result, Err(PackageError::DeltaBaseMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(PackageError::DeltaBaseMismatch { .. })
+        ));
     }
 
     #[test]
@@ -154,13 +156,18 @@ mod tests {
 
         let mut delta_builder = DeltaBuilder::from_packages(&base_pkg, &target_pkg).unwrap();
         // Tamper with payload
-        delta_builder.payload_files.insert("audio/01.wav".to_string(), vec![99u8; 100]);
+        delta_builder
+            .payload_files
+            .insert("audio/01.wav".to_string(), vec![99u8; 100]);
         let tampered_delta_bytes = delta_builder.build_to_bytes().unwrap();
 
         let base_for_patch = Package::from_bytes(pkg_v1).unwrap();
         let mut delta_pkg = DeltaPackage::from_bytes(tampered_delta_bytes).unwrap();
 
         let result = DeltaApplicator::apply_to_bytes(&base_for_patch, &mut delta_pkg, None);
-        assert!(matches!(result, Err(PackageError::DeltaChecksumMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(PackageError::DeltaChecksumMismatch { .. })
+        ));
     }
 }

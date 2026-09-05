@@ -192,7 +192,8 @@ impl Mixer {
         }
 
         // 6. Update master audio clock
-        self.samples_played.fetch_add(frame_count as u64, Ordering::Relaxed);
+        self.samples_played
+            .fetch_add(frame_count as u64, Ordering::Relaxed);
     }
 
     fn spawn_voice(&mut self, sample_id: WavId, volume: f32, pan: f32) {
@@ -313,13 +314,7 @@ mod tests {
         let (mut producer, consumer) = RingBuffer::new(32);
         let samples_played = Arc::new(AtomicU64::new(0));
         let visual_levels = make_visual_levels();
-        let mut mixer = Mixer::new(
-            sample_bank,
-            consumer,
-            samples_played,
-            visual_levels,
-            44100,
-        );
+        let mut mixer = Mixer::new(sample_bank, consumer, samples_played, visual_levels, 44100);
 
         producer
             .push(AudioCommand::PlaySample {

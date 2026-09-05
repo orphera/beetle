@@ -193,17 +193,19 @@ pub struct D3D11_MAPPED_SUBRESOURCE {
 
 #[repr(C)]
 pub struct IUnknownVtbl {
-    pub QueryInterface: unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32,
+    pub QueryInterface:
+        unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32,
     pub AddRef: unsafe extern "system" fn(*mut c_void) -> u32,
     pub Release: unsafe extern "system" fn(*mut c_void) -> u32,
 }
 
 #[repr(C)]
 pub struct IDXGISwapChainVtbl {
-    pub parent: IUnknownVtbl, // 0..2: QueryInterface, AddRef, Release
+    pub parent: IUnknownVtbl,         // 0..2: QueryInterface, AddRef, Release
     pub _unused1: [*const c_void; 5], // 3..7: SetPrivateData, SetPrivateDataInterface, GetPrivateData, GetParent, GetDevice
     pub Present: unsafe extern "system" fn(*mut c_void, u32, u32) -> i32, // 8
-    pub GetBuffer: unsafe extern "system" fn(*mut c_void, u32, *const GUID, *mut *mut c_void) -> i32, // 9
+    pub GetBuffer:
+        unsafe extern "system" fn(*mut c_void, u32, *const GUID, *mut *mut c_void) -> i32, // 9
     pub _unused2: [*const c_void; 3], // 10..12: SetFullscreenState, GetFullscreenState, GetDesc
     pub ResizeBuffers: unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> i32, // 13
 }
@@ -225,19 +227,11 @@ pub struct ID3D11DeviceVtbl {
         *mut *mut c_void,
     ) -> i32, // 5
     pub _unused2: [*const c_void; 1], // 6: CreateTexture3D
-    pub CreateShaderResourceView: unsafe extern "system" fn(
-        *mut c_void,
-        *mut c_void,
-        *const c_void,
-        *mut *mut c_void,
-    ) -> i32, // 7
+    pub CreateShaderResourceView:
+        unsafe extern "system" fn(*mut c_void, *mut c_void, *const c_void, *mut *mut c_void) -> i32, // 7
     pub _unused3: [*const c_void; 1], // 8: CreateUnorderedAccessView
-    pub CreateRenderTargetView: unsafe extern "system" fn(
-        *mut c_void,
-        *mut c_void,
-        *const c_void,
-        *mut *mut c_void,
-    ) -> i32, // 9
+    pub CreateRenderTargetView:
+        unsafe extern "system" fn(*mut c_void, *mut c_void, *const c_void, *mut *mut c_void) -> i32, // 9
     pub _unused4: [*const c_void; 1], // 10: CreateDepthStencilView
     pub CreateInputLayout: unsafe extern "system" fn(
         *mut c_void,
@@ -263,17 +257,11 @@ pub struct ID3D11DeviceVtbl {
         *mut *mut c_void,
     ) -> i32, // 15
     pub _unused6: [*const c_void; 4], // 16: CreateHullShader, 17: CreateDomainShader, 18: CreateComputeShader, 19: CreateClassLinkage
-    pub CreateBlendState: unsafe extern "system" fn(
-        *mut c_void,
-        *const D3D11_BLEND_DESC,
-        *mut *mut c_void,
-    ) -> i32, // 20
+    pub CreateBlendState:
+        unsafe extern "system" fn(*mut c_void, *const D3D11_BLEND_DESC, *mut *mut c_void) -> i32, // 20
     pub _unused7: [*const c_void; 2], // 21: CreateDepthStencilState, 22: CreateRasterizerState
-    pub CreateSamplerState: unsafe extern "system" fn(
-        *mut c_void,
-        *const D3D11_SAMPLER_DESC,
-        *mut *mut c_void,
-    ) -> i32, // 23
+    pub CreateSamplerState:
+        unsafe extern "system" fn(*mut c_void, *const D3D11_SAMPLER_DESC, *mut *mut c_void) -> i32, // 23
 }
 
 #[repr(C)]
@@ -286,7 +274,7 @@ pub struct ID3D11DeviceContextVtbl {
     pub PSSetSamplers: unsafe extern "system" fn(*mut c_void, u32, u32, *const *mut c_void), // 10
     pub VSSetShader: unsafe extern "system" fn(*mut c_void, *mut c_void, *const *mut c_void, u32), // 11
     pub DrawIndexed: unsafe extern "system" fn(*mut c_void, u32, u32, i32), // 12
-    pub _unused_draw: [*const c_void; 1], // 13: Draw
+    pub _unused_draw: [*const c_void; 1],                                   // 13: Draw
     pub Map: unsafe extern "system" fn(
         *mut c_void,
         *mut c_void,
@@ -295,7 +283,7 @@ pub struct ID3D11DeviceContextVtbl {
         u32,
         *mut D3D11_MAPPED_SUBRESOURCE,
     ) -> i32, // 14
-    pub Unmap: unsafe extern "system" fn(*mut c_void, *mut c_void, u32), // 15
+    pub Unmap: unsafe extern "system" fn(*mut c_void, *mut c_void, u32),    // 15
     pub PSSetConstantBuffers: unsafe extern "system" fn(*mut c_void, u32, u32, *const *mut c_void), // 16
     pub IASetInputLayout: unsafe extern "system" fn(*mut c_void, *mut c_void), // 17
     pub IASetVertexBuffers: unsafe extern "system" fn(
@@ -310,13 +298,9 @@ pub struct ID3D11DeviceContextVtbl {
     pub _unused_drawinst: [*const c_void; 4], // 20..23: DrawIndexedInstanced, DrawInstanced, GSSetConstantBuffers, GSSetShader
     pub IASetPrimitiveTopology: unsafe extern "system" fn(*mut c_void, u32), // 24
     pub _unused_queries: [*const c_void; 8], // 25..32: VSSetShaderResources, VSSetSamplers, Begin, End, GetData, SetPredication, GSSetShaderResources, GSSetSamplers
-    pub OMSetRenderTargets: unsafe extern "system" fn(
-        *mut c_void,
-        u32,
-        *const *mut c_void,
-        *mut c_void,
-    ), // 33
-    pub _unused_uav: [*const c_void; 1], // 34: OMSetRenderTargetsAndUnorderedAccessViews
+    pub OMSetRenderTargets:
+        unsafe extern "system" fn(*mut c_void, u32, *const *mut c_void, *mut c_void), // 33
+    pub _unused_uav: [*const c_void; 1],     // 34: OMSetRenderTargetsAndUnorderedAccessViews
     pub OMSetBlendState: unsafe extern "system" fn(*mut c_void, *mut c_void, *const f32, u32), // 35
     pub _unused_rs: [*const c_void; 8], // 36..43: OMSetDepthStencilState, SOSetTargets, DrawAuto, DrawIndexedInstancedIndirect, DrawInstancedIndirect, Dispatch, DispatchIndirect, RSSetState
     pub RSSetViewports: unsafe extern "system" fn(*mut c_void, u32, *const D3D11_VIEWPORT), // 44

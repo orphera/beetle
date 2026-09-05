@@ -2,8 +2,8 @@
 //! Supports MP4, WMV, AVI, MPG, and MOV video formats using OS-native Windows Media Foundation
 //! when the `bga-enhanced` feature is enabled on Windows, with a zero-overhead stub fallback.
 
-use std::path::Path;
 use crate::image::ImageBuffer;
+use std::path::Path;
 
 /// Standard video file extensions supported by the BGA video player.
 pub const VIDEO_EXTENSIONS: &[&str] = &[
@@ -114,7 +114,8 @@ mod wmf_backend {
     #[repr(C)]
     #[allow(non_snake_case, dead_code)]
     struct IUnknownVtbl {
-        QueryInterface: unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32,
+        QueryInterface:
+            unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> i32,
         AddRef: unsafe extern "system" fn(*mut c_void) -> u32,
         Release: unsafe extern "system" fn(*mut c_void) -> u32,
     }
@@ -147,8 +148,10 @@ mod wmf_backend {
         parent: IUnknownVtbl,
         _unused1: [*const c_void; 3],
         GetCurrentMediaType: unsafe extern "system" fn(*mut c_void, u32, *mut *mut c_void) -> i32,
-        SetCurrentMediaType: unsafe extern "system" fn(*mut c_void, u32, *mut u32, *mut c_void) -> i32,
-        SetCurrentPosition: unsafe extern "system" fn(*mut c_void, *const GUID, *const PROPVARIANT) -> i32,
+        SetCurrentMediaType:
+            unsafe extern "system" fn(*mut c_void, u32, *mut u32, *mut c_void) -> i32,
+        SetCurrentPosition:
+            unsafe extern "system" fn(*mut c_void, *const GUID, *const PROPVARIANT) -> i32,
         ReadSample: unsafe extern "system" fn(
             *mut c_void,
             u32,
@@ -252,7 +255,10 @@ mod wmf_backend {
             let _ = ((*mt_vtbl).parent.Release)(media_type_ptr);
 
             if hr < 0 {
-                eprintln!("[WMF] SetCurrentMediaType (RGB32) failed: hr=0x{:08X}", hr as u32);
+                eprintln!(
+                    "[WMF] SetCurrentMediaType (RGB32) failed: hr=0x{:08X}",
+                    hr as u32
+                );
                 let _ = ((*reader_vtbl).parent.Release)(reader_ptr);
                 let _ = MFShutdown();
                 CoUninitialize();
@@ -268,7 +274,8 @@ mod wmf_backend {
                 reader_ptr,
                 MF_SOURCE_READER_FIRST_VIDEO_STREAM,
                 &mut current_mt,
-            ) >= 0 && !current_mt.is_null()
+            ) >= 0
+                && !current_mt.is_null()
             {
                 let cur_vtbl = *(current_mt as *mut *mut IMFMediaTypeVtbl);
                 let mut frame_size: u64 = 0;
@@ -325,7 +332,10 @@ mod wmf_backend {
                 }
 
                 if hr < 0 || reader_ptr.is_null() {
-                    eprintln!("[WMF] MFCreateSourceReaderFromURL failed: hr=0x{:08X}", hr as u32);
+                    eprintln!(
+                        "[WMF] MFCreateSourceReaderFromURL failed: hr=0x{:08X}",
+                        hr as u32
+                    );
                     let _ = MFShutdown();
                     CoUninitialize();
                     return None;
@@ -362,7 +372,10 @@ mod wmf_backend {
                 let _ = ((*stream_vtbl).Release)(stream_ptr);
 
                 if hr_bs < 0 || byte_stream_ptr.is_null() {
-                    eprintln!("[WMF] MFCreateMFByteStreamOnStream failed: hr=0x{:08X}", hr_bs as u32);
+                    eprintln!(
+                        "[WMF] MFCreateMFByteStreamOnStream failed: hr=0x{:08X}",
+                        hr_bs as u32
+                    );
                     let _ = MFShutdown();
                     CoUninitialize();
                     return None;
@@ -372,11 +385,19 @@ mod wmf_backend {
                 if let Some(hint) = filename_hint {
                     let bs_vtbl = *(byte_stream_ptr as *mut *mut IUnknownVtbl);
                     let mut attr_obj: *mut c_void = ptr::null_mut();
-                    let hr_qi = ((*bs_vtbl).QueryInterface)(byte_stream_ptr, &IID_IMFAttributes, &mut attr_obj);
+                    let hr_qi = ((*bs_vtbl).QueryInterface)(
+                        byte_stream_ptr,
+                        &IID_IMFAttributes,
+                        &mut attr_obj,
+                    );
                     if hr_qi >= 0 && !attr_obj.is_null() {
                         let attr_vtbl = *(attr_obj as *mut *mut IMFAttributesVtbl);
                         let wide_hint: Vec<u16> = hint.encode_utf16().chain(Some(0)).collect();
-                        let _ = ((*attr_vtbl).SetString)(attr_obj, &MF_BYTESTREAM_ORIGIN_NAME, wide_hint.as_ptr());
+                        let _ = ((*attr_vtbl).SetString)(
+                            attr_obj,
+                            &MF_BYTESTREAM_ORIGIN_NAME,
+                            wide_hint.as_ptr(),
+                        );
                         let _ = ((*attr_vtbl).parent.Release)(attr_obj);
                     }
                 }
@@ -394,7 +415,8 @@ mod wmf_backend {
                 }
 
                 let mut reader_ptr: *mut c_void = ptr::null_mut();
-                let hr = MFCreateSourceReaderFromByteStream(byte_stream_ptr, attr_ptr, &mut reader_ptr);
+                let hr =
+                    MFCreateSourceReaderFromByteStream(byte_stream_ptr, attr_ptr, &mut reader_ptr);
 
                 if !attr_ptr.is_null() {
                     let attr_vtbl = *(attr_ptr as *mut *mut IMFAttributesVtbl);
@@ -405,7 +427,10 @@ mod wmf_backend {
                 let _ = ((*bs_vtbl).Release)(byte_stream_ptr);
 
                 if hr < 0 || reader_ptr.is_null() {
-                    eprintln!("[WMF] MFCreateSourceReaderFromByteStream failed: hr=0x{:08X}", hr as u32);
+                    eprintln!(
+                        "[WMF] MFCreateSourceReaderFromByteStream failed: hr=0x{:08X}",
+                        hr as u32
+                    );
                     let _ = MFShutdown();
                     CoUninitialize();
                     return None;
@@ -429,7 +454,12 @@ mod wmf_backend {
                     w_reserved3: 0,
                     val: time_100ns,
                 };
-                let guid_null = GUID { data1: 0, data2: 0, data3: 0, data4: [0; 8] };
+                let guid_null = GUID {
+                    data1: 0,
+                    data2: 0,
+                    data3: 0,
+                    data4: [0; 8],
+                };
                 let _ = ((*reader_vtbl).SetCurrentPosition)(self.reader, &guid_null, &var);
                 self.is_eof = false;
                 self.current_time_seconds = time_seconds;
@@ -486,20 +516,28 @@ mod wmf_backend {
 
                 let hr = ((*sample_vtbl).ConvertToContiguousBuffer)(sample_ptr, &mut buffer_ptr);
                 if hr < 0 || buffer_ptr.is_null() {
-                    eprintln!("[WMF] ConvertToContiguousBuffer failed: hr=0x{:08X}", hr as u32);
+                    eprintln!(
+                        "[WMF] ConvertToContiguousBuffer failed: hr=0x{:08X}",
+                        hr as u32
+                    );
                 } else {
                     let buf_vtbl = *(buffer_ptr as *mut *mut IMFMediaBufferVtbl);
                     let mut data_ptr: *mut u8 = ptr::null_mut();
                     let mut max_len = 0u32;
                     let mut cur_len = 0u32;
 
-                    let hr_lock = ((*buf_vtbl).Lock)(buffer_ptr, &mut data_ptr, &mut max_len, &mut cur_len);
+                    let hr_lock =
+                        ((*buf_vtbl).Lock)(buffer_ptr, &mut data_ptr, &mut max_len, &mut cur_len);
                     if hr_lock < 0 || data_ptr.is_null() {
                         eprintln!("[WMF] Buffer Lock failed: hr=0x{:08X}", hr_lock as u32);
                     } else {
                         let available = cur_len as usize;
                         let row_bytes = (self.width * 4) as usize;
-                        let stride = if self.height > 0 { available / self.height as usize } else { row_bytes };
+                        let stride = if self.height > 0 {
+                            available / self.height as usize
+                        } else {
+                            row_bytes
+                        };
 
                         if stride >= row_bytes && available >= row_bytes * self.height as usize {
                             let src_slice = std::slice::from_raw_parts(data_ptr, available);
@@ -533,7 +571,8 @@ mod wmf_backend {
         pub fn update(&mut self, audio_time_seconds: f64) -> Option<&ImageBuffer> {
             // Instant seek if timing drifted, rewound, or started far ahead (e.g. practice mode fast forward)
             if audio_time_seconds < self.current_time_seconds - 0.5
-                || (self.current_time_seconds >= 0.0 && audio_time_seconds > self.current_time_seconds + 1.0)
+                || (self.current_time_seconds >= 0.0
+                    && audio_time_seconds > self.current_time_seconds + 1.0)
                 || (self.current_time_seconds < 0.0 && audio_time_seconds > 1.0)
             {
                 self.seek(audio_time_seconds);
@@ -541,7 +580,8 @@ mod wmf_backend {
 
             // Catch up to current audio time without blocking UI (limit catch-up to max 5 frames per render frame)
             let mut frames_read = 0;
-            while !self.is_eof && self.current_time_seconds < audio_time_seconds && frames_read < 5 {
+            while !self.is_eof && self.current_time_seconds < audio_time_seconds && frames_read < 5
+            {
                 if !self.read_next_frame() {
                     break;
                 }
@@ -586,7 +626,9 @@ impl BgaVideoPlayer {
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
             let backend = wmf_backend::WmfVideoPlayer::open(p)?;
-            Some(Self { backend: Some(backend) })
+            Some(Self {
+                backend: Some(backend),
+            })
         }
 
         #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
@@ -607,7 +649,9 @@ impl BgaVideoPlayer {
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
             let backend = wmf_backend::WmfVideoPlayer::open_from_memory(bytes, filename_hint)?;
-            Some(Self { backend: Some(backend) })
+            Some(Self {
+                backend: Some(backend),
+            })
         }
 
         #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
@@ -621,7 +665,9 @@ impl BgaVideoPlayer {
     pub fn update(&mut self, audio_time_seconds: f64) -> Option<&ImageBuffer> {
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
-            self.backend.as_mut().and_then(|b| b.update(audio_time_seconds))
+            self.backend
+                .as_mut()
+                .and_then(|b| b.update(audio_time_seconds))
         }
 
         #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
@@ -698,13 +744,15 @@ mod tests {
     fn test_wmf_probe_real_video() {
         let sample_path = "sample_640x480.mp4";
         if std::path::Path::new(sample_path).exists() {
-            let player = BgaVideoPlayer::open(sample_path).expect("Failed to open sample_640x480.mp4");
+            let player =
+                BgaVideoPlayer::open(sample_path).expect("Failed to open sample_640x480.mp4");
             assert_eq!(player.width(), 640);
             assert_eq!(player.height(), 480);
             assert!(player.current_frame().is_some());
 
             let bytes = std::fs::read(sample_path).unwrap();
-            let mem_player = BgaVideoPlayer::open_from_memory(&bytes, Some("sample_640x480.mp4")).expect("Failed to open from memory");
+            let mem_player = BgaVideoPlayer::open_from_memory(&bytes, Some("sample_640x480.mp4"))
+                .expect("Failed to open from memory");
             assert_eq!(mem_player.width(), 640);
             assert_eq!(mem_player.height(), 480);
             assert!(mem_player.current_frame().is_some());

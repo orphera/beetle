@@ -206,11 +206,7 @@ impl JudgeEngine {
     }
 
     /// Handles key release on a specific lane (for long note releases).
-    pub fn handle_key_up(
-        &mut self,
-        lane: Lane,
-        current_time_seconds: f64,
-    ) -> Option<JudgeResult> {
+    pub fn handle_key_up(&mut self, lane: Lane, current_time_seconds: f64) -> Option<JudgeResult> {
         for note in self.notes.iter_mut() {
             if note.is_judged
                 || note.note_event.lane != lane

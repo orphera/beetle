@@ -114,7 +114,10 @@ impl PackageManager {
     }
 
     /// Installs a package from a `.bmsp` file on disk.
-    pub fn install<P: AsRef<Path>>(&mut self, bmsp_path: P) -> Result<InstalledPackage, PackageManagerError> {
+    pub fn install<P: AsRef<Path>>(
+        &mut self,
+        bmsp_path: P,
+    ) -> Result<InstalledPackage, PackageManagerError> {
         self.install_with_progress(bmsp_path, None, |_, _, _, _| {})
     }
 
@@ -133,7 +136,10 @@ impl PackageManager {
     }
 
     /// Installs a package from raw `.bmsp` binary bytes.
-    pub fn install_from_bytes(&mut self, bytes: Vec<u8>) -> Result<InstalledPackage, PackageManagerError> {
+    pub fn install_from_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<InstalledPackage, PackageManagerError> {
         self.install_from_bytes_with_progress(bytes, None, |_, _, _, _| {})
     }
 
@@ -164,10 +170,15 @@ impl PackageManager {
         }
 
         // 3. Atomically extract and install files into managed storage
-        let (location, rel_path) = self.storage.install_package_with_progress(&pkg, &bytes, cancel_flag, on_progress)?;
+        let (location, rel_path) =
+            self.storage
+                .install_package_with_progress(&pkg, &bytes, cancel_flag, on_progress)?;
 
         // 4. Determine initial BGA status
-        let has_video = pkg.entries().iter().any(|e| beetle_render::is_video_path(&e.path));
+        let has_video = pkg
+            .entries()
+            .iter()
+            .any(|e| beetle_render::is_video_path(&e.path));
         let bga_status = if has_video {
             BgaStatus::Embedded
         } else {
@@ -176,7 +187,14 @@ impl PackageManager {
 
         // 5. Update registry
         let now_str = "2026-08-28T02:00:00Z".to_string(); // Or ISO timestamp
-        self.registry.register_with_bga(&manifest, &state_hash, &rel_path, &now_str, bga_status, None)?;
+        self.registry.register_with_bga(
+            &manifest,
+            &state_hash,
+            &rel_path,
+            &now_str,
+            bga_status,
+            None,
+        )?;
         self.save_registry()?;
 
         Ok(InstalledPackage {
@@ -210,7 +228,13 @@ impl PackageManager {
     where
         F: FnMut(&str, usize, usize, &str),
     {
-        crate::pack::pack_bms_folder_profile_with_progress(folder_path, manifest_override, crate::pack::PackProfile::Classic, cancel_flag, on_progress)
+        crate::pack::pack_bms_folder_profile_with_progress(
+            folder_path,
+            manifest_override,
+            crate::pack::PackProfile::Classic,
+            cancel_flag,
+            on_progress,
+        )
     }
 
     /// Packs a local BMS directory using a specified packaging profile.
@@ -220,7 +244,13 @@ impl PackageManager {
         manifest_override: Option<Manifest>,
         profile: crate::pack::PackProfile,
     ) -> Result<Vec<u8>, PackageManagerError> {
-        self.pack_folder_profile_with_progress(folder_path, manifest_override, profile, None, |_, _, _, _| {})
+        self.pack_folder_profile_with_progress(
+            folder_path,
+            manifest_override,
+            profile,
+            None,
+            |_, _, _, _| {},
+        )
     }
 
     /// Packs a local BMS directory using a specified packaging profile with cancellation and progress reporting.
@@ -235,7 +265,13 @@ impl PackageManager {
     where
         F: FnMut(&str, usize, usize, &str),
     {
-        crate::pack::pack_bms_folder_profile_with_progress(folder_path, manifest_override, profile, cancel_flag, on_progress)
+        crate::pack::pack_bms_folder_profile_with_progress(
+            folder_path,
+            manifest_override,
+            profile,
+            cancel_flag,
+            on_progress,
+        )
     }
 
     /// Packs a local BMS directory with advanced options (profile and BGA mode), cancellation, and progress reporting.
@@ -250,7 +286,13 @@ impl PackageManager {
     where
         F: FnMut(&str, usize, usize, &str),
     {
-        crate::pack::pack_bms_folder_advanced_with_progress(folder_path, manifest_override, options, cancel_flag, on_progress)
+        crate::pack::pack_bms_folder_advanced_with_progress(
+            folder_path,
+            manifest_override,
+            options,
+            cancel_flag,
+            on_progress,
+        )
     }
 
     /// Ingests and installs an existing local BMS directory directly into managed storage.
@@ -273,7 +315,12 @@ impl PackageManager {
     where
         F: FnMut(&str, usize, usize, &str),
     {
-        let bytes = self.pack_folder_with_progress(folder_path, manifest_override, cancel_flag, &mut on_progress)?;
+        let bytes = self.pack_folder_with_progress(
+            folder_path,
+            manifest_override,
+            cancel_flag,
+            &mut on_progress,
+        )?;
         self.install_from_bytes_with_progress(bytes, cancel_flag, on_progress)
     }
 
@@ -306,8 +353,13 @@ impl PackageManager {
                 .registry
                 .packages
                 .get(package_id_or_path)
-                .ok_or_else(|| PackageManagerError::PackageNotFound(package_id_or_path.to_string()))?;
-            let bmsp_file = self.storage.state_dir(&record.id, &record.active_state).join("package.bmsp");
+                .ok_or_else(|| {
+                    PackageManagerError::PackageNotFound(package_id_or_path.to_string())
+                })?;
+            let bmsp_file = self
+                .storage
+                .state_dir(&record.id, &record.active_state)
+                .join("package.bmsp");
             if !bmsp_file.exists() {
                 return Err(PackageManagerError::PackageNotFound(format!(
                     "{}: package file not found at {}",
@@ -356,10 +408,11 @@ impl PackageManager {
         let bga_pkg = Package::from_bytes(bytes.clone())?;
         let bga_manifest = bga_pkg.manifest();
 
-        let target_id = bga_manifest
-            .target_package_id
-            .as_ref()
-            .ok_or_else(|| PackageManagerError::InvalidPackage("BGA companion package must specify target_package_id".to_string()))?;
+        let target_id = bga_manifest.target_package_id.as_ref().ok_or_else(|| {
+            PackageManagerError::InvalidPackage(
+                "BGA companion package must specify target_package_id".to_string(),
+            )
+        })?;
 
         let record = self
             .registry
@@ -367,9 +420,15 @@ impl PackageManager {
             .ok_or_else(|| PackageManagerError::PackageNotFound(target_id.clone()))?;
 
         let active_state = record.active_state.clone();
-        let companion_path = self.storage.install_companion(target_id, &active_state, &bga_pkg, &bytes)?;
+        let companion_path =
+            self.storage
+                .install_companion(target_id, &active_state, &bga_pkg, &bytes)?;
 
-        self.registry.update_bga_status(target_id, BgaStatus::Companion, Some(companion_path.to_string_lossy().to_string()))?;
+        self.registry.update_bga_status(
+            target_id,
+            BgaStatus::Companion,
+            Some(companion_path.to_string_lossy().to_string()),
+        )?;
         self.save_registry()?;
 
         Ok(target_id.clone())
@@ -385,7 +444,8 @@ impl PackageManager {
         let active_state = record.active_state.clone();
         let reclaimed = self.storage.remove_companion(package_id, &active_state)?;
 
-        self.registry.update_bga_status(package_id, BgaStatus::None, None)?;
+        self.registry
+            .update_bga_status(package_id, BgaStatus::None, None)?;
         self.save_registry()?;
 
         Ok(reclaimed)

@@ -46,7 +46,8 @@ pub fn finalize_start_gameplay(
 
     let mut play_chart = chart.clone();
     if !state.is_replay_playback {
-        play_chart.notes = apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
+        play_chart.notes =
+            apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
     }
 
     let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
@@ -86,9 +87,13 @@ pub fn finalize_start_gameplay(
         if let Some(source) = video_sources.remove(&bmp_id) {
             let player = match source {
                 crate::loader::VideoSource::File(p) => beetle_render::BgaVideoPlayer::open(&p),
-                crate::loader::VideoSource::Memory { bytes, filename_hint } => {
-                    beetle_render::BgaVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref())
-                }
+                crate::loader::VideoSource::Memory {
+                    bytes,
+                    filename_hint,
+                } => beetle_render::BgaVideoPlayer::open_from_memory(
+                    &bytes,
+                    filename_hint.as_deref(),
+                ),
             };
             if let Some(player) = player {
                 video_players.insert(bmp_id, player);
@@ -150,7 +155,12 @@ pub fn finalize_start_gameplay(
 
     // If the chart does not define any Base BGA events but a background video exists,
     // start playing the video from the beginning (0.0s).
-    if initial_base_bmp.is_none() && !play_chart.bga_events.iter().any(|ev| ev.channel == beetle_core::BgaChannel::Base) {
+    if initial_base_bmp.is_none()
+        && !play_chart
+            .bga_events
+            .iter()
+            .any(|ev| ev.channel == beetle_core::BgaChannel::Base)
+    {
         if let Some((&first_id, _)) = video_players.iter().next() {
             initial_base_bmp = Some(first_id);
             video_start_times.entry(first_id).or_insert(0.0);

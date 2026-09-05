@@ -151,9 +151,11 @@ pub fn create_demo_chart() -> BmsChart {
 
     // Sort notes
     chart.notes.sort_by(|a, b| {
-        a.measure
-            .cmp(&b.measure)
-            .then_with(|| a.fraction.partial_cmp(&b.fraction).unwrap_or(std::cmp::Ordering::Equal))
+        a.measure.cmp(&b.measure).then_with(|| {
+            a.fraction
+                .partial_cmp(&b.fraction)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     chart

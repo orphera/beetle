@@ -29,13 +29,43 @@ impl SoftwareRenderer {
         let modal_y = vp.y + (vp.height - modal_h) / 2.0;
 
         // Background shadow / dim overlay (draw dark background)
-        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(12, 14, 20, 255));
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            modal_h,
+            ColorRgba::new(12, 14, 20, 255),
+        );
 
         // Glowing border
-        self.draw_rect(modal_x, modal_y, modal_w, 2.0 * s, ColorRgba::new(80, 140, 255, 255));
-        self.draw_rect(modal_x, modal_y + modal_h - 2.0 * s, modal_w, 2.0 * s, ColorRgba::new(80, 140, 255, 255));
-        self.draw_rect(modal_x, modal_y, 2.0 * s, modal_h, ColorRgba::new(80, 140, 255, 255));
-        self.draw_rect(modal_x + modal_w - 2.0 * s, modal_y, 2.0 * s, modal_h, ColorRgba::new(80, 140, 255, 255));
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            2.0 * s,
+            ColorRgba::new(80, 140, 255, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y + modal_h - 2.0 * s,
+            modal_w,
+            2.0 * s,
+            ColorRgba::new(80, 140, 255, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            2.0 * s,
+            modal_h,
+            ColorRgba::new(80, 140, 255, 255),
+        );
+        self.draw_rect(
+            modal_x + modal_w - 2.0 * s,
+            modal_y,
+            2.0 * s,
+            modal_h,
+            ColorRgba::new(80, 140, 255, 255),
+        );
 
         // Header Title
         let center_x = (vp.x + vp.width / 2.0) as i32;
@@ -57,16 +87,32 @@ impl SoftwareRenderer {
 
         let rows = [
             ("HI-SPEED", format!("<  {:.0} px/s  >", options.hi_speed)),
-            ("MODIFIER", format!("<  {}  >", options.lane_modifier.as_str())),
+            (
+                "MODIFIER",
+                format!("<  {}  >", options.lane_modifier.as_str()),
+            ),
             ("GAUGE", format!("<  {}  >", options.gauge_type.as_str())),
-            ("JUDGE OFFSET", format!("<  {:+.0} ms  >", options.judge_offset_ms)),
-            ("MASTER VOLUME", format!("<  {:.0}%  >", master_volume * 100.0)),
+            (
+                "JUDGE OFFSET",
+                format!("<  {:+.0} ms  >", options.judge_offset_ms),
+            ),
+            (
+                "MASTER VOLUME",
+                format!("<  {:.0}%  >", master_volume * 100.0),
+            ),
             ("DISPLAY MODE", format!("<  {}  >", display_mode_str)),
             ("RESOLUTION", format!("<  {}  >", resolution_str)),
             ("GRAPHICS GPU", format!("<  {}  >", gpu_backend_str)),
             ("TARGET FPS", fps_str),
             ("KEY LAYOUT", format!("<  {}  >", key_preset_str)),
-            ("AUTO PLAY", if is_auto_play { "<  ON  >".to_string() } else { "<  OFF  >".to_string() }),
+            (
+                "AUTO PLAY",
+                if is_auto_play {
+                    "<  ON  >".to_string()
+                } else {
+                    "<  OFF  >".to_string()
+                },
+            ),
             ("START MEASURE", format!("<  M.{}  >", start_measure)),
             ("TRACK BGA", format!("<  {}  >", track_bga_str)),
         ];
@@ -85,11 +131,35 @@ impl SoftwareRenderer {
             };
 
             if let Some(bg) = bg_color {
-                self.draw_rect(modal_x + 16.0 * s, row_y as f32 - 3.0 * s, modal_w - 32.0 * s, 24.0 * s, bg);
+                self.draw_rect(
+                    modal_x + 16.0 * s,
+                    row_y as f32 - 3.0 * s,
+                    modal_w - 32.0 * s,
+                    24.0 * s,
+                    bg,
+                );
             }
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (modal_x + 28.0 * s) as i32, row_y, font_scale, text_color);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), val, (modal_x + 240.0 * s) as i32, row_y, font_scale, if is_sel { ColorRgba::new(255, 230, 80, 255) } else { text_color });
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                label,
+                (modal_x + 28.0 * s) as i32,
+                row_y,
+                font_scale,
+                text_color,
+            );
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                val,
+                (modal_x + 240.0 * s) as i32,
+                row_y,
+                font_scale,
+                if is_sel {
+                    ColorRgba::new(255, 230, 80, 255)
+                } else {
+                    text_color
+                },
+            );
 
             row_y += row_step as i32;
         }
@@ -129,11 +199,41 @@ impl SoftwareRenderer {
         let modal_x = vp.x + (vp.width - modal_w) / 2.0;
         let modal_y = vp.y + (vp.height - modal_h) / 2.0;
 
-        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(16, 20, 32, 255));
-        self.draw_rect(modal_x, modal_y, modal_w, 1.0 * s, ColorRgba::new(80, 180, 255, 255));
-        self.draw_rect(modal_x, modal_y + modal_h - 1.0 * s, modal_w, 1.0 * s, ColorRgba::new(80, 180, 255, 255));
-        self.draw_rect(modal_x, modal_y, 1.0 * s, modal_h, ColorRgba::new(80, 180, 255, 255));
-        self.draw_rect(modal_x + modal_w - 1.0 * s, modal_y, 1.0 * s, modal_h, ColorRgba::new(80, 180, 255, 255));
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            modal_h,
+            ColorRgba::new(16, 20, 32, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            1.0 * s,
+            ColorRgba::new(80, 180, 255, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y + modal_h - 1.0 * s,
+            modal_w,
+            1.0 * s,
+            ColorRgba::new(80, 180, 255, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            1.0 * s,
+            modal_h,
+            ColorRgba::new(80, 180, 255, 255),
+        );
+        self.draw_rect(
+            modal_x + modal_w - 1.0 * s,
+            modal_y,
+            1.0 * s,
+            modal_h,
+            ColorRgba::new(80, 180, 255, 255),
+        );
 
         // 3. Pause Header
         let center_x = (vp.x + vp.width / 2.0) as i32;
@@ -181,7 +281,13 @@ impl SoftwareRenderer {
         };
 
         self.draw_rect(bar_x, cur_y, bar_w, bar_h, ColorRgba::new(30, 36, 52, 255));
-        self.draw_rect(bar_x, cur_y, bar_w * ratio, bar_h, ColorRgba::new(80, 210, 255, 255));
+        self.draw_rect(
+            bar_x,
+            cur_y,
+            bar_w * ratio,
+            bar_h,
+            ColorRgba::new(80, 210, 255, 255),
+        );
         cur_y += bar_h + 8.0 * s;
 
         let time_disp = format!(
@@ -217,23 +323,95 @@ impl SoftwareRenderer {
             let item_y = cur_y;
 
             if is_sel {
-                self.draw_rect(item_x, item_y, item_w, item_h, ColorRgba::new(35, 65, 135, 255));
-                self.draw_rect(item_x, item_y, item_w, 1.0 * s, ColorRgba::new(90, 190, 255, 255));
-                self.draw_rect(item_x, item_y + item_h - 1.0 * s, item_w, 1.0 * s, ColorRgba::new(90, 190, 255, 255));
-                self.draw_rect(item_x, item_y, 1.0 * s, item_h, ColorRgba::new(90, 190, 255, 255));
-                self.draw_rect(item_x + item_w - 1.0 * s, item_y, 1.0 * s, item_h, ColorRgba::new(90, 190, 255, 255));
+                self.draw_rect(
+                    item_x,
+                    item_y,
+                    item_w,
+                    item_h,
+                    ColorRgba::new(35, 65, 135, 255),
+                );
+                self.draw_rect(
+                    item_x,
+                    item_y,
+                    item_w,
+                    1.0 * s,
+                    ColorRgba::new(90, 190, 255, 255),
+                );
+                self.draw_rect(
+                    item_x,
+                    item_y + item_h - 1.0 * s,
+                    item_w,
+                    1.0 * s,
+                    ColorRgba::new(90, 190, 255, 255),
+                );
+                self.draw_rect(
+                    item_x,
+                    item_y,
+                    1.0 * s,
+                    item_h,
+                    ColorRgba::new(90, 190, 255, 255),
+                );
+                self.draw_rect(
+                    item_x + item_w - 1.0 * s,
+                    item_y,
+                    1.0 * s,
+                    item_h,
+                    ColorRgba::new(90, 190, 255, 255),
+                );
             } else {
-                self.draw_rect(item_x, item_y, item_w, item_h, ColorRgba::new(20, 25, 38, 200));
-                self.draw_rect(item_x, item_y, item_w, 1.0 * s, ColorRgba::new(40, 48, 68, 255));
-                self.draw_rect(item_x, item_y + item_h - 1.0 * s, item_w, 1.0 * s, ColorRgba::new(40, 48, 68, 255));
+                self.draw_rect(
+                    item_x,
+                    item_y,
+                    item_w,
+                    item_h,
+                    ColorRgba::new(20, 25, 38, 200),
+                );
+                self.draw_rect(
+                    item_x,
+                    item_y,
+                    item_w,
+                    1.0 * s,
+                    ColorRgba::new(40, 48, 68, 255),
+                );
+                self.draw_rect(
+                    item_x,
+                    item_y + item_h - 1.0 * s,
+                    item_w,
+                    1.0 * s,
+                    ColorRgba::new(40, 48, 68, 255),
+                );
             }
 
-            let text_col = if is_sel { ColorRgba::new(255, 255, 255, 255) } else { ColorRgba::new(180, 190, 215, 255) };
-            let sub_col = if is_sel { ColorRgba::new(140, 210, 255, 255) } else { ColorRgba::new(100, 110, 135, 255) };
+            let text_col = if is_sel {
+                ColorRgba::new(255, 255, 255, 255)
+            } else {
+                ColorRgba::new(180, 190, 215, 255)
+            };
+            let sub_col = if is_sel {
+                ColorRgba::new(140, 210, 255, 255)
+            } else {
+                ColorRgba::new(100, 110, 135, 255)
+            };
 
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), label, (item_x + 16.0 * s) as i32, (item_y + 8.0 * s) as i32, font_scale, text_col);
-            let sub_x = (item_x + item_w - BitmapFont::text_width(sub, font_scale) as f32 - 16.0 * s) as i32;
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), sub, sub_x, (item_y + 8.0 * s) as i32, font_scale, sub_col);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                label,
+                (item_x + 16.0 * s) as i32,
+                (item_y + 8.0 * s) as i32,
+                font_scale,
+                text_col,
+            );
+            let sub_x = (item_x + item_w
+                - BitmapFont::text_width(sub, font_scale) as f32
+                - 16.0 * s) as i32;
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                sub,
+                sub_x,
+                (item_y + 8.0 * s) as i32,
+                font_scale,
+                sub_col,
+            );
 
             cur_y += item_h + 8.0 * s;
         }
@@ -256,11 +434,41 @@ impl SoftwareRenderer {
         let modal_x = vp.x + (vp.width - modal_w) / 2.0;
         let modal_y = vp.y + (vp.height - modal_h) / 2.0;
 
-        self.draw_rect(modal_x, modal_y, modal_w, modal_h, ColorRgba::new(16, 20, 32, 255));
-        self.draw_rect(modal_x, modal_y, modal_w, 2.0 * s, ColorRgba::new(255, 90, 90, 255));
-        self.draw_rect(modal_x, modal_y + modal_h - 2.0 * s, modal_w, 2.0 * s, ColorRgba::new(255, 90, 90, 255));
-        self.draw_rect(modal_x, modal_y, 2.0 * s, modal_h, ColorRgba::new(255, 90, 90, 255));
-        self.draw_rect(modal_x + modal_w - 2.0 * s, modal_y, 2.0 * s, modal_h, ColorRgba::new(255, 90, 90, 255));
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            modal_h,
+            ColorRgba::new(16, 20, 32, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            modal_w,
+            2.0 * s,
+            ColorRgba::new(255, 90, 90, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y + modal_h - 2.0 * s,
+            modal_w,
+            2.0 * s,
+            ColorRgba::new(255, 90, 90, 255),
+        );
+        self.draw_rect(
+            modal_x,
+            modal_y,
+            2.0 * s,
+            modal_h,
+            ColorRgba::new(255, 90, 90, 255),
+        );
+        self.draw_rect(
+            modal_x + modal_w - 2.0 * s,
+            modal_y,
+            2.0 * s,
+            modal_h,
+            ColorRgba::new(255, 90, 90, 255),
+        );
 
         // 3. Exit Header
         let center_x = (vp.x + vp.width / 2.0) as i32;
@@ -297,10 +505,34 @@ impl SoftwareRenderer {
         // Confirm Button (Exit)
         let yes_x = btn_start_x;
         self.draw_rect(yes_x, cur_y, btn_w, btn_h, ColorRgba::new(140, 30, 30, 255));
-        self.draw_rect(yes_x, cur_y, btn_w, 1.0 * s, ColorRgba::new(255, 100, 100, 255));
-        self.draw_rect(yes_x, cur_y + btn_h - 1.0 * s, btn_w, 1.0 * s, ColorRgba::new(255, 100, 100, 255));
-        self.draw_rect(yes_x, cur_y, 1.0 * s, btn_h, ColorRgba::new(255, 100, 100, 255));
-        self.draw_rect(yes_x + btn_w - 1.0 * s, cur_y, 1.0 * s, btn_h, ColorRgba::new(255, 100, 100, 255));
+        self.draw_rect(
+            yes_x,
+            cur_y,
+            btn_w,
+            1.0 * s,
+            ColorRgba::new(255, 100, 100, 255),
+        );
+        self.draw_rect(
+            yes_x,
+            cur_y + btn_h - 1.0 * s,
+            btn_w,
+            1.0 * s,
+            ColorRgba::new(255, 100, 100, 255),
+        );
+        self.draw_rect(
+            yes_x,
+            cur_y,
+            1.0 * s,
+            btn_h,
+            ColorRgba::new(255, 100, 100, 255),
+        );
+        self.draw_rect(
+            yes_x + btn_w - 1.0 * s,
+            cur_y,
+            1.0 * s,
+            btn_h,
+            ColorRgba::new(255, 100, 100, 255),
+        );
 
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
@@ -314,10 +546,34 @@ impl SoftwareRenderer {
         // Cancel Button
         let no_x = yes_x + btn_w + gap;
         self.draw_rect(no_x, cur_y, btn_w, btn_h, ColorRgba::new(28, 38, 56, 255));
-        self.draw_rect(no_x, cur_y, btn_w, 1.0 * s, ColorRgba::new(70, 130, 210, 255));
-        self.draw_rect(no_x, cur_y + btn_h - 1.0 * s, btn_w, 1.0 * s, ColorRgba::new(70, 130, 210, 255));
-        self.draw_rect(no_x, cur_y, 1.0 * s, btn_h, ColorRgba::new(70, 130, 210, 255));
-        self.draw_rect(no_x + btn_w - 1.0 * s, cur_y, 1.0 * s, btn_h, ColorRgba::new(70, 130, 210, 255));
+        self.draw_rect(
+            no_x,
+            cur_y,
+            btn_w,
+            1.0 * s,
+            ColorRgba::new(70, 130, 210, 255),
+        );
+        self.draw_rect(
+            no_x,
+            cur_y + btn_h - 1.0 * s,
+            btn_w,
+            1.0 * s,
+            ColorRgba::new(70, 130, 210, 255),
+        );
+        self.draw_rect(
+            no_x,
+            cur_y,
+            1.0 * s,
+            btn_h,
+            ColorRgba::new(70, 130, 210, 255),
+        );
+        self.draw_rect(
+            no_x + btn_w - 1.0 * s,
+            cur_y,
+            1.0 * s,
+            btn_h,
+            ColorRgba::new(70, 130, 210, 255),
+        );
 
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
@@ -361,7 +617,13 @@ impl SoftwareRenderer {
         // Background subtle grid/lines inside viewport
         let mut line_y = vp.y;
         while line_y < vp.y + vp.height {
-            self.draw_rect(vp.x, line_y, vp.width, 1.0 * s, ColorRgba::new(20, 20, 30, 255));
+            self.draw_rect(
+                vp.x,
+                line_y,
+                vp.width,
+                1.0 * s,
+                ColorRgba::new(20, 20, 30, 255),
+            );
             line_y += 24.0 * s;
         }
 
@@ -383,11 +645,24 @@ impl SoftwareRenderer {
         let art_h = art_w * (9.0 / 16.0);
         let art_x = vp.x + (vp.width - art_w) / 2.0;
 
-        self.draw_rect(art_x - 2.0 * s, y - 2.0 * s, art_w + 4.0 * s, art_h + 4.0 * s, ColorRgba::new(50, 60, 90, 255));
+        self.draw_rect(
+            art_x - 2.0 * s,
+            y - 2.0 * s,
+            art_w + 4.0 * s,
+            art_h + 4.0 * s,
+            ColorRgba::new(50, 60, 90, 255),
+        );
         self.draw_rect(art_x, y, art_w, art_h, ColorRgba::new(12, 12, 18, 255));
 
         if let Some(img) = stage_image {
-            img.draw_fitted(&mut self.pixmap, art_x as i32, y as i32, art_w as u32, art_h as u32, crate::image::ImageFitMode::FillCrop);
+            img.draw_fitted(
+                &mut self.pixmap,
+                art_x as i32,
+                y as i32,
+                art_w as u32,
+                art_h as u32,
+                crate::image::ImageFitMode::FillCrop,
+            );
         } else {
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),

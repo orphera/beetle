@@ -87,10 +87,19 @@ impl SoftwareRenderer {
         // 1. Viewport & margins
         let bg_col = self.skin.bg_color;
         if !self.viewport.is_letterboxed() && !self.viewport.is_pillarboxed() {
-            bg.fill(tiny_skia::Color::from_rgba8(bg_col.r, bg_col.g, bg_col.b, bg_col.a));
+            bg.fill(tiny_skia::Color::from_rgba8(
+                bg_col.r, bg_col.g, bg_col.b, bg_col.a,
+            ));
         } else {
             bg.fill(tiny_skia::Color::BLACK);
-            draw_rect_on_pixmap(&mut bg, self.viewport.x, self.viewport.y, self.viewport.width, self.viewport.height, bg_col);
+            draw_rect_on_pixmap(
+                &mut bg,
+                self.viewport.x,
+                self.viewport.y,
+                self.viewport.width,
+                self.viewport.height,
+                bg_col,
+            );
         }
 
         let s = self.viewport.scale;
@@ -110,23 +119,58 @@ impl SoftwareRenderer {
         let line_color = self.skin.lane_line_color;
         for &lane in self.skin.active_lanes() {
             let x = self.skin.lane_x(lane);
-            draw_rect_on_pixmap(&mut bg, x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+            draw_rect_on_pixmap(
+                &mut bg,
+                x,
+                self.skin.playfield_y,
+                line_w,
+                self.skin.playfield_height,
+                line_color,
+            );
         }
         let right_x = self.skin.playfield_x + self.skin.playfield_width;
-        draw_rect_on_pixmap(&mut bg, right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+        draw_rect_on_pixmap(
+            &mut bg,
+            right_x,
+            self.skin.playfield_y,
+            line_w,
+            self.skin.playfield_height,
+            line_color,
+        );
 
         // 4. Gauge bar background container & border
         let gauge_x = self.skin.playfield_x + self.skin.playfield_width + 16.0 * s;
         let gauge_y = self.skin.playfield_y;
         let gauge_w = 22.0 * s;
         let gauge_h = self.skin.playfield_height;
-        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, gauge_w, gauge_h, ColorRgba::new(20, 20, 28, 255));
+        draw_rect_on_pixmap(
+            &mut bg,
+            gauge_x,
+            gauge_y,
+            gauge_w,
+            gauge_h,
+            ColorRgba::new(20, 20, 28, 255),
+        );
         let b_line = (1.0 * s).max(1.0);
         let border_color = ColorRgba::new(80, 80, 100, 255);
         draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, gauge_w, b_line, border_color);
-        draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y + gauge_h - b_line, gauge_w, b_line, border_color);
+        draw_rect_on_pixmap(
+            &mut bg,
+            gauge_x,
+            gauge_y + gauge_h - b_line,
+            gauge_w,
+            b_line,
+            border_color,
+        );
         draw_rect_on_pixmap(&mut bg, gauge_x, gauge_y, b_line, gauge_h, border_color);
-        draw_rect_on_pixmap(&mut bg, gauge_x + gauge_w - b_line, gauge_y, b_line, gauge_h, border_color);
+        draw_rect_on_pixmap(
+            &mut bg,
+            gauge_x + gauge_w - b_line,
+            gauge_y,
+            b_line,
+            gauge_h,
+            border_color,
+        );
 
         // 5. BGA frame container
         let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
@@ -134,8 +178,22 @@ impl SoftwareRenderer {
         let max_w = (self.viewport.x + self.viewport.width - side_x - 24.0 * s).max(100.0);
         let bga_w = (520.0 * s).min(max_w);
         let bga_h = (bga_w * 9.0 / 16.0).round();
-        draw_rect_on_pixmap(&mut bg, side_x - 2.0 * s, bga_y - 2.0 * s, bga_w + 4.0 * s, bga_h + 4.0 * s, ColorRgba::new(50, 60, 80, 255));
-        draw_rect_on_pixmap(&mut bg, side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255));
+        draw_rect_on_pixmap(
+            &mut bg,
+            side_x - 2.0 * s,
+            bga_y - 2.0 * s,
+            bga_w + 4.0 * s,
+            bga_h + 4.0 * s,
+            ColorRgba::new(50, 60, 80, 255),
+        );
+        draw_rect_on_pixmap(
+            &mut bg,
+            side_x,
+            bga_y,
+            bga_w,
+            bga_h,
+            ColorRgba::new(8, 8, 12, 255),
+        );
 
         // 6. Static HUD text labels
         let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
@@ -143,18 +201,46 @@ impl SoftwareRenderer {
         let title_scale = (2.0 * s).round().max(1.0) as u32;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
 
-        BitmapFont::draw_text(&mut bg.as_mut(), &chart.header.title, hud_x, hud_y, title_scale, ColorRgba::new(255, 255, 255, 255));
+        BitmapFont::draw_text(
+            &mut bg.as_mut(),
+            &chart.header.title,
+            hud_x,
+            hud_y,
+            title_scale,
+            ColorRgba::new(255, 255, 255, 255),
+        );
         hud_y += (22.0 * s) as i32;
 
-        BitmapFont::draw_text(&mut bg.as_mut(), &chart.header.artist, hud_x, hud_y, font_scale, ColorRgba::new(160, 160, 180, 255));
+        BitmapFont::draw_text(
+            &mut bg.as_mut(),
+            &chart.header.artist,
+            hud_x,
+            hud_y,
+            font_scale,
+            ColorRgba::new(160, 160, 180, 255),
+        );
         hud_y += (28.0 * s) as i32;
 
         let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
-        BitmapFont::draw_text(&mut bg.as_mut(), &bpm_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+        BitmapFont::draw_text(
+            &mut bg.as_mut(),
+            &bpm_str,
+            hud_x,
+            hud_y,
+            font_scale,
+            ColorRgba::new(200, 200, 220, 255),
+        );
         hud_y += (16.0 * s) as i32;
 
         let lvl_str = format!("LEVEL: {}", chart.header.play_level);
-        BitmapFont::draw_text(&mut bg.as_mut(), &lvl_str, hud_x, hud_y, font_scale, ColorRgba::new(200, 200, 220, 255));
+        BitmapFont::draw_text(
+            &mut bg.as_mut(),
+            &lvl_str,
+            hud_x,
+            hud_y,
+            font_scale,
+            ColorRgba::new(200, 200, 220, 255),
+        );
 
         self.cached_gameplay_bg = Some(bg);
         self.cached_gameplay_title = chart.header.title.clone();
@@ -182,11 +268,18 @@ impl SoftwareRenderer {
             self.clear();
         }
 
-        let is_danger = (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
+        let is_danger = (score.gauge < 30.0
+            && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
             || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0);
         let danger_blink = is_danger && ((audio_time_seconds * 6.0).sin() > 0.0);
 
-        self.draw_playfield_dynamic_overlay(score.current_combo, danger_blink, bga_image, layer_image, track_bga_opacity);
+        self.draw_playfield_dynamic_overlay(
+            score.current_combo,
+            danger_blink,
+            bga_image,
+            layer_image,
+            track_bga_opacity,
+        );
         self.draw_key_beams();
         self.draw_measure_lines(audio_time_seconds, timing, chart);
         self.draw_notes(notes, audio_time_seconds);
@@ -251,19 +344,43 @@ impl SoftwareRenderer {
             let line_w = (1.0 * s).max(1.0);
             for &lane in self.skin.active_lanes() {
                 let x = self.skin.lane_x(lane);
-                self.draw_rect(x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+                self.draw_rect(
+                    x,
+                    self.skin.playfield_y,
+                    line_w,
+                    self.skin.playfield_height,
+                    line_color,
+                );
             }
             let right_x = self.skin.playfield_x + self.skin.playfield_width;
-            self.draw_rect(right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+            self.draw_rect(
+                right_x,
+                self.skin.playfield_y,
+                line_w,
+                self.skin.playfield_height,
+                line_color,
+            );
         } else if self.cached_gameplay_bg.is_none() {
             let line_color = self.skin.lane_line_color;
             let line_w = (1.0 * s).max(1.0);
             for &lane in self.skin.active_lanes() {
                 let x = self.skin.lane_x(lane);
-                self.draw_rect(x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+                self.draw_rect(
+                    x,
+                    self.skin.playfield_y,
+                    line_w,
+                    self.skin.playfield_height,
+                    line_color,
+                );
             }
             let right_x = self.skin.playfield_x + self.skin.playfield_width;
-            self.draw_rect(right_x, self.skin.playfield_y, line_w, self.skin.playfield_height, line_color);
+            self.draw_rect(
+                right_x,
+                self.skin.playfield_y,
+                line_w,
+                self.skin.playfield_height,
+                line_color,
+            );
         }
 
         // Danger pulsing border around entire playfield
@@ -275,9 +392,21 @@ impl SoftwareRenderer {
             let border_thickness = (2.0 * s).max(2.0);
             let danger_col = ColorRgba::new(255, 40, 40, 220);
             self.draw_rect(px, py, pw, border_thickness, danger_col);
-            self.draw_rect(px, py + ph - border_thickness, pw, border_thickness, danger_col);
+            self.draw_rect(
+                px,
+                py + ph - border_thickness,
+                pw,
+                border_thickness,
+                danger_col,
+            );
             self.draw_rect(px, py, border_thickness, ph, danger_col);
-            self.draw_rect(px + pw - border_thickness, py, border_thickness, ph, danger_col);
+            self.draw_rect(
+                px + pw - border_thickness,
+                py,
+                border_thickness,
+                ph,
+                danger_col,
+            );
         }
     }
 
@@ -312,7 +441,8 @@ impl SoftwareRenderer {
         let line_color = ColorRgba::new(200, 210, 225, 90);
 
         // Determine the visible time window
-        let visible_duration = (judge_y - top_y + 50.0 * s) as f64 / effective_speed.max(1.0) as f64;
+        let visible_duration =
+            (judge_y - top_y + 50.0 * s) as f64 / effective_speed.max(1.0) as f64;
         let max_time = audio_time_seconds + visible_duration;
 
         // Use precomputed max_measure from chart instead of O(N) linear search per frame
@@ -367,13 +497,7 @@ impl SoftwareRenderer {
 
         // Core bright judge line
         let line_h = (2.0 * s).max(2.0);
-        self.draw_rect(
-            px,
-            jy,
-            pw,
-            line_h,
-            self.skin.judge_line_color,
-        );
+        self.draw_rect(px, jy, pw, line_h, self.skin.judge_line_color);
     }
 
     fn draw_notes(&mut self, notes: &[beetle_core::PlayNote], audio_time_seconds: f64) {
@@ -383,7 +507,8 @@ impl SoftwareRenderer {
         let top_y = self.skin.playfield_y;
         let note_h = self.skin.note_height;
 
-        let visible_duration = (judge_y - top_y + 100.0 * s) as f64 / effective_speed.max(1.0) as f64;
+        let visible_duration =
+            (judge_y - top_y + 100.0 * s) as f64 / effective_speed.max(1.0) as f64;
         let min_time = audio_time_seconds - 2.0;
         let max_time = audio_time_seconds + visible_duration;
 
@@ -509,14 +634,32 @@ impl SoftwareRenderer {
         };
         let b_line = (1.0 * s).max(1.0);
         self.draw_rect(gauge_x, gauge_y, gauge_w, b_line, border_color);
-        self.draw_rect(gauge_x, gauge_y + gauge_h - b_line, gauge_w, b_line, border_color);
+        self.draw_rect(
+            gauge_x,
+            gauge_y + gauge_h - b_line,
+            gauge_w,
+            b_line,
+            border_color,
+        );
         self.draw_rect(gauge_x, gauge_y, b_line, gauge_h, border_color);
-        self.draw_rect(gauge_x + gauge_w - b_line, gauge_y, b_line, gauge_h, border_color);
+        self.draw_rect(
+            gauge_x + gauge_w - b_line,
+            gauge_y,
+            b_line,
+            gauge_h,
+            border_color,
+        );
 
         // Gauge 80% threshold line for Easy / Groove gauge
         if matches!(score.gauge_type, GaugeType::Easy | GaugeType::Groove) {
             let line_y = gauge_y + gauge_h * 0.2;
-            self.draw_rect(gauge_x - 3.0 * s, line_y, gauge_w + 6.0 * s, 2.0 * s, ColorRgba::new(255, 220, 50, 255));
+            self.draw_rect(
+                gauge_x - 3.0 * s,
+                line_y,
+                gauge_w + 6.0 * s,
+                2.0 * s,
+                ColorRgba::new(255, 220, 50, 255),
+            );
         }
 
         // Percentage text below gauge
@@ -685,9 +828,15 @@ impl SoftwareRenderer {
                 // FAST / SLOW indicator
                 if grade != JudgeGrade::Miss && delta_ms.abs() >= 4.0 {
                     let (fast_slow_str, fs_color) = if delta_ms < 0.0 {
-                        (format!("FAST {:.0}ms", delta_ms), ColorRgba::new(80, 210, 255, 255))
+                        (
+                            format!("FAST {:.0}ms", delta_ms),
+                            ColorRgba::new(80, 210, 255, 255),
+                        )
                     } else {
-                        (format!("SLOW +{:.0}ms", delta_ms), ColorRgba::new(255, 140, 60, 255))
+                        (
+                            format!("SLOW +{:.0}ms", delta_ms),
+                            ColorRgba::new(255, 140, 60, 255),
+                        )
                     };
 
                     BitmapFont::draw_text_centered(
@@ -800,14 +949,25 @@ impl SoftwareRenderer {
         hud_y += (18.0 * s) as i32;
 
         // Pacemaker (AAA target = 8/9 of max possible EX score so far)
-        let played_notes = score.pgreat_count + score.great_count + score.good_count + score.bad_count + score.poor_count + score.miss_count;
+        let played_notes = score.pgreat_count
+            + score.great_count
+            + score.good_count
+            + score.bad_count
+            + score.poor_count
+            + score.miss_count;
         let max_so_far = played_notes * 2;
         let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
         let pace_diff = score.ex_score as i32 - aaa_target;
         let (pace_str, pace_color) = if pace_diff >= 0 {
-            (format!("PACEMAKER (AAA): +{}", pace_diff), ColorRgba::new(100, 255, 120, 255))
+            (
+                format!("PACEMAKER (AAA): +{}", pace_diff),
+                ColorRgba::new(100, 255, 120, 255),
+            )
         } else {
-            (format!("PACEMAKER (AAA): {}", pace_diff), ColorRgba::new(255, 90, 90, 255))
+            (
+                format!("PACEMAKER (AAA): {}", pace_diff),
+                ColorRgba::new(255, 90, 90, 255),
+            )
         };
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
@@ -821,17 +981,40 @@ impl SoftwareRenderer {
 
         // Judge breakdown table
         let counts = [
-            ("PGREAT", score.pgreat_count, ColorRgba::new(255, 230, 80, 255)),
-            ("GREAT ", score.great_count, ColorRgba::new(255, 170, 50, 255)),
-            ("GOOD  ", score.good_count, ColorRgba::new(60, 220, 120, 255)),
+            (
+                "PGREAT",
+                score.pgreat_count,
+                ColorRgba::new(255, 230, 80, 255),
+            ),
+            (
+                "GREAT ",
+                score.great_count,
+                ColorRgba::new(255, 170, 50, 255),
+            ),
+            (
+                "GOOD  ",
+                score.good_count,
+                ColorRgba::new(60, 220, 120, 255),
+            ),
             ("BAD   ", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
             ("POOR  ", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
-            ("MISS  ", score.miss_count, ColorRgba::new(140, 140, 140, 255)),
+            (
+                "MISS  ",
+                score.miss_count,
+                ColorRgba::new(140, 140, 140, 255),
+            ),
         ];
 
         for (label, count, color) in counts {
             let row = format!("{}: {:>4}", label, count);
-            BitmapFont::draw_text(&mut self.pixmap.as_mut(), &row, hud_x, hud_y, font_scale, color);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &row,
+                hud_x,
+                hud_y,
+                font_scale,
+                color,
+            );
             hud_y += (14.0 * s) as i32;
         }
     }
@@ -850,11 +1033,24 @@ impl SoftwareRenderer {
         let bga_h = (bga_w * 9.0 / 16.0).round();
 
         // BGA frame
-        self.draw_rect(side_x - 2.0 * s, bga_y - 2.0 * s, bga_w + 4.0 * s, bga_h + 4.0 * s, ColorRgba::new(50, 60, 80, 255));
+        self.draw_rect(
+            side_x - 2.0 * s,
+            bga_y - 2.0 * s,
+            bga_w + 4.0 * s,
+            bga_h + 4.0 * s,
+            ColorRgba::new(50, 60, 80, 255),
+        );
         self.draw_rect(side_x, bga_y, bga_w, bga_h, ColorRgba::new(8, 8, 12, 255));
 
         if let Some(img) = bga_image {
-            img.draw_fitted(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32, crate::image::ImageFitMode::FillCrop);
+            img.draw_fitted(
+                &mut self.pixmap,
+                side_x as i32,
+                bga_y as i32,
+                bga_w as u32,
+                bga_h as u32,
+                crate::image::ImageFitMode::FillCrop,
+            );
         } else {
             let font_scale = (s * 0.9).round().max(1.0) as u32;
             BitmapFont::draw_text_centered(
@@ -869,7 +1065,13 @@ impl SoftwareRenderer {
 
         // Draw Layer BGA (Channel 07) overlay with color-key transparency
         if let Some(layer) = layer_image {
-            layer.draw_color_keyed(&mut self.pixmap, side_x as i32, bga_y as i32, bga_w as u32, bga_h as u32);
+            layer.draw_color_keyed(
+                &mut self.pixmap,
+                side_x as i32,
+                bga_y as i32,
+                bga_w as u32,
+                bga_h as u32,
+            );
         }
 
         let vis_y = bga_y + bga_h + 16.0 * s;
@@ -878,10 +1080,34 @@ impl SoftwareRenderer {
 
         // Visualizer background
         self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(12, 14, 20, 255));
-        self.draw_rect(side_x, vis_y, bga_w, b_line, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x, vis_y + vis_h - b_line, bga_w, b_line, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x, vis_y, b_line, vis_h, ColorRgba::new(60, 70, 90, 255));
-        self.draw_rect(side_x + bga_w - b_line, vis_y, b_line, vis_h, ColorRgba::new(60, 70, 90, 255));
+        self.draw_rect(
+            side_x,
+            vis_y,
+            bga_w,
+            b_line,
+            ColorRgba::new(60, 70, 90, 255),
+        );
+        self.draw_rect(
+            side_x,
+            vis_y + vis_h - b_line,
+            bga_w,
+            b_line,
+            ColorRgba::new(60, 70, 90, 255),
+        );
+        self.draw_rect(
+            side_x,
+            vis_y,
+            b_line,
+            vis_h,
+            ColorRgba::new(60, 70, 90, 255),
+        );
+        self.draw_rect(
+            side_x + bga_w - b_line,
+            vis_y,
+            b_line,
+            vis_h,
+            ColorRgba::new(60, 70, 90, 255),
+        );
 
         let font_scale = (s * 0.9).round().max(1.0) as u32;
         BitmapFont::draw_text(

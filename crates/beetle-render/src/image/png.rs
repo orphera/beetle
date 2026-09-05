@@ -1,7 +1,7 @@
 #[cfg(feature = "bga-enhanced")]
-use crate::skin::ColorRgba;
-#[cfg(feature = "bga-enhanced")]
 use super::ImageBuffer;
+#[cfg(feature = "bga-enhanced")]
+use crate::skin::ColorRgba;
 
 #[cfg(feature = "bga-enhanced")]
 /// Decodes a PNG image from byte slice (requires bga-enhanced feature).

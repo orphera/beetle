@@ -60,7 +60,11 @@ const KEY_LANES: [Lane; 7] = [
 ];
 
 /// Applies note lane modifiers to a vector of note events.
-pub fn apply_lane_modifier(notes: &[NoteEvent], modifier: LaneModifier, seed: u64) -> Vec<NoteEvent> {
+pub fn apply_lane_modifier(
+    notes: &[NoteEvent],
+    modifier: LaneModifier,
+    seed: u64,
+) -> Vec<NoteEvent> {
     if modifier == LaneModifier::Regular {
         return notes.to_vec();
     }

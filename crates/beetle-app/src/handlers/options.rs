@@ -20,11 +20,13 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         }
         KeyCode::ArrowLeft => {
             match state.modal_row {
-                0 => { // Hi-Speed
+                0 => {
+                    // Hi-Speed
                     state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
                     state.renderer.skin.hi_speed = state.play_options.hi_speed;
                 }
-                1 => { // Lane Modifier
+                1 => {
+                    // Lane Modifier
                     state.play_options.lane_modifier = match state.play_options.lane_modifier {
                         LaneModifier::Regular => LaneModifier::SRandom,
                         LaneModifier::Mirror => LaneModifier::Regular,
@@ -33,7 +35,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         LaneModifier::SRandom => LaneModifier::RRandom,
                     };
                 }
-                2 => { // Gauge
+                2 => {
+                    // Gauge
                     state.play_options.gauge_type = match state.play_options.gauge_type {
                         GaugeType::Easy => GaugeType::Hazard,
                         GaugeType::Groove => GaugeType::Easy,
@@ -41,44 +44,62 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         GaugeType::Hazard => GaugeType::Hard,
                     };
                 }
-                3 => { // Judge Offset
-                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms - 1.0).max(-100.0);
+                3 => {
+                    // Judge Offset
+                    state.play_options.judge_offset_ms =
+                        (state.play_options.judge_offset_ms - 1.0).max(-100.0);
                 }
-                4 => { // Master Volume
+                4 => {
+                    // Master Volume
                     state.master_volume = (state.master_volume - 0.05).max(0.0);
                     if let Some(audio) = &mut state.audio_engine {
                         let _ = audio.set_master_volume(state.master_volume);
                     }
                 }
-                5 => { // Display Mode
+                5 => {
+                    // Display Mode
                     state.display_mode = state.display_mode.prev();
                     state.apply_display_mode();
                 }
-                6 => { // Resolution
+                6 => {
+                    // Resolution
                     state.cycle_resolution(false);
                 }
-                7 => { // Graphics GPU
+                7 => {
+                    // Graphics GPU
                     state.gpu_backend = state.gpu_backend.prev();
                     #[cfg(target_os = "windows")]
                     if state.gpu_backend != crate::config::GpuBackendSetting::Software {
                         state.ensure_d3d11_backend();
                     }
                 }
-                8 => { // Target FPS
-                    let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
-                    let prev_idx = if cur_idx == 0 { FPS_PRESETS.len() - 1 } else { cur_idx - 1 };
+                8 => {
+                    // Target FPS
+                    let cur_idx = FPS_PRESETS
+                        .iter()
+                        .position(|&f| f == state.target_fps)
+                        .unwrap_or(3);
+                    let prev_idx = if cur_idx == 0 {
+                        FPS_PRESETS.len() - 1
+                    } else {
+                        cur_idx - 1
+                    };
                     state.target_fps = FPS_PRESETS[prev_idx];
                 }
-                9 => { // Key Layout
+                9 => {
+                    // Key Layout
                     state.input_config.toggle_preset();
                 }
-                10 => { // Auto Play
+                10 => {
+                    // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                11 => { // Start Measure
+                11 => {
+                    // Start Measure
                     state.start_measure = state.start_measure.saturating_sub(1);
                 }
-                12 => { // Track BGA
+                12 => {
+                    // Track BGA
                     state.track_bga = state.track_bga.prev();
                 }
                 _ => (),
@@ -87,11 +108,13 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         }
         KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Space => {
             match state.modal_row {
-                0 => { // Hi-Speed
+                0 => {
+                    // Hi-Speed
                     state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
                     state.renderer.skin.hi_speed = state.play_options.hi_speed;
                 }
-                1 => { // Lane Modifier
+                1 => {
+                    // Lane Modifier
                     state.play_options.lane_modifier = match state.play_options.lane_modifier {
                         LaneModifier::Regular => LaneModifier::Mirror,
                         LaneModifier::Mirror => LaneModifier::Random,
@@ -100,7 +123,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         LaneModifier::SRandom => LaneModifier::Regular,
                     };
                 }
-                2 => { // Gauge
+                2 => {
+                    // Gauge
                     state.play_options.gauge_type = match state.play_options.gauge_type {
                         GaugeType::Easy => GaugeType::Groove,
                         GaugeType::Groove => GaugeType::Hard,
@@ -108,35 +132,46 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         GaugeType::Hazard => GaugeType::Easy,
                     };
                 }
-                3 => { // Judge Offset
-                    state.play_options.judge_offset_ms = (state.play_options.judge_offset_ms + 1.0).min(100.0);
+                3 => {
+                    // Judge Offset
+                    state.play_options.judge_offset_ms =
+                        (state.play_options.judge_offset_ms + 1.0).min(100.0);
                 }
-                4 => { // Master Volume
+                4 => {
+                    // Master Volume
                     state.master_volume = (state.master_volume + 0.05).min(2.0);
                     if let Some(audio) = &mut state.audio_engine {
                         let _ = audio.set_master_volume(state.master_volume);
                     }
                 }
-                5 => { // Display Mode
+                5 => {
+                    // Display Mode
                     state.display_mode = state.display_mode.next();
                     state.apply_display_mode();
                 }
-                6 => { // Resolution
+                6 => {
+                    // Resolution
                     state.cycle_resolution(true);
                 }
-                7 => { // Graphics GPU
+                7 => {
+                    // Graphics GPU
                     state.gpu_backend = state.gpu_backend.next();
                     #[cfg(target_os = "windows")]
                     if state.gpu_backend != crate::config::GpuBackendSetting::Software {
                         state.ensure_d3d11_backend();
                     }
                 }
-                8 => { // Target FPS
-                    let cur_idx = FPS_PRESETS.iter().position(|&f| f == state.target_fps).unwrap_or(3);
+                8 => {
+                    // Target FPS
+                    let cur_idx = FPS_PRESETS
+                        .iter()
+                        .position(|&f| f == state.target_fps)
+                        .unwrap_or(3);
                     let next_idx = (cur_idx + 1) % FPS_PRESETS.len();
                     state.target_fps = FPS_PRESETS[next_idx];
                 }
-                9 => { // Key Layout
+                9 => {
+                    // Key Layout
                     if code == KeyCode::Enter || code == KeyCode::Space {
                         state.screen = AppScreen::KeyConfig;
                         state.show_option_modal = false;
@@ -144,13 +179,16 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         state.input_config.toggle_preset();
                     }
                 }
-                10 => { // Auto Play
+                10 => {
+                    // Auto Play
                     state.is_auto_play = !state.is_auto_play;
                 }
-                11 => { // Start Measure
+                11 => {
+                    // Start Measure
                     state.start_measure = (state.start_measure + 1).min(200);
                 }
-                12 => { // Track BGA
+                12 => {
+                    // Track BGA
                     state.track_bga = state.track_bga.next();
                 }
                 _ => (),

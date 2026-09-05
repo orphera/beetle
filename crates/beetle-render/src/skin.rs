@@ -19,11 +19,21 @@ impl ColorRgba {
     }
 
     pub const fn transparent() -> Self {
-        Self { r: 0, g: 0, b: 0, a: 0 }
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
     }
 
     pub const fn with_alpha(self, a: u8) -> Self {
-        Self { r: self.r, g: self.g, b: self.b, a }
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a,
+        }
     }
 
     pub fn to_f32_array(self) -> [f32; 4] {

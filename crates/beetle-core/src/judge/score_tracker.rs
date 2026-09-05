@@ -57,7 +57,11 @@ impl ScoreTracker {
         let effective_total = if total <= 0.0 { 200.0 } else { total };
 
         // BMS standard gauge gain formula (Easy gauge gets 1.2x boost)
-        let multiplier = if gauge_type == GaugeType::Easy { 1.2 } else { 1.0 };
+        let multiplier = if gauge_type == GaugeType::Easy {
+            1.2
+        } else {
+            1.0
+        };
         let gain_pgreat = (effective_total / n) * multiplier;
         let gain_great = gain_pgreat * 0.8;
         let gain_good = gain_pgreat * 0.5;

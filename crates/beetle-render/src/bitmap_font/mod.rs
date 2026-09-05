@@ -1,9 +1,9 @@
 pub mod ascii;
 pub mod bold_digits;
-pub mod hangul;
-pub mod kana;
 #[cfg(target_os = "windows")]
 pub mod gdi_fallback;
+pub mod hangul;
+pub mod kana;
 
 use crate::skin::ColorRgba;
 use tiny_skia::PixmapMut;
@@ -141,9 +141,7 @@ impl BitmapFont {
         }
 
         // 5. Fallback square glyph for unmapped CJK Kanji / unknown chars
-        let fallback_glyph = [
-            0x3FE, 0x202, 0x202, 0x202, 0x202, 0x202, 0x3FE, 0x000,
-        ];
+        let fallback_glyph = [0x3FE, 0x202, 0x202, 0x202, 0x202, 0x202, 0x3FE, 0x000];
         draw_10x8_glyph(pixmap, &fallback_glyph, x, y, scale, color);
     }
 
@@ -189,7 +187,14 @@ impl BitmapFont {
         offset_x: i32,
         offset_y: i32,
     ) {
-        Self::draw_text(pixmap, text, x + offset_x, y + offset_y, scale, shadow_color);
+        Self::draw_text(
+            pixmap,
+            text,
+            x + offset_x,
+            y + offset_y,
+            scale,
+            shadow_color,
+        );
         Self::draw_text(pixmap, text, x, y, scale, color);
     }
 
@@ -235,7 +240,14 @@ impl BitmapFont {
         draw_rect_fast(pixmap, x + w - 1, y, 1, h, border_color);
 
         // Draw centered text
-        Self::draw_text(pixmap, text, x + padding_x, y + padding_y, scale, text_color);
+        Self::draw_text(
+            pixmap,
+            text,
+            x + padding_x,
+            y + padding_y,
+            scale,
+            text_color,
+        );
     }
 
     /// Renders high-contrast 8x12 bold numbers (e.g. for large score/combo displays).
@@ -327,9 +339,8 @@ fn draw_rect_fast(pixmap: &mut PixmapMut, x: i32, y: i32, w: i32, h: i32, color:
     }
 
     let data = pixmap.data_mut();
-    let u32_slice: &mut [u32] = unsafe {
-        std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
-    };
+    let u32_slice: &mut [u32] =
+        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4) };
 
     let row_len = (ix1 - ix0) as usize;
     if color.a == 255 {
@@ -369,9 +380,8 @@ fn fill_pixel_block(pixmap: &mut PixmapMut, px: i32, py: i32, scale: u32, color:
     }
 
     let data = pixmap.data_mut();
-    let u32_slice: &mut [u32] = unsafe {
-        std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4)
-    };
+    let u32_slice: &mut [u32] =
+        unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, data.len() / 4) };
 
     if color.a == 255 {
         let packed = u32::from_ne_bytes([color.r, color.g, color.b, 255]);
@@ -469,10 +479,20 @@ mod tests {
         pixmap.fill(Color::BLACK);
 
         let white = ColorRgba::new(255, 255, 255, 255);
-        BitmapFont::draw_text(&mut pixmap.as_mut(), "BEETLE 한글 さくら 桜 龍 ★", 10, 10, 1, white);
+        BitmapFont::draw_text(
+            &mut pixmap.as_mut(),
+            "BEETLE 한글 さくら 桜 龍 ★",
+            10,
+            10,
+            1,
+            white,
+        );
 
         // Verify that pixels are drawn
-        let has_white_pixel = pixmap.data().chunks_exact(4).any(|p| p[0] == 255 && p[1] == 255 && p[2] == 255);
+        let has_white_pixel = pixmap
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] == 255 && p[1] == 255 && p[2] == 255);
         assert!(has_white_pixel);
 
         #[cfg(target_os = "windows")]
@@ -490,7 +510,10 @@ mod tests {
         BitmapFont::draw_bold_text(&mut pixmap.as_mut(), "99.8%", 5, 5, 1, yellow);
         assert_eq!(BitmapFont::bold_text_width("99.8%", 1), 5 * 8 + 4 * 2);
 
-        let has_yellow = pixmap.data().chunks_exact(4).any(|p| p[0] == 255 && p[1] == 220 && p[2] == 50);
+        let has_yellow = pixmap
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] == 255 && p[1] == 220 && p[2] == 50);
         assert!(has_yellow);
     }
 

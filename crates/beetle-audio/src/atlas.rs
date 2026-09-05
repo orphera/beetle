@@ -19,7 +19,8 @@ pub fn resample_to_44k_stereo(buffer: &PcmBuffer) -> PcmBuffer {
     }
 
     // Fast path: already 44.1kHz stereo and offset == 0
-    if src_sr == STANDARD_SAMPLE_RATE && buffer.offset == 0 && buffer.length == buffer.samples.len() {
+    if src_sr == STANDARD_SAMPLE_RATE && buffer.offset == 0 && buffer.length == buffer.samples.len()
+    {
         return buffer.clone();
     }
 
@@ -95,7 +96,8 @@ impl SoundAtlasBuilder {
         original_filename: Option<String>,
     ) {
         let normalized = resample_to_44k_stereo(buffer);
-        self.entries.push((key.into(), normalized, original_filename));
+        self.entries
+            .push((key.into(), normalized, original_filename));
     }
 
     /// Adds a raw keysound audio byte stream (e.g. Vorbis OGG) to be bundled.
@@ -105,11 +107,15 @@ impl SoundAtlasBuilder {
         raw_bytes: Vec<u8>,
         original_filename: Option<String>,
     ) {
-        self.raw_entries.push((key.into(), raw_bytes, original_filename));
+        self.raw_entries
+            .push((key.into(), raw_bytes, original_filename));
     }
 
     /// Compiles all added samples into a single continuous byte buffer and metadata.
-    pub fn build(mut self, file_path: impl Into<String>) -> Result<(SoundAtlasMeta, Vec<u8>), AudioDecodeError> {
+    pub fn build(
+        mut self,
+        file_path: impl Into<String>,
+    ) -> Result<(SoundAtlasMeta, Vec<u8>), AudioDecodeError> {
         if self.codec.is_bundle() {
             // Sort entries deterministically by key for reproducible packaging (INV-6)
             self.raw_entries.sort_by(|a, b| a.0.cmp(&b.0));
@@ -270,14 +276,22 @@ pub fn load_sample_bank_from_sound_atlas_for_chart(
 
             if norm.ends_with(".wav") {
                 let base = &norm[..norm.len() - 4];
-                slices_by_filename.entry(format!("{}.ogg", base)).or_insert(slice);
+                slices_by_filename
+                    .entry(format!("{}.ogg", base))
+                    .or_insert(slice);
                 let fbase = &file_only[..file_only.len() - 4];
-                slices_by_filename.entry(format!("{}.ogg", fbase)).or_insert(slice);
+                slices_by_filename
+                    .entry(format!("{}.ogg", fbase))
+                    .or_insert(slice);
             } else if norm.ends_with(".ogg") {
                 let base = &norm[..norm.len() - 4];
-                slices_by_filename.entry(format!("{}.wav", base)).or_insert(slice);
+                slices_by_filename
+                    .entry(format!("{}.wav", base))
+                    .or_insert(slice);
                 let fbase = &file_only[..file_only.len() - 4];
-                slices_by_filename.entry(format!("{}.wav", fbase)).or_insert(slice);
+                slices_by_filename
+                    .entry(format!("{}.wav", fbase))
+                    .or_insert(slice);
             }
         }
     }
@@ -496,7 +510,8 @@ mod tests {
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
             };
-            let mut writer = hound::WavWriter::new(std::io::Cursor::new(&mut wav_bytes), spec).unwrap();
+            let mut writer =
+                hound::WavWriter::new(std::io::Cursor::new(&mut wav_bytes), spec).unwrap();
             for _ in 0..100 {
                 writer.write_sample(1000i16).unwrap();
             }
@@ -529,7 +544,8 @@ mod tests {
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
             };
-            let mut writer = hound::WavWriter::new(std::io::Cursor::new(&mut wav_bytes), spec).unwrap();
+            let mut writer =
+                hound::WavWriter::new(std::io::Cursor::new(&mut wav_bytes), spec).unwrap();
             for _ in 0..50 {
                 writer.write_sample(500i16).unwrap();
             }

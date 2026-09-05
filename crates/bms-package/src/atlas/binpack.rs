@@ -69,7 +69,9 @@ impl GuillotineBinPacker {
         // Compute minimum total area required
         let total_area: u64 = items
             .iter()
-            .map(|(_, w, h)| (*w as u64 + self.padding as u64 * 2) * (*h as u64 + self.padding as u64 * 2))
+            .map(|(_, w, h)| {
+                (*w as u64 + self.padding as u64 * 2) * (*h as u64 + self.padding as u64 * 2)
+            })
             .sum();
 
         // Start with smallest power-of-two size that could hold the total area
@@ -128,7 +130,9 @@ impl GuillotineBinPacker {
                     let short_side = leftover_w.min(leftover_h);
                     let area = (free.w as u64) * (free.h as u64);
 
-                    if short_side < best_short_side || (short_side == best_short_side && area < best_area) {
+                    if short_side < best_short_side
+                        || (short_side == best_short_side && area < best_area)
+                    {
                         best_idx = Some(i);
                         best_short_side = short_side;
                         best_area = area;
@@ -245,7 +249,12 @@ mod tests {
                 let b = rects[j];
                 let overlap_x = a.x < b.x + b.width && a.x + a.width > b.x;
                 let overlap_y = a.y < b.y + b.height && a.y + a.height > b.y;
-                assert!(!(overlap_x && overlap_y), "Rectangles {:?} and {:?} overlap!", a, b);
+                assert!(
+                    !(overlap_x && overlap_y),
+                    "Rectangles {:?} and {:?} overlap!",
+                    a,
+                    b
+                );
             }
         }
     }

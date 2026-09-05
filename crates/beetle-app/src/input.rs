@@ -73,7 +73,8 @@ impl InputConfig {
         }
 
         // 1. Remove any other key already mapped to this lane
-        self.custom_bindings.retain(|_, &mut mapped_lane| mapped_lane != lane);
+        self.custom_bindings
+            .retain(|_, &mut mapped_lane| mapped_lane != lane);
 
         // 2. Remove this key if it was mapped to another lane
         self.custom_bindings.remove(&key);
@@ -203,7 +204,11 @@ impl InputConfig {
         let mut parts = Vec::new();
         for &lane in &lanes {
             if let Some((&code, _)) = self.custom_bindings.iter().find(|(_, &l)| l == lane) {
-                parts.push(format!("{}:{}", lane_to_name(lane), key_code_to_identifier(code)));
+                parts.push(format!(
+                    "{}:{}",
+                    lane_to_name(lane),
+                    key_code_to_identifier(code)
+                ));
             }
         }
         parts.join(",")
@@ -219,7 +224,9 @@ impl InputConfig {
         for item in s.split(',') {
             let parts: Vec<&str> = item.splitn(2, ':').collect();
             if parts.len() == 2 {
-                if let (Some(lane), Some(code)) = (name_to_lane(parts[0]), identifier_to_key_code(parts[1])) {
+                if let (Some(lane), Some(code)) =
+                    (name_to_lane(parts[0]), identifier_to_key_code(parts[1]))
+                {
                     self.custom_bindings.insert(code, lane);
                 }
             }
@@ -537,15 +544,33 @@ mod tests {
     #[test]
     fn test_input_presets() {
         let mut config = InputConfig::new(KeyPreset::HomeRow);
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyS)), Some(Lane::Key1));
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::Space)), Some(Lane::Key4));
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyL)), Some(Lane::Key7));
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyS)),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::Space)),
+            Some(Lane::Key4)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyL)),
+            Some(Lane::Key7)
+        );
 
         config.toggle_preset();
         assert_eq!(config.preset, KeyPreset::ArcadeZx);
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyZ)), Some(Lane::Key1));
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyS)), Some(Lane::Key2));
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyV)), Some(Lane::Key7));
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyZ)),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyS)),
+            Some(Lane::Key2)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyV)),
+            Some(Lane::Key7)
+        );
     }
 
     #[test]
@@ -553,7 +578,10 @@ mod tests {
         let mut config = InputConfig::new(KeyPreset::HomeRow);
         config.bind_key(KeyCode::KeyA, Lane::Scratch);
         assert_eq!(config.preset, KeyPreset::Custom);
-        assert_eq!(config.map_key(PhysicalKey::Code(KeyCode::KeyA)), Some(Lane::Scratch));
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyA)),
+            Some(Lane::Scratch)
+        );
         assert_eq!(config.get_key_name_for_lane(Lane::Scratch), "A");
     }
 
@@ -574,7 +602,13 @@ mod tests {
         restored.deserialize_bindings(&s);
 
         assert_eq!(restored.preset, KeyPreset::Custom);
-        assert_eq!(restored.map_key(PhysicalKey::Code(KeyCode::KeyA)), Some(Lane::Scratch));
-        assert_eq!(restored.map_key(PhysicalKey::Code(KeyCode::Comma)), Some(Lane::Key6));
+        assert_eq!(
+            restored.map_key(PhysicalKey::Code(KeyCode::KeyA)),
+            Some(Lane::Scratch)
+        );
+        assert_eq!(
+            restored.map_key(PhysicalKey::Code(KeyCode::Comma)),
+            Some(Lane::Key6)
+        );
     }
 }

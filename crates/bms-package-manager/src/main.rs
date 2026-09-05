@@ -11,7 +11,9 @@ fn print_usage() {
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
     println!("  bpm pack <folder> [-o <out>] [--turbo] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
-    println!("  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff");
+    println!(
+        "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
+    );
     println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
     println!("  bpm bga install <package.bga.bmsp>     Install a decoupled BGA companion package");
     println!("  bpm bga remove <package_id>            Remove BGA companion from package to save disk space");
@@ -54,7 +56,9 @@ fn main() -> Result<(), PackageManagerError> {
         "pack" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing folder path.");
-                eprintln!("Usage: bpm pack <folder_path> [-o <output.bmsp>] [--base <base.bmsp_or_dir>]");
+                eprintln!(
+                    "Usage: bpm pack <folder_path> [-o <output.bmsp>] [--base <base.bmsp_or_dir>]"
+                );
                 std::process::exit(1);
             }
             let folder = &args[2];
@@ -88,7 +92,10 @@ fn main() -> Result<(), PackageManagerError> {
                             eprintln!("Failed to write output delta file: {e}");
                             std::process::exit(1);
                         }
-                        println!("Successfully generated delta '{}' based on '{}'", out_file, base_path);
+                        println!(
+                            "Successfully generated delta '{}' based on '{}'",
+                            out_file, base_path
+                        );
                     }
                     Err(e) => {
                         eprintln!("Delta creation failed: {e}");
@@ -99,7 +106,9 @@ fn main() -> Result<(), PackageManagerError> {
             }
 
             let is_turbo = args.iter().any(|a| a == "--atlas" || a == "--turbo")
-                || args.windows(2).any(|w| w[0] == "--profile" && w[1] == "turbo");
+                || args
+                    .windows(2)
+                    .any(|w| w[0] == "--profile" && w[1] == "turbo");
             let profile = if is_turbo {
                 bms_package_manager::PackProfile::Turbo
             } else {
@@ -115,10 +124,7 @@ fn main() -> Result<(), PackageManagerError> {
             } else {
                 bms_package_manager::BgaPackMode::Embed
             };
-            let pack_options = bms_package_manager::PackOptions {
-                profile,
-                bga_mode,
-            };
+            let pack_options = bms_package_manager::PackOptions { profile, bga_mode };
 
             let roots = bms_package_manager::find_bms_song_roots(folder);
             if roots.is_empty() {
@@ -170,14 +176,23 @@ fn main() -> Result<(), PackageManagerError> {
                             eprintln!("Failed to write output package file: {e}");
                             std::process::exit(1);
                         }
-                        println!("Successfully packed '{}' into '{}' [{}]", target_root.display(), out_file.display(), profile_tag);
+                        println!(
+                            "Successfully packed '{}' into '{}' [{}]",
+                            target_root.display(),
+                            out_file.display(),
+                            profile_tag
+                        );
                         if let Some(bga_bytes) = pack_out.bga_package {
                             let companion_file = out_file.with_extension("bga.bmsp");
                             if let Err(e) = fs::write(&companion_file, &bga_bytes) {
                                 eprintln!("Failed to write BGA companion file: {e}");
                                 std::process::exit(1);
                             }
-                            println!("Companion BGA package written to '{}' ({} bytes)", companion_file.display(), bga_bytes.len());
+                            println!(
+                                "Companion BGA package written to '{}' ({} bytes)",
+                                companion_file.display(),
+                                bga_bytes.len()
+                            );
                         }
                     }
                     Err(e) => {
@@ -186,7 +201,11 @@ fn main() -> Result<(), PackageManagerError> {
                     }
                 }
             } else {
-                println!("Found {} BMS song directories under '{}'. Batch packing each song...", roots.len(), folder);
+                println!(
+                    "Found {} BMS song directories under '{}'. Batch packing each song...",
+                    roots.len(),
+                    folder
+                );
                 let out_dir: Option<PathBuf> = out_arg.map(|dest| {
                     let p = PathBuf::from(dest);
                     let _ = fs::create_dir_all(&p);
@@ -212,7 +231,14 @@ fn main() -> Result<(), PackageManagerError> {
                         }
                     };
 
-                    print!("[{}/{}] Packing '{}' into '{}' [{}]... ", i + 1, roots.len(), target_root.display(), out_file.display(), profile_tag);
+                    print!(
+                        "[{}/{}] Packing '{}' into '{}' [{}]... ",
+                        i + 1,
+                        roots.len(),
+                        target_root.display(),
+                        out_file.display(),
+                        profile_tag
+                    );
                     match bms_package_manager::pack_bms_folder_advanced_with_progress(
                         target_root,
                         None,
@@ -227,7 +253,11 @@ fn main() -> Result<(), PackageManagerError> {
                                 if let Some(bga_bytes) = pack_out.bga_package {
                                     let companion_file = out_file.with_extension("bga.bmsp");
                                     let _ = fs::write(&companion_file, &bga_bytes);
-                                    println!("OK ({} bytes + {} bytes BGA)", pack_out.base_package.len(), bga_bytes.len());
+                                    println!(
+                                        "OK ({} bytes + {} bytes BGA)",
+                                        pack_out.base_package.len(),
+                                        bga_bytes.len()
+                                    );
                                 } else {
                                     println!("OK ({} bytes)", pack_out.base_package.len());
                                 }
@@ -239,13 +269,19 @@ fn main() -> Result<(), PackageManagerError> {
                         }
                     }
                 }
-                println!("Batch packing finished: {}/{} packages created successfully.", success_count, roots.len());
+                println!(
+                    "Batch packing finished: {}/{} packages created successfully.",
+                    success_count,
+                    roots.len()
+                );
             }
         }
         "diff" => {
             if args.len() < 4 {
                 eprintln!("Error: Missing arguments.");
-                eprintln!("Usage: bpm diff <base_path_or_bmsp> <target_path_or_bmsp> [-o <diff.bmdp>]");
+                eprintln!(
+                    "Usage: bpm diff <base_path_or_bmsp> <target_path_or_bmsp> [-o <diff.bmdp>]"
+                );
                 std::process::exit(1);
             }
             let base_path = &args[2];
@@ -358,10 +394,19 @@ fn main() -> Result<(), PackageManagerError> {
                     }
                 }
             } else {
-                println!("Found {} BMS song directories under '{}'. Batch importing each...", roots.len(), folder);
+                println!(
+                    "Found {} BMS song directories under '{}'. Batch importing each...",
+                    roots.len(),
+                    folder
+                );
                 let mut success = 0;
                 for (i, target_root) in roots.iter().enumerate() {
-                    print!("[{}/{}] Importing '{}'... ", i + 1, roots.len(), target_root.display());
+                    print!(
+                        "[{}/{}] Importing '{}'... ",
+                        i + 1,
+                        roots.len(),
+                        target_root.display()
+                    );
                     match manager.import_folder(target_root, None) {
                         Ok(installed) => {
                             println!("OK -> '{}' ({})", installed.name, installed.id);
@@ -372,7 +417,11 @@ fn main() -> Result<(), PackageManagerError> {
                         }
                     }
                 }
-                println!("Batch import finished: {}/{} songs imported into registry.", success, roots.len());
+                println!(
+                    "Batch import finished: {}/{} songs imported into registry.",
+                    success,
+                    roots.len()
+                );
             }
         }
         "install" => {
@@ -399,24 +448,40 @@ fn main() -> Result<(), PackageManagerError> {
                     } else {
                         format!("{}.bga.bmsp", file_name)
                     };
-                    let candidate = base_path.parent().map(|p| p.join(&companion_name)).unwrap_or_else(|| PathBuf::from(&companion_name));
+                    let candidate = base_path
+                        .parent()
+                        .map(|p| p.join(&companion_name))
+                        .unwrap_or_else(|| PathBuf::from(&companion_name));
 
                     if with_bga {
                         if candidate.exists() {
                             match manager.install_bga_companion(&candidate) {
                                 Ok(t_id) => {
-                                    println!("Installed companion BGA package for '{}' from '{}'", t_id, candidate.display());
+                                    println!(
+                                        "Installed companion BGA package for '{}' from '{}'",
+                                        t_id,
+                                        candidate.display()
+                                    );
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to install BGA companion '{}': {e}", candidate.display());
+                                    eprintln!(
+                                        "Failed to install BGA companion '{}': {e}",
+                                        candidate.display()
+                                    );
                                 }
                             }
                         } else {
                             eprintln!("Warning: --with-bga was specified, but companion package '{}' was not found.", candidate.display());
                         }
                     } else if candidate.exists() {
-                        println!("Notice: Decoupled BGA companion '{}' is available.", candidate.display());
-                        println!("        Install it using: bpm bga install \"{}\"", candidate.display());
+                        println!(
+                            "Notice: Decoupled BGA companion '{}' is available.",
+                            candidate.display()
+                        );
+                        println!(
+                            "        Install it using: bpm bga install \"{}\"",
+                            candidate.display()
+                        );
                     }
                 }
                 Err(e) => {
@@ -441,7 +506,10 @@ fn main() -> Result<(), PackageManagerError> {
                     let bga_path = &args[3];
                     match manager.install_bga_companion(bga_path) {
                         Ok(target_id) => {
-                            println!("Successfully installed BGA companion for package '{}' from '{}'", target_id, bga_path);
+                            println!(
+                                "Successfully installed BGA companion for package '{}' from '{}'",
+                                target_id, bga_path
+                            );
                         }
                         Err(e) => {
                             eprintln!("Failed to install BGA companion: {e}");
@@ -505,7 +573,10 @@ fn main() -> Result<(), PackageManagerError> {
                 return Ok(());
             }
 
-            println!("{:<25} {:<16} {:<12} {:<30} {}", "ID", "STATE", "BGA", "NAME", "AUTHOR");
+            println!(
+                "{:<25} {:<16} {:<12} {:<30} {}",
+                "ID", "STATE", "BGA", "NAME", "AUTHOR"
+            );
             println!("{:-<95}", "");
             for pkg in packages {
                 let author = pkg.author.as_deref().unwrap_or("-");
@@ -516,7 +587,11 @@ fn main() -> Result<(), PackageManagerError> {
                 };
                 println!(
                     "{:<25} {:<16} {:<12} {:<30} {}",
-                    pkg.id, short_hash, pkg.bga_status.as_str(), pkg.name, author
+                    pkg.id,
+                    short_hash,
+                    pkg.bga_status.as_str(),
+                    pkg.name,
+                    author
                 );
             }
         }
@@ -531,7 +606,10 @@ fn main() -> Result<(), PackageManagerError> {
                 Some(record) => {
                     println!("Package ID:      {}", record.id);
                     println!("Name:            {}", record.name);
-                    println!("Author:          {}", record.author.as_deref().unwrap_or("-"));
+                    println!(
+                        "Author:          {}",
+                        record.author.as_deref().unwrap_or("-")
+                    );
                     println!("Active State:    {}", record.active_state);
                     println!("BGA Status:      {}", record.bga_status.as_str());
                     if let Some(ref path) = record.bga_companion_path {
@@ -539,8 +617,15 @@ fn main() -> Result<(), PackageManagerError> {
                     }
                     println!("Installed States:");
                     for (state_hash, state_record) in &record.state_hashes {
-                        let marker = if state_hash == &record.active_state { "* (active)" } else { "" };
-                        println!("  - {:<16} (installed at: {}) {}", state_hash, state_record.installed_at, marker);
+                        let marker = if state_hash == &record.active_state {
+                            "* (active)"
+                        } else {
+                            ""
+                        };
+                        println!(
+                            "  - {:<16} (installed at: {}) {}",
+                            state_hash, state_record.installed_at, marker
+                        );
                     }
                 }
                 None => {
@@ -604,7 +689,10 @@ fn main() -> Result<(), PackageManagerError> {
                 std::process::exit(1);
             }
             let target = &args[2];
-            let out_dir = if let Some(o_idx) = args.iter().position(|a| a == "-o" || a == "--output" || a == "--to") {
+            let out_dir = if let Some(o_idx) = args
+                .iter()
+                .position(|a| a == "-o" || a == "--output" || a == "--to")
+            {
                 if o_idx + 1 < args.len() {
                     args[o_idx + 1].clone()
                 } else {
@@ -671,30 +759,51 @@ fn main() -> Result<(), PackageManagerError> {
                     println!("Mounted single package '{}' as '/{}'", p.display(), stem);
                 } else if p.is_dir() {
                     let count = vfs.mount_directory(p)?;
-                    println!("Mounted {} packages from directory '{}'", count, p.display());
+                    println!(
+                        "Mounted {} packages from directory '{}'",
+                        count,
+                        p.display()
+                    );
                 }
             } else {
                 vfs = manager.create_vfs()?;
-                println!("Mounted all active library packages from '{}'", storage_dir.display());
+                println!(
+                    "Mounted all active library packages from '{}'",
+                    storage_dir.display()
+                );
             }
 
             let vfs_arc = std::sync::Arc::new(vfs);
-            let server = bms_package_manager::WebDavServer::start(vfs_arc, port)
-                .map_err(|e| PackageManagerError::StorageError(format!("Failed to start WebDAV server: {e}")))?;
+            let server = bms_package_manager::WebDavServer::start(vfs_arc, port).map_err(|e| {
+                PackageManagerError::StorageError(format!("Failed to start WebDAV server: {e}"))
+            })?;
 
             let actual_port = server.port();
-            println!("WebDAV VFS server listening on http://127.0.0.1:{}/", actual_port);
+            println!(
+                "WebDAV VFS server listening on http://127.0.0.1:{}/",
+                actual_port
+            );
 
             if let Some(drive) = drive_letter {
                 #[cfg(target_os = "windows")]
                 {
-                    println!("Mounting virtual network drive {}: -> http://127.0.0.1:{}/...", drive, actual_port);
-                    let cmd = format!("net use {}: http://127.0.0.1:{}/ /persistent:no", drive, actual_port);
-                    let _ = std::process::Command::new("cmd").args(["/C", &cmd]).status();
+                    println!(
+                        "Mounting virtual network drive {}: -> http://127.0.0.1:{}/...",
+                        drive, actual_port
+                    );
+                    let cmd = format!(
+                        "net use {}: http://127.0.0.1:{}/ /persistent:no",
+                        drive, actual_port
+                    );
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", &cmd])
+                        .status();
                 }
                 #[cfg(not(target_os = "windows"))]
                 {
-                    println!("Network drive mounting via drive letter is only supported on Windows.");
+                    println!(
+                        "Network drive mounting via drive letter is only supported on Windows."
+                    );
                 }
             }
 
@@ -706,7 +815,9 @@ fn main() -> Result<(), PackageManagerError> {
             }
         }
         "unmount" => {
-            let drive = args.iter().position(|a| a == "--drive" || a == "-d")
+            let drive = args
+                .iter()
+                .position(|a| a == "--drive" || a == "-d")
                 .and_then(|idx| args.get(idx + 1))
                 .map(|d| d.trim_end_matches(':'))
                 .unwrap_or("Z");
@@ -715,7 +826,9 @@ fn main() -> Result<(), PackageManagerError> {
             {
                 println!("Unmounting virtual drive {}:...", drive);
                 let cmd = format!("net use {}: /delete /y", drive);
-                let status = std::process::Command::new("cmd").args(["/C", &cmd]).status();
+                let status = std::process::Command::new("cmd")
+                    .args(["/C", &cmd])
+                    .status();
                 match status {
                     Ok(s) if s.success() => println!("Successfully unmounted {}:", drive),
                     _ => println!("Drive {}: unmounted (or was not mounted).", drive),

@@ -15,9 +15,9 @@ pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use manager::{InstalledPackage, PackageManager};
 pub use pack::{
-    analyze_bms_folder, find_bms_song_roots, pack_bms_folder, pack_bms_folder_advanced_with_progress,
-    pack_bms_folder_profile, pack_bms_folder_profile_with_progress, BgaPackMode, PackOptions,
-    PackOutput, PackProfile,
+    analyze_bms_folder, find_bms_song_roots, pack_bms_folder,
+    pack_bms_folder_advanced_with_progress, pack_bms_folder_profile,
+    pack_bms_folder_profile_with_progress, BgaPackMode, PackOptions, PackOutput, PackProfile,
 };
 pub use registry::{BgaStatus, PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
@@ -63,7 +63,10 @@ mod tests {
 
         // Duplicate install rejected
         let dup_res = manager.install_from_bytes(pkg_v1);
-        assert!(matches!(dup_res, Err(PackageManagerError::AlreadyInstalled { .. })));
+        assert!(matches!(
+            dup_res,
+            Err(PackageManagerError::AlreadyInstalled { .. })
+        ));
 
         // 2. Install state 2 (Multi-state support)
         let pkg_v2 = create_test_package_bytes("com.example.song", "Song V2", 6);
@@ -87,7 +90,10 @@ mod tests {
 
         // 3. Uninstall state 1
         manager.uninstall("com.example.song", &hash_v1).unwrap();
-        assert_eq!(manager.get_installed_states("com.example.song"), vec![hash_v2.clone()]);
+        assert_eq!(
+            manager.get_installed_states("com.example.song"),
+            vec![hash_v2.clone()]
+        );
 
         // 4. Uninstall last state
         manager.uninstall("com.example.song", &hash_v2).unwrap();
@@ -162,7 +168,8 @@ mod tests {
         let song_folder = temp_dir.join("sakura_storm");
         std::fs::create_dir_all(&song_folder).unwrap();
 
-        let bms_content = b"#TITLE Sakura Storm\n#ARTIST Ryu*\n#GENRE Happy Hardcore\n#00111:01000000";
+        let bms_content =
+            b"#TITLE Sakura Storm\n#ARTIST Ryu*\n#GENRE Happy Hardcore\n#00111:01000000";
         std::fs::write(song_folder.join("main.bms"), bms_content).unwrap();
         std::fs::write(song_folder.join("01.wav"), vec![0x12, 0x34]).unwrap();
 
@@ -201,7 +208,9 @@ mod tests {
         let hash_v1 = Package::from_bytes(pkg_v1.clone()).unwrap().state_hash();
         manager.install_from_bytes(pkg_v1.clone()).unwrap();
 
-        let active_v1 = manager.get_active_package("com.example.delta_song").unwrap();
+        let active_v1 = manager
+            .get_active_package("com.example.delta_song")
+            .unwrap();
         assert_eq!(active_v1.state_hash, hash_v1);
 
         // 2. Create Target Package and generate Delta (.bmdp)
@@ -225,7 +234,9 @@ mod tests {
         let installed_v2 = manager.apply_delta_bytes(&delta_bytes).unwrap();
         assert_eq!(installed_v2.state_hash, hash_v2);
 
-        let active_v2 = manager.get_active_package("com.example.delta_song").unwrap();
+        let active_v2 = manager
+            .get_active_package("com.example.delta_song")
+            .unwrap();
         assert_eq!(active_v2.state_hash, hash_v2);
 
         let opened_v2 = active_v2.open().unwrap();
@@ -240,10 +251,14 @@ mod tests {
         // 5. Try applying delta onto non-existent base package
         let orphan_v1 = create_test_package_bytes("com.other.orphan", "Orphan", 1);
         let orphan_v2 = create_test_package_bytes("com.other.orphan", "Orphan V2", 2);
-        let orphan_delta = PackageUpdater::create_delta_between_packages(&orphan_v1, &orphan_v2).unwrap();
+        let orphan_delta =
+            PackageUpdater::create_delta_between_packages(&orphan_v1, &orphan_v2).unwrap();
 
         let orphan_res = manager.apply_delta_bytes(&orphan_delta);
-        assert!(matches!(orphan_res, Err(PackageManagerError::BaseStateNotInstalled { .. })));
+        assert!(matches!(
+            orphan_res,
+            Err(PackageManagerError::BaseStateNotInstalled { .. })
+        ));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -263,7 +278,9 @@ mod tests {
         // 1. Install base package without video
         let manifest = Manifest::new("com.example.bgasong", "BGA Song");
         let mut builder = PackageBuilder::new(manifest);
-        builder.add_file("song.bms", b"#TITLE BGA Song\n#00111:01".to_vec()).unwrap();
+        builder
+            .add_file("song.bms", b"#TITLE BGA Song\n#00111:01".to_vec())
+            .unwrap();
         builder.add_file("01.wav", vec![1, 2, 3]).unwrap();
         let base_bytes = builder.build_to_bytes().unwrap();
 
@@ -271,9 +288,15 @@ mod tests {
         assert_eq!(installed.bga_status, BgaStatus::None);
 
         // 2. Create BGA companion package
-        let bga_manifest = Manifest::new_bga_companion("com.example.bgasong.bga", "BGA Song Companion", "com.example.bgasong");
+        let bga_manifest = Manifest::new_bga_companion(
+            "com.example.bgasong.bga",
+            "BGA Song Companion",
+            "com.example.bgasong",
+        );
         let mut bga_builder = PackageBuilder::new(bga_manifest);
-        bga_builder.add_file("video.mp4", vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02]).unwrap();
+        bga_builder
+            .add_file("video.mp4", vec![0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02])
+            .unwrap();
         let bga_bytes = bga_builder.build_to_bytes().unwrap();
 
         // 3. Install BGA companion
@@ -285,7 +308,9 @@ mod tests {
         assert_eq!(pkg.bga_status, BgaStatus::Companion);
 
         // Verify storage files exist
-        let state_dir = manager.storage().state_dir("com.example.bgasong", &installed.state_hash);
+        let state_dir = manager
+            .storage()
+            .state_dir("com.example.bgasong", &installed.state_hash);
         assert!(state_dir.join("video.mp4").exists());
         assert!(state_dir.join("com.example.bgasong.bga.bmsp").exists());
 

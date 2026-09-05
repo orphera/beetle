@@ -1,5 +1,5 @@
-use crate::skin::ColorRgba;
 use super::ImageBuffer;
+use crate::skin::ColorRgba;
 
 /// Decodes a 1-bit, 4-bit, 8-bit paletted, 24-bit, or 32-bit uncompressed Windows BMP image without external crates.
 pub fn decode_bmp(data: &[u8]) -> Option<ImageBuffer> {
@@ -57,7 +57,8 @@ pub fn decode_bmp(data: &[u8]) -> Option<ImageBuffer> {
     if bpp <= 8 {
         let palette_offset = 14 + dib_header_size;
         let num_colors = if data.len() >= 50 {
-            let colors_used = u32::from_le_bytes(data[46..50].try_into().unwrap_or([0; 4])) as usize;
+            let colors_used =
+                u32::from_le_bytes(data[46..50].try_into().unwrap_or([0; 4])) as usize;
             if colors_used > 0 && colors_used <= (1 << bpp) {
                 colors_used
             } else {

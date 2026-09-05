@@ -142,7 +142,20 @@ pub struct AppState {
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
-    pub loading_receiver: Option<Receiver<Result<(BmsChart, TimingModel, SampleBank, std::collections::HashMap<beetle_core::BmpId, ImageBuffer>, std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>), String>>>,
+    pub loading_receiver: Option<
+        Receiver<
+            Result<
+                (
+                    BmsChart,
+                    TimingModel,
+                    SampleBank,
+                    std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
+                    std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
+                ),
+                String,
+            >,
+        >,
+    >,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,
@@ -170,19 +183,28 @@ impl AppState {
                 self.window.set_fullscreen(None);
                 let avail = self.available_resolutions();
                 let size = self.window.inner_size();
-                if !avail.iter().any(|&(w, h, _)| w == size.width && h == size.height) {
+                if !avail
+                    .iter()
+                    .any(|&(w, h, _)| w == size.width && h == size.height)
+                {
                     if let Some(&(w, h, _)) = avail.first() {
-                        let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(w, h));
+                        let _ = self
+                            .window
+                            .request_inner_size(winit::dpi::PhysicalSize::new(w, h));
                         self.renderer.resize(w, h);
                     }
                 }
             }
             DisplayMode::Borderless => {
-                self.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+                self.window
+                    .set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
             }
             DisplayMode::ExclusiveFullscreen => {
                 let fullscreen = if let Some(monitor) = self.window.current_monitor() {
-                    if let Some(video_mode) = monitor.video_modes().max_by_key(|m| m.refresh_rate_millihertz()) {
+                    if let Some(video_mode) = monitor
+                        .video_modes()
+                        .max_by_key(|m| m.refresh_rate_millihertz())
+                    {
                         Some(winit::window::Fullscreen::Exclusive(video_mode))
                     } else {
                         Some(winit::window::Fullscreen::Borderless(None))
@@ -198,7 +220,8 @@ impl AppState {
     pub fn is_d3d11_active(&self) -> bool {
         #[cfg(target_os = "windows")]
         {
-            (self.gpu_backend == GpuBackendSetting::Auto || self.gpu_backend == GpuBackendSetting::Direct3D11)
+            (self.gpu_backend == GpuBackendSetting::Auto
+                || self.gpu_backend == GpuBackendSetting::Direct3D11)
                 && self.d3d11_backend.is_some()
         }
         #[cfg(not(target_os = "windows"))]
@@ -215,7 +238,9 @@ impl AppState {
                 if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
                     let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
                     let size = self.window.inner_size();
-                    if let Ok(mut d3d) = beetle_render::D3d11Backend::new(hwnd, size.width, size.height) {
+                    if let Ok(mut d3d) =
+                        beetle_render::D3d11Backend::new(hwnd, size.width, size.height)
+                    {
                         use beetle_render::GpuBackend;
                         let tex = d3d.create_texture(size.width, size.height, self.renderer.data());
                         self.d3d11_frame_texture = tex;
@@ -228,7 +253,9 @@ impl AppState {
     }
 
     pub fn available_resolutions(&self) -> Vec<(u32, u32, &'static str)> {
-        let (mon_w, mon_h) = self.window.current_monitor()
+        let (mon_w, mon_h) = self
+            .window
+            .current_monitor()
             .or_else(|| self.window.primary_monitor())
             .map(|m| (m.size().width, m.size().height))
             .unwrap_or((1920, 1080));
@@ -294,7 +321,9 @@ impl AppState {
         };
 
         let (target_w, target_h, _) = avail[next_idx];
-        let _ = self.window.request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
+        let _ = self
+            .window
+            .request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
         self.renderer.resize(target_w, target_h);
         #[cfg(target_os = "windows")]
         if let Some(d3d11) = &mut self.d3d11_backend {
@@ -303,7 +332,8 @@ impl AppState {
             if let Some(old_tex) = self.d3d11_frame_texture.take() {
                 d3d11.destroy_texture(old_tex);
             }
-            self.d3d11_frame_texture = d3d11.create_texture(target_w, target_h, self.renderer.data());
+            self.d3d11_frame_texture =
+                d3d11.create_texture(target_w, target_h, self.renderer.data());
         }
     }
 
@@ -417,7 +447,11 @@ impl AppState {
         }
         if let Some(layer_id) = self.current_layer_bmp {
             if let Some(player) = self.video_players.get_mut(&layer_id) {
-                let start_t = self.video_start_times.get(&layer_id).copied().unwrap_or(0.0);
+                let start_t = self
+                    .video_start_times
+                    .get(&layer_id)
+                    .copied()
+                    .unwrap_or(0.0);
                 let video_time = (audio_time - start_t).max(0.0);
                 let _ = player.update(video_time);
             }

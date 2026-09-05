@@ -126,7 +126,10 @@ mod tests {
 
         let video_frame2 = [255u8; 16];
         let vid_id2 = pool.update_video_frame(&mut backend, 2, 2, &video_frame2);
-        assert_eq!(vid_id1, vid_id2, "Same dimensions should reuse dynamic texture");
+        assert_eq!(
+            vid_id1, vid_id2,
+            "Same dimensions should reuse dynamic texture"
+        );
 
         // 4. Clear releases memory
         pool.clear(&mut backend);

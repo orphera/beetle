@@ -167,7 +167,13 @@ impl SoftwareRenderer {
         self.last_judge = Some((grade, time_seconds, delta_ms));
     }
 
-    pub fn trigger_judge_with_lane(&mut self, lane: Lane, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {
+    pub fn trigger_judge_with_lane(
+        &mut self,
+        lane: Lane,
+        grade: JudgeGrade,
+        time_seconds: f64,
+        delta_ms: f64,
+    ) {
         self.last_judge = Some((grade, time_seconds, delta_ms));
         if grade != JudgeGrade::Miss && grade != JudgeGrade::Poor {
             self.hit_bursts.push(HitBurst {
@@ -304,18 +310,22 @@ impl SoftwareRenderer {
 
 pub(crate) fn level_color(level: u32) -> ColorRgba {
     match level {
-        1..=4 => ColorRgba::new(80, 220, 130, 255),  // Mint Green (Normal)
-        5..=8 => ColorRgba::new(60, 180, 255, 255),  // Cyan (Hyper)
+        1..=4 => ColorRgba::new(80, 220, 130, 255), // Mint Green (Normal)
+        5..=8 => ColorRgba::new(60, 180, 255, 255), // Cyan (Hyper)
         9..=10 => ColorRgba::new(255, 200, 50, 255), // Amber/Yellow (Another)
         11..=12 => ColorRgba::new(255, 70, 70, 255), // Crimson Red (Insane)
-        _ => ColorRgba::new(210, 90, 255, 255),      // Purple / Overjoy
+        _ => ColorRgba::new(210, 90, 255, 255),     // Purple / Overjoy
     }
 }
 
-pub(crate) fn clear_lamp_color(clear_type: Option<beetle_core::ClearType>) -> (&'static str, ColorRgba) {
+pub(crate) fn clear_lamp_color(
+    clear_type: Option<beetle_core::ClearType>,
+) -> (&'static str, ColorRgba) {
     match clear_type {
         Some(beetle_core::ClearType::Perfect) => ("PERFECT", ColorRgba::new(255, 230, 80, 255)),
-        Some(beetle_core::ClearType::FullCombo) => ("FULL COMBO", ColorRgba::new(80, 255, 140, 255)),
+        Some(beetle_core::ClearType::FullCombo) => {
+            ("FULL COMBO", ColorRgba::new(80, 255, 140, 255))
+        }
         Some(beetle_core::ClearType::Clear) => ("CLEARED", ColorRgba::new(60, 190, 255, 255)),
         Some(beetle_core::ClearType::Failed) => ("FAILED", ColorRgba::new(240, 60, 60, 255)),
         None => ("NO PLAY", ColorRgba::new(70, 75, 95, 255)),
@@ -366,7 +376,9 @@ pub(crate) fn lane_index(lane: Lane) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beetle_core::{BmsChart, BmsHeader, GaugeType, NoteEvent, NoteType, ScoreTracker, TimingModel};
+    use beetle_core::{
+        BmsChart, BmsHeader, GaugeType, NoteEvent, NoteType, ScoreTracker, TimingModel,
+    };
 
     #[test]
     fn test_renderer_initialization_and_resize() {
@@ -407,10 +419,23 @@ mod tests {
         renderer.trigger_judge(JudgeGrade::PerfectGreat, 1.0, 0.0);
         let levels = [0.5f32; 16];
         let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
-        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, None, None, 0.0, &timing);
+        renderer.render_gameplay(
+            &chart,
+            judge.notes(),
+            1.0,
+            &score,
+            &levels,
+            None,
+            None,
+            0.0,
+            &timing,
+        );
 
         // Validate buffer is not all blank
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -425,9 +450,22 @@ mod tests {
         let judge = beetle_core::JudgeEngine::new(&chart, &timing, GaugeType::Groove);
         let dummy_bga = ImageBuffer::new(320, 180, ColorRgba::new(200, 100, 50, 255));
 
-        renderer.render_gameplay(&chart, judge.notes(), 1.0, &score, &levels, Some(&dummy_bga), None, 0.5, &timing);
+        renderer.render_gameplay(
+            &chart,
+            judge.notes(),
+            1.0,
+            &score,
+            &levels,
+            Some(&dummy_bga),
+            None,
+            0.5,
+            &timing,
+        );
 
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -453,7 +491,10 @@ mod tests {
         // Render at audio time 1.0s (measure 0 has passed, measure 1 & 2 incoming)
         renderer.render_gameplay(&chart, &[], 1.0, &score, &levels, None, None, 0.0, &timing);
 
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -462,7 +503,10 @@ mod tests {
         let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
         renderer.render_pause_modal("Sample Song", "Artist Name", 45.0, 120.0, 0);
 
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -471,7 +515,10 @@ mod tests {
         let mut renderer = SoftwareRenderer::new(800, 600, SkinConfig::default()).unwrap();
         renderer.render_exit_confirm_modal();
 
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -493,7 +540,10 @@ mod tests {
 
         renderer.render_result(&chart, &score, true, None);
 
-        let has_content = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content);
     }
 
@@ -511,12 +561,30 @@ mod tests {
             ("KEY 7", "L".to_string()),
         ];
         renderer.render_key_config(&key_names, 0, "HomeRow", false);
-        let has_content1 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        let has_content1 = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content1);
 
         let options = beetle_core::PlayOptions::default();
-        renderer.render_option_modal(&options, "HomeRow", false, 0, 1.0, "WINDOWED", "1280x720 (16:9)", "AUTO (D3D11/SOFT)", 240, "OFF (0%)", 0);
-        let has_content2 = renderer.data().chunks_exact(4).any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
+        renderer.render_option_modal(
+            &options,
+            "HomeRow",
+            false,
+            0,
+            1.0,
+            "WINDOWED",
+            "1280x720 (16:9)",
+            "AUTO (D3D11/SOFT)",
+            240,
+            "OFF (0%)",
+            0,
+        );
+        let has_content2 = renderer
+            .data()
+            .chunks_exact(4)
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0);
         assert!(has_content2);
     }
 }

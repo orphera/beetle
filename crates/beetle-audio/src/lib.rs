@@ -9,7 +9,10 @@ pub mod engine;
 pub mod mixer;
 pub mod sample;
 
-pub use atlas::{load_sample_bank_from_sound_atlas, load_sample_bank_from_sound_atlas_for_chart, resample_to_44k_stereo, SoundAtlasBuilder};
+pub use atlas::{
+    load_sample_bank_from_sound_atlas, load_sample_bank_from_sound_atlas_for_chart,
+    resample_to_44k_stereo, SoundAtlasBuilder,
+};
 pub use clock::AudioClock;
 pub use command::AudioCommand;
 pub use engine::{AudioEngine, AudioEngineError};

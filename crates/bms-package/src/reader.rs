@@ -1,8 +1,8 @@
+use crate::checksum::sha256_hex;
 use crate::entry::PackageEntry;
 use crate::error::PackageError;
 use crate::manifest::{Manifest, MANIFEST_FILENAME};
 use crate::path::validate_entry_path;
-use crate::checksum::sha256_hex;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek};
@@ -238,7 +238,11 @@ impl PackageReader {
         let has_base = !base_trimmed.is_empty() && base_trimmed != ".";
 
         let combined = if has_base {
-            format!("{}/{}", base_trimmed, normalized_name.trim_start_matches('/'))
+            format!(
+                "{}/{}",
+                base_trimmed,
+                normalized_name.trim_start_matches('/')
+            )
         } else {
             normalized_name.clone()
         };
@@ -250,11 +254,19 @@ impl PackageReader {
 
         // 2. Case-insensitive match with combined
         let combined_lower = combined.to_lowercase();
-        if let Some(entry) = self.entries.iter().find(|e| e.path.to_lowercase() == combined_lower) {
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|e| e.path.to_lowercase() == combined_lower)
+        {
             return Some(entry.path.clone());
         }
 
-        let filename_only = normalized_name.rsplit('/').next().unwrap_or(&normalized_name).to_lowercase();
+        let filename_only = normalized_name
+            .rsplit('/')
+            .next()
+            .unwrap_or(&normalized_name)
+            .to_lowercase();
 
         // 3. Basename match strictly within base_dir (or anywhere if no base_dir)
         if has_base {
@@ -299,7 +311,11 @@ impl PackageReader {
                 return Some(normalized_name);
             }
             let rel_lower = normalized_name.to_lowercase();
-            if let Some(entry) = self.entries.iter().find(|e| e.path.to_lowercase() == rel_lower) {
+            if let Some(entry) = self
+                .entries
+                .iter()
+                .find(|e| e.path.to_lowercase() == rel_lower)
+            {
                 return Some(entry.path.clone());
             }
             if let Some(entry) = self.entries.iter().find(|e| {
