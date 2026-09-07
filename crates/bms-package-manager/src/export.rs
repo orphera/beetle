@@ -154,7 +154,9 @@ where
     let manifest = pkg.manifest().clone();
     let mut stats = ExportStats::default();
 
-    let is_turbo = manifest.sound_atlas.is_some() || manifest.bga_atlas.is_some();
+    let is_turbo = manifest.sound_atlas.is_some()
+        || manifest.bga_atlas.is_some()
+        || manifest.bga_delta.is_some();
 
     if is_turbo {
         // 1. Extract Sound Atlas slices to WAV files
@@ -212,7 +214,26 @@ where
             }
         }
 
-        // 2. Extract BGA Atlas frames to BMP files
+        // 2a. Extract BGA Delta sequence frames to original files
+        if let Some(ref delta_meta) = manifest.bga_delta {
+            if let Ok(delta_bytes) = pkg.read_entry(&delta_meta.file) {
+                if let Ok(unpacked) = delta_meta.unpack_all(&delta_bytes) {
+                    let total_frames = unpacked.len();
+                    for (idx, (filename, file_bytes)) in unpacked.into_iter().enumerate() {
+                        on_progress("Extracting BGA frames", idx + 1, total_frames, &filename);
+                        let out_path = dest.join(&filename);
+                        if let Some(parent) = out_path.parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        fs::write(out_path, file_bytes)?;
+                        stats.bga_files += 1;
+                        stats.total_files += 1;
+                    }
+                }
+            }
+        }
+
+        // 2b. Extract BGA Atlas frames to BMP files
         if let Some(ref bga_meta) = manifest.bga_atlas {
             if let Ok(atlas_bytes) = pkg.read_entry(&bga_meta.file) {
                 if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
@@ -258,6 +279,11 @@ where
             }
             if let Some(ref sm) = manifest.sound_atlas {
                 if entry_path == sm.file {
+                    continue;
+                }
+            }
+            if let Some(ref dm) = manifest.bga_delta {
+                if entry_path == dm.file {
                     continue;
                 }
             }

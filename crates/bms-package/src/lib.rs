@@ -14,7 +14,8 @@ pub mod path;
 pub mod reader;
 
 pub use atlas::{
-    BgaAtlasMeta, BgaFrame, GuillotineBinPacker, PackedAtlas, PackedRect, SoundAtlasCodec,
+    split_sequence_prefix_and_num, BgaAtlasMeta, BgaDeltaBuilder, BgaDeltaFrame, BgaDeltaMeta,
+    BgaFrame, BgaFrameType, GuillotineBinPacker, PackedAtlas, PackedRect, SoundAtlasCodec,
     SoundAtlasMeta, SoundSlice,
 };
 pub use builder::PackageBuilder;

@@ -1,7 +1,10 @@
 use crate::error::PackageManagerError;
 use beetle_audio::{SampleBank, SoundAtlasBuilder};
 use beetle_render::{is_video_path, BgaAtlasBuilder, ImageBuffer};
-use bms_package::{Manifest, PackageBuilder, SoundAtlasCodec, MANIFEST_FILENAME};
+use bms_package::{
+    split_sequence_prefix_and_num, BgaDeltaBuilder, Manifest, PackageBuilder, SoundAtlasCodec,
+    MANIFEST_FILENAME,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -544,9 +547,28 @@ where
         SoundAtlasCodec::Pcm16
     };
 
+    let mut image_prefix_counts: HashMap<String, usize> = HashMap::new();
+    let mut total_image_count = 0;
+    for (rel, _) in &files_to_read {
+        let ext = Path::new(rel)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") {
+            total_image_count += 1;
+            let (prefix, num_opt) = split_sequence_prefix_and_num(rel);
+            if num_opt.is_some() {
+                *image_prefix_counts.entry(prefix).or_default() += 1;
+            }
+        }
+    }
+    let use_bga_delta = image_prefix_counts.values().any(|&c| c >= 2) || total_image_count >= 8;
+
     let is_bundle = sound_codec.is_bundle();
     let mut sound_builder = SoundAtlasBuilder::new(sound_codec).with_padding_frames(128);
     let mut bga_builder = BgaAtlasBuilder::new(1);
+    let mut bga_delta_builder = BgaDeltaBuilder::new();
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut bga_files: Vec<(String, Vec<u8>)> = Vec::new();
     let total = files_to_read.len();
@@ -609,7 +631,7 @@ where
             }
         }
 
-        // D. Image files -> Compile into BGA Texture Atlas
+        // D. Image files -> Compile into BGA Delta Bundle or Texture Atlas
         let matched_bmp_key = bmp_targets
             .get(&norm_rel)
             .or_else(|| bmp_targets.get(&norm_name))
@@ -617,7 +639,10 @@ where
         let is_image =
             matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key;
         if is_image {
-            if let Some(img) = ImageBuffer::from_bytes(&data) {
+            if use_bga_delta {
+                bga_delta_builder.add_frame(norm_rel.clone(), data, Some(norm_rel.clone()));
+                continue;
+            } else if let Some(img) = ImageBuffer::from_bytes(&data) {
                 bga_builder.add_frame(norm_rel.clone(), &img, Some(norm_rel.clone()));
                 continue;
             }
@@ -664,8 +689,13 @@ where
 
     manifest = manifest.with_sound_atlas(sound_meta);
 
-    // 4. Build BGA Texture Atlas
-    if let Some((bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
+    // 4. Build BGA Assets (BGA Delta Sequence Bundle or BGA Texture Atlas)
+    if use_bga_delta && !bga_delta_builder.is_empty() {
+        let (bga_delta_meta, bga_delta_bytes) =
+            bga_delta_builder.build("visual/bga_delta.bin");
+        manifest = manifest.with_bga_delta(bga_delta_meta);
+        passthrough_files.push(("visual/bga_delta.bin".to_string(), bga_delta_bytes));
+    } else if let Some((bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
         let bga_bytes = bga_image.encode_bmp_bytes();
         manifest = manifest.with_bga_atlas(bga_meta);
         passthrough_files.push(("visual/atlas.bmp".to_string(), bga_bytes));
@@ -1301,6 +1331,140 @@ mod tests {
             classic_bga.manifest().package_type,
             PackageType::BgaCompanion
         );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_bms_folder_turbo_bga_delta_and_export_vfs() {
+        use crate::export::export_package_to_folder;
+        use crate::vfs::VirtualBmsFs;
+        use beetle_render::skin::ColorRgba;
+        use beetle_render::ImageBuffer;
+        use bms_package::{BgaFrameType, Package};
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_bga_delta_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let song_dir = temp_dir.join("DeltaSong");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        // 1. Create a BMS chart with an animation loop (loop_01, loop_02, loop_03)
+        let bms_content = r#"
+#TITLE Delta Animation Song
+#ARTIST Animator
+#BPM 140
+#WAV01 01.wav
+#BMP01 loop_01.bmp
+#BMP02 loop_02.bmp
+#BMP03 loop_03.bmp
+#STAGEFILE stage.bmp
+#00111:01
+"#;
+        fs::write(song_dir.join("main.bms"), bms_content).unwrap();
+
+        // 2. Audio file
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let wav_path = song_dir.join("01.wav");
+        {
+            let mut w = hound::WavWriter::create(&wav_path, spec).unwrap();
+            for s in [1000i16, 2000, 3000, 0] {
+                w.write_sample(s).unwrap();
+            }
+            w.finalize().unwrap();
+        }
+
+        // 3. Animation loop images (32x32): loop_01 (red), loop_02 (red with tiny diff), loop_03 (red with tiny diff)
+        let img1 = ImageBuffer::new(32, 32, ColorRgba::new(200, 30, 30, 255));
+        let raw1 = img1.encode_bmp_bytes();
+        fs::write(song_dir.join("loop_01.bmp"), &raw1).unwrap();
+
+        // loop_02 modifies a few pixels
+        let mut img2 = img1.clone();
+        img2.pixels[10 * 32 + 10] = ColorRgba::new(200, 200, 30, 255);
+        img2.pixels[10 * 32 + 11] = ColorRgba::new(200, 200, 30, 255);
+        let raw2 = img2.encode_bmp_bytes();
+        fs::write(song_dir.join("loop_02.bmp"), &raw2).unwrap();
+
+        // loop_03 modifies a few pixels
+        let mut img3 = img2.clone();
+        img3.pixels[15 * 32 + 15] = ColorRgba::new(30, 200, 200, 255);
+        img3.pixels[15 * 32 + 16] = ColorRgba::new(30, 200, 200, 255);
+        let raw3 = img3.encode_bmp_bytes();
+        fs::write(song_dir.join("loop_03.bmp"), &raw3).unwrap();
+
+        // Standalone stage image
+        let stage_img = ImageBuffer::new(64, 48, ColorRgba::new(50, 100, 150, 255));
+        let raw_stage = stage_img.encode_bmp_bytes();
+        fs::write(song_dir.join("stage.bmp"), &raw_stage).unwrap();
+
+        // 4. Pack into Turbo BMSP package
+        let pkg_bytes = pack_bms_folder_profile(&song_dir, None, PackProfile::Turbo)
+            .expect("turbo packing should succeed");
+        let pkg_path = temp_dir.join("delta_song.bmsp");
+        fs::write(&pkg_path, &pkg_bytes).unwrap();
+
+        let pkg = Package::from_bytes(pkg_bytes).expect("open package failed");
+        let manifest = pkg.manifest();
+
+        // Verify BgaDelta was selected and populated
+        let delta_meta = manifest.bga_delta.as_ref().expect("bga_delta should be present");
+        assert!(
+            manifest.bga_atlas.is_none(),
+            "2D atlas should not be built when bga_delta is used"
+        );
+        assert_eq!(delta_meta.total_frames, 4);
+
+        // Verify loop_01 is Keyframe, loop_02 and loop_03 are Delta frames
+        let f1 = delta_meta.frames.get("loop_01.bmp").expect("loop_01 in frames");
+        assert_eq!(f1.frame_type, BgaFrameType::Keyframe);
+        assert!(f1.parent.is_none());
+
+        let f2 = delta_meta.frames.get("loop_02.bmp").expect("loop_02 in frames");
+        assert_eq!(f2.frame_type, BgaFrameType::Delta);
+        assert_eq!(f2.parent.as_deref(), Some("loop_01.bmp"));
+
+        let f3 = delta_meta.frames.get("loop_03.bmp").expect("loop_03 in frames");
+        assert_eq!(f3.frame_type, BgaFrameType::Delta);
+        assert_eq!(f3.parent.as_deref(), Some("loop_02.bmp"));
+
+        // 5. Test Exporter: unpacks and restores exact original BMP bytes
+        let export_dir = temp_dir.join("Exported");
+        let stats = export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
+        assert_eq!(stats.bga_files, 4);
+
+        let exported_raw1 =
+            fs::read(export_dir.join("loop_01.bmp")).expect("read exported loop_01");
+        assert_eq!(exported_raw1, raw1, "loop_01.bmp bit-exact roundtrip");
+
+        let exported_raw2 =
+            fs::read(export_dir.join("loop_02.bmp")).expect("read exported loop_02");
+        assert_eq!(exported_raw2, raw2, "loop_02.bmp bit-exact roundtrip");
+
+        let exported_raw3 =
+            fs::read(export_dir.join("loop_03.bmp")).expect("read exported loop_03");
+        assert_eq!(exported_raw3, raw3, "loop_03.bmp bit-exact roundtrip");
+
+        let exported_stage = fs::read(export_dir.join("stage.bmp")).expect("read exported stage");
+        assert_eq!(exported_stage, raw_stage, "stage.bmp bit-exact roundtrip");
+
+        // 6. Test VFS: mounts BGA Delta virtual files seamlessly
+        let mut vfs = VirtualBmsFs::new();
+        vfs.mount_package("delta_song", &pkg_path).expect("mount should succeed");
+
+        assert_eq!(vfs.read_file("delta_song/loop_01.bmp").unwrap(), raw1);
+        assert_eq!(vfs.read_file("delta_song/loop_02.bmp").unwrap(), raw2);
+        assert_eq!(vfs.read_file("delta_song/loop_03.bmp").unwrap(), raw3);
+        assert_eq!(vfs.read_file("delta_song/stage.bmp").unwrap(), raw_stage);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

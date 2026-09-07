@@ -1,4 +1,4 @@
-use crate::atlas::{BgaAtlasMeta, SoundAtlasMeta};
+use crate::atlas::{BgaAtlasMeta, BgaDeltaMeta, SoundAtlasMeta};
 use crate::error::PackageError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -129,6 +129,9 @@ pub struct Manifest {
     /// Optional BGA Texture Atlas metadata for Turbo profile packages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bga_atlas: Option<BgaAtlasMeta>,
+    /// Optional BGA Delta sequence bundle metadata for Turbo profile packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bga_delta: Option<BgaDeltaMeta>,
     /// Additional optional fields preserved for forward-compatibility.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -147,6 +150,7 @@ impl Manifest {
             companion_packages: None,
             sound_atlas: None,
             bga_atlas: None,
+            bga_delta: None,
             extra: BTreeMap::new(),
         }
     }
@@ -167,6 +171,7 @@ impl Manifest {
             companion_packages: None,
             sound_atlas: None,
             bga_atlas: None,
+            bga_delta: None,
             extra: BTreeMap::new(),
         }
     }
@@ -213,6 +218,13 @@ impl Manifest {
     /// Builder method to attach a BGA texture atlas.
     pub fn with_bga_atlas(mut self, bga_atlas: BgaAtlasMeta) -> Self {
         self.bga_atlas = Some(bga_atlas);
+        self.format = 2;
+        self
+    }
+
+    /// Builder method to attach a BGA delta sequence bundle.
+    pub fn with_bga_delta(mut self, bga_delta: BgaDeltaMeta) -> Self {
+        self.bga_delta = Some(bga_delta);
         self.format = 2;
         self
     }
@@ -294,6 +306,12 @@ impl Manifest {
         if let Some(ref ba) = self.bga_atlas {
             ba.validate()
                 .map_err(|e| PackageError::InvalidManifest(format!("Invalid bga_atlas: {e}")))?;
+        }
+
+        // 8. BGA Delta validation if present
+        if let Some(ref bd) = self.bga_delta {
+            bd.validate()
+                .map_err(|e| PackageError::InvalidManifest(format!("Invalid bga_delta: {e}")))?;
         }
 
         Ok(())

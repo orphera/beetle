@@ -139,7 +139,9 @@ impl VirtualBmsFs {
 
         let mut song_dir = HashMap::new();
 
-        let is_turbo = manifest.sound_atlas.is_some() || manifest.bga_atlas.is_some();
+        let is_turbo = manifest.sound_atlas.is_some()
+            || manifest.bga_atlas.is_some()
+            || manifest.bga_delta.is_some();
 
         if is_turbo {
             // 1. Mount Sound Atlas slices as on-the-fly WAV virtual files
@@ -197,7 +199,20 @@ impl VirtualBmsFs {
                 }
             }
 
-            // 2. Mount BGA Atlas frames as BMP virtual files
+            // 2a. Mount BGA Delta sequence frames as in-memory virtual files
+            if let Some(ref delta_meta) = manifest.bga_delta {
+                if let Ok(delta_bytes) = pkg.read_entry(&delta_meta.file) {
+                    if let Ok(unpacked) = delta_meta.unpack_all(&delta_bytes) {
+                        for (filename, file_bytes) in unpacked {
+                            let vfile =
+                                VirtualFile::Memory(Arc::from(file_bytes.into_boxed_slice()));
+                            song_dir.insert(filename, VfsNode::File(vfile));
+                        }
+                    }
+                }
+            }
+
+            // 2b. Mount BGA Atlas frames as BMP virtual files
             if let Some(ref bga_meta) = manifest.bga_atlas {
                 if let Ok(atlas_bytes) = pkg.read_entry(&bga_meta.file) {
                     if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
@@ -235,6 +250,11 @@ impl VirtualBmsFs {
                 }
                 if let Some(ref sm) = manifest.sound_atlas {
                     if entry_path == sm.file {
+                        continue;
+                    }
+                }
+                if let Some(ref dm) = manifest.bga_delta {
+                    if entry_path == dm.file {
                         continue;
                     }
                 }

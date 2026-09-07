@@ -1243,7 +1243,8 @@ mod tests {
 "#;
         let chart = parse_bms(bms).expect("Failed to parse DP chart with invisible notes");
         assert_eq!(chart.notes.len(), 1); // 1P note on key 1
-        assert_eq!(chart.bgm_notes.len(), 3); // 2P note, invisible note, and 2P LN routed to bgm_notes
+        assert_eq!(chart.bgm_notes.len(), 2); // 2P note and 2P LN routed to bgm_notes
+        assert_eq!(chart.freezone_notes.len(), 1); // invisible note routed to freezone_notes
         assert_eq!(chart.total_notes_count, 3); // 1 1P note + 1 2P note + 1 2P LN
         assert_eq!(chart.detect_play_mode(), PlayMode::Keys10);
     }

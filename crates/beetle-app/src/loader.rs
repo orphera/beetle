@@ -305,7 +305,60 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                 .unwrap_or_else(|| Path::new(""))
                 .to_string_lossy();
 
-            // 2a. Check if package has BGA Atlas with stagefile/banner
+            // 2a-1. Check if package has BGA Delta bundle with stagefile/banner
+            let bga_delta_meta = pkg.manifest().bga_delta.clone();
+            if let Some(delta_meta) = bga_delta_meta {
+                let delta_path = if pkg.contains(&delta_meta.file) {
+                    Some(delta_meta.file.clone())
+                } else {
+                    pkg.find_entry_path(&base_dir, &delta_meta.file)
+                };
+
+                if let Some(path) = delta_path {
+                    if let Ok(delta_bytes) = pkg.read_entry(&path) {
+                        let mut stage_target: Option<String> = None;
+                        if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
+                            let content = beetle_core::decode_bms_text(&bms_bytes);
+                            if let Ok(chart) = parse_bms(&content) {
+                                for name in &[&chart.header.stage_file, &chart.header.banner] {
+                                    if !name.is_empty() {
+                                        stage_target = Some(name.to_string());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if stage_target.is_none() {
+                            for cand in &["stagefile", "stage", "banner", "title"] {
+                                if delta_meta.frames.keys().any(|k| {
+                                    k.eq_ignore_ascii_case(cand)
+                                        || Path::new(k)
+                                            .file_stem()
+                                            .map(|s| s.eq_ignore_ascii_case(cand))
+                                            .unwrap_or(false)
+                                }) {
+                                    stage_target = Some((*cand).to_string());
+                                    break;
+                                }
+                            }
+                        }
+
+                        if let Some(ref key) = stage_target {
+                            if let Ok(Some(img_bytes)) = delta_meta.unpack_frame(key, &delta_bytes)
+                            {
+                                if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
+                                    let _ = fs::create_dir_all(cache_dir);
+                                    let _ = fs::write(&cache_file, &img_bytes);
+                                    return Some(img);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2a-2. Check if package has BGA Atlas with stagefile/banner
             let bga_meta = pkg.manifest().bga_atlas.clone();
             if let Some(bga_meta) = bga_meta {
                 let atlas_path = if pkg.contains(&bga_meta.file) {
@@ -531,20 +584,19 @@ pub fn load_chart_and_audio(
                         }
                     }
 
-                    // 2. BGA Frames: FAST-PATH via BGA Texture Atlas (1-pass decode and memory crop)
-                    let mut loaded_bga_from_atlas = false;
-                    let bga_meta = pkg.manifest().bga_atlas.clone();
-                    if let Some(bga_meta) = bga_meta {
-                        let atlas_path = if pkg.contains(&bga_meta.file) {
-                            Some(bga_meta.file.clone())
+                    // 2. BGA Frames: FAST-PATH via BGA Delta Bundle or BGA Texture Atlas
+                    let mut loaded_bga = false;
+                    let bga_delta_meta = pkg.manifest().bga_delta.clone();
+                    if let Some(delta_meta) = bga_delta_meta {
+                        let delta_path = if pkg.contains(&delta_meta.file) {
+                            Some(delta_meta.file.clone())
                         } else {
-                            pkg.find_entry_path(&base_dir, &bga_meta.file)
+                            pkg.find_entry_path(&base_dir, &delta_meta.file)
                         };
 
-                        if let Some(path) = atlas_path {
-                            if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                                if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
-                                    // Map chart BmpId -> chart filename -> atlas frame.
+                        if let Some(path) = delta_path {
+                            if let Ok(delta_bytes) = pkg.read_entry(&path) {
+                                if let Ok(unpacked) = delta_meta.unpack_all(&delta_bytes) {
                                     for (&bmp_id, filename) in &chart.header.bmp_table {
                                         if !bga_bank.contains_key(&bmp_id) {
                                             let norm = filename.replace('\\', "/");
@@ -552,34 +604,88 @@ pub fn load_chart_and_audio(
                                                 .file_name()
                                                 .and_then(|n| n.to_str())
                                                 .unwrap_or(&norm);
-                                            let frame = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
-                                                bga_meta.frames.values().find(|f| {
-                                                    f.original_filename.as_deref().map(|s| {
-                                                        s.eq_ignore_ascii_case(&norm)
-                                                            || s.eq_ignore_ascii_case(file_name)
-                                                    }).unwrap_or(false)
-                                                })
-                                            });
-                                            if let Some(frame) = frame
-                                            {
-                                                if let Some(sub_img) = atlas_img.crop(
-                                                    frame.x,
-                                                    frame.y,
-                                                    frame.width,
-                                                    frame.height,
-                                                ) {
-                                                    bga_bank.insert(bmp_id, sub_img);
+                                            let norm_lower = norm.to_ascii_lowercase();
+                                            let file_name_lower = file_name.to_ascii_lowercase();
+
+                                            let found_bytes = unpacked
+                                                .get(&norm)
+                                                .or_else(|| unpacked.get(&norm_lower))
+                                                .or_else(|| unpacked.get(file_name))
+                                                .or_else(|| {
+                                                    unpacked.iter().find(|(k, _)| {
+                                                        let k_norm = k.replace('\\', "/").to_ascii_lowercase();
+                                                        let k_fn = Path::new(&k_norm)
+                                                            .file_name()
+                                                            .and_then(|s| s.to_str())
+                                                            .unwrap_or(&k_norm);
+                                                        k_norm == norm_lower
+                                                            || k_fn == file_name_lower
+                                                            || k_norm.ends_with(&norm_lower)
+                                                    }).map(|(_, b)| b)
+                                                });
+
+                                            if let Some(img_bytes) = found_bytes {
+                                                if let Some(img) = ImageBuffer::from_bytes(img_bytes) {
+                                                    bga_bank.insert(bmp_id, img);
                                                 }
                                             }
                                         }
                                     }
-                                    loaded_bga_from_atlas = true;
+                                    loaded_bga = true;
                                 }
                             }
                         }
                     }
 
-                    if !loaded_bga_from_atlas {
+                    if !loaded_bga {
+                        let bga_meta = pkg.manifest().bga_atlas.clone();
+                        if let Some(bga_meta) = bga_meta {
+                            let atlas_path = if pkg.contains(&bga_meta.file) {
+                                Some(bga_meta.file.clone())
+                            } else {
+                                pkg.find_entry_path(&base_dir, &bga_meta.file)
+                            };
+
+                            if let Some(path) = atlas_path {
+                                if let Ok(atlas_bytes) = pkg.read_entry(&path) {
+                                    if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
+                                        // Map chart BmpId -> chart filename -> atlas frame.
+                                        for (&bmp_id, filename) in &chart.header.bmp_table {
+                                            if !bga_bank.contains_key(&bmp_id) {
+                                                let norm = filename.replace('\\', "/");
+                                                let file_name = Path::new(&norm)
+                                                    .file_name()
+                                                    .and_then(|n| n.to_str())
+                                                    .unwrap_or(&norm);
+                                                let frame = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
+                                                    bga_meta.frames.values().find(|f| {
+                                                        f.original_filename.as_deref().map(|s| {
+                                                            s.eq_ignore_ascii_case(&norm)
+                                                                || s.eq_ignore_ascii_case(file_name)
+                                                        }).unwrap_or(false)
+                                                    })
+                                                });
+                                                if let Some(frame) = frame
+                                                {
+                                                    if let Some(sub_img) = atlas_img.crop(
+                                                        frame.x,
+                                                        frame.y,
+                                                        frame.width,
+                                                        frame.height,
+                                                    ) {
+                                                        bga_bank.insert(bmp_id, sub_img);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        loaded_bga = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !loaded_bga {
                         for (&bmp_id, filename) in &chart.header.bmp_table {
                             if !is_video_path(filename) {
                                 if let Some(target_path) = pkg.find_entry_path(&base_dir, filename)
@@ -657,7 +763,7 @@ pub fn load_chart_and_audio(
                     println!(
                         "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames, {} BGA videos in-memory from archive, fast-atlas: sound={}, bga={})",
                         chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len(),
-                        loaded_sound_from_atlas, loaded_bga_from_atlas
+                        loaded_sound_from_atlas, loaded_bga
                     );
                     return (chart, timing, soundbank, bga_bank, video_sources);
                 }
@@ -1020,6 +1126,106 @@ mod tests {
             c_stage.is_some(),
             "Stage image should load from Classic package"
         );
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_turbo_bmsp_bga_delta_loading() {
+        use beetle_render::skin::ColorRgba;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "beetle_loader_delta_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Create a minimal BMS chart file with animation loop frames
+        let bms_content = "#TITLE Delta Loader Test\n#ARTIST Tester\n#BPM 140\n#STAGEFILE stage.bmp\n#WAV01 kick.wav\n#BMP01 loop_01.bmp\n#BMP02 loop_02.bmp\n#00111:01\n#00104:01\n";
+        fs::write(temp_dir.join("test.bms"), bms_content).unwrap();
+
+        // 2. Create minimal WAV file
+        let wav_bytes = {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut cur = std::io::Cursor::new(Vec::new());
+            {
+                let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+                for &s in &[1000i16, 2000, 3000, -1000, -2000, 0] {
+                    w.write_sample(s).unwrap();
+                }
+                w.finalize().unwrap();
+            }
+            cur.into_inner()
+        };
+        fs::write(temp_dir.join("kick.wav"), wav_bytes).unwrap();
+
+        // 3. Create minimal animation loop BMP images
+        let img1 = ImageBuffer::new(32, 32, ColorRgba::new(255, 0, 0, 255));
+        let mut img2 = img1.clone();
+        img2.pixels[10 * 32 + 10] = ColorRgba::new(200, 200, 0, 255);
+        let img_stage = ImageBuffer::new(64, 48, ColorRgba::new(0, 0, 255, 255));
+
+        fs::write(temp_dir.join("loop_01.bmp"), img1.encode_bmp_bytes()).unwrap();
+        fs::write(temp_dir.join("loop_02.bmp"), img2.encode_bmp_bytes()).unwrap();
+        fs::write(temp_dir.join("stage.bmp"), img_stage.encode_bmp_bytes()).unwrap();
+
+        // 4. Pack folder with Turbo profile (should auto-detect loop prefix and use BGA Delta)
+        let turbo_pkg_bytes = bms_package_manager::pack_bms_folder_profile(
+            &temp_dir,
+            None,
+            bms_package_manager::PackProfile::Turbo,
+        )
+        .expect("turbo pack failed");
+        let pkg_path = temp_dir.join("delta_loader.bmsp");
+        fs::write(&pkg_path, turbo_pkg_bytes).unwrap();
+
+        // 5. Test Turbo loading via load_chart_and_audio
+        let meta = SongMetadata {
+            hash: 88888,
+            file_path: format!(
+                "{}::test.bms",
+                pkg_path.to_string_lossy().replace('\\', "/")
+            ),
+            title: "Delta Loader Test".to_string(),
+            subtitle: "".to_string(),
+            artist: "Tester".to_string(),
+            genre: "".to_string(),
+            bpm: 140.0,
+            play_level: 5,
+            notes_count: 1,
+            play_mode: beetle_core::PlayMode::Keys7,
+        };
+
+        let (chart, _timing, soundbank, bga_bank, video_sources) = load_chart_and_audio(&meta);
+        assert_eq!(chart.header.title, "Delta Loader Test");
+        assert_eq!(soundbank.len(), 1, "Soundbank should load 1 keysound");
+        assert_eq!(
+            bga_bank.len(),
+            2,
+            "BGA bank should load 2 frames from BGA Delta bundle"
+        );
+        assert!(bga_bank.contains_key(&beetle_core::BmpId(1)));
+        assert!(bga_bank.contains_key(&beetle_core::BmpId(2)));
+        assert!(video_sources.is_empty());
+
+        // 6. Test Stage image loading from Turbo BGA Delta bundle
+        let stage_img = load_stage_image(&meta);
+        assert!(
+            stage_img.is_some(),
+            "Stage image should load from BGA Delta bundle"
+        );
+        let stage = stage_img.unwrap();
+        assert_eq!(stage.width, 64);
+        assert_eq!(stage.height, 48);
 
         // Clean up
         let _ = fs::remove_dir_all(&temp_dir);
