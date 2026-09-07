@@ -11,3 +11,4 @@ cpal = { workspace = true }
 rtrb = { workspace = true }
 hound = { workspace = true }
 lewton = { workspace = true }
+claxon = { workspace = true }

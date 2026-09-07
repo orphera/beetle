@@ -1124,10 +1124,10 @@ fn handle_key_input(
                         } else {
                             bga_mode
                         };
-                        let pack_options = bms_package_manager::PackOptions {
+                        let pack_options = bms_package_manager::PackOptions::new(
                             profile,
-                            bga_mode: bga_mode_effective,
-                        };
+                            bga_mode_effective,
+                        );
 
                         let mode_str = match (profile, bga_mode_effective) {
                             (

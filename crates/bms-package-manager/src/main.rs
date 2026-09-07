@@ -9,7 +9,7 @@ fn print_usage() {
     println!("Usage:");
     println!("  bpm install <package.bmsp> [--with-bga] Install a local .bmsp package (with optional BGA companion)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
-    println!("  bpm pack <folder> [-o <out>] [--turbo] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
+    println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!(
         "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
@@ -124,7 +124,14 @@ fn main() -> Result<(), PackageManagerError> {
             } else {
                 bms_package_manager::BgaPackMode::Embed
             };
-            let pack_options = bms_package_manager::PackOptions { profile, bga_mode };
+
+            let flac_mode = args.iter().any(|a| a == "--flac");
+            let audio_mode = if flac_mode {
+                bms_package_manager::AudioPackMode::Flac
+            } else {
+                bms_package_manager::AudioPackMode::Auto
+            };
+            let pack_options = bms_package_manager::PackOptions::new(profile, bga_mode).with_audio_mode(audio_mode);
 
             let roots = bms_package_manager::find_bms_song_roots(folder);
             if roots.is_empty() {

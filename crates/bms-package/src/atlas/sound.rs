@@ -13,6 +13,8 @@ pub enum SoundAtlasCodec {
     OggBundle,
     /// Bundled raw WAV audio streams indexed by byte offsets.
     WavBundle,
+    /// Bundled raw FLAC audio streams indexed by byte offsets.
+    FlacBundle,
 }
 
 impl SoundAtlasCodec {
@@ -22,12 +24,13 @@ impl SoundAtlasCodec {
             Self::PcmF32 => "pcm_f32",
             Self::OggBundle => "ogg_bundle",
             Self::WavBundle => "wav_bundle",
+            Self::FlacBundle => "flac_bundle",
         }
     }
 
     /// Whether this codec represents byte-indexed bundled raw audio files.
     pub fn is_bundle(&self) -> bool {
-        matches!(self, Self::OggBundle | Self::WavBundle)
+        matches!(self, Self::OggBundle | Self::WavBundle | Self::FlacBundle)
     }
 }
 
@@ -268,5 +271,39 @@ mod tests {
         assert_eq!(deserialized.codec, SoundAtlasCodec::WavBundle);
         assert_eq!(deserialized.slices.get("02").unwrap().byte_offset(), 5000);
         assert_eq!(deserialized.slices.get("02").unwrap().byte_len(), 7000);
+    }
+
+    #[test]
+    fn test_sound_atlas_meta_flac_bundle_roundtrip() {
+        let mut slices = BTreeMap::new();
+        slices.insert(
+            "01".to_string(),
+            SoundSlice::new(0, 3000, Some("kick.flac".to_string())),
+        );
+        slices.insert(
+            "02".to_string(),
+            SoundSlice::new(3000, 4000, Some("snare.flac".to_string())),
+        );
+
+        let meta = SoundAtlasMeta::new(
+            "audio/atlas.bin",
+            SoundAtlasCodec::FlacBundle,
+            44100,
+            2,
+            7000,
+            0,
+            slices,
+        );
+
+        assert!(meta.validate().is_ok());
+
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"codec\":\"flac_bundle\""));
+
+        let deserialized: SoundAtlasMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(meta, deserialized);
+        assert_eq!(deserialized.codec, SoundAtlasCodec::FlacBundle);
+        assert_eq!(deserialized.slices.get("01").unwrap().byte_offset(), 0);
+        assert_eq!(deserialized.slices.get("01").unwrap().byte_len(), 3000);
     }
 }

@@ -46,9 +46,9 @@ impl VirtualFile {
                 let pcm_len = match codec {
                     SoundAtlasCodec::Pcm16 => (*frame_count as usize) * 4,
                     SoundAtlasCodec::PcmF32 => (*frame_count as usize) * 4, // converted to 16-bit
-                    SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => {
-                        *frame_count as usize
-                    }
+                    SoundAtlasCodec::OggBundle
+                    | SoundAtlasCodec::WavBundle
+                    | SoundAtlasCodec::FlacBundle => *frame_count as usize,
                 };
                 44 + pcm_len
             }
@@ -149,16 +149,17 @@ impl VirtualBmsFs {
                 if let Ok(atlas_bytes) = pkg.read_entry(&sound_meta.file) {
                     let atlas_arc: Arc<[u8]> = Arc::from(atlas_bytes.into_boxed_slice());
                     if sound_meta.codec.is_bundle() {
-                        let default_ext = if sound_meta.codec == SoundAtlasCodec::OggBundle {
-                            ".ogg"
-                        } else {
-                            ".wav"
+                        let default_ext = match sound_meta.codec {
+                            SoundAtlasCodec::OggBundle => ".ogg",
+                            SoundAtlasCodec::FlacBundle => ".flac",
+                            _ => ".wav",
                         };
                         for (key, slice) in &sound_meta.slices {
                             let filename = slice.original_filename.as_deref().unwrap_or(key);
 
                             let filename = if !filename.to_lowercase().ends_with(".wav")
                                 && !filename.to_lowercase().ends_with(".ogg")
+                                && !filename.to_lowercase().ends_with(".flac")
                             {
                                 format!("{}{}", filename, default_ext)
                             } else {

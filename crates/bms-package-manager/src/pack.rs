@@ -32,22 +32,45 @@ pub enum BgaPackMode {
     NoVideo,
 }
 
+/// Mode controlling how audio files are packaged and compressed in Sound Atlas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioPackMode {
+    /// Auto: Preserves existing format (OggBundle for OGG songs, WavBundle for WAV songs, FlacBundle for FLAC songs).
+    #[default]
+    Auto,
+    /// Flac: Losslessly compresses all WAV audio files into FLAC streams and packages as FlacBundle.
+    Flac,
+    /// Wav: Packs WAV files into WavBundle.
+    Wav,
+}
+
 /// Comprehensive options controlling package generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PackOptions {
     pub profile: PackProfile,
     pub bga_mode: BgaPackMode,
+    pub audio_mode: AudioPackMode,
 }
 
 impl PackOptions {
     pub fn new(profile: PackProfile, bga_mode: BgaPackMode) -> Self {
-        Self { profile, bga_mode }
+        Self {
+            profile,
+            bga_mode,
+            audio_mode: AudioPackMode::Auto,
+        }
+    }
+
+    pub fn with_audio_mode(mut self, audio_mode: AudioPackMode) -> Self {
+        self.audio_mode = audio_mode;
+        self
     }
 
     pub fn classic(bga_mode: BgaPackMode) -> Self {
         Self {
             profile: PackProfile::Classic,
             bga_mode,
+            audio_mode: AudioPackMode::Auto,
         }
     }
 
@@ -55,6 +78,7 @@ impl PackOptions {
         Self {
             profile: PackProfile::Turbo,
             bga_mode,
+            audio_mode: AudioPackMode::Auto,
         }
     }
 }
@@ -394,7 +418,7 @@ where
         PackProfile::Turbo => pack_bms_folder_turbo_with_progress(
             target_dir,
             manifest_override,
-            options.bga_mode,
+            options,
             cancel_flag,
             on_progress,
         ),
@@ -405,7 +429,7 @@ where
 fn pack_bms_folder_turbo_with_progress<P: AsRef<Path>, F>(
     folder_path: P,
     manifest_override: Option<Manifest>,
-    bga_mode: BgaPackMode,
+    options: PackOptions,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
     mut on_progress: F,
 ) -> Result<PackOutput, PackageManagerError>
@@ -420,6 +444,7 @@ where
     };
 
     let p = target_dir;
+    let bga_mode = options.bga_mode;
     let mut manifest = match manifest_override {
         Some(m) => m,
         None => analyze_bms_folder(p)?,
@@ -456,17 +481,22 @@ where
                         wav_targets.insert(norm.clone(), ());
                         wav_targets.insert(file_only.clone(), ());
 
-                        // Cross-extension matching (.wav <-> .ogg)
-                        if norm.ends_with(".wav") {
-                            let base = &norm[..norm.len() - 4];
-                            wav_targets.insert(format!("{}.ogg", base), ());
-                            let fbase = &file_only[..file_only.len() - 4];
-                            wav_targets.insert(format!("{}.ogg", fbase), ());
-                        } else if norm.ends_with(".ogg") {
-                            let base = &norm[..norm.len() - 4];
+                        // Cross-extension matching (.wav <-> .ogg <-> .flac)
+                        let base_opt = norm.strip_suffix(".wav")
+                            .or_else(|| norm.strip_suffix(".ogg"))
+                            .or_else(|| norm.strip_suffix(".flac"));
+                        if let Some(base) = base_opt {
                             wav_targets.insert(format!("{}.wav", base), ());
-                            let fbase = &file_only[..file_only.len() - 4];
+                            wav_targets.insert(format!("{}.ogg", base), ());
+                            wav_targets.insert(format!("{}.flac", base), ());
+                        }
+                        let fbase_opt = file_only.strip_suffix(".wav")
+                            .or_else(|| file_only.strip_suffix(".ogg"))
+                            .or_else(|| file_only.strip_suffix(".flac"));
+                        if let Some(fbase) = fbase_opt {
                             wav_targets.insert(format!("{}.wav", fbase), ());
+                            wav_targets.insert(format!("{}.ogg", fbase), ());
+                            wav_targets.insert(format!("{}.flac", fbase), ());
                         }
                     }
                     for (&_bmp_id, filename) in &chart.header.bmp_table {
@@ -534,17 +564,29 @@ where
         .iter()
         .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".ogg"))
         .count();
+    let flac_count = files_to_read
+        .iter()
+        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".flac"))
+        .count();
     let wav_count = files_to_read
         .iter()
         .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".wav"))
         .count();
 
-    let sound_codec = if ogg_count > 0 && ogg_count >= wav_count {
-        SoundAtlasCodec::OggBundle
-    } else if wav_count > 0 {
-        SoundAtlasCodec::WavBundle
-    } else {
-        SoundAtlasCodec::Pcm16
+    let sound_codec = match options.audio_mode {
+        AudioPackMode::Flac => SoundAtlasCodec::FlacBundle,
+        AudioPackMode::Wav => SoundAtlasCodec::WavBundle,
+        AudioPackMode::Auto => {
+            if flac_count > 0 && flac_count >= wav_count && flac_count >= ogg_count {
+                SoundAtlasCodec::FlacBundle
+            } else if ogg_count > 0 && ogg_count >= wav_count {
+                SoundAtlasCodec::OggBundle
+            } else if wav_count > 0 {
+                SoundAtlasCodec::WavBundle
+            } else {
+                SoundAtlasCodec::Pcm16
+            }
+        }
     };
 
     let mut image_prefix_counts: HashMap<String, usize> = HashMap::new();
@@ -620,10 +662,18 @@ where
             .get(&norm_rel)
             .or_else(|| wav_targets.get(&norm_name))
             .is_some();
-        let is_audio = matches!(ext.as_str(), "wav" | "ogg") || matched_wav_key;
+        let is_audio = matches!(ext.as_str(), "wav" | "ogg" | "flac") || matched_wav_key;
         if is_audio {
             if is_bundle {
-                sound_builder.add_raw(norm_rel.clone(), data, Some(norm_rel.clone()));
+                let final_data = if sound_codec == SoundAtlasCodec::FlacBundle && ext == "wav" {
+                    match crate::flac::encode_wav_to_flac(&data) {
+                        Ok(flac_data) => flac_data,
+                        Err(_) => data,
+                    }
+                } else {
+                    data
+                };
+                sound_builder.add_raw(norm_rel.clone(), final_data, Some(norm_rel.clone()));
                 continue;
             } else if let Ok(pcm) = SampleBank::load_audio_from_bytes(&data) {
                 sound_builder.add_sample(norm_rel.clone(), &pcm, Some(norm_rel.clone()));
@@ -1465,6 +1515,82 @@ mod tests {
         assert_eq!(vfs.read_file("delta_song/loop_02.bmp").unwrap(), raw2);
         assert_eq!(vfs.read_file("delta_song/loop_03.bmp").unwrap(), raw3);
         assert_eq!(vfs.read_file("delta_song/stage.bmp").unwrap(), raw_stage);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pack_with_flac_bundle_roundtrip() {
+        use bms_package::Package;
+        use crate::export::export_package_to_folder;
+        use crate::vfs::VirtualBmsFs;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "bpm_flac_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let song_dir = temp_dir.join("Song");
+        fs::create_dir_all(&song_dir).unwrap();
+
+        // 1. Create a dummy BMS chart
+        let bms_content = "#TITLE FLAC Test\n#WAV01 01.wav\n#WAV02 02.wav\n#00111:0102";
+        fs::write(song_dir.join("test.bms"), bms_content).unwrap();
+
+        // 2. Generate two 16-bit stereo WAV files
+        let wav1 = crate::flac::tests::make_test_wav_16bit(2, 44100, 22050);
+        let wav2 = crate::flac::tests::make_test_wav_16bit(2, 44100, 11025);
+        fs::write(song_dir.join("01.wav"), &wav1).unwrap();
+        fs::write(song_dir.join("02.wav"), &wav2).unwrap();
+
+        // 3. Pack with Turbo profile and Flac audio mode
+        let opts = PackOptions::turbo(BgaPackMode::Embed).with_audio_mode(AudioPackMode::Flac);
+        let output = pack_bms_folder_advanced_with_progress(&song_dir, None, opts, None, |_, _, _, _| {})
+            .expect("flac packaging should succeed");
+
+        let pkg = Package::from_bytes(output.base_package.clone()).expect("valid package");
+        let manifest = pkg.manifest();
+        let sound_meta = manifest.sound_atlas.as_ref().expect("sound atlas present");
+
+        assert_eq!(sound_meta.codec, SoundAtlasCodec::FlacBundle);
+        assert!(sound_meta.slices.contains_key("01.wav"));
+        assert!(sound_meta.slices.contains_key("02.wav"));
+
+        let atlas_bytes = pkg.read_entry(&sound_meta.file).expect("read atlas entry");
+        assert!(atlas_bytes.len() < wav1.len() + wav2.len(), "FLAC bundle should compress audio");
+
+        // 4. Decode with beetle-audio SampleBank
+        let chart = beetle_core::parse_bms(bms_content).expect("parse chart");
+        let sample_bank = SampleBank::load_from_sound_atlas_for_chart(&chart, sound_meta, &atlas_bytes)
+            .expect("decode soundbank");
+
+        let pcm1 = sample_bank.get(beetle_core::WavId::new(1)).expect("wav01 present");
+        let pcm2 = sample_bank.get(beetle_core::WavId::new(2)).expect("wav02 present");
+        assert_eq!(pcm1.sample_rate, 44100);
+        assert_eq!(pcm2.sample_rate, 44100);
+
+        // Verify PCM matches original WAV
+        let orig_pcm1 = SampleBank::load_audio_from_bytes(&wav1).expect("orig wav1");
+        assert_eq!(pcm1.length, orig_pcm1.length);
+        for i in 0..pcm1.length {
+            let diff = (pcm1.samples[pcm1.offset + i] - orig_pcm1.samples[orig_pcm1.offset + i]).abs();
+            assert!(diff < 1e-4, "Sample mismatch at {i}");
+        }
+
+        // 5. Export package to folder
+        let pkg_path = temp_dir.join("flac_song.bmsp");
+        fs::write(&pkg_path, &output.base_package).unwrap();
+
+        let export_dir = temp_dir.join("Exported");
+        let stats = export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
+        assert_eq!(stats.wav_files, 2);
+
+        // 6. Test VFS mount
+        let mut vfs = VirtualBmsFs::new();
+        vfs.mount_package("flac_song", &pkg_path).expect("mount should succeed");
+        assert!(vfs.read_file("flac_song/01.wav").is_some() || vfs.read_file("flac_song/01.flac").is_some());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

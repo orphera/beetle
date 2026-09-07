@@ -13,8 +13,10 @@ beetle-core = { workspace = true }
 beetle-audio = { workspace = true }
 beetle-render = { workspace = true }
 bms-package = { workspace = true }
+hound = { workspace = true }
+claxon = { workspace = true }
+flacenc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
 [dev-dependencies]
 hound = { workspace = true }

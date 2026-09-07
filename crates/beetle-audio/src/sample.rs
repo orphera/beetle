@@ -65,6 +65,7 @@ pub enum AudioDecodeError {
     IoError(std::io::Error),
     WavDecodeError(String),
     OggDecodeError(String),
+    FlacDecodeError(String),
     UnsupportedFormat(String),
 }
 
@@ -74,6 +75,7 @@ impl std::fmt::Display for AudioDecodeError {
             Self::IoError(e) => write!(f, "I/O error: {e}"),
             Self::WavDecodeError(msg) => write!(f, "WAV decode error: {msg}"),
             Self::OggDecodeError(msg) => write!(f, "OGG decode error: {msg}"),
+            Self::FlacDecodeError(msg) => write!(f, "FLAC decode error: {msg}"),
             Self::UnsupportedFormat(msg) => write!(f, "Unsupported audio format: {msg}"),
         }
     }
@@ -90,6 +92,12 @@ impl From<std::io::Error> for AudioDecodeError {
 impl From<hound::Error> for AudioDecodeError {
     fn from(e: hound::Error) -> Self {
         Self::WavDecodeError(e.to_string())
+    }
+}
+
+impl From<claxon::Error> for AudioDecodeError {
+    fn from(e: claxon::Error) -> Self {
+        Self::FlacDecodeError(e.to_string())
     }
 }
 
@@ -241,31 +249,97 @@ impl SampleBank {
         Ok(PcmBuffer::new(sample_rate, stereo_samples))
     }
 
-    /// Decodes an audio file (WAV or OGG) from an in-memory byte buffer into stereo normalized PCM.
-    pub fn load_audio_from_bytes(data: &[u8]) -> Result<PcmBuffer, AudioDecodeError> {
-        let cursor = Cursor::new(data);
-        match Self::load_wav_from_reader(cursor.clone()) {
-            Ok(pcm) => Ok(pcm),
-            Err(_) => Self::load_ogg_from_reader(cursor),
+    /// Decode FLAC from any `Read` stream into stereo normalized `PcmBuffer`.
+    pub fn load_flac_from_reader<R: Read>(reader: R) -> Result<PcmBuffer, AudioDecodeError> {
+        let mut flac_reader = claxon::FlacReader::new(reader)?;
+        let info = flac_reader.streaminfo();
+        let channels = info.channels as usize;
+        let sample_rate = info.sample_rate;
+        let bps = info.bits_per_sample;
+
+        if channels == 0 || channels > 2 {
+            return Err(AudioDecodeError::UnsupportedFormat(format!(
+                "Channels count {channels} not supported (only mono or stereo)"
+            )));
         }
+
+        let divisor = match bps {
+            8 => 128.0,
+            16 => 32768.0,
+            24 => 8388608.0,
+            32 => 2147483648.0,
+            bits => (1i64 << (bits - 1)) as f32,
+        };
+
+        let mut raw_samples = Vec::new();
+        for sample in flac_reader.samples() {
+            let s = sample.map_err(|e| AudioDecodeError::FlacDecodeError(e.to_string()))?;
+            raw_samples.push(s as f32 / divisor);
+        }
+
+        let stereo_samples = if channels == 1 {
+            let mut stereo = Vec::with_capacity(raw_samples.len() * 2);
+            for s in raw_samples {
+                stereo.push(s);
+                stereo.push(s);
+            }
+            stereo
+        } else {
+            raw_samples
+        };
+
+        Ok(PcmBuffer::new(sample_rate, stereo_samples))
     }
 
-    /// Load an audio file (WAV or OGG) from disk and pre-decode to PCM.
+    /// Decodes an audio file (WAV, FLAC, or OGG) from an in-memory byte buffer into stereo normalized PCM.
+    pub fn load_audio_from_bytes(data: &[u8]) -> Result<PcmBuffer, AudioDecodeError> {
+        if data.starts_with(b"fLaC") {
+            return Self::load_flac_from_reader(Cursor::new(data));
+        }
+        if data.starts_with(b"RIFF") {
+            return Self::load_wav_from_reader(Cursor::new(data));
+        }
+        if data.starts_with(b"OggS") {
+            return Self::load_ogg_from_reader(Cursor::new(data));
+        }
+
+        let cursor = Cursor::new(data);
+        if let Ok(pcm) = Self::load_wav_from_reader(cursor.clone()) {
+            return Ok(pcm);
+        }
+        if let Ok(pcm) = Self::load_flac_from_reader(cursor.clone()) {
+            return Ok(pcm);
+        }
+        Self::load_ogg_from_reader(cursor)
+    }
+
+    /// Load an audio file (WAV, FLAC, or OGG) from disk and pre-decode to PCM.
     pub fn load_audio_file<P: AsRef<Path>>(path: P) -> Result<PcmBuffer, AudioDecodeError> {
         let p = path.as_ref();
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        if ext.eq_ignore_ascii_case("ogg") {
+        if ext.eq_ignore_ascii_case("flac") {
+            let file = std::fs::File::open(p)?;
+            Self::load_flac_from_reader(std::io::BufReader::new(file))
+        } else if ext.eq_ignore_ascii_case("ogg") {
             let file = std::fs::File::open(p)?;
             Self::load_ogg_from_reader(std::io::BufReader::new(file))
         } else {
             let file = std::fs::File::open(p)?;
-            // Attempt WAV first, fallback to OGG if format header mismatches
-            match Self::load_wav_from_reader(std::io::BufReader::new(file)) {
+            // Attempt WAV first, fallback to FLAC then OGG if format header mismatches
+            let mut buf = std::io::BufReader::new(file);
+            match Self::load_wav_from_reader(&mut buf) {
                 Ok(pcm) => Ok(pcm),
                 Err(_) => {
                     let file = std::fs::File::open(p)?;
-                    Self::load_ogg_from_reader(std::io::BufReader::new(file))
+                    let buf = std::io::BufReader::new(file);
+                    match Self::load_flac_from_reader(buf) {
+                        Ok(pcm) => Ok(pcm),
+                        Err(_) => {
+                            let file = std::fs::File::open(p)?;
+                            Self::load_ogg_from_reader(std::io::BufReader::new(file))
+                        }
+                    }
                 }
             }
         }
@@ -284,21 +358,23 @@ impl SampleBank {
             if file_path.exists() {
                 resolved_path = Some(file_path);
             } else {
-                // Try smart alternate extensions (.wav, .ogg, .WAV, .OGG)
+                // Try smart alternate extensions (.flac, .wav, .ogg, .FLAC, .WAV, .OGG)
                 let stem = Path::new(filename).file_stem().unwrap_or_default();
-                let wav_alt = dir.join(format!("{}.wav", stem.to_string_lossy()));
-                let ogg_alt = dir.join(format!("{}.ogg", stem.to_string_lossy()));
-                let wav_upper = dir.join(format!("{}.WAV", stem.to_string_lossy()));
-                let ogg_upper = dir.join(format!("{}.OGG", stem.to_string_lossy()));
+                let stem_str = stem.to_string_lossy();
+                let candidates = [
+                    dir.join(format!("{stem_str}.flac")),
+                    dir.join(format!("{stem_str}.wav")),
+                    dir.join(format!("{stem_str}.ogg")),
+                    dir.join(format!("{stem_str}.FLAC")),
+                    dir.join(format!("{stem_str}.WAV")),
+                    dir.join(format!("{stem_str}.OGG")),
+                ];
 
-                if wav_alt.exists() {
-                    resolved_path = Some(wav_alt);
-                } else if ogg_alt.exists() {
-                    resolved_path = Some(ogg_alt);
-                } else if wav_upper.exists() {
-                    resolved_path = Some(wav_upper);
-                } else if ogg_upper.exists() {
-                    resolved_path = Some(ogg_upper);
+                for cand in candidates {
+                    if cand.exists() {
+                        resolved_path = Some(cand);
+                        break;
+                    }
                 }
             }
 

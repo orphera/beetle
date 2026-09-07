@@ -82,7 +82,9 @@ pub fn extract_wav_from_atlas(
             }
             pcm16
         }
-        SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle => {
+        SoundAtlasCodec::OggBundle
+        | SoundAtlasCodec::WavBundle
+        | SoundAtlasCodec::FlacBundle => {
             let start_byte = start_frame as usize;
             let byte_len = frame_count as usize;
             if start_byte + byte_len > atlas_data.len() {
@@ -168,9 +170,12 @@ where
 
                     let filename = if !filename.to_lowercase().ends_with(".wav")
                         && !filename.to_lowercase().ends_with(".ogg")
+                        && !filename.to_lowercase().ends_with(".flac")
                     {
                         if sound_meta.codec == SoundAtlasCodec::OggBundle {
                             format!("{}.ogg", filename)
+                        } else if sound_meta.codec == SoundAtlasCodec::FlacBundle {
+                            format!("{}.flac", filename)
                         } else {
                             format!("{}.wav", filename)
                         }
