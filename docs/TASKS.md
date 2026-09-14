@@ -20,18 +20,18 @@
 ---
 
 ## 📋 Phase 1: 원격 레지스트리 데이터 모델 및 경량 HTTP 클라이언트 (`crates/bms-package-manager/`)
-- [ ] **원격 레지스트리 인덱스 데이터 모델 및 직렬화 구현 (`crates/bms-package-manager/src/registry/remote.rs`)**
-  - [ ] `RemoteRegistryIndex`, `RemotePackageMetadata`, `CompanionBgaMetadata` 구조체 정의
-  - [ ] Serde 기반 JSON 직렬화/역직렬화 및 규격 유효성 검증 (`format_version`, `sha256` 64자 포맷)
-- [ ] **로컬 레지스트리 소스 설정 관리 (`crates/bms-package-manager/src/registry/sources.rs`)**
-  - [ ] `RegistrySource` 구조체 (`id: String`, `name: String`, `url: String`, `enabled: bool`, `priority: u32`)
-  - [ ] `sources.json` 파일 저장 및 로드, 기본 공식 소스(`official`) 초기화
-  - [ ] 소스 우선순위 기반 복수 소스 패키지 병합 로직 구축
-- [ ] **경량 동기식 HTTP 클라이언트 모듈 구축 (`crates/bms-package-manager/src/net/http.rs`)**
-  - [ ] `ureq` (with `tls`/`rustls`) 최소 의존성 추가 (Tokio/Reqwest 완전 배제, 바이너리 오버헤드 < 150 KB)
-  - [ ] 공격적 타임아웃(연결 3초 / 읽기 10초) 및 표준 User-Agent 헤더 설정
-  - [ ] 실시간 프로그레스 스트리밍 트레이트 `DownloadProgressCallback` 정의
-  - [ ] 다운로드 중 스트리밍 SHA-256 누적 계산 및 `index.json` 대조 검증 파이프라인
+- [x] **원격 레지스트리 인덱스 데이터 모델 및 직렬화 구현 (`crates/bms-package-manager/src/registry/remote.rs`)**
+  - [x] `RemoteRegistryIndex`, `RemotePackageMetadata`, `CompanionBgaMetadata` 구조체 정의
+  - [x] Serde 기반 JSON 직렬화/역직렬화 및 규격 유효성 검증 (`format_version`, `sha256` 64자 포맷)
+- [x] **로컬 레지스트리 소스 설정 관리 (`crates/bms-package-manager/src/registry/sources.rs`)**
+  - [x] `RegistrySource` 구조체 (`id: String`, `name: String`, `url: String`, `enabled: bool`, `priority: u32`)
+  - [x] `sources.json` 파일 저장 및 로드, 기본 공식 소스(`official`) 초기화
+  - [x] 소스 우선순위 기반 복수 소스 패키지 병합 로직 구축
+- [x] **경량 동기식 HTTP 클라이언트 모듈 구축 (`crates/bms-package-manager/src/net/http.rs`)**
+  - [x] `ureq` (with `tls`/`rustls`) 최소 의존성 추가 (Tokio/Reqwest 완전 배제, 바이너리 오버헤드 < 150 KB)
+  - [x] 공격적 타임아웃(연결 3초 / 읽기 10초) 및 표준 User-Agent 헤더 설정
+  - [x] 실시간 프로그레스 스트리밍 트레이트 `DownloadProgressCallback` 정의
+  - [x] 다운로드 중 스트리밍 SHA-256 누적 계산 및 `index.json` 대조 검증 파이프라인
 
 ---
 

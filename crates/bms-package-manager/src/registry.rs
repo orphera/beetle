@@ -1,3 +1,12 @@
+pub mod remote;
+pub mod sources;
+
+pub use remote::{CompanionBgaMetadata, RemotePackageMetadata, RemoteRegistryIndex};
+pub use sources::{
+    RegistrySource, SourcesConfig, DEFAULT_OFFICIAL_SOURCE_ID, DEFAULT_OFFICIAL_SOURCE_NAME,
+    DEFAULT_OFFICIAL_SOURCE_URL,
+};
+
 use crate::error::PackageManagerError;
 use bms_package::Manifest;
 use std::collections::BTreeMap;

@@ -18,5 +18,6 @@ claxon = { workspace = true }
 flacenc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+ureq = { workspace = true }
 [dev-dependencies]
 hound = { workspace = true }
