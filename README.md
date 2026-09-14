@@ -44,22 +44,29 @@ beetle/
 ├── Cargo.toml                      # Workspace 및 release 최적화 프로필
 ├── AGENTS.md                       # 개발 가이드 및 아키텍처 불변식
 ├── docs/
-│   ├── TASKS.md                    # 마일스톤 개발 체크리스트 및 백로그 (Milestone 4/5)
-│   ├── DECISIONS.md                # 아키텍처 결정 레코드 (ADR-001 ~ ADR-017)
+│   ├── TASKS.md                    # 마일스톤 개발 체크리스트 및 로드맵 (Milestone 8)
+│   ├── DECISIONS.md                # 아키텍처 결정 레코드 (ADR-001 ~ ADR-023)
 │   ├── specs/                      # 세부 기술 명세서
 │   │   ├── bms_package_system.md   # 통합 BMS 패키지 시스템 아키텍처 명세
 │   │   ├── bms_package.md          # bms-package 포맷 및 라이브러리 명세
-│   │   └── bms_package_manager.md  # bms-package-manager 및 레지스트리 명세
+│   │   ├── bms_package_manager.md  # bms-package-manager 및 레지스트리 명세
+│   │   └── remote_package_registry.md # 원격 패키지 레지스트리 및 온라인 배포 규격
 │   ├── proposals/                  # 향후 확장 제안서 및 백로그
-│   │   ├── gameplay_enhancement_and_display.md # 창모드, 종횡비 피팅, 초고주사율, BGA 제안서
-│   │   ├── platform_expansion.md   # Linux, Web(WASM), Mobile 확장 제안서
+│   │   ├── dual_atlas_package.md   # 듀얼 아틀라스 초고속 패키지 제안서
 │   │   ├── remote_package_registry.md # 원격 레지스트리 및 P2P 공유 제안서
-│   │   └── legacy_compatibility_vfs.md # LR2/beatoraja VFS 호환 제안서
+│   │   ├── legacy_compatibility_vfs.md # LR2/beatoraja VFS 호환 제안서
+│   │   ├── platform_expansion.md   # Linux, Web(WASM), Mobile 확장 제안서
+│   │   ├── decoupled_bga_package_system.md # 분리형 BGA 패키지 제안서
+│   │   ├── gameplay_enhancement_and_display.md # 창모드, 종횡비 피팅, BGA 제안서
+│   │   └── lightweight_gpu_acceleration.md # GPU 하드웨어 가속 렌더링 제안서
 │   └── archive/                    # 완료된 마일스톤 히스토리 아카이브
 │       ├── tasks_milestone_1.md    # Milestone 1: 기반 아키텍처 및 게임 루프
 │       ├── tasks_milestone_2.md    # Milestone 2: UI/UX 전면 개편 및 다국어 폰트
 │       ├── tasks_milestone_3.md    # Milestone 3: 모듈화 & 클린 구조 리팩토링
-│       └── tasks_milestone_4.md    # Milestone 4: BMS Package Delta(차분) 및 원자적 업데이트 엔진
+│       ├── tasks_milestone_4.md    # Milestone 4: BMS Package Delta 차분 엔진
+│       ├── tasks_milestone_5.md    # Milestone 5: 디스플레이 다원화 및 BGA 엔진
+│       ├── tasks_milestone_6.md    # Milestone 6: 초경량 GPU 가속 및 CJK 한자
+│       └── tasks_milestone_7.md    # Milestone 7: 듀얼 아틀라스 및 무손실 FLAC
 └── crates/
     ├── beetle-core/                # 순수 채보 파서, 타이밍 모델, 판정/점수/리플레이 엔진
     ├── beetle-audio/               # cpal 오디오 엔진, 락프리 믹서, 마스터 오디오 클럭

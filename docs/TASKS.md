@@ -1,4 +1,4 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 7)
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 8)
 
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
@@ -9,86 +9,106 @@
 > - [archive/tasks_milestone_4.md](archive/tasks_milestone_4.md): BMS Package Delta(차분) 및 원자적 업데이트 엔진 (`.bmdp` 빌더, 패치 및 GUI 마법사)
 > - [archive/tasks_milestone_5.md](archive/tasks_milestone_5.md): 디스플레이 다원화, 종횡비 보존 렌더링, 초고주사율 최적화, BGA 엔진 및 WMF 동영상 지원
 > - [archive/tasks_milestone_6.md](archive/tasks_milestone_6.md): 초경량 멀티 백엔드 GPU 하드웨어 가속 렌더링 엔진, CJK 한자 폴백, 진성 GPU 배치 파이프라인
+> - [archive/tasks_milestone_7.md](archive/tasks_milestone_7.md): 듀얼 아틀라스(Sound & BGA Atlas) 초고속 패키지 엔진, 무손실 FLAC 압축, WebDAV VFS 온더플라이 WAV 합성
 
 ---
 
-# 🚀 Milestone 7: 듀얼 아틀라스 기반 초고속 BMS 패키지 엔진 (Dual Atlas Package Engine: Sound & BGA Atlas)
+# 🚀 Milestone 8: 원격 패키지 레지스트리 및 온라인 송 허브 (Remote Package Registry & Online Song Hub)
 
-자세한 기술 설계 및 아키텍처는 [proposals/dual_atlas_package.md](proposals/dual_atlas_package.md)를 참조합니다.
-
----
-
-## 📋 Phase 1: Sound Atlas 빌더 및 디코딩 엔진 (`crates/bms-package/`, `crates/beetle-audio/`)
-- [x] **Sound Atlas 슬라이스 데이터 모델 및 인터페이스 정의 (`crates/bms-package/src/atlas/sound.rs`)**
-  - [x] `SoundSlice` 구조체 (`start_sample: u64`, `length_samples: u64`, `channels: u8`, `sample_rate: u32`, `original_filename: String`) 정의
-  - [x] `SoundAtlasMeta` 및 직렬화/역직렬화 구현
-- [x] **AOT 오디오 사전 정규화 및 합성 빌더 (`SoundAtlasBuilder`)**
-  - [x] 복수의 키음(WAV/OGG)을 44.1kHz Stereo PCM으로 일괄 리샘플링/업믹싱
-  - [x] 키음 간 주파수 신호 번짐 방지 무음 패딩(Zero-Padding, 128 samples) 삽입
-  - [x] 단일 연속 오디오 스트림(FLAC 무손실 압축 / PCM) 생성
-- [x] **`SampleBank` 슬라이스 뷰(Zero-Copy Slice Reference) 연동 (`crates/beetle-audio/src/sample.rs`)**
-  - [x] 거대 단일 PCM 버퍼(`Arc<[f32]>`)에서 슬라이스 단위로 키음을 발음하는 참조형 사운드 구조체 지원
+자세한 기술 설계 및 아키텍처는 [specs/remote_package_registry.md](specs/remote_package_registry.md) 및 [proposals/remote_package_registry.md](proposals/remote_package_registry.md)를 참조합니다.
 
 ---
 
-## 📋 Phase 2: BGA Texture Atlas 빌더 및 렌더러 연동 (`crates/bms-package/`, `crates/beetle-render/`)
-- [x] **순수 Rust 경량 2D 직사각형 패킹(Bin Packing) 알고리즘 구축 (`crates/bms-package/src/atlas/binpack.rs`)**
-  - [x] 외부 무거운 크레이트 0개, Guillotine / MaxRects 기반 직사각형 패커 구현
-  - [x] 스프라이트 간 색상 번짐 방지 1px 투명 여백(Padding) 처리
-- [x] **BGA Texture Atlas 합성 빌더 (`BgaAtlasBuilder`)**
-  - [x] BMS `#BMPxx` 이미지 시퀀스, 스테이지 이미지, 배너, 타이틀을 단 1장의 PNG 아틀라스로 합성
-  - [x] 각 이미지별 정규화된 UV 사각형 좌표(`[u1, v1, u2, v2]`) 테이블 생성
-- [x] **`SpriteBatcher` BGA Atlas 하드웨어 가속 연동 (`crates/beetle-render/src/backend/batcher.rs`)**
-  - [x] 텍스처 스위칭 0회: BGA 교체 시 단일 텍스처에서 UV 좌표만 매핑하여 쿼드 배치 드로우
-  - [x] 소프트웨어 렌더러 및 D3D11 하드웨어 백엔드 양방향 지원
+## 📋 Phase 1: 원격 레지스트리 데이터 모델 및 경량 HTTP 클라이언트 (`crates/bms-package-manager/`)
+- [ ] **원격 레지스트리 인덱스 데이터 모델 및 직렬화 구현 (`crates/bms-package-manager/src/registry/remote.rs`)**
+  - [ ] `RemoteRegistryIndex`, `RemotePackageMetadata`, `CompanionBgaMetadata` 구조체 정의
+  - [ ] Serde 기반 JSON 직렬화/역직렬화 및 규격 유효성 검증 (`format_version`, `sha256` 64자 포맷)
+- [ ] **로컬 레지스트리 소스 설정 관리 (`crates/bms-package-manager/src/registry/sources.rs`)**
+  - [ ] `RegistrySource` 구조체 (`id: String`, `name: String`, `url: String`, `enabled: bool`, `priority: u32`)
+  - [ ] `sources.json` 파일 저장 및 로드, 기본 공식 소스(`official`) 초기화
+  - [ ] 소스 우선순위 기반 복수 소스 패키지 병합 로직 구축
+- [ ] **경량 동기식 HTTP 클라이언트 모듈 구축 (`crates/bms-package-manager/src/net/http.rs`)**
+  - [ ] `ureq` (with `tls`/`rustls`) 최소 의존성 추가 (Tokio/Reqwest 완전 배제, 바이너리 오버헤드 < 150 KB)
+  - [ ] 타임아웃(연결 10초 / 읽기 30초) 및 표준 User-Agent 헤더 설정
+  - [ ] 실시간 프로그레스 스트리밍 트레이트 `DownloadProgressCallback` 정의
+  - [ ] 다운로드 중 스트리밍 SHA-256 누적 계산 및 `index.json` 대조 검증 파이프라인
 
 ---
 
-## 📋 Phase 3: Manifest v2 확장 및 결정론적 패커 통합 (`crates/bms-package/`, `crates/bms-package-manager/`)
-- [x] **`manifest.json` v2.0 스키마 확장 (`crates/bms-package/src/manifest.rs`)**
-  - [x] 선택적 `sound_atlas` 및 `bga_atlas` 필드 추가
-  - [x] 기존 v1.0 Manifest와의 100% 하위 호환 파싱 지원
-- [x] **`bpm pack` CLI 듀얼 프로파일 지원 (`crates/bms-package-manager/src/pack.rs`)**
-  - [x] `bpm pack --profile turbo` (또는 `--atlas`): 듀얼 아틀라스 고속 패키지 생성
-  - [x] `bpm pack --profile classic`: 기존 파일 분산형 ZIP 패키지 생성
-  - [x] 결정론적 바이트 패키징 불변식(`INV-6`) 보장 (엔트리 정렬 및 에포크 타임스탬프)
+## 📋 Phase 2: 원격 패키지 다운로드 & 원자적 설치 파이프라인 (`crates/bms-package-manager/`)
+- [ ] **원격 인덱스 로컬 캐시 관리 (`crates/bms-package-manager/src/net/cache.rs`)**
+  - [ ] `.cache/registry/<source_id>.json` 파일에 원격 인덱스 캐싱
+  - [ ] 오프라인 모드 지원: 네트워크 단절 시 캐시된 인덱스로 패키지 조회
+- [ ] **원격 패키지 다운로더 & 원자적 설치 트랜잭션 (`crates/bms-package-manager/src/net/installer.rs`)**
+  - [ ] 임시 다운로드 파일(`.cache/downloads/<id>-<state>.tmp`) 스트리밍 수신
+  - [ ] SHA-256 체크섬 불일치 시 즉각적인 임시 파일 삭제 및 무결성 에러 반환
+  - [ ] 다운로드 완료 후 기존 `PackageManager::install_package` 원자적 설치 파이프라인과 연동
+  - [ ] 설치 완료 시 `registry.json` 동기화 및 `songs/` 심볼릭/하드링크 활성화
+- [ ] **업데이트 판정 엔진 (`crates/bms-package-manager/src/net/updater.rs`)**
+  - [ ] 로컬에 설치된 패키지와 원격 인덱스의 최신 버전/해시 비교
+  - [ ] 업그레이드 대상 패키지 목록 추출 및 일괄 업데이트 트랜잭션
 
 ---
 
-## 📋 Phase 4: Beetle 인게임 로더 1-Pass 초고속 파이프라인 (`crates/beetle-app/src/loader.rs`)
-- [x] **1-Pass 순차 아카이브 스트리밍 로더 구현**
-  - [x] 수천 번의 개별 `zip.by_name` 파일 Seek 완전 배제
-  - [x] `manifest` -> `chart` -> `atlas.bin` -> `atlas.bmp` 1-Pass 순차 스트리밍
-- [x] **사운드 및 BGA 아틀라스 즉시 적재**
-  - [x] 단 1회 오디오 디코딩으로 전체 사운드뱅크 구축 (로딩 시간 < 20ms)
-  - [x] 단 1회 이미지 디코딩으로 GPU VRAM BGA 텍스처 바인딩 및 인메모리 크롭 (로딩 시간 < 10ms)
-- [x] **안전한 클래식 패키지 및 폴더 폴백 유지**
-  - [x] 아틀라스가 없는 기존 `.bmsp` 및 일반 BMS 폴더도 기존 방식으로 100% 무중단 폴백 로딩
+## 📋 Phase 3: `bpm` CLI 원격 네트워크 명령어 (`crates/bms-package-manager/src/main.rs`)
+- [ ] **`bpm update` 명령어 구현**
+  - [ ] 등록된 모든 활성 소스의 `index.json`을 순차 갱신하고 로컬 캐시 동기화
+  - [ ] 갱신된 신규/업데이트 패키지 개수 요약 출력
+- [ ] **`bpm search <query>` 명령어 구현**
+  - [ ] 제목, 아티스트, 장르, 난이도 레벨 필터링 기반 검색 테이블 출력
+  - [ ] 로컬 설치 여부(`[Installed]`, `[Update Available]`, `[Available]`) 뱃지 표출
+- [ ] **`bpm install <id>` 명령어 구현**
+  - [ ] 원격 패키지 메타데이터 확인 및 터미널 다운로드 프로그레스 바 렌더링
+  - [ ] 다운로드, 체크섬 검증, 설치, 활성화 원스톱 실행
+- [ ] **`bpm upgrade` 명령어 구현**
+  - [ ] 업데이트 가능한 모든 패키지를 일괄 다운로드/업그레이드
+- [ ] **`bpm source` 관리 서브커맨드 구현**
+  - [ ] `bpm source list`: 소스 목록, 우선순위, 활성 상태 출력
+  - [ ] `bpm source add <id> <url>`: 신규 레지스트리 소스 등록
+  - [ ] `bpm source remove <id>`: 레지스트리 소스 제거
 
 ---
 
-## 📋 Phase 5: 레거시 하위 호환 역변환 및 VFS 스트리밍 (`crates/bms-package-manager/`)
-- [x] **초고속 역변환 익스포터 (`bpm export`)**
-  - [x] 아틀라스 패키지에서 슬라이스를 분할 추출하여 전통 BMS 폴더(WAV/BMP 수백 개)로 1초 만에 복원
-  - [x] `manifest.json`에 보존된 `original_filename` 기반 100% 무결점 복원
-- [x] **VFS 온더플라이 가상 WAV 생성기 (`bpm mount`)**
-  - [x] LR2, beatoraja가 가상 드라이브(`Z:\`)를 조회할 때 아틀라스 슬라이스를 기반으로 개별 파일 목록 노출
-  - [x] 파일 읽기 요청 시 44바이트 RIFF WAV 헤더를 동적 합성하여 실시간 스트리밍 서빙
+## 📋 Phase 4: `bpm serve` 로컬 LAN P2P 공유 간이 서버 (`crates/bms-package-manager/src/serve.rs`)
+- [ ] **표준 라이브러리 기반 미니 정적 HTTP 서버 구현**
+  - [ ] 외부 웹서버 크레이트 0개, `std::net::TcpListener` 기반 경량 HTTP/1.1 구현
+  - [ ] 로컬 `packages/`를 즉시 정적 `index.json`으로 합성하여 서빙 (`GET /index.json`)
+  - [ ] `.bmsp` 패키지 파일 바이트 스트리밍 서빙 (`GET /packages/<filename>.bmsp`)
+- [ ] **CLI 서브커맨드 통합**
+  - [ ] `bpm serve [--port 8080] [--bind 0.0.0.0]`
+  - [ ] 로컬 LAN IP 자동 감지 및 접속 가이드 터미널 출력 (QR코드/콘솔 URL)
 
 ---
 
-## 📋 Phase 6: 성능 벤치마크, 무결성 검증 & 회귀 테스트
-- [x] **실제 대용량 BMS 곡 벤치마크 (키음 250+개, BGA 50+개 합성 벤치마크)**
-  - [x] 로딩 시간 측정: 기존 59.5ms -> Turbo 11.1ms (5.4배 고속화, 목표 < 30ms 완벽 달성)
-  - [x] 패키지 용량 비교: 기존 63,009바이트 -> 7,810바이트 (87.6% 압축 및 오버헤드 절감)
-- [x] **전체 워크스페이스 회귀 테스트 및 바이너리 크기 준수**
-  - [x] 전체 105개 단위/통합 테스트 무결성 통과 (`cargo test --workspace`)
-  - [x] 바이너리 크기 불변식 (< 1.2 MB) 지속 준수 (`beetle-app`: 1.128 MB, `bpm-gui`: 1.138 MB, `bpm`: 1.054 MB)
+## 📋 Phase 5: `bpm-gui` 온라인 송 허브 (Online Song Hub) 탭 및 1-클릭 설치 UI (`crates/bpm-gui/`)
+- [ ] **상단 탭 네비게이션 UI 구축 (`crates/bpm-gui/src/ui.rs`)**
+  - [ ] `[Installed Library]` 탭과 `[Online Song Hub]` 탭 전환 UI 제공
+- [ ] **온라인 곡 탐색 카탈로그 뷰**
+  - [ ] 원격 캐시 인덱스 목록 렌더링 (곡명, 아티스트, 장르, 난이도 레벨, 용량)
+  - [ ] 검색창 필터링 (제목/아티스트 실시간 검색) 및 레벨 필터 버튼
+- [ ] **논블로킹 백그라운드 다운로드 & 1-클릭 설치**
+  - [ ] `[Install]` 클릭 시 백그라운드 Worker 스레드로 다운로드 위임 (`INV-5` 준수)
+  - [ ] 카드별 다운로드 프로그레스 바 및 퍼센트/다운로드 속도 실시간 렌더링
+  - [ ] 다운로드 완료 시 자동 설치 및 `[Installed]` 상태 갱신
+- [ ] **업데이트 알림 및 원클릭 일괄 업그레이드**
+  - [ ] 업데이트 가능한 곡에 `[Update Available]` 강조 뱃지 및 원클릭 업그레이드 버튼
+
+---
+
+## 📋 Phase 6: E2E 통합 테스트, 네트워크 오류 복원력 및 바이너리 크기 검증
+- [ ] **로컬 Mock HTTP 서버 기반 통합 테스트 (`crates/bms-package-manager/tests/`)**
+  - [ ] 원격 인덱스 파싱 및 다중 소스 우선순위 병합 테스트
+  - [ ] 패키지 스트리밍 다운로드 및 SHA-256 무결성 검증 테스트
+  - [ ] 다운로드 도중 연결 끊김 / 해시 불일치 시 롤백 및 임시 파일 정리 테스트
+  - [ ] `bpm serve`와 `bpm install` 간의 로컬 루프백 P2P 다운로드 E2E 테스트
+- [ ] **바이너리 크기 및 아키텍처 불변식 검증**
+  - [ ] `cargo check --workspace`, `cargo test --workspace` 무결성 통과
+  - [ ] 릴리스 바이너리 크기 측정 (`AGENTS.md` < 1.2 MB 목표 유지)
 
 ---
 
 ## 🔭 향후 확장 제안 및 백로그 (Future Proposals & Backlog)
-- [proposals/remote_package_registry.md](proposals/remote_package_registry.md): 원격 패키지 레지스트리, 1-클릭 다운로드/업데이트, 정적 CDN 호스팅, LAN P2P 공유 제안서.
 - [proposals/legacy_compatibility_vfs.md](proposals/legacy_compatibility_vfs.md): 레거시 구동기(LR2/beatoraja) 하위 호환을 위한 무설치 WebDAV VFS 마운트 및 FUSE 확장 제안서.
 - [proposals/platform_expansion.md](proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
-- [proposals/lightweight_gpu_acceleration.md](proposals/lightweight_gpu_acceleration.md): 초경량 멀티 백엔드 GPU 하드웨어 가속 렌더링 엔진 제안서 (Milestone 6 Archive).
+- [proposals/decoupled_bga_package_system.md](proposals/decoupled_bga_package_system.md): 오디오/차트 코어 패키지와 대용량 BGA 패키지의 완전 분리 및 온디맨드 결합 제안서.
+- [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 플레이 옵션(스피드, 판정 오프셋) 및 디스플레이 고도화 제안서.
