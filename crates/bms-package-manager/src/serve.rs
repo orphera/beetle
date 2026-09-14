@@ -241,6 +241,9 @@ impl Drop for BmsServeServer {
 }
 
 fn handle_http_request(mut stream: TcpStream, state: Arc<ServeState>) -> std::io::Result<()> {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
+
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line)? == 0 {

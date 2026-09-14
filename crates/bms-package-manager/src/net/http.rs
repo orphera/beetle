@@ -16,6 +16,11 @@ pub const GLOBAL_MAX_PACKAGE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Callback trait for monitoring download progress.
 pub trait DownloadProgressCallback {
     fn on_progress(&mut self, downloaded_bytes: u64, total_bytes: Option<u64>);
+
+    /// Returns true if the download should be cancelled.
+    fn is_cancelled(&self) -> bool {
+        false
+    }
 }
 
 /// Simple closure adapter for `DownloadProgressCallback`.
@@ -147,6 +152,11 @@ impl HttpClient {
         let mut buffer = [0u8; DEFAULT_STREAM_CHUNK_SIZE];
 
         loop {
+            if callback.is_cancelled() {
+                let _ = fs::remove_file(target);
+                return Err("Download cancelled by user".to_string());
+            }
+
             let bytes_read = match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => n,

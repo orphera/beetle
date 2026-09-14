@@ -10,7 +10,7 @@ use std::env;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -1676,6 +1676,12 @@ fn handle_key_input(
     }
 
     if code == KeyCode::Escape {
+        if !state.search_query.is_empty() {
+            state.search_query.clear();
+            state.apply_filter();
+            state.status_msg = "Search filter cleared".to_string();
+            return;
+        }
         event_loop.exit();
         return;
     }
@@ -1926,6 +1932,9 @@ fn start_remote_install(state: &mut AppState, with_bga: bool) {
         detail: String::new(),
     });
 
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    state.bg_cancel_flag = Some(cancel_flag.clone());
+
     let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
     state.bg_receiver = Some(rx);
 
@@ -1940,41 +1949,57 @@ fn start_remote_install(state: &mut AppState, with_bga: bool) {
             }
         };
 
-        let tx_prog = tx.clone();
-        let mut last_emit = Instant::now() - Duration::from_secs(1);
-        let mut last_pct = -1.0;
+        struct GuiDownloadCallback {
+            cancel_flag: Arc<AtomicBool>,
+            tx: Sender<BgTaskMessage>,
+            last_emit: Instant,
+            last_pct: f64,
+        }
 
-        let callback = move |down: u64, tot: Option<u64>| {
-            let now = Instant::now();
-            let tot_b = tot.unwrap_or(0);
-            let pct = if tot_b > 0 {
-                (down as f64 / tot_b as f64) * 100.0
-            } else {
-                0.0
-            };
-            let elapsed = now.duration_since(last_emit);
-            let delta_pct = (pct - last_pct).abs();
-            // Throttling: max 30 FPS (~33ms) or >= 1.0% change (INV-5, ADR-024)
-            if elapsed >= Duration::from_millis(33)
-                || delta_pct >= 1.0
-                || (tot_b > 0 && down >= tot_b)
-            {
-                last_emit = now;
-                last_pct = pct;
-                let mb_down = down as f64 / (1024.0 * 1024.0);
-                let mb_tot = tot_b as f64 / (1024.0 * 1024.0);
-                let detail = if tot_b > 0 {
-                    format!("{:.1} / {:.1} MB ({:.0}%)", mb_down, mb_tot, pct)
+        impl bms_package_manager::DownloadProgressCallback for GuiDownloadCallback {
+            fn on_progress(&mut self, down: u64, tot: Option<u64>) {
+                let now = Instant::now();
+                let tot_b = tot.unwrap_or(0);
+                let pct = if tot_b > 0 {
+                    (down as f64 / tot_b as f64) * 100.0
                 } else {
-                    format!("{:.1} MB", mb_down)
+                    0.0
                 };
-                let _ = tx_prog.send(BgTaskMessage::Progress {
-                    phase: "Downloading package...".to_string(),
-                    current: down as usize,
-                    total: tot_b as usize,
-                    detail,
-                });
+                let elapsed = now.duration_since(self.last_emit);
+                let delta_pct = (pct - self.last_pct).abs();
+                // Throttling: max 30 FPS (~33ms) or >= 1.0% change (INV-5, ADR-024)
+                if elapsed >= Duration::from_millis(33)
+                    || delta_pct >= 1.0
+                    || (tot_b > 0 && down >= tot_b)
+                {
+                    self.last_emit = now;
+                    self.last_pct = pct;
+                    let mb_down = down as f64 / (1024.0 * 1024.0);
+                    let mb_tot = tot_b as f64 / (1024.0 * 1024.0);
+                    let detail = if tot_b > 0 {
+                        format!("{:.1} / {:.1} MB ({:.0}%)", mb_down, mb_tot, pct)
+                    } else {
+                        format!("{:.1} MB", mb_down)
+                    };
+                    let _ = self.tx.send(BgTaskMessage::Progress {
+                        phase: "Downloading package...".to_string(),
+                        current: down as usize,
+                        total: tot_b as usize,
+                        detail,
+                    });
+                }
             }
+
+            fn is_cancelled(&self) -> bool {
+                self.cancel_flag.load(Ordering::SeqCst)
+            }
+        }
+
+        let callback = GuiDownloadCallback {
+            cancel_flag: cancel_flag.clone(),
+            tx: tx.clone(),
+            last_emit: Instant::now() - Duration::from_secs(1),
+            last_pct: -1.0,
         };
 
         match installer.install_remote_package(&mut mgr, &client, &pkg_meta, &base_url, callback) {
@@ -2037,6 +2062,9 @@ fn start_sync_sources(state: &mut AppState) {
         detail: String::new(),
     });
 
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    state.bg_cancel_flag = Some(cancel_flag.clone());
+
     let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
     state.bg_receiver = Some(rx);
 
@@ -2053,6 +2081,10 @@ fn start_sync_sources(state: &mut AppState) {
 
         let active_sources = sources_config.active_sources_by_priority();
         for src in active_sources {
+            if cancel_flag.load(Ordering::SeqCst) {
+                let _ = tx.send(BgTaskMessage::Failed("Sync cancelled by user".to_string()));
+                return;
+            }
             let _ = tx.send(BgTaskMessage::Progress {
                 phase: format!("Fetching '{}'...", src.name),
                 current: 0,

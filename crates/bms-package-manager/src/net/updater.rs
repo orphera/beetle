@@ -27,8 +27,14 @@ pub fn find_available_updates(
             .iter()
             .find(|r| r.id.eq_ignore_ascii_case(&installed.id))
         {
-            // If the remote state hash differs from local active state, an update is available
-            if remote.state_hash != installed.state_hash {
+            // Check if the remote state hash is already installed in any state
+            let already_has_state = manager
+                .registry()
+                .get_package(&installed.id)
+                .map(|p| p.state_hashes.contains_key(&remote.state_hash))
+                .unwrap_or(false);
+
+            if !already_has_state && remote.state_hash != installed.state_hash {
                 updates.push(PackageUpdateInfo {
                     id: installed.id.clone(),
                     current_name: installed.name.clone(),
