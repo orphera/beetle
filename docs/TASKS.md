@@ -99,14 +99,14 @@
 ---
 
 ## 📋 Phase 6: E2E 통합 테스트, 네트워크 오류 복원력 및 바이너리 크기 검증
-- [ ] **로컬 Mock HTTP 서버 기반 통합 테스트 (`crates/bms-package-manager/tests/`)**
-  - [ ] 원격 인덱스 파싱 및 다중 소스 우선순위 병합 테스트
-  - [ ] 패키지 스트리밍 다운로드 및 SHA-256 무결성 검증 테스트
-  - [ ] 다운로드 도중 연결 끊김 / 해시 불일치 시 롤백 및 임시 파일 정리 테스트
-  - [ ] `bpm serve`와 `bpm install` 간의 로컬 루프백 P2P 다운로드 E2E 테스트
-- [ ] **바이너리 크기 및 아키텍처 불변식 검증**
-  - [ ] `cargo check --workspace`, `cargo test --workspace` 무결성 통과
-  - [ ] 릴리스 바이너리 크기 측정 (`AGENTS.md` < 1.2 MB 목표 유지)
+- [x] **로컬 Mock HTTP 서버 기반 통합 테스트 (`crates/bms-package-manager/tests/`)**
+  - [x] 원격 인덱스 파싱 및 다중 소스 우선순위 병합 테스트
+  - [x] 패키지 스트리밍 다운로드 및 SHA-256 무결성 검증 테스트
+  - [x] 다운로드 도중 연결 끊김 / 해시 불일치 시 롤백 및 임시 파일 정리 테스트
+  - [x] `bpm serve`와 `bpm install` 간의 로컬 루프백 P2P 다운로드 E2E 테스트
+- [x] **바이너리 크기 및 아키텍처 불변식 검증**
+  - [x] `cargo check --workspace`, `cargo test --workspace` 무결성 통과
+  - [x] 릴리스 바이너리 크기 측정 (`AGENTS.md` < 1.2 MB 목표 유지)
 
 ---
 
