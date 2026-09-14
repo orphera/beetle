@@ -294,6 +294,18 @@ impl SampleBank {
     /// Decodes an audio file (WAV, FLAC, or OGG) from an in-memory byte buffer into stereo normalized PCM.
     pub fn load_audio_from_bytes(data: &[u8]) -> Result<PcmBuffer, AudioDecodeError> {
         if data.starts_with(b"fLaC") {
+            // Claxon strictly requires STREAMINFO min_block_size >= 16.
+            // Some encoders (such as flacenc) set min_block_size < 16 when the last block has < 16 samples.
+            // In that case, clamp min_block_size to 16 to ensure compatibility and avoid spurious decode errors.
+            if data.len() >= 10 && (data[4] & 0x7F) == 0 {
+                let min_bs = u16::from_be_bytes([data[8], data[9]]);
+                if min_bs < 16 {
+                    let mut patched = data.to_vec();
+                    patched[8] = 0;
+                    patched[9] = 16;
+                    return Self::load_flac_from_reader(Cursor::new(patched));
+                }
+            }
             return Self::load_flac_from_reader(Cursor::new(data));
         }
         if data.starts_with(b"RIFF") {

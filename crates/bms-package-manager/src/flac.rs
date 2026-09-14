@@ -75,7 +75,19 @@ pub fn encode_wav_to_flac(wav_bytes: &[u8]) -> Result<Vec<u8>, String> {
         .write(&mut sink)
         .map_err(|e| format!("FLAC bitstream write failed: {e:?}"))?;
 
-    Ok(sink.into_inner())
+    let mut out = sink.into_inner();
+    // In FLAC subset specification, STREAMINFO min_block_size must be >= 16.
+    // flacenc may write min_block_size < 16 if the trailing sub-block is small,
+    // which causes strict decoders (like claxon) to reject the stream.
+    if out.len() >= 10 && out.starts_with(b"fLaC") && (out[4] & 0x7F) == 0 {
+        let min_bs = u16::from_be_bytes([out[8], out[9]]);
+        if min_bs < 16 {
+            out[8] = 0;
+            out[9] = 16;
+        }
+    }
+
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -125,8 +137,8 @@ pub mod tests {
         assert_eq!(pcm.frame_count(), 44100);
 
         // Decode original WAV to PCM buffer and compare
-        let pcm_wav = SampleBank::load_audio_from_bytes(&original_wav)
-            .expect("Should decode original WAV");
+        let pcm_wav =
+            SampleBank::load_audio_from_bytes(&original_wav).expect("Should decode original WAV");
         assert_eq!(pcm.length, pcm_wav.length);
 
         for i in 0..pcm.length {
@@ -138,5 +150,14 @@ pub mod tests {
                 pcm_wav.samples[pcm_wav.offset + i]
             );
         }
+    }
+
+    #[test]
+    fn test_encode_wav_to_flac_short_remainder() {
+        // 4097 frames -> block_size (4096) + remainder of 1 frame (min_block_size = 1)
+        let wav_bytes = make_test_wav_16bit(2, 44100, 4097);
+        let flac_bytes = encode_wav_to_flac(&wav_bytes).expect("encode should succeed");
+        let pcm = SampleBank::load_audio_from_bytes(&flac_bytes).expect("decode should succeed");
+        assert_eq!(pcm.frame_count(), 4097);
     }
 }
