@@ -29,6 +29,7 @@ fn test_cli_usage_contains_remote_commands() {
     assert!(stdout.contains("bpm search <query>"));
     assert!(stdout.contains("bpm upgrade"));
     assert!(stdout.contains("bpm source <list|add|remove>"));
+    assert!(stdout.contains("bpm serve"));
 }
 
 #[test]

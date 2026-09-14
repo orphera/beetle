@@ -33,6 +33,7 @@ fn print_usage() {
     println!("  bpm states <package_id>                List all installed states of a package");
     println!("  bpm activate <id> <state_hash>         Switch active state for a package");
     println!("  bpm uninstall <id> <state_hash>        Uninstall a specific package state");
+    println!("  bpm serve [--port <port>] [--bind <addr>] Host local package storage as a LAN registry hub");
 }
 
 fn print_progress_bar(label: &str, current: u64, total: Option<u64>) {
@@ -1355,6 +1356,71 @@ fn main() -> Result<(), PackageManagerError> {
             #[cfg(not(target_os = "windows"))]
             {
                 println!("Unmount command is only needed on Windows.");
+            }
+        }
+        "serve" => {
+            let mut port = 8080u16;
+            let mut bind_addr = "0.0.0.0".to_string();
+
+            let mut i = 2;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--port" | "-p" => {
+                        if i + 1 < args.len() {
+                            port = args[i + 1].parse().unwrap_or(8080);
+                            i += 2;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    "--bind" | "-b" => {
+                        if i + 1 < args.len() {
+                            bind_addr = args[i + 1].clone();
+                            i += 2;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    _ => i += 1,
+                }
+            }
+
+            println!("Starting Beetle Local LAN Package Hub...");
+            let server = match bms_package_manager::BmsServeServer::start(
+                storage_dir.clone(),
+                &bind_addr,
+                port,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Failed to start serve daemon: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let actual_port = server.port();
+            let host_ip = if bind_addr == "0.0.0.0" {
+                bms_package_manager::get_local_ip()
+                    .map(|ip| ip.to_string())
+                    .unwrap_or_else(|| "127.0.0.1".to_string())
+            } else {
+                bind_addr.clone()
+            };
+
+            println!("======================================================================");
+            println!("  BMS Package Manager (bpm serve) - Local LAN Registry Hub");
+            println!("======================================================================");
+            println!("  Local Web URL:  http://{host_ip}:{actual_port}/");
+            println!("  Registry URL:   http://{host_ip}:{actual_port}/index.json");
+            println!("  Storage Root:   {}", storage_dir.display());
+            println!();
+            println!("  Other devices on the same Wi-Fi / LAN can add this source:");
+            println!("    bpm source add lan http://{host_ip}:{actual_port}/index.json");
+            println!("======================================================================");
+            println!("Press Ctrl+C to terminate the LAN server.");
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
         other => {

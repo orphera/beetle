@@ -71,13 +71,13 @@
 ---
 
 ## 📋 Phase 4: `bpm serve` 로컬 LAN P2P 공유 간이 서버 (`crates/bms-package-manager/src/serve.rs`)
-- [ ] **표준 라이브러리 기반 미니 정적 HTTP 서버 구현**
-  - [ ] 외부 웹서버 크레이트 0개, `std::net::TcpListener` 기반 경량 HTTP/1.1 구현
-  - [ ] 로컬 `packages/`를 즉시 정적 `index.json`으로 합성하여 서빙 (`GET /index.json`)
-  - [ ] `.bmsp` 패키지 파일 바이트 스트리밍 서빙 (`GET /packages/<filename>.bmsp`)
-- [ ] **CLI 서브커맨드 통합**
-  - [ ] `bpm serve [--port 8080] [--bind 0.0.0.0]`
-  - [ ] 로컬 LAN IP 자동 감지 및 접속 가이드 터미널 출력 (QR코드/콘솔 URL)
+- [x] **표준 라이브러리 기반 미니 정적 HTTP 서버 구현**
+  - [x] 외부 웹서버 크레이트 0개, `std::net::TcpListener` 기반 경량 HTTP/1.1 구현
+  - [x] 로컬 `packages/`를 즉시 정적 `index.json`으로 합성하여 서빙 (`GET /index.json`)
+  - [x] `.bmsp` 패키지 파일 바이트 스트리밍 서빙 (`GET /packages/<filename>.bmsp`)
+- [x] **CLI 서브커맨드 통합**
+  - [x] `bpm serve [--port 8080] [--bind 0.0.0.0]`
+  - [x] 로컬 LAN IP 자동 감지 및 접속 가이드 터미널 출력 (QR코드/콘솔 URL)
 
 ---
 
