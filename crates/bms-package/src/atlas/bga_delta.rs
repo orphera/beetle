@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+type FrameCandidate = (String, Vec<u8>, Option<String>, Option<u64>);
+
 /// Type of frame in the BGA Delta bundle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -354,8 +356,7 @@ impl BgaDeltaBuilder {
 
         // 2. Group frames by sequence prefix (e.g. "dream", "mp_a_", "00_")
         // Preserve sorting within groups by numeric suffix or full key
-        let mut groups: BTreeMap<String, Vec<(String, Vec<u8>, Option<String>, Option<u64>)>> =
-            BTreeMap::new();
+        let mut groups: BTreeMap<String, Vec<FrameCandidate>> = BTreeMap::new();
 
         for (key, data, orig) in self.frames {
             let ref_name = orig.as_deref().unwrap_or(&key);

@@ -54,8 +54,8 @@ impl DeltaBuilder {
 
         let mut manifest = DeltaManifest::new(
             &base_man.id,
-            &base.state_hash(),
-            &target.state_hash(),
+            base.state_hash(),
+            target.state_hash(),
             target_man.clone(),
         );
 

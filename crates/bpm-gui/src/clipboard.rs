@@ -1,5 +1,6 @@
 /// Pure lightweight Win32 clipboard reader without external crate dependencies.
 #[cfg(target_os = "windows")]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub fn get_clipboard_text() -> Option<String> {
     use std::ffi::c_void;
     use std::ptr;

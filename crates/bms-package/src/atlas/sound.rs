@@ -2,10 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Supported audio codecs for Sound Atlas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoundAtlasCodec {
     /// 16-bit signed integer little-endian interleaved stereo PCM.
+    #[default]
     Pcm16,
     /// 32-bit floating point little-endian interleaved stereo PCM.
     PcmF32,
@@ -31,12 +32,6 @@ impl SoundAtlasCodec {
     /// Whether this codec represents byte-indexed bundled raw audio files.
     pub fn is_bundle(&self) -> bool {
         matches!(self, Self::OggBundle | Self::WavBundle | Self::FlacBundle)
-    }
-}
-
-impl Default for SoundAtlasCodec {
-    fn default() -> Self {
-        Self::Pcm16
     }
 }
 

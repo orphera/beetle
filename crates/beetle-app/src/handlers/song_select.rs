@@ -109,7 +109,6 @@ pub fn handle_song_select_input(
                         state.playback_replay = Some(replay);
                         state.playback_cursor = 0;
                         queue_start_gameplay(state, &song);
-                        return;
                     }
                 }
             }

@@ -667,7 +667,7 @@ fn parse_measure_line(
     chart: &mut BmsChart,
     raw_ln_events: &mut Vec<(u32, f64, Lane, WavId)>,
 ) -> Result<(), BmsParseError> {
-    let mut parts = content.splitn(2, |c: char| c == ':' || c == ' ');
+    let mut parts = content.splitn(2, [':', ' ']);
     let tag = parts.next().unwrap_or("").trim();
     let data = parts.next().unwrap_or("").trim();
 
@@ -691,7 +691,7 @@ fn parse_measure_line(
 
     // Note / Event channels: 2 characters per slot
     let data_bytes = data.as_bytes();
-    if data_bytes.len() % 2 != 0 {
+    if !data_bytes.len().is_multiple_of(2) {
         return Ok(()); // Ignore malformed slot lengths gracefully
     }
 

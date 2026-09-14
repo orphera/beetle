@@ -526,7 +526,7 @@ impl PackageManager {
             name: record.name.clone(),
             author: record.author.clone(),
             location,
-            is_active: state_hash == &record.active_state,
+            is_active: state_hash == record.active_state,
             bga_status: record.bga_status,
         })
     }

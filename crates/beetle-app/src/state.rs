@@ -4,7 +4,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Instant;
 
-use beetle_audio::{AudioEngine, SampleBank};
+use beetle_audio::AudioEngine;
 use beetle_core::{
     compute_chart_hash, sort_songs, BmsChart, JudgeEngine, PlayOptions, ReplayData, ScoreRecord,
     ScoreStore, SongMetadata, SortMode, TimingModel,
@@ -142,20 +142,7 @@ pub struct AppState {
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     pub loading_song: Option<SongMetadata>,
-    pub loading_receiver: Option<
-        Receiver<
-            Result<
-                (
-                    BmsChart,
-                    TimingModel,
-                    SampleBank,
-                    std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
-                    std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
-                ),
-                String,
-            >,
-        >,
-    >,
+    pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
     pub last_render_time: Instant,

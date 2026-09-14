@@ -23,6 +23,18 @@ pub enum VideoSource {
     },
 }
 
+/// Fully decoded song package data ready for gameplay.
+pub type LoadedSongData = (
+    BmsChart,
+    TimingModel,
+    SampleBank,
+    HashMap<BmpId, ImageBuffer>,
+    HashMap<BmpId, VideoSource>,
+);
+
+pub type SongLoadResult = Result<LoadedSongData, String>;
+pub type SongLoadReceiver = Receiver<SongLoadResult>;
+
 const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
     "stagefile.bmp",
     "stage.bmp",
@@ -513,6 +525,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 }
 
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
+#[allow(clippy::map_entry)]
 pub fn load_chart_and_audio(
     song: &SongMetadata,
 ) -> (
@@ -862,47 +875,9 @@ pub fn load_chart_and_audio(
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
-pub fn spawn_background_song_loader(
-    song: &SongMetadata,
-) -> Receiver<
-    Result<
-        (
-            BmsChart,
-            TimingModel,
-            SampleBank,
-            HashMap<BmpId, ImageBuffer>,
-            HashMap<BmpId, VideoSource>,
-        ),
-        String,
-    >,
-> {
+pub fn spawn_background_song_loader(song: &SongMetadata) -> SongLoadReceiver {
     let song_clone = song.clone();
-    let (tx, rx): (
-        Sender<
-            Result<
-                (
-                    BmsChart,
-                    TimingModel,
-                    SampleBank,
-                    HashMap<BmpId, ImageBuffer>,
-                    HashMap<BmpId, VideoSource>,
-                ),
-                String,
-            >,
-        >,
-        Receiver<
-            Result<
-                (
-                    BmsChart,
-                    TimingModel,
-                    SampleBank,
-                    HashMap<BmpId, ImageBuffer>,
-                    HashMap<BmpId, VideoSource>,
-                ),
-                String,
-            >,
-        >,
-    ) = channel();
+    let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
         let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio(&song_clone);

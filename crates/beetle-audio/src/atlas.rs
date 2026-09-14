@@ -181,9 +181,10 @@ impl SoundAtlasBuilder {
 
             // Append zero-padding frames between keysounds to prevent filter bleeding
             if self.padding_frames > 0 {
-                for _ in 0..(self.padding_frames * 2) {
-                    total_f32_samples.push(0.0);
-                }
+                total_f32_samples.resize(
+                    total_f32_samples.len() + (self.padding_frames as usize * 2),
+                    0.0,
+                );
                 current_frame += self.padding_frames as u64;
             }
         }

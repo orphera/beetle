@@ -456,10 +456,7 @@ impl VirtualBmsFs {
 
     pub fn is_dir(&self, path: &str) -> bool {
         let parts = Self::normalize_path(path);
-        match self.navigate(&parts) {
-            Some(VfsNode::Directory { .. }) => true,
-            _ => false,
-        }
+        matches!(self.navigate(&parts), Some(VfsNode::Directory { .. }))
     }
 }
 

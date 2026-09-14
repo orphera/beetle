@@ -167,7 +167,7 @@ fn unescape_field(s: &str) -> String {
 pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore) {
     match mode {
         SortMode::Title => {
-            songs.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+            songs.sort_by_key(|a| a.title.to_lowercase());
         }
         SortMode::Level => {
             songs.sort_by(|a, b| {

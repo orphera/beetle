@@ -443,45 +443,77 @@ impl ApplicationHandler for BpmGuiApp {
                     }
                 }
             }
-            WindowEvent::DroppedFile(path) => {
-                if state.bg_task_running.is_none() {
-                    let root_dir = state.manager.root_dir().to_path_buf();
-                    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-                    state.bg_receiver = Some(rx);
+            WindowEvent::DroppedFile(path) if state.bg_task_running.is_none() => {
+                let root_dir = state.manager.root_dir().to_path_buf();
+                let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
+                state.bg_receiver = Some(rx);
 
-                    let cancel_flag = Arc::new(AtomicBool::new(false));
-                    state.bg_cancel_flag = Some(cancel_flag.clone());
+                let cancel_flag = Arc::new(AtomicBool::new(false));
+                state.bg_cancel_flag = Some(cancel_flag.clone());
 
-                    let path_buf = path.clone();
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    if ext == "bmdp" {
+                let path_buf = path.clone();
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if ext == "bmdp" {
+                    state.bg_task_running = Some(BgTaskState {
+                        title: format!("Applying delta '{}'", path.display()),
+                        phase: "Starting...".to_string(),
+                        current: 0,
+                        total: 0,
+                        detail: String::new(),
+                    });
+                    thread::spawn(move || match PackageManager::new(&root_dir) {
+                        Ok(mut mgr) => match mgr.apply_delta(&path_buf) {
+                            Ok(installed) => {
+                                let short_h = if installed.state_hash.len() > 8 {
+                                    &installed.state_hash[..8]
+                                } else {
+                                    &installed.state_hash
+                                };
+                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                    "Updated '{}' (#{})",
+                                    installed.name, short_h
+                                )));
+                            }
+                            Err(e) => {
+                                let _ = tx
+                                    .send(BgTaskMessage::Failed(format!("Delta apply error: {e}")));
+                            }
+                        },
+                        Err(e) => {
+                            let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                        }
+                    });
+                } else if ext == "bmsp" {
+                    let file_str = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("package.bmsp")
+                        .to_string();
+                    let is_bga_companion = file_str.ends_with(".bga.bmsp");
+                    if is_bga_companion {
                         state.bg_task_running = Some(BgTaskState {
-                            title: format!("Applying delta '{}'", path.display()),
-                            phase: "Starting...".to_string(),
+                            title: format!("Installing BGA companion '{}'", file_str),
+                            phase: "Installing companion...".to_string(),
                             current: 0,
                             total: 0,
                             detail: String::new(),
                         });
+                        let p_buf = path.clone();
                         thread::spawn(move || match PackageManager::new(&root_dir) {
-                            Ok(mut mgr) => match mgr.apply_delta(&path_buf) {
-                                Ok(installed) => {
-                                    let short_h = if installed.state_hash.len() > 8 {
-                                        &installed.state_hash[..8]
-                                    } else {
-                                        &installed.state_hash
-                                    };
+                            Ok(mut mgr) => match mgr.install_bga_companion(&p_buf) {
+                                Ok(target_id) => {
                                     let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Updated '{}' (#{})",
-                                        installed.name, short_h
+                                        "Installed BGA companion for '{}'",
+                                        target_id
                                     )));
                                 }
                                 Err(e) => {
                                     let _ = tx.send(BgTaskMessage::Failed(format!(
-                                        "Delta apply error: {e}"
+                                        "BGA companion error: {e}"
                                     )));
                                 }
                             },
@@ -490,139 +522,20 @@ impl ApplicationHandler for BpmGuiApp {
                                     tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
                             }
                         });
-                    } else if ext == "bmsp" {
-                        let file_str = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("package.bmsp")
-                            .to_string();
-                        let is_bga_companion = file_str.ends_with(".bga.bmsp");
-                        if is_bga_companion {
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Installing BGA companion '{}'", file_str),
-                                phase: "Installing companion...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let p_buf = path.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => match mgr.install_bga_companion(&p_buf) {
-                                    Ok(target_id) => {
-                                        let _ = tx.send(BgTaskMessage::Completed(format!(
-                                            "Installed BGA companion for '{}'",
-                                            target_id
-                                        )));
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "BGA companion error: {e}"
-                                        )));
-                                    }
-                                },
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        } else {
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Installing '{}'", file_str),
-                                phase: "Reading package...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || {
-                                match PackageManager::new(&root_dir) {
-                                    Ok(mut mgr) => {
-                                        let res = mgr.install_with_progress(
-                                            &path_buf,
-                                            Some(&cancel_flag),
-                                            move |phase, curr, tot, detail| {
-                                                let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                    phase: phase.to_string(),
-                                                    current: curr,
-                                                    total: tot,
-                                                    detail: detail.to_string(),
-                                                });
-                                            },
-                                        );
-                                        match res {
-                                            Ok(installed) => {
-                                                // Check for adjacent companion package (.bga.bmsp)
-                                                let companion_name = format!(
-                                                    "{}.bga.bmsp",
-                                                    file_str.trim_end_matches(".bmsp")
-                                                );
-                                                if let Some(parent) = path_buf.parent() {
-                                                    let candidate = parent.join(&companion_name);
-                                                    if candidate.exists() {
-                                                        let _ =
-                                                            mgr.install_bga_companion(&candidate);
-                                                    }
-                                                }
-                                                let short_h = if installed.state_hash.len() > 8 {
-                                                    &installed.state_hash[..8]
-                                                } else {
-                                                    &installed.state_hash
-                                                };
-                                                let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                    "Installed '{}' (#{})",
-                                                    installed.name, short_h
-                                                )));
-                                            }
-                                            Err(
-                                                bms_package_manager::PackageManagerError::Cancelled,
-                                            ) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(
-                                                    "Install cancelled by user".to_string(),
-                                                ));
-                                            }
-                                            Err(e) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                    "Install error: {e}"
-                                                )));
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "Manager error: {e}"
-                                        )));
-                                    }
-                                }
-                            });
-                        }
-                    } else if path.is_dir() {
-                        let roots = bms_package_manager::find_bms_song_roots(&path_buf);
-                        if roots.is_empty() {
-                            state.status_msg =
-                                format!("No BMS chart files found in '{}'", path_buf.display());
-                            return;
-                        }
-
-                        if roots.len() == 1 {
-                            let target_root = roots[0].clone();
-                            let folder_name = target_root
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("folder")
-                                .to_string();
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Importing '{}'", folder_name),
-                                phase: "Scanning folder...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
+                    } else {
+                        state.bg_task_running = Some(BgTaskState {
+                            title: format!("Installing '{}'", file_str),
+                            phase: "Reading package...".to_string(),
+                            current: 0,
+                            total: 0,
+                            detail: String::new(),
+                        });
+                        let tx_progress = tx.clone();
+                        thread::spawn(move || {
+                            match PackageManager::new(&root_dir) {
                                 Ok(mut mgr) => {
-                                    let res = mgr.import_folder_with_progress(
-                                        &target_root,
-                                        None,
+                                    let res = mgr.install_with_progress(
+                                        &path_buf,
                                         Some(&cancel_flag),
                                         move |phase, curr, tot, detail| {
                                             let _ = tx_progress.send(BgTaskMessage::Progress {
@@ -635,13 +548,24 @@ impl ApplicationHandler for BpmGuiApp {
                                     );
                                     match res {
                                         Ok(installed) => {
+                                            // Check for adjacent companion package (.bga.bmsp)
+                                            let companion_name = format!(
+                                                "{}.bga.bmsp",
+                                                file_str.trim_end_matches(".bmsp")
+                                            );
+                                            if let Some(parent) = path_buf.parent() {
+                                                let candidate = parent.join(&companion_name);
+                                                if candidate.exists() {
+                                                    let _ = mgr.install_bga_companion(&candidate);
+                                                }
+                                            }
                                             let short_h = if installed.state_hash.len() > 8 {
                                                 &installed.state_hash[..8]
                                             } else {
                                                 &installed.state_hash
                                             };
                                             let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Imported '{}' (#{})",
+                                                "Installed '{}' (#{})",
                                                 installed.name, short_h
                                             )));
                                         }
@@ -649,12 +573,12 @@ impl ApplicationHandler for BpmGuiApp {
                                             bms_package_manager::PackageManagerError::Cancelled,
                                         ) => {
                                             let _ = tx.send(BgTaskMessage::Failed(
-                                                "Import cancelled by user".to_string(),
+                                                "Install cancelled by user".to_string(),
                                             ));
                                         }
                                         Err(e) => {
                                             let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                "Import error: {e}"
+                                                "Install error: {e}"
                                             )));
                                         }
                                     }
@@ -663,78 +587,146 @@ impl ApplicationHandler for BpmGuiApp {
                                     let _ = tx
                                         .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
                                 }
-                            });
-                        } else {
-                            let total_count = roots.len();
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Batch importing {} songs", total_count),
-                                phase: "Starting batch import...".to_string(),
-                                current: 0,
-                                total: total_count,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let mut success_count = 0;
-                                    for (i, r) in roots.iter().enumerate() {
-                                        if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            }
+                        });
+                    }
+                } else if path.is_dir() {
+                    let roots = bms_package_manager::find_bms_song_roots(&path_buf);
+                    if roots.is_empty() {
+                        state.status_msg =
+                            format!("No BMS chart files found in '{}'", path_buf.display());
+                        return;
+                    }
+
+                    if roots.len() == 1 {
+                        let target_root = roots[0].clone();
+                        let folder_name = target_root
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("folder")
+                            .to_string();
+                        state.bg_task_running = Some(BgTaskState {
+                            title: format!("Importing '{}'", folder_name),
+                            phase: "Scanning folder...".to_string(),
+                            current: 0,
+                            total: 0,
+                            detail: String::new(),
+                        });
+                        let tx_progress = tx.clone();
+                        thread::spawn(move || match PackageManager::new(&root_dir) {
+                            Ok(mut mgr) => {
+                                let res = mgr.import_folder_with_progress(
+                                    &target_root,
+                                    None,
+                                    Some(&cancel_flag),
+                                    move |phase, curr, tot, detail| {
+                                        let _ = tx_progress.send(BgTaskMessage::Progress {
+                                            phase: phase.to_string(),
+                                            current: curr,
+                                            total: tot,
+                                            detail: detail.to_string(),
+                                        });
+                                    },
+                                );
+                                match res {
+                                    Ok(installed) => {
+                                        let short_h = if installed.state_hash.len() > 8 {
+                                            &installed.state_hash[..8]
+                                        } else {
+                                            &installed.state_hash
+                                        };
+                                        let _ = tx.send(BgTaskMessage::Completed(format!(
+                                            "Imported '{}' (#{})",
+                                            installed.name, short_h
+                                        )));
+                                    }
+                                    Err(bms_package_manager::PackageManagerError::Cancelled) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(
+                                            "Import cancelled by user".to_string(),
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(BgTaskMessage::Failed(format!(
+                                            "Import error: {e}"
+                                        )));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let _ =
+                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            }
+                        });
+                    } else {
+                        let total_count = roots.len();
+                        state.bg_task_running = Some(BgTaskState {
+                            title: format!("Batch importing {} songs", total_count),
+                            phase: "Starting batch import...".to_string(),
+                            current: 0,
+                            total: total_count,
+                            detail: String::new(),
+                        });
+                        let tx_progress = tx.clone();
+                        thread::spawn(move || match PackageManager::new(&root_dir) {
+                            Ok(mut mgr) => {
+                                let mut success_count = 0;
+                                for (i, r) in roots.iter().enumerate() {
+                                    if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                                        let _ = tx.send(BgTaskMessage::Failed(
+                                            "Batch import cancelled by user".to_string(),
+                                        ));
+                                        return;
+                                    }
+                                    let s_name = r
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("song")
+                                        .to_string();
+                                    let _ = tx_progress.send(BgTaskMessage::Progress {
+                                        phase: format!(
+                                            "[{}/{}] Importing '{}'",
+                                            i + 1,
+                                            total_count,
+                                            s_name
+                                        ),
+                                        current: i + 1,
+                                        total: total_count,
+                                        detail: s_name.clone(),
+                                    });
+
+                                    match mgr.import_folder_with_progress(
+                                        r,
+                                        None,
+                                        Some(&cancel_flag),
+                                        |_, _, _, _| {},
+                                    ) {
+                                        Ok(_) => {
+                                            success_count += 1;
+                                        }
+                                        Err(
+                                            bms_package_manager::PackageManagerError::Cancelled,
+                                        ) => {
                                             let _ = tx.send(BgTaskMessage::Failed(
                                                 "Batch import cancelled by user".to_string(),
                                             ));
                                             return;
                                         }
-                                        let s_name = r
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("song")
-                                            .to_string();
-                                        let _ = tx_progress.send(BgTaskMessage::Progress {
-                                            phase: format!(
-                                                "[{}/{}] Importing '{}'",
-                                                i + 1,
-                                                total_count,
-                                                s_name
-                                            ),
-                                            current: i + 1,
-                                            total: total_count,
-                                            detail: s_name.clone(),
-                                        });
-
-                                        match mgr.import_folder_with_progress(
-                                            r,
-                                            None,
-                                            Some(&cancel_flag),
-                                            |_, _, _, _| {},
-                                        ) {
-                                            Ok(_) => {
-                                                success_count += 1;
-                                            }
-                                            Err(
-                                                bms_package_manager::PackageManagerError::Cancelled,
-                                            ) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(
-                                                    "Batch import cancelled by user".to_string(),
-                                                ));
-                                                return;
-                                            }
-                                            Err(_) => {}
-                                        }
+                                        Err(_) => {}
                                     }
-                                    let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Batch imported {}/{} songs into registry",
-                                        success_count, total_count
-                                    )));
                                 }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        }
+                                let _ = tx.send(BgTaskMessage::Completed(format!(
+                                    "Batch imported {}/{} songs into registry",
+                                    success_count, total_count
+                                )));
+                            }
+                            Err(e) => {
+                                let _ =
+                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
+                            }
+                        });
                     }
-                    state.window.request_redraw();
                 }
+                state.window.request_redraw();
             }
             _ => (),
         }

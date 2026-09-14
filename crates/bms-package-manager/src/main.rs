@@ -582,8 +582,8 @@ fn main() -> Result<(), PackageManagerError> {
             }
 
             println!(
-                "{:<25} {:<16} {:<12} {:<30} {}",
-                "ID", "STATE", "BGA", "NAME", "AUTHOR"
+                "{:<25} {:<16} {:<12} {:<30} AUTHOR",
+                "ID", "STATE", "BGA", "NAME"
             );
             println!("{:-<95}", "");
             for pkg in packages {

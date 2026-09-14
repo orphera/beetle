@@ -128,9 +128,11 @@ impl ApplicationHandler for BeetleApp {
             let _ = surface.resize(w, h);
         }
 
-        let mut skin = SkinConfig::default();
-        skin.hi_speed = saved_config.play_options.hi_speed;
-        skin.lane_cover_ratio = saved_config.lane_cover_ratio;
+        let skin = SkinConfig {
+            hi_speed: saved_config.play_options.hi_speed,
+            lane_cover_ratio: saved_config.lane_cover_ratio,
+            ..Default::default()
+        };
 
         let renderer = match SoftwareRenderer::new(size.width, size.height, skin) {
             Some(r) => r,
@@ -629,7 +631,7 @@ impl ApplicationHandler for BeetleApp {
                                     state.start_measure,
                                     state.master_volume,
                                     state.display_mode.as_str(),
-                                    &state.current_resolution_label(),
+                                    state.current_resolution_label(),
                                     state.gpu_backend.as_str(),
                                     state.target_fps,
                                     state.track_bga.as_str(),
@@ -972,21 +974,21 @@ impl ApplicationHandler for BeetleApp {
                 #[cfg(not(target_os = "windows"))]
                 let presented_d3d11 = false;
 
-                if !presented_d3d11 && width > 0 && height > 0 {
-                    if state.is_dirty
+                if !presented_d3d11
+                    && width > 0
+                    && height > 0
+                    && (state.is_dirty
                         || state.screen == AppScreen::Gameplay
-                        || state.screen == AppScreen::Loading
-                    {
-                        if let Ok(mut buffer) = state.surface.buffer_mut() {
-                            let data = state.renderer.data();
-                            let buffer_slice = buffer.as_mut();
-                            for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
-                                *dest = ((src[0] as u32) << 16)
-                                    | ((src[1] as u32) << 8)
-                                    | (src[2] as u32);
-                            }
-                            let _ = buffer.present();
+                        || state.screen == AppScreen::Loading)
+                {
+                    if let Ok(mut buffer) = state.surface.buffer_mut() {
+                        let data = state.renderer.data();
+                        let buffer_slice = buffer.as_mut();
+                        for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
+                            *dest =
+                                ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
                         }
+                        let _ = buffer.present();
                     }
                 }
 
