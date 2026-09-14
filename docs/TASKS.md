@@ -29,20 +29,21 @@
   - [ ] 소스 우선순위 기반 복수 소스 패키지 병합 로직 구축
 - [ ] **경량 동기식 HTTP 클라이언트 모듈 구축 (`crates/bms-package-manager/src/net/http.rs`)**
   - [ ] `ureq` (with `tls`/`rustls`) 최소 의존성 추가 (Tokio/Reqwest 완전 배제, 바이너리 오버헤드 < 150 KB)
-  - [ ] 타임아웃(연결 10초 / 읽기 30초) 및 표준 User-Agent 헤더 설정
+  - [ ] 공격적 타임아웃(연결 3초 / 읽기 10초) 및 표준 User-Agent 헤더 설정
   - [ ] 실시간 프로그레스 스트리밍 트레이트 `DownloadProgressCallback` 정의
   - [ ] 다운로드 중 스트리밍 SHA-256 누적 계산 및 `index.json` 대조 검증 파이프라인
 
 ---
 
 ## 📋 Phase 2: 원격 패키지 다운로드 & 원자적 설치 파이프라인 (`crates/bms-package-manager/`)
-- [ ] **원격 인덱스 로컬 캐시 관리 (`crates/bms-package-manager/src/net/cache.rs`)**
+- [ ] **원격 인덱스 로컬 캐시 관리 & 오프라인 폴백 (`crates/bms-package-manager/src/net/cache.rs`)**
   - [ ] `.cache/registry/<source_id>.json` 파일에 원격 인덱스 캐싱
-  - [ ] 오프라인 모드 지원: 네트워크 단절 시 캐시된 인덱스로 패키지 조회
-- [ ] **원격 패키지 다운로더 & 원자적 설치 트랜잭션 (`crates/bms-package-manager/src/net/installer.rs`)**
-  - [ ] 임시 다운로드 파일(`.cache/downloads/<id>-<state>.tmp`) 스트리밍 수신
+  - [ ] 오프라인 회복력(Offline Resilience): 네트워크 단절 시 에러 없이 캐시된 인덱스로 조용히 폴백
+- [ ] **원격 패키지 다운로더 & RAII 가드 (`crates/bms-package-manager/src/net/installer.rs`)**
+  - [ ] `DownloadTempFile` RAII Drop Guard: 중단/취소/Panic 시 `.tmp` 파일 즉각 자동 정리
+  - [ ] 스트리밍 Hard Safety Cap 검사: 메타데이터 크기 105% 또는 2 GB 초과 시 즉시 차단
   - [ ] SHA-256 체크섬 불일치 시 즉각적인 임시 파일 삭제 및 무결성 에러 반환
-  - [ ] 다운로드 완료 후 기존 `PackageManager::install_package` 원자적 설치 파이프라인과 연동
+  - [ ] 다운로드 및 검증 완료된 `.bmsp`를 기존 `PackageManager::install_package`에 전달하여 원자적 설치 재사용
   - [ ] 설치 완료 시 `registry.json` 동기화 및 `songs/` 심볼릭/하드링크 활성화
 - [ ] **업데이트 판정 엔진 (`crates/bms-package-manager/src/net/updater.rs`)**
   - [ ] 로컬에 설치된 패키지와 원격 인덱스의 최신 버전/해시 비교
@@ -83,11 +84,13 @@
 ## 📋 Phase 5: `bpm-gui` 온라인 송 허브 (Online Song Hub) 탭 및 1-클릭 설치 UI (`crates/bpm-gui/`)
 - [ ] **상단 탭 네비게이션 UI 구축 (`crates/bpm-gui/src/ui.rs`)**
   - [ ] `[Installed Library]` 탭과 `[Online Song Hub]` 탭 전환 UI 제공
-- [ ] **온라인 곡 탐색 카탈로그 뷰**
+- [ ] **온라인 곡 탐색 카탈로그 뷰 & 가상 스크롤 (Viewport Culling)**
+  - [ ] 화면 뷰포트 기반 가상 스크롤링: 현재 보이는 6~10개 카드만 슬라이싱 렌더링하여 60 FPS 불변식(`INV-5`) 유지
   - [ ] 원격 캐시 인덱스 목록 렌더링 (곡명, 아티스트, 장르, 난이도 레벨, 용량)
   - [ ] 검색창 필터링 (제목/아티스트 실시간 검색) 및 레벨 필터 버튼
 - [ ] **논블로킹 백그라운드 다운로드 & 1-클릭 설치**
   - [ ] `[Install]` 클릭 시 백그라운드 Worker 스레드로 다운로드 위임 (`INV-5` 준수)
+  - [ ] 다운로드 프로그레스 리드로우 스로틀링: 최대 30 FPS 주기 또는 1% 이상 변화 시에만 렌더 이벤트 발생
   - [ ] 카드별 다운로드 프로그레스 바 및 퍼센트/다운로드 속도 실시간 렌더링
   - [ ] 다운로드 완료 시 자동 설치 및 `[Installed]` 상태 갱신
 - [ ] **업데이트 알림 및 원클릭 일괄 업그레이드**
