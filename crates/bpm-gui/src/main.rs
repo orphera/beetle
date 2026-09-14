@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use ui::{GuiRenderer, TaskProgressInfo};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -76,6 +76,13 @@ struct AppState {
     modifiers: ModifiersState,
     spinner_frame: usize,
     last_anim_time: Instant,
+    active_tab: ui::ActiveTab,
+    remote_packages: Vec<ui::RemotePackageDisplayInfo>,
+    remote_raw_packages: Vec<(bms_package_manager::RemotePackageMetadata, String)>,
+    remote_filtered_indices: Vec<usize>,
+    remote_selected_idx: usize,
+    remote_level_filter: u8,
+    cursor_pos: (f32, f32),
 }
 
 impl AppState {
@@ -95,6 +102,119 @@ impl AppState {
             .collect();
 
         self.apply_filter();
+        self.refresh_remote_packages();
+    }
+
+    fn refresh_remote_packages(&mut self) {
+        let packages_dir = self.manager.root_dir().to_path_buf();
+        let sources_path = packages_dir.join("sources.json");
+        let sources_config =
+            bms_package_manager::SourcesConfig::load_or_init(&sources_path).unwrap_or_default();
+        let cache_mgr = bms_package_manager::RegistryCacheManager::new(&packages_dir);
+
+        let active_sources = sources_config.active_sources_by_priority();
+        let cached_indices = cache_mgr.load_all_cached(&active_sources);
+        let pairs: Vec<(
+            &bms_package_manager::RegistrySource,
+            &bms_package_manager::RemoteRegistryIndex,
+        )> = cached_indices.iter().map(|(s, idx)| (s, idx)).collect();
+        let merged = bms_package_manager::SourcesConfig::merge_packages(&pairs);
+
+        let mut url_map = std::collections::HashMap::new();
+        for (src, index) in &cached_indices {
+            for pkg in &index.packages {
+                url_map.entry(pkg.id.clone()).or_insert_with(|| src.url.clone());
+            }
+        }
+
+        let installed_map: std::collections::HashMap<&str, &PackageRecord> = self
+            .packages
+            .iter()
+            .map(|p| (p.id.as_str(), p))
+            .collect();
+
+        let mut raw_list = Vec::new();
+        let mut display_list = Vec::new();
+
+        for pkg in merged {
+            let base_url = url_map.get(&pkg.id).cloned().unwrap_or_default();
+            let status = if let Some(inst) = installed_map.get(pkg.id.as_str()) {
+                if inst.state_hashes.contains_key(&pkg.state_hash) {
+                    ui::RemotePackageStatus::Installed
+                } else {
+                    ui::RemotePackageStatus::UpdateAvailable
+                }
+            } else {
+                ui::RemotePackageStatus::Available
+            };
+
+            display_list.push(ui::RemotePackageDisplayInfo {
+                id: pkg.id.clone(),
+                title: pkg.title.clone(),
+                artist: pkg.artist.clone(),
+                genre: pkg.genre.clone(),
+                bpm: pkg.bpm,
+                play_levels: pkg.play_levels.clone(),
+                size_bytes: pkg.size_bytes,
+                sha256: pkg.sha256.clone(),
+                status,
+                has_companion_bga: pkg.companion_bga.is_some(),
+                download_url: pkg.download_url.clone(),
+            });
+
+            raw_list.push((pkg, base_url));
+        }
+
+        self.remote_raw_packages = raw_list;
+        self.remote_packages = display_list;
+        self.apply_remote_filter();
+    }
+
+    fn apply_remote_filter(&mut self) {
+        let q = self.search_query.trim().to_ascii_lowercase();
+        let lvl_filter = self.remote_level_filter;
+
+        self.remote_filtered_indices = self
+            .remote_packages
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                let text_match = q.is_empty()
+                    || p.id.to_ascii_lowercase().contains(&q)
+                    || p.title.to_ascii_lowercase().contains(&q)
+                    || p.artist.to_ascii_lowercase().contains(&q)
+                    || p.genre
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(&q);
+
+                if !text_match {
+                    return false;
+                }
+
+                if lvl_filter == 0 {
+                    return true;
+                }
+
+                if p.play_levels.is_empty() {
+                    return false;
+                }
+
+                match lvl_filter {
+                    1 => p.play_levels.iter().any(|&l| (1..=4).contains(&l)),
+                    2 => p.play_levels.iter().any(|&l| (5..=8).contains(&l)),
+                    3 => p.play_levels.iter().any(|&l| (9..=11).contains(&l)),
+                    4 => p.play_levels.iter().any(|&l| l >= 12),
+                    _ => true,
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if self.remote_selected_idx >= self.remote_filtered_indices.len() {
+            self.remote_selected_idx = self.remote_filtered_indices.len().saturating_sub(1);
+        }
     }
 
     fn apply_filter(&mut self) {
@@ -124,6 +244,7 @@ impl AppState {
         }
         self.selected_ver_idx = 0;
         self.update_preview_image();
+        self.apply_remote_filter();
     }
 
     fn update_preview_image(&mut self) {
@@ -258,6 +379,13 @@ impl ApplicationHandler for BpmGuiApp {
             modifiers: ModifiersState::default(),
             spinner_frame: 0,
             last_anim_time: Instant::now(),
+            active_tab: ui::ActiveTab::Installed,
+            remote_packages: Vec::new(),
+            remote_raw_packages: Vec::new(),
+            remote_filtered_indices: Vec::new(),
+            remote_selected_idx: 0,
+            remote_level_filter: 0,
+            cursor_pos: (0.0, 0.0),
         };
 
         app_state.refresh_packages();
@@ -354,6 +482,97 @@ impl ApplicationHandler for BpmGuiApp {
                     state.window.request_redraw();
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                state.cursor_pos = (position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                let (mx, my) = state.cursor_pos;
+                let size = state.window.inner_size();
+                let w = size.width as f32;
+
+                // Tab 1: Installed
+                if (14.0..=42.0).contains(&my) && (210.0..=350.0).contains(&mx) {
+                    state.active_tab = ui::ActiveTab::Installed;
+                    state.is_search_active = false;
+                    state.window.request_redraw();
+                } else if (14.0..=42.0).contains(&my) && (360.0..=510.0).contains(&mx) {
+                    // Tab 2: Online Hub
+                    state.active_tab = ui::ActiveTab::OnlineHub;
+                    state.is_search_active = false;
+                    state.window.request_redraw();
+                } else {
+                    let search_box_x = (w - 320.0).max(520.0);
+                    let s_w = w - search_box_x - 16.0;
+                    if (14.0..=42.0).contains(&my)
+                        && (search_box_x..=(search_box_x + s_w)).contains(&mx)
+                    {
+                        state.is_search_active = true;
+                        state.window.request_redraw();
+                    } else if state.active_tab == ui::ActiveTab::OnlineHub {
+                        let list_w = 460.0_f32.min(w * 0.52);
+                        // Level filter pills: filter_y = 68.0 + 32.0 = 100.0, height = 22.0
+                        if (100.0..=122.0).contains(&my)
+                            && (18.0..=(18.0 + list_w - 20.0)).contains(&mx)
+                        {
+                            let pill_w = (list_w - 20.0) / 5.0;
+                            let clicked_filter = (((mx - 18.0) / pill_w) as u8).min(4);
+                            state.remote_level_filter = clicked_filter;
+                            state.apply_remote_filter();
+                            state.window.request_redraw();
+                        } else {
+                            // Catalog list: catalog_y = 126.0, row_h = 50.0
+                            let catalog_y = 126.0;
+                            let content_h = size.height as f32 - 68.0 - 48.0;
+                            let catalog_h = content_h - 58.0;
+                            let row_h = 50.0;
+                            let max_visible_rows = (catalog_h / row_h) as usize;
+                            let scroll_offset = if state.remote_selected_idx >= max_visible_rows {
+                                state.remote_selected_idx - max_visible_rows + 1
+                            } else {
+                                0
+                            };
+                            if (catalog_y..=(catalog_y + catalog_h)).contains(&my)
+                                && (18.0..=(18.0 + list_w)).contains(&mx)
+                            {
+                                let r = ((my - catalog_y) / row_h) as usize;
+                                let clicked_idx = scroll_offset + r;
+                                if clicked_idx < state.remote_filtered_indices.len() {
+                                    state.remote_selected_idx = clicked_idx;
+                                    state.window.request_redraw();
+                                }
+                            }
+                        }
+                    } else if state.active_tab == ui::ActiveTab::Installed {
+                        let list_w = 420.0;
+                        let row_y_start = 68.0 + 32.0;
+                        let content_h = size.height as f32 - 68.0 - 48.0;
+                        let row_h = 44.0;
+                        let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
+                        let scroll_offset = if state.selected_idx >= max_visible_rows {
+                            state.selected_idx - max_visible_rows + 1
+                        } else {
+                            0
+                        };
+                        if (row_y_start..=(row_y_start + (max_visible_rows as f32 * row_h)))
+                            .contains(&my)
+                            && (18.0..=(18.0 + list_w)).contains(&mx)
+                        {
+                            let r = ((my - row_y_start) / row_h) as usize;
+                            let clicked_idx = scroll_offset + r;
+                            if clicked_idx < state.filtered_indices.len() {
+                                state.selected_idx = clicked_idx;
+                                state.selected_ver_idx = 0;
+                                state.update_preview_image();
+                                state.window.request_redraw();
+                            }
+                        }
+                    }
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -376,6 +595,12 @@ impl ApplicationHandler for BpmGuiApp {
                         .filtered_indices
                         .iter()
                         .filter_map(|&idx| state.packages.get(idx))
+                        .collect();
+
+                    let filtered_remote: Vec<ui::RemotePackageDisplayInfo> = state
+                        .remote_filtered_indices
+                        .iter()
+                        .filter_map(|&idx| state.remote_packages.get(idx).cloned())
                         .collect();
 
                     let modal_info = state.modal.as_ref().map(|(mode, input)| match mode {
@@ -420,13 +645,17 @@ impl ApplicationHandler for BpmGuiApp {
                         });
 
                     state.renderer.render_frame(
+                        state.active_tab,
                         &filtered_pkgs,
                         state.selected_idx,
                         state.selected_ver_idx,
+                        state.preview_image.as_ref(),
+                        &filtered_remote,
+                        state.remote_selected_idx,
+                        state.remote_level_filter,
                         &state.search_query,
                         state.is_search_active,
                         &state.status_msg,
-                        state.preview_image.as_ref(),
                         modal_info,
                         bg_task_info,
                     );
@@ -1438,13 +1667,77 @@ fn handle_key_input(
     }
 
     // 3. Normal Navigation & Shortcuts
+    if code == KeyCode::Tab {
+        state.active_tab = match state.active_tab {
+            ui::ActiveTab::Installed => ui::ActiveTab::OnlineHub,
+            ui::ActiveTab::OnlineHub => ui::ActiveTab::Installed,
+        };
+        return;
+    }
+
+    if code == KeyCode::Escape {
+        event_loop.exit();
+        return;
+    }
+
+    if code == KeyCode::Slash {
+        state.is_search_active = true;
+        return;
+    }
+
+    if state.active_tab == ui::ActiveTab::OnlineHub {
+        match code {
+            KeyCode::ArrowUp | KeyCode::KeyK => {
+                if state.remote_selected_idx > 0 {
+                    state.remote_selected_idx -= 1;
+                }
+            }
+            KeyCode::ArrowDown | KeyCode::KeyJ => {
+                if !state.remote_filtered_indices.is_empty()
+                    && state.remote_selected_idx + 1 < state.remote_filtered_indices.len()
+                {
+                    state.remote_selected_idx += 1;
+                }
+            }
+            KeyCode::Enter | KeyCode::KeyI => {
+                start_remote_install(state, false);
+            }
+            KeyCode::KeyU => {
+                start_remote_install(state, false);
+            }
+            KeyCode::KeyB => {
+                start_remote_install(state, true);
+            }
+            KeyCode::Digit0 => {
+                state.remote_level_filter = 0;
+                state.apply_remote_filter();
+            }
+            KeyCode::Digit1 => {
+                state.remote_level_filter = 1;
+                state.apply_remote_filter();
+            }
+            KeyCode::Digit2 => {
+                state.remote_level_filter = 2;
+                state.apply_remote_filter();
+            }
+            KeyCode::Digit3 => {
+                state.remote_level_filter = 3;
+                state.apply_remote_filter();
+            }
+            KeyCode::Digit4 => {
+                state.remote_level_filter = 4;
+                state.apply_remote_filter();
+            }
+            KeyCode::F5 | KeyCode::KeyR => {
+                start_sync_sources(state);
+            }
+            _ => (),
+        }
+        return;
+    }
+
+    // ActiveTab::Installed
     match code {
-        KeyCode::Escape => {
-            event_loop.exit();
-        }
-        KeyCode::Slash => {
-            state.is_search_active = true;
-        }
         KeyCode::F5 | KeyCode::KeyR => {
             state.refresh_packages();
             state.status_msg = "Packages refreshed".to_string();
@@ -1596,6 +1889,201 @@ fn handle_key_input(
         }
         _ => (),
     }
+}
+
+fn start_remote_install(state: &mut AppState, with_bga: bool) {
+    if state.bg_task_running.is_some() {
+        state.status_msg = "Another task is already running".to_string();
+        return;
+    }
+
+    let selected_pkg_idx = match state.remote_filtered_indices.get(state.remote_selected_idx) {
+        Some(&idx) => idx,
+        None => {
+            state.status_msg = "No remote package selected".to_string();
+            return;
+        }
+    };
+
+    let (pkg_meta, base_url) = match state.remote_raw_packages.get(selected_pkg_idx) {
+        Some(item) => item.clone(),
+        None => {
+            state.status_msg = "Package metadata not found".to_string();
+            return;
+        }
+    };
+
+    let title = pkg_meta.title.clone();
+    let root_dir = state.manager.root_dir().to_path_buf();
+    let has_bga = pkg_meta.companion_bga.is_some();
+    let install_with_bga = with_bga && has_bga;
+
+    state.bg_task_running = Some(BgTaskState {
+        title: format!("Downloading '{}'", title),
+        phase: "Connecting...".to_string(),
+        current: 0,
+        total: pkg_meta.size_bytes as usize,
+        detail: String::new(),
+    });
+
+    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
+    state.bg_receiver = Some(rx);
+
+    thread::spawn(move || {
+        let client = bms_package_manager::HttpClient::new();
+        let installer = bms_package_manager::RemotePackageInstaller::new(&root_dir);
+        let mut mgr = match bms_package_manager::PackageManager::new(&root_dir) {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = tx.send(BgTaskMessage::Failed(format!("PackageManager init error: {e}")));
+                return;
+            }
+        };
+
+        let tx_prog = tx.clone();
+        let mut last_emit = Instant::now() - Duration::from_secs(1);
+        let mut last_pct = -1.0;
+
+        let callback = move |down: u64, tot: Option<u64>| {
+            let now = Instant::now();
+            let tot_b = tot.unwrap_or(0);
+            let pct = if tot_b > 0 {
+                (down as f64 / tot_b as f64) * 100.0
+            } else {
+                0.0
+            };
+            let elapsed = now.duration_since(last_emit);
+            let delta_pct = (pct - last_pct).abs();
+            // Throttling: max 30 FPS (~33ms) or >= 1.0% change (INV-5, ADR-024)
+            if elapsed >= Duration::from_millis(33)
+                || delta_pct >= 1.0
+                || (tot_b > 0 && down >= tot_b)
+            {
+                last_emit = now;
+                last_pct = pct;
+                let mb_down = down as f64 / (1024.0 * 1024.0);
+                let mb_tot = tot_b as f64 / (1024.0 * 1024.0);
+                let detail = if tot_b > 0 {
+                    format!("{:.1} / {:.1} MB ({:.0}%)", mb_down, mb_tot, pct)
+                } else {
+                    format!("{:.1} MB", mb_down)
+                };
+                let _ = tx_prog.send(BgTaskMessage::Progress {
+                    phase: "Downloading package...".to_string(),
+                    current: down as usize,
+                    total: tot_b as usize,
+                    detail,
+                });
+            }
+        };
+
+        match installer.install_remote_package(&mut mgr, &client, &pkg_meta, &base_url, callback) {
+            Ok(installed) => {
+                if install_with_bga {
+                    if let Some(bga_meta) = &pkg_meta.companion_bga {
+                        let _ = tx.send(BgTaskMessage::Progress {
+                            phase: "Downloading companion BGA...".to_string(),
+                            current: 0,
+                            total: bga_meta.size_bytes as usize,
+                            detail: "Downloading companion video...".to_string(),
+                        });
+                        match installer.download_bga_companion(
+                            &client,
+                            bga_meta,
+                            &base_url,
+                            bms_package_manager::NoopProgressCallback,
+                        ) {
+                            Ok(bga_temp) => {
+                                let bga_path = bga_temp.commit();
+                                let _ = mgr.install_bga_companion(&bga_path);
+                                let _ = std::fs::remove_file(&bga_path);
+                            }
+                            Err(e) => {
+                                eprintln!("Warning: companion BGA download failed: {e}");
+                            }
+                        }
+                    }
+                }
+
+                let short_h = if installed.state_hash.len() > 8 {
+                    &installed.state_hash[..8]
+                } else {
+                    &installed.state_hash
+                };
+                let _ = tx.send(BgTaskMessage::Completed(format!(
+                    "Installed '{}' (#{}) successfully",
+                    installed.name, short_h
+                )));
+            }
+            Err(e) => {
+                let _ = tx.send(BgTaskMessage::Failed(format!("Installation failed: {e}")));
+            }
+        }
+    });
+}
+
+fn start_sync_sources(state: &mut AppState) {
+    if state.bg_task_running.is_some() {
+        state.status_msg = "Another task is already running".to_string();
+        return;
+    }
+
+    let root_dir = state.manager.root_dir().to_path_buf();
+    state.bg_task_running = Some(BgTaskState {
+        title: "Syncing Online Registries".to_string(),
+        phase: "Contacting sources...".to_string(),
+        current: 0,
+        total: 0,
+        detail: String::new(),
+    });
+
+    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
+    state.bg_receiver = Some(rx);
+
+    thread::spawn(move || {
+        let client = bms_package_manager::HttpClient::default();
+        let sources_path = root_dir.join("sources.json");
+        let sources_config =
+            bms_package_manager::SourcesConfig::load_or_init(&sources_path).unwrap_or_default();
+        let cache_mgr = bms_package_manager::RegistryCacheManager::new(&root_dir);
+
+        let mut updated_count = 0;
+        let mut total_packages = 0;
+        let mut errors = Vec::new();
+
+        let active_sources = sources_config.active_sources_by_priority();
+        for src in active_sources {
+            let _ = tx.send(BgTaskMessage::Progress {
+                phase: format!("Fetching '{}'...", src.name),
+                current: 0,
+                total: 0,
+                detail: src.url.clone(),
+            });
+            match cache_mgr.update_or_fallback(&client, src) {
+                Ok((idx, from_cache)) => {
+                    total_packages += idx.packages.len();
+                    if !from_cache {
+                        updated_count += 1;
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", src.name, e));
+                }
+            }
+        }
+
+        if updated_count > 0 || errors.is_empty() {
+            let _ = tx.send(BgTaskMessage::Completed(format!(
+                "Synced {} source(s) ({} online packages available)",
+                updated_count, total_packages
+            )));
+        } else {
+            let _ = tx.send(BgTaskMessage::Failed(format!(
+                "Sync failed: {}",
+                errors.join("; ")
+            )));
+        }
+    });
 }
 
 fn main() {
