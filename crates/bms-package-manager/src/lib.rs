@@ -18,8 +18,9 @@ pub use export::{export_package_to_folder, export_package_to_folder_with_progres
 pub use flac::encode_wav_to_flac;
 pub use manager::{InstalledPackage, PackageManager};
 pub use net::{
-    DownloadProgressCallback, HttpClient, NoopProgressCallback, DEFAULT_CONNECT_TIMEOUT,
-    DEFAULT_READ_TIMEOUT, GLOBAL_MAX_PACKAGE_SIZE,
+    find_available_updates, upgrade_packages, DownloadProgressCallback, DownloadTempFile,
+    HttpClient, NoopProgressCallback, PackageUpdateInfo, RegistryCacheManager,
+    RemotePackageInstaller, DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT, GLOBAL_MAX_PACKAGE_SIZE,
 };
 pub use pack::{
     analyze_bms_folder, find_bms_song_roots, pack_bms_folder,

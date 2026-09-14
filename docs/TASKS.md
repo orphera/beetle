@@ -36,18 +36,18 @@
 ---
 
 ## 📋 Phase 2: 원격 패키지 다운로드 & 원자적 설치 파이프라인 (`crates/bms-package-manager/`)
-- [ ] **원격 인덱스 로컬 캐시 관리 & 오프라인 폴백 (`crates/bms-package-manager/src/net/cache.rs`)**
-  - [ ] `.cache/registry/<source_id>.json` 파일에 원격 인덱스 캐싱
-  - [ ] 오프라인 회복력(Offline Resilience): 네트워크 단절 시 에러 없이 캐시된 인덱스로 조용히 폴백
-- [ ] **원격 패키지 다운로더 & RAII 가드 (`crates/bms-package-manager/src/net/installer.rs`)**
-  - [ ] `DownloadTempFile` RAII Drop Guard: 중단/취소/Panic 시 `.tmp` 파일 즉각 자동 정리
-  - [ ] 스트리밍 Hard Safety Cap 검사: 메타데이터 크기 105% 또는 2 GB 초과 시 즉시 차단
-  - [ ] SHA-256 체크섬 불일치 시 즉각적인 임시 파일 삭제 및 무결성 에러 반환
-  - [ ] 다운로드 및 검증 완료된 `.bmsp`를 기존 `PackageManager::install_package`에 전달하여 원자적 설치 재사용
-  - [ ] 설치 완료 시 `registry.json` 동기화 및 `songs/` 심볼릭/하드링크 활성화
-- [ ] **업데이트 판정 엔진 (`crates/bms-package-manager/src/net/updater.rs`)**
-  - [ ] 로컬에 설치된 패키지와 원격 인덱스의 최신 버전/해시 비교
-  - [ ] 업그레이드 대상 패키지 목록 추출 및 일괄 업데이트 트랜잭션
+- [x] **원격 인덱스 로컬 캐시 관리 & 오프라인 폴백 (`crates/bms-package-manager/src/net/cache.rs`)**
+  - [x] `.cache/registry/<source_id>.json` 파일에 원격 인덱스 캐싱
+  - [x] 오프라인 회복력(Offline Resilience): 네트워크 단절 시 에러 없이 캐시된 인덱스로 조용히 폴백
+- [x] **원격 패키지 다운로더 & RAII 가드 (`crates/bms-package-manager/src/net/installer.rs`)**
+  - [x] `DownloadTempFile` RAII Drop Guard: 중단/취소/Panic 시 `.tmp` 파일 즉각 자동 정리
+  - [x] 스트리밍 Hard Safety Cap 검사: 메타데이터 크기 105% 또는 2 GB 초과 시 즉시 차단
+  - [x] SHA-256 체크섬 불일치 시 즉각적인 임시 파일 삭제 및 무결성 에러 반환
+  - [x] 다운로드 및 검증 완료된 `.bmsp`를 기존 `PackageManager::install`에 전달하여 원자적 설치 재사용
+  - [x] 설치 완료 시 `registry.json` 동기화 및 `songs/` 심볼릭/하드링크 활성화
+- [x] **업데이트 판정 엔진 (`crates/bms-package-manager/src/net/updater.rs`)**
+  - [x] 로컬에 설치된 패키지와 원격 인덱스의 최신 버전/해시 비교
+  - [x] 업그레이드 대상 패키지 목록 추출 및 일괄 업데이트 트랜잭션
 
 ---
 
