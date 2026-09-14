@@ -482,7 +482,8 @@ where
                         wav_targets.insert(file_only.clone(), ());
 
                         // Cross-extension matching (.wav <-> .ogg <-> .flac)
-                        let base_opt = norm.strip_suffix(".wav")
+                        let base_opt = norm
+                            .strip_suffix(".wav")
                             .or_else(|| norm.strip_suffix(".ogg"))
                             .or_else(|| norm.strip_suffix(".flac"));
                         if let Some(base) = base_opt {
@@ -490,7 +491,8 @@ where
                             wav_targets.insert(format!("{}.ogg", base), ());
                             wav_targets.insert(format!("{}.flac", base), ());
                         }
-                        let fbase_opt = file_only.strip_suffix(".wav")
+                        let fbase_opt = file_only
+                            .strip_suffix(".wav")
                             .or_else(|| file_only.strip_suffix(".ogg"))
                             .or_else(|| file_only.strip_suffix(".flac"));
                         if let Some(fbase) = fbase_opt {
@@ -507,7 +509,9 @@ where
                             .unwrap_or(&norm)
                             .to_string();
                         let stem = Path::new(&file_only)
-                            .file_stem().and_then(|s| s.to_str()).unwrap_or(&file_only);
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_only);
                         bmp_targets.insert(norm.clone(), ());
                         bmp_targets.insert(file_only.clone(), ());
 
@@ -686,8 +690,7 @@ where
             .get(&norm_rel)
             .or_else(|| bmp_targets.get(&norm_name))
             .is_some();
-        let is_image =
-            matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key;
+        let is_image = matches!(ext.as_str(), "bmp" | "png" | "jpg" | "jpeg") || matched_bmp_key;
         if is_image {
             if use_bga_delta {
                 bga_delta_builder.add_frame(norm_rel.clone(), data, Some(norm_rel.clone()));
@@ -741,8 +744,7 @@ where
 
     // 4. Build BGA Assets (BGA Delta Sequence Bundle or BGA Texture Atlas)
     if use_bga_delta && !bga_delta_builder.is_empty() {
-        let (bga_delta_meta, bga_delta_bytes) =
-            bga_delta_builder.build("visual/bga_delta.bin");
+        let (bga_delta_meta, bga_delta_bytes) = bga_delta_builder.build("visual/bga_delta.bin");
         manifest = manifest.with_bga_delta(bga_delta_meta);
         passthrough_files.push(("visual/bga_delta.bin".to_string(), bga_delta_bytes));
     } else if let Some((bga_meta, bga_image)) = bga_builder.build("visual/atlas.bmp") {
@@ -976,8 +978,9 @@ mod tests {
         let chart_bytes = pkg.read_entry("main.bme").expect("read chart failed");
         let chart_text = beetle_core::decode_bms_text(&chart_bytes);
         let chart = beetle_core::parse_bms(&chart_text).expect("parse chart failed");
-        let sample_bank = SampleBank::load_from_sound_atlas_for_chart(&chart, sound_atlas, &atlas_bytes)
-            .expect("load sound atlas failed");
+        let sample_bank =
+            SampleBank::load_from_sound_atlas_for_chart(&chart, sound_atlas, &atlas_bytes)
+                .expect("load sound atlas failed");
         assert_eq!(sample_bank.len(), 2);
 
         // Cleanup
@@ -1092,7 +1095,10 @@ mod tests {
         assert_eq!(manifest.author.as_deref(), Some("Specialist"));
 
         let sound_meta = manifest.sound_atlas.as_ref().unwrap();
-        assert!(sound_meta.slices.contains_key("kick.wav"), "kick.wav matched");
+        assert!(
+            sound_meta.slices.contains_key("kick.wav"),
+            "kick.wav matched"
+        );
         assert!(
             sound_meta.slices.contains_key("sound/snare.wav"),
             "sound/snare.wav matched"
@@ -1467,7 +1473,10 @@ mod tests {
         let manifest = pkg.manifest();
 
         // Verify BgaDelta was selected and populated
-        let delta_meta = manifest.bga_delta.as_ref().expect("bga_delta should be present");
+        let delta_meta = manifest
+            .bga_delta
+            .as_ref()
+            .expect("bga_delta should be present");
         assert!(
             manifest.bga_atlas.is_none(),
             "2D atlas should not be built when bga_delta is used"
@@ -1475,21 +1484,31 @@ mod tests {
         assert_eq!(delta_meta.total_frames, 4);
 
         // Verify loop_01 is Keyframe, loop_02 and loop_03 are Delta frames
-        let f1 = delta_meta.frames.get("loop_01.bmp").expect("loop_01 in frames");
+        let f1 = delta_meta
+            .frames
+            .get("loop_01.bmp")
+            .expect("loop_01 in frames");
         assert_eq!(f1.frame_type, BgaFrameType::Keyframe);
         assert!(f1.parent.is_none());
 
-        let f2 = delta_meta.frames.get("loop_02.bmp").expect("loop_02 in frames");
+        let f2 = delta_meta
+            .frames
+            .get("loop_02.bmp")
+            .expect("loop_02 in frames");
         assert_eq!(f2.frame_type, BgaFrameType::Delta);
         assert_eq!(f2.parent.as_deref(), Some("loop_01.bmp"));
 
-        let f3 = delta_meta.frames.get("loop_03.bmp").expect("loop_03 in frames");
+        let f3 = delta_meta
+            .frames
+            .get("loop_03.bmp")
+            .expect("loop_03 in frames");
         assert_eq!(f3.frame_type, BgaFrameType::Delta);
         assert_eq!(f3.parent.as_deref(), Some("loop_02.bmp"));
 
         // 5. Test Exporter: unpacks and restores exact original BMP bytes
         let export_dir = temp_dir.join("Exported");
-        let stats = export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
+        let stats =
+            export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
         assert_eq!(stats.bga_files, 4);
 
         let exported_raw1 =
@@ -1509,7 +1528,8 @@ mod tests {
 
         // 6. Test VFS: mounts BGA Delta virtual files seamlessly
         let mut vfs = VirtualBmsFs::new();
-        vfs.mount_package("delta_song", &pkg_path).expect("mount should succeed");
+        vfs.mount_package("delta_song", &pkg_path)
+            .expect("mount should succeed");
 
         assert_eq!(vfs.read_file("delta_song/loop_01.bmp").unwrap(), raw1);
         assert_eq!(vfs.read_file("delta_song/loop_02.bmp").unwrap(), raw2);
@@ -1521,9 +1541,9 @@ mod tests {
 
     #[test]
     fn test_pack_with_flac_bundle_roundtrip() {
-        use bms_package::Package;
         use crate::export::export_package_to_folder;
         use crate::vfs::VirtualBmsFs;
+        use bms_package::Package;
 
         let temp_dir = std::env::temp_dir().join(format!(
             "bpm_flac_test_{}",
@@ -1547,8 +1567,9 @@ mod tests {
 
         // 3. Pack with Turbo profile and Flac audio mode
         let opts = PackOptions::turbo(BgaPackMode::Embed).with_audio_mode(AudioPackMode::Flac);
-        let output = pack_bms_folder_advanced_with_progress(&song_dir, None, opts, None, |_, _, _, _| {})
-            .expect("flac packaging should succeed");
+        let output =
+            pack_bms_folder_advanced_with_progress(&song_dir, None, opts, None, |_, _, _, _| {})
+                .expect("flac packaging should succeed");
 
         let pkg = Package::from_bytes(output.base_package.clone()).expect("valid package");
         let manifest = pkg.manifest();
@@ -1559,15 +1580,23 @@ mod tests {
         assert!(sound_meta.slices.contains_key("02.wav"));
 
         let atlas_bytes = pkg.read_entry(&sound_meta.file).expect("read atlas entry");
-        assert!(atlas_bytes.len() < wav1.len() + wav2.len(), "FLAC bundle should compress audio");
+        assert!(
+            atlas_bytes.len() < wav1.len() + wav2.len(),
+            "FLAC bundle should compress audio"
+        );
 
         // 4. Decode with beetle-audio SampleBank
         let chart = beetle_core::parse_bms(bms_content).expect("parse chart");
-        let sample_bank = SampleBank::load_from_sound_atlas_for_chart(&chart, sound_meta, &atlas_bytes)
-            .expect("decode soundbank");
+        let sample_bank =
+            SampleBank::load_from_sound_atlas_for_chart(&chart, sound_meta, &atlas_bytes)
+                .expect("decode soundbank");
 
-        let pcm1 = sample_bank.get(beetle_core::WavId::new(1)).expect("wav01 present");
-        let pcm2 = sample_bank.get(beetle_core::WavId::new(2)).expect("wav02 present");
+        let pcm1 = sample_bank
+            .get(beetle_core::WavId::new(1))
+            .expect("wav01 present");
+        let pcm2 = sample_bank
+            .get(beetle_core::WavId::new(2))
+            .expect("wav02 present");
         assert_eq!(pcm1.sample_rate, 44100);
         assert_eq!(pcm2.sample_rate, 44100);
 
@@ -1575,7 +1604,8 @@ mod tests {
         let orig_pcm1 = SampleBank::load_audio_from_bytes(&wav1).expect("orig wav1");
         assert_eq!(pcm1.length, orig_pcm1.length);
         for i in 0..pcm1.length {
-            let diff = (pcm1.samples[pcm1.offset + i] - orig_pcm1.samples[orig_pcm1.offset + i]).abs();
+            let diff =
+                (pcm1.samples[pcm1.offset + i] - orig_pcm1.samples[orig_pcm1.offset + i]).abs();
             assert!(diff < 1e-4, "Sample mismatch at {i}");
         }
 
@@ -1584,13 +1614,18 @@ mod tests {
         fs::write(&pkg_path, &output.base_package).unwrap();
 
         let export_dir = temp_dir.join("Exported");
-        let stats = export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
+        let stats =
+            export_package_to_folder(&pkg_path, &export_dir).expect("export should succeed");
         assert_eq!(stats.wav_files, 2);
 
         // 6. Test VFS mount
         let mut vfs = VirtualBmsFs::new();
-        vfs.mount_package("flac_song", &pkg_path).expect("mount should succeed");
-        assert!(vfs.read_file("flac_song/01.wav").is_some() || vfs.read_file("flac_song/01.flac").is_some());
+        vfs.mount_package("flac_song", &pkg_path)
+            .expect("mount should succeed");
+        assert!(
+            vfs.read_file("flac_song/01.wav").is_some()
+                || vfs.read_file("flac_song/01.flac").is_some()
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

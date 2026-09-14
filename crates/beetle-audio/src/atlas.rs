@@ -384,9 +384,9 @@ pub fn load_sample_bank_from_sound_atlas_for_chart(
             }
             samples.into()
         }
-        SoundAtlasCodec::OggBundle
-        | SoundAtlasCodec::WavBundle
-        | SoundAtlasCodec::FlacBundle => unreachable!(),
+        SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle | SoundAtlasCodec::FlacBundle => {
+            unreachable!()
+        }
     };
 
     let mut bank = SampleBank::new();

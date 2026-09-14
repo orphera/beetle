@@ -82,9 +82,7 @@ pub fn extract_wav_from_atlas(
             }
             pcm16
         }
-        SoundAtlasCodec::OggBundle
-        | SoundAtlasCodec::WavBundle
-        | SoundAtlasCodec::FlacBundle => {
+        SoundAtlasCodec::OggBundle | SoundAtlasCodec::WavBundle | SoundAtlasCodec::FlacBundle => {
             let start_byte = start_frame as usize;
             let byte_len = frame_count as usize;
             if start_byte + byte_len > atlas_data.len() {

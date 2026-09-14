@@ -388,16 +388,23 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                                                     .file_name()
                                                     .and_then(|n| n.to_str())
                                                     .unwrap_or(&norm);
-                                                let f = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
-                                                    bga_meta.frames.values().find(|f| {
-                                                        f.original_filename.as_deref().map(|s| {
-                                                            s.eq_ignore_ascii_case(&norm)
-                                                                || s.eq_ignore_ascii_case(file_name)
-                                                        }).unwrap_or(false)
-                                                    })
-                                                });
-                                                if let Some(f) = f
-                                                {
+                                                let f = bga_meta
+                                                    .frames
+                                                    .get(&norm.to_ascii_lowercase())
+                                                    .or_else(|| {
+                                                        bga_meta.frames.values().find(|f| {
+                                                            f.original_filename
+                                                                .as_deref()
+                                                                .map(|s| {
+                                                                    s.eq_ignore_ascii_case(&norm)
+                                                                        || s.eq_ignore_ascii_case(
+                                                                            file_name,
+                                                                        )
+                                                                })
+                                                                .unwrap_or(false)
+                                                        })
+                                                    });
+                                                if let Some(f) = f {
                                                     stage_frame = Some(f);
                                                     break;
                                                 }
@@ -612,20 +619,27 @@ pub fn load_chart_and_audio(
                                                 .or_else(|| unpacked.get(&norm_lower))
                                                 .or_else(|| unpacked.get(file_name))
                                                 .or_else(|| {
-                                                    unpacked.iter().find(|(k, _)| {
-                                                        let k_norm = k.replace('\\', "/").to_ascii_lowercase();
-                                                        let k_fn = Path::new(&k_norm)
-                                                            .file_name()
-                                                            .and_then(|s| s.to_str())
-                                                            .unwrap_or(&k_norm);
-                                                        k_norm == norm_lower
-                                                            || k_fn == file_name_lower
-                                                            || k_norm.ends_with(&norm_lower)
-                                                    }).map(|(_, b)| b)
+                                                    unpacked
+                                                        .iter()
+                                                        .find(|(k, _)| {
+                                                            let k_norm = k
+                                                                .replace('\\', "/")
+                                                                .to_ascii_lowercase();
+                                                            let k_fn = Path::new(&k_norm)
+                                                                .file_name()
+                                                                .and_then(|s| s.to_str())
+                                                                .unwrap_or(&k_norm);
+                                                            k_norm == norm_lower
+                                                                || k_fn == file_name_lower
+                                                                || k_norm.ends_with(&norm_lower)
+                                                        })
+                                                        .map(|(_, b)| b)
                                                 });
 
                                             if let Some(img_bytes) = found_bytes {
-                                                if let Some(img) = ImageBuffer::from_bytes(img_bytes) {
+                                                if let Some(img) =
+                                                    ImageBuffer::from_bytes(img_bytes)
+                                                {
                                                     bga_bank.insert(bmp_id, img);
                                                 }
                                             }
@@ -657,16 +671,23 @@ pub fn load_chart_and_audio(
                                                     .file_name()
                                                     .and_then(|n| n.to_str())
                                                     .unwrap_or(&norm);
-                                                let frame = bga_meta.frames.get(&norm.to_ascii_lowercase()).or_else(|| {
-                                                    bga_meta.frames.values().find(|f| {
-                                                        f.original_filename.as_deref().map(|s| {
-                                                            s.eq_ignore_ascii_case(&norm)
-                                                                || s.eq_ignore_ascii_case(file_name)
-                                                        }).unwrap_or(false)
-                                                    })
-                                                });
-                                                if let Some(frame) = frame
-                                                {
+                                                let frame = bga_meta
+                                                    .frames
+                                                    .get(&norm.to_ascii_lowercase())
+                                                    .or_else(|| {
+                                                        bga_meta.frames.values().find(|f| {
+                                                            f.original_filename
+                                                                .as_deref()
+                                                                .map(|s| {
+                                                                    s.eq_ignore_ascii_case(&norm)
+                                                                        || s.eq_ignore_ascii_case(
+                                                                            file_name,
+                                                                        )
+                                                                })
+                                                                .unwrap_or(false)
+                                                        })
+                                                    });
+                                                if let Some(frame) = frame {
                                                     if let Some(sub_img) = atlas_img.crop(
                                                         frame.x,
                                                         frame.y,

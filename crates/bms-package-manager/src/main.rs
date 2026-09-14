@@ -131,7 +131,8 @@ fn main() -> Result<(), PackageManagerError> {
             } else {
                 bms_package_manager::AudioPackMode::Auto
             };
-            let pack_options = bms_package_manager::PackOptions::new(profile, bga_mode).with_audio_mode(audio_mode);
+            let pack_options = bms_package_manager::PackOptions::new(profile, bga_mode)
+                .with_audio_mode(audio_mode);
 
             let roots = bms_package_manager::find_bms_song_roots(folder);
             if roots.is_empty() {

@@ -195,9 +195,10 @@ impl BgaDeltaMeta {
             if !visited.insert(curr_key) {
                 return Err(format!("Circular reference detected in frame '{curr_key}'"));
             }
-            let frame = self.frames.get(curr_key).ok_or_else(|| {
-                format!("Missing frame '{curr_key}' in dependency chain")
-            })?;
+            let frame = self
+                .frames
+                .get(curr_key)
+                .ok_or_else(|| format!("Missing frame '{curr_key}' in dependency chain"))?;
             chain.push((curr_key, frame));
 
             match frame.frame_type {
@@ -268,7 +269,11 @@ pub fn split_sequence_prefix_and_num(name: &str) -> (String, Option<u64>) {
         .and_then(|st| st.to_str())
         .unwrap_or(filename);
 
-    let digits_count = stem.chars().rev().take_while(|c| c.is_ascii_digit()).count();
+    let digits_count = stem
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .count();
     if digits_count > 0 && digits_count < stem.len() {
         let (pfx, digits) = stem.split_at(stem.len() - digits_count);
         if let Ok(num) = digits.parse::<u64>() {
@@ -523,22 +528,33 @@ mod tests {
 
         // Test single frame unpacking
         assert_eq!(
-            meta.unpack_frame("seq01.bmp", &bundle_bytes).unwrap().unwrap(),
+            meta.unpack_frame("seq01.bmp", &bundle_bytes)
+                .unwrap()
+                .unwrap(),
             frame1
         );
         assert_eq!(
-            meta.unpack_frame("seq02.bmp", &bundle_bytes).unwrap().unwrap(),
+            meta.unpack_frame("seq02.bmp", &bundle_bytes)
+                .unwrap()
+                .unwrap(),
             frame2
         );
         assert_eq!(
-            meta.unpack_frame("seq03.bmp", &bundle_bytes).unwrap().unwrap(),
+            meta.unpack_frame("seq03.bmp", &bundle_bytes)
+                .unwrap()
+                .unwrap(),
             frame3
         );
         assert_eq!(
-            meta.unpack_frame("banner.png", &bundle_bytes).unwrap().unwrap(),
+            meta.unpack_frame("banner.png", &bundle_bytes)
+                .unwrap()
+                .unwrap(),
             banner
         );
-        assert!(meta.unpack_frame("nonexistent.bmp", &bundle_bytes).unwrap().is_none());
+        assert!(meta
+            .unpack_frame("nonexistent.bmp", &bundle_bytes)
+            .unwrap()
+            .is_none());
 
         // Serialization roundtrip
         let json = serde_json::to_string(&meta).unwrap();

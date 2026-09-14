@@ -19,7 +19,8 @@ pub use manager::{InstalledPackage, PackageManager};
 pub use pack::{
     analyze_bms_folder, find_bms_song_roots, pack_bms_folder,
     pack_bms_folder_advanced_with_progress, pack_bms_folder_profile,
-    pack_bms_folder_profile_with_progress, AudioPackMode, BgaPackMode, PackOptions, PackOutput, PackProfile,
+    pack_bms_folder_profile_with_progress, AudioPackMode, BgaPackMode, PackOptions, PackOutput,
+    PackProfile,
 };
 pub use registry::{BgaStatus, PackageRecord, PackageStateRecord, Registry};
 pub use storage::PackageStorage;
