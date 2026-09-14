@@ -16,11 +16,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use beetle_audio::AudioCommand;
 use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::{AppConfig, DisplayMode};
-use gameplay::{finalize_start_gameplay, finish_gameplay, queue_start_gameplay};
+use gameplay::{
+    finalize_start_gameplay, finish_gameplay, queue_start_gameplay, tick_gameplay,
+    GameplayTickResult,
+};
 
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
@@ -675,120 +677,20 @@ impl ApplicationHandler for BeetleApp {
                         );
                     }
                     AppScreen::Gameplay => {
-                        let effective_judge_time =
-                            audio_time + (state.play_options.judge_offset_ms / 1000.0);
-
-                        if !state.is_gameplay_paused {
-                            // 1. Advance BGM notes and BGA timeline events
-                            state.advance_gameplay_timelines(audio_time);
-
-                            // 2. Replay Playback driver, Auto-play driver, or Manual update misses
-                            if state.is_replay_playback {
-                                if let Some(replay) = &state.playback_replay {
-                                    while state.playback_cursor < replay.events.len() {
-                                        let ev = &replay.events[state.playback_cursor];
-                                        if audio_time >= ev.time_seconds {
-                                            if ev.is_down {
-                                                state.renderer.set_key_state(ev.lane, true);
-                                                if let Some(judge) = &mut state.active_judge {
-                                                    if let Some((res, wav_id)) = judge
-                                                        .handle_key_down(ev.lane, ev.time_seconds)
-                                                    {
-                                                        if res.grade
-                                                            == beetle_core::JudgeGrade::Miss
-                                                            || res.grade
-                                                                == beetle_core::JudgeGrade::Poor
-                                                        {
-                                                            state.poor_until_time =
-                                                                audio_time + 0.4;
-                                                        }
-                                                        state.renderer.trigger_judge_with_lane(
-                                                            ev.lane,
-                                                            res.grade,
-                                                            audio_time,
-                                                            res.delta_ms,
-                                                        );
-                                                        if let (Some(id), Some(audio)) =
-                                                            (wav_id, &mut state.audio_engine)
-                                                        {
-                                                            let _ = audio.send_command(
-                                                                AudioCommand::PlaySample {
-                                                                    sample_id: id,
-                                                                    volume: 1.0,
-                                                                    pan: 0.0,
-                                                                },
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            } else {
-                                                state.renderer.set_key_state(ev.lane, false);
-                                                if let Some(judge) = &mut state.active_judge {
-                                                    if let Some(res) = judge
-                                                        .handle_key_up(ev.lane, ev.time_seconds)
-                                                    {
-                                                        state.renderer.trigger_judge_with_lane(
-                                                            ev.lane,
-                                                            res.grade,
-                                                            audio_time,
-                                                            res.delta_ms,
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                            state.playback_cursor += 1;
-                                        } else {
-                                            break;
-                                        }
-                                    }
+                        match tick_gameplay(state, audio_time) {
+                            GameplayTickResult::StageFailed => {
+                                if let Some(audio) = &mut state.audio_engine {
+                                    let _ = audio.stop_all();
                                 }
-                                if let Some(judge) = &mut state.active_judge {
-                                    let misses = judge.update_misses(effective_judge_time);
-                                    for (_lane, miss_res) in misses {
-                                        state.poor_until_time = audio_time + 0.4;
-                                        state.renderer.trigger_judge(
-                                            miss_res.grade,
-                                            audio_time,
-                                            0.0,
-                                        );
-                                    }
-                                }
-                            } else if state.is_auto_play {
-                                if let Some(judge) = &mut state.active_judge {
-                                    let hits = judge.auto_play_update(audio_time);
-                                    for (lane, hit_res, wav_id) in hits {
-                                        state.renderer.trigger_judge_with_lane(
-                                            lane,
-                                            hit_res.grade,
-                                            audio_time,
-                                            hit_res.delta_ms,
-                                        );
-                                        if let (Some(id), Some(audio)) =
-                                            (wav_id, &mut state.audio_engine)
-                                        {
-                                            let _ = audio.send_command(AudioCommand::PlaySample {
-                                                sample_id: id,
-                                                volume: 1.0,
-                                                pan: 0.0,
-                                            });
-                                        }
-                                    }
-                                }
-                            } else if let Some(judge) = &mut state.active_judge {
-                                let misses = judge.update_misses(effective_judge_time);
-                                for (lane, miss_res) in misses {
-                                    state.poor_until_time = audio_time + 0.4;
-                                    state.renderer.trigger_judge_with_lane(
-                                        lane,
-                                        miss_res.grade,
-                                        audio_time,
-                                        0.0,
-                                    );
-                                }
+                                finish_gameplay(state);
+                                return;
                             }
+                            GameplayTickResult::SongFinished => {
+                                finish_gameplay(state);
+                                return;
+                            }
+                            GameplayTickResult::Continue => {}
                         }
-
-                        state.update_video_bga(audio_time);
                         let active_bga = state::resolve_bga_hierarchy(
                             state.poor_until_time,
                             state.poor_bga_bmp,
@@ -873,25 +775,6 @@ impl ApplicationHandler for BeetleApp {
                                 };
                                 state.renderer.draw_footer_text(footer_text);
                             }
-                        }
-
-                        // Check Stage Failure (Hard / Hazard gauge depleted to 0)
-                        let is_stage_failed = state
-                            .active_judge
-                            .as_ref()
-                            .map(|j| j.score().is_failed)
-                            .unwrap_or(false);
-
-                        if is_stage_failed && !state.is_auto_play && !state.is_replay_playback {
-                            if let Some(audio) = &mut state.audio_engine {
-                                let _ = audio.stop_all();
-                            }
-                            finish_gameplay(state);
-                            return;
-                        } else if audio_time >= state.song_end_time + 1.5 {
-                            // Check Song End
-                            finish_gameplay(state);
-                            return;
                         }
                     }
                     AppScreen::Result => {

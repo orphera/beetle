@@ -2,10 +2,10 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use beetle_audio::{AudioEngine, SampleBank};
+use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, ClearType, JudgeEngine, ReplayData, ScoreRecord, SongMetadata,
-    TimingModel,
+    apply_lane_modifier, BmsChart, ClearType, JudgeEngine, JudgeGrade, ReplayData, ScoreRecord,
+    SongMetadata, TimingModel,
 };
 
 use crate::loader::{load_stage_image, spawn_background_song_loader};
@@ -276,4 +276,138 @@ pub fn finish_gameplay(state: &mut AppState) {
     }
 
     state.window.request_redraw();
+}
+
+/// Result of an in-game simulation tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameplayTickResult {
+    /// Gameplay continues normally.
+    Continue,
+    /// Player failed the stage (e.g. gauge reached 0 on Hard / Hazard).
+    StageFailed,
+    /// Song has finished playing (audio passed end time + padding).
+    SongFinished,
+}
+
+/// Advances gameplay timelines, processes replay/autoplay drivers, updates judge misses,
+/// and checks for stage failure / completion.
+pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResult {
+    let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
+
+    if !state.is_gameplay_paused {
+        // 1. Advance BGM notes and BGA timeline events
+        state.advance_gameplay_timelines(audio_time);
+
+        // 2. Replay Playback driver, Auto-play driver, or Manual update misses
+        if state.is_replay_playback {
+            if let Some(replay) = &state.playback_replay {
+                while state.playback_cursor < replay.events.len() {
+                    let ev = &replay.events[state.playback_cursor];
+                    if audio_time >= ev.time_seconds {
+                        if ev.is_down {
+                            state.renderer.set_key_state(ev.lane, true);
+                            if let Some(judge) = &mut state.active_judge {
+                                if let Some((res, wav_id)) =
+                                    judge.handle_key_down(ev.lane, ev.time_seconds)
+                                {
+                                    if res.grade == JudgeGrade::Miss
+                                        || res.grade == JudgeGrade::Poor
+                                    {
+                                        state.poor_until_time = audio_time + 0.4;
+                                    }
+                                    state.renderer.trigger_judge_with_lane(
+                                        ev.lane,
+                                        res.grade,
+                                        audio_time,
+                                        res.delta_ms,
+                                    );
+                                    if let (Some(id), Some(audio)) =
+                                        (wav_id, &mut state.audio_engine)
+                                    {
+                                        let _ = audio.send_command(AudioCommand::PlaySample {
+                                            sample_id: id,
+                                            volume: 1.0,
+                                            pan: 0.0,
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
+                            state.renderer.set_key_state(ev.lane, false);
+                            if let Some(judge) = &mut state.active_judge {
+                                if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
+                                    state.renderer.trigger_judge_with_lane(
+                                        ev.lane,
+                                        res.grade,
+                                        audio_time,
+                                        res.delta_ms,
+                                    );
+                                }
+                            }
+                        }
+                        state.playback_cursor += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if let Some(judge) = &mut state.active_judge {
+                let misses = judge.update_misses(effective_judge_time);
+                for (_lane, miss_res) in misses {
+                    state.poor_until_time = audio_time + 0.4;
+                    state
+                        .renderer
+                        .trigger_judge(miss_res.grade, audio_time, 0.0);
+                }
+            }
+        } else if state.is_auto_play {
+            if let Some(judge) = &mut state.active_judge {
+                let hits = judge.auto_play_update(audio_time);
+                for (lane, hit_res, wav_id) in hits {
+                    state.renderer.trigger_judge_with_lane(
+                        lane,
+                        hit_res.grade,
+                        audio_time,
+                        hit_res.delta_ms,
+                    );
+                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                        let _ = audio.send_command(AudioCommand::PlaySample {
+                            sample_id: id,
+                            volume: 1.0,
+                            pan: 0.0,
+                        });
+                    }
+                }
+            }
+        } else if let Some(judge) = &mut state.active_judge {
+            let misses = judge.update_misses(effective_judge_time);
+            for (lane, miss_res) in misses {
+                state.poor_until_time = audio_time + 0.4;
+                state
+                    .renderer
+                    .trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
+            }
+        }
+    }
+
+    // 3. Advance video frame for BGA
+    state.update_video_bga(audio_time);
+
+    // 4. Check Stage Failure (Hard / Hazard gauge depleted to 0)
+    let is_stage_failed = state
+        .active_judge
+        .as_ref()
+        .map(|j| j.score().is_failed)
+        .unwrap_or(false);
+
+    if is_stage_failed && !state.is_auto_play && !state.is_replay_playback {
+        return GameplayTickResult::StageFailed;
+    }
+
+    // 5. Check Song Completion
+    if audio_time >= state.song_end_time + 1.5 {
+        return GameplayTickResult::SongFinished;
+    }
+
+    GameplayTickResult::Continue
 }
