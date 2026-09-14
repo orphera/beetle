@@ -1,4 +1,8 @@
-use bms_package_manager::{PackageManager, PackageManagerError, PackageUpdater};
+use bms_package_manager::{
+    find_available_updates, HttpClient, PackageManager, PackageManagerError, PackageUpdater,
+    RegistryCacheManager, RegistrySource, RemotePackageInstaller, RemoteRegistryIndex,
+    SourcesConfig,
+};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,7 +11,11 @@ fn print_usage() {
     println!("BMS Package Manager (bpm)");
     println!();
     println!("Usage:");
-    println!("  bpm install <package.bmsp> [--with-bga] Install a local .bmsp package (with optional BGA companion)");
+    println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
+    println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
+    println!("  bpm search <query>                     Search remote packages across configured registries");
+    println!("  bpm upgrade                            Batch upgrade installed packages to latest remote versions");
+    println!("  bpm source <list|add|remove>           Manage remote registry sources (sources.json)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
     println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
@@ -15,7 +23,7 @@ fn print_usage() {
         "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
     );
     println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
-    println!("  bpm bga install <package.bga.bmsp>     Install a decoupled BGA companion package");
+    println!("  bpm bga install <package.bga.bmsp_or_id> Install a decoupled BGA companion package");
     println!("  bpm bga remove <package_id>            Remove BGA companion from package to save disk space");
     println!("  bpm bga status <package_id>            Check BGA status of an installed package");
     println!("  bpm mount [--port <port>] [--drive <Z:>] Mount packages onto on-the-fly virtual VFS drive");
@@ -25,6 +33,32 @@ fn print_usage() {
     println!("  bpm states <package_id>                List all installed states of a package");
     println!("  bpm activate <id> <state_hash>         Switch active state for a package");
     println!("  bpm uninstall <id> <state_hash>        Uninstall a specific package state");
+}
+
+fn print_progress_bar(label: &str, current: u64, total: Option<u64>) {
+    use std::io::Write;
+    let mb_cur = current as f64 / (1024.0 * 1024.0);
+    if let Some(tot) = total {
+        if tot > 0 {
+            let pct = ((current as f64 / tot as f64) * 100.0).clamp(0.0, 100.0);
+            let mb_tot = tot as f64 / (1024.0 * 1024.0);
+            let bar_len = 25;
+            let filled = ((pct / 100.0) * bar_len as f64).round() as usize;
+            let filled = filled.min(bar_len);
+            let bar_filled = "=".repeat(filled);
+            let arrow = if filled < bar_len { ">" } else { "" };
+            let empty_len = bar_len.saturating_sub(filled + arrow.len());
+            let bar_empty = " ".repeat(empty_len);
+            print!(
+                "\r{}[{}{}{}] {:>3.0}% ({:.2} MB / {:.2} MB)",
+                label, bar_filled, arrow, bar_empty, pct, mb_cur, mb_tot
+            );
+            let _ = std::io::stdout().flush();
+            return;
+        }
+    }
+    print!("\r{}[downloading] {:.2} MB", label, mb_cur);
+    let _ = std::io::stdout().flush();
 }
 
 fn get_default_packages_dir() -> PathBuf {
@@ -350,24 +384,142 @@ fn main() -> Result<(), PackageManagerError> {
             );
         }
         "update" => {
-            if args.len() < 3 {
-                eprintln!("Error: Missing delta package path.");
-                eprintln!("Usage: bpm update <delta.bmdp>");
-                std::process::exit(1);
+            // Check if user passed a .bmdp delta file for backward compatibility
+            if args.len() >= 3 && (args[2].ends_with(".bmdp") || Path::new(&args[2]).is_file()) {
+                let delta_path = &args[2];
+                match manager.apply_delta(delta_path) {
+                    Ok(installed) => {
+                        println!(
+                            "Successfully applied delta and updated '{}' ({}) -> state {}",
+                            installed.name, installed.id, installed.state_hash
+                        );
+                        println!("Location: {}", installed.location.display());
+                    }
+                    Err(e) => {
+                        eprintln!("Delta update failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
             }
-            let delta_path = &args[2];
-            match manager.apply_delta(delta_path) {
-                Ok(installed) => {
-                    println!(
-                        "Successfully applied delta and updated '{}' ({}) -> state {}",
-                        installed.name, installed.id, installed.state_hash
-                    );
-                    println!("Location: {}", installed.location.display());
+
+            // Remote registry index update
+            let sources_path = storage_dir.join("sources.json");
+            let sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                .map_err(PackageManagerError::StorageError)?;
+            let cache_mgr = RegistryCacheManager::new(&storage_dir);
+            let client = HttpClient::default();
+
+            println!("Updating remote registry sources...");
+            let active_sources = sources_cfg.active_sources_by_priority();
+            if active_sources.is_empty() {
+                println!("No active sources configured. Use 'bpm source add' to add a source.");
+                return Ok(());
+            }
+
+            let mut total_packages = 0;
+            let mut updated_count = 0;
+            for source in active_sources {
+                print!("  [{}] {} ... ", source.id, source.url);
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+                match cache_mgr.update_or_fallback(&client, source) {
+                    Ok((index, from_cache)) => {
+                        let count = index.packages.len();
+                        total_packages += count;
+                        if from_cache {
+                            println!("OFFLINE (loaded {} packages from cache)", count);
+                        } else {
+                            println!("OK ({} packages indexed)", count);
+                            updated_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        println!("FAILED ({e})");
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Delta update failed: {e}");
-                    std::process::exit(1);
+            }
+            println!(
+                "Registry update complete: {}/{} sources updated. Total available remote packages: {}",
+                updated_count,
+                sources_cfg.sources.len(),
+                total_packages
+            );
+        }
+        "search" => {
+            let query = args.get(2).map(|s| s.trim()).unwrap_or("");
+            let sources_path = storage_dir.join("sources.json");
+            let sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                .map_err(PackageManagerError::StorageError)?;
+            let cache_mgr = RegistryCacheManager::new(&storage_dir);
+
+            let active_sources = sources_cfg.active_sources_by_priority();
+            let cached_indexes = cache_mgr.load_all_cached(&active_sources);
+            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
+                .iter()
+                .map(|(s, idx)| (s, idx))
+                .collect();
+            let mut packages = SourcesConfig::merge_packages(&pairs);
+
+            if !query.is_empty() {
+                let q_lower = query.to_lowercase();
+                packages.retain(|p| {
+                    p.id.to_lowercase().contains(&q_lower)
+                        || p.title.to_lowercase().contains(&q_lower)
+                        || p.artist.to_lowercase().contains(&q_lower)
+                        || p.genre
+                            .as_deref()
+                            .map(|g| g.to_lowercase().contains(&q_lower))
+                            .unwrap_or(false)
+                });
+            }
+
+            if packages.is_empty() {
+                if query.is_empty() {
+                    println!("No packages found in registry cache. Run 'bpm update' to fetch indexes.");
+                } else {
+                    println!("No remote packages matching '{query}' found.");
                 }
+                return Ok(());
+            }
+
+            println!(
+                "{:<20} {:<24} {:<16} {:<12} {:<10} STATUS",
+                "ID", "TITLE", "ARTIST", "GENRE", "SIZE"
+            );
+            println!("{:-<95}", "");
+
+            for pkg in packages {
+                let artist = if pkg.artist.len() > 14 {
+                    format!("{}...", &pkg.artist[..12])
+                } else {
+                    pkg.artist.clone()
+                };
+                let genre = pkg.genre.as_deref().unwrap_or("-");
+                let size_mb = pkg.size_bytes as f64 / (1024.0 * 1024.0);
+                let size_str = format!("{:.1} MB", size_mb);
+
+                let status = match manager.get_package(&pkg.id) {
+                    Some(installed) => {
+                        if installed.active_state == pkg.state_hash {
+                            "[Installed]"
+                        } else {
+                            "[Update Available]"
+                        }
+                    }
+                    None => "[Available]",
+                };
+
+                let title = if pkg.title.len() > 22 {
+                    format!("{}...", &pkg.title[..20])
+                } else {
+                    pkg.title.clone()
+                };
+
+                println!(
+                    "{:<20} {:<24} {:<16} {:<12} {:<10} {}",
+                    pkg.id, title, artist, genre, size_str, status
+                );
             }
         }
         "import" => {
@@ -436,65 +588,179 @@ fn main() -> Result<(), PackageManagerError> {
             let with_bga = args.iter().any(|a| a == "--with-bga");
             let path_arg = args.iter().skip(2).find(|a| *a != "--with-bga");
             let Some(path) = path_arg else {
-                eprintln!("Error: Missing package file path.");
-                eprintln!("Usage: bpm install <package.bmsp> [--with-bga]");
+                eprintln!("Error: Missing package file path or remote package ID.");
+                eprintln!("Usage: bpm install <package.bmsp_or_id> [--with-bga]");
                 std::process::exit(1);
             };
-            match manager.install(path) {
-                Ok(installed) => {
-                    println!(
-                        "Successfully installed '{}' ({}) -> state {}",
-                        installed.name, installed.id, installed.state_hash
-                    );
-                    println!("Location: {}", installed.location.display());
 
-                    // Check for companion package if --with-bga is passed or if adjacent
-                    let base_path = Path::new(path);
-                    let file_name = base_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let companion_name = if file_name.ends_with(".bmsp") {
-                        format!("{}.bga.bmsp", file_name.trim_end_matches(".bmsp"))
-                    } else {
-                        format!("{}.bga.bmsp", file_name)
-                    };
-                    let candidate = base_path
-                        .parent()
-                        .map(|p| p.join(&companion_name))
-                        .unwrap_or_else(|| PathBuf::from(&companion_name));
+            let is_local_file =
+                Path::new(path).is_file() || (path.ends_with(".bmsp") && Path::new(path).exists());
 
-                    if with_bga {
-                        if candidate.exists() {
-                            match manager.install_bga_companion(&candidate) {
-                                Ok(t_id) => {
-                                    println!(
-                                        "Installed companion BGA package for '{}' from '{}'",
-                                        t_id,
-                                        candidate.display()
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "Failed to install BGA companion '{}': {e}",
-                                        candidate.display()
-                                    );
-                                }
-                            }
+            if is_local_file {
+                match manager.install(path) {
+                    Ok(installed) => {
+                        println!(
+                            "Successfully installed '{}' ({}) -> state {}",
+                            installed.name, installed.id, installed.state_hash
+                        );
+                        println!("Location: {}", installed.location.display());
+
+                        // Check for companion package if --with-bga is passed or if adjacent
+                        let base_path = Path::new(path);
+                        let file_name =
+                            base_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        let companion_name = if file_name.ends_with(".bmsp") {
+                            format!("{}.bga.bmsp", file_name.trim_end_matches(".bmsp"))
                         } else {
-                            eprintln!("Warning: --with-bga was specified, but companion package '{}' was not found.", candidate.display());
+                            format!("{}.bga.bmsp", file_name)
+                        };
+                        let candidate = base_path
+                            .parent()
+                            .map(|p| p.join(&companion_name))
+                            .unwrap_or_else(|| PathBuf::from(&companion_name));
+
+                        if with_bga {
+                            if candidate.exists() {
+                                match manager.install_bga_companion(&candidate) {
+                                    Ok(t_id) => {
+                                        println!(
+                                            "Installed companion BGA package for '{}' from '{}'",
+                                            t_id,
+                                            candidate.display()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "Failed to install BGA companion '{}': {e}",
+                                            candidate.display()
+                                        );
+                                    }
+                                }
+                            } else {
+                                eprintln!("Warning: --with-bga was specified, but companion package '{}' was not found.", candidate.display());
+                            }
+                        } else if candidate.exists() {
+                            println!(
+                                "Notice: Decoupled BGA companion '{}' is available.",
+                                candidate.display()
+                            );
+                            println!(
+                                "        Install it using: bpm bga install \"{}\"",
+                                candidate.display()
+                            );
                         }
-                    } else if candidate.exists() {
-                        println!(
-                            "Notice: Decoupled BGA companion '{}' is available.",
-                            candidate.display()
-                        );
-                        println!(
-                            "        Install it using: bpm bga install \"{}\"",
-                            candidate.display()
-                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Installation failed: {e}");
+                        std::process::exit(1);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Installation failed: {e}");
+            } else {
+                // Remote package download and installation
+                let sources_path = storage_dir.join("sources.json");
+                let sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                    .map_err(PackageManagerError::StorageError)?;
+                let cache_mgr = RegistryCacheManager::new(&storage_dir);
+                let active_sources = sources_cfg.active_sources_by_priority();
+                let mut cached_indexes = cache_mgr.load_all_cached(&active_sources);
+
+                // If no packages cached, auto-update sources
+                if cached_indexes.is_empty() {
+                    println!("No cached indexes found. Fetching from remote sources...");
+                    let client = HttpClient::default();
+                    for src in &active_sources {
+                        let _ = cache_mgr.update_or_fallback(&client, src);
+                    }
+                    cached_indexes = cache_mgr.load_all_cached(&active_sources);
+                }
+
+                let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
+                    .iter()
+                    .map(|(s, idx)| (s, idx))
+                    .collect();
+                let packages = SourcesConfig::merge_packages(&pairs);
+
+                let Some(target_pkg) = packages.iter().find(|p| p.id.eq_ignore_ascii_case(path))
+                else {
+                    eprintln!(
+                        "Error: Package '{}' not found as a local file or in remote registries.",
+                        path
+                    );
+                    eprintln!("       Run 'bpm update' to refresh remote package lists or 'bpm search' to browse available songs.");
                     std::process::exit(1);
+                };
+
+                let size_mb = target_pkg.size_bytes as f64 / (1024.0 * 1024.0);
+                println!(
+                    "Found remote package '{}' ({}) version {} [{:.2} MB]",
+                    target_pkg.title, target_pkg.id, target_pkg.version, size_mb
+                );
+                println!("Downloading from: {}", target_pkg.download_url);
+
+                let installer = RemotePackageInstaller::new(&storage_dir);
+                let client = HttpClient::default();
+
+                let _installed = match installer.install_remote_package(
+                    &mut manager,
+                    &client,
+                    target_pkg,
+                    "",
+                    |cur, tot| {
+                        print_progress_bar("  ", cur, tot);
+                    },
+                ) {
+                    Ok(pkg) => {
+                        println!();
+                        println!(
+                            "Successfully installed '{}' ({}) -> state {}",
+                            pkg.name, pkg.id, pkg.state_hash
+                        );
+                        println!("Location: {}", pkg.location.display());
+                        pkg
+                    }
+                    Err(e) => {
+                        println!();
+                        eprintln!("Installation failed: {e}");
+                        std::process::exit(1);
+                    }
+                };
+
+                // Check companion BGA
+                if let Some(ref bga_meta) = target_pkg.companion_bga {
+                    let bga_size_mb = bga_meta.size_bytes as f64 / (1024.0 * 1024.0);
+                    if with_bga {
+                        println!(
+                            "Downloading companion BGA package '{}' [{:.2} MB]...",
+                            bga_meta.id, bga_size_mb
+                        );
+                        match installer.install_remote_bga_companion(
+                            &mut manager,
+                            &client,
+                            bga_meta,
+                            "",
+                            |cur, tot| {
+                                print_progress_bar("  [BGA] ", cur, tot);
+                            },
+                        ) {
+                            Ok(tid) => {
+                                println!();
+                                println!("Installed companion BGA package for '{}'", tid);
+                            }
+                            Err(e) => {
+                                println!();
+                                eprintln!("Failed to install BGA companion: {e}");
+                            }
+                        }
+                    } else {
+                        println!(
+                            "Notice: Decoupled BGA companion ({:.2} MB) is available.",
+                            bga_size_mb
+                        );
+                        println!(
+                            "        Install it using: bpm bga install \"{}\" or bpm install \"{}\" --with-bga",
+                            target_pkg.id, target_pkg.id
+                        );
+                    }
                 }
             }
         }
@@ -507,20 +773,75 @@ fn main() -> Result<(), PackageManagerError> {
             match args[2].as_str() {
                 "install" => {
                     if args.len() < 4 {
-                        eprintln!("Error: Missing companion package path.");
-                        eprintln!("Usage: bpm bga install <package.bga.bmsp>");
+                        eprintln!("Error: Missing companion package path or package ID.");
+                        eprintln!("Usage: bpm bga install <package.bga.bmsp_or_id>");
                         std::process::exit(1);
                     }
-                    let bga_path = &args[3];
-                    match manager.install_bga_companion(bga_path) {
-                        Ok(target_id) => {
-                            println!(
-                                "Successfully installed BGA companion for package '{}' from '{}'",
-                                target_id, bga_path
-                            );
+                    let bga_arg = &args[3];
+                    if Path::new(bga_arg).is_file() {
+                        match manager.install_bga_companion(bga_arg) {
+                            Ok(target_id) => {
+                                println!(
+                                    "Successfully installed BGA companion for package '{}' from '{}'",
+                                    target_id, bga_arg
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to install BGA companion: {e}");
+                                std::process::exit(1);
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("Failed to install BGA companion: {e}");
+                    } else {
+                        // Remote BGA install
+                        let sources_path = storage_dir.join("sources.json");
+                        let sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                            .map_err(PackageManagerError::StorageError)?;
+                        let cache_mgr = RegistryCacheManager::new(&storage_dir);
+                        let active_sources = sources_cfg.active_sources_by_priority();
+                        let cached_indexes = cache_mgr.load_all_cached(&active_sources);
+                        let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
+                            .iter()
+                            .map(|(s, idx)| (s, idx))
+                            .collect();
+                        let packages = SourcesConfig::merge_packages(&pairs);
+                        let target_pkg =
+                            packages.iter().find(|p| p.id.eq_ignore_ascii_case(bga_arg));
+                        if let Some(pkg) = target_pkg {
+                            if let Some(ref bga_meta) = pkg.companion_bga {
+                                let installer = RemotePackageInstaller::new(&storage_dir);
+                                let client = HttpClient::default();
+                                println!("Downloading companion BGA for '{}'...", pkg.id);
+                                match installer.install_remote_bga_companion(
+                                    &mut manager,
+                                    &client,
+                                    bga_meta,
+                                    "",
+                                    |cur, tot| {
+                                        print_progress_bar("  [BGA] ", cur, tot);
+                                    },
+                                ) {
+                                    Ok(tid) => {
+                                        println!();
+                                        println!(
+                                            "Successfully installed companion BGA for '{}'",
+                                            tid
+                                        );
+                                    }
+                                    Err(e) => {
+                                        println!();
+                                        eprintln!("Failed to install remote BGA companion: {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            } else {
+                                eprintln!(
+                                    "Package '{}' does not have a companion BGA in remote registry.",
+                                    bga_arg
+                                );
+                                std::process::exit(1);
+                            }
+                        } else {
+                            eprintln!("Package or file '{}' not found.", bga_arg);
                             std::process::exit(1);
                         }
                     }
@@ -686,6 +1007,195 @@ fn main() -> Result<(), PackageManagerError> {
                 Ok(()) => println!("Successfully uninstalled '{}' state {}.", id, state_hash),
                 Err(e) => {
                     eprintln!("Failed to uninstall package: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "upgrade" => {
+            let sources_path = storage_dir.join("sources.json");
+            let sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                .map_err(PackageManagerError::StorageError)?;
+            let cache_mgr = RegistryCacheManager::new(&storage_dir);
+            let active_sources = sources_cfg.active_sources_by_priority();
+            let cached_indexes = cache_mgr.load_all_cached(&active_sources);
+            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
+                .iter()
+                .map(|(s, idx)| (s, idx))
+                .collect();
+            let remote_packages = SourcesConfig::merge_packages(&pairs);
+
+            let updates = find_available_updates(&manager, &remote_packages);
+            if updates.is_empty() {
+                println!("All installed packages are up to date.");
+                return Ok(());
+            }
+
+            println!("Found {} package(s) with available updates:", updates.len());
+            for u in &updates {
+                let short_cur = if u.current_state_hash.len() > 10 {
+                    &u.current_state_hash[..10]
+                } else {
+                    &u.current_state_hash
+                };
+                let short_target = if u.target_state_hash.len() > 10 {
+                    &u.target_state_hash[..10]
+                } else {
+                    &u.target_state_hash
+                };
+                println!(
+                    "  - {} ({}): {} -> {} (v{})",
+                    u.current_name, u.id, short_cur, short_target, u.target_version
+                );
+            }
+            println!();
+
+            let installer = RemotePackageInstaller::new(&storage_dir);
+            let client = HttpClient::default();
+            let mut success_count = 0;
+
+            for (i, update) in updates.iter().enumerate() {
+                println!(
+                    "[{}/{}] Upgrading '{}' ({})...",
+                    i + 1,
+                    updates.len(),
+                    update.current_name,
+                    update.id
+                );
+                match installer.install_remote_package(
+                    &mut manager,
+                    &client,
+                    &update.remote_pkg,
+                    "",
+                    |cur, tot| {
+                        print_progress_bar("  ", cur, tot);
+                    },
+                ) {
+                    Ok(installed) => {
+                        println!();
+                        let short_hash = if installed.state_hash.len() > 10 {
+                            &installed.state_hash[..10]
+                        } else {
+                            &installed.state_hash
+                        };
+                        println!("  OK -> state {short_hash}");
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        println!();
+                        eprintln!("  FAILED ({e})");
+                    }
+                }
+            }
+
+            println!(
+                "Upgrade complete: {}/{} packages updated successfully.",
+                success_count,
+                updates.len()
+            );
+        }
+        "source" | "sources" => {
+            let sources_path = storage_dir.join("sources.json");
+            let mut sources_cfg = SourcesConfig::load_or_init(&sources_path)
+                .map_err(PackageManagerError::StorageError)?;
+
+            let subcmd = args.get(2).map(|s| s.as_str()).unwrap_or("list");
+            match subcmd {
+                "list" => {
+                    println!("{:<16} {:<10} {:<10} URL", "ID", "PRIORITY", "STATUS");
+                    println!("{:-<80}", "");
+                    for s in &sources_cfg.sources {
+                        let status = if s.enabled { "ENABLED" } else { "DISABLED" };
+                        println!("{:<16} {:<10} {:<10} {}", s.id, s.priority, status, s.url);
+                    }
+                }
+                "add" => {
+                    if args.len() < 5 {
+                        eprintln!("Error: Missing source ID or URL.");
+                        eprintln!(
+                            "Usage: bpm source add <id> <url> [--name <name>] [--priority <priority>]"
+                        );
+                        std::process::exit(1);
+                    }
+                    let id = &args[3];
+                    let url = &args[4];
+
+                    let mut name = id.clone();
+                    let mut priority = 100u32;
+                    let mut i = 5;
+                    while i < args.len() {
+                        match args[i].as_str() {
+                            "--name" => {
+                                if i + 1 < args.len() {
+                                    name = args[i + 1].clone();
+                                    i += 2;
+                                } else {
+                                    i += 1;
+                                }
+                            }
+                            "--priority" => {
+                                if i + 1 < args.len() {
+                                    priority = args[i + 1].parse().unwrap_or(100);
+                                    i += 2;
+                                } else {
+                                    i += 1;
+                                }
+                            }
+                            _ => i += 1,
+                        }
+                    }
+
+                    sources_cfg.add_or_update(id, name, url, priority);
+                    sources_cfg
+                        .save_to_file(&sources_path)
+                        .map_err(PackageManagerError::StorageError)?;
+                    println!(
+                        "Successfully added/updated registry source '{}' ({}).",
+                        id, url
+                    );
+
+                    // Fetch index for newly added source
+                    let cache_mgr = RegistryCacheManager::new(&storage_dir);
+                    let client = HttpClient::default();
+                    if let Some(source) = sources_cfg.find(id) {
+                        print!("Fetching index for '{}'... ", id);
+                        use std::io::Write;
+                        let _ = std::io::stdout().flush();
+                        match cache_mgr.update_or_fallback(&client, source) {
+                            Ok((idx, _)) => {
+                                println!("OK ({} packages indexed)", idx.packages.len());
+                            }
+                            Err(e) => {
+                                println!(
+                                    "Notice: Could not fetch immediately ({e}). Run 'bpm update' later."
+                                );
+                            }
+                        }
+                    }
+                }
+                "remove" => {
+                    if args.len() < 4 {
+                        eprintln!("Error: Missing source ID.");
+                        eprintln!("Usage: bpm source remove <id>");
+                        std::process::exit(1);
+                    }
+                    let id = &args[3];
+                    if sources_cfg.remove(id) {
+                        sources_cfg
+                            .save_to_file(&sources_path)
+                            .map_err(PackageManagerError::StorageError)?;
+                        // Clean up cached index file if present
+                        let cache_mgr = RegistryCacheManager::new(&storage_dir);
+                        let cache_file = cache_mgr.cache_path_for_source(id);
+                        let _ = fs::remove_file(cache_file);
+                        println!("Successfully removed registry source '{}'.", id);
+                    } else {
+                        eprintln!("Error: Registry source '{}' not found.", id);
+                        std::process::exit(1);
+                    }
+                }
+                other => {
+                    eprintln!("Unknown source command: '{other}'");
+                    eprintln!("Usage: bpm source <list|add|remove>");
                     std::process::exit(1);
                 }
             }

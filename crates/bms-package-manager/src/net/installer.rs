@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::manager::{InstalledPackage, PackageManager};
 use crate::net::http::{DownloadProgressCallback, HttpClient, GLOBAL_MAX_PACKAGE_SIZE};
-use crate::registry::remote::RemotePackageMetadata;
+use crate::registry::remote::{resolve_url, CompanionBgaMetadata, RemotePackageMetadata};
 
 /// RAII Drop Guard that ensures an in-progress temporary download file is automatically
 /// deleted from disk if the download fails, cancels, or panics before being committed.
@@ -148,6 +148,66 @@ impl RemotePackageInstaller {
             .map_err(|e| format!("Failed to install downloaded package '{}': {e}", pkg.id));
 
         // Always clean up the committed temporary .tmp/.bmsp file after installation
+        let _ = fs::remove_file(&bmsp_path);
+
+        install_result
+    }
+
+    /// Downloads a companion BGA package into a guarded temporary file with streaming SHA-256 verification.
+    pub fn download_bga_companion<C: DownloadProgressCallback>(
+        &self,
+        client: &HttpClient,
+        bga: &CompanionBgaMetadata,
+        base_registry_url: &str,
+        callback: C,
+    ) -> Result<DownloadTempFile, String> {
+        fs::create_dir_all(&self.downloads_dir).map_err(|e| {
+            format!(
+                "Failed to create downloads directory '{}': {e}",
+                self.downloads_dir.display()
+            )
+        })?;
+
+        let full_url = resolve_url(base_registry_url, &bga.download_url);
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let safe_id = bga.id.replace(['/', '\\', ':', '.'], "_");
+        let temp_path = self.downloads_dir.join(format!("{safe_id}-bga-{timestamp}.tmp"));
+        let guard = DownloadTempFile::new(temp_path);
+
+        let safety_cap = ((bga.size_bytes as f64 * 1.05) as u64)
+            .max(bga.size_bytes.saturating_add(1024 * 1024))
+            .min(GLOBAL_MAX_PACKAGE_SIZE);
+
+        client.download_file_with_checksum(
+            &full_url,
+            guard.path(),
+            &bga.sha256,
+            Some(safety_cap),
+            callback,
+        )?;
+
+        Ok(guard)
+    }
+
+    /// Downloads, verifies, and atomically installs a remote companion BGA package into PackageManager.
+    pub fn install_remote_bga_companion<C: DownloadProgressCallback>(
+        &self,
+        manager: &mut PackageManager,
+        client: &HttpClient,
+        bga: &CompanionBgaMetadata,
+        base_registry_url: &str,
+        callback: C,
+    ) -> Result<String, String> {
+        let temp_file = self.download_bga_companion(client, bga, base_registry_url, callback)?;
+        let bmsp_path = temp_file.commit();
+
+        let install_result = manager
+            .install_bga_companion(&bmsp_path)
+            .map_err(|e| format!("Failed to install companion BGA package '{}': {e}", bga.id));
+
         let _ = fs::remove_file(&bmsp_path);
 
         install_result

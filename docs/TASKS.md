@@ -52,21 +52,21 @@
 ---
 
 ## 📋 Phase 3: `bpm` CLI 원격 네트워크 명령어 (`crates/bms-package-manager/src/main.rs`)
-- [ ] **`bpm update` 명령어 구현**
-  - [ ] 등록된 모든 활성 소스의 `index.json`을 순차 갱신하고 로컬 캐시 동기화
-  - [ ] 갱신된 신규/업데이트 패키지 개수 요약 출력
-- [ ] **`bpm search <query>` 명령어 구현**
-  - [ ] 제목, 아티스트, 장르, 난이도 레벨 필터링 기반 검색 테이블 출력
-  - [ ] 로컬 설치 여부(`[Installed]`, `[Update Available]`, `[Available]`) 뱃지 표출
-- [ ] **`bpm install <id>` 명령어 구현**
-  - [ ] 원격 패키지 메타데이터 확인 및 터미널 다운로드 프로그레스 바 렌더링
-  - [ ] 다운로드, 체크섬 검증, 설치, 활성화 원스톱 실행
-- [ ] **`bpm upgrade` 명령어 구현**
-  - [ ] 업데이트 가능한 모든 패키지를 일괄 다운로드/업그레이드
-- [ ] **`bpm source` 관리 서브커맨드 구현**
-  - [ ] `bpm source list`: 소스 목록, 우선순위, 활성 상태 출력
-  - [ ] `bpm source add <id> <url>`: 신규 레지스트리 소스 등록
-  - [ ] `bpm source remove <id>`: 레지스트리 소스 제거
+- [x] **`bpm update` 명령어 구현**
+  - [x] 등록된 모든 활성 소스의 `index.json`을 순차 갱신하고 로컬 캐시 동기화
+  - [x] 갱신된 신규/업데이트 패키지 개수 요약 출력
+- [x] **`bpm search <query>` 명령어 구현**
+  - [x] 제목, 아티스트, 장르, 난이도 레벨 필터링 기반 검색 테이블 출력
+  - [x] 로컬 설치 여부(`[Installed]`, `[Update Available]`, `[Available]`) 뱃지 표출
+- [x] **`bpm install <id>` 명령어 구현**
+  - [x] 원격 패키지 메타데이터 확인 및 터미널 다운로드 프로그레스 바 렌더링
+  - [x] 다운로드, 체크섬 검증, 설치, 활성화 원스톱 실행
+- [x] **`bpm upgrade` 명령어 구현**
+  - [x] 업데이트 가능한 모든 패키지를 일괄 다운로드/업그레이드
+- [x] **`bpm source` 관리 서브커맨드 구현**
+  - [x] `bpm source list`: 소스 목록, 우선순위, 활성 상태 출력
+  - [x] `bpm source add <id> <url>`: 신규 레지스트리 소스 등록
+  - [x] `bpm source remove <id>`: 레지스트리 소스 제거
 
 ---
 
