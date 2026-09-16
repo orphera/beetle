@@ -38,10 +38,10 @@
 ---
 
 ## 📋 Phase 3: 단위 테스트 갱신 및 VFS / Exporter 정합성 확인
-- [ ] **`crates/bms-package-manager/src/lib.rs` 단위 테스트 최신화**
-  - [ ] 디스크에 풀린 개별 파일(`video.mp4`, `song.bms`, `01.wav`) assert를 `open().contains(...)` 및 `package.bmsp` 존재 확인으로 갱신
-- [ ] **`vfs.rs`, `export.rs`, `serve.rs`, `updater.rs` 동작 확인**
-  - [ ] `package.bmsp` 기반 동작이 깨지지 않고 100% 정상 작동하는지 확인
+- [x] **`crates/bms-package-manager/src/lib.rs` 단위 테스트 최신화**
+  - [x] 디스크에 풀린 개별 파일(`video.mp4`, `song.bms`, `01.wav`) assert를 `open().contains(...)` 및 `package.bmsp` 존재 확인으로 갱신
+- [x] **`vfs.rs`, `export.rs`, `serve.rs`, `updater.rs` 동작 확인**
+  - [x] `package.bmsp` 기반 동작이 깨지지 않고 100% 정상 작동하는지 확인
 
 ---
 

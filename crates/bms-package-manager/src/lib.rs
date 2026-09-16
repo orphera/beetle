@@ -322,25 +322,32 @@ mod tests {
         let pkg = manager.get_active_package("com.example.bgasong").unwrap();
         assert_eq!(pkg.bga_status, BgaStatus::Companion);
 
-        // Verify storage files exist
+        // Verify storage archives exist (Pure BMSP Archive Storage)
         let state_dir = manager
             .storage()
             .state_dir("com.example.bgasong", &installed.state_hash);
-        assert!(state_dir.join("video.mp4").exists());
-        assert!(state_dir.join("com.example.bgasong.bga.bmsp").exists());
+        assert!(state_dir.join("package.bmsp").exists());
+        assert!(state_dir.join("manifest.json").exists());
+        let companion_path = state_dir.join("com.example.bgasong.bga.bmsp");
+        assert!(companion_path.exists());
+
+        // Verify companion archive contains video
+        let bga_archive = bms_package::Package::open(&companion_path).unwrap();
+        assert!(bga_archive.contains("video.mp4"));
 
         // 4. Remove BGA companion (diet)
         let reclaimed = manager.remove_bga_companion("com.example.bgasong").unwrap();
         assert!(reclaimed > 0);
 
-        // Verify status is None
+        // Verify status is None and companion archive removed
         let pkg_after = manager.get_active_package("com.example.bgasong").unwrap();
         assert_eq!(pkg_after.bga_status, BgaStatus::None);
-        assert!(!state_dir.join("video.mp4").exists());
-        assert!(!state_dir.join("com.example.bgasong.bga.bmsp").exists());
-        // Base files still exist
-        assert!(state_dir.join("song.bms").exists());
-        assert!(state_dir.join("01.wav").exists());
+        assert!(!companion_path.exists());
+        // Base package archive still intact
+        assert!(state_dir.join("package.bmsp").exists());
+        let base_opened = pkg_after.open().unwrap();
+        assert!(base_opened.contains("song.bms"));
+        assert!(base_opened.contains("01.wav"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
