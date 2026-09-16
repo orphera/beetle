@@ -31,9 +31,9 @@
 ---
 
 ## 📋 Phase 2: `beetle-app::scanner` 패키지 탐색 최적화 (`crates/beetle-app/src/scanner.rs`)
-- [ ] **채보 없는 BGA 컴패니언 아카이브 건너뛰기**
-  - [ ] `packages/` 탐색 시 `*.bga.bmsp` 파일은 불필요하게 열지 않고 조기 스킵
-  - [ ] `package.bmsp` 단일 파일 인식 및 `virtual_path` 인덱싱 무결성 확인
+- [x] **채보 없는 BGA 컴패니언 아카이브 건너뛰기**
+  - [x] `packages/` 탐색 시 `*.bga.bmsp` 파일은 불필요하게 열지 않고 조기 스킵
+  - [x] `package.bmsp` 단일 파일 인식 및 `virtual_path` 인덱싱 무결성 확인
 
 ---
 

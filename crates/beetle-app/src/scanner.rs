@@ -125,6 +125,10 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
                     }
                 }
             } else if ext.eq_ignore_ascii_case("bmsp") {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if file_name.ends_with(".bga.bmsp") {
+                    continue;
+                }
                 // Low-memory streaming scan: reads only central directory without buffering gigabytes into RAM
                 if let Ok(mut pkg) = PackageReader::open_file(&path) {
                     let path_str = path.to_string_lossy();
