@@ -83,39 +83,27 @@ impl PackageStorage {
 
         // Ensure temp_dir is cleaned up if any step fails
         let extract_result = (|| -> Result<(), PackageManagerError> {
-            // 1. Write manifest.json
+            if let Some(flag) = cancel_flag {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(PackageManagerError::Cancelled);
+                }
+            }
+
+            on_progress("Saving package", 1, 2, MANIFEST_FILENAME);
+
+            // 1. Write manifest.json for instant metadata inspection
             let manifest_json = pkg.manifest().to_json_string()?;
             fs::write(temp_dir.join(MANIFEST_FILENAME), manifest_json)?;
 
-            let entries = pkg.entries();
-            let total = entries.len();
-
-            // 2. Extract each entry safely
-            for (i, entry) in entries.iter().enumerate() {
-                if let Some(flag) = cancel_flag {
-                    if flag.load(std::sync::atomic::Ordering::Relaxed) {
-                        return Err(PackageManagerError::Cancelled);
-                    }
+            if let Some(flag) = cancel_flag {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(PackageManagerError::Cancelled);
                 }
-
-                if entry.path == MANIFEST_FILENAME {
-                    continue;
-                }
-
-                on_progress("Extracting files", i + 1, total, &entry.path);
-
-                let dest_path = temp_dir.join(&entry.path);
-
-                // Security check: ensure path does not escape temp_dir
-                if let Some(parent) = dest_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-
-                let content = pkg.read_entry(&entry.path)?;
-                fs::write(&dest_path, content)?;
             }
 
-            // 3. Save the intact .bmsp archive for fast package opens
+            on_progress("Saving package archive", 2, 2, "package.bmsp");
+
+            // 2. Save the intact .bmsp archive for streaming opens (Pure Archive Storage)
             fs::write(temp_dir.join("package.bmsp"), raw_bytes)?;
 
             Ok(())
@@ -167,7 +155,7 @@ impl PackageStorage {
         &self,
         id: &str,
         state_hash: &str,
-        bga_pkg: &Package,
+        _bga_pkg: &Package,
         bga_raw_bytes: &[u8],
     ) -> Result<PathBuf, PackageManagerError> {
         let target_dir = self.state_dir(id, state_hash);
@@ -181,24 +169,10 @@ impl PackageStorage {
         let companion_archive_path = target_dir.join(&companion_filename);
         fs::write(&companion_archive_path, bga_raw_bytes)?;
 
-        for entry in bga_pkg.entries() {
-            if entry.path == MANIFEST_FILENAME {
-                continue;
-            }
-            if beetle_render::is_video_path(&entry.path) {
-                let dest = target_dir.join(&entry.path);
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let data = bga_pkg.read_entry(&entry.path)?;
-                fs::write(&dest, data)?;
-            }
-        }
-
         Ok(companion_archive_path)
     }
 
-    /// Removes BGA companion files and videos from an installed package state, returning reclaimed bytes.
+    /// Removes BGA companion package archive from an installed package state, returning reclaimed bytes.
     pub fn remove_companion(&self, id: &str, state_hash: &str) -> Result<u64, PackageManagerError> {
         let target_dir = self.state_dir(id, state_hash);
         if !target_dir.exists() {
@@ -209,7 +183,7 @@ impl PackageStorage {
 
         let mut reclaimed_bytes: u64 = 0;
 
-        // 1. Remove companion archives (*.bga.bmsp)
+        // Remove companion archives (*.bga.bmsp)
         if let Ok(entries) = fs::read_dir(&target_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
@@ -224,25 +198,6 @@ impl PackageStorage {
                 }
             }
         }
-
-        // 2. Remove extracted video files
-        fn clean_videos(dir: &Path, reclaimed: &mut u64) {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        clean_videos(&p, reclaimed);
-                    } else if p.is_file() && beetle_render::is_video_path(&p) {
-                        if let Ok(meta) = p.metadata() {
-                            *reclaimed += meta.len();
-                        }
-                        let _ = fs::remove_file(&p);
-                    }
-                }
-            }
-        }
-
-        clean_videos(&target_dir, &mut reclaimed_bytes);
 
         Ok(reclaimed_bytes)
     }

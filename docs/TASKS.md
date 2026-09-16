@@ -21,12 +21,12 @@
 ---
 
 ## 📋 Phase 1: `bms-package-manager::storage` 설치 파이프라인 다이어트 (`crates/bms-package-manager/src/storage.rs`)
-- [ ] **`install_package_with_progress()` 리팩토링**
-  - [ ] 루즈 파일 추출 루프(`entries` 순회 `fs::write`) 완전 제거
-  - [ ] 임시 폴더(`.tmp_install/`)에 `manifest.json`과 `package.bmsp`만 원자적으로 저장 및 커밋
-- [ ] **`install_companion()` & `remove_companion()` 리팩토링**
-  - [ ] 비디오 파일 디스크 추출 및 탐색 삭제 로직 제거
-  - [ ] `<id>.bga.bmsp` 아카이브 파일만 해당 state 디렉터리에 단일 파일로 저장 및 원자적 삭제
+- [x] **`install_package_with_progress()` 리팩토링**
+  - [x] 루즈 파일 추출 루프(`entries` 순회 `fs::write`) 완전 제거
+  - [x] 임시 폴더(`.tmp_install/`)에 `manifest.json`과 `package.bmsp`만 원자적으로 저장 및 커밋
+- [x] **`install_companion()` & `remove_companion()` 리팩토링**
+  - [x] 비디오 파일 디스크 추출 및 탐색 삭제 로직 제거
+  - [x] `<id>.bga.bmsp` 아카이브 파일만 해당 state 디렉터리에 단일 파일로 저장 및 원자적 삭제
 
 ---
 
