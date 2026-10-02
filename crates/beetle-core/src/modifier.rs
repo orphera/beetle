@@ -97,7 +97,10 @@ pub fn apply_lane_modifier(
             let mut active_ln_lanes: HashMap<Lane, Lane> = HashMap::new();
 
             for note in &mut modified {
-                if note.lane == Lane::Scratch {
+                // Only 1P Key1..Key7 participate in S-Random; Scratch, PMS
+                // extra buttons, and Double Play 2P lanes pass through
+                // unshuffled (out of scope for this modifier).
+                if note.lane == Lane::Scratch || !KEY_LANES.contains(&note.lane) {
                     continue;
                 }
 
@@ -135,6 +138,9 @@ fn mirror_lane(lane: Lane) -> Lane {
         Lane::Key5 => Lane::Key3,
         Lane::Key6 => Lane::Key2,
         Lane::Key7 => Lane::Key1,
+        // PMS extra buttons / Double Play 2P lanes are out of scope for this
+        // modifier (designed for 1P 7-key only); pass them through unchanged.
+        other => other,
     }
 }
 
@@ -148,6 +154,8 @@ fn apply_lane_mapping(lane: Lane, mapping: &[Lane; 7]) -> Lane {
         Lane::Key5 => mapping[4],
         Lane::Key6 => mapping[5],
         Lane::Key7 => mapping[6],
+        // Same identity-passthrough rationale as `mirror_lane` above.
+        other => other,
     }
 }
 

@@ -171,6 +171,9 @@ impl InputConfig {
                 Lane::Key5 => "J",
                 Lane::Key6 => "K",
                 Lane::Key7 => "L",
+                // HomeRow/ArcadeZx are 7K+1S-only presets (see KeyPreset docs);
+                // PMS/DP lanes have no default binding under them yet.
+                _ => "None",
             }
             .to_string(),
             KeyPreset::ArcadeZx => match lane {
@@ -182,6 +185,7 @@ impl InputConfig {
                 Lane::Key5 => "C",
                 Lane::Key6 => "F",
                 Lane::Key7 => "V",
+                _ => "None",
             }
             .to_string(),
             KeyPreset::Custom => "None".to_string(),
@@ -247,6 +251,16 @@ pub fn lane_to_name(lane: Lane) -> &'static str {
         Lane::Key5 => "Key5",
         Lane::Key6 => "Key6",
         Lane::Key7 => "Key7",
+        Lane::Key8 => "Key8",
+        Lane::Key9 => "Key9",
+        Lane::P2Scratch => "P2Scratch",
+        Lane::P2Key1 => "P2Key1",
+        Lane::P2Key2 => "P2Key2",
+        Lane::P2Key3 => "P2Key3",
+        Lane::P2Key4 => "P2Key4",
+        Lane::P2Key5 => "P2Key5",
+        Lane::P2Key6 => "P2Key6",
+        Lane::P2Key7 => "P2Key7",
     }
 }
 
@@ -260,6 +274,16 @@ pub fn name_to_lane(s: &str) -> Option<Lane> {
         "Key5" => Some(Lane::Key5),
         "Key6" => Some(Lane::Key6),
         "Key7" => Some(Lane::Key7),
+        "Key8" => Some(Lane::Key8),
+        "Key9" => Some(Lane::Key9),
+        "P2Scratch" => Some(Lane::P2Scratch),
+        "P2Key1" => Some(Lane::P2Key1),
+        "P2Key2" => Some(Lane::P2Key2),
+        "P2Key3" => Some(Lane::P2Key3),
+        "P2Key4" => Some(Lane::P2Key4),
+        "P2Key5" => Some(Lane::P2Key5),
+        "P2Key6" => Some(Lane::P2Key6),
+        "P2Key7" => Some(Lane::P2Key7),
         _ => None,
     }
 }

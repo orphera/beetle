@@ -41,7 +41,13 @@ impl PlayMode {
     }
 }
 
-/// Key lanes supported by Beetle (7 Keys + 1 Scratch).
+/// Key lanes supported by Beetle: 1P (Scratch + 7 keys + 2 PMS-only extra
+/// buttons) and 2P / Double-Play lanes used by 10K/14K charts.
+///
+/// INVARIANT: the first 8 variants (`Scratch`..`Key7`) must keep their
+/// current order. `.rep` replay files encode `Lane` as a `u8` using that
+/// exact ordering (see `replay.rs`), so changing it would silently corrupt
+/// previously recorded 5K/7K replays. New variants are appended only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Lane {
     Scratch,
@@ -52,6 +58,18 @@ pub enum Lane {
     Key5,
     Key6,
     Key7,
+    /// PMS (9-Key / pop'n style) extra buttons; unused outside `PlayMode::Keys9`.
+    Key8,
+    Key9,
+    /// Double Play (10K/14K) 2P-side lanes; unused outside `PlayMode::Keys10`/`Keys14`.
+    P2Scratch,
+    P2Key1,
+    P2Key2,
+    P2Key3,
+    P2Key4,
+    P2Key5,
+    P2Key6,
+    P2Key7,
 }
 
 /// Note type (tap, long note endpoints, landmine).
@@ -467,7 +485,12 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
         parse_header_line(content, &mut chart.header);
     }
 
-    // PASS 2: Parse all measure channels using the fully populated header definition tables
+    // PASS 2a: Scan every measure channel once to resolve play-mode flags
+    // (has_scratch/has_k67/has_2p_dp/has_pms_ch/has_2p_key1) across the WHOLE
+    // file before any note is generated. This matters because channels
+    // 21..29 mean different lanes depending on the final PlayMode (PMS 9K
+    // extra buttons vs. Double Play 2P keys), which can only be known once
+    // every measure has been scanned.
     for line in trimmed.lines() {
         let line = line.trim();
         if !line.starts_with('#') {
@@ -477,7 +500,22 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
         if content.is_empty() || !is_measure_line(content) {
             continue;
         }
-        parse_measure_line(content, &mut chart, &mut raw_ln_events)?;
+        scan_measure_flags(content, &mut chart);
+    }
+    let play_mode = chart.detect_play_mode();
+
+    // PASS 2b: Parse all measure channels using the fully populated header
+    // definition tables and the now-resolved PlayMode.
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if !line.starts_with('#') {
+            continue;
+        }
+        let content = &line[1..].trim_start();
+        if content.is_empty() || !is_measure_line(content) {
+            continue;
+        }
+        parse_measure_line(content, &mut chart, &mut raw_ln_events, play_mode)?;
     }
 
     // Process LNTYPE 1 long notes (pairs of channel 5x events)
@@ -662,10 +700,72 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
     }
 }
 
+/// PASS 2a helper: inspects a single measure line and updates only the
+/// play-mode-determining flags on `chart` (does not generate any notes).
+/// Mirrors the channel set in `parse_measure_line`'s note-generation pass.
+fn scan_measure_flags(content: &str, chart: &mut BmsChart) {
+    let mut parts = content.splitn(2, [':', ' ']);
+    let tag = parts.next().unwrap_or("").trim();
+    let data = parts.next().unwrap_or("").trim();
+
+    if tag.len() < 5 {
+        return;
+    }
+    let channel = &tag[3..5];
+    if channel == "02" {
+        return;
+    }
+
+    let data_bytes = data.as_bytes();
+    if !data_bytes.len().is_multiple_of(2) {
+        return;
+    }
+    let slot_count = data_bytes.len() / 2;
+    if slot_count == 0 {
+        return;
+    }
+
+    let has_non_zero_slot = (0..slot_count).any(|i| {
+        let c1 = data_bytes[i * 2];
+        let c2 = data_bytes[i * 2 + 1];
+        c1 != b'0' || c2 != b'0'
+    });
+    if !has_non_zero_slot {
+        return;
+    }
+
+    match channel {
+        "16" | "56" => {
+            chart.has_scratch = true;
+        }
+        "18" | "19" | "58" | "59" => {
+            chart.has_k67 = true;
+        }
+        "26" | "66" => {
+            chart.has_scratch = true;
+            chart.has_2p_dp = true;
+        }
+        "28" | "29" | "68" | "69" => {
+            chart.has_k67 = true;
+            chart.has_2p_dp = true;
+        }
+        "21" | "61" => {
+            chart.has_2p_dp = true;
+            chart.has_2p_key1 = true;
+        }
+        "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
+            chart.has_2p_dp = true;
+            chart.has_pms_ch = true;
+        }
+        _ => {}
+    }
+}
+
 fn parse_measure_line(
     content: &str,
     chart: &mut BmsChart,
     raw_ln_events: &mut Vec<(u32, f64, Lane, WavId)>,
+    mode: PlayMode,
 ) -> Result<(), BmsParseError> {
     let mut parts = content.splitn(2, [':', ' ']);
     let tag = parts.next().unwrap_or("").trim();
@@ -698,41 +798,6 @@ fn parse_measure_line(
     let slot_count = data_bytes.len() / 2;
     if slot_count == 0 {
         return Ok(());
-    }
-
-    // Only flag channel usage if the channel contains at least one non-zero slot
-    let has_non_zero_slot = (0..slot_count).any(|i| {
-        let c1 = data_bytes[i * 2];
-        let c2 = data_bytes[i * 2 + 1];
-        c1 != b'0' || c2 != b'0'
-    });
-
-    if has_non_zero_slot {
-        match channel {
-            "16" | "56" => {
-                chart.has_scratch = true;
-            }
-            "18" | "19" | "58" | "59" => {
-                chart.has_k67 = true;
-            }
-            "26" | "66" => {
-                chart.has_scratch = true;
-                chart.has_2p_dp = true;
-            }
-            "28" | "29" | "68" | "69" => {
-                chart.has_k67 = true;
-                chart.has_2p_dp = true;
-            }
-            "21" | "61" => {
-                chart.has_2p_dp = true;
-                chart.has_2p_key1 = true;
-            }
-            "22" | "23" | "24" | "25" | "62" | "63" | "64" | "65" => {
-                chart.has_2p_dp = true;
-                chart.has_pms_ch = true;
-            }
-            _ => {}
-        }
     }
 
     for i in 0..slot_count {
@@ -822,7 +887,7 @@ fn parse_measure_line(
             "11" | "12" | "13" | "14" | "15" | "16" | "18" | "19" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
                     chart.total_notes_count += 1;
-                    if let Some(lane) = channel_to_lane(channel) {
+                    if let Some(lane) = channel_to_lane(channel, mode) {
                         chart.notes.push(NoteEvent {
                             measure,
                             fraction,
@@ -833,11 +898,23 @@ fn parse_measure_line(
                     }
                 }
             }
-            // 21..29: 2P Tap Notes (Counted in chart notes total, routed to BGM keysounds in 1P mode)
+            // 21..29: PMS (9K) extra-button or Double Play 2P Tap Notes,
+            // resolved by `mode`. Falls back to BGM passthrough (old
+            // behavior) for charts that aren't actually DP/PMS.
             "21" | "22" | "23" | "24" | "25" | "26" | "28" | "29" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
                     chart.total_notes_count += 1;
-                    chart.bgm_notes.push((measure, fraction, wav_id));
+                    if let Some(lane) = channel_to_lane(channel, mode) {
+                        chart.notes.push(NoteEvent {
+                            measure,
+                            fraction,
+                            lane,
+                            wav_id: Some(wav_id),
+                            note_type: NoteType::Tap,
+                        });
+                    } else {
+                        chart.bgm_notes.push((measure, fraction, wav_id));
+                    }
                 }
             }
             // 31..39, 41..49: Invisible/Freezone Notes (Transparent notes)
@@ -850,16 +927,21 @@ fn parse_measure_line(
             // 51..59: 1P Long Notes (LNTYPE 1)
             "51" | "52" | "53" | "54" | "55" | "56" | "58" | "59" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
-                    if let Some(lane) = channel_to_lane(channel) {
+                    if let Some(lane) = channel_to_lane(channel, mode) {
                         raw_ln_events.push((measure, fraction, lane, wav_id));
                     }
                 }
             }
-            // 61..69: 2P Long Notes (LNTYPE 1)
+            // 61..69: PMS (9K) extra-button or Double Play 2P Long Notes
+            // (LNTYPE 1), resolved by `mode`; same BGM fallback as 21..29.
             "61" | "62" | "63" | "64" | "65" | "66" | "68" | "69" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
-                    chart.total_notes_count += 1;
-                    chart.bgm_notes.push((measure, fraction, wav_id));
+                    if let Some(lane) = channel_to_lane(channel, mode) {
+                        raw_ln_events.push((measure, fraction, lane, wav_id));
+                    } else {
+                        chart.total_notes_count += 1;
+                        chart.bgm_notes.push((measure, fraction, wav_id));
+                    }
                 }
             }
             _ => (),
@@ -869,7 +951,7 @@ fn parse_measure_line(
     Ok(())
 }
 
-fn channel_to_lane(ch: &str) -> Option<Lane> {
+fn channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
     match ch {
         "11" | "51" => Some(Lane::Key1),
         "12" | "52" => Some(Lane::Key2),
@@ -879,6 +961,35 @@ fn channel_to_lane(ch: &str) -> Option<Lane> {
         "16" | "56" => Some(Lane::Scratch),
         "18" | "58" => Some(Lane::Key6),
         "19" | "59" => Some(Lane::Key7),
+        // 21..29 / 61..69: the same BMS channel numbers are reused for two
+        // unrelated conventions, so their lane depends on the resolved
+        // PlayMode: PMS's extra buttons (9K, no real 2nd player) vs. Double
+        // Play's 2P side (10K/14K). Any mode that isn't DP/PMS falls through
+        // to `None`, letting the caller keep the old BGM-passthrough behavior.
+        "21" | "61" if matches!(mode, PlayMode::Keys10 | PlayMode::Keys14) => Some(Lane::P2Key1),
+        "22" | "62" => match mode {
+            PlayMode::Keys9 => Some(Lane::Key6),
+            PlayMode::Keys10 | PlayMode::Keys14 => Some(Lane::P2Key2),
+            _ => None,
+        },
+        "23" | "63" => match mode {
+            PlayMode::Keys9 => Some(Lane::Key7),
+            PlayMode::Keys10 | PlayMode::Keys14 => Some(Lane::P2Key3),
+            _ => None,
+        },
+        "24" | "64" => match mode {
+            PlayMode::Keys9 => Some(Lane::Key8),
+            PlayMode::Keys10 | PlayMode::Keys14 => Some(Lane::P2Key4),
+            _ => None,
+        },
+        "25" | "65" => match mode {
+            PlayMode::Keys9 => Some(Lane::Key9),
+            PlayMode::Keys10 | PlayMode::Keys14 => Some(Lane::P2Key5),
+            _ => None,
+        },
+        "26" | "66" if matches!(mode, PlayMode::Keys10 | PlayMode::Keys14) => Some(Lane::P2Scratch),
+        "28" | "68" if mode == PlayMode::Keys14 => Some(Lane::P2Key6),
+        "29" | "69" if mode == PlayMode::Keys14 => Some(Lane::P2Key7),
         _ => None,
     }
 }
@@ -1232,21 +1343,134 @@ mod tests {
     }
 
     #[test]
-    fn test_2p_and_invisible_notes_handling() {
+    fn test_2p_dp_notes_are_now_judgeable_not_bgm() {
+        // Milestone 10 Phase 1: 2P/DP channels must become real judgeable
+        // notes on P2* lanes instead of silently degrading to bgm_notes.
         let bms = r#"
 #PLAYER 3
 #00111:01000000
 #00121:02000000
 #00131:03000000
 #00161:04000000
-#00161:00000000
 "#;
         let chart = parse_bms(bms).expect("Failed to parse DP chart with invisible notes");
-        assert_eq!(chart.notes.len(), 1); // 1P note on key 1
-        assert_eq!(chart.bgm_notes.len(), 2); // 2P note and 2P LN routed to bgm_notes
-        assert_eq!(chart.freezone_notes.len(), 1); // invisible note routed to freezone_notes
-        assert_eq!(chart.total_notes_count, 3); // 1 1P note + 1 2P note + 1 2P LN
         assert_eq!(chart.detect_play_mode(), PlayMode::Keys10);
+        // 1P Key1 tap + 2P P2Key1 tap are both real, judgeable notes now.
+        assert_eq!(chart.notes.len(), 2);
+        assert!(chart.notes.iter().any(|n| n.lane == Lane::Key1));
+        assert!(chart.notes.iter().any(|n| n.lane == Lane::P2Key1));
+        // The lone, unpaired channel-61 LN-start event has no matching end
+        // in this fixture, so it is correctly dropped rather than becoming
+        // a phantom note (matches pre-existing LNTYPE1 pairing behavior).
+        assert_eq!(chart.bgm_notes.len(), 0);
+        assert_eq!(chart.freezone_notes.len(), 1); // invisible note routed to freezone_notes
+        assert_eq!(chart.total_notes_count, 2); // 1P tap + 2P tap (unpaired LN uncounted)
+    }
+
+    #[test]
+    fn test_dp_14k_all_2p_lanes_and_long_notes_judgeable() {
+        // Full 14K (7+7 Double Play) chart: every 2P channel (21..29, LN
+        // pairs on 61..69) must map to a distinct P2* lane.
+        let bms = r#"
+#PLAYER 3
+#00111:01
+#00112:01
+#00113:01
+#00114:01
+#00115:01
+#00118:01
+#00119:01
+#00121:01
+#00122:01
+#00123:01
+#00124:01
+#00125:01
+#00126:01
+#00128:01
+#00129:01
+#00161:02
+#00161:03
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse 14K DP chart");
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys14);
+        assert_eq!(
+            chart.bgm_notes.len(),
+            0,
+            "no 2P channel should fall back to BGM in true DP mode"
+        );
+
+        let p2_lanes = [
+            Lane::P2Key1,
+            Lane::P2Key2,
+            Lane::P2Key3,
+            Lane::P2Key4,
+            Lane::P2Key5,
+            Lane::P2Scratch,
+            Lane::P2Key6,
+            Lane::P2Key7,
+        ];
+        for lane in p2_lanes {
+            assert!(
+                chart.notes.iter().any(|n| n.lane == lane),
+                "missing judgeable note on {lane:?}"
+            );
+        }
+        // Channel 61 appears twice -> one completed LongNoteStart/End pair on P2Key1.
+        assert!(chart
+            .notes
+            .iter()
+            .any(|n| n.lane == Lane::P2Key1 && n.note_type == NoteType::LongNoteEnd));
+    }
+
+    #[test]
+    fn test_pms_9k_extra_buttons_are_judgeable_key6_to_9() {
+        // PMS (9K): 1P channels 11..15 = buttons 1..5, 2P-numbered channels
+        // 22..25 are REUSED as buttons 6..9 (no real second player).
+        let bms = r#"
+#00111:01
+#00112:01
+#00113:01
+#00114:01
+#00115:01
+#00122:01
+#00123:01
+#00124:01
+#00125:01
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse PMS 9K chart");
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys9);
+        assert_eq!(chart.bgm_notes.len(), 0);
+
+        for lane in [
+            Lane::Key1,
+            Lane::Key2,
+            Lane::Key3,
+            Lane::Key4,
+            Lane::Key5,
+            Lane::Key6,
+            Lane::Key7,
+            Lane::Key8,
+            Lane::Key9,
+        ] {
+            assert!(
+                chart.notes.iter().any(|n| n.lane == lane),
+                "missing judgeable note on {lane:?}"
+            );
+        }
+        // Must not leak into Double Play lanes.
+        assert!(chart.notes.iter().all(|n| {
+            !matches!(
+                n.lane,
+                Lane::P2Scratch
+                    | Lane::P2Key1
+                    | Lane::P2Key2
+                    | Lane::P2Key3
+                    | Lane::P2Key4
+                    | Lane::P2Key5
+                    | Lane::P2Key6
+                    | Lane::P2Key7
+            )
+        }));
     }
 
     #[test]

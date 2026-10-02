@@ -78,12 +78,16 @@ impl Viewport {
     }
 }
 
+/// Total number of `Lane` variants (see `beetle_core::Lane`); sizes every
+/// fixed per-lane array in the renderer (key-press state, etc.).
+pub(crate) const LANE_COUNT: usize = 18;
+
 /// Software 2D renderer powered by tiny-skia.
 pub struct SoftwareRenderer {
     pub(crate) pixmap: Pixmap,
     pub viewport: Viewport,
     pub skin: SkinConfig,
-    pub(crate) key_pressed: [bool; 8],
+    pub(crate) key_pressed: [bool; LANE_COUNT],
     pub(crate) last_judge: Option<(JudgeGrade, f64, f64)>, // (Grade, time_seconds, delta_ms)
     pub(crate) hit_bursts: Vec<HitBurst>,
     pub(crate) cached_gameplay_bg: Option<Pixmap>,
@@ -100,7 +104,7 @@ impl SoftwareRenderer {
             pixmap,
             viewport,
             skin,
-            key_pressed: [false; 8],
+            key_pressed: [false; LANE_COUNT],
             last_judge: None,
             hit_bursts: Vec::with_capacity(32),
             cached_gameplay_bg: None,
@@ -143,7 +147,7 @@ impl SoftwareRenderer {
         self.key_pressed[idx] = pressed;
     }
 
-    pub fn key_pressed(&self) -> &[bool; 8] {
+    pub fn key_pressed(&self) -> &[bool; LANE_COUNT] {
         &self.key_pressed
     }
 
@@ -382,6 +386,16 @@ pub(crate) fn lane_index(lane: Lane) -> usize {
         Lane::Key5 => 5,
         Lane::Key6 => 6,
         Lane::Key7 => 7,
+        Lane::Key8 => 8,
+        Lane::Key9 => 9,
+        Lane::P2Scratch => 10,
+        Lane::P2Key1 => 11,
+        Lane::P2Key2 => 12,
+        Lane::P2Key3 => 13,
+        Lane::P2Key4 => 14,
+        Lane::P2Key5 => 15,
+        Lane::P2Key6 => 16,
+        Lane::P2Key7 => 17,
     }
 }
 

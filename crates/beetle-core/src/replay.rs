@@ -61,6 +61,18 @@ impl ReplayData {
                 Lane::Key5 => 5,
                 Lane::Key6 => 6,
                 Lane::Key7 => 7,
+                // Appended after the original 8 values (INVARIANT in
+                // bms.rs::Lane) so existing 5K/7K replays stay byte-stable.
+                Lane::Key8 => 8,
+                Lane::Key9 => 9,
+                Lane::P2Scratch => 10,
+                Lane::P2Key1 => 11,
+                Lane::P2Key2 => 12,
+                Lane::P2Key3 => 13,
+                Lane::P2Key4 => 14,
+                Lane::P2Key5 => 15,
+                Lane::P2Key6 => 16,
+                Lane::P2Key7 => 17,
             };
             let action = if ev.is_down { 'D' } else { 'U' };
             let _ = writeln!(buf, "{:.4}\t{}\t{}", ev.time_seconds, lane_idx, action);
@@ -121,7 +133,17 @@ impl ReplayData {
                         4 => Lane::Key4,
                         5 => Lane::Key5,
                         6 => Lane::Key6,
-                        _ => Lane::Key7,
+                        7 => Lane::Key7,
+                        8 => Lane::Key8,
+                        9 => Lane::Key9,
+                        10 => Lane::P2Scratch,
+                        11 => Lane::P2Key1,
+                        12 => Lane::P2Key2,
+                        13 => Lane::P2Key3,
+                        14 => Lane::P2Key4,
+                        15 => Lane::P2Key5,
+                        16 => Lane::P2Key6,
+                        _ => Lane::P2Key7,
                     };
 
                     events.push(ReplayEvent {

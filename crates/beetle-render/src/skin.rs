@@ -174,13 +174,54 @@ impl SkinConfig {
             Lane::Key5 => self.playfield_x + self.scratch_lane_width + self.lane_width * 4.0,
             Lane::Key6 => self.playfield_x + self.scratch_lane_width + self.lane_width * 5.0,
             Lane::Key7 => self.playfield_x + self.scratch_lane_width + self.lane_width * 6.0,
+            // PMS (9K) extra buttons continue the same strip, no scratch gap.
+            Lane::Key8 => self.playfield_x + self.scratch_lane_width + self.lane_width * 7.0,
+            Lane::Key9 => self.playfield_x + self.scratch_lane_width + self.lane_width * 8.0,
+            // Double Play (10K/14K) 2P side: placeholder block right after the
+            // 1P playfield, mirroring its Scratch+Key1..7 layout. A proper
+            // side-by-side dual-playfield layout lands in Milestone 10 Phase 3.
+            Lane::P2Scratch => self.playfield_x + self.playfield_width,
+            Lane::P2Key1 => self.playfield_x + self.playfield_width + self.scratch_lane_width,
+            Lane::P2Key2 => {
+                self.playfield_x + self.playfield_width + self.scratch_lane_width + self.lane_width
+            }
+            Lane::P2Key3 => {
+                self.playfield_x
+                    + self.playfield_width
+                    + self.scratch_lane_width
+                    + self.lane_width * 2.0
+            }
+            Lane::P2Key4 => {
+                self.playfield_x
+                    + self.playfield_width
+                    + self.scratch_lane_width
+                    + self.lane_width * 3.0
+            }
+            Lane::P2Key5 => {
+                self.playfield_x
+                    + self.playfield_width
+                    + self.scratch_lane_width
+                    + self.lane_width * 4.0
+            }
+            Lane::P2Key6 => {
+                self.playfield_x
+                    + self.playfield_width
+                    + self.scratch_lane_width
+                    + self.lane_width * 5.0
+            }
+            Lane::P2Key7 => {
+                self.playfield_x
+                    + self.playfield_width
+                    + self.scratch_lane_width
+                    + self.lane_width * 6.0
+            }
         }
     }
 
     /// Returns the width in pixels for a specific lane.
     pub fn lane_width(&self, lane: Lane) -> f32 {
         match lane {
-            Lane::Scratch => self.scratch_lane_width,
+            Lane::Scratch | Lane::P2Scratch => self.scratch_lane_width,
             _ => self.lane_width,
         }
     }
@@ -188,18 +229,22 @@ impl SkinConfig {
     /// Get color assigned to note on a lane.
     pub fn lane_color(&self, lane: Lane) -> ColorRgba {
         match lane {
-            Lane::Scratch => self.scratch_key_color,
-            Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 => self.white_key_color,
-            Lane::Key2 | Lane::Key4 | Lane::Key6 => self.blue_key_color,
+            Lane::Scratch | Lane::P2Scratch => self.scratch_key_color,
+            Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 | Lane::Key9 => self.white_key_color,
+            Lane::Key2 | Lane::Key4 | Lane::Key6 | Lane::Key8 => self.blue_key_color,
+            Lane::P2Key1 | Lane::P2Key3 | Lane::P2Key5 | Lane::P2Key7 => self.white_key_color,
+            Lane::P2Key2 | Lane::P2Key4 | Lane::P2Key6 => self.blue_key_color,
         }
     }
 
     /// Get key beam color when a lane is pressed.
     pub fn key_beam_color(&self, lane: Lane) -> ColorRgba {
         match lane {
-            Lane::Scratch => self.key_beam_scratch,
-            Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 => self.key_beam_white,
-            Lane::Key2 | Lane::Key4 | Lane::Key6 => self.key_beam_blue,
+            Lane::Scratch | Lane::P2Scratch => self.key_beam_scratch,
+            Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 | Lane::Key9 => self.key_beam_white,
+            Lane::Key2 | Lane::Key4 | Lane::Key6 | Lane::Key8 => self.key_beam_blue,
+            Lane::P2Key1 | Lane::P2Key3 | Lane::P2Key5 | Lane::P2Key7 => self.key_beam_white,
+            Lane::P2Key2 | Lane::P2Key4 | Lane::P2Key6 => self.key_beam_blue,
         }
     }
 }

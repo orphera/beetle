@@ -1,5 +1,5 @@
 use crate::backend::{BlendMode, FontAtlas, GpuBackend, SpriteBatcher, TextureId};
-use crate::renderer::{lane_index, HitBurst, Viewport};
+use crate::renderer::{lane_index, HitBurst, Viewport, LANE_COUNT};
 use crate::skin::{ColorRgba, SkinConfig};
 use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, PlayNote, ScoreTracker, TimingModel};
 
@@ -23,7 +23,7 @@ pub fn render_gameplay_gpu(
     layer_texture: Option<TextureId>,
     track_bga_opacity: f32,
     timing: &TimingModel,
-    key_pressed: &[bool; 8],
+    key_pressed: &[bool; LANE_COUNT],
     hit_bursts: &[HitBurst],
     last_judge: Option<(JudgeGrade, f64, f64)>,
 ) {
@@ -846,7 +846,9 @@ mod tests {
         score.record_hit(JudgeGrade::PerfectGreat);
         score.record_hit(JudgeGrade::Great);
 
-        let key_pressed = [true, false, false, true, false, false, false, false];
+        let mut key_pressed = [false; LANE_COUNT];
+        key_pressed[0] = true;
+        key_pressed[3] = true;
         let hit_bursts = vec![HitBurst {
             lane: Lane::Key1,
             spawn_time: 1.0,

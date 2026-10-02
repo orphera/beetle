@@ -24,20 +24,23 @@
 ---
 
 ## 📋 Phase 1: 코어 데이터 모델 — Lane enum 확장 및 2-패스 모드 인식 파서 (`crates/beetle-core`)
-- [ ] **`Lane` enum에 신규 변형 추가 (append-only, 기존 8개 값/순서 불변)**
-  - [ ] `Key8`, `Key9` (PMS 9K 전용 추가 버튼)
-  - [ ] `P2Scratch`, `P2Key1`..`P2Key7` (DP 10K/14K 2P 측)
-- [ ] **파서를 PASS 2a(플래그 스캔) / PASS 2b(노트 생성)로 분리**
-  - [ ] PASS 2a: 전체 측정 라인을 순회하며 `has_scratch`/`has_k67`/`has_2p_dp`/`has_pms_ch`/`has_2p_key1` 플래그만 먼저 확정
-  - [ ] PASS 2a 종료 후 `chart.detect_play_mode()`로 최종 `PlayMode` 확정
-  - [ ] PASS 2b: 확정된 모드를 `channel_to_lane(ch, mode)`에 전달하여 노트 생성
-- [ ] **채널 21~29/61~69 모드별 분기 매핑**
-  - [ ] `Keys9`: `22→Key6, 23→Key7, 24→Key8, 25→Key9` (+LN 62~65)
-  - [ ] `Keys10`/`Keys14`: `21→P2Key1..25→P2Key5, 26→P2Scratch, 28→P2Key6, 29→P2Key7` (+LN 61~69)
-  - [ ] 그 외 모드(변칙 5K/7K)는 기존처럼 `bgm_notes` 폴백 유지 (회귀 방지)
-- [ ] **모디파이어(`modifier.rs`) 안전 통과**: `Key1..Key7` 외 레인(Key8/Key9/P2*)은 셔플 대상에서 제외하고 identity 통과
-- [ ] **리플레이(`replay.rs`) 직렬화 확장**: 신규 Lane 값을 8번부터 append, 기존 `.rep` 파일 역호환 유지
-- [ ] **단위 테스트**: 9K/10K/14K BMS 픽스처로 "모든 2P/추가 채널 노트가 `chart.notes`에 올바른 Lane으로 생성되는지" 검증 (기존 `detect_play_mode` 테스트와 별개로 신규 추가)
+- [x] **`Lane` enum에 신규 변형 추가 (append-only, 기존 8개 값/순서 불변)**
+  - [x] `Key8`, `Key9` (PMS 9K 전용 추가 버튼)
+  - [x] `P2Scratch`, `P2Key1`..`P2Key7` (DP 10K/14K 2P 측)
+- [x] **파서를 PASS 2a(플래그 스캔) / PASS 2b(노트 생성)로 분리**
+  - [x] PASS 2a: 전체 측정 라인을 순회하며 `has_scratch`/`has_k67`/`has_2p_dp`/`has_pms_ch`/`has_2p_key1` 플래그만 먼저 확정 (`scan_measure_flags`)
+  - [x] PASS 2a 종료 후 `chart.detect_play_mode()`로 최종 `PlayMode` 확정
+  - [x] PASS 2b: 확정된 모드를 `channel_to_lane(ch, mode)`에 전달하여 노트 생성
+- [x] **채널 21~29/61~69 모드별 분기 매핑**
+  - [x] `Keys9`: `22→Key6, 23→Key7, 24→Key8, 25→Key9` (+LN 62~65)
+  - [x] `Keys10`/`Keys14`: `21→P2Key1..25→P2Key5, 26→P2Scratch, 28→P2Key6, 29→P2Key7` (+LN 61~69)
+  - [x] 그 외 모드(변칙 5K/7K)는 기존처럼 `bgm_notes` 폴백 유지 (회귀 방지)
+- [x] **모디파이어(`modifier.rs`) 안전 통과**: `Key1..Key7` 외 레인(Key8/Key9/P2*)은 셔플 대상에서 제외하고 identity 통과 (SRandom 분기도 `KEY_LANES` 외 레인은 건너뛰도록 수정)
+- [x] **리플레이(`replay.rs`) 직렬화 확장**: 신규 Lane 값을 8번부터 append, 기존 `.rep` 파일 역호환 유지
+- [x] **단위 테스트**: 9K(`test_pms_9k_extra_buttons_are_judgeable_key6_to_9`)/10K(`test_2p_dp_notes_are_now_judgeable_not_bgm`)/14K(`test_dp_14k_all_2p_lanes_and_long_notes_judgeable`) 픽스처로 모든 2P/추가 채널 노트가 올바른 Lane으로 생성되는지 검증
+- [x] **컴파일 전파 수정**: `beetle-render`(`lane_index`/`key_pressed` 배열을 `LANE_COUNT=18`로 확장, `skin.rs`의 `lane_x`/`lane_color`/`key_beam_color`에 신규 레인 임시 배치 추가)와 `beetle-app`(`input.rs`의 `lane_to_name`/`name_to_lane` 전체 레인 지원, 7K+1S 전용 프리셋은 신규 레인에 `"None"` 반환)의 exhaustive match 컴파일 에러 전부 해소. `cargo check/test --workspace` 및 `cargo build --release` 통과 확인.
+
+> 참고: Phase 1 완료를 위해 `beetle-render`의 `lane_x()`에 DP 2P 레인의 **임시** 배치(1P 플레이필드 바로 뒤에 이어 붙이는 방식)를 추가했다. 이는 컴파일/판정 정합성만 보장하는 자리표시자이며, 실제 좌/우 듀얼 플레이필드 레이아웃은 Phase 3에서 교체한다.
 
 ---
 
@@ -50,9 +53,9 @@
 
 ## 📋 Phase 3: 렌더 레이아웃 — 9K 단일 플레이필드 / DP 듀얼 플레이필드 (`crates/beetle-render`)
 - [ ] `SkinConfig::update_layout`에 `Keys9` 전용 분기 (스크래치 없는 9레인 단일 플레이필드)
-- [ ] DP(10K/14K)용 2차 좌표 세트 추가 (`playfield_x_p2` 등) 및 `lane_x()`의 `P2*` 레인 매핑
+- [ ] DP(10K/14K)용 2차 좌표 세트 추가 (`playfield_x_p2` 등) 및 `lane_x()`의 `P2*` 레인을 Phase 1의 임시 배치에서 실제 좌/우 듀얼 플레이필드 좌표로 교체
 - [ ] 화면 좌/우 듀얼 플레이필드 레이아웃 + HUD/BGA 축소 재배치
-- [ ] `lane_index()` 및 `key_pressed: [bool; 8]` 고정 배열을 `[bool; 18]`로 확장 (`renderer.rs`, `gameplay_gpu.rs`)
+- [x] `lane_index()` 및 `key_pressed` 고정 배열을 `[bool; LANE_COUNT]`(18)로 확장 (`renderer.rs`, `gameplay_gpu.rs`) — Phase 1에서 선반영
 - [ ] 소프트웨어 렌더러(`gameplay.rs`)·GPU 렌더러(`gameplay_gpu.rs`) 양쪽 동일 레이아웃 적용
 
 ---
