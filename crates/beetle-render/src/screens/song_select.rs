@@ -250,25 +250,11 @@ impl SoftwareRenderer {
                 );
             } else {
                 let bg_col = if i % 2 == 0 {
-                    ColorRgba::new(16, 18, 26, 220)
+                    ColorRgba::new(15, 17, 24, 220)
                 } else {
-                    ColorRgba::new(20, 22, 32, 220)
+                    ColorRgba::new(22, 24, 35, 220)
                 };
                 self.draw_rect(list_x as f32, card_y, card_w, card_h, bg_col);
-                self.draw_rect(
-                    list_x as f32,
-                    card_y,
-                    card_w,
-                    1.0 * s,
-                    ColorRgba::new(35, 40, 55, 255),
-                );
-                self.draw_rect(
-                    list_x as f32,
-                    card_y + card_h - 1.0 * s,
-                    card_w,
-                    1.0 * s,
-                    ColorRgba::new(35, 40, 55, 255),
-                );
             }
 
             // Left Clear Lamp Bar
@@ -367,41 +353,13 @@ impl SoftwareRenderer {
         let detail_w = (vp.x + vp.width - detail_x - 24.0 * s).max(280.0 * s);
         let detail_h = (vp.height - 110.0 * s).max(440.0 * s);
 
-        // Detail Glass Panel
+        // Detail Glass Panel (background contrast alone separates it from the list area)
         self.draw_rect(
             detail_x,
             detail_y,
             detail_w,
             detail_h,
-            ColorRgba::new(14, 16, 26, 255),
-        );
-        self.draw_rect(
-            detail_x,
-            detail_y,
-            detail_w,
-            1.0 * s,
-            ColorRgba::new(45, 55, 80, 255),
-        );
-        self.draw_rect(
-            detail_x,
-            detail_y + detail_h - 1.0 * s,
-            detail_w,
-            1.0 * s,
-            ColorRgba::new(45, 55, 80, 255),
-        );
-        self.draw_rect(
-            detail_x,
-            detail_y,
-            1.0 * s,
-            detail_h,
-            ColorRgba::new(45, 55, 80, 255),
-        );
-        self.draw_rect(
-            detail_x + detail_w - 1.0 * s,
-            detail_y,
-            1.0 * s,
-            detail_h,
-            ColorRgba::new(45, 55, 80, 255),
+            ColorRgba::new(17, 20, 32, 255),
         );
 
         if let Some(selected_song) = songs.get(selected_idx) {
@@ -412,13 +370,6 @@ impl SoftwareRenderer {
             let art_h = (art_w * 9.0 / 16.0).clamp(100.0 * s, 180.0 * s);
             let art_x = detail_x + 16.0 * s;
 
-            self.draw_rect(
-                art_x - 1.0 * s,
-                cur_y - 1.0 * s,
-                art_w + 2.0 * s,
-                art_h + 2.0 * s,
-                ColorRgba::new(60, 80, 120, 255),
-            );
             self.draw_rect(art_x, cur_y, art_w, art_h, ColorRgba::new(10, 12, 18, 255));
 
             if let Some(img) = stage_image {
@@ -487,14 +438,7 @@ impl SoftwareRenderer {
                 cur_y,
                 grid_box_w,
                 grid_box_h,
-                ColorRgba::new(20, 24, 36, 255),
-            );
-            self.draw_rect(
-                art_x,
-                cur_y,
-                grid_box_w,
-                1.0 * s,
-                ColorRgba::new(40, 50, 75, 255),
+                ColorRgba::new(24, 28, 42, 255),
             );
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
@@ -514,17 +458,18 @@ impl SoftwareRenderer {
                 ColorRgba::new(255, 220, 90, 255),
             );
 
-            // Box 2: Level (difficulty tier name doubles as the LV badge color legend)
+            // Box 2: Level - background tinted with the difficulty tier color itself
+            // (instead of a border line) so the LV badge color always has an
+            // in-context legend without adding chrome.
             let box2_x = art_x + grid_box_w + grid_gap;
             let selected_lvl_color = level_color(selected_song.play_level);
-            self.draw_rect(
-                box2_x,
-                cur_y,
-                grid_box_w,
-                grid_box_h,
-                ColorRgba::new(20, 24, 36, 255),
+            let lvl_bg = ColorRgba::new(
+                (24u32 + selected_lvl_color.r as u32 / 6).min(255) as u8,
+                (26u32 + selected_lvl_color.g as u32 / 6).min(255) as u8,
+                (40u32 + selected_lvl_color.b as u32 / 6).min(255) as u8,
+                255,
             );
-            self.draw_rect(box2_x, cur_y, grid_box_w, 1.0 * s, selected_lvl_color);
+            self.draw_rect(box2_x, cur_y, grid_box_w, grid_box_h, lvl_bg);
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 level_tier_label(selected_song.play_level),
@@ -550,14 +495,7 @@ impl SoftwareRenderer {
                 cur_y,
                 grid_box_w,
                 grid_box_h,
-                ColorRgba::new(20, 24, 36, 255),
-            );
-            self.draw_rect(
-                box3_x,
-                cur_y,
-                grid_box_w,
-                1.0 * s,
-                ColorRgba::new(40, 50, 75, 255),
+                ColorRgba::new(24, 28, 42, 255),
             );
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
@@ -578,31 +516,9 @@ impl SoftwareRenderer {
             );
             cur_y += grid_box_h + 16.0 * s;
 
-            // Personal Best Card
+            // Personal Best Card (lighter fill distinguishes it from the panel bg)
             let pb_h = 135.0 * s;
-            self.draw_rect(art_x, cur_y, art_w, pb_h, ColorRgba::new(18, 22, 34, 255));
-            self.draw_rect(
-                art_x,
-                cur_y,
-                art_w,
-                1.0 * s,
-                ColorRgba::new(55, 65, 95, 255),
-            );
-            self.draw_rect(
-                art_x,
-                cur_y + pb_h - 1.0 * s,
-                art_w,
-                1.0 * s,
-                ColorRgba::new(55, 65, 95, 255),
-            );
-            self.draw_rect(art_x, cur_y, 1.0 * s, pb_h, ColorRgba::new(55, 65, 95, 255));
-            self.draw_rect(
-                art_x + art_w - 1.0 * s,
-                cur_y,
-                1.0 * s,
-                pb_h,
-                ColorRgba::new(55, 65, 95, 255),
-            );
+            self.draw_rect(art_x, cur_y, art_w, pb_h, ColorRgba::new(23, 27, 42, 255));
 
             let pb_header_y = cur_y + 8.0 * s;
             BitmapFont::draw_text(

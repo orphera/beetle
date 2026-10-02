@@ -153,35 +153,7 @@ impl SoftwareRenderer {
             card_y,
             left_w,
             card_h,
-            ColorRgba::new(14, 18, 28, 255),
-        );
-        self.draw_rect(
-            left_x,
-            card_y,
-            left_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            left_x,
-            card_y + card_h - 1.0 * s,
-            left_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            left_x,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            left_x + left_w - 1.0 * s,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
+            ColorRgba::new(17, 21, 33, 255),
         );
 
         // Large Rank Emblem Box
@@ -407,35 +379,7 @@ impl SoftwareRenderer {
             card_y,
             mid_w,
             card_h,
-            ColorRgba::new(14, 18, 28, 255),
-        );
-        self.draw_rect(
-            mid_x,
-            card_y,
-            mid_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            mid_x,
-            card_y + card_h - 1.0 * s,
-            mid_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            mid_x,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            mid_x + mid_w - 1.0 * s,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
+            ColorRgba::new(17, 21, 33, 255),
         );
 
         let mut mid_y = card_y + 20.0 * s;
@@ -575,35 +519,7 @@ impl SoftwareRenderer {
             card_y,
             right_w,
             card_h,
-            ColorRgba::new(14, 18, 28, 255),
-        );
-        self.draw_rect(
-            right_x,
-            card_y,
-            right_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            right_x,
-            card_y + card_h - 1.0 * s,
-            right_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            right_x,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            right_x + right_w - 1.0 * s,
-            card_y,
-            1.0 * s,
-            card_h,
-            ColorRgba::new(35, 48, 75, 255),
+            ColorRgba::new(17, 21, 33, 255),
         );
 
         let mut right_y = card_y + 20.0 * s;
