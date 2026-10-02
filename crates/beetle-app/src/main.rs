@@ -584,18 +584,6 @@ impl ApplicationHandler for BeetleApp {
                                 .stage_image_cache
                                 .get(&selected_hash)
                                 .and_then(|opt| opt.as_ref());
-                            state.renderer.render_song_select(
-                                &visible_songs,
-                                state.selected_song_idx,
-                                &state.score_store,
-                                state.sort_mode.as_str(),
-                                state.category_mode.as_str(),
-                                &state.search_query,
-                                state.is_search_active,
-                                stage_img,
-                                state.songs.len(),
-                            );
-
                             // Check replay existence for selected song
                             let has_replay = state
                                 .current_selected_song()
@@ -605,7 +593,7 @@ impl ApplicationHandler for BeetleApp {
                                 })
                                 .unwrap_or(false);
 
-                            // Song select options bar
+                            // Song select options bar (rendered as the footer's second line)
                             let rep_str = if has_replay { "  [R]: Replay" } else { "" };
                             let auto_str = if state.is_auto_play {
                                 "[AUTO: ON]"
@@ -620,7 +608,19 @@ impl ApplicationHandler for BeetleApp {
                                 auto_str,
                                 rep_str,
                             );
-                            state.renderer.draw_footer_text(&opt_bar);
+
+                            state.renderer.render_song_select(
+                                &visible_songs,
+                                state.selected_song_idx,
+                                &state.score_store,
+                                state.sort_mode.as_str(),
+                                state.category_mode.as_str(),
+                                &state.search_query,
+                                state.is_search_active,
+                                stage_img,
+                                state.songs.len(),
+                                &opt_bar,
+                            );
 
                             // If option modal is open, overlay modal on top
                             if state.show_option_modal {

@@ -18,6 +18,7 @@ impl SoftwareRenderer {
         is_search_active: bool,
         stage_image: Option<&ImageBuffer>,
         total_library_count: usize,
+        opt_bar: &str,
     ) {
         self.clear();
 
@@ -647,29 +648,33 @@ impl SoftwareRenderer {
             }
         }
 
-        // 4. Bottom Footer Keybindings Guide
-        let footer_y = (vp.y + vp.height - 36.0 * s) as i32;
+        // 4. Bottom Footer Keybindings Guide (two stacked lines: nav hints, then play options)
+        let footer_h = 56.0 * s;
+        let footer_top = vp.y + vp.height - footer_h;
         self.draw_rect(
             vp.x,
-            footer_y as f32 - 4.0 * s,
+            footer_top,
             vp.width,
-            40.0 * s,
+            footer_h,
             ColorRgba::new(12, 14, 22, 255),
         );
         self.draw_rect(
             vp.x,
-            footer_y as f32 - 4.0 * s,
+            footer_top,
             vp.width,
             1.0 * s,
             ColorRgba::new(35, 40, 60, 255),
         );
+
+        let line1_y = (footer_top + 10.0 * s) as i32;
+        let line2_y = (footer_top + 30.0 * s) as i32;
 
         let match_info = format!("[TOTAL: {}/{}]", total_songs, total_library_count);
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &match_info,
             (vp.x + 24.0 * s) as i32,
-            footer_y + (4.0 * s) as i32,
+            line1_y,
             font_scale,
             ColorRgba::new(80, 200, 255, 255),
         );
@@ -678,7 +683,16 @@ impl SoftwareRenderer {
             &mut self.pixmap.as_mut(),
             "[Up/Down]: Move  [Enter]: Play  [/]: Search  [F2]: Sort  [F3]: Folder  [Tab]: Options  [F12]: KeyConfig",
             (vp.x + 160.0 * s) as i32,
-            footer_y + (4.0 * s) as i32,
+            line1_y,
+            font_scale,
+            ColorRgba::new(150, 155, 175, 255),
+        );
+
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            opt_bar,
+            (vp.x + 24.0 * s) as i32,
+            line2_y,
             font_scale,
             ColorRgba::new(150, 155, 175, 255),
         );
