@@ -45,9 +45,9 @@
 ---
 
 ## 📋 Phase 2: 판정/스코어 엔진 정합성 (`crates/beetle-core/src/judge`)
-- [ ] `Lane` exhaustive match 컴파일 에러 전부 해소 (현재 8개 가정 코드 전수 점검)
-- [ ] `JudgeEngine`/`ScoreTracker`가 신규 레인 노트를 1P 7K와 동일하게 판정하는지 확인
-- [ ] 신규 레인 포함 차트의 EX Score/정확도 분모가 실제 판정 가능 노트 수와 일치하는지 테스트로 검증
+- [x] `Lane` exhaustive match 컴파일 에러 전부 해소 (현재 8개 가정 코드 전수 점검) — `judge/mod.rs`, `score_tracker.rs` 둘 다 `Lane` 값을 동등 비교로만 다루고 고정 배열/exhaustive match가 전혀 없어 추가 수정이 필요 없음을 코드 전수 확인으로 검증. `beetle-audio`도 `Lane`을 전혀 참조하지 않음을 확인.
+- [x] `JudgeEngine`/`ScoreTracker`가 신규 레인 노트를 1P 7K와 동일하게 판정하는지 확인 — 신규 테스트 `test_judge_engine_handles_dp_14k_lanes_with_correct_max_score`에서 `Lane::P2Key1` 노트를 1P 레인과 동일하게 PerfectGreat로 판정함을 확인
+- [x] 신규 레인 포함 차트의 EX Score/정확도 분모가 실제 판정 가능 노트 수와 일치하는지 테스트로 검증 — 14K 차트(1P 1개 + 2P 2개 = 3개 실제 노트)의 `max_ex_score()`가 정확히 6(3노트×2점)임을 검증, BGM 폴백으로 인한 왜곡 없음
 
 ---
 

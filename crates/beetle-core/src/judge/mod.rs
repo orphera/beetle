@@ -305,6 +305,43 @@ mod tests {
     use crate::timing::TimingModel;
 
     #[test]
+    fn test_judge_engine_handles_dp_14k_lanes_with_correct_max_score() {
+        // Milestone 10 Phase 2: confirm the judge/score engine needs no
+        // lane-count-specific changes - it is already lane-agnostic, so a
+        // real 14K (Double Play) chart parsed end-to-end must produce a
+        // max EX score based on ALL real playable notes (1P + 2P), and
+        // P2* lanes must be judgeable exactly like 1P lanes.
+        let bms = r#"
+#PLAYER 3
+#00111:01
+#00121:01
+#00128:01
+"#;
+        let chart = parse_bms(bms).expect("Failed to parse 14K-ish DP chart");
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys14);
+        assert_eq!(chart.notes.len(), 3); // 1P Key1 + 2P P2Key1 + 2P P2Key6, all judgeable
+        assert_eq!(chart.bgm_notes.len(), 0);
+
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+
+        // max_ex_score must reflect all 3 real notes (2 points each), not
+        // be inflated/deflated by any BGM-passthrough fallback.
+        assert_eq!(engine.score().max_ex_score(), 6);
+
+        // A 2P lane must be judgeable exactly like a 1P lane.
+        let target = engine
+            .notes()
+            .iter()
+            .find(|n| n.note_event.lane == Lane::P2Key1)
+            .expect("P2Key1 note missing from judge engine")
+            .target_time_seconds;
+        let hit = engine.handle_key_down(Lane::P2Key1, target + 0.005);
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().0.grade, JudgeGrade::PerfectGreat);
+    }
+
+    #[test]
     fn test_judge_window_evaluation() {
         let window = JudgeWindow::from_rank(2); // Normal
         assert_eq!(window.evaluate(0.0), Some(JudgeGrade::PerfectGreat));
