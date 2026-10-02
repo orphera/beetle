@@ -6,10 +6,10 @@ use std::time::Instant;
 
 use beetle_audio::AudioEngine;
 use beetle_core::{
-    compute_chart_hash, sort_songs, BmsChart, JudgeEngine, PlayOptions, ReplayData, ScoreRecord,
-    ScoreStore, SongMetadata, SortMode, TimingModel,
+    compute_chart_hash, sort_songs, BmsChart, JudgeEngine, Lane, PlayMode, PlayOptions, ReplayData,
+    ScoreRecord, ScoreStore, SongMetadata, SortMode, TimingModel,
 };
-use beetle_render::{ImageBuffer, SoftwareRenderer};
+use beetle_render::{ImageBuffer, SkinConfig, SoftwareRenderer};
 use softbuffer::{Context, Surface};
 use winit::window::Window;
 
@@ -361,6 +361,29 @@ impl AppState {
     pub fn current_selected_song(&self) -> Option<&SongMetadata> {
         let real_idx = *self.filtered_indices.get(self.selected_song_idx)?;
         self.songs.get(real_idx)
+    }
+
+    /// Resolves the PlayMode the Key Config screen should show lanes for:
+    /// the actually-loaded chart's mode if gameplay is active, otherwise
+    /// the highlighted song-select entry's cached mode (Key Config is also
+    /// reachable before a chart is ever loaded, via F12 on Song Select).
+    pub fn key_config_mode(&self) -> PlayMode {
+        if let Some(chart) = &self.active_chart {
+            chart.detect_play_mode()
+        } else {
+            self.current_selected_song()
+                .map(|s| s.play_mode)
+                .unwrap_or_default()
+        }
+    }
+
+    /// Full lane list the Key Config screen should list rows for, matching
+    /// `key_config_mode()`. Reuses `SkinConfig::active_lanes()` instead of
+    /// duplicating the per-mode lane table in `beetle-app`.
+    pub fn key_config_lanes(&self) -> &'static [Lane] {
+        let mut skin = SkinConfig::default();
+        skin.set_play_mode(self.key_config_mode());
+        skin.active_lanes()
     }
 
     pub fn current_visible_songs(&self) -> Vec<SongMetadata> {

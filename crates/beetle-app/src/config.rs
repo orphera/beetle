@@ -263,6 +263,8 @@ impl AppConfig {
                 "key_preset" => {
                     config.key_preset = match val {
                         "ArcadeZx" => KeyPreset::ArcadeZx,
+                        "Pms9K" => KeyPreset::Pms9K,
+                        "DoublePlay" => KeyPreset::DoublePlay,
                         "Custom" => KeyPreset::Custom,
                         _ => KeyPreset::HomeRow,
                     };
@@ -318,6 +320,8 @@ impl AppConfig {
         let preset_str = match self.key_preset {
             KeyPreset::HomeRow => "HomeRow",
             KeyPreset::ArcadeZx => "ArcadeZx",
+            KeyPreset::Pms9K => "Pms9K",
+            KeyPreset::DoublePlay => "DoublePlay",
             KeyPreset::Custom => "Custom",
         };
 

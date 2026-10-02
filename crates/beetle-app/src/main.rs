@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use beetle_core::{GaugeType, Lane, LaneModifier, SongMetadata};
+use beetle_core::{GaugeType, LaneModifier, SongMetadata};
 use beetle_render::{SkinConfig, SoftwareRenderer};
 use config::{AppConfig, DisplayMode};
 use gameplay::{
@@ -772,6 +772,8 @@ impl ApplicationHandler for BeetleApp {
                                     match state.input_config.preset {
                                         KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
                                         KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                        KeyPreset::Pms9K => "KEYS: S D F Space J K L ; '      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
+                                        KeyPreset::DoublePlay => "KEYS: [Shift]+ZSXDCFV / [RShift]+UIOP[]\\  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
                                         KeyPreset::Custom => "KEYS: Custom Key Layout Active    (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
                                     }
                                 };
@@ -795,40 +797,16 @@ impl ApplicationHandler for BeetleApp {
                     }
                     AppScreen::KeyConfig => {
                         if state.is_dirty {
-                            let key_names = [
-                                (
-                                    "SCRATCH (1S)",
-                                    state.input_config.get_key_name_for_lane(Lane::Scratch),
-                                ),
-                                (
-                                    "KEY 1 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key1),
-                                ),
-                                (
-                                    "KEY 2 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key2),
-                                ),
-                                (
-                                    "KEY 3 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key3),
-                                ),
-                                (
-                                    "KEY 4 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key4),
-                                ),
-                                (
-                                    "KEY 5 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key5),
-                                ),
-                                (
-                                    "KEY 6 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key6),
-                                ),
-                                (
-                                    "KEY 7 (1P)",
-                                    state.input_config.get_key_name_for_lane(Lane::Key7),
-                                ),
-                            ];
+                            let lanes = state.key_config_lanes();
+                            let key_names: Vec<(&'static str, String)> = lanes
+                                .iter()
+                                .map(|&lane| {
+                                    (
+                                        crate::input::lane_label(lane),
+                                        state.input_config.get_key_name_for_lane(lane),
+                                    )
+                                })
+                                .collect();
                             state.renderer.render_key_config(
                                 &key_names,
                                 state.selected_key_idx,

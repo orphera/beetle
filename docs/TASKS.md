@@ -63,10 +63,12 @@
 ---
 
 ## 📋 Phase 4: 입력 설정 & Key Config UI (`crates/beetle-app`)
-- [ ] `KeyPreset`에 9K/DP 전용 신규 프리셋 추가 (기존 `HomeRow`/`ArcadeZx`는 7K+1S 전용으로 불변 유지)
-- [ ] `InputConfig`가 모드별 기본 바인딩 세트를 제공하도록 확장
-- [ ] `main.rs`가 Key Config 화면에 현재 로드된 차트의 `PlayMode`에 맞는 전체 레인 목록을 전달하도록 수정 (`skin.active_lanes()` 고정 호출 제거)
-- [ ] Key Config 화면 UI: 레인 수가 8개를 넘는 DP 모드를 위한 2열 레이아웃 또는 스크롤 지원
+- [x] `KeyPreset`에 9K/DP 전용 신규 프리셋 추가 (기존 `HomeRow`/`ArcadeZx`는 7K+1S 전용으로 불변 유지) — `Pms9K`(S D F Space J K L ; ', 스크래치 없음) / `DoublePlay`(1P측 ArcadeZx 그대로 + 2P측 RShift+U I O P [ ] \\) 추가. `toggle_preset()`이 4개 프리셋을 모두 순회한 뒤 Custom으로 진입
+- [x] `InputConfig`가 모드별 기본 바인딩 세트를 제공하도록 확장 — `map_key`/`get_key_name_for_lane`/`init_custom_from_preset`에 신규 프리셋 분기 추가. 부수 수정: `serialize_bindings()`가 기존 8레인만 순회하던 버그 발견 및 수정(`beetle-core`에 `Lane::ALL` 18레인 상수 신규 추가) — PMS/DP 레인 커스텀 바인딩이 저장 시 사라지던 문제 해결
+- [x] `main.rs`가 Key Config 화면에 현재 로드된 차트의 `PlayMode`에 맞는 전체 레인 목록을 전달하도록 수정 (`skin.active_lanes()` 고정 호출 제거) — `AppState::key_config_mode()`(로드된 차트 우선, 없으면 송셀렉트에서 하이라이트된 곡의 캐시된 PlayMode) / `key_config_lanes()` 신규 추가, `handlers/key_config.rs`의 Up/Down·Rebind 경계값도 실제 레인 수 기준으로 수정(`.min(7)` 하드코딩 제거)
+- [x] Key Config 화면 UI: 레인 수가 8개를 넘는 DP 모드를 위한 2열 레이아웃 또는 스크롤 지원 — `render_key_config()`가 `key_names.len() > 8`일 때 1P/2P 2열로 자동 분할(기존 단일열 코드 경로는 완전히 동일하게 유지, 픽셀 회귀 없음). 레인 색상 표시도 기존 "행 위치 기반"에서 "라벨 텍스트 기반"(`lane_indicator_color`)으로 수정 — PMS처럼 스크래치가 없는 모드에서 Key1이 잘못 빨간색(스크래치색)으로 표시되던 잠재 버그도 같이 해결
+
+> 검증: `input.rs`에 신규 유닛 테스트 4종(Pms9K 매핑, DoublePlay 매핑, 4프리셋 순회, DP 레인 직렬화 라운드트립 회귀 테스트) 추가, 전부 통과. 인게임 시각 확인: 7K 차트로 Key Config 진입 → 기존 단일열 레이아웃 완전 동일(회귀 없음) 확인, F1로 PMS 9K 프리셋 전환 → "SCRATCH: None"(PMS는 스크래치 바인딩 없음) 정상 표시 확인(스크린샷 캡처). 2열 DP 레이아웃은 라이브러리에 실제 10K/14K 차트가 없어 Phase 5로 시각 확인을 미룸(기하학적 정합성은 `key_config.rs`의 분기 로직 자체가 레인 개수에만 의존하므로 Phase 3와 동일한 사유로 코드 레벨에서는 안전).
 
 ---
 

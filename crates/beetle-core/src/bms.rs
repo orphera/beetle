@@ -72,6 +72,32 @@ pub enum Lane {
     P2Key7,
 }
 
+impl Lane {
+    /// Every `Lane` variant, in declaration order. Used wherever all lanes
+    /// need enumerating (e.g. serializing custom key bindings) instead of
+    /// each call site maintaining its own duplicate list.
+    pub const ALL: [Lane; 18] = [
+        Lane::Scratch,
+        Lane::Key1,
+        Lane::Key2,
+        Lane::Key3,
+        Lane::Key4,
+        Lane::Key5,
+        Lane::Key6,
+        Lane::Key7,
+        Lane::Key8,
+        Lane::Key9,
+        Lane::P2Scratch,
+        Lane::P2Key1,
+        Lane::P2Key2,
+        Lane::P2Key3,
+        Lane::P2Key4,
+        Lane::P2Key5,
+        Lane::P2Key6,
+        Lane::P2Key7,
+    ];
+}
+
 /// Note type (tap, long note endpoints, landmine).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoteType {

@@ -11,20 +11,17 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
         return;
     }
 
+    let lanes = state.key_config_lanes();
+    let max_idx = lanes.len().saturating_sub(1);
+
     if state.is_rebinding_key {
         if code == KeyCode::Escape {
             state.is_rebinding_key = false;
         } else {
-            let target_lane = match state.selected_key_idx {
-                0 => Lane::Scratch,
-                1 => Lane::Key1,
-                2 => Lane::Key2,
-                3 => Lane::Key3,
-                4 => Lane::Key4,
-                5 => Lane::Key5,
-                6 => Lane::Key6,
-                _ => Lane::Key7,
-            };
+            let target_lane = lanes
+                .get(state.selected_key_idx)
+                .copied()
+                .unwrap_or(Lane::Key1);
             state.input_config.bind_key(code, target_lane);
             state.is_rebinding_key = false;
             state.save_config();
@@ -42,7 +39,7 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
                 state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
             }
             KeyCode::ArrowDown | KeyCode::KeyJ => {
-                state.selected_key_idx = (state.selected_key_idx + 1).min(7);
+                state.selected_key_idx = (state.selected_key_idx + 1).min(max_idx);
             }
             KeyCode::F1 => {
                 state.input_config.toggle_preset();

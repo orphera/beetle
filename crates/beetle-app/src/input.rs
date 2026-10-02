@@ -2,13 +2,18 @@ use beetle_core::Lane;
 use std::collections::HashMap;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
-/// Key mapping presets for 7K + 1S play.
+/// Key mapping presets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyPreset {
     /// Ergonomic Home Row layout: Left Shift (Scratch) + S D F Space J K L (Keys 1..7)
     HomeRow,
     /// Traditional Arcade / LR2 layout: Left Shift (Scratch) + Z S X D C F V (Keys 1..7)
     ArcadeZx,
+    /// PMS (9-Key, no scratch): S D F Space J K L ; ' (Keys 1..9)
+    Pms9K,
+    /// Double Play (10K/14K): 1P side mirrors ArcadeZx, 2P side mirrors it
+    /// on the right hand (RShift + U I O P [ ] \)
+    DoublePlay,
     /// Custom user-defined key bindings
     Custom,
 }
@@ -18,6 +23,8 @@ impl KeyPreset {
         match self {
             Self::HomeRow => "HomeRow (S D F Space J K L)",
             Self::ArcadeZx => "ArcadeZx (Z S X D C F V)",
+            Self::Pms9K => "PMS 9K (S D F Space J K L ; ')",
+            Self::DoublePlay => "Double Play (LShift+ZSXDCFV / RShift+UIOP[]\\)",
             Self::Custom => "Custom Layout",
         }
     }
@@ -48,7 +55,9 @@ impl InputConfig {
     pub fn toggle_preset(&mut self) {
         self.preset = match self.preset {
             KeyPreset::HomeRow => KeyPreset::ArcadeZx,
-            KeyPreset::ArcadeZx => {
+            KeyPreset::ArcadeZx => KeyPreset::Pms9K,
+            KeyPreset::Pms9K => KeyPreset::DoublePlay,
+            KeyPreset::DoublePlay => {
                 if !self.custom_bindings.is_empty() {
                     KeyPreset::Custom
                 } else {
@@ -85,8 +94,8 @@ impl InputConfig {
     }
 
     fn init_custom_from_preset(&mut self, preset: KeyPreset) {
-        let pairs = match preset {
-            KeyPreset::HomeRow => [
+        let pairs: Vec<(KeyCode, Lane)> = match preset {
+            KeyPreset::HomeRow => vec![
                 (KeyCode::ShiftLeft, Lane::Scratch),
                 (KeyCode::KeyS, Lane::Key1),
                 (KeyCode::KeyD, Lane::Key2),
@@ -96,7 +105,7 @@ impl InputConfig {
                 (KeyCode::KeyK, Lane::Key6),
                 (KeyCode::KeyL, Lane::Key7),
             ],
-            KeyPreset::ArcadeZx | KeyPreset::Custom => [
+            KeyPreset::ArcadeZx | KeyPreset::Custom => vec![
                 (KeyCode::ShiftLeft, Lane::Scratch),
                 (KeyCode::KeyZ, Lane::Key1),
                 (KeyCode::KeyS, Lane::Key2),
@@ -105,6 +114,37 @@ impl InputConfig {
                 (KeyCode::KeyC, Lane::Key5),
                 (KeyCode::KeyF, Lane::Key6),
                 (KeyCode::KeyV, Lane::Key7),
+            ],
+            // PMS has no scratch lane - 9 key buttons only.
+            KeyPreset::Pms9K => vec![
+                (KeyCode::KeyS, Lane::Key1),
+                (KeyCode::KeyD, Lane::Key2),
+                (KeyCode::KeyF, Lane::Key3),
+                (KeyCode::Space, Lane::Key4),
+                (KeyCode::KeyJ, Lane::Key5),
+                (KeyCode::KeyK, Lane::Key6),
+                (KeyCode::KeyL, Lane::Key7),
+                (KeyCode::Semicolon, Lane::Key8),
+                (KeyCode::Quote, Lane::Key9),
+            ],
+            // 1P side mirrors ArcadeZx; 2P side mirrors it on the right hand.
+            KeyPreset::DoublePlay => vec![
+                (KeyCode::ShiftLeft, Lane::Scratch),
+                (KeyCode::KeyZ, Lane::Key1),
+                (KeyCode::KeyS, Lane::Key2),
+                (KeyCode::KeyX, Lane::Key3),
+                (KeyCode::KeyD, Lane::Key4),
+                (KeyCode::KeyC, Lane::Key5),
+                (KeyCode::KeyF, Lane::Key6),
+                (KeyCode::KeyV, Lane::Key7),
+                (KeyCode::ShiftRight, Lane::P2Scratch),
+                (KeyCode::KeyU, Lane::P2Key1),
+                (KeyCode::KeyI, Lane::P2Key2),
+                (KeyCode::KeyO, Lane::P2Key3),
+                (KeyCode::KeyP, Lane::P2Key4),
+                (KeyCode::BracketLeft, Lane::P2Key5),
+                (KeyCode::BracketRight, Lane::P2Key6),
+                (KeyCode::Backslash, Lane::P2Key7),
             ],
         };
 
@@ -145,6 +185,37 @@ impl InputConfig {
                 KeyCode::KeyC => Some(Lane::Key5),
                 KeyCode::KeyF => Some(Lane::Key6),
                 KeyCode::KeyV => Some(Lane::Key7),
+                _ => None,
+            },
+            KeyPreset::Pms9K => match code {
+                KeyCode::KeyS => Some(Lane::Key1),
+                KeyCode::KeyD => Some(Lane::Key2),
+                KeyCode::KeyF => Some(Lane::Key3),
+                KeyCode::Space => Some(Lane::Key4),
+                KeyCode::KeyJ => Some(Lane::Key5),
+                KeyCode::KeyK => Some(Lane::Key6),
+                KeyCode::KeyL => Some(Lane::Key7),
+                KeyCode::Semicolon => Some(Lane::Key8),
+                KeyCode::Quote => Some(Lane::Key9),
+                _ => None,
+            },
+            KeyPreset::DoublePlay => match code {
+                KeyCode::ShiftLeft | KeyCode::ControlLeft => Some(Lane::Scratch),
+                KeyCode::KeyZ => Some(Lane::Key1),
+                KeyCode::KeyS => Some(Lane::Key2),
+                KeyCode::KeyX => Some(Lane::Key3),
+                KeyCode::KeyD => Some(Lane::Key4),
+                KeyCode::KeyC => Some(Lane::Key5),
+                KeyCode::KeyF => Some(Lane::Key6),
+                KeyCode::KeyV => Some(Lane::Key7),
+                KeyCode::ShiftRight | KeyCode::ControlRight => Some(Lane::P2Scratch),
+                KeyCode::KeyU => Some(Lane::P2Key1),
+                KeyCode::KeyI => Some(Lane::P2Key2),
+                KeyCode::KeyO => Some(Lane::P2Key3),
+                KeyCode::KeyP => Some(Lane::P2Key4),
+                KeyCode::BracketLeft => Some(Lane::P2Key5),
+                KeyCode::BracketRight => Some(Lane::P2Key6),
+                KeyCode::Backslash => Some(Lane::P2Key7),
                 _ => None,
             },
             KeyPreset::Custom => self.custom_bindings.get(&code).copied(),
@@ -188,25 +259,47 @@ impl InputConfig {
                 _ => "None",
             }
             .to_string(),
+            KeyPreset::Pms9K => match lane {
+                Lane::Key1 => "S",
+                Lane::Key2 => "D",
+                Lane::Key3 => "F",
+                Lane::Key4 => "Space",
+                Lane::Key5 => "J",
+                Lane::Key6 => "K",
+                Lane::Key7 => "L",
+                Lane::Key8 => ";",
+                Lane::Key9 => "'",
+                _ => "None",
+            }
+            .to_string(),
+            KeyPreset::DoublePlay => match lane {
+                Lane::Scratch => "LShift",
+                Lane::Key1 => "Z",
+                Lane::Key2 => "S",
+                Lane::Key3 => "X",
+                Lane::Key4 => "D",
+                Lane::Key5 => "C",
+                Lane::Key6 => "F",
+                Lane::Key7 => "V",
+                Lane::P2Scratch => "RShift",
+                Lane::P2Key1 => "U",
+                Lane::P2Key2 => "I",
+                Lane::P2Key3 => "O",
+                Lane::P2Key4 => "P",
+                Lane::P2Key5 => "[",
+                Lane::P2Key6 => "]",
+                Lane::P2Key7 => "\\",
+                _ => "None",
+            }
+            .to_string(),
             KeyPreset::Custom => "None".to_string(),
         }
     }
 
     /// Serializes custom bindings to a compact string format: "Scratch:ShiftLeft,Key1:KeyS,..."
     pub fn serialize_bindings(&self) -> String {
-        let lanes = [
-            Lane::Scratch,
-            Lane::Key1,
-            Lane::Key2,
-            Lane::Key3,
-            Lane::Key4,
-            Lane::Key5,
-            Lane::Key6,
-            Lane::Key7,
-        ];
-
         let mut parts = Vec::new();
-        for &lane in &lanes {
+        for &lane in &Lane::ALL {
             if let Some((&code, _)) = self.custom_bindings.iter().find(|(_, &l)| l == lane) {
                 parts.push(format!(
                     "{}:{}",
@@ -238,6 +331,33 @@ impl InputConfig {
         if !self.custom_bindings.is_empty() {
             self.preset = KeyPreset::Custom;
         }
+    }
+}
+
+/// Human-readable Key Config screen label for a lane (e.g. "KEY 1 (1P)").
+/// Mode-independent: Key Config builds its row list from
+/// `SkinConfig::active_lanes()` for the chart's `PlayMode`, so only lanes
+/// that actually apply to the current mode ever get labeled here.
+pub fn lane_label(lane: Lane) -> &'static str {
+    match lane {
+        Lane::Scratch => "SCRATCH (1S)",
+        Lane::Key1 => "KEY 1 (1P)",
+        Lane::Key2 => "KEY 2 (1P)",
+        Lane::Key3 => "KEY 3 (1P)",
+        Lane::Key4 => "KEY 4 (1P)",
+        Lane::Key5 => "KEY 5 (1P)",
+        Lane::Key6 => "KEY 6 (1P)",
+        Lane::Key7 => "KEY 7 (1P)",
+        Lane::Key8 => "KEY 8 (1P)",
+        Lane::Key9 => "KEY 9 (1P)",
+        Lane::P2Scratch => "SCRATCH (2S)",
+        Lane::P2Key1 => "KEY 1 (2P)",
+        Lane::P2Key2 => "KEY 2 (2P)",
+        Lane::P2Key3 => "KEY 3 (2P)",
+        Lane::P2Key4 => "KEY 4 (2P)",
+        Lane::P2Key5 => "KEY 5 (2P)",
+        Lane::P2Key6 => "KEY 6 (2P)",
+        Lane::P2Key7 => "KEY 7 (2P)",
     }
 }
 
@@ -633,6 +753,90 @@ mod tests {
         assert_eq!(
             restored.map_key(PhysicalKey::Code(KeyCode::Comma)),
             Some(Lane::Key6)
+        );
+    }
+
+    #[test]
+    fn test_pms_9k_preset_has_no_scratch_and_nine_keys() {
+        let config = InputConfig::new(KeyPreset::Pms9K);
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::ShiftLeft)),
+            None,
+            "PMS has no scratch lane"
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyS)),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::Semicolon)),
+            Some(Lane::Key8)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::Quote)),
+            Some(Lane::Key9)
+        );
+    }
+
+    #[test]
+    fn test_double_play_preset_covers_both_1p_and_2p_sides() {
+        let config = InputConfig::new(KeyPreset::DoublePlay);
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::ShiftLeft)),
+            Some(Lane::Scratch)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyZ)),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::ShiftRight)),
+            Some(Lane::P2Scratch)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::KeyU)),
+            Some(Lane::P2Key1)
+        );
+        assert_eq!(
+            config.map_key(PhysicalKey::Code(KeyCode::Backslash)),
+            Some(Lane::P2Key7)
+        );
+    }
+
+    #[test]
+    fn test_toggle_preset_cycles_through_all_four_before_custom() {
+        let mut config = InputConfig::new(KeyPreset::HomeRow);
+        config.toggle_preset();
+        assert_eq!(config.preset, KeyPreset::ArcadeZx);
+        config.toggle_preset();
+        assert_eq!(config.preset, KeyPreset::Pms9K);
+        config.toggle_preset();
+        assert_eq!(config.preset, KeyPreset::DoublePlay);
+        config.toggle_preset();
+        // No custom bindings set yet, so it wraps back to HomeRow.
+        assert_eq!(config.preset, KeyPreset::HomeRow);
+    }
+
+    #[test]
+    fn test_serialize_bindings_roundtrips_double_play_lanes() {
+        // Regression test: serialize_bindings() used to only enumerate the
+        // original 8 lanes, so custom bindings on PMS/DP lanes silently
+        // vanished on save/reload.
+        let mut config = InputConfig::new(KeyPreset::DoublePlay);
+        config.bind_key(KeyCode::KeyU, Lane::P2Key1);
+        config.bind_key(KeyCode::Semicolon, Lane::Key8);
+
+        let s = config.serialize_bindings();
+        let mut restored = InputConfig::new(KeyPreset::HomeRow);
+        restored.deserialize_bindings(&s);
+
+        assert_eq!(
+            restored.map_key(PhysicalKey::Code(KeyCode::KeyU)),
+            Some(Lane::P2Key1)
+        );
+        assert_eq!(
+            restored.map_key(PhysicalKey::Code(KeyCode::Semicolon)),
+            Some(Lane::Key8)
         );
     }
 }
