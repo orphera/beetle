@@ -1078,38 +1078,9 @@ impl SoftwareRenderer {
 
         let vis_y = bga_y + bga_h + 16.0 * s;
         let vis_h = 95.0 * s;
-        let b_line = (1.0 * s).max(1.0);
 
-        // Visualizer background
-        self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(12, 14, 20, 255));
-        self.draw_rect(
-            side_x,
-            vis_y,
-            bga_w,
-            b_line,
-            ColorRgba::new(60, 70, 90, 255),
-        );
-        self.draw_rect(
-            side_x,
-            vis_y + vis_h - b_line,
-            bga_w,
-            b_line,
-            ColorRgba::new(60, 70, 90, 255),
-        );
-        self.draw_rect(
-            side_x,
-            vis_y,
-            b_line,
-            vis_h,
-            ColorRgba::new(60, 70, 90, 255),
-        );
-        self.draw_rect(
-            side_x + bga_w - b_line,
-            vis_y,
-            b_line,
-            vis_h,
-            ColorRgba::new(60, 70, 90, 255),
-        );
+        // Visualizer background (contrast alone separates it from the base bg)
+        self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(22, 25, 36, 255));
 
         let font_scale = (s * 0.9).round().max(1.0) as u32;
         BitmapFont::draw_text(
