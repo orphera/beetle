@@ -404,21 +404,7 @@ impl SoftwareRenderer {
                     item_y,
                     item_w,
                     item_h,
-                    ColorRgba::new(20, 25, 38, 200),
-                );
-                self.draw_rect(
-                    item_x,
-                    item_y,
-                    item_w,
-                    1.0 * s,
-                    ColorRgba::new(40, 48, 68, 255),
-                );
-                self.draw_rect(
-                    item_x,
-                    item_y + item_h - 1.0 * s,
-                    item_w,
-                    1.0 * s,
-                    ColorRgba::new(40, 48, 68, 255),
+                    ColorRgba::new(24, 30, 46, 255),
                 );
             }
 
