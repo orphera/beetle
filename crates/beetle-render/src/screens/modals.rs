@@ -24,7 +24,7 @@ impl SoftwareRenderer {
         let font_scale = (s * 0.9).round().max(1.0) as u32;
 
         let modal_w = 500.0 * s;
-        let modal_h = (510.0 * s).min(vp.height - 40.0 * s);
+        let modal_h = (580.0 * s).min(vp.height - 40.0 * s);
         let modal_x = vp.x + (vp.width - modal_w) / 2.0;
         let modal_y = vp.y + (vp.height - modal_h) / 2.0;
 
@@ -119,7 +119,47 @@ impl SoftwareRenderer {
 
         let row_step = 28.0 * s;
         let mut row_y = (modal_y + 46.0 * s) as i32;
+
+        // Section header boundaries: (row index this header precedes, label).
+        // Purely visual grouping - row indices below are untouched so
+        // handle_option_modal_input's match arms keep working unmodified.
+        const SECTION_HEADERS: [(usize, &str); 4] = [
+            (0, "PLAY"),
+            (4, "AUDIO"),
+            (5, "DISPLAY / SYSTEM"),
+            (9, "INPUT & SESSION"),
+        ];
+        let header_scale = (font_scale * 8 / 10).max(1);
+
         for (i, (label, val)) in rows.iter().enumerate() {
+            if let Some((_, section_label)) = SECTION_HEADERS.iter().find(|(idx, _)| *idx == i) {
+                if i > 0 {
+                    row_y += 6.0 as i32 * s as i32;
+                }
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    section_label,
+                    (modal_x + 20.0 * s) as i32,
+                    row_y,
+                    header_scale,
+                    ColorRgba::new(100, 160, 220, 255),
+                );
+                self.draw_rect(
+                    modal_x
+                        + 20.0 * s
+                        + BitmapFont::text_width(section_label, header_scale) as f32
+                        + 10.0 * s,
+                    row_y as f32 + 4.0 * s,
+                    modal_w
+                        - 40.0 * s
+                        - BitmapFont::text_width(section_label, header_scale) as f32
+                        - 10.0 * s,
+                    1.0 * s,
+                    ColorRgba::new(45, 60, 90, 255),
+                );
+                row_y += (18.0 * s) as i32;
+            }
+
             let is_sel = i == selected_row;
             let (text_color, bg_color) = if is_sel {
                 (
