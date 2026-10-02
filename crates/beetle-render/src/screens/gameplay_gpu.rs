@@ -389,7 +389,7 @@ pub fn render_gameplay_gpu(
     let side_x = skin.playfield_x + skin.playfield_width + 48.0 * s;
     let bga_y = skin.playfield_y + 240.0 * s;
     let max_w = (viewport.x + viewport.width - side_x - 24.0 * s).max(100.0);
-    let bga_w = (520.0 * s).min(max_w);
+    let bga_w = max_w;
     let bga_h = (bga_w * 9.0 / 16.0).round();
 
     batcher.draw_rect(

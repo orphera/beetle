@@ -176,7 +176,9 @@ impl SoftwareRenderer {
         let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
         let bga_y = self.skin.playfield_y + 240.0 * s;
         let max_w = (self.viewport.x + self.viewport.width - side_x - 24.0 * s).max(100.0);
-        let bga_w = (520.0 * s).min(max_w);
+        // Fill the full width the HUD panel actually has (no arbitrary pixel cap),
+        // so widescreen windows don't leave dead space right of the BGA frame.
+        let bga_w = max_w;
         let bga_h = (bga_w * 9.0 / 16.0).round();
         draw_rect_on_pixmap(
             &mut bg,
@@ -1029,7 +1031,7 @@ impl SoftwareRenderer {
         let side_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
         let bga_y = self.skin.playfield_y + 240.0 * s;
         let max_w = (self.viewport.x + self.viewport.width - side_x - 24.0 * s).max(100.0);
-        let bga_w = (520.0 * s).min(max_w);
+        let bga_w = max_w;
         let bga_h = (bga_w * 9.0 / 16.0).round();
 
         // BGA frame
