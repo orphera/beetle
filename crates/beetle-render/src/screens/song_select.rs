@@ -1,7 +1,8 @@
 use crate::bitmap_font::BitmapFont;
 use crate::image::ImageBuffer;
 use crate::renderer::{
-    accuracy_to_rank, clear_lamp_color, level_color, truncate_str, SoftwareRenderer,
+    accuracy_to_rank, clear_lamp_color, level_color, level_tier_label, truncate_str,
+    SoftwareRenderer,
 };
 use crate::skin::ColorRgba;
 
@@ -475,8 +476,9 @@ impl SoftwareRenderer {
             );
             cur_y += 24.0 * s;
 
-            // Attribute 2x2 Grid
-            let grid_box_w = (art_w - 12.0 * s) / 2.0;
+            // Attribute Grid: BPM, LEVEL (colored by difficulty tier), NOTES
+            let grid_gap = 12.0 * s;
+            let grid_box_w = (art_w - grid_gap * 2.0) / 3.0;
             let grid_box_h = 44.0 * s;
 
             // Box 1: BPM
@@ -512,8 +514,9 @@ impl SoftwareRenderer {
                 ColorRgba::new(255, 220, 90, 255),
             );
 
-            // Box 2: Total Notes
-            let box2_x = art_x + grid_box_w + 12.0 * s;
+            // Box 2: Level (difficulty tier name doubles as the LV badge color legend)
+            let box2_x = art_x + grid_box_w + grid_gap;
+            let selected_lvl_color = level_color(selected_song.play_level);
             self.draw_rect(
                 box2_x,
                 cur_y,
@@ -521,8 +524,36 @@ impl SoftwareRenderer {
                 grid_box_h,
                 ColorRgba::new(20, 24, 36, 255),
             );
+            self.draw_rect(box2_x, cur_y, grid_box_w, 1.0 * s, selected_lvl_color);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                level_tier_label(selected_song.play_level),
+                (box2_x + 8.0 * s) as i32,
+                (cur_y + 6.0 * s) as i32,
+                font_scale,
+                selected_lvl_color,
+            );
+            let lvl_val = format!("LV.{}", selected_song.play_level);
+            BitmapFont::draw_bold_text(
+                &mut self.pixmap.as_mut(),
+                &lvl_val,
+                (box2_x + 8.0 * s) as i32,
+                (cur_y + 20.0 * s) as i32,
+                font_scale,
+                selected_lvl_color,
+            );
+
+            // Box 3: Total Notes
+            let box3_x = box2_x + grid_box_w + grid_gap;
             self.draw_rect(
-                box2_x,
+                box3_x,
+                cur_y,
+                grid_box_w,
+                grid_box_h,
+                ColorRgba::new(20, 24, 36, 255),
+            );
+            self.draw_rect(
+                box3_x,
                 cur_y,
                 grid_box_w,
                 1.0 * s,
@@ -531,7 +562,7 @@ impl SoftwareRenderer {
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 "NOTES",
-                (box2_x + 8.0 * s) as i32,
+                (box3_x + 8.0 * s) as i32,
                 (cur_y + 6.0 * s) as i32,
                 font_scale,
                 ColorRgba::new(120, 130, 160, 255),
@@ -540,7 +571,7 @@ impl SoftwareRenderer {
             BitmapFont::draw_bold_text(
                 &mut self.pixmap.as_mut(),
                 &notes_val,
-                (box2_x + 8.0 * s) as i32,
+                (box3_x + 8.0 * s) as i32,
                 (cur_y + 20.0 * s) as i32,
                 font_scale,
                 ColorRgba::new(100, 220, 255, 255),

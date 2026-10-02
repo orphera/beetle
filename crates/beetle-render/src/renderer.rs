@@ -318,6 +318,18 @@ pub(crate) fn level_color(level: u32) -> ColorRgba {
     }
 }
 
+/// Human-readable difficulty tier name matching `level_color`'s bucketing,
+/// so the LV badge color always has a spelled-out meaning somewhere on screen.
+pub(crate) fn level_tier_label(level: u32) -> &'static str {
+    match level {
+        1..=4 => "NORMAL",
+        5..=8 => "HYPER",
+        9..=10 => "ANOTHER",
+        11..=12 => "INSANE",
+        _ => "OVERJOY",
+    }
+}
+
 pub(crate) fn clear_lamp_color(
     clear_type: Option<beetle_core::ClearType>,
 ) -> (&'static str, ColorRgba) {
