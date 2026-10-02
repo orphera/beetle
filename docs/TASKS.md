@@ -1,4 +1,4 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 9)
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 10)
 
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
@@ -11,44 +11,65 @@
 > - [archive/tasks_milestone_6.md](archive/tasks_milestone_6.md): 초경량 멀티 백엔드 GPU 하드웨어 가속 렌더링 엔진, CJK 한자 폴백, 진성 GPU 배치 파이프라인
 > - [archive/tasks_milestone_7.md](archive/tasks_milestone_7.md): 듀얼 아틀라스(Sound & BGA Atlas) 초고속 패키지 엔진, 무손실 FLAC 압축, WebDAV VFS 온더플라이 WAV 합성
 > - [archive/tasks_milestone_8.md](archive/tasks_milestone_8.md): 원격 패키지 레지스트리 및 온라인 송 허브 (`bpm update/search/install/upgrade`, `bpm serve`, `bpm-gui` 온라인 탭)
+> - [archive/tasks_milestone_9.md](archive/tasks_milestone_9.md): 순수 .bmsp 아카이브 전용 저장소 및 UI 디자인 시스템 수립
 
 ---
 
-# 🚀 Milestone 9: 순수 .bmsp 아카이브 전용 저장소 (Pure BMSP Archive Storage)
+# 🚀 Milestone 10: 멀티키 모드 실동작 지원 (Multi-Key Mode Playability: 9K / 10K / 14K)
 
-자세한 기술 설계 및 아키텍처는 [specs/pure_bmsp_storage.md](specs/pure_bmsp_storage.md)를 참조합니다.
+자세한 기술 설계 및 아키텍처는 [specs/multi_key_mode_support.md](specs/multi_key_mode_support.md)를 참조합니다.
 
----
-
-## 📋 Phase 1: `bms-package-manager::storage` 설치 파이프라인 다이어트 (`crates/bms-package-manager/src/storage.rs`)
-- [x] **`install_package_with_progress()` 리팩토링**
-  - [x] 루즈 파일 추출 루프(`entries` 순회 `fs::write`) 완전 제거
-  - [x] 임시 폴더(`.tmp_install/`)에 `manifest.json`과 `package.bmsp`만 원자적으로 저장 및 커밋
-- [x] **`install_companion()` & `remove_companion()` 리팩토링**
-  - [x] 비디오 파일 디스크 추출 및 탐색 삭제 로직 제거
-  - [x] `<id>.bga.bmsp` 아카이브 파일만 해당 state 디렉터리에 단일 파일로 저장 및 원자적 삭제
+**배경**: 9Key(PMS)/10Key/14Key(더블 플레이) 차트는 메타데이터 탐지만 정상이고, 실제로는 2P/추가 키 채널이 전부 배경음악으로 치환되어 5Key·7Key 범위로만 플레이된다. `Lane` enum, 파서, 입력 설정이 모두 "7K + 1S" 전용으로 하드코딩되어 있던 것이 근본 원인.
 
 ---
 
-## 📋 Phase 2: `beetle-app::scanner` 패키지 탐색 최적화 (`crates/beetle-app/src/scanner.rs`)
-- [x] **채보 없는 BGA 컴패니언 아카이브 건너뛰기**
-  - [x] `packages/` 탐색 시 `*.bga.bmsp` 파일은 불필요하게 열지 않고 조기 스킵
-  - [x] `package.bmsp` 단일 파일 인식 및 `virtual_path` 인덱싱 무결성 확인
+## 📋 Phase 1: 코어 데이터 모델 — Lane enum 확장 및 2-패스 모드 인식 파서 (`crates/beetle-core`)
+- [ ] **`Lane` enum에 신규 변형 추가 (append-only, 기존 8개 값/순서 불변)**
+  - [ ] `Key8`, `Key9` (PMS 9K 전용 추가 버튼)
+  - [ ] `P2Scratch`, `P2Key1`..`P2Key7` (DP 10K/14K 2P 측)
+- [ ] **파서를 PASS 2a(플래그 스캔) / PASS 2b(노트 생성)로 분리**
+  - [ ] PASS 2a: 전체 측정 라인을 순회하며 `has_scratch`/`has_k67`/`has_2p_dp`/`has_pms_ch`/`has_2p_key1` 플래그만 먼저 확정
+  - [ ] PASS 2a 종료 후 `chart.detect_play_mode()`로 최종 `PlayMode` 확정
+  - [ ] PASS 2b: 확정된 모드를 `channel_to_lane(ch, mode)`에 전달하여 노트 생성
+- [ ] **채널 21~29/61~69 모드별 분기 매핑**
+  - [ ] `Keys9`: `22→Key6, 23→Key7, 24→Key8, 25→Key9` (+LN 62~65)
+  - [ ] `Keys10`/`Keys14`: `21→P2Key1..25→P2Key5, 26→P2Scratch, 28→P2Key6, 29→P2Key7` (+LN 61~69)
+  - [ ] 그 외 모드(변칙 5K/7K)는 기존처럼 `bgm_notes` 폴백 유지 (회귀 방지)
+- [ ] **모디파이어(`modifier.rs`) 안전 통과**: `Key1..Key7` 외 레인(Key8/Key9/P2*)은 셔플 대상에서 제외하고 identity 통과
+- [ ] **리플레이(`replay.rs`) 직렬화 확장**: 신규 Lane 값을 8번부터 append, 기존 `.rep` 파일 역호환 유지
+- [ ] **단위 테스트**: 9K/10K/14K BMS 픽스처로 "모든 2P/추가 채널 노트가 `chart.notes`에 올바른 Lane으로 생성되는지" 검증 (기존 `detect_play_mode` 테스트와 별개로 신규 추가)
 
 ---
 
-## 📋 Phase 3: 단위 테스트 갱신 및 VFS / Exporter 정합성 확인
-- [x] **`crates/bms-package-manager/src/lib.rs` 단위 테스트 최신화**
-  - [x] 디스크에 풀린 개별 파일(`video.mp4`, `song.bms`, `01.wav`) assert를 `open().contains(...)` 및 `package.bmsp` 존재 확인으로 갱신
-- [x] **`vfs.rs`, `export.rs`, `serve.rs`, `updater.rs` 동작 확인**
-  - [x] `package.bmsp` 기반 동작이 깨지지 않고 100% 정상 작동하는지 확인
+## 📋 Phase 2: 판정/스코어 엔진 정합성 (`crates/beetle-core/src/judge`)
+- [ ] `Lane` exhaustive match 컴파일 에러 전부 해소 (현재 8개 가정 코드 전수 점검)
+- [ ] `JudgeEngine`/`ScoreTracker`가 신규 레인 노트를 1P 7K와 동일하게 판정하는지 확인
+- [ ] 신규 레인 포함 차트의 EX Score/정확도 분모가 실제 판정 가능 노트 수와 일치하는지 테스트로 검증
 
 ---
 
-## 📋 Phase 4: 전체 워크스페이스 검증 및 릴리스 빌드
-- [x] `cargo check --workspace` 타입 체크
-- [x] `cargo test --workspace` 전체 테스트 통과 검증
-- [x] `cargo build --release` 바이너리 크기 및 정상 동작 확인
+## 📋 Phase 3: 렌더 레이아웃 — 9K 단일 플레이필드 / DP 듀얼 플레이필드 (`crates/beetle-render`)
+- [ ] `SkinConfig::update_layout`에 `Keys9` 전용 분기 (스크래치 없는 9레인 단일 플레이필드)
+- [ ] DP(10K/14K)용 2차 좌표 세트 추가 (`playfield_x_p2` 등) 및 `lane_x()`의 `P2*` 레인 매핑
+- [ ] 화면 좌/우 듀얼 플레이필드 레이아웃 + HUD/BGA 축소 재배치
+- [ ] `lane_index()` 및 `key_pressed: [bool; 8]` 고정 배열을 `[bool; 18]`로 확장 (`renderer.rs`, `gameplay_gpu.rs`)
+- [ ] 소프트웨어 렌더러(`gameplay.rs`)·GPU 렌더러(`gameplay_gpu.rs`) 양쪽 동일 레이아웃 적용
+
+---
+
+## 📋 Phase 4: 입력 설정 & Key Config UI (`crates/beetle-app`)
+- [ ] `KeyPreset`에 9K/DP 전용 신규 프리셋 추가 (기존 `HomeRow`/`ArcadeZx`는 7K+1S 전용으로 불변 유지)
+- [ ] `InputConfig`가 모드별 기본 바인딩 세트를 제공하도록 확장
+- [ ] `main.rs`가 Key Config 화면에 현재 로드된 차트의 `PlayMode`에 맞는 전체 레인 목록을 전달하도록 수정 (`skin.active_lanes()` 고정 호출 제거)
+- [ ] Key Config 화면 UI: 레인 수가 8개를 넘는 DP 모드를 위한 2열 레이아웃 또는 스크롤 지원
+
+---
+
+## 📋 Phase 5: 전체 워크스페이스 검증 및 릴리스 빌드
+- [ ] `cargo check --workspace` 타입 체크
+- [ ] `cargo test --workspace` 전체 테스트 통과 검증
+- [ ] 9K/10K/14K 실제 BMS 패키지로 수동 플레이 검증 (노트 판정, 키 입력, 레이아웃)
+- [ ] `cargo build --release` 바이너리 크기 및 정상 동작 확인
 
 ---
 
