@@ -88,35 +88,7 @@ impl SoftwareRenderer {
         let box_x = vp.x + (vp.width - box_w) / 2.0;
         let box_y = vp.y + 95.0 * s;
 
-        self.draw_rect(box_x, box_y, box_w, box_h, ColorRgba::new(14, 18, 28, 255));
-        self.draw_rect(
-            box_x,
-            box_y,
-            box_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            box_x,
-            box_y + box_h - 1.0 * s,
-            box_w,
-            1.0 * s,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            box_x,
-            box_y,
-            1.0 * s,
-            box_h,
-            ColorRgba::new(35, 48, 75, 255),
-        );
-        self.draw_rect(
-            box_x + box_w - 1.0 * s,
-            box_y,
-            1.0 * s,
-            box_h,
-            ColorRgba::new(35, 48, 75, 255),
-        );
+        self.draw_rect(box_x, box_y, box_w, box_h, ColorRgba::new(17, 21, 33, 255));
 
         let row_step = 40.0 * s;
         let mut row_y = box_y + 18.0 * s;
@@ -162,7 +134,7 @@ impl SoftwareRenderer {
                     row_y - 4.0 * s,
                     box_w - 24.0 * s,
                     36.0 * s,
-                    ColorRgba::new(18, 24, 38, 180),
+                    ColorRgba::new(22, 27, 42, 255),
                 );
             }
 
