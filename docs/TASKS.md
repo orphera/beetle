@@ -52,11 +52,13 @@
 ---
 
 ## 📋 Phase 3: 렌더 레이아웃 — 9K 단일 플레이필드 / DP 듀얼 플레이필드 (`crates/beetle-render`)
-- [ ] `SkinConfig::update_layout`에 `Keys9` 전용 분기 (스크래치 없는 9레인 단일 플레이필드)
-- [ ] DP(10K/14K)용 2차 좌표 세트 추가 (`playfield_x_p2` 등) 및 `lane_x()`의 `P2*` 레인을 Phase 1의 임시 배치에서 실제 좌/우 듀얼 플레이필드 좌표로 교체
-- [ ] 화면 좌/우 듀얼 플레이필드 레이아웃 + HUD/BGA 축소 재배치
+- [x] `SkinConfig::update_layout`에 `Keys9` 전용 분기 (스크래치 없는 9레인 단일 플레이필드) — `playfield_width_for()`에 `Keys9 => 9.0 * lane_width` 분기 추가, `lane_x()`도 `Keys9`일 때 스크래치 오프셋 생략
+- [x] DP(10K/14K)용 2차 좌표 세트 추가 및 `lane_x()`의 `P2*` 레인을 Phase 1의 임시 배치에서 실제 좌/우 듀얼 플레이필드 좌표로 교체 — `dp_side_width()`/`p2_side_x()` 헬퍼로 1P 블록(스크래치+5 또는 7키) 바로 뒤에 작은 간격을 두고 2P 블록을 배치. 별도 필드(`playfield_x_p2` 등) 대신 기존 `playfield_width`를 "전체 플레이필드 스팬"으로 재정의해 `playfield_x + playfield_width`를 참조하는 기존 코드(HUD/게이지/BGA)가 자동으로 2P 측까지 커버하도록 함
+- [x] 화면 좌/우 듀얼 플레이필드 레이아웃 + HUD/BGA 축소 재배치 — 별도 코드 변경 불필요: `gameplay.rs`의 BGA `max_w`/게이지/HUD 위치가 모두 `playfield_x + playfield_width` 기준으로 계산되므로, 위에서 재정의한 `playfield_width`가 넓어지면 자동으로 오른쪽 패널들이 밀리고 축소됨 (Phase 2에서 확인한 "기존 앵커링 재사용" 패턴과 동일)
 - [x] `lane_index()` 및 `key_pressed` 고정 배열을 `[bool; LANE_COUNT]`(18)로 확장 (`renderer.rs`, `gameplay_gpu.rs`) — Phase 1에서 선반영
-- [ ] 소프트웨어 렌더러(`gameplay.rs`)·GPU 렌더러(`gameplay_gpu.rs`) 양쪽 동일 레이아웃 적용
+- [x] 소프트웨어 렌더러(`gameplay.rs`)·GPU 렌더러(`gameplay_gpu.rs`) 양쪽 동일 레이아웃 적용 — 둘 다 `skin.active_lanes()`/`skin.lane_x()`를 통해서만 레인 좌표를 얻으므로 `SkinConfig` 레벨 수정만으로 양쪽 렌더러에 동일하게 반영됨 (코드 중복 없음)
+
+> 검증: `skin.rs`에 신규 유닛 테스트 4종 추가 — Keys7 기존 좌표 회귀 없음, Keys9 스크래치 없는 9레인, Keys10(5+5)/Keys14(7+7) 듀얼 플레이필드가 겹치지 않고 `playfield_width`가 2P 측까지 포함함을 좌표 계산으로 검증. 라이브러리에 실제 9K/DP BMS 패키지가 없어 인게임 시각 확인은 Phase 5(수동 플레이 테스트)에서 수행.
 
 ---
 
