@@ -27,20 +27,20 @@ impl SoftwareRenderer {
         let s = vp.scale;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
 
-        // 1. Top Header Bar
+        // 1. Top Header Bar (design token colors)
         self.draw_rect(
             vp.x,
             vp.y,
             vp.width,
             54.0 * s,
-            ColorRgba::new(14, 16, 26, 255),
+            crate::design_tokens::ColorToken::SURFACE_BASE.rgba(),
         );
         self.draw_rect(
             vp.x,
             vp.y + 53.0 * s,
             vp.width,
             1.0 * s,
-            ColorRgba::new(45, 60, 95, 255),
+            crate::design_tokens::ColorToken::BORDER_SUBTLE.rgba(),
         );
 
         // Header Title
