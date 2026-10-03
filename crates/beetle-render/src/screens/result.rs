@@ -24,14 +24,14 @@ impl SoftwareRenderer {
             vp.y,
             vp.width,
             48.0 * s,
-            ColorRgba::new(14, 18, 28, 255),
+            crate::design_tokens::ColorToken::SURFACE_BASE.rgba(),
         );
         self.draw_rect(
             vp.x,
             vp.y + 47.0 * s,
             vp.width,
             1.0 * s,
-            ColorRgba::new(40, 55, 85, 255),
+            crate::design_tokens::ColorToken::BORDER_SUBTLE.rgba(),
         );
 
         BitmapFont::draw_badge(

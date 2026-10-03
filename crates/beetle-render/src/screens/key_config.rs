@@ -45,13 +45,13 @@ impl SoftwareRenderer {
         let font_scale = (s * 0.9).round().max(1.0) as u32;
         let center_x = (vp.x + vp.width / 2.0) as i32;
 
-        // Header
+        // Header (token colors)
         self.draw_rect(
             vp.x,
             vp.y,
             vp.width,
             48.0 * s,
-            ColorRgba::new(14, 18, 28, 255),
+            crate::design_tokens::ColorToken::SURFACE_BASE.rgba(),
         );
         self.draw_rect(
             vp.x,
