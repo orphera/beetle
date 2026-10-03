@@ -668,10 +668,20 @@ pub fn render_gameplay_gpu(
         }
     }
 
-    // 3. HUD Info (Title, Artist, BPM, Scores)
+    // 3. HUD Info (Title, Artist, BPM/Level, Score/Accuracy, Pacemaker, Judge breakdown)
+    //
+    // GPU batching note: `batcher` flushes whenever the bound texture changes
+    // (solid rect = no texture, text = font atlas texture). Earlier passes in
+    // this function already group every solid-color rect together ABOVE this
+    // point; from here to the end of the frame everything is font-atlas text,
+    // so this section stays text-only to avoid reintroducing a texture
+    // round-trip that would blow the "1~3 draw calls per frame" budget
+    // (see `test_render_gameplay_gpu_batched_draw_calls`).
     let hud_x = skin.playfield_x + skin.playfield_width + 48.0 * s;
     let mut hud_y = skin.playfield_y;
     let font_scale = (s * 0.9).round().max(1.0);
+    let label_scale = (font_scale * 0.78).max(1.0);
+    let label_col = ColorRgba::new(120, 128, 150, 255);
 
     font_atlas.draw_ascii_text(
         batcher,
@@ -682,7 +692,7 @@ pub fn render_gameplay_gpu(
         (2.0 * s).round().max(1.0),
         ColorRgba::new(255, 255, 255, 255),
     );
-    hud_y += 22.0 * s;
+    hud_y += 24.0 * s;
 
     font_atlas.draw_ascii_text(
         batcher,
@@ -691,57 +701,49 @@ pub fn render_gameplay_gpu(
         hud_x,
         hud_y,
         font_scale,
-        ColorRgba::new(160, 160, 180, 255),
-    );
-    hud_y += 28.0 * s;
-
-    let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
-    font_atlas.draw_ascii_text(
-        batcher,
-        backend,
-        &bpm_str,
-        hud_x,
-        hud_y,
-        font_scale,
-        ColorRgba::new(200, 200, 220, 255),
-    );
-    hud_y += 16.0 * s;
-
-    let lvl_str = format!("LEVEL: {}", chart.header.play_level);
-    font_atlas.draw_ascii_text(
-        batcher,
-        backend,
-        &lvl_str,
-        hud_x,
-        hud_y,
-        font_scale,
-        ColorRgba::new(200, 200, 220, 255),
+        ColorRgba::new(190, 195, 215, 255),
     );
     hud_y += 26.0 * s;
 
-    let ex_str = format!("EX SCORE: {} / {}", score.ex_score, score.max_ex_score());
-    font_atlas.draw_ascii_text(
-        batcher,
-        backend,
-        &ex_str,
-        hud_x,
-        hud_y,
-        font_scale,
-        ColorRgba::new(255, 230, 100, 255),
-    );
-    hud_y += 16.0 * s;
+    // Small helper: a "LABEL" caption line followed by a bigger value line,
+    // grouping related stats visually without needing a background box.
+    macro_rules! stat_line {
+        ($label:expr, $value:expr, $color:expr) => {{
+            font_atlas.draw_ascii_text(
+                batcher,
+                backend,
+                $label,
+                hud_x,
+                hud_y,
+                label_scale,
+                label_col,
+            );
+            hud_y += 11.0 * s;
+            font_atlas.draw_ascii_text(batcher, backend, $value, hud_x, hud_y, font_scale, $color);
+            hud_y += 17.0 * s;
+        }};
+    }
 
-    let acc_str = format!("ACCURACY: {:.2}%", score.accuracy_rate());
+    let bpm_lvl = format!(
+        "BPM {:.1}   LV {}",
+        chart.header.bpm, chart.header.play_level
+    );
     font_atlas.draw_ascii_text(
         batcher,
         backend,
-        &acc_str,
+        &bpm_lvl,
         hud_x,
         hud_y,
         font_scale,
-        ColorRgba::new(100, 220, 255, 255),
+        ColorRgba::new(200, 200, 220, 255),
     );
-    hud_y += 18.0 * s;
+    hud_y += 22.0 * s;
+
+    let ex_str = format!("{} / {}", score.ex_score, score.max_ex_score());
+    stat_line!("EX SCORE", &ex_str, ColorRgba::new(255, 225, 80, 255));
+
+    let acc_str = format!("{:.2}%", score.accuracy_rate());
+    stat_line!("ACCURACY", &acc_str, ColorRgba::new(80, 210, 255, 255));
 
     let played_notes = score.pgreat_count
         + score.great_count
@@ -752,21 +754,30 @@ pub fn render_gameplay_gpu(
     let max_so_far = played_notes * 2;
     let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
     let pace_diff = score.ex_score as i32 - aaa_target;
-    let (pace_str, pace_col) = if pace_diff >= 0 {
-        (
-            format!("PACEMAKER (AAA): +{}", pace_diff),
-            ColorRgba::new(100, 255, 120, 255),
-        )
+    let pace_str = if pace_diff >= 0 {
+        format!("+{}", pace_diff)
     } else {
-        (
-            format!("PACEMAKER (AAA): {}", pace_diff),
-            ColorRgba::new(255, 90, 90, 255),
-        )
+        format!("{}", pace_diff)
     };
+    let pace_col = if pace_diff >= 0 {
+        ColorRgba::new(100, 255, 120, 255)
+    } else {
+        ColorRgba::new(255, 90, 90, 255)
+    };
+    stat_line!("PACEMAKER (AAA)", &pace_str, pace_col);
+    hud_y += 6.0 * s;
+
+    // Judge breakdown: compact 2-column grid instead of a flat 6-row list.
     font_atlas.draw_ascii_text(
-        batcher, backend, &pace_str, hud_x, hud_y, font_scale, pace_col,
+        batcher,
+        backend,
+        "JUDGE BREAKDOWN",
+        hud_x,
+        hud_y,
+        label_scale,
+        label_col,
     );
-    hud_y += 22.0 * s;
+    hud_y += 16.0 * s;
 
     let counts = [
         (
@@ -775,27 +786,32 @@ pub fn render_gameplay_gpu(
             ColorRgba::new(255, 230, 80, 255),
         ),
         (
-            "GREAT ",
+            "GREAT",
             score.great_count,
             ColorRgba::new(255, 170, 50, 255),
         ),
-        (
-            "GOOD  ",
-            score.good_count,
-            ColorRgba::new(60, 220, 120, 255),
-        ),
-        ("BAD   ", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
-        ("POOR  ", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
-        (
-            "MISS  ",
-            score.miss_count,
-            ColorRgba::new(140, 140, 140, 255),
-        ),
+        ("GOOD", score.good_count, ColorRgba::new(60, 220, 120, 255)),
+        ("BAD", score.bad_count, ColorRgba::new(200, 90, 240, 255)),
+        ("POOR", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
+        ("MISS", score.miss_count, ColorRgba::new(150, 155, 175, 255)),
     ];
-    for (label, count, col) in counts {
-        let row = format!("{}: {:>4}", label, count);
-        font_atlas.draw_ascii_text(batcher, backend, &row, hud_x, hud_y, font_scale, col);
-        hud_y += 14.0 * s;
+    let col_w = 110.0 * s;
+    for row in 0..3 {
+        let (l0, c0, col0) = counts[row * 2];
+        let (l1, c1, col1) = counts[row * 2 + 1];
+        let row0 = format!("{} {}", l0, c0);
+        let row1 = format!("{} {}", l1, c1);
+        font_atlas.draw_ascii_text(batcher, backend, &row0, hud_x, hud_y, font_scale, col0);
+        font_atlas.draw_ascii_text(
+            batcher,
+            backend,
+            &row1,
+            hud_x + col_w,
+            hud_y,
+            font_scale,
+            col1,
+        );
+        hud_y += 16.0 * s;
     }
 
     // 4. Footer text

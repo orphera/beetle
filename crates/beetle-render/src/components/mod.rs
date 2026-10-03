@@ -5,11 +5,9 @@
 //! `draw_badge`, and `blit_glyph_aa` primitives — no new rendering dependencies.
 
 use crate::bitmap_font::BitmapFont;
-use crate::renderer::{truncate_str, SoftwareRenderer};
-use crate::skin::ColorRgba;
 use crate::design_tokens::*;
-
-use tiny_skia::{Paint, PixmapMut, Rect};
+use crate::renderer::SoftwareRenderer;
+use crate::skin::ColorRgba;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelVariant {
@@ -25,15 +23,7 @@ impl SoftwareRenderer {
 
     /// Draws a rectangle with rounded corners (top-left, top-right, bottom-right, bottom-left)
     /// approximated by filling corner squares. If radius is 0, it's a plain rect.
-    fn draw_rounded_rect(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        color: ColorRgba,
-        radius: f32,
-    ) {
+    fn draw_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba, radius: f32) {
         if radius <= 0.0 {
             self.draw_rect(x, y, w, h, color);
             return;
@@ -69,7 +59,7 @@ impl SoftwareRenderer {
             ),
         };
 
-        let r = Radius::MD.scaled(s);
+        let _ = Radius::MD.scaled(s);
         self.draw_rect(x, y, w, h, bg);
         if has_border {
             let bw = (1.0 * s).max(1.0);
@@ -166,7 +156,8 @@ impl SoftwareRenderer {
         let label_w = BitmapFont::text_width(label, font_scale) as f32;
         let value_w = BitmapFont::text_width(value, font_scale) as f32;
         let total_w = (label_w + Spacing::SM.scaled(s) + value_w).min(max_w);
-        let total_h = (BitmapFont::CJK_HEIGHT as f32 * font_scale + Spacing::XS.scaled(s) * 2.0)
+        let total_h = (BitmapFont::CJK_HEIGHT as f32 * font_scale as f32
+            + Spacing::XS.scaled(s) * 2.0)
             .max(Spacing::SM.scaled(s) * 2.0);
 
         // Background
@@ -289,13 +280,17 @@ impl SoftwareRenderer {
         );
 
         // Badges (left to right after title)
-        let mut badge_x = (x + Spacing::MD.scaled(s) + BitmapFont::text_width(title, title_scale) as f32 + Spacing::SM.scaled(s));
+        let mut badge_x = x
+            + Spacing::MD.scaled(s)
+            + BitmapFont::text_width(title, title_scale) as f32
+            + Spacing::SM.scaled(s);
         for (badge_label, badge_color) in badges {
             let badge_text = badge_label.to_string();
             let badge_w = (BitmapFont::text_width(&badge_text, font_scale) as f32
                 + Spacing::SM.scaled(s) * 2.0)
                 .min(200.0 * s);
-            let badge_h = (BitmapFont::CJK_HEIGHT as f32 * font_scale + Spacing::XS.scaled(s) * 2.0)
+            let badge_h = (BitmapFont::CJK_HEIGHT as f32 * font_scale as f32
+                + Spacing::XS.scaled(s) * 2.0)
                 .max(20.0 * s);
 
             // Badge background
@@ -307,7 +302,13 @@ impl SoftwareRenderer {
                 ColorToken::SURFACE_CARD.rgba(),
             );
             let bw = (1.0 * s).max(1.0);
-            self.draw_rect(badge_x, y + Spacing::XS.scaled(s), badge_w, bw, badge_color.rgba());
+            self.draw_rect(
+                badge_x,
+                y + Spacing::XS.scaled(s),
+                badge_w,
+                bw,
+                badge_color.rgba(),
+            );
 
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
@@ -322,7 +323,9 @@ impl SoftwareRenderer {
         }
 
         // Search box (right side)
-        let search_w = (260.0 * s).min(w - badge_x - Spacing::SM.scaled(s) * 2.0).max(180.0 * s);
+        let search_w = (260.0 * s)
+            .min(w - badge_x - Spacing::SM.scaled(s) * 2.0)
+            .max(180.0 * s);
         let search_x = w - search_w - Spacing::MD.scaled(s);
         let search_y = y + Spacing::XS.scaled(s);
         let search_h = h - Spacing::XS.scaled(s) * 2.0;
@@ -337,14 +340,30 @@ impl SoftwareRenderer {
         self.draw_rect(search_x, search_y, search_w, search_h, search_bg);
         let bw = (1.0 * s).max(1.0);
         self.draw_rect(search_x, search_y, search_w, bw, search_border);
-        self.draw_rect(search_x, search_y + search_h - bw, search_w, bw, search_border);
+        self.draw_rect(
+            search_x,
+            search_y + search_h - bw,
+            search_w,
+            bw,
+            search_border,
+        );
         self.draw_rect(search_x, search_y, bw, search_h, search_border);
-        self.draw_rect(search_x + search_w - bw, search_y, bw, search_h, search_border);
+        self.draw_rect(
+            search_x + search_w - bw,
+            search_y,
+            bw,
+            search_h,
+            search_border,
+        );
 
         let search_text = if search_query.is_empty() && !search_active {
-            placeholder
+            placeholder.to_string()
         } else {
-            format!("Search: {}{}", search_query, if search_active { "_" } else { "" })
+            format!(
+                "Search: {}{}",
+                search_query,
+                if search_active { "_" } else { "" }
+            )
         };
 
         BitmapFont::draw_text(
@@ -353,7 +372,11 @@ impl SoftwareRenderer {
             (search_x + Spacing::SM.scaled(s)) as i32,
             (search_y + (search_h - (BitmapFont::CJK_HEIGHT * font_scale) as f32) / 2.0) as i32,
             font_scale,
-            if search_active { ColorToken::TEXT_PRIMARY.rgba() } else { ColorToken::TEXT_TERTIARY.rgba() },
+            if search_active {
+                ColorToken::TEXT_PRIMARY.rgba()
+            } else {
+                ColorToken::TEXT_TERTIARY.rgba()
+            },
         );
     }
 }

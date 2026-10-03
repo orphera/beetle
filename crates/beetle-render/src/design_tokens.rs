@@ -201,7 +201,13 @@ mod tests {
     fn color_token_rgba() {
         // Verify to_u32 produces ARGB; compare against computed value from fields
         let base = ColorToken::SURFACE_BASE.0;
-        assert_eq!(base.to_u32(), ((base.a as u32) << 24) | ((base.r as u32) << 16) | ((base.g as u32) << 8) | (base.b as u32));
+        assert_eq!(
+            base.to_u32(),
+            ((base.a as u32) << 24)
+                | ((base.r as u32) << 16)
+                | ((base.g as u32) << 8)
+                | (base.b as u32)
+        );
     }
 
     #[test]
@@ -225,7 +231,10 @@ mod tests {
     #[test]
     fn widget_state_colors() {
         assert_eq!(WidgetState::Selected.bg_color(), ColorToken::SURFACE_CARD);
-        assert_eq!(WidgetState::Selected.border_color(), Some(ColorToken::BORDER_FOCUS));
+        assert_eq!(
+            WidgetState::Selected.border_color(),
+            Some(ColorToken::BORDER_FOCUS)
+        );
         assert_eq!(WidgetState::Disabled.text_color(), ColorToken::TEXT_HINT);
     }
 }

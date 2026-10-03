@@ -877,78 +877,89 @@ impl SoftwareRenderer {
     }
 
     fn draw_hud_info(&mut self, chart: &BmsChart, score: &ScoreTracker) {
+        use crate::design_tokens::ColorToken;
+
         let s = self.viewport.scale;
-        let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
-        let mut hud_y = self.skin.playfield_y as i32;
+        let hud_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
+        // Same width formula as the BGA frame below, so both columns line up.
+        let panel_w = (self.viewport.x + self.viewport.width - hud_x - 24.0 * s).max(100.0);
+        let mut y = self.skin.playfield_y;
         let title_scale = (2.0 * s).round().max(1.0) as u32;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let gap = 8.0 * s;
 
         // Title & Artist
-        BitmapFont::draw_text(
+        BitmapFont::draw_text_with_shadow(
             &mut self.pixmap.as_mut(),
             &chart.header.title,
-            hud_x,
-            hud_y,
+            hud_x as i32,
+            y as i32,
             title_scale,
-            ColorRgba::new(255, 255, 255, 255),
+            ColorToken::TEXT_PRIMARY.rgba(),
+            ColorToken::SHADOW_DROP.rgba(),
+            1,
+            1,
         );
-        hud_y += (22.0 * s) as i32;
+        y += 24.0 * s;
 
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &chart.header.artist,
-            hud_x,
-            hud_y,
+            hud_x as i32,
+            y as i32,
             font_scale,
-            ColorRgba::new(160, 160, 180, 255),
+            ColorToken::TEXT_SECONDARY.rgba(),
         );
-        hud_y += (28.0 * s) as i32;
+        y += 24.0 * s;
 
-        // BPM & Play Level
-        let bpm_str = format!("BPM: {:.1}", chart.header.bpm);
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
+        // BPM / LEVEL badge row
+        let half_w = (panel_w - gap) / 2.0;
+        let bpm_str = format!("{:.1}", chart.header.bpm);
+        let lvl_str = format!("{}", chart.header.play_level);
+        self.render_badge(
+            hud_x,
+            y,
+            half_w,
+            "BPM",
             &bpm_str,
-            hud_x,
-            hud_y,
+            ColorToken::ACCENT_CYAN,
             font_scale,
-            ColorRgba::new(200, 200, 220, 255),
         );
-        hud_y += (16.0 * s) as i32;
-
-        let lvl_str = format!("LEVEL: {}", chart.header.play_level);
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
+        self.render_badge(
+            hud_x + half_w + gap,
+            y,
+            half_w,
+            "LEVEL",
             &lvl_str,
-            hud_x,
-            hud_y,
+            ColorToken::ACCENT_ORANGE,
             font_scale,
-            ColorRgba::new(200, 200, 220, 255),
         );
-        hud_y += (26.0 * s) as i32;
+        let badge_h =
+            (BitmapFont::CJK_HEIGHT as f32 * font_scale as f32 + 4.0 * s * 2.0).max(8.0 * s * 2.0);
+        y += badge_h + gap;
 
-        // EX-Score and Accuracy Rate
-        let ex_str = format!("EX SCORE: {} / {}", score.ex_score, score.max_ex_score());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
+        // EX SCORE / ACCURACY badge row
+        let ex_str = format!("{}/{}", score.ex_score, score.max_ex_score());
+        let acc_str = format!("{:.2}%", score.accuracy_rate());
+        self.render_badge(
+            hud_x,
+            y,
+            half_w,
+            "EX SCORE",
             &ex_str,
-            hud_x,
-            hud_y,
+            ColorToken::ACCENT_YELLOW,
             font_scale,
-            ColorRgba::new(255, 230, 100, 255),
         );
-        hud_y += (16.0 * s) as i32;
-
-        let acc_str = format!("ACCURACY: {:.2}%", score.accuracy_rate());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
+        self.render_badge(
+            hud_x + half_w + gap,
+            y,
+            half_w,
+            "ACCURACY",
             &acc_str,
-            hud_x,
-            hud_y,
+            ColorToken::ACCENT_CYAN,
             font_scale,
-            ColorRgba::new(100, 220, 255, 255),
         );
-        hud_y += (18.0 * s) as i32;
+        y += badge_h + gap;
 
         // Pacemaker (AAA target = 8/9 of max possible EX score so far)
         let played_notes = score.pgreat_count
@@ -960,64 +971,73 @@ impl SoftwareRenderer {
         let max_so_far = played_notes * 2;
         let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
         let pace_diff = score.ex_score as i32 - aaa_target;
-        let (pace_str, pace_color) = if pace_diff >= 0 {
-            (
-                format!("PACEMAKER (AAA): +{}", pace_diff),
-                ColorRgba::new(100, 255, 120, 255),
-            )
+        let pace_str = if pace_diff >= 0 {
+            format!("+{}", pace_diff)
         } else {
-            (
-                format!("PACEMAKER (AAA): {}", pace_diff),
-                ColorRgba::new(255, 90, 90, 255),
-            )
+            format!("{}", pace_diff)
         };
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &pace_str,
+        let pace_color = if pace_diff >= 0 {
+            ColorToken::ACCENT_GREEN
+        } else {
+            ColorToken::ACCENT_RED
+        };
+        self.render_badge(
             hud_x,
-            hud_y,
-            font_scale,
+            y,
+            panel_w,
+            "PACEMAKER (AAA)",
+            &pace_str,
             pace_color,
+            font_scale,
         );
-        hud_y += (22.0 * s) as i32;
+        y += badge_h + gap * 1.5;
 
-        // Judge breakdown table
+        // Judge breakdown: 2-column x 3-row grid inside a card, each cell has
+        // a count-proportional tinted background bar instead of a bare text row.
         let counts = [
-            (
-                "PGREAT",
-                score.pgreat_count,
-                ColorRgba::new(255, 230, 80, 255),
-            ),
-            (
-                "GREAT ",
-                score.great_count,
-                ColorRgba::new(255, 170, 50, 255),
-            ),
-            (
-                "GOOD  ",
-                score.good_count,
-                ColorRgba::new(60, 220, 120, 255),
-            ),
-            ("BAD   ", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
-            ("POOR  ", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
-            (
-                "MISS  ",
-                score.miss_count,
-                ColorRgba::new(140, 140, 140, 255),
-            ),
+            ("PGREAT", score.pgreat_count, ColorToken::ACCENT_YELLOW),
+            ("GREAT", score.great_count, ColorToken::ACCENT_ORANGE),
+            ("GOOD", score.good_count, ColorToken::ACCENT_GREEN),
+            ("BAD", score.bad_count, ColorToken::DIFF_ANOTHER),
+            ("POOR", score.poor_count, ColorToken::ACCENT_RED),
+            ("MISS", score.miss_count, ColorToken::TEXT_TERTIARY),
         ];
+        let max_count = counts.iter().map(|&(_, c, _)| c).max().unwrap_or(0).max(1);
 
-        for (label, count, color) in counts {
-            let row = format!("{}: {:>4}", label, count);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &row,
-                hud_x,
-                hud_y,
-                font_scale,
-                color,
-            );
-            hud_y += (14.0 * s) as i32;
+        let card_title_h = 18.0 * s;
+        let row_h = 18.0 * s;
+        let row_gap = 3.0 * s;
+        let card_h = card_title_h + row_h * 3.0 + row_gap * 2.0 + 6.0 * s;
+        self.render_card(hud_x, y, panel_w, card_h, Some("JUDGE BREAKDOWN"));
+
+        let cell_w = (panel_w - gap) / 2.0;
+        let cell_pad = 6.0 * s;
+        let mut cell_y = y + card_title_h;
+        for row in 0..3 {
+            let mut cell_x = hud_x + cell_pad;
+            for col in 0..2 {
+                let (label, count, color) = counts[row * 2 + col];
+                let rgba = color.rgba();
+
+                // Proportional tinted fill behind the row (count / max_count).
+                let ratio = (count as f32 / max_count as f32).clamp(0.0, 1.0);
+                let fill_w = (cell_w - cell_pad).max(0.0) * ratio;
+                if fill_w > 0.0 {
+                    self.draw_rect(cell_x, cell_y, fill_w, row_h - row_gap, rgba.with_alpha(40));
+                }
+
+                let row_str = format!("{} {}", label, count);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &row_str,
+                    (cell_x + 4.0 * s) as i32,
+                    (cell_y + 4.0 * s) as i32,
+                    font_scale,
+                    rgba,
+                );
+                cell_x += cell_w + gap;
+            }
+            cell_y += row_h;
         }
     }
 

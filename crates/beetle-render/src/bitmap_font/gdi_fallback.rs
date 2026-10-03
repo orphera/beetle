@@ -148,10 +148,7 @@ impl GdiFontFallback {
 
             // Font height -18 creates ~18px EM square; improves CJK readability.
             // Face name uses MS Gothic (Windows CJK standard) for consistent glyph quality.
-            let face_name: Vec<u16> = "MS Gothic"
-                .encode_utf16()
-                .chain(Some(0))
-                .collect();
+            let face_name: Vec<u16> = "MS Gothic".encode_utf16().chain(Some(0)).collect();
             let hfont = CreateFontW(
                 -18,
                 0,
