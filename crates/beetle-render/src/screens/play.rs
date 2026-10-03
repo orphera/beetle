@@ -144,7 +144,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     }
     .map(|last_1p| {
         let x0 = l.lane_x(last_1p) + l.lane_width(last_1p);
-        Rect::from_ltrb(x0, field.y, l.lane_x(Lane::P2Scratch), field.bottom())
+        Rect::from_ltrb(x0, field.y, l.lane_x(Lane::P2Key1), field.bottom())
     });
     if let Some(gap) = dp_gap {
         c.fill_rect(gap, theme::BG);

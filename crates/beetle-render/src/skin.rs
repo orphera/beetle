@@ -206,7 +206,8 @@ impl SkinConfig {
                 Lane::Key8,
                 Lane::Key9,
             ],
-            // Double Play (5+5): both sides' scratch + Key1..5.
+            // Double Play (5+5), left to right: 1P scratch, 1P keys, 2P keys,
+            // 2P scratch (the 2P turntable sits on the outer/right edge).
             PlayMode::Keys10 => &[
                 Lane::Scratch,
                 Lane::Key1,
@@ -214,14 +215,14 @@ impl SkinConfig {
                 Lane::Key3,
                 Lane::Key4,
                 Lane::Key5,
-                Lane::P2Scratch,
                 Lane::P2Key1,
                 Lane::P2Key2,
                 Lane::P2Key3,
                 Lane::P2Key4,
                 Lane::P2Key5,
+                Lane::P2Scratch,
             ],
-            // Double Play (7+7): both sides' scratch + Key1..7.
+            // Double Play (7+7), same mirrored arrangement as Keys10.
             PlayMode::Keys14 => &[
                 Lane::Scratch,
                 Lane::Key1,
@@ -231,7 +232,6 @@ impl SkinConfig {
                 Lane::Key5,
                 Lane::Key6,
                 Lane::Key7,
-                Lane::P2Scratch,
                 Lane::P2Key1,
                 Lane::P2Key2,
                 Lane::P2Key3,
@@ -239,6 +239,7 @@ impl SkinConfig {
                 Lane::P2Key5,
                 Lane::P2Key6,
                 Lane::P2Key7,
+                Lane::P2Scratch,
             ],
         }
     }
@@ -247,6 +248,15 @@ impl SkinConfig {
     pub fn set_play_mode(&mut self, mode: PlayMode) {
         self.play_mode = mode;
         self.playfield_width = playfield_width_for(mode, self.lane_width, self.scratch_lane_width);
+    }
+
+    /// Keys per Double Play side (5 for Keys10, 7 for Keys14).
+    fn dp_key_count(&self) -> f32 {
+        if self.play_mode == PlayMode::Keys10 {
+            5.0
+        } else {
+            7.0
+        }
     }
 
     /// X offset of the 2P (Double Play) side's playfield start, relative to
@@ -278,14 +288,16 @@ impl SkinConfig {
             Lane::Key9 => key_area_x + self.lane_width * 8.0,
             // Double Play (10K/14K) 2P side: a genuine second playfield,
             // positioned right after the 1P side plus a small visual gap.
-            Lane::P2Scratch => self.p2_side_x(),
-            Lane::P2Key1 => self.p2_side_x() + self.scratch_lane_width,
-            Lane::P2Key2 => self.p2_side_x() + self.scratch_lane_width + self.lane_width,
-            Lane::P2Key3 => self.p2_side_x() + self.scratch_lane_width + self.lane_width * 2.0,
-            Lane::P2Key4 => self.p2_side_x() + self.scratch_lane_width + self.lane_width * 3.0,
-            Lane::P2Key5 => self.p2_side_x() + self.scratch_lane_width + self.lane_width * 4.0,
-            Lane::P2Key6 => self.p2_side_x() + self.scratch_lane_width + self.lane_width * 5.0,
-            Lane::P2Key7 => self.p2_side_x() + self.scratch_lane_width + self.lane_width * 6.0,
+            // Mirrored like an IIDX DP cabinet: 2P keys first, the 2P
+            // scratch on the outer (right) edge.
+            Lane::P2Key1 => self.p2_side_x(),
+            Lane::P2Key2 => self.p2_side_x() + self.lane_width,
+            Lane::P2Key3 => self.p2_side_x() + self.lane_width * 2.0,
+            Lane::P2Key4 => self.p2_side_x() + self.lane_width * 3.0,
+            Lane::P2Key5 => self.p2_side_x() + self.lane_width * 4.0,
+            Lane::P2Key6 => self.p2_side_x() + self.lane_width * 5.0,
+            Lane::P2Key7 => self.p2_side_x() + self.lane_width * 6.0,
+            Lane::P2Scratch => self.p2_side_x() + self.lane_width * self.dp_key_count(),
         }
     }
 
@@ -368,15 +380,22 @@ mod tests {
         let side = 72.0 + 5.0 * 50.0;
         let gap = 50.0 * 0.6;
         assert_eq!(skin.playfield_width, side * 2.0 + gap);
-        assert_eq!(skin.lane_x(Lane::P2Scratch), skin.playfield_x + side + gap);
+        // 2P side is mirrored: keys first, scratch on the outer right edge.
+        assert_eq!(skin.lane_x(Lane::P2Key1), skin.playfield_x + side + gap);
         assert_eq!(
             skin.lane_x(Lane::P2Key5),
-            skin.playfield_x + side + gap + 72.0 + 4.0 * 50.0
+            skin.playfield_x + side + gap + 4.0 * 50.0
+        );
+        assert_eq!(
+            skin.lane_x(Lane::P2Scratch),
+            skin.lane_x(Lane::P2Key5) + skin.lane_width(Lane::P2Key5)
+        );
+        assert_eq!(
+            skin.lane_x(Lane::P2Scratch) + skin.lane_width(Lane::P2Scratch),
+            skin.playfield_x + skin.playfield_width
         );
         // The 2P side must start strictly after the 1P side ends (no overlap).
-        assert!(
-            skin.lane_x(Lane::P2Scratch) >= skin.lane_x(Lane::Key5) + skin.lane_width(Lane::Key5)
-        );
+        assert!(skin.lane_x(Lane::P2Key1) >= skin.lane_x(Lane::Key5) + skin.lane_width(Lane::Key5));
     }
 
     #[test]
@@ -390,17 +409,22 @@ mod tests {
         assert_eq!(skin.playfield_width, side * 2.0 + gap);
         assert_eq!(
             skin.lane_x(Lane::P2Key7),
-            skin.playfield_x + side + gap + 72.0 + 6.0 * 50.0
+            skin.playfield_x + side + gap + 6.0 * 50.0
+        );
+        assert_eq!(
+            skin.lane_x(Lane::P2Scratch),
+            skin.lane_x(Lane::P2Key7) + skin.lane_width(Lane::P2Key7)
         );
         // The 2P side must start strictly after the 1P side ends (no overlap).
-        assert!(
-            skin.lane_x(Lane::P2Scratch) >= skin.lane_x(Lane::Key7) + skin.lane_width(Lane::Key7)
-        );
+        assert!(skin.lane_x(Lane::P2Key1) >= skin.lane_x(Lane::Key7) + skin.lane_width(Lane::Key7));
         // playfield_x + playfield_width (used by BGA/HUD/gauge elsewhere)
-        // must clear the full 2P side, not just the 1P side.
-        assert!(
-            skin.playfield_x + skin.playfield_width
-                >= skin.lane_x(Lane::P2Key7) + skin.lane_width(Lane::P2Key7)
+        // must end exactly at the 2P scratch's outer edge.
+        assert_eq!(
+            skin.playfield_x + skin.playfield_width,
+            skin.lane_x(Lane::P2Scratch) + skin.lane_width(Lane::P2Scratch)
         );
+        // Lanes are listed left to right (key config shows them in this order).
+        let xs: Vec<f32> = skin.active_lanes().iter().map(|&l| skin.lane_x(l)).collect();
+        assert!(xs.windows(2).all(|w| w[0] < w[1]));
     }
 }

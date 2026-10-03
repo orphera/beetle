@@ -21,7 +21,7 @@ fn chart(mode: PlayMode) -> BmsChart {
     let lanes: &[Lane] = match mode {
         PlayMode::Keys14 => &[
             Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5, Lane::Key6,
-            Lane::Key7, Lane::P2Scratch, Lane::P2Key1, Lane::P2Key3, Lane::P2Key5, Lane::P2Key7,
+            Lane::Key7, Lane::P2Key1, Lane::P2Key3, Lane::P2Key5, Lane::P2Key7, Lane::P2Scratch,
         ],
         _ => &[Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5, Lane::Key6, Lane::Key7],
     };
