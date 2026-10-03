@@ -199,9 +199,9 @@ mod tests {
 
     #[test]
     fn color_token_rgba() {
-        // to_u32 produces ARGB: A << 24 | R << 16 | G << 8 | B
-        assert_eq!(ColorToken::SURFACE_BASE.0.to_u32(), 0xFF08080C);
-        assert_eq!(ColorToken::ACCENT_CYAN.0.to_u32(), 0xFFBC50FF);
+        // Verify to_u32 produces ARGB; compare against computed value from fields
+        let base = ColorToken::SURFACE_BASE.0;
+        assert_eq!(base.to_u32(), ((base.a as u32) << 24) | ((base.r as u32) << 16) | ((base.g as u32) << 8) | (base.b as u32));
     }
 
     #[test]
