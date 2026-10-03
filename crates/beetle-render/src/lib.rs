@@ -26,3 +26,12 @@ pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use screens::render_gameplay_gpu;
 pub use skin::{ColorRgba, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
+
+/// Result screen rank-letter pop-in duration (ease_out_back settle).
+pub const RANK_POP_SECONDS: f64 = 0.35;
+/// Result screen EX score count-up duration (ease_out_cubic).
+pub const SCORE_COUNT_SECONDS: f64 = 0.9;
+/// Longest of the Result screen's reveal animations — callers (the app's
+/// render loop) use this to know how long to keep forcing redraws past the
+/// initial dirty-flag render before the screen is fully settled and static.
+pub const RESULT_REVEAL_DURATION_SECONDS: f64 = SCORE_COUNT_SECONDS;

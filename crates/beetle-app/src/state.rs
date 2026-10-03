@@ -145,6 +145,7 @@ pub struct AppState {
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
     pub loading_spinner_frame: usize,
     pub loading_anim_time: Instant,
+    pub result_entered_at: Instant,
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,

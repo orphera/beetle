@@ -19,6 +19,7 @@ impl SoftwareRenderer {
         score: &ScoreTracker,
         is_new_record: bool,
         previous_best: Option<&beetle_core::ScoreRecord>,
+        elapsed_seconds: f64,
     ) {
         self.clear();
 
@@ -29,6 +30,21 @@ impl SoftwareRenderer {
         let cyan = ColorToken::PULSE_CYAN.rgba();
         let muted = ColorToken::TEXT_TERTIARY.rgba();
         let hairline = ColorRgba::new(0x17, 0x1b, 0x27, 255);
+
+        // Reveal timing: rank letter pops/settles into place first (spring
+        // overshoot via ease_out_back reads as "slamming down" with weight),
+        // then the EX score counts up from zero while the rank is still
+        // settling. Both finish well within RESULT_REVEAL_DURATION_SECONDS
+        // so the caller knows when it can stop forcing redraws. See
+        // docs/plans/2026-10-03-pulse-redesign.md.
+        let rank_pop_t = (elapsed_seconds / crate::RANK_POP_SECONDS).clamp(0.0, 1.0) as f32;
+        let rank_eased_pos = crate::motion::ease_out_back(rank_pop_t);
+        let rank_alpha = (crate::motion::ease_out_cubic(rank_pop_t) * 255.0) as u8;
+        let rank_offset_y = ((1.0 - rank_eased_pos) * -36.0 * s) as i32;
+
+        let score_t = (elapsed_seconds / crate::SCORE_COUNT_SECONDS).clamp(0.0, 1.0) as f32;
+        let score_eased = crate::motion::ease_out_cubic(score_t);
+        let displayed_ex = (score.ex_score as f32 * score_eased).round() as u32;
 
         // -----------------------------------------------------------------
         // 1. Header: title/artist right-aligned, thin accent underline
@@ -144,14 +160,14 @@ impl SoftwareRenderer {
         );
 
         let rank_font_scale = (6.0 * s).round().max(2.0) as u32;
-        let rank_cy = body_y + 110.0 * s;
+        let rank_cy = body_y + 110.0 * s + rank_offset_y as f32;
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
             rank_str,
             (left_x + left_w / 2.0) as i32,
             rank_cy as i32,
             rank_font_scale,
-            rank_glow.with_alpha(90),
+            rank_glow.with_alpha(((rank_glow.a as u16 * rank_alpha as u16) / 255) as u8 / 3),
         );
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
@@ -159,7 +175,7 @@ impl SoftwareRenderer {
             (left_x + left_w / 2.0) as i32,
             rank_cy as i32,
             rank_font_scale,
-            rank_color,
+            rank_color.with_alpha(rank_alpha),
         );
 
         let (status_text, status_color) = if score.is_cleared() {
@@ -225,7 +241,7 @@ impl SoftwareRenderer {
             muted,
         );
         mid_y += 14.0 * s;
-        let ex_val = format!("{} / {}", score.ex_score, score.max_ex_score());
+        let ex_val = format!("{} / {}", displayed_ex, score.max_ex_score());
         BitmapFont::draw_bold_text(
             &mut self.pixmap.as_mut(),
             &ex_val,

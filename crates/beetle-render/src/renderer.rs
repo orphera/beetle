@@ -564,7 +564,7 @@ mod tests {
         score.record_hit_with_delta(JudgeGrade::Great, -12.0);
         score.record_hit_with_delta(JudgeGrade::Great, 15.0);
 
-        renderer.render_result(&chart, &score, true, None);
+        renderer.render_result(&chart, &score, true, None, 999.0);
 
         let has_content = renderer
             .data()

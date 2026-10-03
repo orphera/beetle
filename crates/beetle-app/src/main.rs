@@ -233,6 +233,7 @@ impl ApplicationHandler for BeetleApp {
             loading_receiver: None,
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
+            result_entered_at: Instant::now(),
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
@@ -445,8 +446,26 @@ impl ApplicationHandler for BeetleApp {
                 }
             }
             _ => {
-                // Static screens (Result, KeyConfig) only update on events (keys, resizing)
-                event_loop.set_control_flow(ControlFlow::Wait);
+                // Static screens (KeyConfig, and Result once its reveal
+                // animation settles) only update on events (keys, resizing).
+                // Result needs a brief exception: for the first
+                // RESULT_REVEAL_DURATION_SECONDS after entry it's playing
+                // the EX-score count-up / rank pop-in (see
+                // screens/result.rs), so it needs periodic wake-ups the same
+                // way SongSelect's background-loader polling above does —
+                // relying on `request_redraw()` alone to escape
+                // ControlFlow::Wait proved unreliable here.
+                let result_animating = state.screen == AppScreen::Result
+                    && state.result_entered_at.elapsed().as_secs_f64()
+                        < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
+                if result_animating {
+                    state.window.request_redraw();
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(16),
+                    ));
+                } else {
+                    event_loop.set_control_flow(ControlFlow::Wait);
+                }
             }
         }
     }
@@ -782,7 +801,14 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::Result => {
-                        if state.is_dirty {
+                        let elapsed = state.result_entered_at.elapsed().as_secs_f64();
+                        let animating = elapsed < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
+                        // Result is otherwise a static dirty-flag screen (see
+                        // AppState::mark_dirty), unlike Gameplay's per-frame
+                        // driver, so keep rendering past the dirty-flag reset
+                        // below while the score count-up / rank reveal is
+                        // still running.
+                        if state.is_dirty || animating {
                             if let (Some(chart), Some(judge)) =
                                 (&state.active_chart, &state.active_judge)
                             {
@@ -791,7 +817,11 @@ impl ApplicationHandler for BeetleApp {
                                     judge.score(),
                                     state.is_new_record,
                                     state.previous_best.as_ref(),
+                                    elapsed,
                                 );
+                            }
+                            if animating {
+                                state.window.request_redraw();
                             }
                         }
                     }

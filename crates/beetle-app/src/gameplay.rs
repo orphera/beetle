@@ -264,6 +264,7 @@ pub fn finish_gameplay(state: &mut AppState) {
     state.video_players.clear();
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
+    state.result_entered_at = std::time::Instant::now();
     state.mark_dirty();
 
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
@@ -272,6 +273,7 @@ pub fn finish_gameplay(state: &mut AppState) {
             judge.score(),
             state.is_new_record,
             state.previous_best.as_ref(),
+            0.0,
         );
     }
 
