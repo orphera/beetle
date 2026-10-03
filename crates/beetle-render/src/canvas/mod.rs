@@ -177,6 +177,17 @@ impl Canvas {
         calls
     }
 
+    /// Recorded batch count of the frame in progress (tests only).
+    #[cfg(test)]
+    pub(crate) fn debug_batches(&self) -> Vec<usize> {
+        self.batches.iter().map(|b| b.vtx_start).collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn debug_vertices(&self) -> &[Vertex2D] {
+        &self.vertices
+    }
+
     // ------------------------------------------------------------------
     // State
     // ------------------------------------------------------------------

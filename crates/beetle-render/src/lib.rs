@@ -13,6 +13,7 @@ pub mod motion;
 pub mod renderer;
 pub mod screens;
 pub mod skin;
+pub mod text;
 pub mod video;
 
 #[cfg(target_os = "windows")]
@@ -23,6 +24,7 @@ pub use backend::{
 };
 pub use bitmap_font::BitmapFont;
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
+pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use screens::render_gameplay_gpu;

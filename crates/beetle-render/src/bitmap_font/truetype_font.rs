@@ -32,8 +32,9 @@ use tiny_skia::PixmapMut;
 
 const LATIN_REGULAR_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
 const LATIN_BOLD_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf");
-const JAPANESE_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansJP-Subset.ttf");
-const KOREAN_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansKR-Common-Subset.ttf");
+// Shared with the new text engine so the font data is embedded only once.
+const JAPANESE_BYTES: &[u8] = crate::text::JP_BYTES;
+const KOREAN_BYTES: &[u8] = crate::text::KR_BYTES;
 
 /// Fixed rasterization size in px. Quality only (final size is resampled to
 /// the target cell), so this just needs to be large enough to avoid

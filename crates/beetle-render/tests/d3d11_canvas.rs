@@ -6,62 +6,9 @@
 
 use beetle_render::backend::d3d11::com::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP};
 use beetle_render::{Canvas, ColorRgba, D3d11Backend, GpuBackend, Insets, Rect};
-use std::ffi::c_void;
 
-#[link(name = "user32")]
-extern "system" {
-    fn CreateWindowExW(
-        ex_style: u32,
-        class: *const u16,
-        title: *const u16,
-        style: u32,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        parent: *mut c_void,
-        menu: *mut c_void,
-        instance: *mut c_void,
-        param: *mut c_void,
-    ) -> *mut c_void;
-    fn DestroyWindow(hwnd: *mut c_void) -> i32;
-}
-
-const WS_POPUP: u32 = 0x8000_0000;
-const W: u32 = 256;
-const H: u32 = 64;
-
-struct HiddenWindow(*mut c_void);
-
-impl HiddenWindow {
-    fn new() -> Self {
-        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
-        let hwnd = unsafe {
-            CreateWindowExW(
-                0,
-                class.as_ptr(),
-                [0u16].as_ptr(),
-                WS_POPUP,
-                0,
-                0,
-                W as i32,
-                H as i32,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        assert!(!hwnd.is_null(), "CreateWindowExW failed");
-        Self(hwnd)
-    }
-}
-
-impl Drop for HiddenWindow {
-    fn drop(&mut self) {
-        unsafe { DestroyWindow(self.0) };
-    }
-}
+mod common;
+use common::{write_bmp, HiddenWindow, H, W};
 
 fn render_pattern(driver: u32) -> Option<(String, Vec<u8>)> {
     let window = HiddenWindow::new();
@@ -135,32 +82,12 @@ fn assert_near(name: &str, got: [u8; 3], want: [u8; 3]) {
     assert!(ok, "{name}: got {got:?}, want {want:?}");
 }
 
-fn write_bmp(path: &std::path::Path, px: &[u8]) {
-    let row = W * 4;
-    let size = 54 + row * H;
-    let mut out = Vec::with_capacity(size as usize);
-    out.extend_from_slice(b"BM");
-    out.extend_from_slice(&size.to_le_bytes());
-    out.extend_from_slice(&[0; 4]);
-    out.extend_from_slice(&54u32.to_le_bytes());
-    out.extend_from_slice(&40u32.to_le_bytes());
-    out.extend_from_slice(&(W as i32).to_le_bytes());
-    out.extend_from_slice(&(-(H as i32)).to_le_bytes()); // top-down
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&32u16.to_le_bytes());
-    out.extend_from_slice(&[0; 24]);
-    for p in px.chunks_exact(4) {
-        out.extend_from_slice(&[p[2], p[1], p[0], 255]);
-    }
-    let _ = std::fs::write(path, out);
-}
-
 fn check(driver: u32, tag: &str) {
     let Some((name, px)) = render_pattern(driver) else {
         return;
     };
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    write_bmp(&target.join(format!("canvas-test-{tag}.bmp")), &px);
+    write_bmp(&target.join(format!("canvas-test-{tag}.bmp")), W, H, &px);
 
     assert_near(&format!("{name} red"), rgb(&px, 16, 16), [255, 0, 0]);
     assert_near(&format!("{name} 50% white"), rgb(&px, 48, 16), [128, 128, 128]);
