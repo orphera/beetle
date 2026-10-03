@@ -9,11 +9,21 @@ use crate::design_tokens::*;
 use crate::renderer::SoftwareRenderer;
 use crate::skin::ColorRgba;
 
+use tiny_skia::{
+    FillRule, GradientStop, LinearGradient, Paint, PathBuilder, Point, Shader, SpreadMode,
+    Transform,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelVariant {
     Base,
     Card,
     Overlay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Corner {
+    TopRight,
 }
 
 impl SoftwareRenderer {
@@ -32,6 +42,153 @@ impl SoftwareRenderer {
         // Approximation: fill rect, skip pixels outside corner radius (per-pixel check).
         // For performance with small radius, use plain fill + 1px border on corners.
         self.draw_rect(x, y, w, h, color);
+    }
+
+    // -----------------------------------------------------------------------
+    // PULSE identity primitives: linear gradients + diagonal-cut quads.
+    // Uses tiny-skia's own Path/Shader pipeline (already a core dependency,
+    // see AGENTS.md allowed crates) instead of the hand-rolled flat-fill
+    // `draw_rect` fast path, since gradients/non-axis-aligned shapes need
+    // tiny-skia's rasterizer. Reserved for PULSE chrome (CTAs, scrims,
+    // selection edges) — the high-frequency gameplay draw loop keeps using
+    // the raw `draw_rect` fast path untouched.
+    // -----------------------------------------------------------------------
+
+    fn color_to_premul(c: ColorRgba) -> tiny_skia::Color {
+        tiny_skia::Color::from_rgba8(c.r, c.g, c.b, c.a)
+    }
+
+    /// Fills an axis-aligned rect with a 2-stop linear gradient.
+    /// `horizontal = true` goes left→right, otherwise top→bottom.
+    pub fn draw_gradient_rect(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color_start: ColorRgba,
+        color_end: ColorRgba,
+        horizontal: bool,
+    ) {
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let (start, end) = if horizontal {
+            (Point::from_xy(x, y), Point::from_xy(x + w, y))
+        } else {
+            (Point::from_xy(x, y), Point::from_xy(x, y + h))
+        };
+        let Some(shader) = LinearGradient::new(
+            start,
+            end,
+            vec![
+                GradientStop::new(0.0, Self::color_to_premul(color_start)),
+                GradientStop::new(1.0, Self::color_to_premul(color_end)),
+            ],
+            SpreadMode::Pad,
+            Transform::identity(),
+        ) else {
+            self.draw_rect(x, y, w, h, color_start);
+            return;
+        };
+        let paint = Paint {
+            shader,
+            anti_alias: false,
+            ..Default::default()
+        };
+        if let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w, h) {
+            self.pixmap
+                .fill_rect(rect, &paint, Transform::identity(), None);
+        }
+    }
+
+    /// Fills a quad with the top-left corner diagonally cut by `cut` pixels
+    /// (the "arcade cabinet" CTA/panel shape used throughout PULSE), with an
+    /// optional horizontal gradient fill.
+    pub fn draw_cut_quad(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        cut: f32,
+        color_start: ColorRgba,
+        color_end: ColorRgba,
+    ) {
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let cut = cut.min(w).max(0.0);
+        let mut pb = PathBuilder::new();
+        pb.move_to(x + cut, y);
+        pb.line_to(x + w, y);
+        pb.line_to(x + w, y + h);
+        pb.line_to(x, y + h);
+        pb.close();
+        let Some(path) = pb.finish() else { return };
+
+        let Some(shader) = LinearGradient::new(
+            Point::from_xy(x, y),
+            Point::from_xy(x + w, y),
+            vec![
+                GradientStop::new(0.0, Self::color_to_premul(color_start)),
+                GradientStop::new(1.0, Self::color_to_premul(color_end)),
+            ],
+            SpreadMode::Pad,
+            Transform::identity(),
+        ) else {
+            return;
+        };
+        let paint = Paint {
+            shader,
+            anti_alias: true,
+            ..Default::default()
+        };
+        self.pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    /// Fills a right-angle triangle in one corner of a box (used for the
+    /// jacket "corner slash" accent). `corner` selects which of the box's
+    /// four corners the right angle sits in.
+    pub fn draw_corner_triangle(
+        &mut self,
+        x: f32,
+        y: f32,
+        size: f32,
+        corner: Corner,
+        color: ColorRgba,
+    ) {
+        if size <= 0.0 {
+            return;
+        }
+        let mut pb = PathBuilder::new();
+        match corner {
+            Corner::TopRight => {
+                pb.move_to(x - size, y);
+                pb.line_to(x, y);
+                pb.line_to(x, y + size);
+            }
+        }
+        pb.close();
+        let Some(path) = pb.finish() else { return };
+        let paint = Paint {
+            shader: Shader::SolidColor(Self::color_to_premul(color)),
+            anti_alias: true,
+            ..Default::default()
+        };
+        self.pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
     }
 
     // -----------------------------------------------------------------------

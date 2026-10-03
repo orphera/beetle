@@ -34,6 +34,13 @@ impl ColorToken {
     pub const ACCENT_ORANGE: Self = Self(ColorRgba::new(0xFF, 0x8C, 0x32, 0xFF));
     pub const ACCENT_MINT: Self = Self(ColorRgba::new(0x50, 0xFF, 0xB8, 0xFF));
 
+    /// PULSE identity duotone — the single accent pairing used for ALL UI chrome
+    /// (selection edges, CTAs, scrims, panel glows). Judgment-tier colors above
+    /// stay reserved for judgment data only; PULSE_CYAN/MAGENTA never represent
+    /// a judgment grade so the two vocabularies never collide visually.
+    pub const PULSE_CYAN: Self = Self(ColorRgba::new(0x00, 0xE5, 0xFF, 0xFF));
+    pub const PULSE_MAGENTA: Self = Self(ColorRgba::new(0xFF, 0x2D, 0x6A, 0xFF));
+
     /// Difficulty tier colors
     pub const DIFF_NORMAL: Self = Self(ColorRgba::new(0x60, 0xE0, 0x60, 0xFF));
     pub const DIFF_HYPER: Self = Self(ColorRgba::new(0x50, 0xB0, 0xFF, 0xFF));

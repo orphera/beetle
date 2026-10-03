@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>BEETLE — PULSE direction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05060a;
+    --surf1:#0b0e16;
+    --surf2:#11151f;
+    --surf3:#171c29;
+    --line:#232a3c;
+    --cyan:#00e5ff;
+    --magenta:#ff2d6a;
+    --gold:#ffd400;
+    --green:#3ce07a;
+    --orange:#ff9a3c;
+    --purple:#c06bff;
+    --text:#f2f4fa;
+    --muted:#7b8299;
+    --muted2:#4c5368;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{
+    width:100%;height:100%;background:var(--bg);color:var(--text);
+    font-family:'JetBrains Mono',monospace;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  .stage{
+    width:1480px;height:840px;margin:20px auto;position:relative;
+    background:var(--bg);
+    border:1px solid #000;
+    box-shadow:0 0 0 1px #1a1e2a, 0 40px 100px -20px rgba(0,229,255,.08);
+    overflow:hidden;
+  }
+  .tabs{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;gap:2px;justify-content:center;padding:10px;background:#000;
+  }
+  .tabs button{
+    font-family:inherit;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);background:var(--surf2);border:1px solid var(--line);
+    padding:8px 18px;cursor:pointer;
+  }
+  .tabs button.active{color:var(--bg);background:var(--cyan);border-color:var(--cyan);font-weight:700;}
+
+  .screen{display:none;width:100%;height:100%;position:relative;}
+  .screen.active{display:block;}
+
+  /* ============ shared micro-label ============ */
+  .mlabel{font-size:10px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase;}
+
+  /* ============ SONG SELECT ============ */
+  #songselect .topbar{
+    height:68px;display:flex;align-items:center;gap:28px;padding:0 28px;
+    background:linear-gradient(180deg,#0a0d14,#05060a 90%);
+    border-bottom:1px solid var(--line);position:relative;
+  }
+  #songselect .topbar::after{
+    content:"";position:absolute;left:0;bottom:-1px;width:220px;height:2px;
+    background:linear-gradient(90deg,var(--cyan),transparent);
+  }
+  .logo{font-weight:800;font-size:20px;letter-spacing:.08em;}
+  .logo span{color:var(--cyan);}
+  .modebadges{display:flex;gap:10px;margin-left:8px;}
+  .modebadges .b{font-size:10px;letter-spacing:.12em;color:var(--muted);border-bottom:1px solid var(--muted2);padding-bottom:10px;cursor:pointer;}
+  .modebadges .b.on{color:var(--cyan);border-color:var(--cyan);}
+  .searchbox{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted2);font-size:11px;border-bottom:1px solid var(--line);padding:6px 2px;width:260px;}
+  .searchbox .key{color:var(--cyan);}
+
+  #songselect .body{display:flex;height:calc(100% - 68px);}
+  .songlist{flex:1.3;overflow:hidden;padding:0 0 0 0;position:relative;}
+  .songlist .row{
+    display:flex;align-items:center;gap:14px;height:40px;padding:0 24px 0 20px;
+    border-bottom:1px solid #12151f;position:relative;cursor:pointer;
+  }
+  .songlist .row:hover{background:#0d1018;}
+  .songlist .row .lv{width:46px;font-size:11px;font-weight:700;color:var(--muted);}
+  .songlist .row .lv.h1{color:var(--green);} .songlist .row .lv.h2{color:var(--cyan);}
+  .songlist .row .lv.h3{color:var(--purple);} .songlist .row .lv.h4{color:#ff5c5c;}
+  .songlist .row .title{flex:1;font-size:13px;color:#c7cbda;letter-spacing:.01em;}
+  .songlist .row .stat{font-size:10px;letter-spacing:.1em;color:var(--muted2);}
+  .songlist .row .stat.clear{color:var(--green);}
+  .songlist .row .stat.fail{color:#ff5c5c;}
+  .songlist .row.sel{background:linear-gradient(90deg,rgba(0,229,255,.1),transparent 70%);}
+  .songlist .row.sel::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+    background:linear-gradient(180deg,var(--cyan),var(--magenta));
+    box-shadow:0 0 12px var(--cyan);
+  }
+  .songlist .row.sel .title{color:#fff;font-weight:700;}
+
+  .detail{flex:1;position:relative;border-left:1px solid var(--line);background:var(--surf1);}
+  .jacket{
+    height:260px;position:relative;
+    background:
+      linear-gradient(160deg,rgba(0,229,255,.18),rgba(255,45,106,.14) 60%,transparent),
+      repeating-linear-gradient(135deg,#1b2030 0 2px,#161a27 2px 40px);
+  }
+  .jacket::after{
+    content:"";position:absolute;left:0;right:0;bottom:0;height:120px;
+    background:linear-gradient(180deg,transparent,var(--surf1));
+  }
+  .jacket .corner{
+    position:absolute;right:0;top:0;width:0;height:0;
+    border-style:solid;border-width:0 90px 90px 0;border-color:transparent var(--cyan) transparent transparent;opacity:.9;
+  }
+  .detail .meta{padding:0 28px;position:relative;margin-top:-54px;}
+  .detail .meta .title{font-size:30px;font-weight:800;letter-spacing:.01em;text-shadow:0 2px 20px rgba(0,0,0,.6);}
+  .detail .meta .artist{margin-top:6px;font-size:12px;color:var(--muted);letter-spacing:.06em;}
+
+  .statrow{display:flex;gap:40px;padding:26px 28px 0;}
+  .statrow .stat .mlabel{margin-bottom:6px;}
+  .statrow .stat .v{font-size:22px;font-weight:800;}
+  .statrow .stat .v.cyan{color:var(--cyan);}
+  .statrow .stat .v.gold{color:var(--gold);}
+
+  .pb{margin:26px 28px 0;padding-top:18px;border-top:1px solid var(--line);}
+  .pb .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .pb .hd .mlabel{color:var(--text);letter-spacing:.18em;}
+  .rankchip{font-size:11px;font-weight:800;letter-spacing:.1em;padding:3px 10px;color:#ff5c5c;border:1px solid #ff5c5c;}
+  .pb .line{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:5px 0;}
+  .pb .line b{color:var(--text);font-weight:700;}
+
+  .segbar{height:8px;display:flex;margin:16px 28px 0;overflow:hidden;}
+  .segbar div{height:100%;}
+
+  .playcta{
+    position:absolute;right:28px;bottom:26px;
+    background:linear-gradient(100deg,var(--cyan),#5ad9ff);
+    color:#06131a;font-weight:800;font-size:13px;letter-spacing:.14em;
+    padding:14px 34px;clip-path:polygon(14px 0,100% 0,100% 100%,0 100%);
+    box-shadow:0 10px 30px -8px rgba(0,229,255,.5);
+  }
+  .footerhint{position:absolute;left:0;right:0;bottom:0;height:30px;background:#000;border-top:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;font-size:10px;color:var(--muted2);letter-spacing:.08em;gap:22px;}
+
+  /* ============ GAMEPLAY ============ */
+  #gameplay .field{position:relative;width:100%;height:100%;
+    background:radial-gradient(ellipse at 30% 0%,#0c1018,var(--bg) 60%);}
+  .lanes{position:absolute;left:0;top:0;bottom:0;width:560px;
+    background:linear-gradient(180deg,#0a0c12,#07080c);border-right:1px solid var(--line);}
+  .lane{position:absolute;top:0;bottom:0;border-right:1px solid #181d2a;}
+  .judgeline{position:absolute;left:0;right:0;bottom:120px;height:3px;
+    background:linear-gradient(90deg,transparent,var(--magenta),var(--cyan),transparent);
+    box-shadow:0 0 18px 2px rgba(0,229,255,.55);}
+  .note{position:absolute;height:14px;border-radius:1px;}
+  .note.white{background:linear-gradient(180deg,#fff,#c9ccd8);box-shadow:0 0 8px rgba(255,255,255,.4);}
+  .note.blue{background:linear-gradient(180deg,#4fc9ff,#1467c9);box-shadow:0 0 10px rgba(50,160,255,.6);}
+  .keybeam{position:absolute;bottom:0;width:100%;height:40%;background:linear-gradient(180deg,transparent,rgba(0,229,255,.25));}
+
+  .hudcluster{position:absolute;right:32px;top:28px;text-align:right;}
+  .hudcluster .track{font-size:13px;font-weight:800;letter-spacing:.02em;}
+  .hudcluster .artist{font-size:10px;color:var(--muted);margin-top:4px;letter-spacing:.08em;}
+  .scorepanel{margin-top:22px;background:linear-gradient(135deg,rgba(0,229,255,.1),rgba(255,45,106,.06));
+    clip-path:polygon(16px 0,100% 0,100% 100%,0 100%);padding:14px 22px 14px 30px;border:1px solid rgba(0,229,255,.25);}
+  .scorepanel .mlabel{text-align:right;}
+  .scorepanel .big{font-size:28px;font-weight:800;color:var(--gold);text-align:right;letter-spacing:.02em;}
+  .scorepanel .sub{display:flex;gap:22px;justify-content:flex-end;margin-top:8px;}
+  .scorepanel .sub .s{text-align:right;}
+  .scorepanel .sub .s .v{font-size:15px;font-weight:700;color:var(--cyan);}
+  .pacerow{margin-top:10px;font-size:10px;color:var(--green);letter-spacing:.08em;text-align:right;}
+
+  .comboarea{position:absolute;left:280px;top:160px;text-align:center;width:1px;}
+  .combonum{font-size:64px;font-weight:800;color:#fff;text-shadow:0 0 30px rgba(0,229,255,.75),0 0 70px rgba(0,229,255,.35);
+    position:relative;left:-32px;}
+  .combolabel{font-size:11px;letter-spacing:.3em;color:var(--muted);position:relative;left:-20px;margin-top:-6px;}
+  .judgepop{position:absolute;left:-55px;top:76px;font-size:20px;font-weight:800;color:var(--gold);letter-spacing:.08em;
+    text-shadow:0 0 16px rgba(255,212,0,.7);}
+  .fastslow{position:absolute;left:-8px;top:104px;font-size:11px;color:var(--cyan);letter-spacing:.05em;}
+
+  .breakdownbar{position:absolute;right:32px;bottom:150px;width:420px;}
+  .breakdownbar .mlabel{margin-bottom:8px;text-align:right;}
+  .breakdownbar .bar{height:10px;display:flex;overflow:hidden;box-shadow:0 0 14px rgba(0,0,0,.4);}
+  .breakdownbar .bar div{height:100%;}
+  .breakdownbar .legend{display:flex;gap:14px;justify-content:flex-end;margin-top:8px;font-size:9px;letter-spacing:.08em;color:var(--muted);}
+  .breakdownbar .legend .dot{width:6px;height:6px;display:inline-block;margin-right:4px;}
+
+  .gaugecol{position:absolute;left:566px;top:0;bottom:0;width:26px;background:var(--surf2);border-right:1px solid var(--line);}
+  .gaugecol .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,var(--green),#1f9e5a);}
+
+  .gameplay-footer{position:absolute;left:0;right:0;bottom:0;height:30px;background:#000;border-top:1px solid var(--line);
+    display:flex;align-items:center;padding:0 24px;font-size:10px;color:var(--muted2);letter-spacing:.08em;}
+
+  /* ============ RESULT ============ */
+  #result .wrap{display:flex;height:100%;}
+  #result .left{width:420px;background:linear-gradient(160deg,#0c0f18,#05060a);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+  #result .left::before{content:"";position:absolute;inset:-40%;
+    background:conic-gradient(from 90deg,rgba(0,229,255,.18),transparent 30%,rgba(255,45,106,.16),transparent 70%);
+    animation:spin 18s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .rankletter{font-size:168px;font-weight:800;color:#fff;position:relative;
+    text-shadow:0 0 50px rgba(255,212,0,.65),0 0 120px rgba(255,212,0,.35);line-height:1;}
+  .rankchipnew{position:relative;margin-top:10px;font-size:12px;letter-spacing:.3em;color:var(--gold);font-weight:800;}
+  .newrecord{position:relative;margin-top:18px;background:var(--magenta);color:#fff;font-weight:800;font-size:11px;
+    letter-spacing:.14em;padding:6px 16px;clip-path:polygon(10px 0,100% 0,100% 100%,0 100%);}
+
+  #result .right{flex:1;padding:36px 44px;}
+  #result .title{font-size:24px;font-weight:800;}
+  #result .artist{font-size:12px;color:var(--muted);margin-top:6px;letter-spacing:.06em;}
+
+  .scoreheadline{margin-top:30px;display:flex;align-items:baseline;gap:18px;}
+  .scoreheadline .num{font-size:52px;font-weight:800;color:var(--gold);letter-spacing:.01em;}
+  .scoreheadline .max{font-size:14px;color:var(--muted2);}
+  .scoreheadline .diff{margin-left:auto;font-size:13px;color:var(--green);font-weight:700;}
+
+  .segbar2{height:14px;display:flex;margin-top:26px;overflow:hidden;}
+  .segbar2 div{height:100%;}
+  .legend2{display:flex;gap:18px;margin-top:10px;font-size:10px;letter-spacing:.08em;color:var(--muted);flex-wrap:wrap;}
+  .legend2 .dot{width:7px;height:7px;display:inline-block;margin-right:5px;}
+
+  .statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);margin-top:34px;border:1px solid var(--line);}
+  .statgrid .cell{background:var(--surf1);padding:16px 18px;}
+  .statgrid .cell .mlabel{margin-bottom:8px;}
+  .statgrid .cell .v{font-size:19px;font-weight:800;}
+
+  .graphwrap{margin-top:34px;height:130px;background:var(--surf1);border:1px solid var(--line);position:relative;padding:16px;}
+  .graphwrap svg{width:100%;height:100%;}
+
+  .resultbtns{position:absolute;right:44px;bottom:30px;display:flex;gap:10px;}
+  .resultbtns button{font-family:inherit;font-size:11px;letter-spacing:.14em;padding:12px 24px;
+    background:var(--surf2);color:var(--muted);border:1px solid var(--line);cursor:pointer;}
+  .resultbtns button.primary{background:linear-gradient(100deg,var(--cyan),#5ad9ff);color:#06131a;font-weight:800;border:none;
+    clip-path:polygon(12px 0,100% 0,100% 100%,0 100%);}
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button class="active" onclick="go('songselect',this)">Song Select</button>
+  <button onclick="go('gameplay',this)">Gameplay</button>
+  <button onclick="go('result',this)">Result</button>
+</div>
+
+<div class="stage" style="margin-top:56px;">
+
+  <!-- ================= SONG SELECT ================= -->
+  <section id="songselect" class="screen active">
+    <div class="topbar">
+      <div class="logo">BEE<span>TLE</span></div>
+      <div class="modebadges">
+        <div class="b on">ALL SONGS</div>
+        <div class="b">FOLDER</div>
+        <div class="b">SORT: LEVEL</div>
+      </div>
+      <div class="searchbox"><span class="key">/</span> Search title / artist…</div>
+    </div>
+    <div class="body">
+      <div class="songlist" id="songlist"></div>
+      <div class="detail">
+        <div class="jacket"><div class="corner"></div></div>
+        <div class="meta">
+          <div class="title">Aci-L</div>
+          <div class="artist">裏吉川 / trance</div>
+        </div>
+        <div class="statrow">
+          <div class="stat"><div class="mlabel">BPM</div><div class="v gold">162.0</div></div>
+          <div class="stat"><div class="mlabel">HYPER LV</div><div class="v cyan">7</div></div>
+          <div class="stat"><div class="mlabel">NOTES</div><div class="v">1364</div></div>
+        </div>
+        <div class="pb">
+          <div class="hd"><div class="mlabel">PERSONAL BEST</div><div class="rankchip">FAILED</div></div>
+          <div class="line"><span>EX SCORE</span><b>0 pts</b></div>
+          <div class="line"><span>ACCURACY</span><b style="color:#ff5c5c">0.00% [F]</b></div>
+          <div class="line"><span>MAX COMBO</span><b>0 / 1364</b></div>
+        </div>
+        <div class="segbar">
+          <div style="width:0%;background:var(--gold)"></div>
+          <div style="width:0%;background:var(--orange)"></div>
+          <div style="width:0%;background:var(--green)"></div>
+          <div style="width:100%;background:#262b3a"></div>
+        </div>
+        <div class="playcta">▶ PLAY</div>
+      </div>
+    </div>
+    <div class="footerhint">[↑/↓] Move &nbsp; [Enter] Play &nbsp; [/] Search &nbsp; [F2] Sort &nbsp; [F3] Folder &nbsp; [Tab] Options</div>
+  </section>
+
+  <!-- ================= GAMEPLAY ================= -->
+  <section id="gameplay" class="screen">
+    <div class="field">
+      <div class="lanes" id="lanes"></div>
+      <div class="gaugecol"><div class="fill" style="height:62%"></div></div>
+      <div class="comboarea">
+        <div class="judgepop">PGREAT</div>
+        <div class="combonum">247</div>
+        <div class="combolabel">COMBO</div>
+        <div class="fastslow">FAST 3ms</div>
+      </div>
+      <div class="hudcluster">
+        <div class="track">Aci-L</div>
+        <div class="artist">裏吉川 — BPM 162.0 · LV 7</div>
+        <div class="scorepanel">
+          <div class="mlabel">EX SCORE</div>
+          <div class="big">1888 <span style="font-size:14px;color:var(--muted2)">/ 2728</span></div>
+          <div class="sub">
+            <div class="s"><div class="mlabel">ACC</div><div class="v">97.84%</div></div>
+            <div class="s"><div class="mlabel">RANK</div><div class="v" style="color:var(--gold)">AAA</div></div>
+          </div>
+          <div class="pacerow">PACEMAKER (AAA) +42</div>
+        </div>
+      </div>
+      <div class="breakdownbar">
+        <div class="mlabel">JUDGE BREAKDOWN</div>
+        <div class="bar">
+          <div style="width:71%;background:var(--gold)"></div>
+          <div style="width:18%;background:var(--orange)"></div>
+          <div style="width:7%;background:var(--green)"></div>
+          <div style="width:2%;background:var(--purple)"></div>
+          <div style="width:1%;background:#ff5c5c"></div>
+          <div style="width:1%;background:var(--muted2)"></div>
+        </div>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--gold)"></i>PG 612</span>
+          <span><i class="dot" style="background:var(--orange)"></i>GR 98</span>
+          <span><i class="dot" style="background:var(--green)"></i>GD 31</span>
+          <span><i class="dot" style="background:var(--purple)"></i>BD 6</span>
+          <span><i class="dot" style="background:#ff5c5c"></i>PR 3</span>
+          <span><i class="dot" style="background:var(--muted2)"></i>MS 2</span>
+        </div>
+      </div>
+    </div>
+    <div class="gameplay-footer">[ESC] Pause / Exit &nbsp; [F1] Help &nbsp; [Tab] Options</div>
+  </section>
+
+  <!-- ================= RESULT ================= -->
+  <section id="result" class="screen">
+    <div class="wrap">
+      <div class="left">
+        <div class="rankletter">AA</div>
+        <div class="rankchipnew">CLEARED — GROOVE GAUGE</div>
+        <div class="newrecord">NEW RECORD</div>
+      </div>
+      <div class="right">
+        <div class="title">Aci-L</div>
+        <div class="artist">裏吉川 / trance — HYPER Lv.7</div>
+
+        <div class="scoreheadline">
+          <div class="num">2512</div>
+          <div class="max">/ 2728 EX</div>
+          <div class="diff">▲ +118 vs best</div>
+        </div>
+
+        <div class="segbar2">
+          <div style="width:71%;background:var(--gold)"></div>
+          <div style="width:18%;background:var(--orange)"></div>
+          <div style="width:7%;background:var(--green)"></div>
+          <div style="width:2%;background:var(--purple)"></div>
+          <div style="width:1%;background:#ff5c5c"></div>
+          <div style="width:1%;background:var(--muted2)"></div>
+        </div>
+        <div class="legend2">
+          <span><i class="dot" style="background:var(--gold)"></i>PGREAT 612</span>
+          <span><i class="dot" style="background:var(--orange)"></i>GREAT 98</span>
+          <span><i class="dot" style="background:var(--green)"></i>GOOD 31</span>
+          <span><i class="dot" style="background:var(--purple)"></i>BAD 6</span>
+          <span><i class="dot" style="background:#ff5c5c"></i>POOR 3</span>
+          <span><i class="dot" style="background:var(--muted2)"></i>MISS 2</span>
+        </div>
+
+        <div class="statgrid">
+          <div class="cell"><div class="mlabel">ACCURACY</div><div class="v" style="color:var(--cyan)">97.84%</div></div>
+          <div class="cell"><div class="mlabel">MAX COMBO</div><div class="v">1358 / 1364</div></div>
+          <div class="cell"><div class="mlabel">GAUGE</div><div class="v" style="color:var(--green)">82.4%</div></div>
+          <div class="cell"><div class="mlabel">PLAY TIME</div><div class="v">3:42</div></div>
+        </div>
+
+        <div class="graphwrap">
+          <svg viewBox="0 0 600 100" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#232a3c" stroke-width="1" points="0,20 600,20"></polyline>
+            <polyline fill="none" stroke="#232a3c" stroke-width="1" points="0,50 600,50"></polyline>
+            <polyline fill="none" stroke="#232a3c" stroke-width="1" points="0,80 600,80"></polyline>
+            <polyline fill="none" stroke="url(#g1)" stroke-width="2.5"
+              points="0,70 40,66 80,60 120,55 160,58 200,48 240,42 280,44 320,36 360,30 400,33 440,24 480,20 520,18 560,16 600,15"></polyline>
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#ff2d6a"/>
+                <stop offset="1" stop-color="#00e5ff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="resultbtns">
+      <button>VIEW REPLAY</button>
+      <button class="primary">CONTINUE ▶</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function go(id,btn){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// Build song list
+const songs = [
+  {lv:'7',cls:'h2',title:'Aci-L',stat:'FAILED',cls2:'fail',sel:true},
+  {lv:'25',cls:'h4',title:'Aci-L -A-',stat:'NO PLAY'},
+  {lv:'15',cls:'h3',title:'Aci-L -EX-',stat:'NO PLAY'},
+  {lv:'5',cls:'h1',title:'Aci-L -EZ-',stat:'NO PLAY'},
+  {lv:'7',cls:'h2',title:'Aci-L -Five-',stat:'NO PLAY'},
+  {lv:'11',cls:'h2',title:'Aci-L -RZ-',stat:'NO PLAY'},
+  {lv:'12',cls:'h3',title:'AIRSHAVER [14key Another]',stat:'FAILED',cls2:'fail'},
+  {lv:'10',cls:'h2',title:'AIRSHAVER [14key Hyper]',stat:'NO PLAY'},
+  {lv:'7',cls:'h1',title:'AIRSHAVER [14key Normal]',stat:'NO PLAY'},
+  {lv:'12',cls:'h3',title:'AIRSHAVER [7key Another]',stat:'FAILED',cls2:'fail'},
+  {lv:'10',cls:'h2',title:'AIRSHAVER [7key Hyper]',stat:'CLEARED',cls2:'clear'},
+  {lv:'6',cls:'h1',title:'AIRSHAVER [7key Normal]',stat:'NO PLAY'},
+  {lv:'6',cls:'h1',title:'aliceblue (Radio Edit) [SNORMAL]',stat:'NO PLAY'},
+  {lv:'12',cls:'h3',title:'aliceblue (Radio Edit) [DP ANOTHER]',stat:'NO PLAY'},
+  {lv:'9',cls:'h2',title:'aliceblue (Radio Edit) [DP HYPER]',stat:'NO PLAY'},
+  {lv:'10',cls:'h2',title:'aliceblue (Radio Edit) [SP ANOTHER]',stat:'CLEARED',cls2:'clear'},
+];
+document.getElementById('songlist').innerHTML = songs.map(s=>`
+  <div class="row ${s.sel?'sel':''}">
+    <div class="lv ${s.cls}">Lv.${s.lv}</div>
+    <div class="title">${s.title}</div>
+    <div class="stat ${s.cls2||''}">${s.stat}</div>
+  </div>`).join('');
+
+// Build lanes + notes (visual only)
+const laneCount = 8, laneW = 68, scratchW = 48;
+let lanesHtml = `<div class="lane" style="left:0;width:${scratchW}px;background:linear-gradient(180deg,#201218,#0a0c12)"></div>`;
+for(let i=0;i<laneCount;i++){
+  lanesHtml += `<div class="lane" style="left:${scratchW+i*laneW}px;width:${laneW}px"></div>`;
+}
+lanesHtml += `<div class="judgeline"></div>`;
+// key beams on pressed lanes
+[1,4,6].forEach(i=>{
+  lanesHtml += `<div class="keybeam" style="left:${scratchW+i*laneW}px;width:${laneW}px"></div>`;
+});
+// notes
+const noteSeed = [
+  [0,40,'blue'],[2,120,'white'],[5,90,'blue'],[7,200,'white'],[1,260,'white'],
+  [3,330,'blue'],[6,170,'white'],[4,400,'blue'],[0,470,'white'],[7,60,'blue'],
+  [2,540,'white'],[5,300,'blue'],
+];
+noteSeed.forEach(([lane,y,c])=>{
+  const x = lane===0? 0 : scratchW+(lane-1)*laneW;
+  const w = lane===0? scratchW : laneW;
+  lanesHtml += `<div class="note ${c}" style="left:${x+2}px;width:${w-4}px;top:${y}px"></div>`;
+});
+document.getElementById('lanes').innerHTML = lanesHtml;
+</script>
+</body>
+</html>
