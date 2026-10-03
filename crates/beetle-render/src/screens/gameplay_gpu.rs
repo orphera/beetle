@@ -524,7 +524,9 @@ pub fn render_gameplay_gpu(
             continue;
         }
         let progress = (elapsed / burst_duration) as f32;
-        let alpha = (1.0 - progress).clamp(0.0, 1.0);
+        let eased_shrink = crate::motion::ease_out_cubic(progress);
+        let eased_fade = crate::motion::ease_in_cubic(progress);
+        let alpha = (1.0 - eased_fade).clamp(0.0, 1.0);
 
         let lx = skin.lane_x(burst.lane) + skin.lane_width(burst.lane) / 2.0;
         let (r, g, b) = match burst.grade {
@@ -535,7 +537,7 @@ pub fn render_gameplay_gpu(
         };
 
         if burst.grade == JudgeGrade::PerfectGreat {
-            let flash_alpha = alpha * 0.2;
+            let flash_alpha = alpha * 0.14;
             let lane_x = skin.lane_x(burst.lane);
             let lane_w = skin.lane_width(burst.lane);
             batcher.draw_rect_with_blend(
@@ -549,9 +551,9 @@ pub fn render_gameplay_gpu(
             );
         }
 
-        let spark_size = (18.0 * (1.0 - progress * 0.5) * s).max(4.0);
+        let spark_size = (18.0 * (1.0 - eased_shrink * 0.5) * s).max(4.0);
         let spark_col = [r, g, b, alpha];
-        let dist = progress * 40.0 * s;
+        let dist = crate::motion::ease_out_quad(progress) * 40.0 * s;
         let offsets = [
             (0.0, -dist),
             (0.0, dist),
@@ -634,7 +636,8 @@ pub fn render_gameplay_gpu(
         let pulse_offset = if let Some((_, judge_time, _)) = last_judge {
             let elapsed = audio_time_seconds - judge_time;
             if elapsed >= 0.0 && elapsed < 0.12 {
-                ((1.0 - (elapsed / 0.12)) * 6.0 * s as f64) as f32
+                let t = (elapsed / 0.12) as f32;
+                (1.0 - crate::motion::ease_out_cubic(t)) * 8.0 * s
             } else {
                 0.0
             }
@@ -677,14 +680,26 @@ pub fn render_gameplay_gpu(
                 JudgeGrade::Miss => ("MISS", ColorRgba::new(140, 140, 140, 255)),
             };
 
+            const POP_IN: f64 = 0.08;
+            const FADE_OUT: f64 = 0.12;
+            let pop_t = (elapsed / POP_IN).min(1.0) as f32;
+            let pop_offset = (1.0 - crate::motion::ease_out_back(pop_t)) * 10.0 * s;
+            let fade_start = 0.5 - FADE_OUT;
+            let alpha = if elapsed > fade_start {
+                let fade_t = ((elapsed - fade_start) / FADE_OUT) as f32;
+                (255.0 * (1.0 - crate::motion::ease_in_cubic(fade_t))) as u8
+            } else {
+                255
+            };
+
             font_atlas.draw_ascii_text_centered(
                 batcher,
                 backend,
                 text,
                 center_x,
-                judge_center_y + 8.0 * s,
+                judge_center_y + 8.0 * s + pop_offset,
                 (2.0 * s).round().max(1.0),
-                color,
+                color.with_alpha(alpha),
             );
 
             if grade != JudgeGrade::Miss && delta_ms.abs() >= 4.0 {
@@ -704,9 +719,9 @@ pub fn render_gameplay_gpu(
                     backend,
                     &fs_str,
                     center_x,
-                    judge_center_y + 28.0 * s,
+                    judge_center_y + 28.0 * s + pop_offset,
                     (s * 0.9).round().max(1.0),
-                    fs_col,
+                    fs_col.with_alpha(alpha),
                 );
             }
         }

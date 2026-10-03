@@ -8,6 +8,7 @@ pub mod bitmap_font;
 pub mod components;
 pub mod design_tokens;
 pub mod image;
+pub mod motion;
 pub mod renderer;
 pub mod screens;
 pub mod skin;

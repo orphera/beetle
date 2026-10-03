@@ -696,7 +696,9 @@ impl SoftwareRenderer {
         for burst in bursts {
             let elapsed = (audio_time_seconds - burst.spawn_time).max(0.0);
             let progress = (elapsed / burst_duration) as f32;
-            let alpha = ((1.0 - progress) * 255.0) as u8;
+            let eased_shrink = crate::motion::ease_out_cubic(progress);
+            let eased_fade = crate::motion::ease_in_cubic(progress);
+            let alpha = ((1.0 - eased_fade) * 255.0) as u8;
             if alpha == 0 {
                 continue;
             }
@@ -711,7 +713,7 @@ impl SoftwareRenderer {
 
             // 1. Lane neon beam flash for PGREAT
             if burst.grade == JudgeGrade::PerfectGreat {
-                let flash_alpha = ((1.0 - progress) * 50.0) as u8;
+                let flash_alpha = ((1.0 - eased_fade) * 36.0) as u8;
                 let lane_x = self.skin.lane_x(burst.lane);
                 let lane_w = self.skin.lane_width(burst.lane);
                 self.draw_rect(
@@ -723,8 +725,9 @@ impl SoftwareRenderer {
                 );
             }
 
-            // 2. Central expanding burst flare
-            let flare_size = ((1.0 - progress) * 26.0 + 4.0) * s;
+            // 2. Central expanding burst flare (ease-out shrink: fast at
+            // first, lingering near the end instead of a stiff linear scale)
+            let flare_size = ((1.0 - eased_shrink) * 26.0 + 4.0) * s;
             self.draw_rect(
                 lx - flare_size / 2.0,
                 judge_y - flare_size / 2.0,
@@ -733,9 +736,10 @@ impl SoftwareRenderer {
                 ColorRgba::new(r, g, b, alpha),
             );
 
-            // 3. Radiating particle sparks
-            let dist = progress * 32.0 * s;
-            let spark_size = ((1.0 - progress) * 4.0 + 1.0) * s;
+            // 3. Radiating particle sparks (ease-out travel: launched fast,
+            // decelerating like they're pushing against drag)
+            let dist = crate::motion::ease_out_quad(progress) * 32.0 * s;
+            let spark_size = ((1.0 - eased_shrink) * 4.0 + 1.0) * s;
             let spark_alpha = (alpha / 2).max(1);
             let spark_col = ColorRgba::new(r, g, b, spark_alpha);
 
@@ -774,7 +778,8 @@ impl SoftwareRenderer {
             let pulse_offset = if let Some((_, judge_time, _)) = self.last_judge {
                 let elapsed = audio_time_seconds - judge_time;
                 if elapsed >= 0.0 && elapsed < 0.12 {
-                    (((1.0 - (elapsed / 0.12)) * 6.0) * s as f64) as i32
+                    let t = (elapsed / 0.12) as f32;
+                    ((1.0 - crate::motion::ease_out_cubic(t)) * 8.0 * s) as i32
                 } else {
                     0
                 }
@@ -817,14 +822,30 @@ impl SoftwareRenderer {
                     JudgeGrade::Miss => ("MISS", ColorRgba::new(140, 140, 140, 255)),
                 };
 
+                // Pop-in: slides up into place with a slight overshoot
+                // (ease_out_back) instead of appearing statically, then
+                // fades out over the last 120ms instead of hard-cutting.
+                const POP_IN: f64 = 0.08;
+                const FADE_OUT: f64 = 0.12;
+                let pop_t = (elapsed / POP_IN).min(1.0) as f32;
+                let pop_offset = ((1.0 - crate::motion::ease_out_back(pop_t)) * 10.0 * s) as i32;
+                let fade_start = 0.5 - FADE_OUT;
+                let alpha = if elapsed > fade_start {
+                    let fade_t = ((elapsed - fade_start) / FADE_OUT) as f32;
+                    (255.0 * (1.0 - crate::motion::ease_in_cubic(fade_t))) as u8
+                } else {
+                    255
+                };
+                let text_color = color.with_alpha(alpha);
+
                 let judge_font_scale = (2.0 * s).round().max(1.0) as u32;
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),
                     text,
                     center_x,
-                    judge_center_y + (8.0 * s) as i32,
+                    judge_center_y + (8.0 * s) as i32 + pop_offset,
                     judge_font_scale,
-                    color,
+                    text_color,
                 );
 
                 // FAST / SLOW indicator
@@ -845,9 +866,9 @@ impl SoftwareRenderer {
                         &mut self.pixmap.as_mut(),
                         &fast_slow_str,
                         center_x,
-                        judge_center_y + (28.0 * s) as i32,
+                        judge_center_y + (28.0 * s) as i32 + pop_offset,
                         font_scale,
-                        fs_color,
+                        fs_color.with_alpha(alpha),
                     );
                 }
             }

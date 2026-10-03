@@ -349,6 +349,16 @@ pub fn cache_len() -> usize {
 }
 
 /// Blits an antialiased 8bpp glyph bitmap onto a tiny-skia pixmap with scaling.
+///
+/// The raw GDI rasterization is always done at a fixed ~18px EM (see
+/// `GdiFontFallback::new`), independent of the caller's `scale`. Blitting it
+/// 1-raw-pixel-to-1-`scale`-block (the old behavior) made GDI-rendered kanji
+/// render ~1.4-1.8x larger than the hand-drawn 10x8 CJK/Hangul/Kana glyphs at
+/// the same nominal `scale`, since the raw glyph has far more source pixels
+/// per edge than the 10x8 hand-drawn grid. Instead, resample the raw glyph
+/// down to the same per-scale cell height the hand-drawn glyphs use
+/// (`BitmapFont::CJK_HEIGHT * scale`) so kanji sit flush with the rest of the
+/// UI's font system at any scale.
 pub fn blit_glyph_aa(
     pixmap: &mut PixmapMut,
     glyph: &GlyphBitmap,
@@ -365,9 +375,16 @@ pub fn blit_glyph_aa(
     let pw = pixmap.width() as i32;
     let ph = pixmap.height() as i32;
 
-    // Baseline is at row 8 to match the 8-row height of Hangul & Kana glyphs.
-    let base_x = x + glyph.origin_x * scale as i32;
-    let base_y = y + (8 - glyph.origin_y) * scale as i32;
+    let target_h_f = (crate::bitmap_font::BitmapFont::CJK_HEIGHT * scale).max(1) as f32;
+    let resize = target_h_f / glyph.height as f32;
+    let target_w = ((glyph.width as f32) * resize).round().max(1.0) as i32;
+    let target_h = target_h_f.round().max(1.0) as i32;
+
+    // Baseline anchor stays at the bottom of the CJK_HEIGHT*scale cell (row 8
+    // in hand-drawn-glyph terms), minus the glyph's ascent above baseline
+    // (origin_y), both expressed in the same resampled target-pixel space.
+    let base_x = x + (glyph.origin_x as f32 * resize).round() as i32;
+    let base_y = y + (target_h_f - glyph.origin_y as f32 * resize).round() as i32;
 
     let data = pixmap.data_mut();
     let u32_slice: &mut [u32] =
@@ -376,9 +393,17 @@ pub fn blit_glyph_aa(
     let gw = glyph.width as usize;
     let gh = glyph.height as usize;
 
-    for row in 0..gh {
-        for col in 0..gw {
-            let cov = glyph.pixels[row * gw + col];
+    for ty in 0..target_h {
+        let sy = ((ty as f32) / resize) as usize;
+        if sy >= gh {
+            continue;
+        }
+        for tx in 0..target_w {
+            let sx = ((tx as f32) / resize) as usize;
+            if sx >= gw {
+                continue;
+            }
+            let cov = glyph.pixels[sy * gw + sx];
             if cov == 0 {
                 continue;
             }
@@ -388,10 +413,12 @@ pub fn blit_glyph_aa(
                 continue;
             }
 
-            let px = base_x + (col as i32 * scale as i32);
-            let py = base_y + (row as i32 * scale as i32);
+            let px = base_x + tx;
+            let py = base_y + ty;
 
-            fill_pixel_block_aa(u32_slice, pw, ph, px, py, scale, color, effective_a);
+            // Each target pixel is already final-resolution (the resize
+            // factor absorbed `scale`), so blit it as a single pixel.
+            fill_pixel_block_aa(u32_slice, pw, ph, px, py, 1, color, effective_a);
         }
     }
 }
