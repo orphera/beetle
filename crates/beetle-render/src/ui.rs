@@ -10,6 +10,10 @@ pub struct Ui {
     pub canvas: Canvas,
     pub text: TextEngine,
     pub skin: Skin,
+    /// Low-fill mode: screens skip purely decorative full-screen layers
+    /// (ambient glow, grain, vignette). Set when running on WARP, where every
+    /// full-screen layer is CPU-rasterized.
+    pub lite: bool,
 }
 
 impl Ui {
@@ -21,6 +25,7 @@ impl Ui {
             canvas,
             text: TextEngine::new(),
             skin,
+            lite: false,
         }
     }
 

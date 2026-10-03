@@ -204,7 +204,10 @@ pub fn finalize_start_gameplay(
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
     state.renderer.invalidate_gameplay_cache();
-    state.bga_gpu_textures.clear();
+    #[cfg(target_os = "windows")]
+    if let (Some(gpu), Some(d3d11)) = (&mut state.gpu_ui, &mut state.d3d11_backend) {
+        gpu.release_song_textures(d3d11);
+    }
     state.mark_dirty();
     state.window.request_redraw();
 }

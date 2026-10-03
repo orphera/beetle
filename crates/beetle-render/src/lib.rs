@@ -15,6 +15,7 @@ pub mod renderer;
 pub mod screens;
 pub mod skin;
 pub mod text;
+pub mod theme;
 pub mod ui;
 pub mod video;
 
@@ -31,7 +32,7 @@ pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::Ui;
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
-pub use screens::render_gameplay_gpu;
+pub use screens::{draw_gameplay, render_gameplay_gpu, PlayFrame, SizedTexture};
 pub use skin::{ColorRgba, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
 

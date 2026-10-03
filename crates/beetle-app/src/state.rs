@@ -151,10 +151,11 @@ pub struct AppState {
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
     pub stage_image_loading_hash: Option<u64>,
     pub is_dirty: bool,
-    pub sprite_batcher: beetle_render::SpriteBatcher,
+    /// Canvas UI + song textures; present whenever the D3D11 backend is.
     #[cfg(target_os = "windows")]
-    pub font_atlas: Option<beetle_render::FontAtlas>,
-    pub bga_gpu_textures: std::collections::HashMap<beetle_core::BmpId, beetle_render::TextureId>,
+    pub gpu_ui: Option<crate::gpu_ui::GpuUi>,
+    /// Env-driven screenshot hook (see devtools.rs); `None` normally.
+    pub capture: Option<crate::devtools::Capture>,
     #[cfg(target_os = "windows")]
     pub d3d11_backend: Option<beetle_render::D3d11Backend>,
     #[cfg(target_os = "windows")]
@@ -232,7 +233,8 @@ impl AppState {
                         use beetle_render::GpuBackend;
                         let tex = d3d.create_texture(size.width, size.height, self.renderer.data());
                         self.d3d11_frame_texture = tex;
-                        self.font_atlas = beetle_render::FontAtlas::new(&mut d3d);
+                        // Any previous textures belonged to an older device.
+                        self.gpu_ui = Some(crate::gpu_ui::GpuUi::new(self.renderer.viewport.scale));
                         self.d3d11_backend = Some(d3d);
                     }
                 }

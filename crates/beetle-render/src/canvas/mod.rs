@@ -41,6 +41,10 @@ struct Batch {
     idx_start: usize,
 }
 
+/// One clip-rect edge: (axis value of a vertex, boundary, keep when the
+/// value is >= the boundary).
+type ClipEdge = (fn(&V) -> f32, f32, bool);
+
 /// Vertex used during clipping (position, uv, premultiplied color).
 #[derive(Debug, Clone, Copy)]
 struct V {
@@ -349,6 +353,23 @@ impl Canvas {
         left: ColorRgba,
         right: ColorRgba,
     ) {
+        self.nine_slice_ex(region, src_border, scale, dst, left, right, false);
+    }
+
+    /// Full 9-slice: `skip_center` omits the middle cell — for sprites whose
+    /// center is transparent (outlines) or hidden (shadows under a panel),
+    /// so the GPU does not spend fill rate on invisible pixels.
+    #[allow(clippy::too_many_arguments)]
+    pub fn nine_slice_ex(
+        &mut self,
+        region: AtlasRegion,
+        src_border: Insets,
+        scale: f32,
+        dst: Rect,
+        left: ColorRgba,
+        right: ColorRgba,
+        skip_center: bool,
+    ) {
         let mut b = src_border.scaled(scale);
         let fx = (dst.w / (b.left + b.right)).min(1.0);
         let fy = (dst.h / (b.top + b.bottom)).min(1.0);
@@ -362,7 +383,7 @@ impl Canvas {
         for j in 0..3 {
             for i in 0..3 {
                 let d = Rect::from_ltrb(dx[i], dy[j], dx[i + 1], dy[j + 1]);
-                if d.is_empty() {
+                if d.is_empty() || (skip_center && i == 1 && j == 1) {
                     continue;
                 }
                 let s = Rect::from_ltrb(sx[i], sy[j], sx[i + 1], sy[j + 1]);
@@ -439,8 +460,7 @@ impl Canvas {
         let mut b = std::mem::take(&mut self.scratch_b);
         a.clear();
         a.extend_from_slice(verts);
-        // (axis value of a vertex, boundary, keep when value >= boundary?)
-        let edges: [(fn(&V) -> f32, f32, bool); 4] = [
+        let edges: [ClipEdge; 4] = [
             (|p| p.x, clip.x, true),
             (|p| p.x, clip.right(), false),
             (|p| p.y, clip.y, true),
@@ -565,8 +585,10 @@ mod tests {
         }
     }
 
+    type DrawRef<'a> = (&'a Vec<Vertex2D>, &'a Vec<u16>, Option<TextureId>, BlendMode);
+
     impl Mock {
-        fn draws(&self) -> Vec<(&Vec<Vertex2D>, &Vec<u16>, Option<TextureId>, BlendMode)> {
+        fn draws(&self) -> Vec<DrawRef<'_>> {
             self.calls
                 .iter()
                 .filter_map(|c| match c {

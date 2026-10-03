@@ -49,7 +49,7 @@ fn backdrop(ui: &mut Ui, ambient: ColorRgba) {
 
 fn render_menu(ui: &mut Ui) {
     backdrop(ui, MAGENTA);
-    let Ui { canvas: c, text: t, skin } = ui;
+    let Ui { canvas: c, text: t, skin, .. } = ui;
 
     // Top bar
     c.fill_rect(Rect::new(0.0, 0.0, W as f32, 64.0), rgba(0x05060a, 200));
@@ -178,7 +178,7 @@ fn render_menu(ui: &mut Ui) {
 
 fn render_gameplay(ui: &mut Ui) {
     backdrop(ui, rgb(0x2a5bff));
-    let Ui { canvas: c, text: t, skin } = ui;
+    let Ui { canvas: c, text: t, skin, .. } = ui;
 
     // Playfield: scratch + 7 keys
     let lanes: [(f32, ColorRgba); 8] = [

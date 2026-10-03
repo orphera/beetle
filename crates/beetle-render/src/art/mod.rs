@@ -23,6 +23,9 @@ use sdf::{coverage, cut_box, lerp, round_box, segment, smoothstep, Bitmap};
 pub struct NineSlice {
     pub region: AtlasRegion,
     pub border: Insets,
+    /// The center cell is never drawn (transparent outline, or a shadow
+    /// whose center is covered by its panel) — saves fill rate.
+    pub hollow: bool,
 }
 
 /// A sprite whose visible shape is inset from the destination rect, e.g.
@@ -147,6 +150,7 @@ fn rounded(atlas: &mut UiAtlas, r: f32, stroke: Option<f32>) -> NineSlice {
     NineSlice {
         region: put(atlas, &bmp),
         border: Insets::uniform(b as f32),
+        hollow: stroke.is_some(),
     }
 }
 
@@ -168,6 +172,7 @@ fn shadow(atlas: &mut UiAtlas, r: f32, sigma: f32) -> Halo {
         slice: NineSlice {
             region: put_black(atlas, &bmp),
             border: Insets::uniform(b as f32),
+            hollow: true,
         },
         margin: m,
     }
@@ -187,6 +192,7 @@ fn cut(atlas: &mut UiAtlas, c: f32, stroke: Option<f32>) -> NineSlice {
     NineSlice {
         region: put(atlas, &bmp),
         border: Insets::uniform(b as f32),
+        hollow: stroke.is_some(),
     }
 }
 
@@ -239,6 +245,7 @@ fn note(atlas: &mut UiAtlas, h: f32, r: f32, gloss: bool) -> NineSlice {
     NineSlice {
         region: put(atlas, &bmp),
         border: Insets::new(b as f32, 0.0, b as f32, 0.0),
+        hollow: false,
     }
 }
 
@@ -257,6 +264,7 @@ fn ln_body(atlas: &mut UiAtlas, s: f32) -> NineSlice {
     NineSlice {
         region: put(atlas, &bmp),
         border: Insets::new(b as f32, 0.0, b as f32, 0.0),
+        hollow: false,
     }
 }
 
@@ -368,12 +376,12 @@ fn icon_dot(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
 impl Canvas {
     /// Draws a 9-slice skin sprite at its native (generated) scale.
     pub fn nine(&mut self, n: &NineSlice, dst: Rect, tint: ColorRgba) {
-        self.nine_slice(n.region, n.border, 1.0, dst, tint);
+        self.nine_slice_ex(n.region, n.border, 1.0, dst, tint, tint, n.hollow);
     }
 
     /// 9-slice skin sprite with a left → right gradient tint.
     pub fn nine_hgradient(&mut self, n: &NineSlice, dst: Rect, left: ColorRgba, right: ColorRgba) {
-        self.nine_slice_hgradient(n.region, n.border, 1.0, dst, left, right);
+        self.nine_slice_ex(n.region, n.border, 1.0, dst, left, right, n.hollow);
     }
 
     /// Draws a halo (e.g. drop shadow) around `target`.

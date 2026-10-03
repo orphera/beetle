@@ -225,6 +225,8 @@ mod wmf_backend {
         pub current_time_seconds: f64,
         pub frame_buffer: ImageBuffer,
         pub is_eof: bool,
+        /// Incremented whenever `frame_buffer` receives a new decoded frame.
+        pub frame_serial: u64,
     }
 
     impl WmfVideoPlayer {
@@ -297,6 +299,7 @@ mod wmf_backend {
                 current_time_seconds: -1.0,
                 frame_buffer: ImageBuffer::new(width, height, ColorRgba::new(0, 0, 0, 255)),
                 is_eof: false,
+                frame_serial: 0,
             };
 
             // Read initial frame
@@ -564,6 +567,7 @@ mod wmf_backend {
 
                 let _ = ((*sample_vtbl).parent.Release)(sample_ptr);
                 self.current_time_seconds = timestamp_100ns as f64 / 10_000_000.0;
+                self.frame_serial += 1;
                 true
             }
         }
@@ -687,6 +691,19 @@ impl BgaVideoPlayer {
         #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
         {
             None
+        }
+    }
+
+    /// Changes whenever a new frame was decoded (GPU upload change detection).
+    pub fn frame_serial(&self) -> u64 {
+        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+        {
+            self.backend.as_ref().map(|b| b.frame_serial).unwrap_or(0)
+        }
+
+        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
+        {
+            0
         }
     }
 

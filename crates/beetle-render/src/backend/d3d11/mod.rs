@@ -63,6 +63,11 @@ impl D3d11Backend {
         Self::with_driver_types(hwnd, width, height, drivers)
     }
 
+    /// True when running on WARP (CPU rasterizer) rather than a GPU.
+    pub fn is_warp(&self) -> bool {
+        self.is_warp
+    }
+
     /// Like `new`, with an explicit driver-type preference order
     /// (`D3D_DRIVER_TYPE_HARDWARE` / `D3D_DRIVER_TYPE_WARP`).
     pub fn with_driver_types(

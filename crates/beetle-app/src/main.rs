@@ -2,7 +2,10 @@
 
 mod config;
 mod demo;
+mod devtools;
 mod gameplay;
+#[cfg(target_os = "windows")]
+mod gpu_ui;
 mod handlers;
 mod input;
 mod loader;
@@ -30,6 +33,8 @@ use handlers::{
 use input::{InputConfig, KeyPreset};
 use loader::spawn_background_stage_image_loader;
 use softbuffer::{Context, Surface};
+#[cfg(target_os = "windows")]
+use gpu_ui::{bga_texture, gameplay_bga_texture};
 use state::{init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -145,11 +150,11 @@ impl ApplicationHandler for BeetleApp {
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
         #[cfg(target_os = "windows")]
-        let (d3d11_backend, d3d11_frame_texture, font_atlas) = {
+        let (d3d11_backend, d3d11_frame_texture, gpu_ui) = {
             use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
             let mut backend = None;
             let mut texture = None;
-            let mut atlas = None;
+            let mut ui = None;
             if saved_config.gpu_backend != config::GpuBackendSetting::Software {
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
@@ -159,13 +164,13 @@ impl ApplicationHandler for BeetleApp {
                         {
                             use beetle_render::GpuBackend;
                             texture = d3d.create_texture(size.width, size.height, renderer.data());
-                            atlas = beetle_render::FontAtlas::new(&mut d3d);
+                            ui = Some(gpu_ui::GpuUi::new(renderer.viewport.scale));
                             backend = Some(d3d);
                         }
                     }
                 }
             }
-            (backend, texture, atlas)
+            (backend, texture, ui)
         };
 
         let mut app_state = AppState {
@@ -189,7 +194,7 @@ impl ApplicationHandler for BeetleApp {
             selected_key_idx: 0,
             score_store,
             play_options: saved_config.play_options,
-            is_auto_play: false,
+            is_auto_play: devtools::autoplay_requested(),
             is_replay_playback: false,
             is_gameplay_paused: false,
             pause_selected_option: 0,
@@ -239,10 +244,9 @@ impl ApplicationHandler for BeetleApp {
             stage_image_receiver: None,
             stage_image_loading_hash: None,
             is_dirty: true,
-            sprite_batcher: beetle_render::SpriteBatcher::new(),
             #[cfg(target_os = "windows")]
-            font_atlas,
-            bga_gpu_textures: std::collections::HashMap::new(),
+            gpu_ui,
+            capture: devtools::Capture::from_env(),
             #[cfg(target_os = "windows")]
             d3d11_backend,
             #[cfg(target_os = "windows")]
@@ -467,6 +471,15 @@ impl ApplicationHandler for BeetleApp {
                     event_loop.set_control_flow(ControlFlow::Wait);
                 }
             }
+        }
+
+        // devtools: keep frames coming until a pending capture is taken,
+        // even on screens that otherwise sleep until the next input event.
+        if state.capture.as_ref().is_some_and(|c| c.pending()) {
+            state.window.request_redraw();
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
         }
     }
 
@@ -734,9 +747,7 @@ impl ApplicationHandler for BeetleApp {
                         let is_gpu_gameplay = {
                             #[cfg(target_os = "windows")]
                             {
-                                state.is_d3d11_active()
-                                    && !state.is_gameplay_paused
-                                    && state.font_atlas.is_some()
+                                state.is_d3d11_active() && state.gpu_ui.is_some()
                             }
                             #[cfg(not(target_os = "windows"))]
                             {
@@ -856,63 +867,72 @@ impl ApplicationHandler for BeetleApp {
                 if state.is_d3d11_active() && width > 0 && height > 0 {
                     use beetle_render::GpuBackend;
                     if let Some(d3d11) = &mut state.d3d11_backend {
-                        // 1. True GPU batched rendering path for active gameplay
-                        if state.screen == AppScreen::Gameplay && !state.is_gameplay_paused {
-                            if state.font_atlas.is_none() {
-                                state.font_atlas = beetle_render::FontAtlas::new(d3d11);
-                            }
-
-                            if let (Some(chart), Some(judge), Some(timing), Some(font_atlas)) = (
+                        // 1. Canvas UI path (ADR-026): screens already ported to `Ui`.
+                        if state.screen == AppScreen::Gameplay {
+                            if let (Some(gpu), Some(chart), Some(judge), Some(timing)) = (
+                                &mut state.gpu_ui,
                                 &state.active_chart,
                                 &state.active_judge,
                                 &state.active_timing,
-                                &state.font_atlas,
                             ) {
                                 d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-
-                                // Resolve / cache active BGA GPU texture
-                                let bga_tex_id = if let Some(bmp_id) = state.current_bga_bmp {
-                                    if let Some(&t) = state.bga_gpu_textures.get(&bmp_id) {
-                                        Some(t)
-                                    } else if let Some(img) = state.bga_bank.get(&bmp_id) {
-                                        let raw = img.to_raw_rgba_bytes();
-                                        let t = d3d11.create_texture(img.width, img.height, &raw);
-                                        if let Some(tex) = t {
-                                            state.bga_gpu_textures.insert(bmp_id, tex);
-                                        }
-                                        t
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                };
-
-                                let key_pressed = *state.renderer.key_pressed();
-                                state.renderer.clean_expired_hit_bursts(audio_time);
-                                let hit_bursts = state.renderer.hit_bursts();
-                                let last_judge = state.renderer.last_judge();
-
-                                beetle_render::render_gameplay_gpu(
+                                let bga = gameplay_bga_texture(
+                                    gpu,
                                     d3d11,
-                                    &mut state.sprite_batcher,
-                                    &state.renderer.viewport,
-                                    &state.renderer.skin,
-                                    font_atlas,
-                                    chart,
-                                    judge.notes(),
+                                    &state.bga_bank,
+                                    &state.video_players,
+                                    state.poor_until_time,
+                                    state.poor_bga_bmp,
+                                    state.current_bga_bmp,
+                                    state.active_bga_image.as_ref(),
+                                    state.active_chart_hash,
                                     audio_time,
-                                    judge.score(),
-                                    &visual_levels,
-                                    bga_tex_id,
-                                    None,
-                                    state.track_bga.opacity(),
-                                    timing,
-                                    &key_pressed,
-                                    hit_bursts,
-                                    last_judge,
                                 );
+                                let layer = state.current_layer_bmp.and_then(|id| {
+                                    bga_texture(gpu, d3d11, &state.bga_bank, &state.video_players, id, true)
+                                });
 
+                                state.renderer.clean_expired_hit_bursts(audio_time);
+                                let key_pressed = *state.renderer.key_pressed();
+                                let (badge, hint) = gameplay_badge_and_hint(
+                                    state.is_replay_playback,
+                                    state.is_auto_play,
+                                    state.input_config.preset,
+                                );
+                                let vp = state.renderer.viewport;
+                                gpu.ui.lite = d3d11.is_warp();
+                                gpu.ui.begin(width, height, vp.scale);
+                                beetle_render::draw_gameplay(
+                                    &mut gpu.ui,
+                                    &beetle_render::PlayFrame {
+                                        viewport: &vp,
+                                        layout: &state.renderer.skin,
+                                        chart,
+                                        notes: judge.notes(),
+                                        timing,
+                                        score: judge.score(),
+                                        audio_time,
+                                        song_length: state.song_end_time,
+                                        visual_levels: &visual_levels,
+                                        bga,
+                                        layer,
+                                        track_bga_opacity: state.track_bga.opacity(),
+                                        key_pressed: &key_pressed,
+                                        hit_bursts: state.renderer.hit_bursts(),
+                                        last_judge: state.renderer.last_judge(),
+                                        hint,
+                                        badge,
+                                        pause: state
+                                            .is_gameplay_paused
+                                            .then_some(state.pause_selected_option),
+                                    },
+                                );
+                                gpu.ui.end(d3d11);
+                                if let Some(cap) = &mut state.capture {
+                                    if cap.on_frame(state.screen, d3d11) {
+                                        state.should_exit_app = true;
+                                    }
+                                }
                                 d3d11.end_frame();
                                 presented_d3d11 = true;
                             }
@@ -973,6 +993,11 @@ impl ApplicationHandler for BeetleApp {
                                     beetle_render::BlendMode::Alpha,
                                 );
                             }
+                            if let Some(cap) = &mut state.capture {
+                                if cap.on_frame(state.screen, d3d11) {
+                                    state.should_exit_app = true;
+                                }
+                            }
                             d3d11.end_frame();
                             presented_d3d11 = true;
                         }
@@ -1005,6 +1030,28 @@ impl ApplicationHandler for BeetleApp {
             _ => (),
         }
     }
+}
+
+/// Mode badge and key-hint line for the gameplay HUD.
+fn gameplay_badge_and_hint(
+    is_replay: bool,
+    is_auto: bool,
+    preset: KeyPreset,
+) -> (Option<&'static str>, &'static str) {
+    if is_replay {
+        return (Some("REPLAY"), "ESC  Return to song select");
+    }
+    if is_auto {
+        return (Some("AUTO PLAY"), "ESC  Return to song select");
+    }
+    let hint = match preset {
+        KeyPreset::HomeRow => "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::ArcadeZx => "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Pms9K => "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
+        KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+    };
+    (None, hint)
 }
 
 fn handle_keyboard_input(
