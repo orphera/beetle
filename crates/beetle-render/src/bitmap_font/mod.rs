@@ -92,6 +92,22 @@ impl BitmapFont {
     }
 
     /// Renders a single character glyph onto the pixmap.
+    ///
+    /// Font weight design note (see docs/plans/2026-10-03-pulse-redesign.md):
+    /// the hand-authored ASCII table is a classic 5-column-wide pixel font,
+    /// while Hangul/Kana/CJK glyphs are 10 columns wide. At matched scale
+    /// that isn't just a width difference (the 2:1 ratio is the correct,
+    /// intentional "fullwidth CJK" convention) — a 5-wide stroke is
+    /// inherently thinner-*looking* than a 10-wide one, so mixed Latin+CJK
+    /// strings read as "wiry ASCII next to bold CJK" even when every glyph
+    /// is rendered at its geometrically correct size. Fixing that by
+    /// redrawing every ASCII glyph at higher resolution was ruled out
+    /// (too large a change for this pass); instead this applies the
+    /// standard bitmap-font "synthetic bold" trick — OR each column with
+    /// the previous column, equivalent to drawing the glyph a second time
+    /// shifted 1 raw pixel right and compositing — which visually thickens
+    /// strokes without touching the glyph data, the 5x7 bounding box, or
+    /// `char_advance` kerning math, so no screen's calibrated layout moves.
     pub fn draw_char(
         pixmap: &mut PixmapMut,
         c: char,
@@ -102,10 +118,12 @@ impl BitmapFont {
     ) {
         let scale = scale.max(1);
 
-        // 1. ASCII 5x7 character
+        // 1. ASCII 5x7 character (synthetic-bold dilated, see doc comment above)
         if let Some(glyph) = get_ascii_glyph(c) {
+            let mut prev_bits = 0u8;
             for col in 0..5 {
-                let col_bits = glyph[col];
+                let col_bits = glyph[col] | prev_bits;
+                prev_bits = glyph[col];
                 for row in 0..7 {
                     if (col_bits & (1 << row)) != 0 {
                         let px = x + (col as i32 * scale as i32);
