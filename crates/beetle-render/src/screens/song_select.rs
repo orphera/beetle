@@ -42,6 +42,27 @@ impl SoftwareRenderer {
         let muted2 = ColorRgba::new(0x4c, 0x53, 0x68, 255);
         let hairline = ColorRgba::new(0x17, 0x1b, 0x27, 255);
 
+        // Ambient art-color bleed: sample the selected jacket's dominant
+        // color and wash it softly across the upper-right of the screen,
+        // fading into the base background. The flat near-black canvas this
+        // used to sit on read "unfinished"; this one trick (the same used
+        // by Spotify/Apple Music/PS5 and most modern rhythm game menus) is
+        // disproportionately cheap for how much more "produced" it makes the
+        // whole screen feel. See docs/plans/2026-10-03-pulse-redesign.md.
+        if let Some(img) = stage_image {
+            let ambient = img.average_color_sampled(6);
+            let wash_h = vp.height * 0.55;
+            self.draw_gradient_rect(
+                vp.x,
+                vp.y,
+                vp.width,
+                wash_h,
+                ambient.with_alpha(46),
+                ambient.with_alpha(0),
+                false,
+            );
+        }
+
         // -----------------------------------------------------------------
         // 1. Top bar: wordmark + underline tabs + borderless search
         // -----------------------------------------------------------------

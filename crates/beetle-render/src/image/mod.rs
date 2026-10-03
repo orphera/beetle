@@ -128,6 +128,50 @@ impl ImageBuffer {
         }
     }
 
+    /// Samples a coarse grid (`grid` x `grid` points) across the image and
+    /// averages them into a single representative color, boosted toward a
+    /// richer, slightly darker tone so it reads well as an ambient UI wash
+    /// rather than washing out text contrast. Used for the "art color bleed"
+    /// background treatment on SongSelect (see
+    /// docs/plans/2026-10-03-pulse-redesign.md) — deliberately cheap (at
+    /// most grid*grid samples, independent of image resolution) since it can
+    /// run every time the selection changes rather than needing a cache.
+    pub fn average_color_sampled(&self, grid: u32) -> ColorRgba {
+        if self.width == 0 || self.height == 0 || self.pixels.is_empty() {
+            return ColorRgba::new(0, 0, 0, 255);
+        }
+        let grid = grid.max(1);
+        let mut sum_r: u64 = 0;
+        let mut sum_g: u64 = 0;
+        let mut sum_b: u64 = 0;
+        let mut count: u64 = 0;
+
+        for gy in 0..grid {
+            let y = ((gy as f32 + 0.5) / grid as f32 * self.height as f32) as u32;
+            let y = y.min(self.height - 1);
+            for gx in 0..grid {
+                let x = ((gx as f32 + 0.5) / grid as f32 * self.width as f32) as u32;
+                let x = x.min(self.width - 1);
+                let p = self.pixels[(y * self.width + x) as usize];
+                sum_r += p.r as u64;
+                sum_g += p.g as u64;
+                sum_b += p.b as u64;
+                count += 1;
+            }
+        }
+
+        if count == 0 {
+            return ColorRgba::new(0, 0, 0, 255);
+        }
+
+        ColorRgba::new(
+            (sum_r / count) as u8,
+            (sum_g / count) as u8,
+            (sum_b / count) as u8,
+            255,
+        )
+    }
+
     /// Blits this image (without scaling) directly into the target pixmap.
     pub fn blit_to(&self, pixmap: &mut Pixmap, dst_x: i32, dst_y: i32) {
         let target_w = pixmap.width() as i32;
