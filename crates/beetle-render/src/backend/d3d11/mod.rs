@@ -81,27 +81,48 @@ impl D3d11Backend {
         let mut swap_chain: *mut c_void = ptr::null_mut();
         let mut feature_level: u32 = 0;
 
-        let hr = unsafe {
-            D3D11CreateDeviceAndSwapChain(
-                ptr::null_mut(),
-                D3D_DRIVER_TYPE_HARDWARE,
-                ptr::null_mut(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                [D3D_FEATURE_LEVEL_11_0].as_ptr(),
-                1,
-                7, // D3D11_SDK_VERSION
-                &swap_desc,
-                &mut swap_chain,
-                &mut device,
-                &mut feature_level,
-                &mut context,
-            )
-        };
+        // D3D11 is the only renderer (ADR-026), so device creation must not
+        // fail on low-end machines. Shaders target vs_4_0/ps_4_0, which runs
+        // on any feature level >= 10_0. If no hardware adapter qualifies
+        // (very old iGPU, VM, RDP session), fall back to WARP — Windows'
+        // built-in CPU rasterizer — which runs the identical pipeline.
+        let feature_levels = [
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0,
+        ];
+        let mut last_hr: i32 = 0;
+        for driver_type in [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP] {
+            let hr = unsafe {
+                D3D11CreateDeviceAndSwapChain(
+                    ptr::null_mut(),
+                    driver_type,
+                    ptr::null_mut(),
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    feature_levels.as_ptr(),
+                    feature_levels.len() as u32,
+                    7, // D3D11_SDK_VERSION
+                    &swap_desc,
+                    &mut swap_chain,
+                    &mut device,
+                    &mut feature_level,
+                    &mut context,
+                )
+            };
+            if hr >= 0 && !device.is_null() && !context.is_null() && !swap_chain.is_null() {
+                if driver_type == D3D_DRIVER_TYPE_WARP {
+                    eprintln!("[D3D11] No hardware adapter available; using WARP software rasterizer");
+                }
+                last_hr = hr;
+                break;
+            }
+            last_hr = hr;
+        }
 
-        if hr < 0 || device.is_null() || context.is_null() || swap_chain.is_null() {
+        if last_hr < 0 || device.is_null() || context.is_null() || swap_chain.is_null() {
             return Err(format!(
-                "D3D11CreateDeviceAndSwapChain failed: 0x{:08X}",
-                hr as u32
+                "D3D11CreateDeviceAndSwapChain failed (hardware and WARP): 0x{:08X}",
+                last_hr as u32
             ));
         }
 

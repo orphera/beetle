@@ -34,6 +34,8 @@
 
 ## ADR-004: GPU 백엔드 대신 `tiny-skia` + `softbuffer` 기반 2D 소프트웨어 렌더링
 
+> **⚠️ 대체됨 (Superseded)**: ADR-026에 의해 대체되었습니다. `beetle-app`은 Direct3D 11 단일 렌더러를 사용합니다.
+
 - **결정**: `wgpu`, Vulkan, DirectX, OpenGL 등 GPU 하드웨어 가속 라이브러리를 배제하고, CPU 기반 2D 소프트웨어 렌더러인 `tiny-skia`와 OS 네이티브 윈도우 버퍼링인 `softbuffer`를 사용한다.
 - **배경 및 이유**:
   - **바이너리 크기 최우선**: `wgpu` 및 SPIR-V/WGSL 셰이더 컴파일러 파이프라인은 최종 실행 파일 크기를 수십 MB 이상 급증시킵니다.
@@ -43,6 +45,8 @@
 ---
 
 ## ADR-005: 벡터 폰트 래스터라이저 대신 내장 비트맵 폰트 채택
+
+> **⚠️ 대체됨 (Superseded)**: 2026-10-03 `fontdue` 임베디드 폰트 도입(AGENTS.md 의존성 정책) 및 ADR-026의 GPU 글리프 아틀라스로 대체되었습니다.
 
 - **결정**: TrueType/OpenType 폰트 파서/래스터라이저(`freetype`, `fontdue` 등)를 탑재하지 않고, 숫자/알파벳/판정 문구로 구성된 1비트/8비트 내장 비트맵 폰트 아틀라스를 사용한다.
 - **배경 및 이유**:
@@ -165,6 +169,8 @@
 
 ## ADR-018: 다중 백엔드 지원을 위한 초경량 GPU 하드웨어 가속(HAL) 아키텍처
 
+> **⚠️ 일부 대체됨**: "Software Fallback (`tiny-skia` + `softbuffer`)" 항목은 ADR-026의 WARP 폴백으로 대체되었습니다. OpenGL / Vulkan / Metal 백엔드는 당분간 범위 밖입니다.
+
 - **결정**: `beetle-render`에 2D 리듬게임에 특화된 미니멀 하드웨어 추상화 계층(`trait GpuBackend`)을 구축하고, **Direct3D 11 (Windows 기본, Zero-Crate)**, **OpenGL (Linux/WebGL2)**, **Vulkan (저지연 고성능)**, **Metal (macOS/iOS)** 및 **Software Fallback (`tiny-skia` + `softbuffer`)**을 지원하는 모듈형 플러거블 아키텍처를 채택한다. SPIR-V/WGSL 런타임 셰이더 컴파일러(`wgpu`)를 배제하고 사전 컴파일된 바이트코드를 임베드하여 바이너리 크기를 엄격히 제어한다.
 - **배경 및 이유**:
   - 고해상도(1080p, 4K) 및 초고주사율(144Hz, 240Hz, 360Hz+) 환경과 고해상도 BGA 재생 시 CPU 메모리 복사(Blit) 부하와 발열을 근본적으로 해소합니다.
@@ -175,6 +181,8 @@
 ---
 
 ## ADR-019: 런타임 GDI CJK 한자 글리프 폴백 및 렌더 스레드 캐시 (Runtime GDI CJK Kanji Fallback & Glyph Cache)
+
+> **⚠️ 대체됨 (Superseded)**: ADR-026에 의해 대체되었습니다. 텍스트는 임베디드 폰트 기반 GPU 글리프 아틀라스로 렌더링합니다.
 
 - **결정**: CJK 통합 한자(CJK Unified Ideographs, U+4E00~U+9FFF) 렌더링 시 거대한 정적 테이블 임베딩이나 외부 폰트 래스터라이저 크레이트(`freetype`, `fontdue` 등)를 도입하지 않고, **Windows GDI(`GetGlyphOutlineW`, `GGO_GRAY8_BITMAP`) FFI를 런타임에 직접 호출하여 필요한 글리프만 온더플라이로 래스터화하고 렌더 스레드 전용 캐시(`HashMap<char, Option<GlyphBitmap>>`)에 저장**하는 4번째 폴백 계층을 구축한다. 미지원 플랫폼(비Windows) 또는 시스템 폰트 누락 시에는 기존 네모 박스 글리프로 안전하게 폴백한다.
 - **배경 및 이유**:
@@ -246,3 +254,16 @@
   - **설치/삭제 속도 50배 이상 비약적 향상**: 수천 회의 개별 파일 I/O를 단 1회의 원자적 아카이브 이동으로 대체합니다.
   - **Beetle 스트리밍 로더 완성도 반영**: `beetle-app`(`loader.rs`)이 이미 `.bmsp` 내부에서 채보 파싱, Sound Atlas, BGA Atlas, 메모리 비디오 소스를 100% 온더플라이로 로딩 가능하므로 디스크 상의 루즈 파일은 불필요한 기술 부채입니다.
 
+---
+
+## ADR-026: Direct3D 11 단일 렌더러 채택 및 소프트웨어 렌더러 폐지 (Windows 전용)
+
+- **결정**: `beetle-app`의 렌더링을 **Direct3D 11 단일 경로**로 통일하고, `tiny-skia` + `softbuffer` 소프트웨어 렌더러와 화면별 이중 구현(`gameplay.rs` / `gameplay_gpu.rs`)을 폐지한다. 하드웨어 어댑터가 없거나 기능 레벨 10_0 미만인 환경에서는 Windows 내장 CPU 래스터라이저인 **WARP**(`D3D_DRIVER_TYPE_WARP`)로 동일한 파이프라인을 실행한다. Linux / macOS 지원은 당분간 범위에서 제외한다. 이 결정은 ADR-004를 **대체**하고, ADR-018의 "Software Fallback" 항목을 WARP로 **대체**하며, 텍스트 렌더링을 GPU 글리프 아틀라스로 옮김에 따라 ADR-005(비트맵 폰트)와 ADR-019(GDI 한자 폴백)도 **대체**한다.
+- **배경 및 이유**:
+  - **저사양에서 60 FPS 미달**: D3D11이 활성화된 상태에서도 게임플레이를 제외한 모든 화면(SongSelect / Result / KeyConfig / 모달)은 CPU로 전체 프레임을 그린 뒤 매 프레임 통째로 GPU 텍스처에 업로드하고 있었다. 저사양 PC에서 메뉴조차 60 FPS를 유지하지 못하는 직접 원인이다.
+  - **이중 구현 비용**: 게임플레이 화면이 소프트웨어 경로와 GPU 경로로 따로 구현되어 모든 비주얼 변경을 두 번 해야 했고, GPU 경로가 그라디언트를 지원하지 않아 두 결과가 서로 달라졌다.
+  - **배칭 제약으로 인한 레이아웃 왜곡**: UI 사각형과 텍스트가 서로 다른 텍스처를 쓰는 탓에 "사각형 전부 → 텍스트 전부" 순서를 강제해야 했다. UI 스프라이트와 글리프를 **단일 아틀라스**로 합치면 그리기 순서와 무관하게 드로우콜을 최소로 유지할 수 있다.
+  - **WARP는 추가 비용 0의 폴백**: OS에 내장되어 있어 바이너리 크기 증가가 없고, 렌더링 코드가 하나뿐이므로 폴백 경로가 따로 썩지 않는다.
+  - **바이너리 크기**: D3D11은 OS 시스템 DLL을 직접 FFI로 호출하므로 크레이트가 추가되지 않으며, `tiny-skia` / `softbuffer` 제거로 `beetle-app` 실행 파일은 오히려 작아진다.
+- **알려진 부채**: 현재 셰이더는 `d3dcompiler_47.dll`(Windows 8.1+ 시스템 DLL)로 런타임 컴파일한다. 사전 컴파일 바이트코드 임베딩으로 전환해야 한다(docs/plans/2026-10-04-d3d11-ui-rebuild.md P1).
+- **범위 밖**: `bpm-gui`는 별도 경량 앱이므로 이 결정과 무관하게 기존 `tiny-skia` + `softbuffer`를 유지한다.

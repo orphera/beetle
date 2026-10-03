@@ -23,6 +23,9 @@ pub const IID_ID3D11TEXTURE2D: GUID = GUID {
 
 // D3D11 enums and constants
 pub const D3D_DRIVER_TYPE_HARDWARE: u32 = 1;
+pub const D3D_DRIVER_TYPE_WARP: u32 = 5;
+pub const D3D_FEATURE_LEVEL_10_0: u32 = 0xa000;
+pub const D3D_FEATURE_LEVEL_10_1: u32 = 0xa100;
 pub const D3D_FEATURE_LEVEL_11_0: u32 = 0xb000;
 pub const D3D11_CREATE_DEVICE_BGRA_SUPPORT: u32 = 0x20;
 

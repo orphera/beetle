@@ -32,7 +32,7 @@
 - **[INV-4] 3-스레드 분리 모델**
   - **오디오 스레드**: 믹싱 및 `AudioClock` 누적 전용.
   - **로직/입력 스레드**: 키 입력 처리, 판정, 락프리 큐로 오디오 커맨드 전송.
-  - **렌더 스레드**: `softbuffer` + `tiny-skia` 기반 프레임 그리기.
+  - **렌더 스레드**: Direct3D 11 단일 렌더러(OS 시스템 DLL 직접 FFI) 기반 프레임 그리기. 하드웨어 어댑터가 없으면 WARP로 동일 파이프라인을 실행합니다. 소프트웨어 렌더러나 화면별 이중 구현을 다시 도입하지 않습니다 (ADR-026, Windows 전용).
 
 - **[INV-5] 비동기 백그라운드 I/O & 논블로킹 UI**
   - 대용량 파일 복사, 압축 해제, 디렉터리 패킹, 다수 키음 디코딩은 메인 UI 스레드를 블로킹하지 않고 백그라운드 Worker 스레드로 위임합니다.
@@ -48,7 +48,7 @@
 새로운 크레이트를 추가하기 전에는 반드시 대체 방안(표준 라이브러리 직접 구현)을 먼저 검토해야 합니다.
 
 ### 🚫 금지 라이브러리 목록 (Forbidden Crates)
-- **GPU / 셰이더 관련**: `wgpu`, `vulkano`, `glow`, `glium`, `ash`, `pixels` (tiny-skia + softbuffer 유지)
+- **GPU / 셰이더 관련**: `wgpu`, `vulkano`, `glow`, `glium`, `ash`, `pixels` (beetle-app은 OS 내장 Direct3D 11 직접 FFI만 사용 — ADR-026)
 - **무거운 오디오 라이브러리**: `rodio`, `kira`, `soloud` (cpal + 자체 믹서 유지)
 - **무거운 파서/정규식**: `regex`, `nom`, `pest`, `combine` (BMS 파서는 순수 문자열 조작으로 작성)
 - **폰트 래스터라이저**: `freetype`, `rusttype`, `cosmic-text` 등 범용/GPU 연동 래스터라이저는 금지. 예외적으로 `fontdue`(순수 Rust, GPU/셰이더 의존 없음)는 임베디드 서브셋 폰트(Latin + 조요칸지 일본어 + 상용 한글) 렌더링 전용으로 허용 — 전체 글립 세트가 아닌 실사용 범위로 서브셋팅된 폰트 파일만 내장하며, 바이너리 크기 예산 초과 여부를 항상 측정하고 문서화해야 함(2026-10-03 기준 폰트 에셋 합계 약 1.55MB, <1MB 목표를 의도적으로 초과한 결정사항 — docs/plans/2026-10-03-pulse-redesign.md 참고)
@@ -60,8 +60,7 @@
 - `rtrb` (실시간 락프리 SPSC 링버퍼)
 - `hound` (WAV 디코더)
 - `lewton` (선택적 OGG Vorbis 디코더)
-- `tiny-skia` (2D 소프트웨어 렌더링)
-- `softbuffer` (네이티브 윈도우 프레임버퍼)
+- `tiny-skia`, `softbuffer` (`bpm-gui` 전용 — `beetle-app` 렌더링에는 사용하지 않음, ADR-026)
 - `winit` (윈도우 및 이벤트)
 - `zip` (패키지 컨테이너 - `deflate` 기능만 최소 활성화)
 - `serde`, `serde_json` (패키지 Manifest 및 Registry 직렬화)
@@ -72,7 +71,7 @@
 
 - `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
 - `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
-- `crates/beetle-render`: tiny-skia 2D 소프트웨어 그래픽을 렌더링하며 입력을 직접 폴링하지 않습니다.
+- `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다.
 - `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`) 및 입력 통합을 담당합니다.
 - `crates/bms-package`: 단일 패키지(`.bmsp`) 포맷, Manifest, 결정론적 패커 및 안전한 리더를 다룹니다.
 - `crates/bms-package-manager`: 로컬 저장소(`packages/`), `registry.json`, 원자적 설치, 다중 버전 관리 및 `bpm` CLI를 담당합니다.
