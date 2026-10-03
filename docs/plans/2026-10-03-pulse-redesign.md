@@ -85,8 +85,11 @@ Path/Shader 파이프라인(이미 허용된 핵심 크레이트, AGENTS.md 의�
   - [ ] 소프트웨어 경로는 빌드/테스트만 확인, 이 머신은 GPU 경로가
         활성이라 실제 화면으로는 아직 못 봄 — D3D11 비활성 환경에서
         확인 필요
-- [x] Result — PULSE 적용 완료 (이번 세션, 빌드/테스트만 확인 — 실제
-      화면 미확인, 아래 참고)
+- [x] Result — PULSE 적용 완료, 실제 화면 확인 완료 (이번 세션)
+      (HAZARD 게이지로 전환해 미스 1회로 즉시 스테이지 실패 → Result
+      진입시켜 빠르게 검증. `computer_use` 캡처로 확인: 헤어라인 분리,
+      세그먼트 바, F 랭크 글로우, 코너 액센트 전부 겹침/깨짐 없이 정상
+      렌더링됨)
   - [x] 헤더: "STAGE RESULT" 뱃지 박스 → 레이블 텍스트 + 시안 그라디언트
         언더라인 (SongSelect/Gameplay와 동일 패턴)
   - [x] 랭크 에블럼: 박스 테두리 제거, 큰 볼드 텍스트 + 같은 텍스트를
@@ -100,12 +103,11 @@ Path/Shader 파이프라인(이미 허용된 핵심 크레이트, AGENTS.md 의�
         중심선 시안, FAST 쪽 막대 시안, SLOW 쪽 막대 마젠타로 듀오톤 통일
   - [x] `cargo build --release -p beetle-app` 성공,
         `cargo test -p beetle-render --release` 41/41 통과
-  - [ ] **미확인**: Result 화면은 플레이를 끝까지 마쳐야 도달해서
-        (곡 길이만큼 실제 대기 필요) 이번 세션엔 `computer_use`로 실제
-        화면을 못 봤다. SongSelect/Gameplay에서 이미 검증된 동일
-        프리미티브(`draw_cut_quad`/`draw_gradient_rect`/세그먼트 바/
-        코너 트라이앵글)를 재사용했지만, 다음에 플레이 한 번 끝까지
-        돌려서 실제 레이아웃 확인 필요.
+  - [x] **TIP**: Result는 끝까지 플레이해야 도달하는데, 곡 길이만큼
+        기다리는 대신 GAUGE를 HAZARD로 바꾸고(F6) 아무 키도 안 눌러서
+        미스 1회로 즉시 스테이지 실패시키면 몇 초 안에 Result 화면에
+        도달한다 — 다음 화면(KeyConfig는 해당 없음) 검증 때도 쓸 수 있는
+        방법.
 - [ ] KeyConfig
 - [ ] Modals
 
