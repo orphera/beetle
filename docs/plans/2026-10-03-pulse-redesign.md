@@ -69,10 +69,22 @@ Path/Shader 파이프라인(이미 허용된 핵심 크레이트, AGENTS.md 의�
         (헤어라인 + 우측 정렬 값), PLAY 버튼 → 대각선 컷 그라디언트 CTA
   - [x] `cargo test -p beetle-render --release` 41/41 통과,
         `computer_use`로 실제 렌더 확인 (목업과 구조적으로 일치)
-- [ ] Gameplay — PULSE 적용 (주의: 소프트웨어 경로 `gameplay.rs` +
-      GPU 경로 `gameplay_gpu.rs` 둘 다 고쳐야 함, 상세는
-      `2026-10-03-gameplay-hud-redesign.md` 참고. 세그먼트 judge bar로
-      교체, 콤보/스코어 패널에 대각선 컷 적용 검토)
+- [x] Gameplay — PULSE 적용 완료 (이번 세션)
+  - [x] 소프트웨어 경로(`gameplay.rs::draw_hud_info`): `draw_cut_quad`
+        대각선 컷 그라디언트 스코어 클러스터(EX SCORE/ACCURACY/PACEMAKER),
+        세그먼트 judge bar + 2열 범례(색 점+라벨+카운트), 재킷과 같은
+        `draw_corner_triangle` 코너 액센트로 SongSelect와 시각적 연속성 확보
+  - [x] GPU 경로(`gameplay_gpu.rs`): `SpriteBatcher`는 path-fill/그라디언트
+        미지원이라 대각선 컷/그라디언트는 포팅 불가 — 세그먼트 judge bar만
+        단색 사각형으로 구현, 기존 "모든 rect 먼저 → 모든 text 나중" 패스
+        구조를 지키기 위해 바를 BGA 프레임 rect 다음(텍스트 패스 시작 전)에
+        끼워 넣음. 2열 텍스트 그리드는 바 밑 범례로 용도 변경
+  - [x] `cargo test -p beetle-render --release` 41/41 통과
+        (`test_render_gameplay_gpu_batched_draw_calls` 포함),
+        `computer_use`로 GPU 경로 실제 렌더 확인 (이 머신의 활성 경로)
+  - [ ] 소프트웨어 경로는 빌드/테스트만 확인, 이 머신은 GPU 경로가
+        활성이라 실제 화면으로는 아직 못 봄 — D3D11 비활성 환경에서
+        확인 필요
 - [ ] Result — PULSE 적용 (랭크 배지 대각선 컷 + 글로우, 세그먼트
       judge bar, 그래프 영역)
 - [ ] KeyConfig

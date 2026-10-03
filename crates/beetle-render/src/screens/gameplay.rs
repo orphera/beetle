@@ -876,17 +876,22 @@ impl SoftwareRenderer {
         }
     }
 
+    /// PULSE direction: cut-quad gradient score cluster + a single
+    /// proportional segmented judge bar instead of a text grid. See
+    /// docs/plans/2026-10-03-pulse-redesign.md and sketches/pulse-redesign/.
     fn draw_hud_info(&mut self, chart: &BmsChart, score: &ScoreTracker) {
+        use crate::components::Corner;
         use crate::design_tokens::ColorToken;
 
         let s = self.viewport.scale;
         let hud_x = self.skin.playfield_x + self.skin.playfield_width + 48.0 * s;
-        // Same width formula as the BGA frame below, so both columns line up.
         let panel_w = (self.viewport.x + self.viewport.width - hud_x - 24.0 * s).max(100.0);
         let mut y = self.skin.playfield_y;
         let title_scale = (2.0 * s).round().max(1.0) as u32;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
-        let gap = 8.0 * s;
+        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let cyan = ColorToken::PULSE_CYAN.rgba();
+        let muted = ColorToken::TEXT_TERTIARY.rgba();
 
         // Title & Artist
         BitmapFont::draw_text_with_shadow(
@@ -902,64 +907,70 @@ impl SoftwareRenderer {
         );
         y += 24.0 * s;
 
+        let bpm_lvl = format!(
+            "BPM {:.1}   LV {}",
+            chart.header.bpm, chart.header.play_level
+        );
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
-            &chart.header.artist,
+            &bpm_lvl,
             hud_x as i32,
             y as i32,
             font_scale,
             ColorToken::TEXT_SECONDARY.rgba(),
         );
-        y += 24.0 * s;
+        y += 30.0 * s;
 
-        // BPM / LEVEL badge row
-        let half_w = (panel_w - gap) / 2.0;
-        let bpm_str = format!("{:.1}", chart.header.bpm);
-        let lvl_str = format!("{}", chart.header.play_level);
-        self.render_badge(
+        // Diagonal-cut gradient score cluster (PULSE identity panel).
+        let panel_h = 96.0 * s;
+        self.draw_cut_quad(
             hud_x,
             y,
-            half_w,
-            "BPM",
-            &bpm_str,
-            ColorToken::ACCENT_CYAN,
-            font_scale,
+            panel_w,
+            panel_h,
+            16.0 * s,
+            cyan.with_alpha(24),
+            ColorToken::PULSE_MAGENTA.rgba().with_alpha(12),
         );
-        self.render_badge(
-            hud_x + half_w + gap,
-            y,
-            half_w,
-            "LEVEL",
-            &lvl_str,
-            ColorToken::ACCENT_ORANGE,
-            font_scale,
-        );
-        let badge_h =
-            (BitmapFont::CJK_HEIGHT as f32 * font_scale as f32 + 4.0 * s * 2.0).max(8.0 * s * 2.0);
-        y += badge_h + gap;
+        self.draw_rect(hud_x, y, panel_w, s, cyan.with_alpha(160));
 
-        // EX SCORE / ACCURACY badge row
-        let ex_str = format!("{}/{}", score.ex_score, score.max_ex_score());
-        let acc_str = format!("{:.2}%", score.accuracy_rate());
-        self.render_badge(
-            hud_x,
-            y,
-            half_w,
+        let pad = 16.0 * s;
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
             "EX SCORE",
+            (hud_x + pad) as i32,
+            (y + 10.0 * s) as i32,
+            label_scale,
+            muted,
+        );
+        let ex_str = format!("{} / {}", score.ex_score, score.max_ex_score());
+        BitmapFont::draw_bold_text(
+            &mut self.pixmap.as_mut(),
             &ex_str,
-            ColorToken::ACCENT_YELLOW,
-            font_scale,
+            (hud_x + pad) as i32,
+            (y + 24.0 * s) as i32,
+            (font_scale as f32 * 1.6) as u32,
+            ColorToken::ACCENT_YELLOW.rgba(),
         );
-        self.render_badge(
-            hud_x + half_w + gap,
-            y,
-            half_w,
+
+        let acc_str = format!("{:.2}%", score.accuracy_rate());
+        let acc_x = hud_x + panel_w - pad - BitmapFont::text_width(&acc_str, font_scale) as f32;
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
             "ACCURACY",
-            &acc_str,
-            ColorToken::ACCENT_CYAN,
-            font_scale,
+            acc_x as i32,
+            (y + 10.0 * s) as i32,
+            label_scale,
+            muted,
         );
-        y += badge_h + gap;
+        BitmapFont::draw_bold_text(
+            &mut self.pixmap.as_mut(),
+            &acc_str,
+            acc_x as i32,
+            (y + 24.0 * s) as i32,
+            font_scale,
+            cyan,
+        );
 
         // Pacemaker (AAA target = 8/9 of max possible EX score so far)
         let played_notes = score.pgreat_count
@@ -971,74 +982,90 @@ impl SoftwareRenderer {
         let max_so_far = played_notes * 2;
         let aaa_target = ((max_so_far as f64) * 8.0 / 9.0).round() as i32;
         let pace_diff = score.ex_score as i32 - aaa_target;
-        let pace_str = if pace_diff >= 0 {
-            format!("+{}", pace_diff)
-        } else {
-            format!("{}", pace_diff)
-        };
-        let pace_color = if pace_diff >= 0 {
-            ColorToken::ACCENT_GREEN
-        } else {
-            ColorToken::ACCENT_RED
-        };
-        self.render_badge(
-            hud_x,
-            y,
-            panel_w,
-            "PACEMAKER (AAA)",
-            &pace_str,
-            pace_color,
-            font_scale,
+        let pace_str = format!(
+            "PACEMAKER (AAA) {}{}",
+            if pace_diff >= 0 { "+" } else { "" },
+            pace_diff
         );
-        y += badge_h + gap * 1.5;
+        let pace_color = if pace_diff >= 0 {
+            ColorToken::ACCENT_GREEN.rgba()
+        } else {
+            ColorToken::ACCENT_RED.rgba()
+        };
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            &pace_str,
+            (hud_x + pad) as i32,
+            (y + 62.0 * s) as i32,
+            label_scale,
+            pace_color,
+        );
+        y += panel_h + 20.0 * s;
 
-        // Judge breakdown: 2-column x 3-row grid inside a card, each cell has
-        // a count-proportional tinted background bar instead of a bare text row.
+        // Judge breakdown: one proportional segmented bar instead of a list.
         let counts = [
-            ("PGREAT", score.pgreat_count, ColorToken::ACCENT_YELLOW),
-            ("GREAT", score.great_count, ColorToken::ACCENT_ORANGE),
-            ("GOOD", score.good_count, ColorToken::ACCENT_GREEN),
-            ("BAD", score.bad_count, ColorToken::DIFF_ANOTHER),
-            ("POOR", score.poor_count, ColorToken::ACCENT_RED),
-            ("MISS", score.miss_count, ColorToken::TEXT_TERTIARY),
+            (
+                "PGREAT",
+                score.pgreat_count,
+                ColorToken::ACCENT_YELLOW.rgba(),
+            ),
+            ("GREAT", score.great_count, ColorToken::ACCENT_ORANGE.rgba()),
+            ("GOOD", score.good_count, ColorToken::ACCENT_GREEN.rgba()),
+            ("BAD", score.bad_count, ColorToken::DIFF_ANOTHER.rgba()),
+            ("POOR", score.poor_count, ColorToken::ACCENT_RED.rgba()),
+            ("MISS", score.miss_count, ColorToken::TEXT_TERTIARY.rgba()),
         ];
-        let max_count = counts.iter().map(|&(_, c, _)| c).max().unwrap_or(0).max(1);
+        let total: u32 = counts.iter().map(|&(_, c, _)| c).sum::<u32>().max(1);
 
-        let card_title_h = 18.0 * s;
-        let row_h = 18.0 * s;
-        let row_gap = 3.0 * s;
-        let card_h = card_title_h + row_h * 3.0 + row_gap * 2.0 + 6.0 * s;
-        self.render_card(hud_x, y, panel_w, card_h, Some("JUDGE BREAKDOWN"));
+        BitmapFont::draw_text(
+            &mut self.pixmap.as_mut(),
+            "JUDGE BREAKDOWN",
+            hud_x as i32,
+            y as i32,
+            label_scale,
+            muted,
+        );
+        y += 16.0 * s;
 
-        let cell_w = (panel_w - gap) / 2.0;
-        let cell_pad = 6.0 * s;
-        let mut cell_y = y + card_title_h;
-        for row in 0..3 {
-            let mut cell_x = hud_x + cell_pad;
-            for col in 0..2 {
-                let (label, count, color) = counts[row * 2 + col];
-                let rgba = color.rgba();
-
-                // Proportional tinted fill behind the row (count / max_count).
-                let ratio = (count as f32 / max_count as f32).clamp(0.0, 1.0);
-                let fill_w = (cell_w - cell_pad).max(0.0) * ratio;
-                if fill_w > 0.0 {
-                    self.draw_rect(cell_x, cell_y, fill_w, row_h - row_gap, rgba.with_alpha(40));
-                }
-
-                let row_str = format!("{} {}", label, count);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &row_str,
-                    (cell_x + 4.0 * s) as i32,
-                    (cell_y + 4.0 * s) as i32,
-                    font_scale,
-                    rgba,
-                );
-                cell_x += cell_w + gap;
+        let bar_h = 8.0 * s;
+        let mut bar_x = hud_x;
+        for &(_, count, color) in &counts {
+            let seg_w = panel_w * (count as f32 / total as f32);
+            if seg_w > 0.0 {
+                self.draw_rect(bar_x, y, seg_w, bar_h, color);
             }
-            cell_y += row_h;
+            bar_x += seg_w;
         }
+        y += bar_h + 10.0 * s;
+
+        // Legend: 2 columns x 3 rows, color dot + label + count.
+        let col_w = panel_w / 2.0;
+        for (i, &(label, count, color)) in counts.iter().enumerate() {
+            let col = i % 2;
+            let row = i / 2;
+            let lx = hud_x + col as f32 * col_w;
+            let ly = y + row as f32 * 16.0 * s;
+            self.draw_rect(lx, ly + 3.0 * s, 6.0 * s, 6.0 * s, color);
+            let legend_str = format!("{} {}", label, count);
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &legend_str,
+                (lx + 11.0 * s) as i32,
+                ly as i32,
+                label_scale,
+                color,
+            );
+        }
+
+        // Corner accent echoing the jacket treatment on SongSelect, tying
+        // the HUD back into the PULSE identity even mid-gameplay.
+        self.draw_corner_triangle(
+            hud_x + panel_w,
+            self.skin.playfield_y,
+            28.0 * s,
+            Corner::TopRight,
+            cyan.with_alpha(90),
+        );
     }
 
     fn draw_bga_and_visualizer(

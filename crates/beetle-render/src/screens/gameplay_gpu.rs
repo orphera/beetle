@@ -409,6 +409,50 @@ pub fn render_gameplay_gpu(
         ColorRgba::new(8, 8, 12, 255).to_f32_array(),
     );
 
+    // PULSE judge breakdown bar: solid-color proportional segments, emitted
+    // here (still inside the untextured-rect pass) so it doesn't reopen a
+    // texture switch once the font-atlas text pass starts below. See
+    // docs/plans/2026-10-03-pulse-redesign.md for why GPU-path PULSE chrome
+    // stays rect-only (SpriteBatcher has no path-fill/gradient support).
+    {
+        let hud_x = skin.playfield_x + skin.playfield_width + 48.0 * s;
+        let panel_w = (viewport.x + viewport.width - hud_x - 24.0 * s).max(100.0);
+        let bar_y = skin.playfield_y + 170.0 * s;
+        let bar_h = 8.0 * s;
+        let counts = [
+            score.pgreat_count,
+            score.great_count,
+            score.good_count,
+            score.bad_count,
+            score.poor_count,
+            score.miss_count,
+        ];
+        let colors = [
+            ColorRgba::new(255, 230, 80, 255),
+            ColorRgba::new(255, 170, 50, 255),
+            ColorRgba::new(60, 220, 120, 255),
+            ColorRgba::new(200, 90, 240, 255),
+            ColorRgba::new(240, 50, 50, 255),
+            ColorRgba::new(150, 155, 175, 255),
+        ];
+        let total: u32 = counts.iter().sum::<u32>().max(1);
+        let mut bar_x = hud_x;
+        for i in 0..6 {
+            let seg_w = panel_w * (counts[i] as f32 / total as f32);
+            if seg_w > 0.0 {
+                batcher.draw_rect(
+                    backend,
+                    bar_x,
+                    bar_y,
+                    seg_w,
+                    bar_h,
+                    colors[i].to_f32_array(),
+                );
+            }
+            bar_x += seg_w;
+        }
+    }
+
     // PASS 2: BGA Sprites (Texture: BGA Texture, Blend: Alpha)
     if let Some(tex) = bga_texture {
         batcher.draw_sprite(
@@ -767,7 +811,9 @@ pub fn render_gameplay_gpu(
     stat_line!("PACEMAKER (AAA)", &pace_str, pace_col);
     hud_y += 6.0 * s;
 
-    // Judge breakdown: compact 2-column grid instead of a flat 6-row list.
+    // Judge breakdown legend — the actual proportional bar was already
+    // emitted earlier in the untextured-rect pass (see PULSE note above);
+    // this is just the count labels underneath it.
     font_atlas.draw_ascii_text(
         batcher,
         backend,
@@ -777,7 +823,7 @@ pub fn render_gameplay_gpu(
         label_scale,
         label_col,
     );
-    hud_y += 16.0 * s;
+    hud_y += 20.0 * s;
 
     let counts = [
         (
