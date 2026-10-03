@@ -3,6 +3,44 @@ use crate::renderer::{lane_index, HitBurst, Viewport, LANE_COUNT};
 use crate::skin::{ColorRgba, SkinConfig};
 use beetle_core::{BmsChart, GaugeType, JudgeGrade, NoteType, PlayNote, ScoreTracker, TimingModel};
 
+/// Draws a note body with the same cheap 3-band "glossy pill" bevel as the
+/// software path's `draw_glossy_note_rect` (screens/gameplay.rs) — bright
+/// top highlight, base color, dark bottom edge — using only flat rects so
+/// it stays inside the untextured-rect batching pass (no gradient/path-fill
+/// support on the GPU SpriteBatcher). See
+/// docs/plans/2026-10-03-pulse-redesign.md.
+#[allow(clippy::too_many_arguments)]
+fn draw_glossy_note_rect_gpu(
+    backend: &mut dyn GpuBackend,
+    batcher: &mut SpriteBatcher,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: ColorRgba,
+    s: f32,
+) {
+    batcher.draw_rect(backend, x, y, w, h, color.to_f32_array());
+    let highlight_h = (h * 0.4).max(1.0);
+    batcher.draw_rect(
+        backend,
+        x,
+        y,
+        w,
+        highlight_h,
+        color.lighten(0.35).to_f32_array(),
+    );
+    let shadow_h = (1.0 * s).max(1.0).min(h);
+    batcher.draw_rect(
+        backend,
+        x,
+        y + h - shadow_h,
+        w,
+        shadow_h,
+        color.darken(0.4).to_f32_array(),
+    );
+}
+
 /// High-performance GPU batched rendering for gameplay screen.
 ///
 /// Dispatches zero-CPU-allocation indexed 2D quad batches directly to the underlying `GpuBackend`,
@@ -194,18 +232,19 @@ pub fn render_gameplay_gpu(
         let lane_x = skin.lane_x(lane) + 1.0;
         let lane_w = skin.lane_width(lane) - 2.0;
         let note_col = skin.lane_color(lane);
-        let note_col_f32 = note_col.to_f32_array();
 
         match note.note_event.note_type {
             NoteType::Tap => {
                 if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 * s {
-                    batcher.draw_rect(
+                    draw_glossy_note_rect_gpu(
                         backend,
+                        batcher,
                         lane_x,
                         note_y - note_h,
                         lane_w,
                         note_h,
-                        note_col_f32,
+                        note_col,
+                        s,
                     );
                 }
             }
@@ -216,7 +255,7 @@ pub fn render_gameplay_gpu(
                 let body_bottom = note_y.min(judge_y);
 
                 if body_bottom > body_top {
-                    let body_color = note_col.with_alpha(140).to_f32_array();
+                    let body_color = note_col.with_alpha(130).to_f32_array();
                     batcher.draw_rect(
                         backend,
                         lane_x + 3.0 * s,
@@ -225,25 +264,39 @@ pub fn render_gameplay_gpu(
                         body_bottom - body_top,
                         body_color,
                     );
-                }
-                if note_y + note_h >= top_y && note_y <= judge_y + 40.0 * s {
+                    let core_w = (2.0 * s).max(1.0);
+                    let core_x = lane_x + lane_w / 2.0 - core_w / 2.0;
                     batcher.draw_rect(
                         backend,
+                        core_x,
+                        body_top,
+                        core_w,
+                        body_bottom - body_top,
+                        note_col.with_alpha(210).to_f32_array(),
+                    );
+                }
+                if note_y + note_h >= top_y && note_y <= judge_y + 40.0 * s {
+                    draw_glossy_note_rect_gpu(
+                        backend,
+                        batcher,
                         lane_x,
                         note_y - note_h,
                         lane_w,
                         note_h,
-                        note_col_f32,
+                        note_col,
+                        s,
                     );
                 }
                 if end_y + note_h >= top_y && end_y <= judge_y + 40.0 * s {
-                    batcher.draw_rect(
+                    draw_glossy_note_rect_gpu(
                         backend,
+                        batcher,
                         lane_x,
                         end_y - note_h,
                         lane_w,
                         note_h,
-                        note_col_f32,
+                        note_col,
+                        s,
                     );
                 }
             }
@@ -537,15 +590,21 @@ pub fn render_gameplay_gpu(
         };
 
         if burst.grade == JudgeGrade::PerfectGreat {
-            let flash_alpha = alpha * 0.14;
+            // Confined to a strip near the judge line instead of the full
+            // lane height — a full-height additive flash retriggering on
+            // every PGREAT (the skilled-play state) was accumulating into a
+            // persistent olive/muddy wash instead of reading as a flash.
+            // See docs/plans/2026-10-03-pulse-redesign.md.
+            let flash_alpha = alpha * 0.18;
             let lane_x = skin.lane_x(burst.lane);
             let lane_w = skin.lane_width(burst.lane);
+            let flash_h = (140.0 * s).min(judge_y - skin.playfield_y);
             batcher.draw_rect_with_blend(
                 backend,
                 lane_x,
-                skin.playfield_y,
+                judge_y - flash_h,
                 lane_w,
-                judge_y - skin.playfield_y,
+                flash_h,
                 [r, g, b, flash_alpha],
                 BlendMode::Additive,
             );

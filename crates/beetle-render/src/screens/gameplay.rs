@@ -502,6 +502,21 @@ impl SoftwareRenderer {
         self.draw_rect(px, jy, pw, line_h, self.skin.judge_line_color);
     }
 
+    /// Draws a note body with a cheap 3-band "glossy pill" bevel (bright top
+    /// highlight, base color, dark bottom edge) instead of a flat rect.
+    /// Mirrors the equivalent helper in `gameplay_gpu.rs` so both render
+    /// paths read the same. See docs/plans/2026-10-03-pulse-redesign.md for
+    /// the commercial-rhythm-game reference (IIDX/DJMAX glossy note
+    /// treatment) this is approximating within rect-only constraints.
+    fn draw_glossy_note_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
+        let s = self.viewport.scale;
+        self.draw_rect(x, y, w, h, color);
+        let highlight_h = (h * 0.4).max(1.0);
+        self.draw_rect(x, y, w, highlight_h, color.lighten(0.35));
+        let shadow_h = (1.0 * s).max(1.0).min(h);
+        self.draw_rect(x, y + h - shadow_h, w, shadow_h, color.darken(0.4));
+    }
+
     fn draw_notes(&mut self, notes: &[beetle_core::PlayNote], audio_time_seconds: f64) {
         let s = self.viewport.scale;
         let effective_speed = self.skin.hi_speed * s;
@@ -533,7 +548,13 @@ impl SoftwareRenderer {
                 NoteType::Tap => {
                     // Only draw if within visible playfield vertical range
                     if note_y + note_h >= top_y && note_y - note_h <= judge_y + 40.0 * s {
-                        self.draw_rect(lane_x, note_y - note_h, lane_w, note_h, note_color);
+                        self.draw_glossy_note_rect(
+                            lane_x,
+                            note_y - note_h,
+                            lane_w,
+                            note_h,
+                            note_color,
+                        );
                     }
                 }
                 NoteType::LongNoteStart => {
@@ -543,9 +564,10 @@ impl SoftwareRenderer {
                     let body_top = end_y.max(top_y);
                     let body_bottom = note_y.min(judge_y);
 
-                    // Draw LN body
+                    // Draw LN body: a dim fill with a bright "energy core"
+                    // line down the center instead of a flat murky wash.
                     if body_bottom > body_top {
-                        let body_color = note_color.with_alpha(140);
+                        let body_color = note_color.with_alpha(130);
                         self.draw_rect(
                             lane_x + 3.0 * s,
                             body_top,
@@ -553,16 +575,37 @@ impl SoftwareRenderer {
                             body_bottom - body_top,
                             body_color,
                         );
+                        let core_w = (2.0 * s).max(1.0);
+                        let core_x = lane_x + lane_w / 2.0 - core_w / 2.0;
+                        self.draw_rect(
+                            core_x,
+                            body_top,
+                            core_w,
+                            body_bottom - body_top,
+                            note_color.with_alpha(210),
+                        );
                     }
 
                     // Draw start head
                     if note_y + note_h >= top_y && note_y <= judge_y + 40.0 * s {
-                        self.draw_rect(lane_x, note_y - note_h, lane_w, note_h, note_color);
+                        self.draw_glossy_note_rect(
+                            lane_x,
+                            note_y - note_h,
+                            lane_w,
+                            note_h,
+                            note_color,
+                        );
                     }
 
                     // Draw end tail
                     if end_y + note_h >= top_y && end_y <= judge_y + 40.0 * s {
-                        self.draw_rect(lane_x, end_y - note_h, lane_w, note_h, note_color);
+                        self.draw_glossy_note_rect(
+                            lane_x,
+                            end_y - note_h,
+                            lane_w,
+                            note_h,
+                            note_color,
+                        );
                     }
                 }
                 _ => (),
@@ -711,16 +754,27 @@ impl SoftwareRenderer {
                 _ => (160, 160, 180),
             };
 
-            // 1. Lane neon beam flash for PGREAT
+            // 1. Lane flash for PGREAT: confined to a strip near the judge
+            // line instead of the full lane height. A full-height flash
+            // retriggering on every PGREAT (the skilled-play state, and the
+            // common case during AutoPlay/high-accuracy runs) was
+            // accumulating faster than its fade-out, permanently staining
+            // the lane an olive/muddy wash instead of reading as a clean
+            // flash — confirmed via pixel sampling during the gameplay
+            // screen audit (see docs/plans/2026-10-03-pulse-redesign.md).
+            // Keeping it judge-line-local avoids that accumulation because
+            // it no longer overlaps the upcoming-note area players need to
+            // read clearly.
             if burst.grade == JudgeGrade::PerfectGreat {
-                let flash_alpha = ((1.0 - eased_fade) * 36.0) as u8;
+                let flash_alpha = ((1.0 - eased_fade) * 46.0) as u8;
                 let lane_x = self.skin.lane_x(burst.lane);
                 let lane_w = self.skin.lane_width(burst.lane);
+                let flash_h = (140.0 * s).min(self.skin.playfield_height);
                 self.draw_rect(
                     lane_x,
-                    self.skin.playfield_y,
+                    judge_y - flash_h,
                     lane_w,
-                    self.skin.playfield_height,
+                    flash_h,
                     ColorRgba::new(255, 240, 140, flash_alpha),
                 );
             }
