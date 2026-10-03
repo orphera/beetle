@@ -201,7 +201,7 @@ impl SoftwareRenderer {
         let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
         let mut hud_y = self.skin.playfield_y as i32;
         let title_scale = (2.0 * s).round().max(1.0) as u32;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
 
         BitmapFont::draw_text(
             &mut bg.as_mut(),
@@ -619,7 +619,7 @@ impl SoftwareRenderer {
         let gauge_y = self.skin.playfield_y;
         let gauge_w = 22.0 * s;
         let gauge_h = self.skin.playfield_height;
-        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let label_scale = (s * 0.72).round().max(2.0) as u32;
 
         // Label above the bar, matching every other HUD cluster's caption
         // convention instead of leaving the bar unlabeled.
@@ -755,7 +755,7 @@ impl SoftwareRenderer {
         } else {
             ColorRgba::new(220, 220, 240, 255)
         };
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             &gauge_str,
@@ -865,7 +865,7 @@ impl SoftwareRenderer {
         let s = self.viewport.scale;
         let center_x = (self.skin.playfield_x + (self.skin.playfield_width / 2.0)) as i32;
         let judge_center_y = (self.skin.judge_line_y - 120.0 * s) as i32;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         let gap = (6.0 * s).max(3.0) as i32;
 
         // Dark scrim behind the whole combo+judge cluster. Without this the
@@ -1040,8 +1040,8 @@ impl SoftwareRenderer {
         let panel_w = (self.viewport.x + self.viewport.width - hud_x - 24.0 * s).max(100.0);
         let mut y = self.skin.playfield_y;
         let title_scale = (2.0 * s).round().max(1.0) as u32;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
-        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
+        let label_scale = (s * 0.72).round().max(2.0) as u32;
         let cyan = ColorToken::PULSE_CYAN.rgba();
         let muted = ColorToken::TEXT_TERTIARY.rgba();
 
@@ -1253,7 +1253,7 @@ impl SoftwareRenderer {
                 crate::image::ImageFitMode::FillCrop,
             );
         } else {
-            let font_scale = (s * 0.9).round().max(1.0) as u32;
+            let font_scale = (s * 0.9).round().max(2.0) as u32;
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
                 "[ BGA / STAGE IMAGE ]",
@@ -1281,7 +1281,7 @@ impl SoftwareRenderer {
         // Visualizer background (contrast alone separates it from the base bg)
         self.draw_rect(side_x, vis_y, bga_w, vis_h, ColorRgba::new(22, 25, 36, 255));
 
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "SPECTRUM VISUALIZER",

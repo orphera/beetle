@@ -234,7 +234,7 @@ impl SoftwareRenderer {
     /// Renders a card: `surface_card` background + top border + optional title.
     pub fn render_card(&mut self, x: f32, y: f32, w: f32, h: f32, title: Option<&str>) {
         let s = self.viewport.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
 
         self.draw_rect(x, y, w, h, ColorToken::SURFACE_CARD.rgba());
 

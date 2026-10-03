@@ -42,7 +42,7 @@ impl SoftwareRenderer {
 
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         let center_x = (vp.x + vp.width / 2.0) as i32;
 
         // Header (token colors)

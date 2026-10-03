@@ -745,7 +745,7 @@ pub fn render_gameplay_gpu(
         "GAUGE",
         gauge_x + gauge_w / 2.0,
         gauge_y - 16.0 * s,
-        (s * 0.72).round().max(1.0),
+        (s * 0.72).round().max(2.0),
         ColorRgba::new(120, 128, 150, 255),
     );
     let gauge_str = format!("{:.1}%", score.gauge);
@@ -760,7 +760,7 @@ pub fn render_gameplay_gpu(
         &gauge_str,
         gauge_x - 4.0 * s,
         gauge_y + gauge_h + 8.0 * s,
-        (s * 0.9).round().max(1.0),
+        (s * 0.9).round().max(2.0),
         gauge_txt_col,
     );
 
@@ -809,11 +809,11 @@ pub fn render_gameplay_gpu(
             "COMBO",
             center_x,
             combo_label_y,
-            (s * 0.9).round().max(1.0),
+            (s * 0.9).round().max(2.0),
             ColorRgba::new(180, 180, 200, 255),
         );
 
-        let combo_label_h = 7.0 * (s * 0.9).round().max(1.0);
+        let combo_label_h = 7.0 * (s * 0.9).round().max(2.0);
         judge_anchor_y = combo_label_y + combo_label_h + gap;
     }
 
@@ -873,7 +873,7 @@ pub fn render_gameplay_gpu(
                     &fs_str,
                     center_x,
                     fast_slow_y,
-                    (s * 0.9).round().max(1.0),
+                    (s * 0.9).round().max(2.0),
                     fs_col.with_alpha(alpha),
                 );
             }
@@ -891,7 +891,7 @@ pub fn render_gameplay_gpu(
     // (see `test_render_gameplay_gpu_batched_draw_calls`).
     let hud_x = skin.playfield_x + skin.playfield_width + 48.0 * s;
     let mut hud_y = skin.playfield_y;
-    let font_scale = (s * 0.9).round().max(1.0);
+    let font_scale = (s * 0.9).round().max(2.0);
     let label_scale = (font_scale * 0.78).max(1.0);
     let label_col = ColorRgba::new(120, 128, 150, 255);
 

@@ -34,8 +34,8 @@ impl SoftwareRenderer {
 
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
-        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
+        let label_scale = (s * 0.72).round().max(2.0) as u32;
         let cyan = ColorToken::PULSE_CYAN.rgba();
         let magenta = ColorToken::PULSE_MAGENTA.rgba();
         let muted = ColorRgba::new(0x7b, 0x82, 0x99, 255);
@@ -496,7 +496,7 @@ impl SoftwareRenderer {
                         label_scale,
                         muted,
                     );
-                    let vw = BitmapFont::text_width(&value, font_scale) as f32;
+                    let vw = BitmapFont::bold_text_width(&value, font_scale) as f32;
                     BitmapFont::draw_bold_text(
                         &mut self.pixmap.as_mut(),
                         &value,

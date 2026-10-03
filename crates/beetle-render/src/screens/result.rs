@@ -25,8 +25,8 @@ impl SoftwareRenderer {
 
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
-        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
+        let label_scale = (s * 0.72).round().max(2.0) as u32;
         let cyan = ColorToken::PULSE_CYAN.rgba();
         let muted = ColorToken::TEXT_TERTIARY.rgba();
         let hairline = ColorRgba::new(0x17, 0x1b, 0x27, 255);

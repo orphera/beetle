@@ -21,7 +21,7 @@ impl SoftwareRenderer {
     ) {
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
 
         let modal_w = 500.0 * s;
         let modal_h = (580.0 * s).min(vp.height - 40.0 * s);
@@ -228,7 +228,7 @@ impl SoftwareRenderer {
         let h = self.height() as f32;
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
 
         // 1. Semi-transparent dark overlay dimming the whole window
         self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 190));
@@ -449,7 +449,7 @@ impl SoftwareRenderer {
         let h = self.height() as f32;
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
 
         // 1. Semi-transparent dark overlay dimming the whole window
         self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 190));
@@ -637,7 +637,7 @@ impl SoftwareRenderer {
 
         let vp = self.viewport;
         let s = vp.scale;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         let center_x = (vp.x + vp.width / 2.0) as i32;
 
         // Background subtle grid/lines inside viewport

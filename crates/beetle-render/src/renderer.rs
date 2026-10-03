@@ -294,7 +294,7 @@ impl SoftwareRenderer {
         let s = self.viewport.scale;
         let hud_x = (self.skin.playfield_x + self.skin.playfield_width + 48.0 * s) as i32;
         let y = (self.viewport.y + self.viewport.height - 30.0 * s) as i32;
-        let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let font_scale = (s * 0.9).round().max(2.0) as u32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             text,
