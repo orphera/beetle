@@ -43,9 +43,13 @@ impl Vertex2D {
 /// Color blend mode for batch rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlendMode {
-    /// Standard Premultiplied Alpha Blending (SrcAlpha + InvSrcAlpha)
+    /// Straight (non-premultiplied) alpha blending: `src * a + dst * (1 - a)`.
     #[default]
     Alpha,
+    /// Premultiplied alpha blending: `src + dst * (1 - a)`. Used by `Canvas`
+    /// for everything: a color with alpha 0 adds light (additive glow), so
+    /// alpha and additive draws share one batch without a state change.
+    Premultiplied,
     /// Additive Blending for judgment laser beams, note glows, and audio visualizer
     Additive,
 }
@@ -81,6 +85,13 @@ pub trait GpuBackend {
 
     /// Resizes the internal swapchain / backbuffer to match window viewport dimensions.
     fn resize(&mut self, width: u32, height: u32);
+
+    /// Reads back the current backbuffer as tightly packed RGBA8 rows
+    /// `(width, height, pixels)`. Call after drawing and before `end_frame`.
+    /// Used for screenshot / snapshot verification, never on the hot path.
+    fn capture_frame(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        None
+    }
 
     /// Human-readable name of the active graphics backend (e.g. "Direct3D 11", "Software (tiny-skia)").
     fn backend_name(&self) -> &'static str;

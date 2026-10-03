@@ -37,10 +37,12 @@ pub struct D3d11Backend {
     pixel_shader_color: *mut c_void,
     blend_state_alpha: *mut c_void,
     blend_state_additive: *mut c_void,
+    blend_state_premultiplied: *mut c_void,
     sampler_linear: *mut c_void,
     textures: HashMap<TextureId, D3d11Texture>,
     next_texture_id: u32,
     vsync: bool,
+    is_warp: bool,
 }
 
 unsafe impl Send for D3d11Backend {}
@@ -48,7 +50,27 @@ unsafe impl Sync for D3d11Backend {}
 
 impl D3d11Backend {
     /// Attempts to initialize the Direct3D 11 device, swapchain, and 2D pipeline for a Windows HWND.
+    ///
+    /// Tries the hardware adapter first, then WARP. Set `BEETLE_D3D_WARP=1`
+    /// to force WARP (troubleshooting / measuring the low-end fallback).
     pub fn new(hwnd: *mut c_void, width: u32, height: u32) -> Result<Self, String> {
+        let force_warp = std::env::var_os("BEETLE_D3D_WARP").is_some_and(|v| v == "1");
+        let drivers: &[u32] = if force_warp {
+            &[D3D_DRIVER_TYPE_WARP]
+        } else {
+            &[D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP]
+        };
+        Self::with_driver_types(hwnd, width, height, drivers)
+    }
+
+    /// Like `new`, with an explicit driver-type preference order
+    /// (`D3D_DRIVER_TYPE_HARDWARE` / `D3D_DRIVER_TYPE_WARP`).
+    pub fn with_driver_types(
+        hwnd: *mut c_void,
+        width: u32,
+        height: u32,
+        driver_types: &[u32],
+    ) -> Result<Self, String> {
         let w = width.max(1);
         let h = height.max(1);
 
@@ -92,7 +114,8 @@ impl D3d11Backend {
             D3D_FEATURE_LEVEL_10_0,
         ];
         let mut last_hr: i32 = 0;
-        for driver_type in [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP] {
+        let mut is_warp = false;
+        for &driver_type in driver_types {
             let hr = unsafe {
                 D3D11CreateDeviceAndSwapChain(
                     ptr::null_mut(),
@@ -110,8 +133,9 @@ impl D3d11Backend {
                 )
             };
             if hr >= 0 && !device.is_null() && !context.is_null() && !swap_chain.is_null() {
-                if driver_type == D3D_DRIVER_TYPE_WARP {
-                    eprintln!("[D3D11] No hardware adapter available; using WARP software rasterizer");
+                is_warp = driver_type == D3D_DRIVER_TYPE_WARP;
+                if is_warp {
+                    eprintln!("[D3D11] Using WARP software rasterizer");
                 }
                 last_hr = hr;
                 break;
@@ -121,7 +145,7 @@ impl D3d11Backend {
 
         if last_hr < 0 || device.is_null() || context.is_null() || swap_chain.is_null() {
             return Err(format!(
-                "D3D11CreateDeviceAndSwapChain failed (hardware and WARP): 0x{:08X}",
+                "D3D11CreateDeviceAndSwapChain failed for all driver types: 0x{:08X}",
                 last_hr as u32
             ));
         }
@@ -146,11 +170,10 @@ impl D3d11Backend {
             }
         }
 
-        // 2. Compile Shaders
-        let vs_bytes = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "VS_Main", "vs_4_0")?;
-        let ps_sprite_bytes =
-            shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Sprite", "ps_4_0")?;
-        let ps_color_bytes = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Color", "ps_4_0")?;
+        // 2. Create shaders from embedded offline-compiled bytecode
+        let vs_bytes = shaders::VS_MAIN;
+        let ps_sprite_bytes = shaders::PS_SPRITE;
+        let ps_color_bytes = shaders::PS_COLOR;
 
         let mut vertex_shader = ptr::null_mut();
         let mut pixel_shader_sprite = ptr::null_mut();
@@ -280,6 +303,7 @@ impl D3d11Backend {
         // 4. Create Blend States (Alpha & Additive)
         let mut blend_state_alpha = ptr::null_mut();
         let mut blend_state_additive = ptr::null_mut();
+        let mut blend_state_premultiplied = ptr::null_mut();
 
         unsafe {
             let dev_vtbl = *(device as *mut *mut ID3D11DeviceVtbl);
@@ -309,6 +333,19 @@ impl D3d11Backend {
                 RenderTargetWriteMask: D3D11_COLOR_WRITE_ENABLE_ALL,
             };
             ((*dev_vtbl).CreateBlendState)(device, &add_desc, &mut blend_state_additive);
+
+            let mut pm_desc: D3D11_BLEND_DESC = std::mem::zeroed();
+            pm_desc.RenderTarget[0] = D3D11_RENDER_TARGET_BLEND_DESC {
+                BlendEnable: 1,
+                SrcBlend: D3D11_BLEND_ONE,
+                DestBlend: D3D11_BLEND_INV_SRC_ALPHA,
+                BlendOp: D3D11_BLEND_OP_ADD,
+                SrcBlendAlpha: D3D11_BLEND_ONE,
+                DestBlendAlpha: D3D11_BLEND_INV_SRC_ALPHA,
+                BlendOpAlpha: D3D11_BLEND_OP_ADD,
+                RenderTargetWriteMask: D3D11_COLOR_WRITE_ENABLE_ALL,
+            };
+            ((*dev_vtbl).CreateBlendState)(device, &pm_desc, &mut blend_state_premultiplied);
         }
 
         // 5. Create Sampler State (Bilinear)
@@ -332,6 +369,7 @@ impl D3d11Backend {
 
         Ok(Self {
             _hwnd: hwnd,
+            is_warp,
             width: w,
             height: h,
             device,
@@ -347,6 +385,7 @@ impl D3d11Backend {
             pixel_shader_color,
             blend_state_alpha,
             blend_state_additive,
+            blend_state_premultiplied,
             sampler_linear,
             textures: HashMap::new(),
             next_texture_id: 1,
@@ -386,6 +425,7 @@ impl Drop for D3d11Backend {
 
             release_com!(self.sampler_linear);
             release_com!(self.blend_state_additive);
+            release_com!(self.blend_state_premultiplied);
             release_com!(self.blend_state_alpha);
             release_com!(self.constant_buffer);
             release_com!(self.index_buffer);
@@ -655,6 +695,7 @@ impl GpuBackend for D3d11Backend {
             let blend_state = match blend_mode {
                 BlendMode::Alpha => self.blend_state_alpha,
                 BlendMode::Additive => self.blend_state_additive,
+                BlendMode::Premultiplied => self.blend_state_premultiplied,
             };
             ((*ctx_vtbl).OMSetBlendState)(self.context, blend_state, ptr::null(), 0xffffffff);
 
@@ -733,38 +774,75 @@ impl GpuBackend for D3d11Backend {
         }
     }
 
-    fn backend_name(&self) -> &'static str {
-        "Direct3D 11 (Hardware Accelerated)"
+    fn capture_frame(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        let (w, h) = (self.width, self.height);
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: w,
+            Height: h,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ,
+            MiscFlags: 0,
+        };
+        unsafe {
+            let sc_vtbl = *(self.swap_chain as *mut *mut IDXGISwapChainVtbl);
+            let mut backbuffer: *mut c_void = ptr::null_mut();
+            let hr = ((*sc_vtbl).GetBuffer)(
+                self.swap_chain,
+                0,
+                &IID_ID3D11TEXTURE2D,
+                &mut backbuffer,
+            );
+            if hr < 0 || backbuffer.is_null() {
+                return None;
+            }
+            let release = |obj: *mut c_void| {
+                let vtbl = *(obj as *mut *mut IUnknownVtbl);
+                ((*vtbl).Release)(obj);
+            };
+
+            let dev_vtbl = *(self.device as *mut *mut ID3D11DeviceVtbl);
+            let mut staging: *mut c_void = ptr::null_mut();
+            let hr = ((*dev_vtbl).CreateTexture2D)(self.device, &desc, ptr::null(), &mut staging);
+            if hr < 0 || staging.is_null() {
+                release(backbuffer);
+                return None;
+            }
+
+            let ctx_vtbl = *(self.context as *mut *mut ID3D11DeviceContextVtbl);
+            ((*ctx_vtbl).CopyResource)(self.context, staging, backbuffer);
+            release(backbuffer);
+
+            let mut mapped: D3D11_MAPPED_SUBRESOURCE = std::mem::zeroed();
+            let hr = ((*ctx_vtbl).Map)(self.context, staging, 0, D3D11_MAP_READ, 0, &mut mapped);
+            if hr < 0 || mapped.pData.is_null() {
+                release(staging);
+                return None;
+            }
+            let row_bytes = (w * 4) as usize;
+            let mut pixels = Vec::with_capacity(row_bytes * h as usize);
+            for row in 0..h as usize {
+                let src = (mapped.pData as *const u8).add(row * mapped.RowPitch as usize);
+                pixels.extend_from_slice(std::slice::from_raw_parts(src, row_bytes));
+            }
+            ((*ctx_vtbl).Unmap)(self.context, staging, 0);
+            release(staging);
+            Some((w, h, pixels))
+        }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_d3d11_shader_compilation() {
-        let vs_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "VS_Main", "vs_4_0");
-        assert!(
-            vs_res.is_ok(),
-            "VS compilation should succeed: {:?}",
-            vs_res.err()
-        );
-        let vs_bytes = vs_res.unwrap();
-        assert!(!vs_bytes.is_empty());
-
-        let ps_sprite_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Sprite", "ps_4_0");
-        assert!(
-            ps_sprite_res.is_ok(),
-            "PS_Sprite compilation should succeed: {:?}",
-            ps_sprite_res.err()
-        );
-
-        let ps_color_res = shaders::compile_hlsl(shaders::HLSL_2D_SOURCE, "PS_Color", "ps_4_0");
-        assert!(
-            ps_color_res.is_ok(),
-            "PS_Color compilation should succeed: {:?}",
-            ps_color_res.err()
-        );
+    fn backend_name(&self) -> &'static str {
+        if self.is_warp {
+            "Direct3D 11 (WARP)"
+        } else {
+            "Direct3D 11 (Hardware Accelerated)"
+        }
     }
 }

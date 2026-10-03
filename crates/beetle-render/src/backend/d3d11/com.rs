@@ -42,6 +42,7 @@ pub const DXGI_SWAP_EFFECT_FLIP_DISCARD: u32 = 4;
 pub const D3D11_USAGE_DEFAULT: u32 = 0;
 pub const D3D11_USAGE_IMMUTABLE: u32 = 1;
 pub const D3D11_USAGE_DYNAMIC: u32 = 2;
+pub const D3D11_USAGE_STAGING: u32 = 3;
 
 pub const D3D11_BIND_VERTEX_BUFFER: u32 = 0x1;
 pub const D3D11_BIND_INDEX_BUFFER: u32 = 0x2;
@@ -50,6 +51,8 @@ pub const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 pub const D3D11_BIND_RENDER_TARGET: u32 = 0x20;
 
 pub const D3D11_CPU_ACCESS_WRITE: u32 = 0x10000;
+pub const D3D11_CPU_ACCESS_READ: u32 = 0x20000;
+pub const D3D11_MAP_READ: u32 = 1;
 pub const D3D11_MAP_WRITE_DISCARD: u32 = 4;
 
 pub const D3D11_FILTER_MIN_MAG_MIP_LINEAR: u32 = 0x15;
@@ -307,7 +310,8 @@ pub struct ID3D11DeviceContextVtbl {
     pub OMSetBlendState: unsafe extern "system" fn(*mut c_void, *mut c_void, *const f32, u32), // 35
     pub _unused_rs: [*const c_void; 8], // 36..43: OMSetDepthStencilState, SOSetTargets, DrawAuto, DrawIndexedInstancedIndirect, DrawInstancedIndirect, Dispatch, DispatchIndirect, RSSetState
     pub RSSetViewports: unsafe extern "system" fn(*mut c_void, u32, *const D3D11_VIEWPORT), // 44
-    pub _unused_copy: [*const c_void; 3], // 45..47: RSSetScissorRects, CopySubresourceRegion, CopyResource
+    pub _unused_scissor: [*const c_void; 2], // 45..46: RSSetScissorRects, CopySubresourceRegion
+    pub CopyResource: unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void), // 47
     pub UpdateSubresource: unsafe extern "system" fn(
         *mut c_void,
         *mut c_void,
@@ -319,13 +323,6 @@ pub struct ID3D11DeviceContextVtbl {
     ), // 48
     pub _unused_struct: [*const c_void; 1], // 49: CopyStructureCount
     pub ClearRenderTargetView: unsafe extern "system" fn(*mut c_void, *mut c_void, *const f32), // 50
-}
-
-#[repr(C)]
-pub struct ID3D10BlobVtbl {
-    pub parent: IUnknownVtbl,
-    pub GetBufferPointer: unsafe extern "system" fn(*mut c_void) -> *mut c_void,
-    pub GetBufferSize: unsafe extern "system" fn(*mut c_void) -> usize,
 }
 
 #[link(name = "d3d11")]
@@ -345,17 +342,3 @@ extern "system" {
         ppImmediateContext: *mut *mut c_void,
     ) -> i32;
 }
-
-pub type D3DCompileFn = unsafe extern "system" fn(
-    pSrcData: *const c_void,
-    SrcDataSize: usize,
-    pSourceName: *const i8,
-    pDefines: *const c_void,
-    pInclude: *mut c_void,
-    pEntrypoint: *const i8,
-    pTarget: *const i8,
-    Flags1: u32,
-    Flags2: u32,
-    ppCode: *mut *mut c_void,
-    ppErrorMsgs: *mut *mut c_void,
-) -> i32;

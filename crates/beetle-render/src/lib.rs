@@ -4,6 +4,7 @@
 //! Direct output to softbuffer with zero GPU runtime requirements.
 
 pub mod backend;
+pub mod canvas;
 pub mod bitmap_font;
 pub mod components;
 pub mod design_tokens;
@@ -21,6 +22,7 @@ pub use backend::{
     SpriteBatcher, TextureId, Vertex2D,
 };
 pub use bitmap_font::BitmapFont;
+pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use screens::render_gameplay_gpu;

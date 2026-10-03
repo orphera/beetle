@@ -222,6 +222,16 @@ impl GpuBackend for SoftBackend {
                                         data[dst_idx + 3] = 255;
                                     }
                                 }
+                                BlendMode::Premultiplied => {
+                                    let inv_a = 1.0 - alpha;
+                                    for (i, sc) in [sr, sg, sb].into_iter().enumerate() {
+                                        data[dst_idx + i] = (sc as f32
+                                            + data[dst_idx + i] as f32 * inv_a)
+                                            .min(255.0)
+                                            as u8;
+                                    }
+                                    data[dst_idx + 3] = 255;
+                                }
                                 BlendMode::Additive => {
                                     data[dst_idx] =
                                         (data[dst_idx] as f32 + sr as f32 * alpha).min(255.0) as u8;
@@ -272,6 +282,16 @@ impl GpuBackend for SoftBackend {
                                             as u8;
                                         data[dst_idx + 3] = 255;
                                     }
+                                }
+                                BlendMode::Premultiplied => {
+                                    let inv_a = 1.0 - alpha;
+                                    for (i, sc) in [sr, sg, sb].into_iter().enumerate() {
+                                        data[dst_idx + i] = (sc as f32
+                                            + data[dst_idx + i] as f32 * inv_a)
+                                            .min(255.0)
+                                            as u8;
+                                    }
+                                    data[dst_idx + 3] = 255;
                                 }
                                 BlendMode::Additive => {
                                     data[dst_idx] =
