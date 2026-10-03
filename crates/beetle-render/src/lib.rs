@@ -5,6 +5,7 @@
 
 pub mod backend;
 pub mod bitmap_font;
+pub mod design_tokens;
 pub mod image;
 pub mod renderer;
 pub mod screens;
