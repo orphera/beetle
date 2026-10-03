@@ -149,7 +149,7 @@ impl SoftwareRenderer {
             gauge_y,
             gauge_w,
             gauge_h,
-            ColorRgba::new(20, 20, 28, 255),
+            crate::design_tokens::ColorToken::SURFACE_PANEL.rgba(),
         );
         let b_line = (1.0 * s).max(1.0);
         let border_color = ColorRgba::new(80, 80, 100, 255);
@@ -583,7 +583,7 @@ impl SoftwareRenderer {
             gauge_y,
             gauge_w,
             gauge_h,
-            ColorRgba::new(20, 20, 28, 255),
+            crate::design_tokens::ColorToken::SURFACE_PANEL.rgba(),
         );
 
         // Fill height
