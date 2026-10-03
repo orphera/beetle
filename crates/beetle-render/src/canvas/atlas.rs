@@ -183,6 +183,18 @@ impl UiAtlas {
         }
     }
 
+    /// Forgets every allocation and zeroes all pages (GPU textures are kept
+    /// and re-uploaded on the next `sync`). Used when the UI scale changes
+    /// and all sprites/glyphs are regenerated.
+    pub fn clear(&mut self) {
+        for page in &mut self.pages {
+            page.pixels.fill(0);
+            page.shelves.clear();
+            page.next_shelf_y = 0;
+            page.dirty = true;
+        }
+    }
+
     /// Frees GPU textures (e.g. before the backend is dropped or recreated).
     /// Pages are marked dirty so the next `sync` re-creates them.
     pub fn release(&mut self, backend: &mut dyn GpuBackend) {

@@ -3,6 +3,7 @@
 //! Software 2D rendering pipeline utilizing tiny-skia and embedded bitmap fonts.
 //! Direct output to softbuffer with zero GPU runtime requirements.
 
+pub mod art;
 pub mod backend;
 pub mod canvas;
 pub mod bitmap_font;
@@ -14,6 +15,7 @@ pub mod renderer;
 pub mod screens;
 pub mod skin;
 pub mod text;
+pub mod ui;
 pub mod video;
 
 #[cfg(target_os = "windows")]
@@ -23,8 +25,10 @@ pub use backend::{
     SpriteBatcher, TextureId, Vertex2D,
 };
 pub use bitmap_font::BitmapFont;
+pub use art::{Halo, NineSlice, Skin};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
+pub use ui::Ui;
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use screens::render_gameplay_gpu;

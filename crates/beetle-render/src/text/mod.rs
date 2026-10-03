@@ -168,6 +168,12 @@ impl TextEngine {
         }
     }
 
+    /// Drops cached glyph placements (after `Canvas::reset_atlas`).
+    pub fn clear_cache(&mut self) {
+        self.glyphs.clear();
+        self.atlas_full_warned = false;
+    }
+
     /// Number of distinct (char, size, weight) glyphs cached so far.
     pub fn cached_glyphs(&self) -> usize {
         self.glyphs.len()

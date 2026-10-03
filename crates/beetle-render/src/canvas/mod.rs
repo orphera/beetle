@@ -93,14 +93,10 @@ impl Default for Canvas {
 impl Canvas {
     pub fn new(atlas_page_size: u32) -> Self {
         let mut atlas = UiAtlas::new(atlas_page_size);
-        // 3×3 opaque white block; solid fills sample its center texel so they
-        // share the atlas texture (and batch) with sprites and glyphs.
-        let white = atlas.alloc(3, 3).expect("atlas page too small");
-        atlas.write_alpha(white, &[255; 9]);
-        let uv = atlas.uv(white, 1.5, 1.5, 0.0, 0.0);
+        let white_uv = Self::alloc_white(&mut atlas);
         Self {
             atlas,
-            white_uv: [uv[0], uv[1]],
+            white_uv,
             vertices: Vec::with_capacity(MAX_BATCH_VERTICES),
             indices: Vec::with_capacity(MAX_BATCH_INDICES),
             batches: Vec::with_capacity(8),
@@ -112,6 +108,22 @@ impl Canvas {
             scratch_a: Vec::with_capacity(16),
             scratch_b: Vec::with_capacity(16),
         }
+    }
+
+    /// 3×3 opaque white block; solid fills sample its center texel so they
+    /// share the atlas texture (and batch) with sprites and glyphs.
+    fn alloc_white(atlas: &mut UiAtlas) -> [f32; 2] {
+        let white = atlas.alloc(3, 3).expect("atlas page too small");
+        atlas.write_alpha(white, &[255; 9]);
+        let uv = atlas.uv(white, 1.5, 1.5, 0.0, 0.0);
+        [uv[0], uv[1]]
+    }
+
+    /// Empties the atlas (all previously returned regions become invalid).
+    /// Callers must regenerate sprites and drop glyph caches.
+    pub fn reset_atlas(&mut self) {
+        self.atlas.clear();
+        self.white_uv = Self::alloc_white(&mut self.atlas);
     }
 
     pub fn atlas(&self) -> &UiAtlas {
@@ -323,6 +335,20 @@ impl Canvas {
         dst: Rect,
         tint: ColorRgba,
     ) {
+        self.nine_slice_hgradient(region, src_border, scale, dst, tint, tint);
+    }
+
+    /// `nine_slice` tinted with a left → right gradient across `dst`
+    /// (e.g. a gradient fill that follows a cut-corner shape exactly).
+    pub fn nine_slice_hgradient(
+        &mut self,
+        region: AtlasRegion,
+        src_border: Insets,
+        scale: f32,
+        dst: Rect,
+        left: ColorRgba,
+        right: ColorRgba,
+    ) {
         let mut b = src_border.scaled(scale);
         let fx = (dst.w / (b.left + b.right)).min(1.0);
         let fy = (dst.h / (b.top + b.bottom)).min(1.0);
@@ -340,7 +366,10 @@ impl Canvas {
                     continue;
                 }
                 let s = Rect::from_ltrb(sx[i], sy[j], sx[i + 1], sy[j + 1]);
-                self.sprite_sub(region, s, d, tint);
+                let uv = self.atlas.uv(region, s.x, s.y, s.w, s.h);
+                let at = |x: f32| lerp_color(left, right, (x - dst.x) / dst.w.max(f32::EPSILON));
+                let (cl, cr) = (at(d.x), at(d.right()));
+                self.textured_rect_colors(TexSlot::Atlas(region.page), d, uv, [cl, cr, cr, cl]);
             }
         }
     }
@@ -369,12 +398,16 @@ impl Canvas {
     }
 
     fn textured_rect(&mut self, tex: TexSlot, r: Rect, uv: [f32; 4], tint: ColorRgba) {
-        let c = self.pm(tint);
+        self.textured_rect_colors(tex, r, uv, [tint; 4]);
+    }
+
+    /// Colors in order top-left, top-right, bottom-right, bottom-left.
+    fn textured_rect_colors(&mut self, tex: TexSlot, r: Rect, uv: [f32; 4], c: [ColorRgba; 4]) {
         let verts = [
-            V { x: r.x, y: r.y, u: uv[0], v: uv[1], c },
-            V { x: r.right(), y: r.y, u: uv[2], v: uv[1], c },
-            V { x: r.right(), y: r.bottom(), u: uv[2], v: uv[3], c },
-            V { x: r.x, y: r.bottom(), u: uv[0], v: uv[3], c },
+            V { x: r.x, y: r.y, u: uv[0], v: uv[1], c: self.pm(c[0]) },
+            V { x: r.right(), y: r.y, u: uv[2], v: uv[1], c: self.pm(c[1]) },
+            V { x: r.right(), y: r.bottom(), u: uv[2], v: uv[3], c: self.pm(c[2]) },
+            V { x: r.x, y: r.bottom(), u: uv[0], v: uv[3], c: self.pm(c[3]) },
         ];
         self.push_poly(tex, &verts);
     }
@@ -475,6 +508,12 @@ impl Canvas {
             self.indices.extend_from_slice(&[base, base + i, base + i + 1]);
         }
     }
+}
+
+fn lerp_color(a: ColorRgba, b: ColorRgba, t: f32) -> ColorRgba {
+    let t = t.clamp(0.0, 1.0);
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    ColorRgba::new(l(a.r, b.r), l(a.g, b.g), l(a.b, b.b), l(a.a, b.a))
 }
 
 #[cfg(test)]
