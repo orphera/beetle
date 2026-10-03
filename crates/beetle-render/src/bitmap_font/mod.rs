@@ -4,6 +4,7 @@ pub mod bold_digits;
 pub mod gdi_fallback;
 pub mod hangul;
 pub mod kana;
+pub mod truetype_font;
 
 use crate::skin::ColorRgba;
 use tiny_skia::PixmapMut;
@@ -93,21 +94,16 @@ impl BitmapFont {
 
     /// Renders a single character glyph onto the pixmap.
     ///
-    /// Font weight design note (see docs/plans/2026-10-03-pulse-redesign.md):
-    /// the hand-authored ASCII table is a classic 5-column-wide pixel font,
-    /// while Hangul/Kana/CJK glyphs are 10 columns wide. At matched scale
-    /// that isn't just a width difference (the 2:1 ratio is the correct,
-    /// intentional "fullwidth CJK" convention) — a 5-wide stroke is
-    /// inherently thinner-*looking* than a 10-wide one, so mixed Latin+CJK
-    /// strings read as "wiry ASCII next to bold CJK" even when every glyph
-    /// is rendered at its geometrically correct size. Fixing that by
-    /// redrawing every ASCII glyph at higher resolution was ruled out
-    /// (too large a change for this pass); instead this applies the
-    /// standard bitmap-font "synthetic bold" trick — OR each column with
-    /// the previous column, equivalent to drawing the glyph a second time
-    /// shifted 1 raw pixel right and compositing — which visually thickens
-    /// strokes without touching the glyph data, the 5x7 bounding box, or
-    /// `char_advance` kerning math, so no screen's calibrated layout moves.
+    /// Font system (see docs/plans/2026-10-03-pulse-redesign.md for the
+    /// decision history): tries the embedded TrueType fonts
+    /// (`truetype_font::draw_char_ttf`) first — real antialiased glyphs
+    /// for Latin, common-use Hangul, and joyo-kanji+kana Japanese, all
+    /// resampled to fit the SAME fixed-width cell grid the hand bitmap
+    /// tables use, so no screen's calibrated layout/kerning math changes.
+    /// Falls through to the hand bitmap tables only for characters outside
+    /// the embedded fonts' subsetted coverage (rare Hanja, obscure Hangul,
+    /// symbols) — those stay hand-drawn (synthetic-bold ASCII, 10x8
+    /// Hangul/Kana) or go to the Windows GDI system-font fallback.
     pub fn draw_char(
         pixmap: &mut PixmapMut,
         c: char,
@@ -116,9 +112,49 @@ impl BitmapFont {
         scale: u32,
         color: ColorRgba,
     ) {
+        Self::draw_char_weighted(pixmap, c, x, y, scale, color, false);
+    }
+
+    /// Same as `draw_char`, but prefers the embedded TrueType **bold**
+    /// Latin face when the character is ASCII. Fullwidth script (Hangul/
+    /// Kana/CJK) is unaffected since those embedded fonts only ship one
+    /// weight.
+    pub fn draw_char_weighted(
+        pixmap: &mut PixmapMut,
+        c: char,
+        x: i32,
+        y: i32,
+        scale: u32,
+        color: ColorRgba,
+        bold: bool,
+    ) {
         let scale = scale.max(1);
 
-        // 1. ASCII 5x7 character (synthetic-bold dilated, see doc comment above)
+        if c == ' ' || c == '\u{3000}' {
+            return;
+        }
+
+        let fullwidth = Self::is_fullwidth(c);
+        let (cell_w, cell_h) = if fullwidth {
+            (
+                (Self::CJK_WIDTH * scale) as i32,
+                (Self::CJK_HEIGHT * scale) as i32,
+            )
+        } else {
+            (
+                (Self::ASCII_WIDTH * scale) as i32,
+                (Self::ASCII_HEIGHT * scale) as i32,
+            )
+        };
+
+        if truetype_font::draw_char_ttf(pixmap, c, x, y, cell_w, cell_h, bold, color) {
+            return;
+        }
+
+        // --- Fallback: hand bitmap tables for characters outside the
+        // embedded fonts' subsetted coverage ---
+
+        // 1. ASCII 5x7 character (synthetic-bold dilated)
         if let Some(glyph) = get_ascii_glyph(c) {
             let mut prev_bits = 0u8;
             for col in 0..5 {
@@ -147,18 +183,13 @@ impl BitmapFont {
             return;
         }
 
-        // Space character
-        if c == ' ' || c == '\u{3000}' {
-            return;
-        }
-
-        // 4. Runtime GDI glyph cache fallback for CJK Kanji / ideographs (Windows only)
+        // 4. Runtime GDI glyph cache fallback for rare CJK Kanji (Windows only)
         #[cfg(target_os = "windows")]
         if gdi_fallback::draw_char_fallback(pixmap, c, x, y, scale, color) {
             return;
         }
 
-        // 5. Fallback square glyph for unmapped CJK Kanji / unknown chars
+        // 5. Fallback square glyph for unmapped characters
         let fallback_glyph = [0x3FE, 0x202, 0x202, 0x202, 0x202, 0x202, 0x3FE, 0x000];
         draw_10x8_glyph(pixmap, &fallback_glyph, x, y, scale, color);
     }
@@ -513,9 +544,16 @@ mod tests {
             .any(|p| p[0] == 255 && p[1] == 255 && p[2] == 255);
         assert!(has_white_pixel);
 
+        // Most of this string (Latin, common Hangul/Kana, joyo kanji) is
+        // now rendered by the embedded TrueType fonts (truetype_font.rs),
+        // not the GDI system-font fallback. GDI is only still reached for
+        // characters outside those subsets — here, '龍' is not in the
+        // joyo-kanji list (its joyo equivalent is the simplified '竜'), so
+        // exactly one GDI cache entry is expected, not "most of the string"
+        // like before the TrueType font system existed.
         #[cfg(target_os = "windows")]
         {
-            assert!(gdi_fallback::cache_len() >= 2);
+            assert!(gdi_fallback::cache_len() >= 1);
         }
     }
 

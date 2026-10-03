@@ -28,6 +28,13 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std", "si
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 softbuffer = "0.4"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
+# Pure-Rust TTF/OTF rasterizer, no GPU/shader dependency. Explicit, scoped
+# exception to the "no font libraries" policy in AGENTS.md: renders a small
+# set of embedded subset fonts (Latin + joyo-kanji Japanese + common-use
+# Korean) so Latin and CJK text share one real font system instead of two
+# mismatched hand-drawn bitmap grids. See AGENTS.md §3 and
+# docs/plans/2026-10-03-pulse-redesign.md for the decision history.
+fontdue = { version = "0.9", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 png = { version = "0.17", default-features = false }

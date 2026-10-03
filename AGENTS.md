@@ -51,7 +51,7 @@
 - **GPU / 셰이더 관련**: `wgpu`, `vulkano`, `glow`, `glium`, `ash`, `pixels` (tiny-skia + softbuffer 유지)
 - **무거운 오디오 라이브러리**: `rodio`, `kira`, `soloud` (cpal + 자체 믹서 유지)
 - **무거운 파서/정규식**: `regex`, `nom`, `pest`, `combine` (BMS 파서는 순수 문자열 조작으로 작성)
-- **폰트 래스터라이저**: `fontdue`, `freetype`, `rusttype`, `cosmic-text` (임베디드 비트맵 폰트 사용)
+- **폰트 래스터라이저**: `freetype`, `rusttype`, `cosmic-text` 등 범용/GPU 연동 래스터라이저는 금지. 예외적으로 `fontdue`(순수 Rust, GPU/셰이더 의존 없음)는 임베디드 서브셋 폰트(Latin + 조요칸지 일본어 + 상용 한글) 렌더링 전용으로 허용 — 전체 글립 세트가 아닌 실사용 범위로 서브셋팅된 폰트 파일만 내장하며, 바이너리 크기 예산 초과 여부를 항상 측정하고 문서화해야 함(2026-10-03 기준 폰트 에셋 합계 약 1.55MB, <1MB 목표를 의도적으로 초과한 결정사항 — docs/plans/2026-10-03-pulse-redesign.md 참고)
 - **데이터베이스**: `sqlite`, `rusqlite`, `sled`, `rocksdb` (간단한 바이너리/텍스트 플랫 파일 포맷 사용)
 - **무거운 직렬화**: 핫패스에서의 `serde_json` 남발 금지
 
