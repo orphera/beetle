@@ -1,0 +1,11 @@
+{
+  "sources": [
+    {
+      "id": "official",
+      "name": "Beetle Official Registry",
+      "url": "https://packages.beetle-engine.org/index.json",
+      "enabled": true,
+      "priority": 100
+    }
+  ]
+}

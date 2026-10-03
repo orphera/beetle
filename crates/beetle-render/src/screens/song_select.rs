@@ -225,7 +225,7 @@ impl SoftwareRenderer {
                     card_y,
                     card_w,
                     card_h,
-                    ColorRgba::new(32, 54, 110, 255),
+                    crate::design_tokens::ColorToken::SURFACE_CARD.rgba(),
                 );
                 self.draw_rect(
                     list_x as f32,
