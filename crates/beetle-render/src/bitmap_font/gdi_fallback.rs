@@ -146,9 +146,14 @@ impl GdiFontFallback {
                 return None;
             }
 
-            // Height -10 creates ~10px EM square matching BitmapFont's 10x8 CJK cell size.
+            // Font height -18 creates ~18px EM square; improves CJK readability.
+            // Face name uses MS Gothic (Windows CJK standard) for consistent glyph quality.
+            let face_name: Vec<u16> = "MS Gothic"
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
             let hfont = CreateFontW(
-                -10,
+                -18,
                 0,
                 0,
                 0,
@@ -161,7 +166,7 @@ impl GdiFontFallback {
                 CLIP_DEFAULT_PRECIS,
                 CLEARTYPE_QUALITY,
                 DEFAULT_PITCH | FF_DONTCARE,
-                ptr::null(),
+                face_name.as_ptr(),
             );
 
             if hfont.is_null() {
