@@ -283,7 +283,10 @@ impl SoftwareRenderer {
                 ColorRgba::new(190, 195, 215, 255)
             };
 
-            let truncated_title = truncate_str(&song.title, 26);
+            // Title truncation based on approximate pixel budget (not char count)
+            // Available width ≈ card_w - 154*s (level pill + status tag margins)
+            let title_budget = (card_w - 154.0 * s) as usize;
+            let truncated_title = truncate_str(&song.title, (title_budget / 9).max(12));
             if is_selected {
                 BitmapFont::draw_text_with_shadow(
                     &mut self.pixmap.as_mut(),
