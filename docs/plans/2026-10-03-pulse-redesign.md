@@ -85,8 +85,27 @@ Path/Shader 파이프라인(이미 허용된 핵심 크레이트, AGENTS.md 의�
   - [ ] 소프트웨어 경로는 빌드/테스트만 확인, 이 머신은 GPU 경로가
         활성이라 실제 화면으로는 아직 못 봄 — D3D11 비활성 환경에서
         확인 필요
-- [ ] Result — PULSE 적용 (랭크 배지 대각선 컷 + 글로우, 세그먼트
-      judge bar, 그래프 영역)
+- [x] Result — PULSE 적용 완료 (이번 세션, 빌드/테스트만 확인 — 실제
+      화면 미확인, 아래 참고)
+  - [x] 헤더: "STAGE RESULT" 뱃지 박스 → 레이블 텍스트 + 시안 그라디언트
+        언더라인 (SongSelect/Gameplay와 동일 패턴)
+  - [x] 랭크 에블럼: 박스 테두리 제거, 큰 볼드 텍스트 + 같은 텍스트를
+        낮은 알파로 한 번 더 깔아 글로우 흉내, 배경은 랭크색 세로
+        그라디언트 워시. NEW RECORD는 대각선 컷 마젠타 배지
+  - [x] 중앙 컬럼: EX SCORE/ACCURACY/MAX COMBO를 박스 패널 → 헤어라인
+        구분 레이블/값 열로, JUDGE BREAKDOWN은 Gameplay와 동일한
+        세그먼트 바 + 2열 범례로 교체 (박스 리스트 제거)
+  - [x] FAST/SLOW: 박스 2개 → 헤어라인 구분 레이블/값 쌍
+  - [x] 타이밍 오프셋 히스토그램: 박스 테두리 제거(하단 헤어라인만),
+        중심선 시안, FAST 쪽 막대 시안, SLOW 쪽 막대 마젠타로 듀오톤 통일
+  - [x] `cargo build --release -p beetle-app` 성공,
+        `cargo test -p beetle-render --release` 41/41 통과
+  - [ ] **미확인**: Result 화면은 플레이를 끝까지 마쳐야 도달해서
+        (곡 길이만큼 실제 대기 필요) 이번 세션엔 `computer_use`로 실제
+        화면을 못 봤다. SongSelect/Gameplay에서 이미 검증된 동일
+        프리미티브(`draw_cut_quad`/`draw_gradient_rect`/세그먼트 바/
+        코너 트라이앵글)를 재사용했지만, 다음에 플레이 한 번 끝까지
+        돌려서 실제 레이아웃 확인 필요.
 - [ ] KeyConfig
 - [ ] Modals
 

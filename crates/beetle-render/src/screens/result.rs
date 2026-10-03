@@ -1,10 +1,18 @@
 use crate::bitmap_font::BitmapFont;
+use crate::components::Corner;
+use crate::design_tokens::ColorToken;
 use crate::renderer::{truncate_str, SoftwareRenderer};
 use crate::skin::ColorRgba;
 use beetle_core::{BmsChart, ScoreTracker};
 
 impl SoftwareRenderer {
-    /// Renders the rich Stage Result screen with rank emblem, stats comparison, timing histogram, and badges.
+    /// Renders the Stage Result screen: rank emblem, score headline, a single
+    /// proportional judge-breakdown bar, and the timing offset histogram.
+    ///
+    /// PULSE direction: hairline-separated unboxed columns instead of three
+    /// bordered panels, a diagonal-cut NEW RECORD badge, and the same
+    /// segmented judge bar used on the Gameplay HUD instead of a boxed list.
+    /// See docs/plans/2026-10-03-pulse-redesign.md and sketches/pulse-redesign/.
     pub fn render_result(
         &mut self,
         chart: &BmsChart,
@@ -17,34 +25,40 @@ impl SoftwareRenderer {
         let vp = self.viewport;
         let s = vp.scale;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let label_scale = (s * 0.72).round().max(1.0) as u32;
+        let cyan = ColorToken::PULSE_CYAN.rgba();
+        let muted = ColorToken::TEXT_TERTIARY.rgba();
+        let hairline = ColorRgba::new(0x17, 0x1b, 0x27, 255);
 
-        // 1. Top Header Bar
+        // -----------------------------------------------------------------
+        // 1. Header: title/artist right-aligned, thin accent underline
+        // -----------------------------------------------------------------
+        let header_h = 48.0 * s;
         self.draw_rect(
             vp.x,
             vp.y,
             vp.width,
-            48.0 * s,
-            crate::design_tokens::ColorToken::SURFACE_BASE.rgba(),
+            header_h,
+            ColorToken::SURFACE_BASE.rgba(),
         );
-        self.draw_rect(
+        self.draw_rect(vp.x, vp.y + header_h - s, vp.width, s, hairline);
+        self.draw_gradient_rect(
             vp.x,
-            vp.y + 47.0 * s,
-            vp.width,
-            1.0 * s,
-            crate::design_tokens::ColorToken::BORDER_SUBTLE.rgba(),
+            vp.y + header_h - 2.0 * s,
+            160.0 * s,
+            2.0 * s,
+            cyan,
+            cyan.with_alpha(0),
+            true,
         );
 
-        BitmapFont::draw_badge(
+        BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "STAGE RESULT",
             (vp.x + 24.0 * s) as i32,
-            (vp.y + 12.0 * s) as i32,
-            font_scale,
-            ColorRgba::new(80, 200, 255, 255),
-            ColorRgba::new(20, 35, 65, 255),
-            ColorRgba::new(50, 120, 220, 255),
-            (10.0 * s) as i32,
-            (4.0 * s) as i32,
+            (vp.y + 16.0 * s) as i32,
+            label_scale,
+            cyan,
         );
 
         let title_str = truncate_str(&chart.header.title, 32);
@@ -69,94 +83,20 @@ impl SoftwareRenderer {
             right_artist_x,
             (vp.y + 26.0 * s) as i32,
             font_scale,
-            ColorRgba::new(140, 150, 175, 255),
+            muted,
         );
 
-        // 2. Stage Status Banner & New Record Banner
-        let banner_y = vp.y + 60.0 * s;
-        let (status_text, status_color, status_bg) = if score.is_cleared() {
-            if score.miss_count == 0 && score.poor_count == 0 && score.bad_count == 0 {
-                if score.great_count == 0 && score.good_count == 0 {
-                    (
-                        "PERFECT CLEAR!",
-                        ColorRgba::new(255, 220, 50, 255),
-                        ColorRgba::new(60, 50, 10, 255),
-                    )
-                } else {
-                    (
-                        "FULL COMBO CLEAR!",
-                        ColorRgba::new(60, 255, 140, 255),
-                        ColorRgba::new(10, 50, 25, 255),
-                    )
-                }
-            } else {
-                (
-                    "STAGE CLEARED!",
-                    ColorRgba::new(60, 220, 255, 255),
-                    ColorRgba::new(12, 40, 65, 255),
-                )
-            }
-        } else {
-            (
-                "STAGE FAILED",
-                ColorRgba::new(255, 70, 70, 255),
-                ColorRgba::new(60, 15, 15, 255),
-            )
-        };
+        let body_y = vp.y + header_h + 16.0 * s;
+        let footer_h = 36.0 * s;
+        let body_h = vp.y + vp.height - footer_h - body_y;
 
-        let banner_w = 420.0 * s;
-        let banner_x = vp.x + (vp.width - banner_w) / 2.0;
-        self.draw_rect(banner_x, banner_y, banner_w, 36.0 * s, status_bg);
-        self.draw_rect(banner_x, banner_y, banner_w, 1.0 * s, status_color);
-        self.draw_rect(
-            banner_x,
-            banner_y + 35.0 * s,
-            banner_w,
-            1.0 * s,
-            status_color,
-        );
-        let banner_font_scale = (2.0 * s).round().max(1.0) as u32;
-        BitmapFont::draw_text_centered(
-            &mut self.pixmap.as_mut(),
-            status_text,
-            (vp.x + vp.width / 2.0) as i32,
-            (banner_y + 8.0 * s) as i32,
-            banner_font_scale,
-            status_color,
-        );
-
-        if is_new_record {
-            let nrec_x = (banner_x + banner_w + 16.0 * s) as i32;
-            BitmapFont::draw_badge(
-                &mut self.pixmap.as_mut(),
-                "NEW RECORD!",
-                nrec_x,
-                (banner_y + 4.0 * s) as i32,
-                font_scale,
-                ColorRgba::new(255, 255, 255, 255),
-                ColorRgba::new(180, 130, 10, 255),
-                ColorRgba::new(255, 220, 50, 255),
-                (10.0 * s) as i32,
-                (4.0 * s) as i32,
-            );
-        }
-
-        // 3. Main 3-Column Card Layout
-        let card_y = vp.y + 110.0 * s;
-        let card_h = vp.height - (card_y - vp.y) - 50.0 * s;
-
-        // Left Column: Large Rank Emblem & Core Performance Score
+        // -----------------------------------------------------------------
+        // 2. Left: rank emblem (unboxed, glow via text shadow) + status
+        // -----------------------------------------------------------------
         let left_x = vp.x + 24.0 * s;
-        let left_w = 340.0 * s;
-        self.draw_rect(
-            left_x,
-            card_y,
-            left_w,
-            card_h,
-            ColorRgba::new(17, 21, 33, 255),
-        );
+        let left_w = 300.0 * s;
+        self.draw_rect(left_x + left_w, body_y, s, body_h, hairline);
 
-        // Large Rank Emblem Box
         let rank_str = score.rank();
         let (rank_color, rank_glow) = match rank_str {
             "MAX" => (
@@ -193,383 +133,288 @@ impl SoftwareRenderer {
             ),
         };
 
-        let emblem_w = 160.0 * s;
-        let emblem_h = 75.0 * s;
-        let emblem_x = left_x + (left_w - emblem_w) / 2.0;
-        let emblem_y = card_y + 16.0 * s;
-
-        self.draw_rect(
-            emblem_x,
-            emblem_y,
-            emblem_w,
-            emblem_h,
-            ColorRgba::new(20, 26, 42, 255),
-        );
-        self.draw_rect(emblem_x, emblem_y, emblem_w, 2.0 * s, rank_glow);
-        self.draw_rect(
-            emblem_x,
-            emblem_y + emblem_h - 2.0 * s,
-            emblem_w,
-            2.0 * s,
-            rank_glow,
-        );
-        self.draw_rect(emblem_x, emblem_y, 2.0 * s, emblem_h, rank_glow);
-        self.draw_rect(
-            emblem_x + emblem_w - 2.0 * s,
-            emblem_y,
-            2.0 * s,
-            emblem_h,
-            rank_glow,
+        self.draw_gradient_rect(
+            left_x,
+            body_y,
+            left_w,
+            body_h,
+            rank_glow.with_alpha(20),
+            rank_glow.with_alpha(0),
+            false,
         );
 
-        let rank_font_scale = (4.0 * s).round().max(2.0) as u32;
+        let rank_font_scale = (6.0 * s).round().max(2.0) as u32;
+        let rank_cy = body_y + 110.0 * s;
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
             rank_str,
             (left_x + left_w / 2.0) as i32,
-            (emblem_y + 16.0 * s) as i32,
+            rank_cy as i32,
+            rank_font_scale,
+            rank_glow.with_alpha(90),
+        );
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            rank_str,
+            (left_x + left_w / 2.0) as i32,
+            rank_cy as i32,
             rank_font_scale,
             rank_color,
         );
 
-        // Core score lines
-        let mut cur_y = emblem_y + emblem_h + 20.0 * s;
-        let pad_x = left_x + 24.0 * s;
-        let num_scale = (2.0 * s).round().max(1.0) as u32;
+        let (status_text, status_color) = if score.is_cleared() {
+            if score.miss_count == 0 && score.poor_count == 0 && score.bad_count == 0 {
+                if score.great_count == 0 && score.good_count == 0 {
+                    ("PERFECT CLEAR", ColorRgba::new(255, 220, 50, 255))
+                } else {
+                    ("FULL COMBO CLEAR", ColorRgba::new(60, 255, 140, 255))
+                }
+            } else {
+                ("STAGE CLEARED", cyan)
+            }
+        } else {
+            ("STAGE FAILED", ColorRgba::new(255, 70, 70, 255))
+        };
+        let status_y = rank_cy + 60.0 * s;
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            status_text,
+            (left_x + left_w / 2.0) as i32,
+            status_y as i32,
+            label_scale,
+            status_color,
+        );
 
-        // EX Score
+        if is_new_record {
+            let badge_w = 150.0 * s;
+            let badge_x = left_x + (left_w - badge_w) / 2.0;
+            let badge_y = status_y + 26.0 * s;
+            self.draw_cut_quad(
+                badge_x,
+                badge_y,
+                badge_w,
+                26.0 * s,
+                10.0 * s,
+                ColorToken::PULSE_MAGENTA.rgba(),
+                ColorToken::PULSE_MAGENTA.rgba(),
+            );
+            BitmapFont::draw_bold_text_centered(
+                &mut self.pixmap.as_mut(),
+                "NEW RECORD",
+                (badge_x + badge_w / 2.0 + 5.0 * s) as i32,
+                (badge_y + 6.0 * s) as i32,
+                font_scale,
+                ColorRgba::new(255, 255, 255, 255),
+            );
+        }
+
+        // -----------------------------------------------------------------
+        // 3. Center: score headline + judge breakdown bar + FAST/SLOW
+        // -----------------------------------------------------------------
+        let mid_x = left_x + left_w + 32.0 * s;
+        let mid_w = 340.0 * s;
+        self.draw_rect(mid_x + mid_w, body_y, s, body_h, hairline);
+
+        let mut mid_y = body_y;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "EX SCORE",
-            pad_x as i32,
-            cur_y as i32,
-            font_scale,
-            ColorRgba::new(140, 150, 175, 255),
+            mid_x as i32,
+            mid_y as i32,
+            label_scale,
+            muted,
         );
-        cur_y += 16.0 * s;
+        mid_y += 14.0 * s;
         let ex_val = format!("{} / {}", score.ex_score, score.max_ex_score());
-        BitmapFont::draw_text(
+        BitmapFont::draw_bold_text(
             &mut self.pixmap.as_mut(),
             &ex_val,
-            pad_x as i32,
-            cur_y as i32,
-            num_scale,
-            ColorRgba::new(255, 230, 80, 255),
+            mid_x as i32,
+            mid_y as i32,
+            (font_scale as f32 * 2.0) as u32,
+            ColorToken::ACCENT_YELLOW.rgba(),
         );
         if let Some(prev) = previous_best {
             let diff = score.ex_score as i32 - prev.ex_score as i32;
             let diff_str = if diff >= 0 {
-                format!("(+{}) BEST: {}", diff, prev.ex_score)
+                format!("+{} vs best", diff)
             } else {
-                format!("({}) BEST: {}", diff, prev.ex_score)
+                format!("{} vs best", diff)
             };
             let diff_col = if diff > 0 {
-                ColorRgba::new(80, 255, 140, 255)
+                ColorToken::ACCENT_GREEN.rgba()
             } else {
-                ColorRgba::new(140, 150, 170, 255)
+                muted
             };
-            let diff_x = (left_x + left_w
-                - BitmapFont::text_width(&diff_str, font_scale) as f32
-                - 24.0 * s) as i32;
+            let dx = (mid_x + mid_w - BitmapFont::text_width(&diff_str, label_scale) as f32) as i32;
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 &diff_str,
-                diff_x,
-                (cur_y + 4.0 * s) as i32,
-                font_scale,
+                dx,
+                (mid_y + 6.0 * s) as i32,
+                label_scale,
                 diff_col,
             );
         }
-        cur_y += 30.0 * s;
+        mid_y += 46.0 * s;
+        self.draw_rect(mid_x, mid_y, mid_w, s, hairline);
+        mid_y += 16.0 * s;
 
-        // Accuracy
+        // Stat grid: ACCURACY / MAX COMBO, unboxed label+value pairs.
+        let col_w = mid_w / 2.0;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "ACCURACY",
-            pad_x as i32,
-            cur_y as i32,
-            font_scale,
-            ColorRgba::new(140, 150, 175, 255),
+            mid_x as i32,
+            mid_y as i32,
+            label_scale,
+            muted,
         );
-        cur_y += 16.0 * s;
-        let acc_val = format!("{:.2}%", score.accuracy_rate());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &acc_val,
-            pad_x as i32,
-            cur_y as i32,
-            num_scale,
-            ColorRgba::new(80, 220, 255, 255),
-        );
-        if let Some(prev) = previous_best {
-            let diff = score.accuracy_rate() - prev.accuracy_rate;
-            let diff_str = if diff >= 0.0 {
-                format!("(+{:.2}%)", diff)
-            } else {
-                format!("({:.2}%)", diff)
-            };
-            let diff_col = if diff > 0.0 {
-                ColorRgba::new(80, 255, 140, 255)
-            } else {
-                ColorRgba::new(140, 150, 170, 255)
-            };
-            let diff_x = (left_x + left_w
-                - BitmapFont::text_width(&diff_str, font_scale) as f32
-                - 24.0 * s) as i32;
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &diff_str,
-                diff_x,
-                (cur_y + 4.0 * s) as i32,
-                font_scale,
-                diff_col,
-            );
-        }
-        cur_y += 30.0 * s;
-
-        // Max Combo
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "MAX COMBO",
-            pad_x as i32,
-            cur_y as i32,
-            font_scale,
-            ColorRgba::new(140, 150, 175, 255),
+            (mid_x + col_w) as i32,
+            mid_y as i32,
+            label_scale,
+            muted,
         );
-        cur_y += 16.0 * s;
+        mid_y += 14.0 * s;
+        let acc_val = format!("{:.2}%", score.accuracy_rate());
         let combo_val = format!("{} / {}", score.max_combo, score.total_notes);
-        BitmapFont::draw_text(
+        BitmapFont::draw_bold_text(
+            &mut self.pixmap.as_mut(),
+            &acc_val,
+            mid_x as i32,
+            mid_y as i32,
+            font_scale,
+            cyan,
+        );
+        BitmapFont::draw_bold_text(
             &mut self.pixmap.as_mut(),
             &combo_val,
-            pad_x as i32,
-            cur_y as i32,
-            num_scale,
+            (mid_x + col_w) as i32,
+            mid_y as i32,
+            font_scale,
             ColorRgba::new(255, 255, 255, 255),
         );
-        if let Some(prev) = previous_best {
-            let diff = score.max_combo as i32 - prev.max_combo as i32;
-            let diff_str = if diff >= 0 {
-                format!("(+{}) BEST: {}", diff, prev.max_combo)
-            } else {
-                format!("({}) BEST: {}", diff, prev.max_combo)
-            };
-            let diff_col = if diff > 0 {
-                ColorRgba::new(80, 255, 140, 255)
-            } else {
-                ColorRgba::new(140, 150, 170, 255)
-            };
-            let diff_x = (left_x + left_w
-                - BitmapFont::text_width(&diff_str, font_scale) as f32
-                - 24.0 * s) as i32;
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &diff_str,
-                diff_x,
-                (cur_y + 4.0 * s) as i32,
-                font_scale,
-                diff_col,
-            );
-        }
+        mid_y += 36.0 * s;
+        self.draw_rect(mid_x, mid_y, mid_w, s, hairline);
+        mid_y += 16.0 * s;
 
-        // Center Column: Detailed Judge Breakdown & Fast/Slow
-        let mid_x = left_x + left_w + 16.0 * s;
-        let mid_w = 300.0 * s;
-        self.draw_rect(
-            mid_x,
-            card_y,
-            mid_w,
-            card_h,
-            ColorRgba::new(17, 21, 33, 255),
-        );
-
-        let mut mid_y = card_y + 20.0 * s;
+        // Judge breakdown: single segmented bar + 2-column legend.
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "JUDGE BREAKDOWN",
-            (mid_x + 20.0 * s) as i32,
+            mid_x as i32,
             mid_y as i32,
-            font_scale,
-            ColorRgba::new(160, 175, 205, 255),
+            label_scale,
+            muted,
         );
-        mid_y += 24.0 * s;
-
-        let judge_counts = [
+        mid_y += 16.0 * s;
+        let counts = [
             (
-                "PERFECT GREAT",
+                "PGREAT",
                 score.pgreat_count,
-                ColorRgba::new(255, 230, 80, 255),
+                ColorToken::ACCENT_YELLOW.rgba(),
             ),
-            (
-                "GREAT",
-                score.great_count,
-                ColorRgba::new(255, 170, 50, 255),
-            ),
-            ("GOOD", score.good_count, ColorRgba::new(60, 220, 120, 255)),
-            ("BAD", score.bad_count, ColorRgba::new(180, 70, 240, 255)),
-            ("POOR", score.poor_count, ColorRgba::new(240, 50, 50, 255)),
-            ("MISS", score.miss_count, ColorRgba::new(140, 140, 140, 255)),
+            ("GREAT", score.great_count, ColorToken::ACCENT_ORANGE.rgba()),
+            ("GOOD", score.good_count, ColorToken::ACCENT_GREEN.rgba()),
+            ("BAD", score.bad_count, ColorToken::DIFF_ANOTHER.rgba()),
+            ("POOR", score.poor_count, ColorToken::ACCENT_RED.rgba()),
+            ("MISS", score.miss_count, ColorToken::TEXT_TERTIARY.rgba()),
         ];
-
-        for (label, count, color) in judge_counts {
-            self.draw_rect(
-                mid_x + 20.0 * s,
-                mid_y,
-                mid_w - 40.0 * s,
-                26.0 * s,
-                ColorRgba::new(20, 25, 38, 200),
-            );
+        let total: u32 = counts.iter().map(|&(_, c, _)| c).sum::<u32>().max(1);
+        let bar_h = 10.0 * s;
+        let mut bar_x = mid_x;
+        for &(_, count, color) in &counts {
+            let seg_w = mid_w * (count as f32 / total as f32);
+            if seg_w > 0.0 {
+                self.draw_rect(bar_x, mid_y, seg_w, bar_h, color);
+            }
+            bar_x += seg_w;
+        }
+        mid_y += bar_h + 12.0 * s;
+        let legend_col_w = mid_w / 2.0;
+        for (i, &(label, count, color)) in counts.iter().enumerate() {
+            let col = i % 2;
+            let row = i / 2;
+            let lx = mid_x + col as f32 * legend_col_w;
+            let ly = mid_y + row as f32 * 16.0 * s;
+            self.draw_rect(lx, ly + 3.0 * s, 6.0 * s, 6.0 * s, color);
+            let legend_str = format!("{} {}", label, count);
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
-                label,
-                (mid_x + 28.0 * s) as i32,
-                (mid_y + 6.0 * s) as i32,
-                font_scale,
+                &legend_str,
+                (lx + 11.0 * s) as i32,
+                ly as i32,
+                label_scale,
                 color,
             );
-            let cnt_str = format!("{:>5}", count);
-            let cnt_x = (mid_x + mid_w
-                - BitmapFont::text_width(&cnt_str, font_scale) as f32
-                - 28.0 * s) as i32;
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &cnt_str,
-                cnt_x,
-                (mid_y + 6.0 * s) as i32,
-                font_scale,
-                ColorRgba::new(255, 255, 255, 255),
-            );
-            mid_y += 32.0 * s;
         }
+        mid_y += 54.0 * s;
+        self.draw_rect(mid_x, mid_y, mid_w, s, hairline);
+        mid_y += 16.0 * s;
 
-        mid_y += 10.0 * s;
-        // Fast / Slow stats box
-        let fs_w = (mid_w - 48.0 * s) / 2.0;
-        // Fast box
-        self.draw_rect(
-            mid_x + 20.0 * s,
-            mid_y,
-            fs_w,
-            40.0 * s,
-            ColorRgba::new(15, 30, 50, 255),
-        );
-        self.draw_rect(
-            mid_x + 20.0 * s,
-            mid_y,
-            fs_w,
-            1.0 * s,
-            ColorRgba::new(40, 100, 180, 255),
-        );
+        // FAST / SLOW unboxed pair.
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "FAST",
-            (mid_x + 28.0 * s) as i32,
-            (mid_y + 6.0 * s) as i32,
-            font_scale,
+            mid_x as i32,
+            mid_y as i32,
+            label_scale,
             ColorRgba::new(80, 200, 255, 255),
-        );
-        let fast_str = format!("{}", score.fast_count);
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &fast_str,
-            (mid_x + 28.0 * s) as i32,
-            (mid_y + 20.0 * s) as i32,
-            font_scale,
-            ColorRgba::new(255, 255, 255, 255),
-        );
-
-        // Slow box
-        let slow_box_x = mid_x + 20.0 * s + fs_w + 8.0 * s;
-        self.draw_rect(
-            slow_box_x,
-            mid_y,
-            fs_w,
-            40.0 * s,
-            ColorRgba::new(50, 25, 15, 255),
-        );
-        self.draw_rect(
-            slow_box_x,
-            mid_y,
-            fs_w,
-            1.0 * s,
-            ColorRgba::new(180, 80, 40, 255),
         );
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "SLOW",
-            (slow_box_x + 10.0 * s) as i32,
-            (mid_y + 6.0 * s) as i32,
-            font_scale,
+            (mid_x + col_w) as i32,
+            mid_y as i32,
+            label_scale,
             ColorRgba::new(255, 140, 60, 255),
         );
-        let slow_str = format!("{}", score.slow_count);
-        BitmapFont::draw_text(
+        mid_y += 14.0 * s;
+        BitmapFont::draw_bold_text(
             &mut self.pixmap.as_mut(),
-            &slow_str,
-            (slow_box_x + 10.0 * s) as i32,
-            (mid_y + 20.0 * s) as i32,
+            &format!("{}", score.fast_count),
+            mid_x as i32,
+            mid_y as i32,
+            font_scale,
+            ColorRgba::new(255, 255, 255, 255),
+        );
+        BitmapFont::draw_bold_text(
+            &mut self.pixmap.as_mut(),
+            &format!("{}", score.slow_count),
+            (mid_x + col_w) as i32,
+            mid_y as i32,
             font_scale,
             ColorRgba::new(255, 255, 255, 255),
         );
 
-        // Right Column: Timing Offset Histogram Distribution
-        let right_x = mid_x + mid_w + 16.0 * s;
+        // -----------------------------------------------------------------
+        // 4. Right: timing offset histogram
+        // -----------------------------------------------------------------
+        let right_x = mid_x + mid_w + 32.0 * s;
         let right_w = vp.x + vp.width - right_x - 24.0 * s;
-        self.draw_rect(
-            right_x,
-            card_y,
-            right_w,
-            card_h,
-            ColorRgba::new(17, 21, 33, 255),
-        );
 
-        let mut right_y = card_y + 20.0 * s;
+        let mut right_y = body_y;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
             "TIMING OFFSET DISTRIBUTION",
-            (right_x + 20.0 * s) as i32,
+            right_x as i32,
             right_y as i32,
-            font_scale,
-            ColorRgba::new(160, 175, 205, 255),
+            label_scale,
+            muted,
         );
-        right_y += 30.0 * s;
+        right_y += 24.0 * s;
 
-        // Histogram Graph Area
-        let hist_x = right_x + 24.0 * s;
-        let hist_w = right_w - 48.0 * s;
-        let hist_h = (card_h - 110.0 * s).max(140.0 * s);
+        let hist_x = right_x;
+        let hist_w = right_w;
+        let hist_h = (body_h - 90.0 * s).max(140.0 * s);
         let hist_y = right_y;
 
-        self.draw_rect(
-            hist_x,
-            hist_y,
-            hist_w,
-            hist_h,
-            ColorRgba::new(18, 22, 34, 255),
-        );
-        self.draw_rect(
-            hist_x,
-            hist_y,
-            hist_w,
-            1.0 * s,
-            ColorRgba::new(35, 45, 68, 255),
-        );
-        self.draw_rect(
-            hist_x,
-            hist_y + hist_h,
-            hist_w,
-            1.0 * s,
-            ColorRgba::new(35, 45, 68, 255),
-        );
-
-        // Center line (0ms target)
+        self.draw_rect(hist_x, hist_y + hist_h, hist_w, s, hairline);
         let center_hist_x = hist_x + hist_w / 2.0;
-        self.draw_rect(
-            center_hist_x,
-            hist_y,
-            1.0 * s,
-            hist_h,
-            ColorRgba::new(80, 200, 255, 120),
-        );
+        self.draw_rect(center_hist_x, hist_y, s, hist_h, cyan.with_alpha(110));
 
         let max_bucket_val = score
             .timing_histogram
@@ -580,78 +425,78 @@ impl SoftwareRenderer {
             .max(1) as f32;
         let num_bars = score.timing_histogram.len();
         let bar_width = ((hist_w / num_bars as f32) - 2.0 * s).max(1.0);
-
         for (b_idx, &count) in score.timing_histogram.iter().enumerate() {
             let bx = hist_x + (b_idx as f32 * (hist_w / num_bars as f32)) + 1.0 * s;
-            let bar_h = (count as f32 / max_bucket_val) * (hist_h - 20.0 * s);
-            let by = hist_y + hist_h - bar_h;
-
+            let h = (count as f32 / max_bucket_val) * (hist_h - 20.0 * s);
+            let by = hist_y + hist_h - h;
             let bar_color = if b_idx == 8 {
-                ColorRgba::new(255, 230, 80, 255) // Center Gold
+                ColorToken::ACCENT_YELLOW.rgba()
             } else if b_idx < 8 {
-                ColorRgba::new(60, 180, 255, 230) // Fast Blue
+                cyan
             } else {
-                ColorRgba::new(255, 140, 50, 230) // Slow Orange
+                ColorToken::PULSE_MAGENTA.rgba()
             };
-
-            if bar_h > 0.0 {
-                self.draw_rect(bx, by, bar_width, bar_h, bar_color);
+            if h > 0.0 {
+                self.draw_rect(bx, by, bar_width, h, bar_color);
             }
         }
 
-        // Labels under histogram
         let label_y = (hist_y + hist_h + 8.0 * s) as i32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
-            "-40ms (FAST)",
+            "-40ms",
             hist_x as i32,
             label_y,
-            font_scale,
-            ColorRgba::new(80, 180, 240, 255),
+            label_scale,
+            cyan,
         );
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
-            "0ms (PERFECT)",
+            "0ms",
             center_hist_x as i32,
             label_y,
-            font_scale,
-            ColorRgba::new(255, 230, 80, 255),
+            label_scale,
+            ColorToken::ACCENT_YELLOW.rgba(),
         );
         let slow_lbl_x =
-            (hist_x + hist_w - BitmapFont::text_width("+40ms (SLOW)", font_scale) as f32) as i32;
+            (hist_x + hist_w - BitmapFont::text_width("+40ms", label_scale) as f32) as i32;
         BitmapFont::draw_text(
             &mut self.pixmap.as_mut(),
-            "+40ms (SLOW)",
+            "+40ms",
             slow_lbl_x,
             label_y,
-            font_scale,
-            ColorRgba::new(255, 140, 60, 255),
+            label_scale,
+            ColorToken::PULSE_MAGENTA.rgba(),
         );
 
-        // 4. Bottom Footer Navigation Bar
-        let footer_y = (vp.y + vp.height - 36.0 * s) as i32;
-        self.draw_rect(
-            vp.x,
-            footer_y as f32,
-            vp.width,
-            36.0 * s,
-            ColorRgba::new(12, 16, 24, 255),
-        );
-        self.draw_rect(
-            vp.x,
-            footer_y as f32,
-            vp.width,
-            1.0 * s,
-            ColorRgba::new(40, 50, 75, 255),
+        // Corner accent tying the Result screen back into the PULSE identity.
+        self.draw_corner_triangle(
+            right_x + right_w,
+            body_y,
+            24.0 * s,
+            Corner::TopRight,
+            cyan.with_alpha(80),
         );
 
+        // -----------------------------------------------------------------
+        // 5. Footer
+        // -----------------------------------------------------------------
+        let footer_y = vp.y + vp.height - footer_h;
+        self.draw_rect(
+            vp.x,
+            footer_y,
+            vp.width,
+            footer_h,
+            ColorRgba::new(0, 0, 0, 255),
+        );
+        self.draw_rect(vp.x, footer_y, vp.width, s, hairline);
         BitmapFont::draw_text_centered(
             &mut self.pixmap.as_mut(),
             "[Enter / Space / Esc]: Return to Song Select     [R]: Retry Stage",
             (vp.x + vp.width / 2.0) as i32,
-            footer_y + (10.0 * s) as i32,
-            font_scale,
-            ColorRgba::new(160, 175, 205, 255),
+            (footer_y + 11.0 * s) as i32,
+            label_scale,
+            muted,
         );
     }
 }
