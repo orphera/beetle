@@ -619,6 +619,18 @@ impl SoftwareRenderer {
         let gauge_y = self.skin.playfield_y;
         let gauge_w = 22.0 * s;
         let gauge_h = self.skin.playfield_height;
+        let label_scale = (s * 0.72).round().max(1.0) as u32;
+
+        // Label above the bar, matching every other HUD cluster's caption
+        // convention instead of leaving the bar unlabeled.
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "GAUGE",
+            (gauge_x + gauge_w / 2.0) as i32,
+            (gauge_y - 16.0 * s) as i32,
+            label_scale,
+            crate::design_tokens::ColorToken::TEXT_TERTIARY.rgba(),
+        );
 
         // Gauge background
         self.draw_rect(
@@ -670,6 +682,35 @@ impl SoftwareRenderer {
         };
 
         self.draw_rect(gauge_x, fill_y, gauge_w, fill_h, fill_color);
+
+        // Bright core stripe down the middle of the fill, same "energy
+        // tube" language as the LN body treatment, so the bar reads as a
+        // lit meter instead of a flat color block.
+        if fill_h > 2.0 * s {
+            let core_w = (gauge_w * 0.4).max(2.0);
+            let core_x = gauge_x + (gauge_w - core_w) / 2.0;
+            self.draw_rect(core_x, fill_y, core_w, fill_h, fill_color.lighten(0.4));
+        }
+
+        // Decile tick marks so the bar reads as a calibrated meter rather
+        // than a featureless block.
+        let tick_color = ColorRgba::new(0, 0, 0, 90);
+        let tick_h = (1.0 * s).max(1.0);
+        for i in 1..10 {
+            let ty = gauge_y + gauge_h * (i as f32 / 10.0);
+            self.draw_rect(gauge_x, ty, gauge_w, tick_h, tick_color);
+        }
+
+        // Bright "water line" at the top edge of the fill.
+        if fill_h > 0.0 {
+            self.draw_rect(
+                gauge_x,
+                fill_y,
+                gauge_w,
+                (2.0 * s).max(1.0),
+                fill_color.lighten(0.65),
+            );
+        }
 
         // Border
         let border_color = if danger_blink {
@@ -825,8 +866,36 @@ impl SoftwareRenderer {
         let center_x = (self.skin.playfield_x + (self.skin.playfield_width / 2.0)) as i32;
         let judge_center_y = (self.skin.judge_line_y - 120.0 * s) as i32;
         let font_scale = (s * 0.9).round().max(1.0) as u32;
+        let gap = (6.0 * s).max(3.0) as i32;
 
-        // 1. Draw Combo with bounce pulse
+        // Dark scrim behind the whole combo+judge cluster. Without this the
+        // text sat directly on top of falling notes / LN bodies with no
+        // separation, reading as a smeared, low-contrast mess rather than a
+        // clean HUD readout regardless of what's happening in the lane
+        // behind it. Tall enough for the full worst-case stack (combo
+        // digit + COMBO label + judge text + FAST/SLOW line) computed from
+        // real glyph heights below, not a guessed constant. A flat
+        // semi-transparent rect works identically on the GPU path (no
+        // gradient/rounded-rect primitive needed).
+        if score.current_combo > 0 || self.last_judge.is_some() {
+            let scrim_w = 150.0 * s;
+            let scrim_h = 130.0 * s;
+            self.draw_rect(
+                center_x as f32 - scrim_w / 2.0,
+                judge_center_y as f32 - 46.0 * s,
+                scrim_w,
+                scrim_h,
+                ColorRgba::new(0, 0, 0, 120),
+            );
+        }
+
+        // 1. Draw Combo with bounce pulse. Chains the judge-text anchor
+        // below it (see `judge_anchor_y`) using real glyph heights instead
+        // of two independently-guessed offsets, which is what let the
+        // COMBO label render *inside* the combo digit's bounding box at
+        // some viewport scales and could let PGREAT collide with COMBO the
+        // same way. See docs/plans/2026-10-03-pulse-redesign.md.
+        let mut judge_anchor_y = judge_center_y + (8.0 * s) as i32;
         if score.current_combo > 0 {
             let combo_num = format!("{}", score.current_combo);
             let pulse_offset = if let Some((_, judge_time, _)) = self.last_judge {
@@ -853,14 +922,19 @@ impl SoftwareRenderer {
                 ColorRgba::new(255, 255, 255, 255),
             );
 
+            let combo_glyph_h = (BitmapFont::ASCII_HEIGHT * combo_font_scale) as i32;
+            let combo_label_y = combo_y + combo_glyph_h + gap;
             BitmapFont::draw_text_centered(
                 &mut self.pixmap.as_mut(),
                 "COMBO",
                 center_x,
-                combo_y + (24.0 * s) as i32,
+                combo_label_y,
                 font_scale,
                 ColorRgba::new(180, 180, 200, 255),
             );
+
+            let combo_label_h = (BitmapFont::ASCII_HEIGHT * font_scale) as i32;
+            judge_anchor_y = combo_label_y + combo_label_h + gap;
         }
 
         // 2. Draw Judge Popup & FAST/SLOW
@@ -893,11 +967,12 @@ impl SoftwareRenderer {
                 let text_color = color.with_alpha(alpha);
 
                 let judge_font_scale = (2.0 * s).round().max(1.0) as u32;
+                let judge_text_y = judge_anchor_y + pop_offset;
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),
                     text,
                     center_x,
-                    judge_center_y + (8.0 * s) as i32 + pop_offset,
+                    judge_text_y,
                     judge_font_scale,
                     text_color,
                 );
@@ -916,11 +991,13 @@ impl SoftwareRenderer {
                         )
                     };
 
+                    let judge_glyph_h = (BitmapFont::ASCII_HEIGHT * judge_font_scale) as i32;
+                    let fast_slow_y = judge_text_y + judge_glyph_h + (gap / 2).max(2);
                     BitmapFont::draw_text_centered(
                         &mut self.pixmap.as_mut(),
                         &fast_slow_str,
                         center_x,
-                        judge_center_y + (28.0 * s) as i32 + pop_offset,
+                        fast_slow_y,
                         font_scale,
                         fs_color.with_alpha(alpha),
                     );
@@ -1231,8 +1308,13 @@ impl SoftwareRenderer {
             let r = ((60.0 + i as f32 * 10.0 + clamped_lvl * 50.0).min(255.0)) as u8;
             let g = ((160.0 - i as f32 * 4.0 + clamped_lvl * 40.0).clamp(40.0, 255.0)) as u8;
             let b = (255.0 - clamped_lvl * 40.0) as u8;
+            let bar_color = ColorRgba::new(r, g, b, 255);
 
-            self.draw_rect(x, y, bar_w, h, ColorRgba::new(r, g, b, 255));
+            // Dim body + a bright peak cap, VU-meter style, instead of a
+            // single flat color block.
+            self.draw_rect(x, y, bar_w, h, bar_color.darken(0.25));
+            let cap_h = (2.0 * s).max(1.0).min(h);
+            self.draw_rect(x, y, bar_w, cap_h, bar_color.lighten(0.3));
         }
     }
 }

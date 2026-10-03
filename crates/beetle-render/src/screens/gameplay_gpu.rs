@@ -305,6 +305,27 @@ pub fn render_gameplay_gpu(
     }
 
     // 7. Lane Cover
+    // Dark scrim behind the combo+judge cluster so the text doesn't sit
+    // directly on top of falling notes / LN bodies with no separation.
+    // Placed in the untextured-rect pass (not the text pass) to avoid a
+    // texture switch; the actual text renders in Pass 4 below, on top of
+    // this scrim like everything else. See
+    // docs/plans/2026-10-03-pulse-redesign.md.
+    if score.current_combo > 0 || last_judge.is_some() {
+        let scrim_center_x = skin.playfield_x + (skin.playfield_width / 2.0);
+        let scrim_judge_center_y = skin.judge_line_y - 120.0 * s;
+        let scrim_w = 150.0 * s;
+        let scrim_h = 130.0 * s;
+        batcher.draw_rect(
+            backend,
+            scrim_center_x - scrim_w / 2.0,
+            scrim_judge_center_y - 46.0 * s,
+            scrim_w,
+            scrim_h,
+            [0.0, 0.0, 0.0, 120.0 / 255.0],
+        );
+    }
+
     if skin.lane_cover_ratio > 0.0 {
         let ratio = skin.lane_cover_ratio.clamp(0.0, 0.85);
         let cover_h = skin.playfield_height * ratio;
@@ -400,6 +421,42 @@ pub fn render_gameplay_gpu(
         fill_h,
         fill_color.to_f32_array(),
     );
+
+    // Bright core stripe down the middle of the fill (same "energy tube"
+    // language as the LN body) so the bar reads as a lit meter instead of
+    // a flat color block.
+    if fill_h > 2.0 * s {
+        let core_w = (gauge_w * 0.4).max(2.0);
+        let core_x = gauge_x + (gauge_w - core_w) / 2.0;
+        batcher.draw_rect(
+            backend,
+            core_x,
+            fill_y,
+            core_w,
+            fill_h,
+            fill_color.lighten(0.4).to_f32_array(),
+        );
+    }
+
+    // Decile tick marks so the bar reads as a calibrated meter.
+    let gauge_tick_col = ColorRgba::new(0, 0, 0, 90).to_f32_array();
+    let gauge_tick_h = (1.0 * s).max(1.0);
+    for i in 1..10 {
+        let ty = gauge_y + gauge_h * (i as f32 / 10.0);
+        batcher.draw_rect(backend, gauge_x, ty, gauge_w, gauge_tick_h, gauge_tick_col);
+    }
+
+    // Bright "water line" at the top edge of the fill.
+    if fill_h > 0.0 {
+        batcher.draw_rect(
+            backend,
+            gauge_x,
+            fill_y,
+            gauge_w,
+            (2.0 * s).max(1.0),
+            fill_color.lighten(0.65).to_f32_array(),
+        );
+    }
 
     let b_border_col = if danger_blink {
         ColorRgba::new(255, 60, 60, 255).to_f32_array()
@@ -651,25 +708,46 @@ pub fn render_gameplay_gpu(
         let by = vis_y + vis_h - bar_h;
 
         let col = if level > 0.8 {
-            ColorRgba::new(255, 90, 90, 220).to_f32_array()
+            ColorRgba::new(255, 90, 90, 220)
         } else if level > 0.4 {
-            ColorRgba::new(255, 210, 60, 200).to_f32_array()
+            ColorRgba::new(255, 210, 60, 200)
         } else {
-            ColorRgba::new(60, 180, 255, 180).to_f32_array()
+            ColorRgba::new(60, 180, 255, 180)
         };
+        // Dim body + bright peak cap (VU-meter style) instead of a single
+        // flat additive block, matching the software path's treatment.
         batcher.draw_rect_with_blend(
             backend,
             bx,
             by,
             single_bar_w,
             bar_h,
-            col,
+            col.darken(0.3).to_f32_array(),
+            BlendMode::Additive,
+        );
+        let cap_h = 2.0_f32.max(1.0).min(bar_h);
+        batcher.draw_rect_with_blend(
+            backend,
+            bx,
+            by,
+            single_bar_w,
+            cap_h,
+            col.lighten(0.3).to_f32_array(),
             BlendMode::Additive,
         );
     }
 
     // PASS 4: Font Atlas Batched Text (Texture: FontAtlas, Blend: Alpha)
-    // 1. Gauge percentage text below bar
+    // 1. GAUGE label + percentage text below bar
+    font_atlas.draw_ascii_text_centered(
+        batcher,
+        backend,
+        "GAUGE",
+        gauge_x + gauge_w / 2.0,
+        gauge_y - 16.0 * s,
+        (s * 0.72).round().max(1.0),
+        ColorRgba::new(120, 128, 150, 255),
+    );
     let gauge_str = format!("{:.1}%", score.gauge);
     let gauge_txt_col = if danger_blink {
         ColorRgba::new(255, 80, 80, 255)
@@ -689,7 +767,13 @@ pub fn render_gameplay_gpu(
     // 2. Combo & Judge Popup
     let center_x = skin.playfield_x + (skin.playfield_width / 2.0);
     let judge_center_y = skin.judge_line_y - 120.0 * s;
+    let gap = (6.0 * s).max(3.0);
 
+    // Chains the judge-text anchor below the combo cluster using real
+    // glyph heights instead of two independently-guessed offsets — see the
+    // matching fix/comment in screens/gameplay.rs for why that overlapped
+    // the COMBO label at some viewport scales.
+    let mut judge_anchor_y = judge_center_y + 8.0 * s;
     if score.current_combo > 0 {
         let combo_str = format!("{}", score.current_combo);
         let pulse_offset = if let Some((_, judge_time, _)) = last_judge {
@@ -716,15 +800,21 @@ pub fn render_gameplay_gpu(
             ColorRgba::new(255, 255, 255, 255),
         );
 
+        // Bold digits are 12 rows tall, vs. 7 for regular ASCII.
+        let combo_glyph_h = 12.0 * combo_scale;
+        let combo_label_y = combo_y + combo_glyph_h + gap;
         font_atlas.draw_ascii_text_centered(
             batcher,
             backend,
             "COMBO",
             center_x,
-            combo_y + 24.0 * s,
+            combo_label_y,
             (s * 0.9).round().max(1.0),
             ColorRgba::new(180, 180, 200, 255),
         );
+
+        let combo_label_h = 7.0 * (s * 0.9).round().max(1.0);
+        judge_anchor_y = combo_label_y + combo_label_h + gap;
     }
 
     if let Some((grade, judge_time, delta_ms)) = last_judge {
@@ -751,13 +841,15 @@ pub fn render_gameplay_gpu(
                 255
             };
 
+            let judge_scale = (2.0 * s).round().max(1.0);
+            let judge_text_y = judge_anchor_y + pop_offset;
             font_atlas.draw_ascii_text_centered(
                 batcher,
                 backend,
                 text,
                 center_x,
-                judge_center_y + 8.0 * s + pop_offset,
-                (2.0 * s).round().max(1.0),
+                judge_text_y,
+                judge_scale,
                 color.with_alpha(alpha),
             );
 
@@ -773,12 +865,14 @@ pub fn render_gameplay_gpu(
                         ColorRgba::new(255, 140, 60, 255),
                     )
                 };
+                let judge_glyph_h = 7.0 * judge_scale;
+                let fast_slow_y = judge_text_y + judge_glyph_h + (gap / 2.0).max(2.0);
                 font_atlas.draw_ascii_text_centered(
                     batcher,
                     backend,
                     &fs_str,
                     center_x,
-                    judge_center_y + 28.0 * s + pop_offset,
+                    fast_slow_y,
                     (s * 0.9).round().max(1.0),
                     fs_col.with_alpha(alpha),
                 );
