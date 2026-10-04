@@ -74,6 +74,71 @@ impl Default for InputConfig {
     }
 }
 
+/// Built-in layouts as (key, lane) pairs. A lane may have several keys
+/// (e.g. both Shift and Ctrl on the turntable).
+fn preset_pairs(preset: KeyPreset) -> &'static [(KeyCode, Lane)] {
+    use KeyCode as K;
+    use Lane as L;
+    match preset {
+        KeyPreset::HomeRow => &[
+            (K::ShiftLeft, L::Scratch),
+            (K::ControlLeft, L::Scratch),
+            (K::KeyS, L::Key1),
+            (K::KeyD, L::Key2),
+            (K::KeyF, L::Key3),
+            (K::Space, L::Key4),
+            (K::KeyJ, L::Key5),
+            (K::KeyK, L::Key6),
+            (K::KeyL, L::Key7),
+        ],
+        KeyPreset::ArcadeZx => &[
+            (K::ShiftLeft, L::Scratch),
+            (K::ControlLeft, L::Scratch),
+            (K::KeyZ, L::Key1),
+            (K::KeyS, L::Key2),
+            (K::KeyX, L::Key3),
+            (K::KeyD, L::Key4),
+            (K::KeyC, L::Key5),
+            (K::KeyF, L::Key6),
+            (K::KeyV, L::Key7),
+        ],
+        // PMS has no scratch lane - 9 key buttons only.
+        KeyPreset::Pms9K => &[
+            (K::KeyS, L::Key1),
+            (K::KeyD, L::Key2),
+            (K::KeyF, L::Key3),
+            (K::Space, L::Key4),
+            (K::KeyJ, L::Key5),
+            (K::KeyK, L::Key6),
+            (K::KeyL, L::Key7),
+            (K::Semicolon, L::Key8),
+            (K::Quote, L::Key9),
+        ],
+        // 1P side mirrors ArcadeZx; 2P side mirrors it on the right hand.
+        KeyPreset::DoublePlay => &[
+            (K::ShiftLeft, L::Scratch),
+            (K::ControlLeft, L::Scratch),
+            (K::KeyZ, L::Key1),
+            (K::KeyS, L::Key2),
+            (K::KeyX, L::Key3),
+            (K::KeyD, L::Key4),
+            (K::KeyC, L::Key5),
+            (K::KeyF, L::Key6),
+            (K::KeyV, L::Key7),
+            (K::ShiftRight, L::P2Scratch),
+            (K::ControlRight, L::P2Scratch),
+            (K::KeyU, L::P2Key1),
+            (K::KeyI, L::P2Key2),
+            (K::KeyO, L::P2Key3),
+            (K::KeyP, L::P2Key4),
+            (K::BracketLeft, L::P2Key5),
+            (K::BracketRight, L::P2Key6),
+            (K::Backslash, L::P2Key7),
+        ],
+        KeyPreset::Custom => &[],
+    }
+}
+
 impl InputConfig {
     pub fn new(preset: KeyPreset) -> Self {
         Self {
@@ -96,11 +161,9 @@ impl InputConfig {
         self.preset = order[next];
     }
 
-    /// Whether every lane of `mode` has a key.
+    /// Whether every lane of `mode` has at least one key.
     pub fn covers(&self, mode: PlayMode) -> bool {
-        lanes_for(mode)
-            .iter()
-            .all(|&lane| self.get_key_name_for_lane(lane) != "None")
+        lanes_for(mode).iter().all(|&lane| !self.keys_for_lane(lane).is_empty())
     }
 
     /// Resets all bindings to a specific default preset.
@@ -109,84 +172,32 @@ impl InputConfig {
         self.custom_bindings.clear();
     }
 
-    /// Binds a physical key to a lane, resolving any duplicate conflicts automatically.
-    pub fn bind_key(&mut self, key: KeyCode, lane: Lane) {
-        // If switching from preset to custom, initialize custom map from current preset
-        if self.preset != KeyPreset::Custom && self.custom_bindings.is_empty() {
-            self.init_custom_from_preset(self.preset);
+    /// Editing starts from what is active: switch to Custom, copying the
+    /// current preset's keys if there are no custom bindings yet.
+    fn begin_edit(&mut self) {
+        if self.preset != KeyPreset::Custom {
+            self.custom_bindings = preset_pairs(self.preset).iter().copied().collect();
+            self.preset = KeyPreset::Custom;
         }
-
-        // 1. Remove any other key already mapped to this lane
-        self.custom_bindings
-            .retain(|_, &mut mapped_lane| mapped_lane != lane);
-
-        // 2. Remove this key if it was mapped to another lane
-        self.custom_bindings.remove(&key);
-
-        // 3. Set new binding
-        self.custom_bindings.insert(key, lane);
-        self.preset = KeyPreset::Custom;
     }
 
-    fn init_custom_from_preset(&mut self, preset: KeyPreset) {
-        let pairs: Vec<(KeyCode, Lane)> = match preset {
-            KeyPreset::HomeRow => vec![
-                (KeyCode::ShiftLeft, Lane::Scratch),
-                (KeyCode::KeyS, Lane::Key1),
-                (KeyCode::KeyD, Lane::Key2),
-                (KeyCode::KeyF, Lane::Key3),
-                (KeyCode::Space, Lane::Key4),
-                (KeyCode::KeyJ, Lane::Key5),
-                (KeyCode::KeyK, Lane::Key6),
-                (KeyCode::KeyL, Lane::Key7),
-            ],
-            KeyPreset::ArcadeZx | KeyPreset::Custom => vec![
-                (KeyCode::ShiftLeft, Lane::Scratch),
-                (KeyCode::KeyZ, Lane::Key1),
-                (KeyCode::KeyS, Lane::Key2),
-                (KeyCode::KeyX, Lane::Key3),
-                (KeyCode::KeyD, Lane::Key4),
-                (KeyCode::KeyC, Lane::Key5),
-                (KeyCode::KeyF, Lane::Key6),
-                (KeyCode::KeyV, Lane::Key7),
-            ],
-            // PMS has no scratch lane - 9 key buttons only.
-            KeyPreset::Pms9K => vec![
-                (KeyCode::KeyS, Lane::Key1),
-                (KeyCode::KeyD, Lane::Key2),
-                (KeyCode::KeyF, Lane::Key3),
-                (KeyCode::Space, Lane::Key4),
-                (KeyCode::KeyJ, Lane::Key5),
-                (KeyCode::KeyK, Lane::Key6),
-                (KeyCode::KeyL, Lane::Key7),
-                (KeyCode::Semicolon, Lane::Key8),
-                (KeyCode::Quote, Lane::Key9),
-            ],
-            // 1P side mirrors ArcadeZx; 2P side mirrors it on the right hand.
-            KeyPreset::DoublePlay => vec![
-                (KeyCode::ShiftLeft, Lane::Scratch),
-                (KeyCode::KeyZ, Lane::Key1),
-                (KeyCode::KeyS, Lane::Key2),
-                (KeyCode::KeyX, Lane::Key3),
-                (KeyCode::KeyD, Lane::Key4),
-                (KeyCode::KeyC, Lane::Key5),
-                (KeyCode::KeyF, Lane::Key6),
-                (KeyCode::KeyV, Lane::Key7),
-                (KeyCode::ShiftRight, Lane::P2Scratch),
-                (KeyCode::KeyU, Lane::P2Key1),
-                (KeyCode::KeyI, Lane::P2Key2),
-                (KeyCode::KeyO, Lane::P2Key3),
-                (KeyCode::KeyP, Lane::P2Key4),
-                (KeyCode::BracketLeft, Lane::P2Key5),
-                (KeyCode::BracketRight, Lane::P2Key6),
-                (KeyCode::Backslash, Lane::P2Key7),
-            ],
-        };
+    /// Makes `key` the only key of `lane` (taking it away from any other lane).
+    pub fn bind_key(&mut self, key: KeyCode, lane: Lane) {
+        self.begin_edit();
+        self.custom_bindings.retain(|_, &mut l| l != lane);
+        self.custom_bindings.insert(key, lane);
+    }
 
-        self.custom_bindings.clear();
-        for (k, l) in pairs {
-            self.custom_bindings.insert(k, l);
-        }
+    /// Adds `key` to `lane`, keeping its other keys (a key belongs to one lane).
+    pub fn add_key(&mut self, key: KeyCode, lane: Lane) {
+        self.begin_edit();
+        self.custom_bindings.insert(key, lane);
+    }
+
+    /// Removes every key of `lane`.
+    pub fn clear_lane(&mut self, lane: Lane) {
+        self.begin_edit();
+        self.custom_bindings.retain(|_, &mut l| l != lane);
     }
 
     /// Maps a winit PhysicalKey to a rhythm game Lane.
@@ -194,153 +205,56 @@ impl InputConfig {
         let PhysicalKey::Code(code) = key else {
             return None;
         };
-
-        if self.preset == KeyPreset::Custom && !self.custom_bindings.is_empty() {
-            return self.custom_bindings.get(&code).copied();
-        }
-
         match self.preset {
-            KeyPreset::HomeRow => match code {
-                KeyCode::ShiftLeft | KeyCode::ControlLeft => Some(Lane::Scratch),
-                KeyCode::KeyS => Some(Lane::Key1),
-                KeyCode::KeyD => Some(Lane::Key2),
-                KeyCode::KeyF => Some(Lane::Key3),
-                KeyCode::Space => Some(Lane::Key4),
-                KeyCode::KeyJ => Some(Lane::Key5),
-                KeyCode::KeyK => Some(Lane::Key6),
-                KeyCode::KeyL => Some(Lane::Key7),
-                _ => None,
-            },
-            KeyPreset::ArcadeZx => match code {
-                KeyCode::ShiftLeft | KeyCode::ControlLeft => Some(Lane::Scratch),
-                KeyCode::KeyZ => Some(Lane::Key1),
-                KeyCode::KeyS => Some(Lane::Key2),
-                KeyCode::KeyX => Some(Lane::Key3),
-                KeyCode::KeyD => Some(Lane::Key4),
-                KeyCode::KeyC => Some(Lane::Key5),
-                KeyCode::KeyF => Some(Lane::Key6),
-                KeyCode::KeyV => Some(Lane::Key7),
-                _ => None,
-            },
-            KeyPreset::Pms9K => match code {
-                KeyCode::KeyS => Some(Lane::Key1),
-                KeyCode::KeyD => Some(Lane::Key2),
-                KeyCode::KeyF => Some(Lane::Key3),
-                KeyCode::Space => Some(Lane::Key4),
-                KeyCode::KeyJ => Some(Lane::Key5),
-                KeyCode::KeyK => Some(Lane::Key6),
-                KeyCode::KeyL => Some(Lane::Key7),
-                KeyCode::Semicolon => Some(Lane::Key8),
-                KeyCode::Quote => Some(Lane::Key9),
-                _ => None,
-            },
-            KeyPreset::DoublePlay => match code {
-                KeyCode::ShiftLeft | KeyCode::ControlLeft => Some(Lane::Scratch),
-                KeyCode::KeyZ => Some(Lane::Key1),
-                KeyCode::KeyS => Some(Lane::Key2),
-                KeyCode::KeyX => Some(Lane::Key3),
-                KeyCode::KeyD => Some(Lane::Key4),
-                KeyCode::KeyC => Some(Lane::Key5),
-                KeyCode::KeyF => Some(Lane::Key6),
-                KeyCode::KeyV => Some(Lane::Key7),
-                KeyCode::ShiftRight | KeyCode::ControlRight => Some(Lane::P2Scratch),
-                KeyCode::KeyU => Some(Lane::P2Key1),
-                KeyCode::KeyI => Some(Lane::P2Key2),
-                KeyCode::KeyO => Some(Lane::P2Key3),
-                KeyCode::KeyP => Some(Lane::P2Key4),
-                KeyCode::BracketLeft => Some(Lane::P2Key5),
-                KeyCode::BracketRight => Some(Lane::P2Key6),
-                KeyCode::Backslash => Some(Lane::P2Key7),
-                _ => None,
-            },
             KeyPreset::Custom => self.custom_bindings.get(&code).copied(),
+            preset => preset_pairs(preset)
+                .iter()
+                .find(|(k, _)| *k == code)
+                .map(|&(_, l)| l),
         }
     }
 
-    /// Returns the descriptive key name for a given lane.
-    pub fn get_key_name_for_lane(&self, lane: Lane) -> String {
-        if self.preset == KeyPreset::Custom && !self.custom_bindings.is_empty() {
-            for (&code, &mapped_lane) in &self.custom_bindings {
-                if mapped_lane == lane {
-                    return key_code_to_str(code).to_string();
-                }
-            }
-        }
-
+    /// Keys bound to `lane`, in a stable order (preset order, or by name for
+    /// custom bindings).
+    pub fn keys_for_lane(&self, lane: Lane) -> Vec<KeyCode> {
         match self.preset {
-            KeyPreset::HomeRow => match lane {
-                Lane::Scratch => "LShift",
-                Lane::Key1 => "S",
-                Lane::Key2 => "D",
-                Lane::Key3 => "F",
-                Lane::Key4 => "Space",
-                Lane::Key5 => "J",
-                Lane::Key6 => "K",
-                Lane::Key7 => "L",
-                // HomeRow/ArcadeZx are 7K+1S-only presets (see KeyPreset docs);
-                // PMS/DP lanes have no default binding under them yet.
-                _ => "None",
+            KeyPreset::Custom => {
+                let mut keys: Vec<KeyCode> = self
+                    .custom_bindings
+                    .iter()
+                    .filter(|(_, &l)| l == lane)
+                    .map(|(&k, _)| k)
+                    .collect();
+                keys.sort_by_key(|&k| key_code_to_identifier(k));
+                keys
             }
-            .to_string(),
-            KeyPreset::ArcadeZx => match lane {
-                Lane::Scratch => "LShift",
-                Lane::Key1 => "Z",
-                Lane::Key2 => "S",
-                Lane::Key3 => "X",
-                Lane::Key4 => "D",
-                Lane::Key5 => "C",
-                Lane::Key6 => "F",
-                Lane::Key7 => "V",
-                _ => "None",
-            }
-            .to_string(),
-            KeyPreset::Pms9K => match lane {
-                Lane::Key1 => "S",
-                Lane::Key2 => "D",
-                Lane::Key3 => "F",
-                Lane::Key4 => "Space",
-                Lane::Key5 => "J",
-                Lane::Key6 => "K",
-                Lane::Key7 => "L",
-                Lane::Key8 => ";",
-                Lane::Key9 => "'",
-                _ => "None",
-            }
-            .to_string(),
-            KeyPreset::DoublePlay => match lane {
-                Lane::Scratch => "LShift",
-                Lane::Key1 => "Z",
-                Lane::Key2 => "S",
-                Lane::Key3 => "X",
-                Lane::Key4 => "D",
-                Lane::Key5 => "C",
-                Lane::Key6 => "F",
-                Lane::Key7 => "V",
-                Lane::P2Scratch => "RShift",
-                Lane::P2Key1 => "U",
-                Lane::P2Key2 => "I",
-                Lane::P2Key3 => "O",
-                Lane::P2Key4 => "P",
-                Lane::P2Key5 => "[",
-                Lane::P2Key6 => "]",
-                Lane::P2Key7 => "\\",
-                _ => "None",
-            }
-            .to_string(),
-            KeyPreset::Custom => "None".to_string(),
+            preset => preset_pairs(preset)
+                .iter()
+                .filter(|(_, l)| *l == lane)
+                .map(|&(k, _)| k)
+                .collect(),
         }
     }
 
-    /// Serializes custom bindings to a compact string format: "Scratch:ShiftLeft,Key1:KeyS,..."
+    /// Display names of the keys bound to `lane` (empty when unbound).
+    pub fn key_names_for_lane(&self, lane: Lane) -> Vec<&'static str> {
+        self.keys_for_lane(lane).into_iter().map(key_code_to_str).collect()
+    }
+
+    /// Serializes custom bindings: "Scratch:ShiftLeft,Scratch:ControlLeft,Key1:KeyS,..."
+    /// (a lane appears once per key; deterministic order).
     pub fn serialize_bindings(&self) -> String {
         let mut parts = Vec::new();
         for &lane in &Lane::ALL {
-            if let Some((&code, _)) = self.custom_bindings.iter().find(|(_, &l)| l == lane) {
-                parts.push(format!(
-                    "{}:{}",
-                    lane_to_name(lane),
-                    key_code_to_identifier(code)
-                ));
+            let mut keys: Vec<&str> = self
+                .custom_bindings
+                .iter()
+                .filter(|(_, &l)| l == lane)
+                .map(|(&k, _)| key_code_to_identifier(k))
+                .collect();
+            keys.sort_unstable();
+            for key in keys {
+                parts.push(format!("{}:{}", lane_to_name(lane), key));
             }
         }
         parts.join(",")
@@ -367,6 +281,25 @@ impl InputConfig {
             self.preset = KeyPreset::Custom;
         }
     }
+}
+
+/// Turns a lane key event into a lane press / release, given the keys held
+/// so far (updated here). A lane can have several keys: every new key press
+/// presses the lane (two keys can alternate on the turntable), OS key repeat
+/// is ignored, and the lane is released only with its last held key.
+/// Returns `Some(true)` = press, `Some(false)` = release, `None` = nothing.
+pub fn lane_transition(held: &mut Vec<(KeyCode, Lane)>, key: KeyCode, lane: Lane, pressed: bool) -> Option<bool> {
+    let was_held = held.iter().any(|&(k, _)| k == key);
+    if pressed {
+        if was_held {
+            return None;
+        }
+        held.push((key, lane));
+        return Some(true);
+    }
+    held.retain(|&(k, _)| k != key);
+    let still_held = held.iter().any(|&(_, l)| l == lane);
+    (was_held && !still_held).then_some(false)
 }
 
 /// Lanes of a key mode, left to right (same order as Key Config).
@@ -852,7 +785,7 @@ mod tests {
             config.map_key(PhysicalKey::Code(KeyCode::KeyA)),
             Some(Lane::Scratch)
         );
-        assert_eq!(config.get_key_name_for_lane(Lane::Scratch), "A");
+        assert_eq!(config.key_names_for_lane(Lane::Scratch), ["A"]);
     }
 
     #[test]
@@ -994,6 +927,54 @@ mod tests {
         let kb = KeyBindings::load(&saved, Some(&(KeyPreset::ArcadeZx, String::new())));
         assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::HomeRow);
         assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::ArcadeZx);
+    }
+
+    #[test]
+    fn test_multiple_keys_per_lane() {
+        let mut config = InputConfig::new(KeyPreset::HomeRow);
+        // Presets may already put two keys on a lane.
+        assert_eq!(config.key_names_for_lane(Lane::Scratch).len(), 2);
+
+        config.add_key(KeyCode::KeyQ, Lane::Key1);
+        let k = |c| config.map_key(PhysicalKey::Code(c));
+        assert_eq!(k(KeyCode::KeyQ), Some(Lane::Key1));
+        assert_eq!(k(KeyCode::KeyS), Some(Lane::Key1), "the preset key stays");
+
+        // A key moves: adding S to Key2 takes it off Key1.
+        config.add_key(KeyCode::KeyS, Lane::Key2);
+        assert_eq!(config.keys_for_lane(Lane::Key1), [KeyCode::KeyQ]);
+        assert_eq!(config.keys_for_lane(Lane::Key2), [KeyCode::KeyD, KeyCode::KeyS]);
+
+        // bind_key replaces, clear_lane empties.
+        config.bind_key(KeyCode::KeyW, Lane::Key2);
+        assert_eq!(config.keys_for_lane(Lane::Key2), [KeyCode::KeyW]);
+        config.clear_lane(Lane::Key2);
+        assert!(config.keys_for_lane(Lane::Key2).is_empty());
+        assert!(!config.covers(PlayMode::Keys7));
+
+        // All keys survive a save / load.
+        config.add_key(KeyCode::KeyE, Lane::Key1);
+        let s = config.serialize_bindings();
+        let mut restored = InputConfig::new(KeyPreset::HomeRow);
+        restored.deserialize_bindings(&s);
+        assert_eq!(restored.keys_for_lane(Lane::Key1), config.keys_for_lane(Lane::Key1));
+        assert_eq!(restored.keys_for_lane(Lane::Key1).len(), 2);
+        assert_eq!(s, restored.serialize_bindings(), "serialization is deterministic");
+    }
+
+    #[test]
+    fn test_lane_held_until_last_key_released() {
+        let mut held = Vec::new();
+        let (shift, ctrl) = (KeyCode::ShiftLeft, KeyCode::ControlLeft);
+        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, true), Some(true));
+        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, true), None, "key repeat");
+        // Second key on the same lane is a new press...
+        assert_eq!(lane_transition(&mut held, ctrl, Lane::Scratch, true), Some(true));
+        // ...and letting go of one key keeps the lane held (long notes survive).
+        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, false), None);
+        assert_eq!(lane_transition(&mut held, ctrl, Lane::Scratch, false), Some(false));
+        // A release without a press (e.g. pressed before the song) does nothing.
+        assert_eq!(lane_transition(&mut held, KeyCode::KeyS, Lane::Key1, false), None);
     }
 
     #[test]

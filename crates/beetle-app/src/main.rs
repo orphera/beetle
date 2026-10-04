@@ -199,7 +199,9 @@ impl ApplicationHandler for BeetleApp {
                 &saved_config.key_layouts,
                 saved_config.legacy_key_layout.as_ref(),
             ),
-            is_rebinding_key: false,
+            rebinding: None,
+            key_config_edit_mode: beetle_core::PlayMode::Keys7,
+            held_keys: Vec::new(),
             master_volume: saved_config.master_volume,
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,
@@ -229,6 +231,7 @@ impl ApplicationHandler for BeetleApp {
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
         if let Some(screen) = devtools::start_screen() {
             app_state.screen = screen;
+            app_state.key_config_edit_mode = app_state.key_config_mode();
         }
 
         // If a specific file path was provided via CLI, launch directly into gameplay
@@ -624,7 +627,7 @@ fn handle_keyboard_input(
     }
 
     // Global Hotkeys (when key is pressed)
-    if key_state == ElementState::Pressed && !state.is_search_active && !state.is_rebinding_key {
+    if key_state == ElementState::Pressed && !state.is_search_active && state.rebinding.is_none() {
         if code == KeyCode::F6 {
             state.play_options.gauge_type = match state.play_options.gauge_type {
                 GaugeType::Easy => GaugeType::Groove,

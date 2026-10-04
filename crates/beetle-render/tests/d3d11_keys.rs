@@ -6,36 +6,49 @@ mod common;
 
 use beetle_core::{Lane, PlayMode};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
-use beetle_render::{draw_key_config, D3d11Backend, GpuBackend, KeyBinding, KeyConfigFrame, SkinConfig, Ui, Viewport};
+use beetle_render::{
+    draw_key_config, D3d11Backend, GpuBackend, KeyBinding, KeyConfigFrame, Rebind, SkinConfig, Ui,
+    Viewport,
+};
 use common::{write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
 
-fn key_for(lane: Lane) -> &'static str {
+fn keys_for(lane: Lane) -> &'static [&'static str] {
     match lane {
-        Lane::Scratch => "LShift",
-        Lane::Key1 => "Z",
-        Lane::Key2 => "S",
-        Lane::Key3 => "X",
-        Lane::Key4 => "Space",
-        Lane::Key5 => "C",
-        Lane::Key6 => "F",
-        Lane::Key7 => "V",
-        Lane::Key8 => ";",
-        Lane::Key9 => "None",
-        Lane::P2Scratch => "RShift",
-        Lane::P2Key1 => "U",
-        Lane::P2Key2 => "I",
-        Lane::P2Key3 => "O",
-        Lane::P2Key4 => "P",
-        Lane::P2Key5 => "[",
-        Lane::P2Key6 => "]",
-        Lane::P2Key7 => "\\",
+        Lane::Scratch => &["LShift", "LCtrl"],
+        Lane::Key4 => &["Space", "B", "N", "M"],
+        Lane::Key9 => &[],
+        Lane::P2Scratch => &["RShift", "RCtrl"],
+        other => std::slice::from_ref(key_for(other)),
     }
 }
 
-fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, selected: usize, rebinding: bool, name: &str) -> usize {
+fn key_for(lane: Lane) -> &'static &'static str {
+    match lane {
+        Lane::Scratch => &"LShift",
+        Lane::Key1 => &"Z",
+        Lane::Key2 => &"S",
+        Lane::Key3 => &"X",
+        Lane::Key4 => &"Space",
+        Lane::Key5 => &"C",
+        Lane::Key6 => &"F",
+        Lane::Key7 => &"V",
+        Lane::Key8 => &";",
+        Lane::Key9 => &"None",
+        Lane::P2Scratch => &"RShift",
+        Lane::P2Key1 => &"U",
+        Lane::P2Key2 => &"I",
+        Lane::P2Key3 => &"O",
+        Lane::P2Key4 => &"P",
+        Lane::P2Key5 => &"[",
+        Lane::P2Key6 => &"]",
+        Lane::P2Key7 => &"\\",
+    }
+}
+
+fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, selected: usize, rebinding: Option<Rebind>, name: &str) -> usize {
     let vp = Viewport::new(W, H);
     let mut layout = SkinConfig::default();
     layout.set_play_mode(mode);
@@ -44,7 +57,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, selected: usize, 
         .active_lanes()
         .iter()
         .zip(&labels)
-        .map(|(&lane, label)| KeyBinding { lane, label, key: key_for(lane) })
+        .map(|(&lane, label)| KeyBinding { lane, label, keys: keys_for(lane) })
         .collect();
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.begin(W, H, vp.scale);
@@ -62,7 +75,7 @@ fn key_config_layouts() {
     let window = HiddenWindow::with_size(W, H);
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP]).expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, 4, false, "7k"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, 15, false, "14k"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys9, 3, true, "9k-rebind"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, 4, None, "7k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, 0, None, "14k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys9, 3, Some(Rebind::Add), "9k-add"), 1);
 }

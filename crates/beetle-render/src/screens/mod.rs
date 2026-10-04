@@ -7,7 +7,7 @@ pub mod select;
 pub mod stage_result;
 mod widgets;
 
-pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame};
+pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODES};
 pub use loading::{draw_loading, LoadingFrame};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};
 pub use stage_result::{draw_result, ResultFrame};

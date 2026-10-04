@@ -12,7 +12,7 @@ use winit::dpi::PhysicalSize;
 
 use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
-use crate::input::{lane_label, KeyPreset};
+use crate::input::{lane_label, lanes_for, KeyPreset};
 use crate::state::{AppState, REPLAYS_DIR};
 
 /// Starts a frame on the backbuffer and the UI.
@@ -284,16 +284,17 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
 }
 
 pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
-    let mode = state.key_config_mode();
-    let keys: Vec<(beetle_core::Lane, String)> = state
-        .key_config_lanes()
+    let mode = state.key_config_edit_mode;
+    let layout = state.key_bindings.get(mode);
+    let keys: Vec<(beetle_core::Lane, Vec<&'static str>)> = lanes_for(mode)
         .iter()
-        .map(|&lane| (lane, state.key_bindings.get(mode).get_key_name_for_lane(lane)))
+        .map(|&lane| (lane, layout.key_names_for_lane(lane)))
         .collect();
     let lanes: Vec<beetle_render::KeyBinding> = keys
         .iter()
-        .map(|(lane, key)| beetle_render::KeyBinding { lane: *lane, label: lane_label(*lane), key })
+        .map(|(lane, keys)| beetle_render::KeyBinding { lane: *lane, label: lane_label(*lane), keys })
         .collect();
+    let preset = layout.preset.as_str();
 
     begin(state, size);
     beetle_render::draw_key_config(
@@ -303,8 +304,8 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
             mode,
             lanes: &lanes,
             selected: state.selected_key_idx,
-            rebinding: state.is_rebinding_key,
-            layout: state.key_bindings.get(mode).preset.as_str(),
+            rebinding: state.rebinding,
+            layout: preset,
         },
     );
     finish(state);

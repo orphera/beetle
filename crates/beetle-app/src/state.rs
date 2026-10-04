@@ -9,7 +9,7 @@ use beetle_core::{
     compute_chart_hash, sort_songs, BmsChart, JudgeEngine, Lane, PlayMode, PlayOptions, ReplayData,
     ScoreRecord, ScoreStore, SongMetadata, SortMode, TimingModel,
 };
-use beetle_render::{ImageBuffer, SkinConfig, ViewState};
+use beetle_render::{ImageBuffer, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
@@ -131,7 +131,13 @@ pub struct AppState {
     pub previous_best: Option<ScoreRecord>,
     /// Key layout per key mode (5K / 7K / 9K / 10K / 14K).
     pub key_bindings: crate::input::KeyBindings,
-    pub is_rebinding_key: bool,
+    /// Key Config is waiting for a key press (to set or add).
+    pub rebinding: Option<beetle_render::Rebind>,
+    /// Key mode whose layout Key Config is editing.
+    pub key_config_edit_mode: PlayMode,
+    /// Lane keys held during gameplay. A lane can have several keys; it is
+    /// released only when the last of them is.
+    pub held_keys: Vec<(winit::keyboard::KeyCode, Lane)>,
     pub master_volume: f32,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
@@ -318,10 +324,8 @@ impl AppState {
         self.songs.get(real_idx)
     }
 
-    /// Resolves the PlayMode the Key Config screen should show lanes for:
-    /// the actually-loaded chart's mode if gameplay is active, otherwise
-    /// the highlighted song-select entry's cached mode (Key Config is also
-    /// reachable before a chart is ever loaded, via F12 on Song Select).
+    /// Key mode to configure by default: the loaded chart's if there is one,
+    /// otherwise the highlighted song's. Key Config opens on this mode.
     pub fn key_config_mode(&self) -> PlayMode {
         if let Some(chart) = &self.active_chart {
             chart.detect_play_mode()
@@ -330,15 +334,6 @@ impl AppState {
                 .map(|s| s.play_mode)
                 .unwrap_or_default()
         }
-    }
-
-    /// Full lane list the Key Config screen should list rows for, matching
-    /// `key_config_mode()`. Reuses `SkinConfig::active_lanes()` instead of
-    /// duplicating the per-mode lane table in `beetle-app`.
-    pub fn key_config_lanes(&self) -> &'static [Lane] {
-        let mut skin = SkinConfig::default();
-        skin.set_play_mode(self.key_config_mode());
-        skin.active_lanes()
     }
 
     /// Advances BGM notes and BGA timeline events up to `audio_time`.

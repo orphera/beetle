@@ -115,6 +115,7 @@ pub fn handle_song_select_input(
         }
         KeyCode::F12 | KeyCode::KeyC => {
             state.screen = AppScreen::KeyConfig;
+            state.key_config_edit_mode = state.key_config_mode();
             state.selected_key_idx = 0;
         }
         KeyCode::F2 => {

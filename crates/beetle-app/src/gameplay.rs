@@ -204,6 +204,7 @@ pub fn finalize_start_gameplay(
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
     state.view.reset_feedback();
+    state.held_keys.clear();
     state.gpu_ui.release_song_textures(&mut state.d3d11);
     state.window.request_redraw();
 }

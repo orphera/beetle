@@ -169,6 +169,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     // Key Layout
                     if code == KeyCode::Enter || code == KeyCode::Space {
                         state.screen = AppScreen::KeyConfig;
+                        state.key_config_edit_mode = state.key_config_mode();
+                        state.selected_key_idx = 0;
                         state.show_option_modal = false;
                     } else {
                         let mode = state.key_config_mode();

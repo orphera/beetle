@@ -5,7 +5,9 @@
 //! staggered rows, odd keys low / even keys high) with the bound key on each
 //! button, instead of a table. Double play shows the 1P and 2P controllers
 //! side by side; lane order (and the selection index) is
-//! `SkinConfig::active_lanes()`, i.e. left to right on screen.
+//! `SkinConfig::active_lanes()`, i.e. left to right on screen. Tabs on top
+//! switch between the key modes, which each keep their own layout; a lane
+//! can have several keys.
 
 use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
@@ -22,9 +24,21 @@ pub struct KeyBinding<'a> {
     pub lane: Lane,
     /// Long name, e.g. "KEY 3 (1P)".
     pub label: &'a str,
-    /// Bound key, e.g. "LShift" ("None" when unbound).
-    pub key: &'a str,
+    /// Bound keys, e.g. ["LShift", "LCtrl"] (empty when unbound).
+    pub keys: &'a [&'a str],
 }
+
+/// What the next key press does while waiting for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rebind {
+    /// Becomes the lane's only key.
+    Replace,
+    /// Is added to the lane's keys.
+    Add,
+}
+
+/// Key modes in tab order.
+pub const KEY_MODES: [PlayMode; 5] = [PlayMode::Keys5, PlayMode::Keys7, PlayMode::Keys9, PlayMode::Keys10, PlayMode::Keys14];
 
 pub struct KeyConfigFrame<'a> {
     pub viewport: &'a Viewport,
@@ -32,14 +46,18 @@ pub struct KeyConfigFrame<'a> {
     /// Left-to-right lane order.
     pub lanes: &'a [KeyBinding<'a>],
     pub selected: usize,
-    pub rebinding: bool,
+    /// `Some` while waiting for a key press.
+    pub rebinding: Option<Rebind>,
     /// Current preset / layout name.
     pub layout: &'a str,
 }
 
-const HINTS: [(&str, &str); 5] = [
-    (widgets::LEFT_RIGHT, "SELECT"),
-    ("ENTER", "REBIND"),
+const HINTS: [(&str, &str); 8] = [
+    (widgets::LEFT_RIGHT, "LANE"),
+    ("↑↓", "MODE"),
+    ("ENTER", "SET KEY"),
+    ("A", "ADD KEY"),
+    ("BKSP", "CLEAR"),
     ("F1", "LAYOUT"),
     ("DEL", "RESET"),
     ("ESC", "BACK"),
@@ -61,12 +79,9 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
         vp.y + vp.height - (FOOTER_H + 24.0) * s,
     );
 
-    // Mode heading
-    let mode_name = format!("{} KEYS", theme::mode_label(f.mode).trim_end_matches('K'));
-    let head = TextStyle::new(28.0 * s).bold().tracking(4.0 * s).color(theme::TEXT);
-    t.draw_in(c, &mode_name, Rect::new(content.x, content.y, content.w, 36.0 * s), Align::Center, &head);
-    let sub = "Lanes of the selected chart's key mode";
-    t.draw_in(c, sub, Rect::new(content.x, content.y + 36.0 * s, content.w, 20.0 * s), Align::Center, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    mode_tabs(c, t, &sk, f.mode, Rect::new(content.x, content.y, content.w, 36.0 * s), s);
+    let sub = "Each key mode keeps its own layout";
+    t.draw_in(c, sub, Rect::new(content.x, content.y + 40.0 * s, content.w, 20.0 * s), Align::Center, &TextStyle::new(13.0 * s).color(theme::MUTED));
 
     let card = Rect::new(content.x + (content.w - 640.0 * s) / 2.0, content.bottom() - 136.0 * s, 640.0 * s, 136.0 * s);
     controllers(c, t, &sk, f, Rect::from_ltrb(content.x, content.y + 72.0 * s, content.right(), card.y - 16.0 * s), s);
@@ -84,10 +99,34 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     t.draw(c, "LAYOUT", right - name_w - 12.0 * s - cw, vp.y + 37.0 * s, &cap);
 
     let bar = widgets::footer_bar(c, vp, s);
-    if f.rebinding {
+    if f.rebinding.is_some() {
         widgets::footer_hints(c, t, &sk, &REBIND_HINTS, bar, s);
     } else {
         widgets::footer_hints(c, t, &sk, &HINTS, bar, s);
+    }
+}
+
+/// Tabs for the key modes, the current one highlighted.
+fn mode_tabs(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, mode: PlayMode, area: Rect, s: f32) {
+    let (tab_w, gap) = (84.0 * s, 8.0 * s);
+    let total = KEY_MODES.len() as f32 * (tab_w + gap) - gap;
+    let mut x = area.x + (area.w - total) / 2.0;
+    for m in KEY_MODES {
+        let on = m == mode;
+        let r = Rect::new(x, area.y, tab_w, area.h);
+        if on {
+            c.set_additive(true);
+            c.sprite_centered(sk.glow, r.x + r.w / 2.0, r.y + r.h / 2.0, r.w * 1.8, r.h * 2.4, theme::CYAN.with_alpha(70));
+            c.set_additive(false);
+            c.nine(&sk.panel_lg, r, theme::CYAN);
+        } else {
+            c.nine(&sk.panel_lg, r, theme::SURF2);
+            c.nine(&sk.panel_outline, r, theme::LINE);
+        }
+        let label = format!("{} KEYS", theme::mode_label(m).trim_end_matches('K'));
+        let st = TextStyle::new(13.0 * s).bold().tracking(1.5 * s).color(if on { theme::ON_ACCENT } else { theme::MUTED });
+        t.draw_in(c, &label, r, Align::Center, &st);
+        x += tab_w + gap;
     }
 }
 
@@ -158,11 +197,11 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
             let on = idx == f.selected;
             if is_scratch(b.lane) {
                 let r = Rect::new(kx, top + (KEY_H + ROW_OFFSET - TABLE) * k / 2.0, TABLE * k, TABLE * k);
-                button(c, t, sk, b, r, col, on, f.rebinding, true, s);
+                button(c, t, sk, b, r, col, on, f.rebinding.is_some(), true, s);
                 kx += (TABLE + TABLE_GAP) * k;
             } else {
                 let y = if upper_row(b.lane) { top } else { top + ROW_OFFSET * k };
-                button(c, t, sk, b, Rect::new(kx, y, KEY_W * k, KEY_H * k), col, on, f.rebinding, false, s);
+                button(c, t, sk, b, Rect::new(kx, y, KEY_W * k, KEY_H * k), col, on, f.rebinding.is_some(), false, s);
                 kx += KEY_STEP * k;
             }
         }
@@ -183,7 +222,6 @@ fn button(
     scratch: bool,
     s: f32,
 ) {
-    let unbound = b.key == "None";
     let accent = if on && rebinding { theme::MAGENTA } else { theme::CYAN };
     if on {
         c.set_additive(true);
@@ -207,46 +245,84 @@ fn button(
     }
     c.nine(&sk.panel_outline, r, if on { accent } else { theme::LINE });
 
-    let (txt, st) = if on && rebinding {
-        ("?", TextStyle::new(22.0 * s).bold().color(theme::MAGENTA))
-    } else if unbound {
-        ("—", TextStyle::new(14.0 * s).bold().color(theme::MUTED2))
-    } else {
-        (b.key, TextStyle::new(if b.key.chars().count() > 2 { 13.0 } else { 20.0 } * s).bold().color(theme::TEXT))
-    };
     let label_r = if scratch { r } else { Rect::new(r.x, r.y, r.w, r.h - 10.0 * s) };
-    t.draw_in(c, txt, label_r.inset(3.0 * s), Align::Center, &st);
+    let label_r = label_r.inset(3.0 * s);
+    if on && rebinding {
+        t.draw_in(c, "?", label_r, Align::Center, &TextStyle::new(22.0 * s).bold().color(theme::MAGENTA));
+    } else if b.keys.is_empty() {
+        t.draw_in(c, "—", label_r, Align::Center, &TextStyle::new(14.0 * s).bold().color(theme::MUTED2));
+    } else if b.keys.len() == 1 {
+        let key = b.keys[0];
+        let size = if key.chars().count() > 2 { 13.0 } else { 20.0 };
+        t.draw_in(c, key, label_r, Align::Center, &TextStyle::new(size * s).bold().color(theme::TEXT));
+    } else {
+        // Several keys: stacked small, "+N" past three.
+        let shown = b.keys.len().min(3);
+        let line = 16.0 * s;
+        let y0 = label_r.y + (label_r.h - line * shown as f32) / 2.0;
+        let st = TextStyle::new(11.0 * s).bold().color(theme::TEXT);
+        for (i, key) in b.keys.iter().take(shown).enumerate() {
+            let txt = if i == 2 && b.keys.len() > 3 { format!("+{}", b.keys.len() - 2) } else { key.to_string() };
+            t.draw_in(c, &txt, Rect::new(label_r.x, y0 + i as f32 * line, label_r.w, line), Align::Center, &st);
+        }
+    }
 }
 
 fn detail_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame, r: Rect, s: f32) {
     c.halo(&sk.shadow, r, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, r, theme::SURF1.with_alpha(235));
-    if f.rebinding {
+    if f.rebinding.is_some() {
         c.nine(&sk.panel_outline, r, theme::MAGENTA.with_alpha(200));
     }
     let inner = r.inset(24.0 * s);
     let Some(b) = f.lanes.get(f.selected) else { return };
 
-    t.draw(c, if f.rebinding { "REBINDING" } else { "SELECTED LANE" }, inner.x, inner.y + 14.0 * s, &caption(10.0, s).color(if f.rebinding { theme::MAGENTA } else { theme::MUTED2 }));
-    t.draw(c, b.label, inner.x, inner.y + 48.0 * s, &TextStyle::new(24.0 * s).bold().color(theme::TEXT));
-    let msg = if f.rebinding {
-        "Press the key for this lane. If another lane uses it, that lane is cleared."
-    } else {
-        "Enter to assign a new key. F1 cycles the preset layouts."
+    let (title, msg) = match f.rebinding {
+        Some(Rebind::Replace) => ("SET KEY", "Press the key for this lane. It replaces the lane's keys; a key used elsewhere moves here."),
+        Some(Rebind::Add) => ("ADD KEY", "Press another key for this lane. A key used by another lane moves here."),
+        None => ("SELECTED LANE", "Enter sets a key, A adds one more, Backspace clears the lane."),
     };
+    let accent = if f.rebinding.is_some() { theme::MAGENTA } else { theme::MUTED2 };
+    t.draw(c, title, inner.x, inner.y + 14.0 * s, &caption(10.0, s).color(accent));
+    let label_st = TextStyle::new(24.0 * s).bold().color(theme::TEXT);
+    let label_w = t.draw(c, b.label, inner.x, inner.y + 48.0 * s, &label_st);
     let st = TextStyle::new(13.0 * s).color(theme::MUTED);
     let msg = t.fit(c, msg, inner.w, &st).into_owned();
     t.draw(c, &msg, inner.x, inner.bottom() - 4.0 * s, &st);
 
-    // Current key as a large keycap on the right
-    let key = if f.rebinding { "?" } else if b.key == "None" { "—" } else { b.key };
-    let st = TextStyle::new(22.0 * s).bold().color(if f.rebinding { theme::MAGENTA } else { theme::TEXT });
-    let w = (t.measure(c, key, &st) + 40.0 * s).max(72.0 * s);
-    let cap = Rect::new(inner.right() - w, inner.y, w, 52.0 * s);
-    c.nine(&sk.panel, cap, theme::SURF3);
-    c.nine(&sk.panel_sm, Rect::new(cap.x + 4.0 * s, cap.bottom() - 4.0 * s, cap.w - 8.0 * s, 3.0 * s), theme::LINE);
-    t.draw_in(c, key, Rect::new(cap.x, cap.y, cap.w, cap.h - 4.0 * s), Align::Center, &st);
-    t.draw_in(c, "KEY", Rect::new(cap.x - 60.0 * s, cap.y, 48.0 * s, cap.h), Align::Right, &caption(10.0, s));
+    // The lane's keys as keycaps, right-aligned ("?" for the one being added).
+    let mut caps: Vec<&str> = match f.rebinding {
+        Some(Rebind::Replace) => vec![],
+        _ => b.keys.to_vec(),
+    };
+    if f.rebinding.is_some() {
+        caps.push("?");
+    } else if caps.is_empty() {
+        caps.push("—");
+    }
+    let st = TextStyle::new(18.0 * s).bold();
+    let widths: Vec<f32> = caps.iter().map(|k| (t.measure(c, k, &st) + 28.0 * s).max(52.0 * s)).collect();
+    let gap = 8.0 * s;
+    let mut x = inner.right() - (widths.iter().sum::<f32>() + gap * (caps.len() as f32 - 1.0));
+    let min_x = inner.x + label_w + 80.0 * s;
+    let first = caps.len() - caps.len().min(5);
+    t.draw_in(c, "KEYS", Rect::new(x.max(min_x) - 60.0 * s, inner.y, 48.0 * s, 44.0 * s), Align::Right, &caption(10.0, s));
+    for (key, w) in caps.iter().zip(&widths).skip(first) {
+        if x < min_x {
+            x += w + gap;
+            continue;
+        }
+        let cap = Rect::new(x, inner.y, *w, 44.0 * s);
+        let pending = *key == "?";
+        c.nine(&sk.panel, cap, theme::SURF3);
+        if pending {
+            c.nine(&sk.panel_outline, cap, theme::MAGENTA.with_alpha(200));
+        }
+        c.nine(&sk.panel_sm, Rect::new(cap.x + 4.0 * s, cap.bottom() - 4.0 * s, cap.w - 8.0 * s, 3.0 * s), theme::LINE);
+        let col = if pending { theme::MAGENTA } else if *key == "—" { theme::MUTED2 } else { theme::TEXT };
+        t.draw_in(c, key, Rect::new(cap.x, cap.y, cap.w, cap.h - 4.0 * s), Align::Center, &st.color(col));
+        x += w + gap;
+    }
 }
 
 #[cfg(test)]
@@ -260,8 +336,14 @@ mod tests {
         for mode in [PlayMode::Keys5, PlayMode::Keys7, PlayMode::Keys9, PlayMode::Keys10, PlayMode::Keys14] {
             let mut layout = SkinConfig::default();
             layout.set_play_mode(mode);
-            let lanes: Vec<KeyBinding> = layout.active_lanes().iter().map(|&lane| KeyBinding { lane, label: "KEY", key: "S" }).collect();
-            for rebinding in [false, true] {
+            let keys = ["S", "LCtrl", "Q", "W"];
+            let lanes: Vec<KeyBinding> = layout
+                .active_lanes()
+                .iter()
+                .enumerate()
+                .map(|(i, &lane)| KeyBinding { lane, label: "KEY", keys: &keys[..i % 5] })
+                .collect();
+            for rebinding in [None, Some(Rebind::Replace), Some(Rebind::Add)] {
                 ui.begin(1280, 720, vp.scale);
                 draw_key_config(&mut ui, &KeyConfigFrame { viewport: &vp, mode, lanes: &lanes, selected: 1, rebinding, layout: "HomeRow" });
                 assert_eq!(ui.canvas.debug_batches().len(), 1, "{mode:?}");
@@ -273,7 +355,7 @@ mod tests {
     fn sides_fit_the_screen() {
         // 14K at full size would be wider than the content area; it must be
         // scaled down rather than overflow.
-        let lanes: Vec<KeyBinding> = (0..8).map(|i| KeyBinding { lane: if i == 0 { Lane::Scratch } else { Lane::Key1 }, label: "", key: "" }).collect();
+        let lanes: Vec<KeyBinding> = (0..8).map(|i| KeyBinding { lane: if i == 0 { Lane::Scratch } else { Lane::Key1 }, label: "", keys: &[] }).collect();
         let w = side_width(&lanes.iter().collect::<Vec<_>>());
         assert!((w - (TABLE + TABLE_GAP + 6.0 * KEY_STEP + KEY_W)).abs() < 1e-3);
     }

@@ -64,15 +64,24 @@ pub fn handle_gameplay_input(
         }
     }
 
-    // Block lane keys if paused or during replay/auto-play
+    // Block lane keys if paused or during replay/auto-play (but still notice
+    // releases, so a key let go while paused is not considered held later).
     if state.is_gameplay_paused || state.is_auto_play || state.is_replay_playback {
+        if let (ElementState::Released, PhysicalKey::Code(code)) = (key_state, physical_key) {
+            state.held_keys.retain(|&(k, _)| k != code);
+        }
         return;
     }
 
     // Handle lane key presses and releases
     // The layout of the chart's key mode (set when the song starts).
     let mode = state.view.skin.play_mode;
+    let PhysicalKey::Code(code) = physical_key else { return };
     if let Some(lane) = state.key_bindings.get(mode).map_key(physical_key) {
+        let pressed = key_state == ElementState::Pressed;
+        if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
+            return;
+        }
         let audio_time = state
             .audio_engine
             .as_ref()
