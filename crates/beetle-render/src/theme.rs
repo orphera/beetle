@@ -7,7 +7,7 @@
 
 use crate::skin::ColorRgba;
 use crate::text::TextStyle;
-use beetle_core::JudgeGrade;
+use beetle_core::{ClearType, JudgeGrade, PlayMode};
 
 const fn rgb(hex: u32) -> ColorRgba {
     ColorRgba::new((hex >> 16) as u8, (hex >> 8) as u8, hex as u8, 255)
@@ -96,6 +96,42 @@ pub fn level_tier(level: u32) -> (&'static str, ColorRgba) {
         11..=12 => ("INSANE", MAGENTA),
         _ => ("OVERJOY", PURPLE),
     }
+}
+
+/// Clear lamp label and color (`None` = never played).
+pub fn clear_lamp(clear: Option<ClearType>) -> (&'static str, ColorRgba) {
+    match clear {
+        Some(ClearType::Perfect) => ("PERFECT", GOLD),
+        Some(ClearType::FullCombo) => ("FULL COMBO", GREEN),
+        Some(ClearType::Clear) => ("CLEAR", BLUE),
+        Some(ClearType::Failed) => ("FAILED", RED),
+        None => ("NO PLAY", MUTED2),
+    }
+}
+
+/// Short key-mode tag: "7K", "14K", ...
+pub fn mode_label(mode: PlayMode) -> &'static str {
+    match mode {
+        PlayMode::Keys5 => "5K",
+        PlayMode::Keys7 => "7K",
+        PlayMode::Keys9 => "9K",
+        PlayMode::Keys10 => "10K",
+        PlayMode::Keys14 => "14K",
+    }
+}
+
+/// Saturated version of a sampled image color (for ambient light): keeps
+/// the hue, pushes the brightest channel to full. Near-gray input falls
+/// back to `fallback` because a gray glow just looks dirty.
+pub fn vivid(c: ColorRgba, fallback: ColorRgba) -> ColorRgba {
+    let max = c.r.max(c.g).max(c.b) as f32;
+    let min = c.r.min(c.g).min(c.b) as f32;
+    if max < 1.0 || (max - min) / max < 0.25 {
+        return fallback;
+    }
+    let k = 255.0 / max;
+    let ch = |v: u8| ((v as f32 - min * 0.6) * k).clamp(0.0, 255.0) as u8;
+    ColorRgba::new(ch(c.r), ch(c.g), ch(c.b), 255)
 }
 
 /// Small all-caps caption ("EX SCORE", "BPM") above a value.

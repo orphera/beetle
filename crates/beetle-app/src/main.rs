@@ -255,6 +255,7 @@ impl ApplicationHandler for BeetleApp {
 
         app_state.apply_display_mode();
         app_state.recompute_filtered_songs();
+        (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
@@ -608,7 +609,8 @@ impl ApplicationHandler for BeetleApp {
 
                 match state.screen {
                     AppScreen::SongSelect => {
-                        if state.is_dirty {
+                        // The Canvas UI path draws this screen at present time.
+                        if state.is_dirty && !uses_canvas_ui(state) {
                             let selected_hash =
                                 state.current_selected_song().map(|s| s.hash).unwrap_or(0);
                             let visible_songs = state.current_visible_songs();
@@ -866,8 +868,11 @@ impl ApplicationHandler for BeetleApp {
                 #[cfg(target_os = "windows")]
                 if state.is_d3d11_active() && width > 0 && height > 0 {
                     use beetle_render::GpuBackend;
+                    // 1. Canvas UI path (ADR-026): screens already ported to `Ui`.
+                    if state.screen == AppScreen::SongSelect && state.gpu_ui.is_some() {
+                        presented_d3d11 = present_song_select(state, width, height);
+                    }
                     if let Some(d3d11) = &mut state.d3d11_backend {
-                        // 1. Canvas UI path (ADR-026): screens already ported to `Ui`.
                         if state.screen == AppScreen::Gameplay {
                             if let (Some(gpu), Some(chart), Some(judge), Some(timing)) = (
                                 &mut state.gpu_ui,
@@ -1030,6 +1035,117 @@ impl ApplicationHandler for BeetleApp {
             _ => (),
         }
     }
+}
+
+/// Whether screens already ported to the Canvas UI are drawn with it.
+fn uses_canvas_ui(state: &AppState) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        state.is_d3d11_active() && state.gpu_ui.is_some()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = state;
+        false
+    }
+}
+
+/// Song select (+ its option / quit modals) on the Canvas UI. Returns
+/// `false` if the D3D11 UI is not available.
+#[cfg(target_os = "windows")]
+fn present_song_select(state: &mut AppState, width: u32, height: u32) -> bool {
+    use gpu_ui::ImageKey;
+    let selected_hash = state.current_selected_song().map(|s| s.hash);
+    let has_replay = selected_hash
+        .is_some_and(|h| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, h)).exists());
+    let chips = [
+        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
+        state.play_options.lane_modifier.as_str().to_string(),
+        state.play_options.gauge_type.as_str().to_string(),
+    ];
+    let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
+    let vp = state.renderer.viewport;
+    let (Some(d3d11), Some(gpu)) = (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut()) else {
+        return false;
+    };
+    use beetle_render::GpuBackend;
+
+    let stage_img = selected_hash
+        .and_then(|h| state.stage_image_cache.get(&h))
+        .and_then(|img| img.as_ref());
+    let (jacket, ambient) = match (selected_hash, stage_img) {
+        (Some(hash), Some(img)) => {
+            gpu.trim_stage_textures(d3d11, hash);
+            (gpu.image(d3d11, ImageKey::Stage(hash), img), Some(img.average_color_sampled(6)))
+        }
+        _ => (None, None),
+    };
+
+    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+    gpu.ui.lite = d3d11.is_warp();
+    gpu.ui.begin(width, height, vp.scale);
+    beetle_render::draw_song_select(
+        &mut gpu.ui,
+        &beetle_render::SelectFrame {
+            viewport: &vp,
+            songs: &state.songs,
+            visible: &state.filtered_indices,
+            selected: state.selected_song_idx,
+            scores: &state.score_store,
+            folder: state.category_mode.as_str(),
+            sort: state.sort_mode.as_str(),
+            search: &state.search_query,
+            search_active: state.is_search_active,
+            jacket,
+            ambient,
+            option_chips: &chips,
+            auto_play: state.is_auto_play,
+            has_replay,
+        },
+    );
+    if let Some(rows) = &option_rows {
+        beetle_render::draw_options_modal(&mut gpu.ui, &vp, rows, state.modal_row);
+    }
+    if state.show_exit_modal {
+        beetle_render::draw_exit_modal(&mut gpu.ui, &vp);
+    }
+    gpu.ui.end(d3d11);
+    if let Some(cap) = &mut state.capture {
+        if cap.on_frame(state.screen, d3d11) {
+            state.should_exit_app = true;
+        }
+    }
+    d3d11.end_frame();
+    true
+}
+
+/// (label, value) rows of the play options modal, in the order the option
+/// handler indexes them (`state.modal_row`).
+#[cfg(target_os = "windows")]
+fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
+    let o = &state.play_options;
+    vec![
+        ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
+        ("MODIFIER", o.lane_modifier.as_str().to_string()),
+        ("GAUGE", o.gauge_type.as_str().to_string()),
+        ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
+        ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
+        ("DISPLAY MODE", state.display_mode.as_str().to_string()),
+        ("RESOLUTION", state.current_resolution_label().to_string()),
+        ("GRAPHICS GPU", state.gpu_backend.as_str().to_string()),
+        (
+            "TARGET FPS",
+            if state.target_fps == 0 {
+                "UNLIMITED".to_string()
+            } else {
+                format!("{} FPS", state.target_fps)
+            },
+        ),
+        ("KEY LAYOUT", state.input_config.preset.as_str().to_string()),
+        ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
+        ("START MEASURE", format!("M.{}", state.start_measure)),
+        ("TRACK BGA", state.track_bga.as_str().to_string()),
+    ]
 }
 
 /// Mode badge and key-hint line for the gameplay HUD.

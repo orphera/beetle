@@ -8,6 +8,7 @@
 //!   that screen.
 //! - `BEETLE_CAPTURE_EXIT=1`: quit right after capturing.
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
+//! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
 //!
 //! Nothing here runs unless the variables are set.
 
@@ -47,6 +48,15 @@ fn log(msg: &str) {
 
 pub fn autoplay_requested() -> bool {
     std::env::var("BEETLE_AUTOPLAY").is_ok_and(|v| v == "1")
+}
+
+/// Song select modal to open at startup: (options, exit).
+pub fn modal_requested() -> (bool, bool) {
+    match std::env::var("BEETLE_CAPTURE_MODAL").as_deref() {
+        Ok("options") => (true, false),
+        Ok("exit") => (false, true),
+        _ => (false, false),
+    }
 }
 
 impl Capture {

@@ -81,7 +81,7 @@ fn is_danger(score: &ScoreTracker) -> bool {
 }
 
 /// Fits a `w`×`h` image into `dst` by cropping (cover) and returns the UVs.
-fn cover_uv(tex: SizedTexture, dst: Rect) -> [f32; 4] {
+pub(crate) fn cover_uv(tex: SizedTexture, dst: Rect) -> [f32; 4] {
     let (iw, ih) = (tex.width.max(1) as f32, tex.height.max(1) as f32);
     let (ia, da) = (iw / ih, dst.w / dst.h.max(1.0));
     if ia > da {

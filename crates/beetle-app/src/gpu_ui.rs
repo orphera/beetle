@@ -100,6 +100,24 @@ impl GpuUi {
         Some(tex)
     }
 
+    /// Keeps stage-image textures bounded while browsing: past
+    /// `MAX_STAGE_TEXTURES`, frees all of them except `keep` (they are
+    /// re-uploaded from the CPU-side cache on demand).
+    pub fn trim_stage_textures(&mut self, backend: &mut dyn GpuBackend, keep: u64) {
+        const MAX_STAGE_TEXTURES: usize = 32;
+        let count = self.images.keys().filter(|k| matches!(k, ImageKey::Stage(_))).count();
+        if count <= MAX_STAGE_TEXTURES {
+            return;
+        }
+        self.images.retain(|k, t| {
+            let drop = matches!(k, ImageKey::Stage(h) if *h != keep);
+            if drop {
+                backend.destroy_texture(t.id);
+            }
+            !drop
+        });
+    }
+
     /// Frees every song-scoped texture (BGA bitmaps and videos). Call when a
     /// new song starts; stage images are kept for the song list.
     pub fn release_song_textures(&mut self, backend: &mut dyn GpuBackend) {
