@@ -238,6 +238,7 @@ impl ApplicationHandler for BeetleApp {
             loading_receiver: None,
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
+            loading_started_at: Instant::now(),
             result_entered_at: Instant::now(),
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
@@ -356,7 +357,9 @@ impl ApplicationHandler for BeetleApp {
                 }
 
                 let now = Instant::now();
-                if now.duration_since(state.loading_anim_time) >= Duration::from_millis(30) {
+                // ~60 fps while loading: the Canvas loading screen animates
+                // continuously (INV-5).
+                if now.duration_since(state.loading_anim_time) >= Duration::from_millis(15) {
                     state.loading_spinner_frame = state.loading_spinner_frame.wrapping_add(1);
                     state.loading_anim_time = now;
                     state.window.request_redraw();
@@ -683,6 +686,7 @@ impl ApplicationHandler for BeetleApp {
                             }
                         }
                     }
+                    AppScreen::Loading if uses_canvas_ui(state) => {}
                     AppScreen::Loading => {
                         let selected_hash =
                             state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
@@ -881,6 +885,9 @@ impl ApplicationHandler for BeetleApp {
                     }
                     if state.screen == AppScreen::KeyConfig && state.gpu_ui.is_some() {
                         presented_d3d11 = present_key_config(state, width, height);
+                    }
+                    if state.screen == AppScreen::Loading && state.gpu_ui.is_some() {
+                        presented_d3d11 = present_loading(state, width, height);
                     }
                     if let Some(d3d11) = &mut state.d3d11_backend {
                         if state.screen == AppScreen::Gameplay {
@@ -1223,6 +1230,66 @@ fn present_key_config(state: &mut AppState, width: u32, height: u32) -> bool {
             selected: state.selected_key_idx,
             rebinding: state.is_rebinding_key,
             layout: state.input_config.preset.as_str(),
+        },
+    );
+    gpu.ui.end(d3d11);
+    if let Some(cap) = &mut state.capture {
+        if cap.on_frame(state.screen, d3d11) {
+            state.should_exit_app = true;
+        }
+    }
+    d3d11.end_frame();
+    true
+}
+
+/// Loading screen on the Canvas UI. Returns `false` if the D3D11 UI or the
+/// song being loaded is not available.
+#[cfg(target_os = "windows")]
+fn present_loading(state: &mut AppState, width: u32, height: u32) -> bool {
+    use gpu_ui::ImageKey;
+    let chips = [
+        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
+        state.play_options.lane_modifier.as_str().to_string(),
+        state.play_options.gauge_type.as_str().to_string(),
+    ];
+    let badge = if state.is_replay_playback {
+        Some("REPLAY")
+    } else if state.is_auto_play {
+        Some("AUTO PLAY")
+    } else {
+        None
+    };
+    let elapsed = state.loading_started_at.elapsed().as_secs_f64();
+    let vp = state.renderer.viewport;
+    let (Some(d3d11), Some(gpu), Some(song)) =
+        (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut(), state.loading_song.as_ref())
+    else {
+        return false;
+    };
+    use beetle_render::GpuBackend;
+    let stage = state.stage_image_cache.get(&song.hash).and_then(|img| img.as_ref());
+    let (jacket, ambient) = match stage {
+        Some(img) => (
+            gpu.image(d3d11, ImageKey::Stage(song.hash), img),
+            Some(img.average_color_sampled(6)),
+        ),
+        None => (None, None),
+    };
+
+    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+    gpu.ui.lite = d3d11.is_warp();
+    gpu.ui.begin(width, height, vp.scale);
+    beetle_render::draw_loading(
+        &mut gpu.ui,
+        &beetle_render::LoadingFrame {
+            viewport: &vp,
+            song,
+            jacket,
+            ambient,
+            elapsed,
+            status: "Decoding keysounds and preparing audio",
+            option_chips: &chips,
+            badge,
         },
     );
     gpu.ui.end(d3d11);

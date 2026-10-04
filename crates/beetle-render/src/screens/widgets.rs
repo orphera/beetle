@@ -112,3 +112,31 @@ pub(crate) fn keycap_width(c: &mut Canvas, t: &mut TextEngine, key: &str, s: f32
     (t.measure(c, key, &TextStyle::new(10.0 * s).bold()) + 12.0 * s).max(20.0 * s)
 }
 
+
+/// Splits `text` into at most two lines that fit `max_w`, preferring to
+/// break after a space (CJK titles without spaces break between glyphs).
+/// The second line is ellipsized if the rest still does not fit.
+pub(crate) fn wrap2(c: &mut Canvas, t: &mut TextEngine, text: &str, max_w: f32, st: &TextStyle) -> (String, Option<String>) {
+    if t.measure(c, text, st) <= max_w {
+        return (text.to_string(), None);
+    }
+    let mut cut = 0;
+    let mut last_space = None;
+    for (i, ch) in text.char_indices() {
+        let end = i + ch.len_utf8();
+        if t.measure(c, &text[..end], st) > max_w {
+            break;
+        }
+        cut = end;
+        if ch == ' ' {
+            last_space = Some(end);
+        }
+    }
+    let cut = match last_space {
+        Some(sp) if sp * 2 > cut => sp, // do not leave a tiny first line
+        _ => cut,
+    };
+    let (first, rest) = text.split_at(cut);
+    let rest = t.fit(c, rest.trim_start(), max_w, st).into_owned();
+    (first.trim_end().to_string(), Some(rest))
+}

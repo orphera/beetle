@@ -144,6 +144,8 @@ pub struct AppState {
     pub loading_song: Option<SongMetadata>,
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
     pub loading_spinner_frame: usize,
+    /// When the current song load started (drives the loading animation).
+    pub loading_started_at: Instant,
     pub loading_anim_time: Instant,
     pub result_entered_at: Instant,
     pub last_render_time: Instant,

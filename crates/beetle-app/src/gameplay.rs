@@ -16,6 +16,7 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.loading_song = Some(song.clone());
     state.loading_spinner_frame = 0;
     state.loading_anim_time = Instant::now();
+    state.loading_started_at = Instant::now();
 
     // Cache stage image for loading screen
     let selected_hash = song.hash;

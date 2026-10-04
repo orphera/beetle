@@ -13,7 +13,7 @@ use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
-use super::widgets::{self, hint_row, keycap, keycap_width, LEFT_RIGHT};
+use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
 use beetle_core::{ScoreRecord, ScoreStore, SongMetadata};
 
 /// Everything the song select screen shows for one frame.
@@ -253,34 +253,6 @@ fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, 
 // ---------------------------------------------------------------------------
 // Detail panel
 // ---------------------------------------------------------------------------
-
-/// Splits `text` into at most two lines that fit `max_w`, preferring to
-/// break after a space (CJK titles without spaces break between glyphs).
-/// The second line is ellipsized if the rest still does not fit.
-fn wrap2(c: &mut Canvas, t: &mut TextEngine, text: &str, max_w: f32, st: &TextStyle) -> (String, Option<String>) {
-    if t.measure(c, text, st) <= max_w {
-        return (text.to_string(), None);
-    }
-    let mut cut = 0;
-    let mut last_space = None;
-    for (i, ch) in text.char_indices() {
-        let end = i + ch.len_utf8();
-        if t.measure(c, &text[..end], st) > max_w {
-            break;
-        }
-        cut = end;
-        if ch == ' ' {
-            last_space = Some(end);
-        }
-    }
-    let cut = match last_space {
-        Some(sp) if sp * 2 > cut => sp, // do not leave a tiny first line
-        _ => cut,
-    };
-    let (first, rest) = text.split_at(cut);
-    let rest = t.fit(c, rest.trim_start(), max_w, st).into_owned();
-    (first.trim_end().to_string(), Some(rest))
-}
 
 fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, song: &SongMetadata, panel: Rect, s: f32) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
