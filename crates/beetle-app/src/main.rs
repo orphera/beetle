@@ -247,6 +247,7 @@ impl ApplicationHandler for BeetleApp {
             #[cfg(target_os = "windows")]
             gpu_ui,
             capture: devtools::Capture::from_env(),
+            pending_screenshot: None,
             #[cfg(target_os = "windows")]
             d3d11_backend,
             #[cfg(target_os = "windows")]
@@ -822,8 +823,8 @@ impl ApplicationHandler for BeetleApp {
                         // below while the score count-up / rank reveal is
                         // still running.
                         if state.is_dirty || animating {
-                            if let (Some(chart), Some(judge)) =
-                                (&state.active_chart, &state.active_judge)
+                            if let (Some(chart), Some(judge), false) =
+                                (&state.active_chart, &state.active_judge, uses_canvas_ui(state))
                             {
                                 state.renderer.render_result(
                                     chart,
@@ -871,6 +872,9 @@ impl ApplicationHandler for BeetleApp {
                     // 1. Canvas UI path (ADR-026): screens already ported to `Ui`.
                     if state.screen == AppScreen::SongSelect && state.gpu_ui.is_some() {
                         presented_d3d11 = present_song_select(state, width, height);
+                    }
+                    if state.screen == AppScreen::Result && state.gpu_ui.is_some() {
+                        presented_d3d11 = present_result(state, width, height);
                     }
                     if let Some(d3d11) = &mut state.d3d11_backend {
                         if state.screen == AppScreen::Gameplay {
@@ -1038,7 +1042,7 @@ impl ApplicationHandler for BeetleApp {
 }
 
 /// Whether screens already ported to the Canvas UI are drawn with it.
-fn uses_canvas_ui(state: &AppState) -> bool {
+pub(crate) fn uses_canvas_ui(state: &AppState) -> bool {
     #[cfg(target_os = "windows")]
     {
         state.is_d3d11_active() && state.gpu_ui.is_some()
@@ -1110,6 +1114,65 @@ fn present_song_select(state: &mut AppState, width: u32, height: u32) -> bool {
         beetle_render::draw_exit_modal(&mut gpu.ui, &vp);
     }
     gpu.ui.end(d3d11);
+    if let Some(cap) = &mut state.capture {
+        if cap.on_frame(state.screen, d3d11) {
+            state.should_exit_app = true;
+        }
+    }
+    d3d11.end_frame();
+    true
+}
+
+/// Stage result on the Canvas UI. Returns `false` if the D3D11 UI or the
+/// finished chart is not available.
+#[cfg(target_os = "windows")]
+fn present_result(state: &mut AppState, width: u32, height: u32) -> bool {
+    use gpu_ui::ImageKey;
+    let elapsed = state.result_entered_at.elapsed().as_secs_f64();
+    let unsaved = if state.is_replay_playback {
+        Some("REPLAY")
+    } else if state.is_auto_play {
+        Some("AUTO PLAY")
+    } else if state.start_measure > 0 {
+        Some("PRACTICE")
+    } else {
+        None
+    };
+    let vp = state.renderer.viewport;
+    let (Some(d3d11), Some(gpu), Some(chart), Some(judge)) = (
+        state.d3d11_backend.as_mut(),
+        state.gpu_ui.as_mut(),
+        &state.active_chart,
+        &state.active_judge,
+    ) else {
+        return false;
+    };
+    use beetle_render::GpuBackend;
+    let jacket = state
+        .active_bga_image
+        .as_ref()
+        .and_then(|img| gpu.image(d3d11, ImageKey::Stage(state.active_chart_hash), img));
+
+    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+    gpu.ui.lite = d3d11.is_warp();
+    gpu.ui.begin(width, height, vp.scale);
+    beetle_render::draw_result(
+        &mut gpu.ui,
+        &beetle_render::ResultFrame {
+            viewport: &vp,
+            chart,
+            score: judge.score(),
+            previous_best: state.previous_best.as_ref(),
+            new_record: state.is_new_record,
+            elapsed,
+            jacket,
+            unsaved_reason: unsaved,
+        },
+    );
+    gpu.ui.end(d3d11);
+    if let Some(path) = state.pending_screenshot.take() {
+        let _ = devtools::save_backbuffer(d3d11, &path);
+    }
     if let Some(cap) = &mut state.capture {
         if cap.on_frame(state.screen, d3d11) {
             state.should_exit_app = true;

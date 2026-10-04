@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, ClearType, JudgeEngine, JudgeGrade, ReplayData, ScoreRecord,
+    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, ReplayData, ScoreRecord,
     SongMetadata, TimingModel,
 };
 
@@ -215,19 +215,7 @@ pub fn finalize_start_gameplay(
 pub fn finish_gameplay(state: &mut AppState) {
     if let Some(judge) = &state.active_judge {
         let score = judge.score();
-        let clear_type = if score.is_cleared() {
-            if score.miss_count == 0 && score.poor_count == 0 && score.bad_count == 0 {
-                if score.great_count == 0 && score.good_count == 0 {
-                    ClearType::Perfect
-                } else {
-                    ClearType::FullCombo
-                }
-            } else {
-                ClearType::Clear
-            }
-        } else {
-            ClearType::Failed
-        };
+        let clear_type = score.clear_type();
 
         let record = ScoreRecord {
             chart_hash: state.active_chart_hash,
@@ -270,7 +258,9 @@ pub fn finish_gameplay(state: &mut AppState) {
     state.result_entered_at = std::time::Instant::now();
     state.mark_dirty();
 
-    if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
+    if let (Some(chart), Some(judge), false) =
+        (&state.active_chart, &state.active_judge, crate::uses_canvas_ui(state))
+    {
         state.renderer.render_result(
             chart,
             judge.score(),

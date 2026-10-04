@@ -25,7 +25,12 @@ pub fn handle_result_input(state: &mut AppState, key_state: ElementState, code: 
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
             let path = format!("screenshots/result_{}.bmp", timestamp);
-            let _ = state.renderer.save_screenshot(&path);
+            if crate::uses_canvas_ui(state) {
+                // Taken from the backbuffer when the next frame is drawn.
+                state.pending_screenshot = Some(path);
+            } else {
+                let _ = state.renderer.save_screenshot(&path);
+            }
         }
         _ => (),
     }

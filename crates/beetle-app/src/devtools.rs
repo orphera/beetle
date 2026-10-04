@@ -113,22 +113,29 @@ impl Capture {
             backend.backend_name(),
             if cfg!(debug_assertions) { "debug" } else { "release" }
         ));
-        if let Some((w, h, px)) = backend.capture_frame() {
-            let img = ImageBuffer {
-                width: w,
-                height: h,
-                pixels: px
-                    .chunks_exact(4)
-                    .map(|p| ColorRgba::new(p[0], p[1], p[2], 255))
-                    .collect(),
-            };
-            let msg = match std::fs::write(&self.path, img.encode_bmp_bytes()) {
-                Ok(()) => format!("captured {} ({w}x{h})", self.path),
-                Err(e) => format!("capture failed: {e}"),
-            };
-            log(&msg);
-        }
+        let msg = match save_backbuffer(backend, &self.path) {
+            Ok((w, h)) => format!("captured {} ({w}x{h})", self.path),
+            Err(e) => format!("capture failed: {e}"),
+        };
+        log(&msg);
         self.done = true;
         self.exit
     }
+}
+
+/// Writes the current backbuffer (call before present) to a BMP file.
+pub fn save_backbuffer(backend: &mut dyn GpuBackend, path: &str) -> std::io::Result<(u32, u32)> {
+    let (w, h, px) = backend
+        .capture_frame()
+        .ok_or_else(|| std::io::Error::other("backbuffer readback failed"))?;
+    let img = ImageBuffer {
+        width: w,
+        height: h,
+        pixels: px.chunks_exact(4).map(|p| ColorRgba::new(p[0], p[1], p[2], 255)).collect(),
+    };
+    if let Some(dir) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, img.encode_bmp_bytes())?;
+    Ok((w, h))
 }

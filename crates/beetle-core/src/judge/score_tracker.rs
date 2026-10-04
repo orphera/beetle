@@ -1,4 +1,5 @@
 use super::JudgeGrade;
+use crate::score::ClearType;
 
 /// Gauge difficulty / health drain type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -214,6 +215,19 @@ impl ScoreTracker {
         match self.gauge_type {
             GaugeType::Easy | GaugeType::Groove => self.gauge >= 80.0,
             GaugeType::Hard | GaugeType::Hazard => !self.is_failed,
+        }
+    }
+
+    /// Clear lamp earned by this play (call at the end of the song).
+    pub fn clear_type(&self) -> ClearType {
+        if !self.is_cleared() {
+            ClearType::Failed
+        } else if self.bad_count + self.poor_count + self.miss_count > 0 {
+            ClearType::Clear
+        } else if self.great_count + self.good_count > 0 {
+            ClearType::FullCombo
+        } else {
+            ClearType::Perfect
         }
     }
 

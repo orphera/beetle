@@ -13,6 +13,7 @@ use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
+use super::widgets::{self, hint_row, keycap, keycap_width, LEFT_RIGHT};
 use beetle_core::{ScoreRecord, ScoreStore, SongMetadata};
 
 /// Everything the song select screen shows for one frame.
@@ -39,9 +40,7 @@ pub struct SelectFrame<'a> {
 }
 
 // Layout grid (1280×720 units).
-const PAD: f32 = 32.0;
-const TOPBAR_H: f32 = 64.0;
-const FOOTER_H: f32 = 40.0;
+use super::widgets::{FOOTER_H, PAD, TOPBAR_H};
 const LIST_W: f32 = 640.0;
 const ROW_H: f32 = 52.0;
 const ROW_GAP: f32 = 6.0;
@@ -77,20 +76,9 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
 }
 
 fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetadata>, lite: bool) {
-    let vp = f.viewport;
-    if lite {
-        return; // the frame clear color is the backdrop (see `Ui::lite`)
-    }
-    let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
-    c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
     let tier = song.map_or(theme::MAGENTA, |s| theme::level_tier(s.play_level).1);
     let ambient = f.ambient.map_or(tier, |a| theme::vivid(a, tier));
-    c.set_additive(true);
-    c.sprite_centered(sk.glow, vp.x + vp.width * 0.82, vp.y + vp.height * 0.17, vp.width * 0.86, vp.height * 1.05, ambient.with_alpha(64));
-    c.sprite_centered(sk.glow, vp.x + vp.width * 0.1, vp.y + vp.height * 0.97, vp.width * 0.7, vp.height * 0.7, theme::CYAN.with_alpha(20));
-    c.tile(sk.noise, full, theme::WHITE.with_alpha(6));
-    c.set_additive(false);
-    c.sprite(sk.vignette, full, theme::WHITE.with_alpha(200));
+    widgets::backdrop(c, sk, f.viewport, ambient, lite);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,14 +87,8 @@ fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetada
 
 fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32) {
     let vp = f.viewport;
-    let bar = Rect::new(vp.x, vp.y, vp.width, TOPBAR_H * s);
-    c.fill_rect(bar, theme::BG.with_alpha(200));
-    c.fill_rect(Rect::new(bar.x, bar.bottom() - s, bar.w, s), theme::LINE);
-
     let x0 = vp.x + PAD * s;
-    let logo = TextStyle::new(22.0 * s).bold().tracking(3.0 * s).color(theme::TEXT);
-    let adv = t.draw(c, "BEETLE", x0, vp.y + 41.0 * s, &logo);
-    c.fill_rect_hgradient(Rect::new(x0, bar.bottom() - 2.0 * s, adv, 2.0 * s), theme::CYAN, theme::MAGENTA.with_alpha(0));
+    let adv = widgets::top_bar(c, t, vp, "BEETLE", s);
 
     // Folder and sort read as "LABEL  ‹ value ›" selectors.
     let mut x = x0 + adv + 48.0 * s;
@@ -153,51 +135,6 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
     }
     let key = Rect::new(search.right() - 32.0 * s, search.y + 6.0 * s, 20.0 * s, 20.0 * s);
     keycap(c, t, sk, "/", key, s);
-}
-
-/// A small key label ("ENTER", "/") drawn as a keycap.
-/// `"←→"` is drawn with chevron icons (the arrow glyphs are too thin at
-/// keycap size).
-fn keycap(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, key: &str, r: Rect, s: f32) {
-    c.nine(&sk.panel_sm, r, theme::SURF3);
-    c.nine(&sk.panel_sm, Rect::new(r.x, r.bottom() - 2.0 * s, r.w, 2.0 * s), theme::LINE);
-    if key == LEFT_RIGHT {
-        let icon = 14.0 * s;
-        let (cx, iy) = (r.x + r.w / 2.0, r.y + (r.h - 2.0 * s - icon) / 2.0);
-        c.sprite(sk.icons.chevron_left, Rect::new(cx - icon + 2.0 * s, iy, icon, icon), theme::MUTED);
-        c.sprite(sk.icons.chevron_right, Rect::new(cx - 2.0 * s, iy, icon, icon), theme::MUTED);
-        return;
-    }
-    t.draw_in(c, key, Rect::new(r.x, r.y, r.w, r.h - 2.0 * s), Align::Center, &TextStyle::new(10.0 * s).bold().color(theme::MUTED));
-}
-
-const LEFT_RIGHT: &str = "←→";
-
-/// A row of "[key] LABEL" hints starting at `x`, keycaps `y`..`y + 20`.
-/// Returns the total width.
-#[allow(clippy::too_many_arguments)]
-fn hint_row(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, hints: &[(&str, &str)], x: f32, y: f32, s: f32, draw: bool) -> f32 {
-    let label_st = caption(10.0, s).color(theme::MUTED);
-    let mut hx = x;
-    for (i, (key, label)) in hints.iter().enumerate() {
-        if i > 0 {
-            hx += 20.0 * s;
-        }
-        let kw = keycap_width(c, t, key, s);
-        if draw {
-            keycap(c, t, sk, key, Rect::new(hx, y, kw, 20.0 * s), s);
-            t.draw(c, label, hx + kw + 6.0 * s, y + 14.0 * s, &label_st);
-        }
-        hx += kw + 6.0 * s + t.measure(c, label, &label_st);
-    }
-    hx - x
-}
-
-fn keycap_width(c: &mut Canvas, t: &mut TextEngine, key: &str, s: f32) -> f32 {
-    if key == LEFT_RIGHT {
-        return 28.0 * s;
-    }
-    (t.measure(c, key, &TextStyle::new(10.0 * s).bold()) + 12.0 * s).max(20.0 * s)
 }
 
 // ---------------------------------------------------------------------------
@@ -488,17 +425,8 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
     let (rank, rank_col) = theme::rank(b.accuracy_rate);
     t.draw_in(c, rank, Rect::new(area.right() - 120.0 * s, y + 46.0 * s, 120.0 * s, 40.0 * s), Align::Right, &TextStyle::new(36.0 * s).bold().color(rank_col));
 
-    // Score-rate bar with A / AA / AAA marks (IIDX ninths)
-    let bar = Rect::new(area.x, y + 96.0 * s, area.w, 4.0 * s);
-    c.nine(&sk.panel_sm, bar, theme::LINE);
     let rate = (b.accuracy_rate / 100.0).clamp(0.0, 1.0) as f32;
-    c.nine(&sk.panel_sm, Rect::new(bar.x, bar.y, bar.w * rate, bar.h), rank_col);
-    for (ninths, label) in [(6.0, "A"), (7.0, "AA"), (8.0, "AAA")] {
-        let mx = bar.x + bar.w * ninths / 9.0;
-        c.fill_rect(Rect::new(mx - s / 2.0, bar.y - 3.0 * s, s.max(1.0), bar.h + 6.0 * s), theme::MUTED2);
-        let lw = t.measure(c, label, &caption(9.0, s));
-        t.draw(c, label, mx - lw / 2.0, bar.bottom() + 14.0 * s, &caption(9.0, s));
-    }
+    widgets::rate_bar(c, t, sk, Rect::new(area.x, y + 96.0 * s, area.w, 4.0 * s), rate, rank_col, s);
 
     // Accuracy, combo, miss count
     let stats = [
@@ -532,9 +460,7 @@ const HINTS: [(&str, &str); 9] = [
 
 fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32) {
     let vp = f.viewport;
-    let bar = Rect::new(vp.x, vp.y + vp.height - FOOTER_H * s, vp.width, FOOTER_H * s);
-    c.fill_rect(bar, theme::BG.with_alpha(220));
-    c.fill_rect(Rect::new(bar.x, bar.y, bar.w, s.max(1.0)), theme::LINE);
+    let bar = widgets::footer_bar(c, vp, s);
     let base = bar.y + 25.0 * s;
 
     // Song count (filtered / library)
@@ -550,8 +476,7 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
     while first < HINTS.len() && right - hint_row(c, t, sk, &HINTS[first..], 0.0, 0.0, s, false) < left_limit {
         first += 1;
     }
-    let w = hint_row(c, t, sk, &HINTS[first..], 0.0, 0.0, s, false);
-    hint_row(c, t, sk, &HINTS[first..], right - w, bar.y + 10.0 * s, s, true);
+    widgets::footer_hints(c, t, sk, &HINTS[first..], bar, s);
 }
 
 // ---------------------------------------------------------------------------

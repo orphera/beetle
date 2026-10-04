@@ -156,6 +156,8 @@ pub struct AppState {
     pub gpu_ui: Option<crate::gpu_ui::GpuUi>,
     /// Env-driven screenshot hook (see devtools.rs); `None` normally.
     pub capture: Option<crate::devtools::Capture>,
+    /// Screenshot path to write from the next presented Canvas-UI frame.
+    pub pending_screenshot: Option<String>,
     #[cfg(target_os = "windows")]
     pub d3d11_backend: Option<beetle_render::D3d11Backend>,
     #[cfg(target_os = "windows")]
