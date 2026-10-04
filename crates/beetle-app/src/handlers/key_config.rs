@@ -22,7 +22,8 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
                 .get(state.selected_key_idx)
                 .copied()
                 .unwrap_or(Lane::Key1);
-            state.input_config.bind_key(code, target_lane);
+            let mode = state.key_config_mode();
+            state.key_bindings.get_mut(mode).bind_key(code, target_lane);
             state.is_rebinding_key = false;
             state.save_config();
         }
@@ -42,11 +43,13 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
                 state.selected_key_idx = (state.selected_key_idx + 1).min(max_idx);
             }
             KeyCode::F1 => {
-                state.input_config.toggle_preset();
+                let mode = state.key_config_mode();
+                state.key_bindings.get_mut(mode).cycle_preset(mode);
                 state.save_config();
             }
             KeyCode::Delete | KeyCode::Backspace => {
-                state.input_config.reset_to_preset(KeyPreset::HomeRow);
+                let mode = state.key_config_mode();
+                state.key_bindings.get_mut(mode).reset_to_preset(KeyPreset::default_for(mode));
                 state.save_config();
             }
             _ => (),

@@ -84,8 +84,9 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                     state.target_fps = FPS_PRESETS[prev_idx];
                 }
                 9 => {
-                    // Key Layout
-                    state.input_config.toggle_preset();
+                    // Key Layout (of the selected song's key mode)
+                    let mode = state.key_config_mode();
+                    state.key_bindings.get_mut(mode).cycle_preset(mode);
                 }
                 10 => {
                     // Auto Play
@@ -170,7 +171,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                         state.screen = AppScreen::KeyConfig;
                         state.show_option_modal = false;
                     } else {
-                        state.input_config.toggle_preset();
+                        let mode = state.key_config_mode();
+                        state.key_bindings.get_mut(mode).cycle_preset(mode);
                     }
                 }
                 10 => {

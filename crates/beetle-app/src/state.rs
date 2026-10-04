@@ -14,7 +14,6 @@ use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
 use crate::demo;
-use crate::input::InputConfig;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 
 pub const SCORES_FILE: &str = "scores.dat";
@@ -130,7 +129,8 @@ pub struct AppState {
     pub song_end_time: f64,
     pub is_new_record: bool,
     pub previous_best: Option<ScoreRecord>,
-    pub input_config: InputConfig,
+    /// Key layout per key mode (5K / 7K / 9K / 10K / 14K).
+    pub key_bindings: crate::input::KeyBindings,
     pub is_rebinding_key: bool,
     pub master_volume: f32,
     pub display_mode: DisplayMode,
@@ -285,8 +285,8 @@ impl AppState {
             play_options: self.play_options.clone(),
             lane_cover_ratio: self.view.skin.lane_cover_ratio,
             sort_mode: self.sort_mode,
-            key_preset: self.input_config.preset,
-            custom_key_bindings: self.input_config.serialize_bindings(),
+            key_layouts: self.key_bindings.to_saved().map(Some),
+            legacy_key_layout: None,
             master_volume: self.master_volume,
             display_mode: self.display_mode,
             gpu_backend: self.gpu_backend,

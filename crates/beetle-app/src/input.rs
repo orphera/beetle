@@ -1,4 +1,5 @@
-use beetle_core::Lane;
+use beetle_core::{Lane, PlayMode};
+use beetle_render::SkinConfig;
 use std::collections::HashMap;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -19,6 +20,36 @@ pub enum KeyPreset {
 }
 
 impl KeyPreset {
+    /// Stable name stored in `config.dat`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::HomeRow => "HomeRow",
+            Self::ArcadeZx => "ArcadeZx",
+            Self::Pms9K => "Pms9K",
+            Self::DoublePlay => "DoublePlay",
+            Self::Custom => "Custom",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Self> {
+        [Self::HomeRow, Self::ArcadeZx, Self::Pms9K, Self::DoublePlay, Self::Custom]
+            .into_iter()
+            .find(|p| p.id() == s)
+    }
+
+    /// Built-in presets that bind every lane of `mode`.
+    pub fn presets_for(mode: PlayMode) -> &'static [KeyPreset] {
+        match mode {
+            PlayMode::Keys5 | PlayMode::Keys7 => &[Self::HomeRow, Self::ArcadeZx],
+            PlayMode::Keys9 => &[Self::Pms9K],
+            PlayMode::Keys10 | PlayMode::Keys14 => &[Self::DoublePlay],
+        }
+    }
+
+    pub fn default_for(mode: PlayMode) -> KeyPreset {
+        Self::presets_for(mode)[0]
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::HomeRow => "HomeRow (S D F Space J K L)",
@@ -51,21 +82,25 @@ impl InputConfig {
         }
     }
 
-    /// Toggles between presets.
-    pub fn toggle_preset(&mut self) {
-        self.preset = match self.preset {
-            KeyPreset::HomeRow => KeyPreset::ArcadeZx,
-            KeyPreset::ArcadeZx => KeyPreset::Pms9K,
-            KeyPreset::Pms9K => KeyPreset::DoublePlay,
-            KeyPreset::DoublePlay => {
-                if !self.custom_bindings.is_empty() {
-                    KeyPreset::Custom
-                } else {
-                    KeyPreset::HomeRow
-                }
-            }
-            KeyPreset::Custom => KeyPreset::HomeRow,
-        };
+    /// Next preset that fits `mode` (its built-ins, then Custom when custom
+    /// bindings exist), wrapping around.
+    pub fn cycle_preset(&mut self, mode: PlayMode) {
+        let mut order: Vec<KeyPreset> = KeyPreset::presets_for(mode).to_vec();
+        if !self.custom_bindings.is_empty() {
+            order.push(KeyPreset::Custom);
+        }
+        let next = order
+            .iter()
+            .position(|&p| p == self.preset)
+            .map_or(0, |i| (i + 1) % order.len());
+        self.preset = order[next];
+    }
+
+    /// Whether every lane of `mode` has a key.
+    pub fn covers(&self, mode: PlayMode) -> bool {
+        lanes_for(mode)
+            .iter()
+            .all(|&lane| self.get_key_name_for_lane(lane) != "None")
     }
 
     /// Resets all bindings to a specific default preset.
@@ -331,6 +366,97 @@ impl InputConfig {
         if !self.custom_bindings.is_empty() {
             self.preset = KeyPreset::Custom;
         }
+    }
+}
+
+/// Lanes of a key mode, left to right (same order as Key Config).
+pub fn lanes_for(mode: PlayMode) -> &'static [Lane] {
+    let mut skin = SkinConfig::default();
+    skin.set_play_mode(mode);
+    skin.active_lanes()
+}
+
+/// Key modes that each keep their own layout.
+pub const MODE_SLOTS: [PlayMode; 5] = [
+    PlayMode::Keys5,
+    PlayMode::Keys7,
+    PlayMode::Keys9,
+    PlayMode::Keys10,
+    PlayMode::Keys14,
+];
+
+/// `config.dat` suffix for a mode slot ("5k", "7k", ...).
+pub fn mode_slot_name(mode: PlayMode) -> &'static str {
+    match mode {
+        PlayMode::Keys5 => "5k",
+        PlayMode::Keys7 => "7k",
+        PlayMode::Keys9 => "9k",
+        PlayMode::Keys10 => "10k",
+        PlayMode::Keys14 => "14k",
+    }
+}
+
+fn slot(mode: PlayMode) -> usize {
+    MODE_SLOTS.iter().position(|&m| m == mode).unwrap_or(1)
+}
+
+/// A saved layout: preset + serialized custom bindings.
+pub type SavedLayout = (KeyPreset, String);
+
+/// One key layout per key mode, so 5K, 7K, 9K and double play can each be
+/// set up without disturbing the others.
+#[derive(Debug, Clone)]
+pub struct KeyBindings {
+    layouts: [InputConfig; 5],
+}
+
+impl Default for KeyBindings {
+    fn default() -> Self {
+        Self {
+            layouts: MODE_SLOTS.map(|m| InputConfig::new(KeyPreset::default_for(m))),
+        }
+    }
+}
+
+impl KeyBindings {
+    /// Builds from `config.dat`: `saved[i]` is the layout stored for
+    /// `MODE_SLOTS[i]`. Slots without one take the pre-per-mode `legacy`
+    /// layout (one layout shared by all modes) when it fits that mode, else
+    /// the mode's default preset.
+    pub fn load(saved: &[Option<SavedLayout>; 5], legacy: Option<&SavedLayout>) -> Self {
+        let restore = |(preset, bindings): &SavedLayout| {
+            let mut cfg = InputConfig::new(*preset);
+            cfg.deserialize_bindings(bindings);
+            cfg.preset = *preset;
+            cfg
+        };
+        let mut out = Self::default();
+        for (i, &mode) in MODE_SLOTS.iter().enumerate() {
+            if let Some(layout) = &saved[i] {
+                out.layouts[i] = restore(layout);
+            } else if let Some(layout) = legacy {
+                let cfg = restore(layout);
+                let fits = KeyPreset::presets_for(mode).contains(&cfg.preset)
+                    || (cfg.preset == KeyPreset::Custom && cfg.covers(mode));
+                if fits {
+                    out.layouts[i] = cfg;
+                }
+            }
+        }
+        out
+    }
+
+    /// Layouts to store, in `MODE_SLOTS` order.
+    pub fn to_saved(&self) -> [SavedLayout; 5] {
+        std::array::from_fn(|i| (self.layouts[i].preset, self.layouts[i].serialize_bindings()))
+    }
+
+    pub fn get(&self, mode: PlayMode) -> &InputConfig {
+        &self.layouts[slot(mode)]
+    }
+
+    pub fn get_mut(&mut self, mode: PlayMode) -> &mut InputConfig {
+        &mut self.layouts[slot(mode)]
     }
 }
 
@@ -701,7 +827,7 @@ mod tests {
             Some(Lane::Key7)
         );
 
-        config.toggle_preset();
+        config.cycle_preset(PlayMode::Keys7);
         assert_eq!(config.preset, KeyPreset::ArcadeZx);
         assert_eq!(
             config.map_key(PhysicalKey::Code(KeyCode::KeyZ)),
@@ -804,17 +930,70 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_preset_cycles_through_all_four_before_custom() {
+    fn test_cycle_preset_stays_within_the_mode() {
         let mut config = InputConfig::new(KeyPreset::HomeRow);
-        config.toggle_preset();
+        config.cycle_preset(PlayMode::Keys7);
         assert_eq!(config.preset, KeyPreset::ArcadeZx);
-        config.toggle_preset();
-        assert_eq!(config.preset, KeyPreset::Pms9K);
-        config.toggle_preset();
-        assert_eq!(config.preset, KeyPreset::DoublePlay);
-        config.toggle_preset();
-        // No custom bindings set yet, so it wraps back to HomeRow.
+        config.cycle_preset(PlayMode::Keys7);
+        // No custom bindings yet, so it wraps back to HomeRow.
         assert_eq!(config.preset, KeyPreset::HomeRow);
+
+        config.bind_key(KeyCode::KeyA, Lane::Scratch);
+        config.cycle_preset(PlayMode::Keys7);
+        assert_eq!(config.preset, KeyPreset::HomeRow);
+        config.cycle_preset(PlayMode::Keys7);
+        config.cycle_preset(PlayMode::Keys7);
+        assert_eq!(config.preset, KeyPreset::Custom);
+
+        let mut dp = InputConfig::new(KeyPreset::DoublePlay);
+        dp.cycle_preset(PlayMode::Keys14);
+        assert_eq!(dp.preset, KeyPreset::DoublePlay, "only one built-in fits DP");
+    }
+
+    #[test]
+    fn test_modes_keep_separate_layouts() {
+        let mut kb = KeyBindings::default();
+        assert_eq!(kb.get(PlayMode::Keys9).preset, KeyPreset::Pms9K);
+        assert_eq!(kb.get(PlayMode::Keys14).preset, KeyPreset::DoublePlay);
+
+        // Rebinding 5K leaves 7K alone.
+        kb.get_mut(PlayMode::Keys5).bind_key(KeyCode::KeyQ, Lane::Key1);
+        let q = PhysicalKey::Code(KeyCode::KeyQ);
+        assert_eq!(kb.get(PlayMode::Keys5).map_key(q), Some(Lane::Key1));
+        assert_eq!(kb.get(PlayMode::Keys7).map_key(q), None);
+        assert_eq!(kb.get(PlayMode::Keys7).map_key(PhysicalKey::Code(KeyCode::KeyS)), Some(Lane::Key1));
+
+        // Save / load round trip.
+        let saved = kb.to_saved().map(Some);
+        let restored = KeyBindings::load(&saved, None);
+        assert_eq!(restored.get(PlayMode::Keys5).preset, KeyPreset::Custom);
+        assert_eq!(restored.get(PlayMode::Keys7).preset, KeyPreset::HomeRow);
+        assert_eq!(restored.get(PlayMode::Keys5).map_key(q), Some(Lane::Key1));
+    }
+
+    #[test]
+    fn test_legacy_layout_migrates_to_the_modes_it_fits() {
+        let none: [Option<SavedLayout>; 5] = Default::default();
+        // An old ArcadeZx setting applies to 5K and 7K only.
+        let kb = KeyBindings::load(&none, Some(&(KeyPreset::ArcadeZx, String::new())));
+        assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::ArcadeZx);
+        assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::ArcadeZx);
+        assert_eq!(kb.get(PlayMode::Keys9).preset, KeyPreset::Pms9K);
+        assert_eq!(kb.get(PlayMode::Keys14).preset, KeyPreset::DoublePlay);
+
+        // Old custom bindings for 8 lanes cover 5K and 7K but not DP.
+        let custom = "Scratch:KeyA,Key1:KeyZ,Key2:KeyS,Key3:KeyX,Key4:KeyD,Key5:KeyC,Key6:KeyF,Key7:KeyV";
+        let kb = KeyBindings::load(&none, Some(&(KeyPreset::Custom, custom.to_string())));
+        assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::Custom);
+        assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::Custom);
+        assert_eq!(kb.get(PlayMode::Keys10).preset, KeyPreset::DoublePlay);
+
+        // A stored per-mode layout wins over the legacy one.
+        let mut saved = none.clone();
+        saved[1] = Some((KeyPreset::HomeRow, String::new()));
+        let kb = KeyBindings::load(&saved, Some(&(KeyPreset::ArcadeZx, String::new())));
+        assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::HomeRow);
+        assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::ArcadeZx);
     }
 
     #[test]

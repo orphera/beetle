@@ -1,4 +1,4 @@
-use crate::input::KeyPreset;
+use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{GaugeType, LaneModifier, PlayOptions, SortMode};
 use std::fs;
 use std::path::Path;
@@ -154,8 +154,12 @@ pub struct AppConfig {
     pub play_options: PlayOptions,
     pub lane_cover_ratio: f32,
     pub sort_mode: SortMode,
-    pub key_preset: KeyPreset,
-    pub custom_key_bindings: String,
+    /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
+    /// in the file yet).
+    pub key_layouts: [Option<SavedLayout>; 5],
+    /// The single layout older versions shared across all modes
+    /// (`key_preset` / `custom_key_bindings`); read only for migration.
+    pub legacy_key_layout: Option<SavedLayout>,
     pub master_volume: f32,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
@@ -171,8 +175,8 @@ impl Default for AppConfig {
             play_options: PlayOptions::default(),
             lane_cover_ratio: 0.0,
             sort_mode: SortMode::Title,
-            key_preset: KeyPreset::HomeRow,
-            custom_key_bindings: String::new(),
+            key_layouts: Default::default(),
+            legacy_key_layout: None,
             master_volume: 1.0,
             display_mode: DisplayMode::Windowed,
             gpu_backend: GpuBackendSetting::Auto,
@@ -207,6 +211,9 @@ impl AppConfig {
 
     fn parse_str(data: &str) -> Self {
         let mut config = Self::default();
+        let mut presets: [Option<KeyPreset>; 5] = [None; 5];
+        let mut bindings: [String; 5] = Default::default();
+        let (mut legacy_preset, mut legacy_bindings) = (None, String::new());
 
         for line in data.lines() {
             let line = line.trim();
@@ -264,18 +271,8 @@ impl AppConfig {
                         _ => SortMode::Title,
                     };
                 }
-                "key_preset" => {
-                    config.key_preset = match val {
-                        "ArcadeZx" => KeyPreset::ArcadeZx,
-                        "Pms9K" => KeyPreset::Pms9K,
-                        "DoublePlay" => KeyPreset::DoublePlay,
-                        "Custom" => KeyPreset::Custom,
-                        _ => KeyPreset::HomeRow,
-                    };
-                }
-                "custom_key_bindings" => {
-                    config.custom_key_bindings = val.to_string();
-                }
+                "key_preset" => legacy_preset = KeyPreset::from_id(val),
+                "custom_key_bindings" => legacy_bindings = val.to_string(),
                 "master_volume" => {
                     if let Ok(v) = val.parse::<f32>() {
                         config.master_volume = v.clamp(0.0, 2.0);
@@ -309,32 +306,35 @@ impl AppConfig {
                 "track_bga" => {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
-                _ => (),
+                _ => {
+                    for (i, &mode) in MODE_SLOTS.iter().enumerate() {
+                        let slot = mode_slot_name(mode);
+                        if key.strip_prefix("key_preset_") == Some(slot) {
+                            presets[i] = KeyPreset::from_id(val);
+                        } else if key.strip_prefix("key_bindings_") == Some(slot) {
+                            bindings[i] = val.to_string();
+                        }
+                    }
+                }
             }
         }
 
+        for i in 0..MODE_SLOTS.len() {
+            config.key_layouts[i] = presets[i].map(|p| (p, std::mem::take(&mut bindings[i])));
+        }
+        config.legacy_key_layout = legacy_preset.map(|p| (p, legacy_bindings));
         config
     }
 
     fn serialize_str(&self) -> String {
-        let preset_str = match self.key_preset {
-            KeyPreset::HomeRow => "HomeRow",
-            KeyPreset::ArcadeZx => "ArcadeZx",
-            KeyPreset::Pms9K => "Pms9K",
-            KeyPreset::DoublePlay => "DoublePlay",
-            KeyPreset::Custom => "Custom",
-        };
-
-        format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nkey_preset={}\ncustom_key_bindings={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
+        let mut out = format!(
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
             self.play_options.gauge_type.as_str(),
             self.play_options.judge_offset_ms,
             self.sort_mode.as_str(),
-            preset_str,
-            self.custom_key_bindings,
             self.master_volume,
             self.display_mode.as_str(),
             self.gpu_backend.as_str(),
@@ -342,7 +342,14 @@ impl AppConfig {
             self.window_height,
             self.target_fps,
             self.track_bga.as_str(),
-        )
+        );
+        for (i, &mode) in MODE_SLOTS.iter().enumerate() {
+            if let Some((preset, bindings)) = &self.key_layouts[i] {
+                let slot = mode_slot_name(mode);
+                out.push_str(&format!("key_preset_{slot}={}\nkey_bindings_{slot}={bindings}\n", preset.id()));
+            }
+        }
+        out
     }
 }
 
@@ -361,8 +368,14 @@ mod tests {
             },
             lane_cover_ratio: 0.25,
             sort_mode: SortMode::Level,
-            key_preset: KeyPreset::Custom,
-            custom_key_bindings: "Scratch:KeyA,Key1:KeyZ".to_string(),
+            key_layouts: [
+                Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
+                Some((KeyPreset::ArcadeZx, String::new())),
+                Some((KeyPreset::Pms9K, String::new())),
+                Some((KeyPreset::DoublePlay, String::new())),
+                Some((KeyPreset::DoublePlay, "P2Scratch:KeyQ".to_string())),
+            ],
+            legacy_key_layout: None,
             master_volume: 0.85,
             display_mode: DisplayMode::Borderless,
             gpu_backend: GpuBackendSetting::Warp,
@@ -390,8 +403,8 @@ mod tests {
         );
         assert_eq!(config.lane_cover_ratio, parsed.lane_cover_ratio);
         assert_eq!(config.sort_mode, parsed.sort_mode);
-        assert_eq!(config.key_preset, parsed.key_preset);
-        assert_eq!(config.custom_key_bindings, parsed.custom_key_bindings);
+        assert_eq!(config.key_layouts, parsed.key_layouts);
+        assert_eq!(parsed.legacy_key_layout, None);
         assert_eq!(config.master_volume, parsed.master_volume);
         assert_eq!(config.display_mode, parsed.display_mode);
         assert_eq!(config.gpu_backend, parsed.gpu_backend);

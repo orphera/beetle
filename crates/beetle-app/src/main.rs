@@ -32,7 +32,7 @@ use gameplay::{
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
-use input::InputConfig;
+use input::KeyBindings;
 use loader::spawn_background_stage_image_loader;
 use beetle_render::GpuBackend;
 use state::{init_songs_and_scores, AppScreen, AppState, SongCategory};
@@ -195,13 +195,10 @@ impl ApplicationHandler for BeetleApp {
             song_end_time: 0.0,
             is_new_record: false,
             previous_best: None,
-            input_config: {
-                let mut cfg = InputConfig::new(saved_config.key_preset);
-                if !saved_config.custom_key_bindings.is_empty() {
-                    cfg.deserialize_bindings(&saved_config.custom_key_bindings);
-                }
-                cfg
-            },
+            key_bindings: KeyBindings::load(
+                &saved_config.key_layouts,
+                saved_config.legacy_key_layout.as_ref(),
+            ),
             is_rebinding_key: false,
             master_volume: saved_config.master_volume,
             display_mode: saved_config.display_mode,

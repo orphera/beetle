@@ -64,7 +64,11 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
         bga_texture(&mut state.gpu_ui, &mut state.d3d11, &state.bga_bank, &state.video_players, id, true)
     });
     state.view.clean_expired_hit_bursts(audio_time);
-    let (badge, hint) = gameplay_badge_and_hint(state.is_replay_playback, state.is_auto_play, state.input_config.preset);
+    let (badge, hint) = gameplay_badge_and_hint(
+        state.is_replay_playback,
+        state.is_auto_play,
+        state.key_bindings.get(state.view.skin.play_mode).preset,
+    );
 
     begin(state, size);
     if let (Some(chart), Some(judge), Some(timing)) = (&state.active_chart, &state.active_judge, &state.active_timing) {
@@ -193,7 +197,11 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
                 format!("{} FPS", state.target_fps)
             },
         ),
-        ("KEY LAYOUT", state.input_config.preset.as_str().to_string()),
+        ("KEY LAYOUT", {
+            // Layouts are per key mode; this row edits the selected song's.
+            let mode = state.key_config_mode();
+            format!("{}  {}", beetle_render::theme::mode_label(mode), state.key_bindings.get(mode).preset.as_str())
+        }),
         ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
         ("START MEASURE", format!("M.{}", state.start_measure)),
         ("TRACK BGA", state.track_bga.as_str().to_string()),
@@ -280,7 +288,7 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
     let keys: Vec<(beetle_core::Lane, String)> = state
         .key_config_lanes()
         .iter()
-        .map(|&lane| (lane, state.input_config.get_key_name_for_lane(lane)))
+        .map(|&lane| (lane, state.key_bindings.get(mode).get_key_name_for_lane(lane)))
         .collect();
     let lanes: Vec<beetle_render::KeyBinding> = keys
         .iter()
@@ -296,7 +304,7 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
             lanes: &lanes,
             selected: state.selected_key_idx,
             rebinding: state.is_rebinding_key,
-            layout: state.input_config.preset.as_str(),
+            layout: state.key_bindings.get(mode).preset.as_str(),
         },
     );
     finish(state);

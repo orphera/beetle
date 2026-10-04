@@ -70,7 +70,9 @@ pub fn handle_gameplay_input(
     }
 
     // Handle lane key presses and releases
-    if let Some(lane) = state.input_config.map_key(physical_key) {
+    // The layout of the chart's key mode (set when the song starts).
+    let mode = state.view.skin.play_mode;
+    if let Some(lane) = state.key_bindings.get(mode).map_key(physical_key) {
         let audio_time = state
             .audio_engine
             .as_ref()
