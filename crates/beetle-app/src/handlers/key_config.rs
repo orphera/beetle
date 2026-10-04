@@ -35,10 +35,10 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
             KeyCode::Enter | KeyCode::Space => {
                 state.is_rebinding_key = true;
             }
-            KeyCode::ArrowUp | KeyCode::KeyK => {
+            KeyCode::ArrowUp | KeyCode::ArrowLeft | KeyCode::KeyK => {
                 state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
             }
-            KeyCode::ArrowDown | KeyCode::KeyJ => {
+            KeyCode::ArrowDown | KeyCode::ArrowRight | KeyCode::KeyJ => {
                 state.selected_key_idx = (state.selected_key_idx + 1).min(max_idx);
             }
             KeyCode::F1 => {

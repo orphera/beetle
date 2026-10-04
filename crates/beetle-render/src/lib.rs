@@ -33,8 +33,9 @@ pub use ui::Ui;
 pub use image::{ImageBuffer, ImageFitMode};
 pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
 pub use screens::{
-    draw_exit_modal, draw_gameplay, draw_options_modal, draw_result, draw_song_select,
-    render_gameplay_gpu, PlayFrame, ResultFrame, SelectFrame, SizedTexture,
+    draw_exit_modal, draw_gameplay, draw_key_config, draw_options_modal, draw_result,
+    draw_song_select, render_gameplay_gpu, KeyBinding, KeyConfigFrame, PlayFrame, ResultFrame,
+    SelectFrame, SizedTexture,
 };
 pub use skin::{ColorRgba, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};

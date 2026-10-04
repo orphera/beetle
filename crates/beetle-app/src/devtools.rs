@@ -9,6 +9,8 @@
 //! - `BEETLE_CAPTURE_EXIT=1`: quit right after capturing.
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
+//! - With `BEETLE_CAPTURE_SCREEN=keyconfig` the app starts on Key Config
+//!   (it is otherwise only reachable by key press).
 //!
 //! Nothing here runs unless the variables are set.
 
@@ -48,6 +50,16 @@ fn log(msg: &str) {
 
 pub fn autoplay_requested() -> bool {
     std::env::var("BEETLE_AUTOPLAY").is_ok_and(|v| v == "1")
+}
+
+/// Screen to start on instead of song select (only Key Config, which has
+/// no other automatic way in).
+pub fn start_screen() -> Option<AppScreen> {
+    std::env::var("BEETLE_CAPTURE")
+        .ok()
+        .and_then(|_| std::env::var("BEETLE_CAPTURE_SCREEN").ok())
+        .and_then(|s| parse_screen(&s))
+        .filter(|s| *s == AppScreen::KeyConfig)
 }
 
 /// Song select modal to open at startup: (options, exit).

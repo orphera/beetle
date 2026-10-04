@@ -257,6 +257,9 @@ impl ApplicationHandler for BeetleApp {
         app_state.apply_display_mode();
         app_state.recompute_filtered_songs();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
+        if let Some(screen) = devtools::start_screen() {
+            app_state.screen = screen;
+        }
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
@@ -840,7 +843,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::KeyConfig => {
-                        if state.is_dirty {
+                        if state.is_dirty && !uses_canvas_ui(state) {
                             let lanes = state.key_config_lanes();
                             let key_names: Vec<(&'static str, String)> = lanes
                                 .iter()
@@ -875,6 +878,9 @@ impl ApplicationHandler for BeetleApp {
                     }
                     if state.screen == AppScreen::Result && state.gpu_ui.is_some() {
                         presented_d3d11 = present_result(state, width, height);
+                    }
+                    if state.screen == AppScreen::KeyConfig && state.gpu_ui.is_some() {
+                        presented_d3d11 = present_key_config(state, width, height);
                     }
                     if let Some(d3d11) = &mut state.d3d11_backend {
                         if state.screen == AppScreen::Gameplay {
@@ -1173,6 +1179,53 @@ fn present_result(state: &mut AppState, width: u32, height: u32) -> bool {
     if let Some(path) = state.pending_screenshot.take() {
         let _ = devtools::save_backbuffer(d3d11, &path);
     }
+    if let Some(cap) = &mut state.capture {
+        if cap.on_frame(state.screen, d3d11) {
+            state.should_exit_app = true;
+        }
+    }
+    d3d11.end_frame();
+    true
+}
+
+/// Key configuration on the Canvas UI. Returns `false` if the D3D11 UI is
+/// not available.
+#[cfg(target_os = "windows")]
+fn present_key_config(state: &mut AppState, width: u32, height: u32) -> bool {
+    let mode = state.key_config_mode();
+    let keys: Vec<(beetle_core::Lane, String)> = state
+        .key_config_lanes()
+        .iter()
+        .map(|&lane| (lane, state.input_config.get_key_name_for_lane(lane)))
+        .collect();
+    let lanes: Vec<beetle_render::KeyBinding> = keys
+        .iter()
+        .map(|(lane, key)| beetle_render::KeyBinding {
+            lane: *lane,
+            label: crate::input::lane_label(*lane),
+            key,
+        })
+        .collect();
+    let vp = state.renderer.viewport;
+    let (Some(d3d11), Some(gpu)) = (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut()) else {
+        return false;
+    };
+    use beetle_render::GpuBackend;
+    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
+    gpu.ui.lite = d3d11.is_warp();
+    gpu.ui.begin(width, height, vp.scale);
+    beetle_render::draw_key_config(
+        &mut gpu.ui,
+        &beetle_render::KeyConfigFrame {
+            viewport: &vp,
+            mode,
+            lanes: &lanes,
+            selected: state.selected_key_idx,
+            rebinding: state.is_rebinding_key,
+            layout: state.input_config.preset.as_str(),
+        },
+    );
+    gpu.ui.end(d3d11);
     if let Some(cap) = &mut state.capture {
         if cap.on_frame(state.screen, d3d11) {
             state.should_exit_app = true;
