@@ -75,9 +75,15 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     }
 }
 
+/// Close to failing mid-song. Only survival gauges (Hard / Hazard) can end
+/// the stage early; Easy / Groove are judged at the end, so a low value there
+/// is not a danger worth flashing red.
 fn is_danger(score: &ScoreTracker) -> bool {
-    (score.gauge < 30.0 && matches!(score.gauge_type, GaugeType::Hard | GaugeType::Groove))
-        || (score.gauge_type == GaugeType::Hazard && score.gauge < 100.0)
+    match score.gauge_type {
+        GaugeType::Hard => score.gauge < 30.0,
+        GaugeType::Hazard => score.gauge < 100.0,
+        GaugeType::Easy | GaugeType::Groove => false,
+    }
 }
 
 /// Fits a `w`×`h` image into `dst` by cropping (cover) and returns the UVs.
@@ -328,7 +334,6 @@ fn gauge(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Re
     let col = match score.gauge_type {
         GaugeType::Easy | GaugeType::Groove if score.gauge >= 80.0 => theme::CYAN,
         GaugeType::Easy => theme::GREEN,
-        GaugeType::Groove if danger => theme::RED,
         GaugeType::Groove => theme::BLUE,
         GaugeType::Hard if danger || score.gauge < 30.0 => theme::RED,
         GaugeType::Hard => theme::ORANGE,
@@ -696,6 +701,20 @@ mod tests {
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "pause={pause:?}");
         }
+    }
+
+    #[test]
+    fn only_survival_gauges_signal_danger() {
+        let at = |gauge_type, gauge| {
+            let mut s = ScoreTracker::new(100, 200.0, gauge_type);
+            s.gauge = gauge;
+            is_danger(&s)
+        };
+        assert!(!at(GaugeType::Groove, 2.0));
+        assert!(!at(GaugeType::Easy, 2.0));
+        assert!(at(GaugeType::Hard, 20.0));
+        assert!(!at(GaugeType::Hard, 60.0));
+        assert!(at(GaugeType::Hazard, 98.0));
     }
 
     #[test]
