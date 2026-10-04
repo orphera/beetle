@@ -18,7 +18,7 @@ Beetle은 **바이너리 크기 최소화(< 1MB)**와 **단일 실행 파일 구
 - **오디오 클럭 마스터 (Audio Clock Master Time)**: 판정(`JudgeEngine`) 및 렌더링 노트 위치는 오디오 하드웨어가 실제로 재생한 샘플 수(`AudioClock`)를 기준으로 계산됩니다.
 - **오디오 스레드 락프리 & 무할당 (Zero-Allocation & Lock-Free)**: 오디오 콜백 스레드는 뮤텍스 락이나 힙 메모리 할당을 일체 수행하지 않으며, 실시간 SPSC 링버퍼(`rtrb`)를 통해 커맨드를 수신합니다.
 - **사전 PCM 디코딩 (Pre-decoded PCM Soundbank)**: 모든 키음(WAV/OGG)은 로딩 시점에 메모리에 PCM으로 완전히 디코드해 둡니다. 플레이 도중 런타임 디코딩을 일체 수행하지 않습니다.
-- **소프트웨어 2D 렌더링 (No Heavy GPU Dependencies)**: `tiny-skia` + `softbuffer` 기반으로 구동되어 GPU 드라이버 호환성 이슈 없이 수백 FPS 이상을 부드럽게 렌더링합니다.
+- **Direct3D 11 단일 렌더러 (ADR-026)**: OS 내장 Direct3D 11을 외부 크레이트 없이 직접 호출하고, 사전 컴파일된 셰이더와 하나의 공유 아틀라스로 화면 대부분을 드로우콜 1회에 그립니다. GPU가 없으면 Windows 내장 CPU 래스터라이저(WARP)로 같은 파이프라인을 실행합니다. Windows 전용.
 
 ---
 
@@ -70,8 +70,8 @@ beetle/
 └── crates/
     ├── beetle-core/                # 순수 채보 파서, 타이밍 모델, 판정/점수/리플레이 엔진
     ├── beetle-audio/               # cpal 오디오 엔진, 락프리 믹서, 마스터 오디오 클럭
-    ├── beetle-render/              # tiny-skia + 내장 비트맵 폰트 2D 소프트웨어 렌더러
-    ├── beetle-app/                 # Beetle 메인 게임 (winit + softbuffer, 논블로킹 UI)
+    ├── beetle-render/              # Direct3D 11 2D 렌더러 (Canvas, 텍스트 엔진, 코드 생성 스킨, 화면)
+    ├── beetle-app/                 # Beetle 메인 게임 (winit + Direct3D 11, 논블로킹 UI)
     ├── bms-package/                # .bmsp 패키지, .bmdp 차분(Delta) 포맷, 결정론적 패커
     ├── bms-package-manager/        # 패키지 수명주기, registry.json, 원자적 업데이트, bpm CLI
     └── bpm-gui/                    # 독립형 경량 데스크톱 패키지 매니저 GUI (차분 마법사 내장)
@@ -85,9 +85,11 @@ beetle/
 
 | 바이너리 | 설명 | 파일 크기 |
 | :--- | :--- | :--- |
-| **`beetle-app.exe`** | Beetle 메인 BMS 플레이어 | **~1.03 MB (Release)** |
-| **`bpm-gui.exe`** | 독립형 GUI 패키지 매니저 | **~1.04 MB (Release)** |
-| **`bpm.exe`** | 패키지 관리자 CLI 도구 | **~0.60 MB (Release)** |
+| **`beetle-app.exe`** | Beetle 메인 BMS 플레이어 | **~2.85 MB (Release)** |
+| **`bpm-gui.exe`** | 독립형 GUI 패키지 매니저 | **~4.60 MB (Release)** |
+| **`bpm.exe`** | 패키지 관리자 CLI 도구 | **~2.67 MB (Release)** |
+
+2026-10-04 측정. 내장 서브셋 폰트(Noto Sans KR/JP 약 1.5 MB)가 `<1 MB` 목표를 의도적으로 넘는 주된 원인입니다(AGENTS.md 의존성 정책 참고).
 
 ---
 

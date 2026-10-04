@@ -7,7 +7,7 @@
 
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
-use crate::renderer::Viewport;
+use crate::view::Viewport;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};

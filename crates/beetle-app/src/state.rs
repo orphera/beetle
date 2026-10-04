@@ -9,8 +9,7 @@ use beetle_core::{
     compute_chart_hash, sort_songs, BmsChart, JudgeEngine, Lane, PlayMode, PlayOptions, ReplayData,
     ScoreRecord, ScoreStore, SongMetadata, SortMode, TimingModel,
 };
-use beetle_render::{ImageBuffer, SkinConfig, SoftwareRenderer};
-use softbuffer::{Context, Surface};
+use beetle_render::{ImageBuffer, SkinConfig, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
@@ -88,9 +87,8 @@ impl SongCategory {
 
 pub struct AppState {
     pub window: Arc<Window>,
-    pub _context: Context<Arc<Window>>,
-    pub surface: Surface<Arc<Window>, Arc<Window>>,
-    pub renderer: SoftwareRenderer,
+    /// Viewport, gameplay lane layout and judgement feedback.
+    pub view: ViewState,
     pub audio_engine: Option<AudioEngine>,
     pub screen: AppScreen,
     pub songs: Vec<SongMetadata>,
@@ -152,24 +150,19 @@ pub struct AppState {
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
     pub stage_image_loading_hash: Option<u64>,
-    pub is_dirty: bool,
-    /// Canvas UI + song textures; present whenever the D3D11 backend is.
-    #[cfg(target_os = "windows")]
-    pub gpu_ui: Option<crate::gpu_ui::GpuUi>,
+    /// Canvas UI + song textures.
+    pub gpu_ui: crate::gpu_ui::GpuUi,
     /// Env-driven screenshot hook (see devtools.rs); `None` normally.
     pub capture: Option<crate::devtools::Capture>,
     /// Screenshot path to write from the next presented Canvas-UI frame.
     pub pending_screenshot: Option<String>,
-    #[cfg(target_os = "windows")]
-    pub d3d11_backend: Option<beetle_render::D3d11Backend>,
-    #[cfg(target_os = "windows")]
-    pub d3d11_frame_texture: Option<beetle_render::TextureId>,
+    /// The renderer (ADR-026). `gpu_backend` changes apply on restart.
+    pub d3d11: beetle_render::D3d11Backend,
+    /// `gpu_backend` as it was when `d3d11` was created.
+    pub gpu_backend_at_start: GpuBackendSetting,
 }
 
 impl AppState {
-    pub fn mark_dirty(&mut self) {
-        self.is_dirty = true;
-    }
     pub fn apply_display_mode(&mut self) {
         match self.display_mode {
             DisplayMode::Windowed => {
@@ -184,7 +177,7 @@ impl AppState {
                         let _ = self
                             .window
                             .request_inner_size(winit::dpi::PhysicalSize::new(w, h));
-                        self.renderer.resize(w, h);
+                        self.view.resize(w, h);
                     }
                 }
             }
@@ -206,42 +199,6 @@ impl AppState {
                     Some(winit::window::Fullscreen::Borderless(None))
                 };
                 self.window.set_fullscreen(fullscreen);
-            }
-        }
-    }
-
-    pub fn is_d3d11_active(&self) -> bool {
-        #[cfg(target_os = "windows")]
-        {
-            (self.gpu_backend == GpuBackendSetting::Auto
-                || self.gpu_backend == GpuBackendSetting::Direct3D11)
-                && self.d3d11_backend.is_some()
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            false
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn ensure_d3d11_backend(&mut self) {
-        if self.d3d11_backend.is_none() {
-            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            if let Ok(handle) = self.window.window_handle() {
-                if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
-                    let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
-                    let size = self.window.inner_size();
-                    if let Ok(mut d3d) =
-                        beetle_render::D3d11Backend::new(hwnd, size.width, size.height)
-                    {
-                        use beetle_render::GpuBackend;
-                        let tex = d3d.create_texture(size.width, size.height, self.renderer.data());
-                        self.d3d11_frame_texture = tex;
-                        // Any previous textures belonged to an older device.
-                        self.gpu_ui = Some(crate::gpu_ui::GpuUi::new(self.renderer.viewport.scale));
-                        self.d3d11_backend = Some(d3d);
-                    }
-                }
             }
         }
     }
@@ -318,24 +275,15 @@ impl AppState {
         let _ = self
             .window
             .request_inner_size(winit::dpi::PhysicalSize::new(target_w, target_h));
-        self.renderer.resize(target_w, target_h);
-        #[cfg(target_os = "windows")]
-        if let Some(d3d11) = &mut self.d3d11_backend {
-            use beetle_render::GpuBackend;
-            d3d11.resize(target_w, target_h);
-            if let Some(old_tex) = self.d3d11_frame_texture.take() {
-                d3d11.destroy_texture(old_tex);
-            }
-            self.d3d11_frame_texture =
-                d3d11.create_texture(target_w, target_h, self.renderer.data());
-        }
+        self.view.resize(target_w, target_h);
+        beetle_render::GpuBackend::resize(&mut self.d3d11, target_w, target_h);
     }
 
     pub fn save_config(&self) {
         let size = self.window.inner_size();
         let app_config = AppConfig {
             play_options: self.play_options.clone(),
-            lane_cover_ratio: self.renderer.skin.lane_cover_ratio,
+            lane_cover_ratio: self.view.skin.lane_cover_ratio,
             sort_mode: self.sort_mode,
             key_preset: self.input_config.preset,
             custom_key_bindings: self.input_config.serialize_bindings(),
@@ -391,13 +339,6 @@ impl AppState {
         let mut skin = SkinConfig::default();
         skin.set_play_mode(self.key_config_mode());
         skin.active_lanes()
-    }
-
-    pub fn current_visible_songs(&self) -> Vec<SongMetadata> {
-        self.filtered_indices
-            .iter()
-            .filter_map(|&idx| self.songs.get(idx).cloned())
-            .collect()
     }
 
     /// Advances BGM notes and BGA timeline events up to `audio_time`.
@@ -476,41 +417,21 @@ impl AppState {
     }
 }
 
-/// Pure helper to resolve active BGA frame hierarchy without window or surface dependencies.
-pub fn resolve_bga_hierarchy<'a>(
+/// Which BGA bitmap to show: the POOR image while the miss penalty lasts,
+/// else the current BGA; `None` means fall back to the stage image.
+/// `available(id)` says whether that BMP has something to draw (a decoded
+/// bitmap or a video frame).
+pub fn resolve_bga_id(
     poor_until_time: f64,
     poor_bga_bmp: Option<beetle_core::BmpId>,
     current_bga_bmp: Option<beetle_core::BmpId>,
-    bga_bank: &'a std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
-    video_players: &'a std::collections::HashMap<beetle_core::BmpId, beetle_render::BgaVideoPlayer>,
-    active_bga_image: Option<&'a ImageBuffer>,
+    available: impl Fn(beetle_core::BmpId) -> bool,
     audio_time: f64,
-) -> Option<&'a ImageBuffer> {
-    if audio_time < poor_until_time {
-        if let Some(id) = poor_bga_bmp {
-            if let Some(img) = bga_bank.get(&id) {
-                return Some(img);
-            }
-            if let Some(vp) = video_players.get(&id) {
-                if let Some(frame) = vp.current_frame() {
-                    return Some(frame);
-                }
-            }
-        }
-    }
-
-    if let Some(id) = current_bga_bmp {
-        if let Some(vp) = video_players.get(&id) {
-            if let Some(frame) = vp.current_frame() {
-                return Some(frame);
-            }
-        }
-        if let Some(img) = bga_bank.get(&id) {
-            return Some(img);
-        }
-    }
-
-    active_bga_image
+) -> Option<beetle_core::BmpId> {
+    let poor = poor_bga_bmp.filter(|_| audio_time < poor_until_time);
+    poor.into_iter()
+        .chain(current_bga_bmp)
+        .find(|&id| available(id))
 }
 
 pub fn filter_song_indices(

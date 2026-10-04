@@ -1,0 +1,303 @@
+//! Draws and presents one frame of the current screen with the Canvas UI on
+//! Direct3D 11 (ADR-026: the only renderer; WARP when there is no GPU).
+//!
+//! Each function gathers what its screen shows from `AppState`, draws it
+//! with `beetle_render`, and presents. Screens render on every
+//! `RedrawRequested`; the event loop decides how often that is.
+
+use std::path::Path;
+
+use beetle_render::{GpuBackend, Ui};
+use winit::dpi::PhysicalSize;
+
+use crate::devtools;
+use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
+use crate::input::{lane_label, KeyPreset};
+use crate::state::{AppState, REPLAYS_DIR};
+
+/// Starts a frame on the backbuffer and the UI.
+fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
+    let scale = state.view.viewport.scale;
+    state.d3d11.begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
+    state.gpu_ui.ui.lite = state.d3d11.is_warp();
+    state.gpu_ui.ui.begin(size.width, size.height, scale);
+}
+
+/// Submits the UI, serves screenshot / devtools capture requests (they read
+/// the backbuffer, so before present) and presents.
+fn finish(state: &mut AppState) {
+    state.gpu_ui.ui.end(&mut state.d3d11);
+    if let Some(path) = state.pending_screenshot.take() {
+        let _ = devtools::save_backbuffer(&mut state.d3d11, &path);
+    }
+    if let Some(cap) = &mut state.capture {
+        if cap.on_frame(state.screen, &mut state.d3d11) {
+            state.should_exit_app = true;
+        }
+    }
+    state.d3d11.end_frame();
+}
+
+/// "HI-SPEED 1100", "REGULAR", "GROOVE": the options a play will use.
+fn option_chips(state: &AppState) -> [String; 3] {
+    [
+        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
+        state.play_options.lane_modifier.as_str().to_string(),
+        state.play_options.gauge_type.as_str().to_string(),
+    ]
+}
+
+pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, visual_levels: &[f32; 16]) {
+    let bga = gameplay_bga_texture(
+        &mut state.gpu_ui,
+        &mut state.d3d11,
+        &state.bga_bank,
+        &state.video_players,
+        state.poor_until_time,
+        state.poor_bga_bmp,
+        state.current_bga_bmp,
+        state.active_bga_image.as_ref(),
+        state.active_chart_hash,
+        audio_time,
+    );
+    let layer = state.current_layer_bmp.and_then(|id| {
+        bga_texture(&mut state.gpu_ui, &mut state.d3d11, &state.bga_bank, &state.video_players, id, true)
+    });
+    state.view.clean_expired_hit_bursts(audio_time);
+    let (badge, hint) = gameplay_badge_and_hint(state.is_replay_playback, state.is_auto_play, state.input_config.preset);
+
+    begin(state, size);
+    if let (Some(chart), Some(judge), Some(timing)) = (&state.active_chart, &state.active_judge, &state.active_timing) {
+        beetle_render::draw_gameplay(
+            &mut state.gpu_ui.ui,
+            &beetle_render::PlayFrame {
+                viewport: &state.view.viewport,
+                layout: &state.view.skin,
+                chart,
+                notes: judge.notes(),
+                timing,
+                score: judge.score(),
+                audio_time,
+                song_length: state.song_end_time,
+                visual_levels,
+                bga,
+                layer,
+                track_bga_opacity: state.track_bga.opacity(),
+                key_pressed: state.view.key_pressed(),
+                hit_bursts: state.view.hit_bursts(),
+                last_judge: state.view.last_judge(),
+                hint,
+                badge,
+                pause: state.is_gameplay_paused.then_some(state.pause_selected_option),
+            },
+        );
+    }
+    finish(state);
+}
+
+/// Mode badge and key-hint line for the gameplay HUD.
+fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) -> (Option<&'static str>, &'static str) {
+    if is_replay {
+        return (Some("REPLAY"), "ESC  Return to song select");
+    }
+    if is_auto {
+        return (Some("AUTO PLAY"), "ESC  Return to song select");
+    }
+    let hint = match preset {
+        KeyPreset::HomeRow => "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::ArcadeZx => "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Pms9K => "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
+        KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+    };
+    (None, hint)
+}
+
+/// Song select plus its option / quit modals.
+pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
+    let selected_hash = state.current_selected_song().map(|s| s.hash);
+    let has_replay = selected_hash.is_some_and(|h| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, h)).exists());
+    let chips = option_chips(state);
+    let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
+
+    let stage_img = selected_hash
+        .and_then(|h| state.stage_image_cache.get(&h))
+        .and_then(|img| img.as_ref());
+    let (jacket, ambient) = match (selected_hash, stage_img) {
+        (Some(hash), Some(img)) => {
+            state.gpu_ui.trim_stage_textures(&mut state.d3d11, hash);
+            (
+                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(hash), img),
+                Some(img.average_color_sampled(6)),
+            )
+        }
+        _ => (None, None),
+    };
+
+    begin(state, size);
+    let vp = state.view.viewport;
+    let ui: &mut Ui = &mut state.gpu_ui.ui;
+    beetle_render::draw_song_select(
+        ui,
+        &beetle_render::SelectFrame {
+            viewport: &vp,
+            songs: &state.songs,
+            visible: &state.filtered_indices,
+            selected: state.selected_song_idx,
+            scores: &state.score_store,
+            folder: state.category_mode.as_str(),
+            sort: state.sort_mode.as_str(),
+            search: &state.search_query,
+            search_active: state.is_search_active,
+            jacket,
+            ambient,
+            option_chips: &chips,
+            auto_play: state.is_auto_play,
+            has_replay,
+        },
+    );
+    if let Some(rows) = &option_rows {
+        beetle_render::draw_options_modal(ui, &vp, rows, state.modal_row);
+    }
+    if state.show_exit_modal {
+        beetle_render::draw_exit_modal(ui, &vp);
+    }
+    finish(state);
+}
+
+/// (label, value) rows of the play options modal, in the order the option
+/// handler indexes them (`state.modal_row`).
+fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
+    let o = &state.play_options;
+    vec![
+        ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
+        ("MODIFIER", o.lane_modifier.as_str().to_string()),
+        ("GAUGE", o.gauge_type.as_str().to_string()),
+        ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
+        ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
+        ("DISPLAY MODE", state.display_mode.as_str().to_string()),
+        ("RESOLUTION", state.current_resolution_label().to_string()),
+        (
+            "GRAPHICS",
+            if state.gpu_backend == state.gpu_backend_at_start {
+                state.gpu_backend.as_str().to_string()
+            } else {
+                format!("{} (AFTER RESTART)", state.gpu_backend.as_str())
+            },
+        ),
+        (
+            "TARGET FPS",
+            if state.target_fps == 0 {
+                "UNLIMITED".to_string()
+            } else {
+                format!("{} FPS", state.target_fps)
+            },
+        ),
+        ("KEY LAYOUT", state.input_config.preset.as_str().to_string()),
+        ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
+        ("START MEASURE", format!("M.{}", state.start_measure)),
+        ("TRACK BGA", state.track_bga.as_str().to_string()),
+    ]
+}
+
+pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
+    let chips = option_chips(state);
+    let badge = if state.is_replay_playback {
+        Some("REPLAY")
+    } else if state.is_auto_play {
+        Some("AUTO PLAY")
+    } else {
+        None
+    };
+    let elapsed = state.loading_started_at.elapsed().as_secs_f64();
+    let (jacket, ambient) = match state.loading_song.as_ref() {
+        Some(song) => match state.stage_image_cache.get(&song.hash).and_then(|img| img.as_ref()) {
+            Some(img) => (
+                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(song.hash), img),
+                Some(img.average_color_sampled(6)),
+            ),
+            None => (None, None),
+        },
+        None => (None, None),
+    };
+
+    begin(state, size);
+    if let Some(song) = state.loading_song.as_ref() {
+        beetle_render::draw_loading(
+            &mut state.gpu_ui.ui,
+            &beetle_render::LoadingFrame {
+                viewport: &state.view.viewport,
+                song,
+                jacket,
+                ambient,
+                elapsed,
+                status: "Decoding keysounds and preparing audio",
+                option_chips: &chips,
+                badge,
+            },
+        );
+    }
+    finish(state);
+}
+
+pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
+    let elapsed = state.result_entered_at.elapsed().as_secs_f64();
+    let unsaved = if state.is_replay_playback {
+        Some("REPLAY")
+    } else if state.is_auto_play {
+        Some("AUTO PLAY")
+    } else if state.start_measure > 0 {
+        Some("PRACTICE")
+    } else {
+        None
+    };
+    let jacket = state
+        .active_bga_image
+        .as_ref()
+        .and_then(|img| state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(state.active_chart_hash), img));
+
+    begin(state, size);
+    if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
+        beetle_render::draw_result(
+            &mut state.gpu_ui.ui,
+            &beetle_render::ResultFrame {
+                viewport: &state.view.viewport,
+                chart,
+                score: judge.score(),
+                previous_best: state.previous_best.as_ref(),
+                new_record: state.is_new_record,
+                elapsed,
+                jacket,
+                unsaved_reason: unsaved,
+            },
+        );
+    }
+    finish(state);
+}
+
+pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
+    let mode = state.key_config_mode();
+    let keys: Vec<(beetle_core::Lane, String)> = state
+        .key_config_lanes()
+        .iter()
+        .map(|&lane| (lane, state.input_config.get_key_name_for_lane(lane)))
+        .collect();
+    let lanes: Vec<beetle_render::KeyBinding> = keys
+        .iter()
+        .map(|(lane, key)| beetle_render::KeyBinding { lane: *lane, label: lane_label(*lane), key })
+        .collect();
+
+    begin(state, size);
+    beetle_render::draw_key_config(
+        &mut state.gpu_ui.ui,
+        &beetle_render::KeyConfigFrame {
+            viewport: &state.view.viewport,
+            mode,
+            lanes: &lanes,
+            selected: state.selected_key_idx,
+            rebinding: state.is_rebinding_key,
+            layout: state.input_config.preset.as_str(),
+        },
+    );
+    finish(state);
+}

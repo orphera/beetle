@@ -55,35 +55,39 @@ impl DisplayMode {
 /// GPU Graphics Backend selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuBackendSetting {
+    /// Hardware adapter, falling back to WARP when there is none.
     #[default]
     Auto,
-    Direct3D11,
-    Software,
+    /// Always WARP (Direct3D 11 on the CPU): for broken GPU drivers.
+    Warp,
 }
 
 impl GpuBackendSetting {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Auto => "AUTO (D3D11/SOFT)",
-            Self::Direct3D11 => "DIRECT3D 11",
-            Self::Software => "SOFTWARE (CPU)",
+            Self::Auto => "AUTO",
+            Self::Warp => "WARP (CPU)",
+        }
+    }
+
+    /// Reads a saved value; settings from before ADR-026 map onto the
+    /// Direct3D 11 options ("SOFTWARE (CPU)" was the removed CPU renderer).
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "WARP (CPU)" | "SOFTWARE (CPU)" => Self::Warp,
+            _ => Self::Auto,
         }
     }
 
     pub fn next(self) -> Self {
         match self {
-            Self::Auto => Self::Direct3D11,
-            Self::Direct3D11 => Self::Software,
-            Self::Software => Self::Auto,
+            Self::Auto => Self::Warp,
+            Self::Warp => Self::Auto,
         }
     }
 
     pub fn prev(self) -> Self {
-        match self {
-            Self::Auto => Self::Software,
-            Self::Direct3D11 => Self::Auto,
-            Self::Software => Self::Direct3D11,
-        }
+        self.next()
     }
 }
 
@@ -285,11 +289,7 @@ impl AppConfig {
                     };
                 }
                 "gpu_backend" => {
-                    config.gpu_backend = match val {
-                        "DIRECT3D 11" => GpuBackendSetting::Direct3D11,
-                        "SOFTWARE (CPU)" => GpuBackendSetting::Software,
-                        _ => GpuBackendSetting::Auto,
-                    };
+                    config.gpu_backend = GpuBackendSetting::parse(val);
                 }
                 "window_width" => {
                     if let Ok(w) = val.parse::<u32>() {
@@ -365,7 +365,7 @@ mod tests {
             custom_key_bindings: "Scratch:KeyA,Key1:KeyZ".to_string(),
             master_volume: 0.85,
             display_mode: DisplayMode::Borderless,
-            gpu_backend: GpuBackendSetting::Direct3D11,
+            gpu_backend: GpuBackendSetting::Warp,
             window_width: 1920,
             window_height: 1080,
             target_fps: 360,

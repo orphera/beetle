@@ -5,9 +5,30 @@
 //! the transparent color key, so it is uploaded separately with black
 //! cleared to transparent.
 
+use crate::config::GpuBackendSetting;
 use beetle_core::BmpId;
-use beetle_render::{BgaVideoPlayer, GpuBackend, ImageBuffer, SizedTexture, Ui};
+use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
+use beetle_render::{BgaVideoPlayer, D3d11Backend, GpuBackend, ImageBuffer, SizedTexture, Ui};
 use std::collections::HashMap;
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use winit::window::Window;
+
+/// Creates the Direct3D 11 renderer for `window`: hardware first, then WARP
+/// (`Auto`), or WARP only.
+pub fn create_backend(window: &Window, setting: GpuBackendSetting) -> Result<D3d11Backend, String> {
+    let handle = window.window_handle().map_err(|e| e.to_string())?;
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return Err("not a Win32 window".into());
+    };
+    let hwnd = win32.hwnd.get() as *mut std::ffi::c_void;
+    let size = window.inner_size();
+    match setting {
+        GpuBackendSetting::Auto => D3d11Backend::new(hwnd, size.width, size.height),
+        GpuBackendSetting::Warp => {
+            D3d11Backend::with_driver_types(hwnd, size.width, size.height, &[D3D_DRIVER_TYPE_WARP])
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageKey {
@@ -153,9 +174,8 @@ pub fn bga_texture(
     gpu.image(backend, ImageKey::Bga(id, keyed), img)
 }
 
-/// Base BGA with the same priority as `state::resolve_bga_hierarchy`:
-/// POOR image while it is showing, then the current BGA, then the song's
-/// stage image as a static fallback.
+/// Base BGA texture: POOR image while it is showing, then the current BGA,
+/// then the song's stage image as a static fallback (`state::resolve_bga_id`).
 #[allow(clippy::too_many_arguments)]
 pub fn gameplay_bga_texture(
     gpu: &mut GpuUi,
@@ -169,15 +189,11 @@ pub fn gameplay_bga_texture(
     song_hash: u64,
     audio_time: f64,
 ) -> Option<SizedTexture> {
-    if audio_time < poor_until_time {
-        if let Some(t) = poor_bmp.and_then(|id| bga_texture(gpu, backend, bank, videos, id, false)) {
-            return Some(t);
-        }
+    let available = |id| bank.contains_key(&id) || videos.get(&id).is_some_and(|v| v.current_frame().is_some());
+    match crate::state::resolve_bga_id(poor_until_time, poor_bmp, current_bmp, available, audio_time) {
+        Some(id) => bga_texture(gpu, backend, bank, videos, id, false),
+        None => gpu.image(backend, ImageKey::Stage(song_hash), stage_image?),
     }
-    if let Some(t) = current_bmp.and_then(|id| bga_texture(gpu, backend, bank, videos, id, false)) {
-        return Some(t);
-    }
-    gpu.image(backend, ImageKey::Stage(song_hash), stage_image?)
 }
 
 #[cfg(test)]

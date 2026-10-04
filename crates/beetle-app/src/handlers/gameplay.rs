@@ -38,25 +38,25 @@ pub fn handle_gameplay_input(
             }
             KeyCode::F3 | KeyCode::PageUp | KeyCode::Digit1 => {
                 state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-                state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                state.view.skin.hi_speed = state.play_options.hi_speed;
                 state.save_config();
                 return;
             }
             KeyCode::F4 | KeyCode::PageDown | KeyCode::Digit2 => {
                 state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-                state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                state.view.skin.hi_speed = state.play_options.hi_speed;
                 state.save_config();
                 return;
             }
             KeyCode::F10 => {
-                state.renderer.skin.lane_cover_ratio =
-                    (state.renderer.skin.lane_cover_ratio + 0.05).min(0.80);
+                state.view.skin.lane_cover_ratio =
+                    (state.view.skin.lane_cover_ratio + 0.05).min(0.80);
                 state.save_config();
                 return;
             }
             KeyCode::F11 => {
-                state.renderer.skin.lane_cover_ratio =
-                    (state.renderer.skin.lane_cover_ratio - 0.05).max(0.0);
+                state.view.skin.lane_cover_ratio =
+                    (state.view.skin.lane_cover_ratio - 0.05).max(0.0);
                 state.save_config();
                 return;
             }
@@ -85,7 +85,7 @@ pub fn handle_gameplay_input(
                     rep.record(audio_time, lane, true);
                 }
 
-                state.renderer.set_key_state(lane, true);
+                state.view.set_key_state(lane, true);
                 if let Some(judge) = &mut state.active_judge {
                     if let Some((judge_result, wav_id)) =
                         judge.handle_key_down(lane, effective_judge_time)
@@ -95,7 +95,7 @@ pub fn handle_gameplay_input(
                         {
                             state.poor_until_time = audio_time + 0.4;
                         }
-                        state.renderer.trigger_judge_with_lane(
+                        state.view.trigger_judge_with_lane(
                             lane,
                             judge_result.grade,
                             audio_time,
@@ -166,10 +166,10 @@ pub fn handle_gameplay_input(
                     rep.record(audio_time, lane, false);
                 }
 
-                state.renderer.set_key_state(lane, false);
+                state.view.set_key_state(lane, false);
                 if let Some(judge) = &mut state.active_judge {
                     if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                        state.renderer.trigger_judge_with_lane(
+                        state.view.trigger_judge_with_lane(
                             lane,
                             judge_result.grade,
                             audio_time,

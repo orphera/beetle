@@ -4,9 +4,8 @@ All fonts are SIL Open Font License 1.1 (see the `*-LICENSE.txt` files).
 
 | File | Used by | Contents |
 |---|---|---|
-| `NotoSansKR-Common-Subset.ttf` | `src/text` (primary), legacy `bitmap_font` | Latin (ASCII, proportional, tabular digits) + 2,350 KS X 1001 Hangul + compatibility jamo |
-| `NotoSansJP-Subset.ttf` | `src/text`, legacy `bitmap_font` | Kana, ~2,137 joyo kanji, CJK punctuation, fullwidth forms |
-| `JetBrainsMono-*.ttf` | legacy `bitmap_font` only | Monospace Latin; removed together with the software renderer (P4 of docs/plans/2026-10-04-d3d11-ui-rebuild.md) |
+| `NotoSansKR-Common-Subset.ttf` | `src/text` (primary); `bpm-gui`'s bitmap font via `beetle_render::text::KR_BYTES` | Latin (ASCII, proportional, tabular digits) + 2,350 KS X 1001 Hangul + compatibility jamo |
+| `NotoSansJP-Subset.ttf` | `src/text`; `bpm-gui` via `beetle_render::text::JP_BYTES` | Kana, ~2,137 joyo kanji, CJK punctuation, fullwidth forms |
 
 ## Post-processing
 
@@ -19,3 +18,6 @@ python scripts/add-latin-kern.py crates/beetle-render/assets/fonts/NotoSansKR-Co
 
 Characters missing from both subsets are rasterized on demand through
 Windows GDI (`src/text/gdi.rs`), so subsets only need to cover common text.
+
+`JetBrainsMono-*.ttf` moved to `crates/bpm-gui/assets/fonts` together with the
+software bitmap font (only `bpm-gui` still renders on the CPU).

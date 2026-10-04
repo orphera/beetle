@@ -11,7 +11,7 @@
 
 use crate::bitmap_font::{BitmapFont};
 use tiny_skia::{PixmapMut, Color};
-use crate::skin::ColorRgba;
+use beetle_render::ColorRgba;
 
 /// Enlarged ASCII glyph array (16 columns x 14 rows).
 /// Each column holds 14 bits (MSB = top pixel).

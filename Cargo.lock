@@ -119,7 +119,6 @@ dependencies = [
  "bms-package",
  "bms-package-manager",
  "hound",
- "softbuffer",
  "winit",
 ]
 
@@ -150,7 +149,6 @@ dependencies = [
  "fontdue",
  "jpeg-decoder",
  "png",
- "tiny-skia",
 ]
 
 [[package]]
@@ -233,6 +231,7 @@ dependencies = [
  "beetle-render",
  "bms-package",
  "bms-package-manager",
+ "fontdue",
  "softbuffer",
  "tiny-skia",
  "winit",

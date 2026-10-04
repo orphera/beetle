@@ -10,7 +10,7 @@ use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::{ease_out_back, ease_out_cubic};
-use crate::renderer::Viewport;
+use crate::view::Viewport;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};

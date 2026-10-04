@@ -21,8 +21,10 @@ use crate::skin::ColorRgba;
 use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
 
-pub(crate) const KR_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansKR-Common-Subset.ttf");
-pub(crate) const JP_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansJP-Subset.ttf");
+/// Embedded Noto Sans KR subset (Latin + Hangul); shared with `bpm-gui`.
+pub const KR_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansKR-Common-Subset.ttf");
+/// Embedded Noto Sans JP subset (kana + joyo kanji); shared with `bpm-gui`.
+pub const JP_BYTES: &[u8] = include_bytes!("../../assets/fonts/NotoSansJP-Subset.ttf");
 
 /// Sizes are rasterized at whole pixels: crisp stems, bounded cache.
 const MIN_PX: f32 = 6.0;

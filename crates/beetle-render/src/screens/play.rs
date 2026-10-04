@@ -9,7 +9,7 @@ use crate::art::Skin;
 use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
-use crate::renderer::{lane_index, HitBurst, Viewport, LANE_COUNT};
+use crate::view::{lane_index, HitBurst, Viewport, LANE_COUNT};
 use crate::skin::{ColorRgba, SkinConfig};
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};

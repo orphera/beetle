@@ -1,19 +1,12 @@
-//! Screen rendering implementations for SoftwareRenderer.
+//! Screens drawn with `Ui` (Canvas + TextEngine + generated Skin).
 
-pub mod gameplay;
-pub mod gameplay_gpu;
 pub mod key_bind;
-pub mod key_config;
 pub mod loading;
-pub mod modals;
 pub mod play;
-pub mod result;
 pub mod select;
-pub mod song_select;
 pub mod stage_result;
 mod widgets;
 
-pub use gameplay_gpu::render_gameplay_gpu;
 pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame};
 pub use loading::{draw_loading, LoadingFrame};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};

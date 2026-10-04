@@ -10,7 +10,7 @@
 use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
-use crate::renderer::Viewport;
+use crate::view::Viewport;
 use crate::skin::SkinConfig;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};

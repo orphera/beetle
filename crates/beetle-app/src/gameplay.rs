@@ -26,7 +26,6 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .or_insert_with(|| load_stage_image(song));
 
     state.loading_receiver = Some(spawn_background_song_loader(song));
-    state.mark_dirty();
     state.window.request_redraw();
 }
 
@@ -170,8 +169,8 @@ pub fn finalize_start_gameplay(
 
     let is_pms = song.file_path.to_lowercase().ends_with(".pms");
     let play_mode = play_chart.detect_play_mode_with_hint(is_pms);
-    state.renderer.skin.set_play_mode(play_mode);
-    state.renderer.skin.hi_speed = state.play_options.hi_speed;
+    state.view.skin.set_play_mode(play_mode);
+    state.view.skin.hi_speed = state.play_options.hi_speed;
 
     let mut audio_engine = AudioEngine::new(soundbank).ok();
     if let Some(audio) = &mut audio_engine {
@@ -204,12 +203,8 @@ pub fn finalize_start_gameplay(
     state.pause_selected_option = 0;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
-    state.renderer.invalidate_gameplay_cache();
-    #[cfg(target_os = "windows")]
-    if let (Some(gpu), Some(d3d11)) = (&mut state.gpu_ui, &mut state.d3d11_backend) {
-        gpu.release_song_textures(d3d11);
-    }
-    state.mark_dirty();
+    state.view.reset_feedback();
+    state.gpu_ui.release_song_textures(&mut state.d3d11);
     state.window.request_redraw();
 }
 
@@ -257,19 +252,6 @@ pub fn finish_gameplay(state: &mut AppState) {
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
     state.result_entered_at = std::time::Instant::now();
-    state.mark_dirty();
-
-    if let (Some(chart), Some(judge), false) =
-        (&state.active_chart, &state.active_judge, crate::uses_canvas_ui(state))
-    {
-        state.renderer.render_result(
-            chart,
-            judge.score(),
-            state.is_new_record,
-            state.previous_best.as_ref(),
-            0.0,
-        );
-    }
 
     state.window.request_redraw();
 }
@@ -301,7 +283,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                     let ev = &replay.events[state.playback_cursor];
                     if audio_time >= ev.time_seconds {
                         if ev.is_down {
-                            state.renderer.set_key_state(ev.lane, true);
+                            state.view.set_key_state(ev.lane, true);
                             if let Some(judge) = &mut state.active_judge {
                                 if let Some((res, wav_id)) =
                                     judge.handle_key_down(ev.lane, ev.time_seconds)
@@ -311,7 +293,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                                     {
                                         state.poor_until_time = audio_time + 0.4;
                                     }
-                                    state.renderer.trigger_judge_with_lane(
+                                    state.view.trigger_judge_with_lane(
                                         ev.lane,
                                         res.grade,
                                         audio_time,
@@ -329,10 +311,10 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                                 }
                             }
                         } else {
-                            state.renderer.set_key_state(ev.lane, false);
+                            state.view.set_key_state(ev.lane, false);
                             if let Some(judge) = &mut state.active_judge {
                                 if let Some(res) = judge.handle_key_up(ev.lane, ev.time_seconds) {
-                                    state.renderer.trigger_judge_with_lane(
+                                    state.view.trigger_judge_with_lane(
                                         ev.lane,
                                         res.grade,
                                         audio_time,
@@ -352,7 +334,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                 for (_lane, miss_res) in misses {
                     state.poor_until_time = audio_time + 0.4;
                     state
-                        .renderer
+                        .view
                         .trigger_judge(miss_res.grade, audio_time, 0.0);
                 }
             }
@@ -360,7 +342,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
             if let Some(judge) = &mut state.active_judge {
                 let hits = judge.auto_play_update(audio_time);
                 for (lane, hit_res, wav_id) in hits {
-                    state.renderer.trigger_judge_with_lane(
+                    state.view.trigger_judge_with_lane(
                         lane,
                         hit_res.grade,
                         audio_time,
@@ -380,7 +362,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
             for (lane, miss_res) in misses {
                 state.poor_until_time = audio_time + 0.4;
                 state
-                    .renderer
+                    .view
                     .trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
             }
         }

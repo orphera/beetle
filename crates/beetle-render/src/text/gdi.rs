@@ -67,9 +67,6 @@ const IDENTITY: MAT2 = MAT2 {
     ],
 };
 
-// The legacy bitmap_font::gdi_fallback declares GetGlyphOutlineW with its own
-// struct types; it is deleted with the software renderer (P4).
-#[allow(clashing_extern_declarations)]
 #[link(name = "gdi32")]
 extern "system" {
     fn CreateCompatibleDC(hdc: HDC) -> HDC;

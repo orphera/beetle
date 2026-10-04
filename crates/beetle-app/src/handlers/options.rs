@@ -23,7 +23,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 0 => {
                     // Hi-Speed
                     state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                    state.view.skin.hi_speed = state.play_options.hi_speed;
                 }
                 1 => {
                     // Lane Modifier
@@ -67,11 +67,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 7 => {
                     // Graphics GPU
+                    // Takes effect on the next start (see AppState::d3d11).
                     state.gpu_backend = state.gpu_backend.prev();
-                    #[cfg(target_os = "windows")]
-                    if state.gpu_backend != crate::config::GpuBackendSetting::Software {
-                        state.ensure_d3d11_backend();
-                    }
                 }
                 8 => {
                     // Target FPS
@@ -111,7 +108,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 0 => {
                     // Hi-Speed
                     state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-                    state.renderer.skin.hi_speed = state.play_options.hi_speed;
+                    state.view.skin.hi_speed = state.play_options.hi_speed;
                 }
                 1 => {
                     // Lane Modifier
@@ -155,11 +152,8 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 }
                 7 => {
                     // Graphics GPU
+                    // Takes effect on the next start (see AppState::d3d11).
                     state.gpu_backend = state.gpu_backend.next();
-                    #[cfg(target_os = "windows")]
-                    if state.gpu_backend != crate::config::GpuBackendSetting::Software {
-                        state.ensure_d3d11_backend();
-                    }
                 }
                 8 => {
                     // Target FPS

@@ -4,23 +4,25 @@ mod config;
 mod demo;
 mod devtools;
 mod gameplay;
-#[cfg(target_os = "windows")]
 mod gpu_ui;
 mod handlers;
 mod input;
 mod loader;
+mod present;
 mod scanner;
 mod state;
 
+#[cfg(not(target_os = "windows"))]
+compile_error!("beetle-app is Windows-only: it renders with Direct3D 11 (ADR-026).");
+
 use std::env;
 use std::fs;
-use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use beetle_core::{GaugeType, LaneModifier, SongMetadata};
-use beetle_render::{SkinConfig, SoftwareRenderer};
+use beetle_render::{SkinConfig, ViewState};
 use config::{AppConfig, DisplayMode};
 use gameplay::{
     finalize_start_gameplay, finish_gameplay, queue_start_gameplay, tick_gameplay,
@@ -30,12 +32,10 @@ use gameplay::{
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
-use input::{InputConfig, KeyPreset};
+use input::InputConfig;
 use loader::spawn_background_stage_image_loader;
-use softbuffer::{Context, Surface};
-#[cfg(target_os = "windows")]
-use gpu_ui::{bga_texture, gameplay_bga_texture};
-use state::{init_songs_and_scores, AppScreen, AppState, SongCategory, REPLAYS_DIR};
+use beetle_render::GpuBackend;
+use state::{init_songs_and_scores, AppScreen, AppState, SongCategory};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -69,6 +69,21 @@ impl Drop for MultimediaTimerGuard {
         unsafe {
             timeEndPeriod(1);
         }
+    }
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn MessageBoxW(hwnd: *mut std::ffi::c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
+}
+
+/// Shows an error dialog (the app has no console: `windows_subsystem`).
+fn fatal_error(msg: &str) {
+    const MB_ICONERROR: u32 = 0x10;
+    let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    let (text, caption) = (wide(msg), wide("Beetle"));
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
     }
 }
 
@@ -110,74 +125,35 @@ impl ApplicationHandler for BeetleApp {
                 return;
             }
         };
-        let context = match Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to create softbuffer context: {e}");
-                return;
-            }
-        };
-        let mut surface = match Surface::new(&context, window.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Failed to create softbuffer surface: {e}");
-                return;
-            }
-        };
-
         let size = window.inner_size();
-        if let (Some(w), Some(h)) = (
-            NonZeroU32::new(size.width.max(1)),
-            NonZeroU32::new(size.height.max(1)),
-        ) {
-            let _ = surface.resize(w, h);
-        }
-
         let skin = SkinConfig {
             hi_speed: saved_config.play_options.hi_speed,
             lane_cover_ratio: saved_config.lane_cover_ratio,
             ..Default::default()
         };
+        let view = ViewState::new(size.width, size.height, skin);
 
-        let renderer = match SoftwareRenderer::new(size.width, size.height, skin) {
-            Some(r) => r,
-            None => {
-                eprintln!("Failed to initialize software renderer");
+        // Direct3D 11 is the only renderer (ADR-026); without it there is
+        // nothing to draw with.
+        let d3d11 = match gpu_ui::create_backend(&window, saved_config.gpu_backend) {
+            Ok(d3d) => d3d,
+            Err(e) => {
+                fatal_error(&format!(
+                    "Beetle could not start Direct3D 11 (hardware or WARP).
+
+{e}"
+                ));
+                event_loop.exit();
                 return;
             }
         };
+        let gpu_ui = gpu_ui::GpuUi::new(view.viewport.scale);
 
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
 
-        #[cfg(target_os = "windows")]
-        let (d3d11_backend, d3d11_frame_texture, gpu_ui) = {
-            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            let mut backend = None;
-            let mut texture = None;
-            let mut ui = None;
-            if saved_config.gpu_backend != config::GpuBackendSetting::Software {
-                if let Ok(handle) = window.window_handle() {
-                    if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
-                        let hwnd = win32_handle.hwnd.get() as *mut std::ffi::c_void;
-                        if let Ok(mut d3d) =
-                            beetle_render::D3d11Backend::new(hwnd, size.width, size.height)
-                        {
-                            use beetle_render::GpuBackend;
-                            texture = d3d.create_texture(size.width, size.height, renderer.data());
-                            ui = Some(gpu_ui::GpuUi::new(renderer.viewport.scale));
-                            backend = Some(d3d);
-                        }
-                    }
-                }
-            }
-            (backend, texture, ui)
-        };
-
         let mut app_state = AppState {
             window,
-            _context: context,
-            surface,
-            renderer,
+            view,
             audio_engine: None,
             screen: AppScreen::SongSelect,
             songs,
@@ -244,15 +220,11 @@ impl ApplicationHandler for BeetleApp {
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
             stage_image_loading_hash: None,
-            is_dirty: true,
-            #[cfg(target_os = "windows")]
             gpu_ui,
             capture: devtools::Capture::from_env(),
             pending_screenshot: None,
-            #[cfg(target_os = "windows")]
-            d3d11_backend,
-            #[cfg(target_os = "windows")]
-            d3d11_frame_texture,
+            d3d11,
+            gpu_backend_at_start: saved_config.gpu_backend,
         };
 
         app_state.apply_display_mode();
@@ -320,6 +292,11 @@ impl ApplicationHandler for BeetleApp {
             return;
         }
 
+        // Menus present on vblank; gameplay follows the target FPS setting
+        // (60 = vsync, otherwise paced by the event loop below).
+        let vsync = state.screen != AppScreen::Gameplay || state.target_fps == 60;
+        state.d3d11.set_vsync(vsync);
+
         match state.screen {
             AppScreen::Loading => {
                 if let Some(rx) = &state.loading_receiver {
@@ -369,22 +346,7 @@ impl ApplicationHandler for BeetleApp {
                 ));
             }
             AppScreen::Gameplay => {
-                let is_d3d_vsync = {
-                    #[cfg(target_os = "windows")]
-                    {
-                        state.is_d3d11_active() && state.target_fps == 60
-                    }
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        false
-                    }
-                };
-
-                #[cfg(target_os = "windows")]
-                if let Some(d3d11) = &mut state.d3d11_backend {
-                    d3d11.set_vsync(is_d3d_vsync);
-                }
-
+                let is_d3d_vsync = state.target_fps == 60;
                 if is_d3d_vsync {
                     // D3D11 Present(1, 0) locks to hardware monitor refresh at 0% CPU jitter-free
                     state.last_render_time = Instant::now();
@@ -410,18 +372,12 @@ impl ApplicationHandler for BeetleApp {
                 }
             }
             AppScreen::SongSelect => {
-                #[cfg(target_os = "windows")]
-                if let Some(d3d11) = &mut state.d3d11_backend {
-                    d3d11.set_vsync(true);
-                }
-
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
                     if let Ok((hash, img)) = rx.try_recv() {
                         state.stage_image_cache.insert(hash, img);
                         state.stage_image_receiver = None;
                         state.stage_image_loading_hash = None;
-                        state.mark_dirty();
                         state.window.request_redraw();
                     }
                 }
@@ -513,22 +469,9 @@ impl ApplicationHandler for BeetleApp {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let (Some(w), Some(h)) =
-                    (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
-                {
-                    let _ = state.surface.resize(w, h);
-                    state.renderer.resize(size.width, size.height);
-                    #[cfg(target_os = "windows")]
-                    if let Some(d3d11) = &mut state.d3d11_backend {
-                        use beetle_render::GpuBackend;
-                        d3d11.resize(size.width, size.height);
-                        if let Some(old_tex) = state.d3d11_frame_texture.take() {
-                            d3d11.destroy_texture(old_tex);
-                        }
-                        state.d3d11_frame_texture =
-                            d3d11.create_texture(size.width, size.height, state.renderer.data());
-                    }
-                    state.mark_dirty();
+                if size.width > 0 && size.height > 0 {
+                    state.view.resize(size.width, size.height);
+                    state.d3d11.resize(size.width, size.height);
                     state.window.request_redraw();
                 }
             }
@@ -599,128 +542,20 @@ impl ApplicationHandler for BeetleApp {
                     repeat,
                     key_event.text.as_deref(),
                 );
-                state.mark_dirty();
                 state.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                let audio_time = state
-                    .audio_engine
-                    .as_ref()
-                    .map(|a| a.clock().current_time_seconds())
-                    .unwrap_or(0.0);
-
-                let mut visual_levels = [0.0; 16];
-                if let Some(audio) = &state.audio_engine {
-                    audio.get_visual_levels(&mut visual_levels);
+                let size = state.window.inner_size();
+                if size.width == 0 || size.height == 0 {
+                    return;
                 }
-
                 match state.screen {
-                    AppScreen::SongSelect => {
-                        // The Canvas UI path draws this screen at present time.
-                        if state.is_dirty && !uses_canvas_ui(state) {
-                            let selected_hash =
-                                state.current_selected_song().map(|s| s.hash).unwrap_or(0);
-                            let visible_songs = state.current_visible_songs();
-                            let stage_img = state
-                                .stage_image_cache
-                                .get(&selected_hash)
-                                .and_then(|opt| opt.as_ref());
-                            // Check replay existence for selected song
-                            let has_replay = state
-                                .current_selected_song()
-                                .map(|s| {
-                                    Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, s.hash))
-                                        .exists()
-                                })
-                                .unwrap_or(false);
-
-                            // Song select options bar (rendered as the footer's second line)
-                            let rep_str = if has_replay { "  [R]: Replay" } else { "" };
-                            let auto_str = if state.is_auto_play {
-                                "[AUTO: ON]"
-                            } else {
-                                "[AUTO: OFF]"
-                            };
-                            let opt_bar = format!(
-                                "SPD: {:.0} (F3/F4)  MOD: {} (F7)  GAUGE: {} (F6)  {}{}  [Tab]: Options  [A]: AutoPlay",
-                                state.play_options.hi_speed,
-                                state.play_options.lane_modifier.as_str(),
-                                state.play_options.gauge_type.as_str(),
-                                auto_str,
-                                rep_str,
-                            );
-
-                            state.renderer.render_song_select(
-                                &visible_songs,
-                                state.selected_song_idx,
-                                &state.score_store,
-                                state.sort_mode.as_str(),
-                                state.category_mode.as_str(),
-                                &state.search_query,
-                                state.is_search_active,
-                                stage_img,
-                                state.songs.len(),
-                                &opt_bar,
-                            );
-
-                            // If option modal is open, overlay modal on top
-                            if state.show_option_modal {
-                                state.renderer.render_option_modal(
-                                    &state.play_options,
-                                    state.input_config.preset.as_str(),
-                                    state.is_auto_play,
-                                    state.start_measure,
-                                    state.master_volume,
-                                    state.display_mode.as_str(),
-                                    state.current_resolution_label(),
-                                    state.gpu_backend.as_str(),
-                                    state.target_fps,
-                                    state.track_bga.as_str(),
-                                    state.modal_row,
-                                );
-                            }
-
-                            // If exit confirmation modal is open, overlay modal on top
-                            if state.show_exit_modal {
-                                state.renderer.render_exit_confirm_modal();
-                            }
-                        }
-                    }
-                    AppScreen::Loading if uses_canvas_ui(state) => {}
-                    AppScreen::Loading => {
-                        let selected_hash =
-                            state.loading_song.as_ref().map(|s| s.hash).unwrap_or(0);
-                        let stage_img = state
-                            .stage_image_cache
-                            .get(&selected_hash)
-                            .and_then(|opt| opt.as_ref());
-
-                        let title = state
-                            .loading_song
-                            .as_ref()
-                            .map(|s| s.title.as_str())
-                            .unwrap_or("Unknown");
-                        let artist = state
-                            .loading_song
-                            .as_ref()
-                            .map(|s| s.artist.as_str())
-                            .unwrap_or("Unknown");
-                        let genre = state
-                            .loading_song
-                            .as_ref()
-                            .map(|s| s.genre.as_str())
-                            .unwrap_or("");
-
-                        state.renderer.render_loading_screen(
-                            title,
-                            artist,
-                            genre,
-                            stage_img,
-                            state.loading_spinner_frame,
-                            "Decoding soundbank & preparing audio engine...",
-                        );
-                    }
                     AppScreen::Gameplay => {
+                        let audio_time = state
+                            .audio_engine
+                            .as_ref()
+                            .map(|a| a.clock().current_time_seconds())
+                            .unwrap_or(0.0);
                         match tick_gameplay(state, audio_time) {
                             GameplayTickResult::StageFailed => {
                                 if let Some(audio) = &mut state.audio_engine {
@@ -735,622 +570,29 @@ impl ApplicationHandler for BeetleApp {
                             }
                             GameplayTickResult::Continue => {}
                         }
-                        let active_bga = state::resolve_bga_hierarchy(
-                            state.poor_until_time,
-                            state.poor_bga_bmp,
-                            state.current_bga_bmp,
-                            &state.bga_bank,
-                            &state.video_players,
-                            state.active_bga_image.as_ref(),
-                            audio_time,
-                        );
-
-                        let active_layer = state.current_layer_bmp.and_then(|id| {
-                            if let Some(vp) = state.video_players.get(&id) {
-                                vp.current_frame()
-                            } else {
-                                state.bga_bank.get(&id)
-                            }
-                        });
-
-                        // Software rendering path: only needed when GPU pipeline is inactive or when gameplay is paused
-                        let is_gpu_gameplay = {
-                            #[cfg(target_os = "windows")]
-                            {
-                                state.is_d3d11_active() && state.gpu_ui.is_some()
-                            }
-                            #[cfg(not(target_os = "windows"))]
-                            {
-                                false
-                            }
-                        };
-                        let should_render_software = !is_gpu_gameplay;
-                        if should_render_software {
-                            if let (Some(chart), Some(judge), Some(timing)) = (
-                                &state.active_chart,
-                                &state.active_judge,
-                                &state.active_timing,
-                            ) {
-                                state.renderer.render_gameplay(
-                                    chart,
-                                    judge.notes(),
-                                    audio_time,
-                                    judge.score(),
-                                    &visual_levels,
-                                    active_bga,
-                                    active_layer,
-                                    state.track_bga.opacity(),
-                                    timing,
-                                );
-                            }
-
-                            // Overlay Pause Modal if active
-                            if state.is_gameplay_paused {
-                                let title = state
-                                    .active_chart
-                                    .as_ref()
-                                    .map(|c| c.header.title.as_str())
-                                    .unwrap_or("Unknown");
-                                let artist = state
-                                    .active_chart
-                                    .as_ref()
-                                    .map(|c| c.header.artist.as_str())
-                                    .unwrap_or("Unknown");
-                                state.renderer.render_pause_modal(
-                                    title,
-                                    artist,
-                                    audio_time,
-                                    state.song_end_time,
-                                    state.pause_selected_option,
-                                );
-                            } else {
-                                let footer_text = if state.is_replay_playback {
-                                    "[ REPLAY PLAYBACK MODE - Press ESC to Return ]"
-                                } else if state.is_auto_play {
-                                    "[ AUTO PLAY ACTIVE - Press ESC to Return ]"
-                                } else {
-                                    match state.input_config.preset {
-                                        KeyPreset::HomeRow => "KEYS: [Shift]+S D F Space J K L  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                        KeyPreset::ArcadeZx => "KEYS: [Shift]+Z S X D C F V      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                        KeyPreset::Pms9K => "KEYS: S D F Space J K L ; '      (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                        KeyPreset::DoublePlay => "KEYS: [Shift]+ZSXDCFV / [RShift]+UIOP[]\\  (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                        KeyPreset::Custom => "KEYS: Custom Key Layout Active    (F1: Layout | 1/2: Speed | F10/F11: Cover | Esc: Pause)",
-                                    }
-                                };
-                                state.renderer.draw_footer_text(footer_text);
-                            }
+                        let mut visual_levels = [0.0; 16];
+                        if let Some(audio) = &state.audio_engine {
+                            audio.get_visual_levels(&mut visual_levels);
                         }
+                        present::gameplay(state, size, audio_time, &visual_levels);
                     }
+                    AppScreen::SongSelect => present::song_select(state, size),
+                    AppScreen::Loading => present::loading(state, size),
                     AppScreen::Result => {
-                        let elapsed = state.result_entered_at.elapsed().as_secs_f64();
-                        let animating = elapsed < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
-                        // Result is otherwise a static dirty-flag screen (see
-                        // AppState::mark_dirty), unlike Gameplay's per-frame
-                        // driver, so keep rendering past the dirty-flag reset
-                        // below while the score count-up / rank reveal is
-                        // still running.
-                        if state.is_dirty || animating {
-                            if let (Some(chart), Some(judge), false) =
-                                (&state.active_chart, &state.active_judge, uses_canvas_ui(state))
-                            {
-                                state.renderer.render_result(
-                                    chart,
-                                    judge.score(),
-                                    state.is_new_record,
-                                    state.previous_best.as_ref(),
-                                    elapsed,
-                                );
-                            }
-                            if animating {
-                                state.window.request_redraw();
-                            }
+                        present::result(state, size);
+                        // Keep frames coming while the reveal animation runs.
+                        if state.result_entered_at.elapsed().as_secs_f64()
+                            < beetle_render::RESULT_REVEAL_DURATION_SECONDS
+                        {
+                            state.window.request_redraw();
                         }
                     }
-                    AppScreen::KeyConfig => {
-                        if state.is_dirty && !uses_canvas_ui(state) {
-                            let lanes = state.key_config_lanes();
-                            let key_names: Vec<(&'static str, String)> = lanes
-                                .iter()
-                                .map(|&lane| {
-                                    (
-                                        crate::input::lane_label(lane),
-                                        state.input_config.get_key_name_for_lane(lane),
-                                    )
-                                })
-                                .collect();
-                            state.renderer.render_key_config(
-                                &key_names,
-                                state.selected_key_idx,
-                                state.input_config.preset.as_str(),
-                                state.is_rebinding_key,
-                            );
-                        }
-                    }
+                    AppScreen::KeyConfig => present::key_config(state, size),
                 }
-
-                // Frame presentation: Hardware Direct3D 11 FLIP swapchain or CPU softbuffer
-                let width = state.renderer.width();
-                let height = state.renderer.height();
-                #[cfg(target_os = "windows")]
-                let mut presented_d3d11 = false;
-                #[cfg(target_os = "windows")]
-                if state.is_d3d11_active() && width > 0 && height > 0 {
-                    use beetle_render::GpuBackend;
-                    // 1. Canvas UI path (ADR-026): screens already ported to `Ui`.
-                    if state.screen == AppScreen::SongSelect && state.gpu_ui.is_some() {
-                        presented_d3d11 = present_song_select(state, width, height);
-                    }
-                    if state.screen == AppScreen::Result && state.gpu_ui.is_some() {
-                        presented_d3d11 = present_result(state, width, height);
-                    }
-                    if state.screen == AppScreen::KeyConfig && state.gpu_ui.is_some() {
-                        presented_d3d11 = present_key_config(state, width, height);
-                    }
-                    if state.screen == AppScreen::Loading && state.gpu_ui.is_some() {
-                        presented_d3d11 = present_loading(state, width, height);
-                    }
-                    if let Some(d3d11) = &mut state.d3d11_backend {
-                        if state.screen == AppScreen::Gameplay {
-                            if let (Some(gpu), Some(chart), Some(judge), Some(timing)) = (
-                                &mut state.gpu_ui,
-                                &state.active_chart,
-                                &state.active_judge,
-                                &state.active_timing,
-                            ) {
-                                d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-                                let bga = gameplay_bga_texture(
-                                    gpu,
-                                    d3d11,
-                                    &state.bga_bank,
-                                    &state.video_players,
-                                    state.poor_until_time,
-                                    state.poor_bga_bmp,
-                                    state.current_bga_bmp,
-                                    state.active_bga_image.as_ref(),
-                                    state.active_chart_hash,
-                                    audio_time,
-                                );
-                                let layer = state.current_layer_bmp.and_then(|id| {
-                                    bga_texture(gpu, d3d11, &state.bga_bank, &state.video_players, id, true)
-                                });
-
-                                state.renderer.clean_expired_hit_bursts(audio_time);
-                                let key_pressed = *state.renderer.key_pressed();
-                                let (badge, hint) = gameplay_badge_and_hint(
-                                    state.is_replay_playback,
-                                    state.is_auto_play,
-                                    state.input_config.preset,
-                                );
-                                let vp = state.renderer.viewport;
-                                gpu.ui.lite = d3d11.is_warp();
-                                gpu.ui.begin(width, height, vp.scale);
-                                beetle_render::draw_gameplay(
-                                    &mut gpu.ui,
-                                    &beetle_render::PlayFrame {
-                                        viewport: &vp,
-                                        layout: &state.renderer.skin,
-                                        chart,
-                                        notes: judge.notes(),
-                                        timing,
-                                        score: judge.score(),
-                                        audio_time,
-                                        song_length: state.song_end_time,
-                                        visual_levels: &visual_levels,
-                                        bga,
-                                        layer,
-                                        track_bga_opacity: state.track_bga.opacity(),
-                                        key_pressed: &key_pressed,
-                                        hit_bursts: state.renderer.hit_bursts(),
-                                        last_judge: state.renderer.last_judge(),
-                                        hint,
-                                        badge,
-                                        pause: state
-                                            .is_gameplay_paused
-                                            .then_some(state.pause_selected_option),
-                                    },
-                                );
-                                gpu.ui.end(d3d11);
-                                if let Some(cap) = &mut state.capture {
-                                    if cap.on_frame(state.screen, d3d11) {
-                                        state.should_exit_app = true;
-                                    }
-                                }
-                                d3d11.end_frame();
-                                presented_d3d11 = true;
-                            }
-                        }
-
-                        // 2. UI, Modal, and Fallback screens via SoftwareRenderer texture
-                        if !presented_d3d11 {
-                            d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-                            if let Some(tex_id) = state.d3d11_frame_texture {
-                                if state.is_dirty
-                                    || state.screen == AppScreen::Loading
-                                    || state.is_gameplay_paused
-                                {
-                                    d3d11.update_texture(
-                                        tex_id,
-                                        width,
-                                        height,
-                                        state.renderer.data(),
-                                    );
-                                }
-                                let w = width as f32;
-                                let h = height as f32;
-                                let quad_vertices = [
-                                    beetle_render::Vertex2D::new(
-                                        0.0,
-                                        0.0,
-                                        0.0,
-                                        0.0,
-                                        [1.0, 1.0, 1.0, 1.0],
-                                    ),
-                                    beetle_render::Vertex2D::new(
-                                        w,
-                                        0.0,
-                                        1.0,
-                                        0.0,
-                                        [1.0, 1.0, 1.0, 1.0],
-                                    ),
-                                    beetle_render::Vertex2D::new(
-                                        w,
-                                        h,
-                                        1.0,
-                                        1.0,
-                                        [1.0, 1.0, 1.0, 1.0],
-                                    ),
-                                    beetle_render::Vertex2D::new(
-                                        0.0,
-                                        h,
-                                        0.0,
-                                        1.0,
-                                        [1.0, 1.0, 1.0, 1.0],
-                                    ),
-                                ];
-                                let quad_indices = [0, 1, 2, 0, 2, 3];
-                                d3d11.draw_batch(
-                                    &quad_vertices,
-                                    &quad_indices,
-                                    Some(tex_id),
-                                    beetle_render::BlendMode::Alpha,
-                                );
-                            }
-                            if let Some(cap) = &mut state.capture {
-                                if cap.on_frame(state.screen, d3d11) {
-                                    state.should_exit_app = true;
-                                }
-                            }
-                            d3d11.end_frame();
-                            presented_d3d11 = true;
-                        }
-                    }
-                }
-
-                #[cfg(not(target_os = "windows"))]
-                let presented_d3d11 = false;
-
-                if !presented_d3d11
-                    && width > 0
-                    && height > 0
-                    && (state.is_dirty
-                        || state.screen == AppScreen::Gameplay
-                        || state.screen == AppScreen::Loading)
-                {
-                    if let Ok(mut buffer) = state.surface.buffer_mut() {
-                        let data = state.renderer.data();
-                        let buffer_slice = buffer.as_mut();
-                        for (dest, src) in buffer_slice.iter_mut().zip(data.chunks_exact(4)) {
-                            *dest =
-                                ((src[0] as u32) << 16) | ((src[1] as u32) << 8) | (src[2] as u32);
-                        }
-                        let _ = buffer.present();
-                    }
-                }
-
-                state.is_dirty = false;
             }
             _ => (),
         }
     }
-}
-
-/// Whether screens already ported to the Canvas UI are drawn with it.
-pub(crate) fn uses_canvas_ui(state: &AppState) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        state.is_d3d11_active() && state.gpu_ui.is_some()
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = state;
-        false
-    }
-}
-
-/// Song select (+ its option / quit modals) on the Canvas UI. Returns
-/// `false` if the D3D11 UI is not available.
-#[cfg(target_os = "windows")]
-fn present_song_select(state: &mut AppState, width: u32, height: u32) -> bool {
-    use gpu_ui::ImageKey;
-    let selected_hash = state.current_selected_song().map(|s| s.hash);
-    let has_replay = selected_hash
-        .is_some_and(|h| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, h)).exists());
-    let chips = [
-        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
-        state.play_options.lane_modifier.as_str().to_string(),
-        state.play_options.gauge_type.as_str().to_string(),
-    ];
-    let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
-    let vp = state.renderer.viewport;
-    let (Some(d3d11), Some(gpu)) = (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut()) else {
-        return false;
-    };
-    use beetle_render::GpuBackend;
-
-    let stage_img = selected_hash
-        .and_then(|h| state.stage_image_cache.get(&h))
-        .and_then(|img| img.as_ref());
-    let (jacket, ambient) = match (selected_hash, stage_img) {
-        (Some(hash), Some(img)) => {
-            gpu.trim_stage_textures(d3d11, hash);
-            (gpu.image(d3d11, ImageKey::Stage(hash), img), Some(img.average_color_sampled(6)))
-        }
-        _ => (None, None),
-    };
-
-    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-    gpu.ui.lite = d3d11.is_warp();
-    gpu.ui.begin(width, height, vp.scale);
-    beetle_render::draw_song_select(
-        &mut gpu.ui,
-        &beetle_render::SelectFrame {
-            viewport: &vp,
-            songs: &state.songs,
-            visible: &state.filtered_indices,
-            selected: state.selected_song_idx,
-            scores: &state.score_store,
-            folder: state.category_mode.as_str(),
-            sort: state.sort_mode.as_str(),
-            search: &state.search_query,
-            search_active: state.is_search_active,
-            jacket,
-            ambient,
-            option_chips: &chips,
-            auto_play: state.is_auto_play,
-            has_replay,
-        },
-    );
-    if let Some(rows) = &option_rows {
-        beetle_render::draw_options_modal(&mut gpu.ui, &vp, rows, state.modal_row);
-    }
-    if state.show_exit_modal {
-        beetle_render::draw_exit_modal(&mut gpu.ui, &vp);
-    }
-    gpu.ui.end(d3d11);
-    if let Some(cap) = &mut state.capture {
-        if cap.on_frame(state.screen, d3d11) {
-            state.should_exit_app = true;
-        }
-    }
-    d3d11.end_frame();
-    true
-}
-
-/// Stage result on the Canvas UI. Returns `false` if the D3D11 UI or the
-/// finished chart is not available.
-#[cfg(target_os = "windows")]
-fn present_result(state: &mut AppState, width: u32, height: u32) -> bool {
-    use gpu_ui::ImageKey;
-    let elapsed = state.result_entered_at.elapsed().as_secs_f64();
-    let unsaved = if state.is_replay_playback {
-        Some("REPLAY")
-    } else if state.is_auto_play {
-        Some("AUTO PLAY")
-    } else if state.start_measure > 0 {
-        Some("PRACTICE")
-    } else {
-        None
-    };
-    let vp = state.renderer.viewport;
-    let (Some(d3d11), Some(gpu), Some(chart), Some(judge)) = (
-        state.d3d11_backend.as_mut(),
-        state.gpu_ui.as_mut(),
-        &state.active_chart,
-        &state.active_judge,
-    ) else {
-        return false;
-    };
-    use beetle_render::GpuBackend;
-    let jacket = state
-        .active_bga_image
-        .as_ref()
-        .and_then(|img| gpu.image(d3d11, ImageKey::Stage(state.active_chart_hash), img));
-
-    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-    gpu.ui.lite = d3d11.is_warp();
-    gpu.ui.begin(width, height, vp.scale);
-    beetle_render::draw_result(
-        &mut gpu.ui,
-        &beetle_render::ResultFrame {
-            viewport: &vp,
-            chart,
-            score: judge.score(),
-            previous_best: state.previous_best.as_ref(),
-            new_record: state.is_new_record,
-            elapsed,
-            jacket,
-            unsaved_reason: unsaved,
-        },
-    );
-    gpu.ui.end(d3d11);
-    if let Some(path) = state.pending_screenshot.take() {
-        let _ = devtools::save_backbuffer(d3d11, &path);
-    }
-    if let Some(cap) = &mut state.capture {
-        if cap.on_frame(state.screen, d3d11) {
-            state.should_exit_app = true;
-        }
-    }
-    d3d11.end_frame();
-    true
-}
-
-/// Key configuration on the Canvas UI. Returns `false` if the D3D11 UI is
-/// not available.
-#[cfg(target_os = "windows")]
-fn present_key_config(state: &mut AppState, width: u32, height: u32) -> bool {
-    let mode = state.key_config_mode();
-    let keys: Vec<(beetle_core::Lane, String)> = state
-        .key_config_lanes()
-        .iter()
-        .map(|&lane| (lane, state.input_config.get_key_name_for_lane(lane)))
-        .collect();
-    let lanes: Vec<beetle_render::KeyBinding> = keys
-        .iter()
-        .map(|(lane, key)| beetle_render::KeyBinding {
-            lane: *lane,
-            label: crate::input::lane_label(*lane),
-            key,
-        })
-        .collect();
-    let vp = state.renderer.viewport;
-    let (Some(d3d11), Some(gpu)) = (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut()) else {
-        return false;
-    };
-    use beetle_render::GpuBackend;
-    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-    gpu.ui.lite = d3d11.is_warp();
-    gpu.ui.begin(width, height, vp.scale);
-    beetle_render::draw_key_config(
-        &mut gpu.ui,
-        &beetle_render::KeyConfigFrame {
-            viewport: &vp,
-            mode,
-            lanes: &lanes,
-            selected: state.selected_key_idx,
-            rebinding: state.is_rebinding_key,
-            layout: state.input_config.preset.as_str(),
-        },
-    );
-    gpu.ui.end(d3d11);
-    if let Some(cap) = &mut state.capture {
-        if cap.on_frame(state.screen, d3d11) {
-            state.should_exit_app = true;
-        }
-    }
-    d3d11.end_frame();
-    true
-}
-
-/// Loading screen on the Canvas UI. Returns `false` if the D3D11 UI or the
-/// song being loaded is not available.
-#[cfg(target_os = "windows")]
-fn present_loading(state: &mut AppState, width: u32, height: u32) -> bool {
-    use gpu_ui::ImageKey;
-    let chips = [
-        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
-        state.play_options.lane_modifier.as_str().to_string(),
-        state.play_options.gauge_type.as_str().to_string(),
-    ];
-    let badge = if state.is_replay_playback {
-        Some("REPLAY")
-    } else if state.is_auto_play {
-        Some("AUTO PLAY")
-    } else {
-        None
-    };
-    let elapsed = state.loading_started_at.elapsed().as_secs_f64();
-    let vp = state.renderer.viewport;
-    let (Some(d3d11), Some(gpu), Some(song)) =
-        (state.d3d11_backend.as_mut(), state.gpu_ui.as_mut(), state.loading_song.as_ref())
-    else {
-        return false;
-    };
-    use beetle_render::GpuBackend;
-    let stage = state.stage_image_cache.get(&song.hash).and_then(|img| img.as_ref());
-    let (jacket, ambient) = match stage {
-        Some(img) => (
-            gpu.image(d3d11, ImageKey::Stage(song.hash), img),
-            Some(img.average_color_sampled(6)),
-        ),
-        None => (None, None),
-    };
-
-    d3d11.begin_frame(width, height, [0.0, 0.0, 0.0, 1.0]);
-    gpu.ui.lite = d3d11.is_warp();
-    gpu.ui.begin(width, height, vp.scale);
-    beetle_render::draw_loading(
-        &mut gpu.ui,
-        &beetle_render::LoadingFrame {
-            viewport: &vp,
-            song,
-            jacket,
-            ambient,
-            elapsed,
-            status: "Decoding keysounds and preparing audio",
-            option_chips: &chips,
-            badge,
-        },
-    );
-    gpu.ui.end(d3d11);
-    if let Some(cap) = &mut state.capture {
-        if cap.on_frame(state.screen, d3d11) {
-            state.should_exit_app = true;
-        }
-    }
-    d3d11.end_frame();
-    true
-}
-
-/// (label, value) rows of the play options modal, in the order the option
-/// handler indexes them (`state.modal_row`).
-#[cfg(target_os = "windows")]
-fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
-    let o = &state.play_options;
-    vec![
-        ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
-        ("MODIFIER", o.lane_modifier.as_str().to_string()),
-        ("GAUGE", o.gauge_type.as_str().to_string()),
-        ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
-        ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
-        ("DISPLAY MODE", state.display_mode.as_str().to_string()),
-        ("RESOLUTION", state.current_resolution_label().to_string()),
-        ("GRAPHICS GPU", state.gpu_backend.as_str().to_string()),
-        (
-            "TARGET FPS",
-            if state.target_fps == 0 {
-                "UNLIMITED".to_string()
-            } else {
-                format!("{} FPS", state.target_fps)
-            },
-        ),
-        ("KEY LAYOUT", state.input_config.preset.as_str().to_string()),
-        ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
-        ("START MEASURE", format!("M.{}", state.start_measure)),
-        ("TRACK BGA", state.track_bga.as_str().to_string()),
-    ]
-}
-
-/// Mode badge and key-hint line for the gameplay HUD.
-fn gameplay_badge_and_hint(
-    is_replay: bool,
-    is_auto: bool,
-    preset: KeyPreset,
-) -> (Option<&'static str>, &'static str) {
-    if is_replay {
-        return (Some("REPLAY"), "ESC  Return to song select");
-    }
-    if is_auto {
-        return (Some("AUTO PLAY"), "ESC  Return to song select");
-    }
-    let hint = match preset {
-        KeyPreset::HomeRow => "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::ArcadeZx => "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Pms9K => "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
-        KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-    };
-    (None, hint)
 }
 
 fn handle_keyboard_input(
@@ -1360,7 +602,6 @@ fn handle_keyboard_input(
     _repeat: bool,
     text: Option<&str>,
 ) {
-    state.mark_dirty();
 
     let PhysicalKey::Code(code) = physical_key else {
         return;
@@ -1594,70 +835,21 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_active_bga_hierarchy() {
-        use beetle_render::{ColorRgba, ImageBuffer};
-        use state::resolve_bga_hierarchy;
-        use std::collections::HashMap;
+    fn test_resolve_bga_priority() {
+        use beetle_core::BmpId;
+        use state::resolve_bga_id;
+        let (base, poor) = (Some(BmpId(1)), Some(BmpId(2)));
+        let all = |_| true;
 
-        let static_stage = ImageBuffer::new(320, 180, ColorRgba::new(10, 10, 10, 255));
-        let bmp_base = ImageBuffer::new(320, 180, ColorRgba::new(50, 50, 50, 255));
-        let bmp_poor = ImageBuffer::new(320, 180, ColorRgba::new(255, 0, 0, 255));
-
-        let mut bga_bank = HashMap::new();
-        bga_bank.insert(beetle_core::BmpId(1), bmp_base);
-        bga_bank.insert(beetle_core::BmpId(2), bmp_poor);
-        let video_players = HashMap::new();
-
-        // 1. Initial state: Static stage artwork fallback
-        let bga = resolve_bga_hierarchy(
-            0.0,
-            None,
-            None,
-            &bga_bank,
-            &video_players,
-            Some(&static_stage),
-            1.0,
-        )
-        .unwrap();
-        assert_eq!(bga.pixels[0], ColorRgba::new(10, 10, 10, 255));
-
-        // 2. Base BGA channel active
-        let bga = resolve_bga_hierarchy(
-            0.0,
-            None,
-            Some(beetle_core::BmpId(1)),
-            &bga_bank,
-            &video_players,
-            Some(&static_stage),
-            2.0,
-        )
-        .unwrap();
-        assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
-
-        // 3. POOR BGA override active during miss penalty window
-        let bga = resolve_bga_hierarchy(
-            3.0,
-            Some(beetle_core::BmpId(2)),
-            Some(beetle_core::BmpId(1)),
-            &bga_bank,
-            &video_players,
-            Some(&static_stage),
-            2.5,
-        )
-        .unwrap();
-        assert_eq!(bga.pixels[0], ColorRgba::new(255, 0, 0, 255));
-
-        // 4. After POOR window expires (t = 3.5), reverts back to Base BGA
-        let bga = resolve_bga_hierarchy(
-            3.0,
-            Some(beetle_core::BmpId(2)),
-            Some(beetle_core::BmpId(1)),
-            &bga_bank,
-            &video_players,
-            Some(&static_stage),
-            3.5,
-        )
-        .unwrap();
-        assert_eq!(bga.pixels[0], ColorRgba::new(50, 50, 50, 255));
+        // Nothing scheduled: stage image fallback.
+        assert_eq!(resolve_bga_id(0.0, None, None, all, 1.0), None);
+        // Base BGA channel active.
+        assert_eq!(resolve_bga_id(0.0, None, base, all, 2.0), Some(BmpId(1)));
+        // POOR image overrides it during the miss penalty window...
+        assert_eq!(resolve_bga_id(3.0, poor, base, all, 2.5), Some(BmpId(2)));
+        // ...and the base BGA returns once the window expires.
+        assert_eq!(resolve_bga_id(3.0, poor, base, all, 3.5), Some(BmpId(1)));
+        // A POOR image that failed to load does not blank the BGA.
+        assert_eq!(resolve_bga_id(3.0, poor, base, |id| id == BmpId(1), 2.5), Some(BmpId(1)));
     }
 }

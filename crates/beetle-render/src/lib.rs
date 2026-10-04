@@ -1,40 +1,36 @@
 //! # beetle-render
 //!
-//! Software 2D rendering pipeline utilizing tiny-skia and embedded bitmap fonts.
-//! Direct output to softbuffer with zero GPU runtime requirements.
+//! Direct3D 11 2D renderer for the Beetle player (ADR-026): an immediate-mode
+//! `Canvas` that batches into one shared atlas, a proportional text engine,
+//! a code-generated skin, and the screens built on them (`Ui`). Hardware
+//! adapters are preferred; WARP runs the same pipeline on the CPU.
+//! Also hosts the image decoders and video BGA player the app loads songs with.
 
 pub mod art;
 pub mod backend;
 pub mod canvas;
-pub mod bitmap_font;
-pub mod components;
-pub mod design_tokens;
 pub mod image;
 pub mod motion;
-pub mod renderer;
 pub mod screens;
 pub mod skin;
 pub mod text;
 pub mod theme;
 pub mod ui;
 pub mod video;
+pub mod view;
 
 #[cfg(target_os = "windows")]
 pub use backend::D3d11Backend;
-pub use backend::{
-    BgaAtlasBuilder, BlendMode, FontAtlas, GpuBackend, GpuBgaAtlas, GpuTexturePool, SoftBackend,
-    SpriteBatcher, TextureId, Vertex2D,
-};
-pub use bitmap_font::BitmapFont;
+pub use backend::{BlendMode, GpuBackend, TextureId, Vertex2D};
 pub use art::{Halo, NineSlice, Skin};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::Ui;
-pub use image::{ImageBuffer, ImageFitMode};
-pub use renderer::{HitBurst, SoftwareRenderer, Viewport};
+pub use image::{BgaAtlasBuilder, ImageBuffer};
+pub use view::{HitBurst, ViewState, Viewport};
 pub use screens::{
     draw_exit_modal, draw_gameplay, draw_key_config, draw_loading, draw_options_modal, draw_result,
-    draw_song_select, render_gameplay_gpu, KeyBinding, KeyConfigFrame, LoadingFrame, PlayFrame,
+    draw_song_select, KeyBinding, KeyConfigFrame, LoadingFrame, PlayFrame,
     ResultFrame, SelectFrame, SizedTexture,
 };
 pub use skin::{ColorRgba, SkinConfig};

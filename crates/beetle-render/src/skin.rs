@@ -1,6 +1,6 @@
 use beetle_core::{Lane, PlayMode};
 
-/// RGBA color representation for software rendering.
+/// Straight-alpha RGBA8 color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorRgba {
     pub r: u8,
@@ -35,45 +35,9 @@ impl ColorRgba {
             a,
         }
     }
-
-    /// Blends toward white by `amount` (0.0 = unchanged, 1.0 = pure white).
-    /// Used for the cheap "glossy" note/LN highlight treatment — a flat
-    /// stacked-rect bevel instead of a true gradient, so it works
-    /// identically on the GPU path's rect-only SpriteBatcher. See
-    /// docs/plans/2026-10-03-pulse-redesign.md.
-    pub fn lighten(self, amount: f32) -> Self {
-        let amount = amount.clamp(0.0, 1.0);
-        Self {
-            r: (self.r as f32 + (255.0 - self.r as f32) * amount) as u8,
-            g: (self.g as f32 + (255.0 - self.g as f32) * amount) as u8,
-            b: (self.b as f32 + (255.0 - self.b as f32) * amount) as u8,
-            a: self.a,
-        }
-    }
-
-    /// Blends toward black by `amount` (0.0 = unchanged, 1.0 = pure black).
-    /// Pairs with `lighten` for the glossy note bevel treatment.
-    pub fn darken(self, amount: f32) -> Self {
-        let amount = amount.clamp(0.0, 1.0);
-        Self {
-            r: (self.r as f32 * (1.0 - amount)) as u8,
-            g: (self.g as f32 * (1.0 - amount)) as u8,
-            b: (self.b as f32 * (1.0 - amount)) as u8,
-            a: self.a,
-        }
-    }
-
-    pub fn to_f32_array(self) -> [f32; 4] {
-        [
-            (self.r as f32) / 255.0,
-            (self.g as f32) / 255.0,
-            (self.b as f32) / 255.0,
-            (self.a as f32) / 255.0,
-        ]
-    }
 }
 
-/// Minimal skin configuration (positions, dimensions, colors).
+/// Gameplay lane layout (playfield geometry, lane widths and note colors).
 #[derive(Debug, Clone)]
 pub struct SkinConfig {
     pub play_mode: PlayMode,
@@ -84,19 +48,11 @@ pub struct SkinConfig {
     pub judge_line_y: f32,
     pub lane_width: f32,
     pub scratch_lane_width: f32,
-    pub note_height: f32,
     pub hi_speed: f32,
     pub lane_cover_ratio: f32,
-    pub bg_color: ColorRgba,
-    pub playfield_bg_color: ColorRgba,
-    pub lane_line_color: ColorRgba,
-    pub judge_line_color: ColorRgba,
     pub white_key_color: ColorRgba,
     pub blue_key_color: ColorRgba,
     pub scratch_key_color: ColorRgba,
-    pub key_beam_white: ColorRgba,
-    pub key_beam_blue: ColorRgba,
-    pub key_beam_scratch: ColorRgba,
 }
 
 impl Default for SkinConfig {
@@ -114,19 +70,11 @@ impl Default for SkinConfig {
             judge_line_y: 616.0,
             lane_width: key_w,
             scratch_lane_width: scratch_w,
-            note_height: 12.0,
             hi_speed: 400.0, // Pixels per second
             lane_cover_ratio: 0.0,
-            bg_color: ColorRgba::new(8, 8, 12, 255),
-            playfield_bg_color: ColorRgba::new(16, 16, 22, 255),
-            lane_line_color: ColorRgba::new(45, 45, 55, 255),
-            judge_line_color: ColorRgba::new(255, 50, 50, 255),
             white_key_color: crate::theme::NOTE_WHITE,
             blue_key_color: crate::theme::NOTE_BLUE,
             scratch_key_color: crate::theme::NOTE_SCRATCH,
-            key_beam_white: ColorRgba::new(200, 200, 255, 60),
-            key_beam_blue: ColorRgba::new(60, 140, 255, 80),
-            key_beam_scratch: ColorRgba::new(255, 70, 70, 80),
         }
     }
 }
@@ -158,7 +106,7 @@ fn playfield_width_for(mode: PlayMode, lane_width: f32, scratch_lane_width: f32)
 
 impl SkinConfig {
     /// Updates playfield geometry and lane dimensions based on the active 16:9 viewport.
-    pub fn update_layout(&mut self, vp: &crate::renderer::Viewport) {
+    pub fn update_layout(&mut self, vp: &crate::view::Viewport) {
         let s = vp.scale;
         self.playfield_x = vp.x + 50.0 * s;
         self.playfield_y = vp.y + 24.0 * s;
@@ -167,7 +115,6 @@ impl SkinConfig {
 
         self.scratch_lane_width = 72.0 * s;
         self.lane_width = 50.0 * s;
-        self.note_height = (12.0 * s).max(4.0);
 
         self.playfield_width =
             playfield_width_for(self.play_mode, self.lane_width, self.scratch_lane_width);
@@ -317,17 +264,6 @@ impl SkinConfig {
             Lane::Key2 | Lane::Key4 | Lane::Key6 | Lane::Key8 => self.blue_key_color,
             Lane::P2Key1 | Lane::P2Key3 | Lane::P2Key5 | Lane::P2Key7 => self.white_key_color,
             Lane::P2Key2 | Lane::P2Key4 | Lane::P2Key6 => self.blue_key_color,
-        }
-    }
-
-    /// Get key beam color when a lane is pressed.
-    pub fn key_beam_color(&self, lane: Lane) -> ColorRgba {
-        match lane {
-            Lane::Scratch | Lane::P2Scratch => self.key_beam_scratch,
-            Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 | Lane::Key9 => self.key_beam_white,
-            Lane::Key2 | Lane::Key4 | Lane::Key6 | Lane::Key8 => self.key_beam_blue,
-            Lane::P2Key1 | Lane::P2Key3 | Lane::P2Key5 | Lane::P2Key7 => self.key_beam_white,
-            Lane::P2Key2 | Lane::P2Key4 | Lane::P2Key6 => self.key_beam_blue,
         }
     }
 }

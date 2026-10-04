@@ -1,4 +1,4 @@
-use beetle_render::bitmap_font::BitmapFont;
+use crate::bitmap_font::BitmapFont;
 use beetle_render::image::ImageBuffer;
 use beetle_render::skin::ColorRgba;
 use bms_package_manager::PackageRecord;
@@ -431,7 +431,8 @@ impl GuiRenderer {
 
             self.draw_rect(art_x, dy, art_w, art_h, ColorRgba::new(10, 10, 16, 255));
             if let Some(img) = preview_img {
-                img.draw_scaled(
+                crate::image_draw::draw_scaled(
+                    img,
                     &mut self.pixmap,
                     art_x as i32,
                     dy as i32,

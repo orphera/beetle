@@ -1,6 +1,8 @@
 #![windows_subsystem = "windows"]
 
+mod bitmap_font;
 mod clipboard;
+mod image_draw;
 mod ui;
 
 use beetle_render::image::ImageBuffer;

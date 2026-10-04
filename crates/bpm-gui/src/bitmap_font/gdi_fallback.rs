@@ -4,7 +4,7 @@
 #![cfg(target_os = "windows")]
 #![allow(non_snake_case, non_camel_case_types, dead_code)]
 
-use crate::skin::ColorRgba;
+use beetle_render::ColorRgba;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
