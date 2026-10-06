@@ -88,3 +88,4 @@
 - [proposals/platform_expansion.md](proposals/platform_expansion.md): Linux 네이티브 데스크톱 지원, WebAssembly(WASM/Web Audio) 무설치 웹 플레이어/뷰어, 모바일/태블릿 터치 제스처 지원 제안서.
 - [proposals/decoupled_bga_package_system.md](proposals/decoupled_bga_package_system.md): 오디오/차트 코어 패키지와 대용량 BGA 패키지의 완전 분리 및 온디맨드 결합 제안서.
 - [proposals/gameplay_enhancement_and_display.md](proposals/gameplay_enhancement_and_display.md): 플레이 옵션(스피드, 판정 오프셋) 및 디스플레이 고도화 제안서.
+- [proposals/bmz_player_feature_candidates.md](proposals/bmz_player_feature_candidates.md): bmz-player 비교 분석 및 도입 후보(파서 관용성, 차트 해시, 판정 auto-adjust, LN 모드, 볼륨 정규화, 스코어 DB 마이그레이션 등) 정리.
