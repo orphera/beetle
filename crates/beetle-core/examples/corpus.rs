@@ -84,6 +84,7 @@ fn survey_file(path: &Path) -> FileReport {
     report.tags.insert(format!("F:ext.{}", ext_lower(path)));
 
     // Raw census, independent of what the parser chooses to look at.
+    let mut lntype = 1u32;
     for line in text.lines() {
         let line = line.trim();
         let Some(content) = line.strip_prefix('#') else { continue };
@@ -99,6 +100,9 @@ fn survey_file(path: &Path) -> FileReport {
                 if is_mine_channel(&ch) {
                     report.tags.insert("F:mine".into());
                 }
+                if is_ln_channel(&ch) {
+                    report.tags.insert("F:ln.channel".into());
+                }
                 report.tags.insert(format!("C:{ch}"));
             }
             continue;
@@ -112,8 +116,15 @@ fn survey_file(path: &Path) -> FileReport {
         }
         if norm == "LNTYPE" {
             report.tags.insert(format!("F:lntype.{val}"));
+            lntype = val.parse().unwrap_or(1);
         }
         report.tags.insert(format!("H:{norm}"));
+    }
+
+    // `#LNTYPE` only matters when the chart really uses 5x/6x LN channels; a
+    // `#LNTYPE 2` header on a pure `#LNOBJ` chart changes nothing.
+    if report.tags.contains("F:ln.channel") && lntype != 1 {
+        report.tags.insert(format!("F:ln.channel-lntype{lntype}"));
     }
 
     // Does the real pipeline get a playable chart out of it?
@@ -133,11 +144,16 @@ fn survey_file(path: &Path) -> FileReport {
             }
             report.tags.insert(format!("F:mode.{}", chart.detect_play_mode_with_hint(is_pms).as_str()));
             if chart.header.ln_obj.is_some() {
-                report.tags.insert("F:lnobj".into());
+                report.tags.insert("F:ln.lnobj".into());
             }
         }
     }
     report
+}
+
+fn is_ln_channel(ch: &str) -> bool {
+    let b = ch.as_bytes();
+    b.len() == 2 && (b[0] == b'5' || b[0] == b'6') && (b'1'..=b'9').contains(&b[1])
 }
 
 fn is_mine_channel(ch: &str) -> bool {
@@ -175,7 +191,7 @@ fn is_problem_flag(tag: &str) -> bool {
     matches!(
         tag,
         "F:random" | "F:mine" | "F:no-playable-notes" | "F:extreme-bpm" | "F:bad-duration"
-    ) || tag.starts_with("F:lntype.") && tag != "F:lntype.1"
+    ) || tag.starts_with("F:ln.channel-lntype")
 }
 
 fn main() {
@@ -249,8 +265,10 @@ fn main() {
         println!("  {:>6}  {msg}   e.g. {}", idxs.len(), example(idxs));
     }
 
-    println!("\n== play-mode / extension distribution ==");
-    for (tag, idxs) in by_tag.iter().filter(|(t, _)| t.starts_with("F:mode.") || t.starts_with("F:ext.")) {
+    println!("\n== play-mode / extension / LN-style distribution ==");
+    for (tag, idxs) in by_tag.iter().filter(|(t, _)| {
+        ["F:mode.", "F:ext.", "F:ln."].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
+    }) {
         println!("  {:>6} ({:>5.1}%)  {tag}", idxs.len(), pct(idxs.len()));
     }
 
