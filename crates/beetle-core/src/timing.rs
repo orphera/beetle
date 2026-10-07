@@ -175,30 +175,31 @@ impl TimingModel {
         if time_seconds <= 0.0 {
             return (0, 0.0);
         }
+        self.beat_to_measure_fraction(self.time_to_beat_position(time_seconds))
+    }
 
-        // Find the segment applicable to time_seconds
-        let mut best_segment = &self.segments[0];
-        for seg in &self.segments {
-            if seg.start_time_seconds <= time_seconds {
-                best_segment = seg;
-            } else {
-                break;
-            }
+    /// Converts absolute time in seconds to a cumulative beat position.
+    ///
+    /// Frozen during STOP, and extrapolated at the first BPM before time 0 so
+    /// lead-in notes keep a consistent scroll distance. Renderers use this to
+    /// place notes by beat distance, which is what makes BPM changes and STOPs
+    /// visible as scroll-speed changes.
+    pub fn time_to_beat_position(&self, time_seconds: f64) -> f64 {
+        if time_seconds <= 0.0 {
+            return time_seconds * self.segments[0].bpm / 60.0;
         }
-
-        let beat = if time_seconds
-            < best_segment.start_time_seconds + best_segment.stop_duration_seconds
-        {
+        let idx = self
+            .segments
+            .partition_point(|s| s.start_time_seconds <= time_seconds)
+            .saturating_sub(1);
+        let seg = &self.segments[idx];
+        let moving_from = seg.start_time_seconds + seg.stop_duration_seconds;
+        if time_seconds < moving_from {
             // Frozen in STOP
-            best_segment.start_beat
+            seg.start_beat
         } else {
-            let delta_time = time_seconds
-                - (best_segment.start_time_seconds + best_segment.stop_duration_seconds);
-            let delta_beats = (delta_time * best_segment.bpm) / 60.0;
-            best_segment.start_beat + delta_beats
-        };
-
-        self.beat_to_measure_fraction(beat)
+            seg.start_beat + (time_seconds - moving_from) * seg.bpm / 60.0
+        }
     }
 
     /// Converts a cumulative beat count to (measure, fraction).
@@ -320,6 +321,41 @@ mod tests {
 
         // Time during stop (2.5s) maps to measure 1, fraction 0.0
         assert_eq!(model.time_to_beat(2.5), (1, 0.0));
+    }
+
+    #[test]
+    fn beat_position_follows_bpm_change_and_freezes_in_stop() {
+        let chart = BmsChart {
+            header: BmsHeader {
+                bpm: 120.0,
+                ..Default::default()
+            },
+            timing_events: vec![
+                TimingEvent {
+                    measure: 1,
+                    fraction: 0.0,
+                    kind: TimingEventKind::BpmChange(240.0),
+                },
+                TimingEvent {
+                    measure: 2,
+                    fraction: 0.0,
+                    kind: TimingEventKind::StopMeasures(1.0),
+                },
+            ],
+            ..Default::default()
+        };
+        let model = TimingModel::from_chart(&chart);
+
+        // 120 BPM: 2 beats/s. 240 BPM from beat 4: 4 beats/s.
+        assert_eq!(model.time_to_beat_position(1.0), 2.0);
+        assert_eq!(model.time_to_beat_position(2.0), 4.0);
+        assert_eq!(model.time_to_beat_position(2.5), 6.0);
+        // Measure 2 starts at beat 8 (t=3.0); the stop lasts 1 measure = 1.0s at 240 BPM.
+        assert_eq!(model.time_to_beat_position(3.5), 8.0);
+        assert_eq!(model.time_to_beat_position(4.0), 8.0);
+        assert_eq!(model.time_to_beat_position(4.5), 10.0);
+        // Before the start, extrapolate at the first BPM.
+        assert_eq!(model.time_to_beat_position(-1.0), -2.0);
     }
 
     #[test]

@@ -180,14 +180,19 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         c.set_additive(false);
     }
 
+    // Scroll by beat distance, not time: hi_speed is px/s at the chart's first
+    // BPM, so a BPM change speeds the notes up/down and a STOP freezes them.
     let speed = l.hi_speed * s;
-    let y_at = |time: f64| judge_y - ((time - f.audio_time) as f32 * speed);
+    let px_per_beat = speed as f64 * 60.0 / f.timing.initial_bpm().max(1.0);
+    let now_beat = f.timing.time_to_beat_position(f.audio_time);
+    let y_at_beat = |beat: f64| judge_y - ((beat - now_beat) * px_per_beat) as f32;
+    let y_at = |time: f64| y_at_beat(f.timing.time_to_beat_position(time));
 
     // Measure lines.
     c.push_clip(Rect::from_ltrb(field.x, field.y, field.right(), judge_y));
     let (beat_measure, _) = f.timing.time_to_beat(f.audio_time);
     for measure in beat_measure.saturating_sub(1)..=f.chart.max_measure + 1 {
-        let y = y_at(f.timing.beat_to_time_seconds(measure, 0.0));
+        let y = y_at_beat(f.timing.beat_position(measure, 0.0));
         if y < field.y {
             break;
         }
@@ -213,10 +218,10 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
 
     // Notes.
     let note_h = sk.note.region.h as f32;
-    let visible = (judge_y - field.y + 100.0 * s) as f64 / speed.max(1.0) as f64;
+    let visible_beats = (judge_y - field.y + 100.0 * s) as f64 / px_per_beat.max(1.0);
     let first = f.notes.partition_point(|n| n.end_target_time_seconds < f.audio_time - 2.0);
     for note in &f.notes[first..] {
-        if note.target_time_seconds > f.audio_time + visible {
+        if f.timing.time_to_beat_position(note.target_time_seconds) > now_beat + visible_beats {
             break;
         }
         let lane = note.note_event.lane;
