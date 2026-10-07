@@ -1,4 +1,5 @@
-use crate::bms::{decode_bms_text, parse_bms, PlayMode};
+use crate::bms::{decode_bms_text, parse_bms, NoteType, PlayMode};
+use crate::rules::LnRule;
 use crate::escape::{escape_field, unescape_field};
 use crate::identity::{hash_chart_bytes, md5_from_hex, md5_to_hex, ChartId};
 use crate::score::ScoreStore;
@@ -69,7 +70,12 @@ pub struct SongMetadata {
     pub bpm_min: f64,
     pub bpm_max: f64,
     pub play_level: u32,
+    /// Notes as the CN rule counts them: a long note's head and tail each count.
     pub notes_count: usize,
+    /// How many long notes the chart has.
+    pub ln_count: u32,
+    /// The chart's own `#LNMODE` (1 LN, 2 CN, 3 HCN), if it has one.
+    pub ln_mode: Option<u32>,
     pub play_mode: PlayMode,
 }
 
@@ -85,6 +91,12 @@ impl SongMetadata {
         let (bpm_min, bpm_max) = chart.bpm_range();
         let is_pms = file_path.to_lowercase().ends_with(".pms");
         let play_mode = chart.detect_play_mode_with_hint(is_pms);
+        let ln_count = chart
+            .notes
+            .iter()
+            .filter(|n| n.note_type == NoteType::LongNoteStart)
+            .count() as u32;
+        let ln_mode = chart.header.ln_mode;
 
         let title = if chart.header.title.is_empty() {
             "Unknown Title".to_string()
@@ -106,8 +118,19 @@ impl SongMetadata {
             bpm_max,
             play_level: chart.header.play_level,
             notes_count,
+            ln_count,
+            ln_mode,
             play_mode,
         })
+    }
+
+    /// How many notes the chart has under a long note rule: the same as
+    /// `notes_count` for CN, and without the tails for LN.
+    pub fn notes_count_for(&self, rule: LnRule) -> usize {
+        match rule {
+            LnRule::Cn => self.notes_count,
+            LnRule::Ln => self.notes_count.saturating_sub(self.ln_count as usize),
+        }
     }
 
     /// Extracts metadata from chart text that has no file bytes of its own
@@ -129,7 +152,7 @@ impl SongMetadata {
     /// Serializes to one `field=value` line, tab separated.
     pub fn serialize_line(&self) -> String {
         format!(
-            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tmode={}\tid={}\tmd5={}\tlegacy={:016x}",
+            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tid={}\tmd5={}\tlegacy={:016x}",
             escape_field(&self.file_path),
             escape_field(&self.title),
             escape_field(&self.subtitle),
@@ -140,6 +163,8 @@ impl SongMetadata {
             self.bpm_max,
             self.play_level,
             self.notes_count,
+            self.ln_count,
+            self.ln_mode.map_or(String::new(), |m| m.to_string()),
             self.play_mode.as_str(),
             self.id,
             md5_to_hex(&self.md5),
@@ -156,6 +181,7 @@ impl SongMetadata {
             (String::new(), String::new(), String::new(), String::new());
         let (mut bpm, mut bpm_min, mut bpm_max) = (130.0, None, None);
         let (mut play_level, mut notes_count) = (1, 0);
+        let (mut ln_count, mut ln_mode) = (0, None);
         let mut play_mode = PlayMode::Keys7;
         let (mut id, mut md5, mut hash) = (None, None, None);
 
@@ -174,6 +200,8 @@ impl SongMetadata {
                 "bpmmax" => bpm_max = value.parse().ok(),
                 "level" => play_level = value.parse().unwrap_or(1),
                 "notes" => notes_count = value.parse().unwrap_or(0),
+                "lns" => ln_count = value.parse().unwrap_or(0),
+                "lnmode" => ln_mode = value.parse().ok(),
                 "mode" => {
                     play_mode = match value {
                         "5KEYS" => PlayMode::Keys5,
@@ -204,6 +232,8 @@ impl SongMetadata {
             bpm_max: bpm_max.unwrap_or(bpm),
             play_level,
             notes_count,
+            ln_count,
+            ln_mode,
             play_mode,
         })
     }
@@ -251,7 +281,7 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
 }
 
 /// First line of a song list cache.
-const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V2";
+const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V3";
 
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
@@ -294,6 +324,8 @@ mod tests {
         let meta = SongMetadata {
             id: ChartId::synthetic(0x123456789abcdef0),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 0x123456789abcdef0,
             file_path: "songs/test.bms".to_string(),
             title: "Test Song".to_string(),
@@ -320,6 +352,8 @@ mod tests {
             SongMetadata {
                 id: ChartId::synthetic(1),
                 md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
                 legacy_hash: 1,
                 file_path: "1.bms".into(),
                 title: "Song B".into(),
@@ -336,6 +370,8 @@ mod tests {
             SongMetadata {
                 id: ChartId::synthetic(2),
                 md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
                 legacy_hash: 2,
                 file_path: "2.bms".into(),
                 title: "Song A".into(),
@@ -402,23 +438,46 @@ mod tests {
     }
 
     #[test]
-    fn song_cache_v2_roundtrips_and_old_caches_are_dropped() {
+    fn song_cache_v3_roundtrips_and_old_caches_are_dropped() {
         let songs = vec![
             SongMetadata::from_bytes("a.bms", CHART).unwrap(),
-            SongMetadata::from_bytes("b	tab.bms", b"#TITLE Two
-#BPM 90
-#00112:01
-").unwrap(),
+            SongMetadata::from_bytes("b\ttab.bms", b"#TITLE Two\n#BPM 90\n#LNMODE 2\n#00112:01\n#00151:0101\n").unwrap(),
         ];
         let text = serialize_song_cache(&songs);
-        assert!(text.starts_with("#BEETLE_SONGS_V2
-"));
+        assert!(text.starts_with("#BEETLE_SONGS_V3\n"));
         assert_eq!(deserialize_song_cache(&text), songs);
 
-        // The previous cache had no header: it is not trusted, so the app rescans.
-        let old = "0000000000000001	a.bms	T		A	G	140.00	5	100	7KEYS
-";
+        // Earlier caches have no long note fields: not trusted, so the app rescans.
+        let v2 = text.replacen("#BEETLE_SONGS_V3", "#BEETLE_SONGS_V2", 1);
+        assert!(deserialize_song_cache(&v2).is_empty());
+        let old = "0000000000000001\ta.bms\tT\t\tA\tG\t140.00\t5\t100\t7KEYS\n";
         assert!(deserialize_song_cache(old).is_empty());
+    }
+
+    #[test]
+    fn long_notes_and_lnmode_are_read_from_the_chart() {
+        let ln = SongMetadata::from_bytes(
+            "ln.bms",
+            b"#BPM 120\n#LNMODE 2\n#00112:01\n#00251:01000100\n#00252:01000100\n",
+        )
+        .unwrap();
+        assert_eq!((ln.ln_count, ln.ln_mode), (2, Some(2)));
+        let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
+        assert_eq!((plain.ln_count, plain.ln_mode), (0, None));
+    }
+
+    #[test]
+    fn note_counts_follow_the_long_note_rule() {
+        // A tap and two long notes: CN counts both ends of each, LN only the heads.
+        let song = SongMetadata::from_bytes(
+            "ln.bms",
+            b"#BPM 120\n#00112:01\n#00251:01000100\n#00252:01000100\n",
+        )
+        .unwrap();
+        assert_eq!(song.notes_count_for(LnRule::Cn), 5);
+        assert_eq!(song.notes_count_for(LnRule::Ln), 3);
+        let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
+        assert_eq!(plain.notes_count_for(LnRule::Ln), plain.notes_count_for(LnRule::Cn));
     }
 
     #[test]

@@ -933,6 +933,8 @@ mod tests {
         let meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(12345),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 12345,
             file_path: format!("{}::roop_dotm_ogg/01_roop_dotm7SPN.bms", pkg_path),
             title: "roop_dotm".to_string(),
@@ -1052,6 +1054,8 @@ mod tests {
         let meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(99999),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 99999,
             file_path: format!(
                 "{}::test.bms",
@@ -1114,6 +1118,8 @@ mod tests {
         let classic_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 88888,
             file_path: format!(
                 "{}::test.bms",
@@ -1216,6 +1222,8 @@ mod tests {
         let meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 88888,
             file_path: format!(
                 "{}::test.bms",
@@ -1365,6 +1373,8 @@ mod tests {
         let classic_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(10001),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 10001,
             file_path: format!(
                 "{}::bench.bms",
@@ -1385,6 +1395,8 @@ mod tests {
         let turbo_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(10002),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 10002,
             file_path: format!(
                 "{}::bench.bms",
@@ -1502,6 +1514,8 @@ mod tests {
         let song_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(77777),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 77777,
             file_path: format!(
                 "{}::main.bms",
@@ -1627,6 +1641,8 @@ mod tests {
         let song_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 88888,
             file_path: format!(
                 "{}::main.bms",
@@ -1685,6 +1701,8 @@ mod tests {
         let song_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(11111),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 11111,
             file_path: format!(
                 "{}::alice7-1.bme",
@@ -1726,6 +1744,8 @@ mod tests {
         let song_meta = SongMetadata {
             id: beetle_core::ChartId::synthetic(22222),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 22222,
             file_path: format!(
                 "{}::marisa(NORMAL7).bme",

@@ -610,6 +610,8 @@ mod tests {
         SongMetadata {
             id: beetle_core::ChartId::synthetic(i as u64 + 1),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: i as u64 + 1,
             file_path: format!("songs/{i}.bms"),
             title: format!("Song number {i} with a fairly long title (ANOTHER)"),

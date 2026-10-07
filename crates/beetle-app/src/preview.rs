@@ -254,6 +254,8 @@ mod tests {
         SongMetadata {
             id: beetle_core::ChartId::synthetic(1),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 1,
             file_path: chart.to_string_lossy().into_owned(),
             title: String::new(),

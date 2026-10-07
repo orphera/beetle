@@ -656,6 +656,8 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     let demo_meta = SongMetadata {
         id,
         md5,
+        ln_count: 0,
+        ln_mode: None,
         legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
         title: demo_chart.header.title,
@@ -689,6 +691,8 @@ pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) ->
     let demo_meta = SongMetadata {
         id,
         md5,
+        ln_count: 0,
+        ln_mode: None,
         legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
         title: demo_chart.header.title,

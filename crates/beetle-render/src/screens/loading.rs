@@ -178,6 +178,8 @@ mod tests {
         let song = SongMetadata {
             id: beetle_core::ChartId::synthetic(1),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 1,
             file_path: String::new(),
             title: "A very long song title that certainly needs two lines (Extended Mix)".into(),

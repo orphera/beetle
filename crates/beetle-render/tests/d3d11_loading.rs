@@ -17,6 +17,8 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
     let song = SongMetadata {
         id: beetle_core::ChartId::synthetic(1),
         md5: [0; 16],
+        ln_count: 0,
+        ln_mode: None,
         legacy_hash: 1,
         file_path: String::new(),
         title: title.into(),

@@ -764,6 +764,8 @@ mod tests {
         SongMetadata {
             id: beetle_core::ChartId::synthetic(n),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: n,
             file_path: format!("{title}.bms"),
             title: title.into(),
@@ -824,6 +826,8 @@ mod tests {
         songs.push(SongMetadata {
             id: beetle_core::ChartId::synthetic(101),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 101,
             file_path: "test1.bms".to_string(),
             title: "First Anthem".to_string(),
@@ -840,6 +844,8 @@ mod tests {
         songs.push(SongMetadata {
             id: beetle_core::ChartId::synthetic(102),
             md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
             legacy_hash: 102,
             file_path: "test2.bms".to_string(),
             title: "Second Beat".to_string(),
@@ -886,6 +892,8 @@ mod tests {
             SongMetadata {
                 id: beetle_core::ChartId::synthetic(1),
                 md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
                 legacy_hash: 1,
                 file_path: "pms_song.pms".to_string(),
                 title: "Popn Track".to_string(),
@@ -902,6 +910,8 @@ mod tests {
             SongMetadata {
                 id: beetle_core::ChartId::synthetic(2),
                 md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
                 legacy_hash: 2,
                 file_path: "dp_10k.bms".to_string(),
                 title: "10K DP Track".to_string(),
@@ -918,6 +928,8 @@ mod tests {
             SongMetadata {
                 id: beetle_core::ChartId::synthetic(3),
                 md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
                 legacy_hash: 3,
                 file_path: "dp_14k.bme".to_string(),
                 title: "14K DP Track".to_string(),

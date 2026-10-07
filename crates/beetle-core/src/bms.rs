@@ -172,6 +172,8 @@ pub struct BmsHeader {
     pub ln_obj: Option<WavId>,
     pub difficulty: Option<u32>,
     pub lntype: u32,
+    /// `#LNMODE` (1 LN, 2 CN, 3 HCN); `None` when absent or not one of those.
+    pub ln_mode: Option<u32>,
     pub wav_table: HashMap<WavId, String>,
     pub bmp_table: HashMap<BmpId, String>,
     pub bga_table: HashMap<BmpId, BgaDefinition>,
@@ -199,6 +201,7 @@ impl Default for BmsHeader {
             ln_obj: None,
             difficulty: None,
             lntype: 1,
+            ln_mode: None,
             wav_table: HashMap::new(),
             bmp_table: HashMap::new(),
             bga_table: HashMap::new(),
@@ -667,6 +670,8 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
         if let Ok(t) = val.parse::<u32>() {
             header.lntype = t;
         }
+    } else if key.eq_ignore_ascii_case("LNMODE") {
+        header.ln_mode = val.parse::<u32>().ok().filter(|m| (1..=3).contains(m));
     } else if key.eq_ignore_ascii_case("TITLE") {
         header.title = val.to_string();
     } else if key.eq_ignore_ascii_case("SUBTITLE") {
@@ -1275,6 +1280,18 @@ mod tests {
         let lane_of = |seed| parse_bms_with_seed(src, seed).unwrap().notes[0].lane;
         assert_eq!(lane_of(9), lane_of(9));
         assert!((0..64).any(|s| lane_of(s) != lane_of(0)));
+    }
+
+    #[test]
+    fn lnmode_is_read_and_only_1_to_3_count() {
+        let mode = |text: &str| parse_bms(&format!("#BPM 120\n{text}\n#00111:01\n")).unwrap().header.ln_mode;
+        assert_eq!(mode("#LNMODE 1"), Some(1));
+        assert_eq!(mode("#lnmode 2"), Some(2));
+        assert_eq!(mode("#LNMODE 3"), Some(3));
+        assert_eq!(mode("#LNMODE 0"), None);
+        assert_eq!(mode("#LNMODE 4"), None);
+        assert_eq!(mode("#LNMODE x"), None);
+        assert_eq!(mode(""), None);
     }
 
     #[test]

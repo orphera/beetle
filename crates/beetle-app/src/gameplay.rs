@@ -64,7 +64,14 @@ pub fn finalize_start_gameplay(
             apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
     }
 
-    let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type);
+    // Long notes are still judged the way they always were (CN) until the LN MODE
+    // option and the per-rule score records are in; then this resolves the rule.
+    let mut judge_engine = JudgeEngine::new(
+        &play_chart,
+        &timing,
+        state.play_options.gauge_type,
+        beetle_core::Ruleset::CN,
+    );
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();

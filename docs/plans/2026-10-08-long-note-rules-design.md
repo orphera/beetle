@@ -96,9 +96,17 @@ JudgeEngine::new(chart, timing, gauge, ruleset)
 
 ## 구현 단계
 
-1. **core**: `#LNMODE` 파싱, `LnRule`, `Ruleset`, 규칙 결정 함수, 판정 엔진의 LN 규칙 구현(CN은 현재 동작 유지), `SongMetadata`의 `ln_count`·`ln_mode`와 곡 목록 캐시 V3, 단위 테스트.
+1. **core** (완료): `#LNMODE` 파싱, `LnRule`, `Ruleset`, 규칙 결정 함수, 판정 엔진의 LN 규칙 구현(CN은 현재 동작 유지), `SongMetadata`의 `ln_count`·`ln_mode`와 곡 목록 캐시 V3, 단위 테스트.
 2. **점수와 리플레이**: 키에 규칙 추가, 이전, `engine` 올림, 리플레이 이름과 헤더.
 3. **앱과 화면**: 옵션 모달의 LN MODE, 규칙 결정, NOTES와 EX 최대 표시, 칩과 레이블, 결과 화면.
+
+단계 1에서 구현한 것과 정한 것:
+
+- `beetle-core::rules`에 `LnRule`(Ln, Cn), `LnOption`(Auto, Ln, Cn), `Ruleset`(`ln`, `hcn_requested`)과 규칙 결정(`Ruleset::resolve`)이 있다. 판정 엔진은 `JudgeEngine::new(chart, timing, gauge, ruleset)`로 규칙을 받는다.
+- LN 규칙의 두 상수는 한 곳에 모았다: 끊김으로 보는 시각(꼬리 시각의 GOOD 창, `ln_release_slack_ms`)과 끊김의 벌(`LN_BREAK_GRADE` = POOR).
+- 이번 단계에서 **앱은 규칙을 CN으로 고정해서 넘긴다.** 점수 기록이 규칙별로 나뉘기 전에 LN 규칙으로 치면 기록이 섞이므로, 동작 변화는 단계 3에서 한꺼번에 일어난다. 기존 판정 테스트는 모두 CN으로 고정했고 그대로 통과한다.
+- `SongMetadata`에 `ln_count`, `ln_mode`와 `notes_count_for(규칙)`을 넣었고, 곡 목록 캐시는 V3로 올렸다 (앱을 실행하면 한 번 다시 스캔한다).
+- 로컬 폴더 차트 602개 중 118개에 롱노트가 있고, 이 폴더에는 `#LNMODE` 차트가 없다. 이 118개의 노트 수는 CN 기준 161,844개, LN 기준 151,429개다 (약 6.4% 줄어든다).
 
 ## 확인할 것과 위험
 

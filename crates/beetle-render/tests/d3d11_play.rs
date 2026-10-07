@@ -71,7 +71,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, pause: Option<usi
     layout.hi_speed = 700.0;
     let chart = chart(mode);
     let timing = TimingModel::from_chart(&chart);
-    let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+    let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove, beetle_core::Ruleset::CN);
     let mut score = ScoreTracker::new(chart.total_notes_count as u32, 260.0, GaugeType::Groove);
     for i in 0..412 {
         score.record_hit(match i % 23 {

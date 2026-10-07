@@ -670,7 +670,7 @@ mod tests {
             ..Default::default()
         };
         let timing = TimingModel::from_chart(&chart);
-        let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+        let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove, beetle_core::Ruleset::CN);
         let mut score = ScoreTracker::new(100, 200.0, GaugeType::Groove);
         for _ in 0..30 {
             score.record_hit(JudgeGrade::PerfectGreat);
