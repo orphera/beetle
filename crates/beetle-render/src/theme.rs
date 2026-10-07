@@ -103,7 +103,9 @@ pub fn clear_lamp(clear: Option<ClearType>) -> (&'static str, ColorRgba) {
     match clear {
         Some(ClearType::Perfect) => ("PERFECT", GOLD),
         Some(ClearType::FullCombo) => ("FULL COMBO", GREEN),
+        Some(ClearType::Hard) => ("HARD CLEAR", ORANGE),
         Some(ClearType::Clear) => ("CLEAR", BLUE),
+        Some(ClearType::Easy) => ("EASY CLEAR", CYAN),
         Some(ClearType::Failed) => ("FAILED", RED),
         None => ("NO PLAY", MUTED2),
     }

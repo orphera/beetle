@@ -18,6 +18,13 @@ pub enum LaneModifier {
 }
 
 impl LaneModifier {
+    /// The modifier whose `as_str` name this is.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Regular, Self::Mirror, Self::Random, Self::RRandom, Self::SRandom]
+            .into_iter()
+            .find(|m| m.as_str() == name)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Regular => "REGULAR",

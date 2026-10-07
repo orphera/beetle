@@ -94,7 +94,7 @@ fn clear_title(clear: ClearType) -> &'static str {
     match clear {
         ClearType::Perfect => "PERFECT",
         ClearType::FullCombo => "FULL COMBO",
-        ClearType::Clear => "STAGE CLEAR",
+        ClearType::Easy | ClearType::Clear | ClearType::Hard => "STAGE CLEAR",
         ClearType::Failed => "STAGE FAILED",
     }
 }

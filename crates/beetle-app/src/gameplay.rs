@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, ReplayData, ScoreRecord,
+    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreStore,
     SongMetadata, TimingModel,
 };
 
@@ -226,37 +226,49 @@ pub fn finalize_start_gameplay(
     state.window.request_redraw();
 }
 
+/// Writes the score file. The first save over a file in the original format
+/// keeps a copy of it, and the write goes through a temporary file so an
+/// interrupted save cannot leave a half-written `scores.dat`.
+fn save_scores(store: &ScoreStore) {
+    if let Ok(old) = fs::read_to_string(SCORES_FILE) {
+        let backup = format!("{SCORES_FILE}.v1.bak");
+        if ScoreStore::is_legacy_format(&old) && !Path::new(&backup).exists() {
+            let _ = fs::write(backup, old);
+        }
+    }
+    let temp = format!("{SCORES_FILE}.tmp");
+    if fs::write(&temp, store.save_to_string()).is_ok() {
+        let _ = fs::rename(&temp, SCORES_FILE);
+    }
+}
+
 pub fn finish_gameplay(state: &mut AppState) {
     if let Some(judge) = &state.active_judge {
         let score = judge.score();
-        let clear_type = score.clear_type();
+        let (ex_score, max_combo) = (score.ex_score, score.max_combo);
 
-        let record = ScoreRecord {
-            chart_hash: state.active_chart_hash,
-            ex_score: score.ex_score,
-            max_combo: score.max_combo,
-            accuracy_rate: score.accuracy_rate(),
-            clear_type,
-            pgreat_count: score.pgreat_count,
-            great_count: score.great_count,
-            good_count: score.good_count,
-            bad_count: score.bad_count,
-            poor_count: score.poor_count,
-            miss_count: score.miss_count,
-        };
+        let play = PlayResult::from_tracker(
+            state.active_chart_hash,
+            score,
+            state.play_options.lane_modifier,
+            state.active_chart.as_ref().and_then(|c| c.random_seed),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        );
 
         // Only save score records and replays for actual manual playthroughs from start
         state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
-            state.is_new_record = state.score_store.update(record.clone());
-            let score_data = state.score_store.save_to_string();
-            let _ = fs::write(SCORES_FILE, score_data);
+            state.is_new_record = state.score_store.update(play).any();
+            save_scores(&state.score_store);
 
             // Save replay file
             let rep_path = format!("{}/{:016x}.rep", REPLAYS_DIR, state.active_chart_hash);
             if state.is_new_record || !Path::new(&rep_path).exists() {
                 if let Some(mut rep) = state.current_replay.take() {
-                    rep.set_score(&record);
+                    rep.set_score(ex_score, max_combo);
                     let _ = fs::create_dir_all(REPLAYS_DIR);
                     let _ = fs::write(&rep_path, rep.serialize_to_string());
                 }

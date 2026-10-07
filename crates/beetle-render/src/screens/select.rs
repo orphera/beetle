@@ -226,11 +226,11 @@ fn song_row(
     let rx = row.right() - right_w - 16.0 * s;
     match best {
         Some(b) => {
-            let (rank, rank_col) = theme::rank(b.accuracy_rate);
+            let (rank, rank_col) = theme::rank(b.accuracy_rate());
             t.draw_in(c, rank, Rect::new(rx, row.y + 8.0 * s, right_w, 22.0 * s), Align::Right, &TextStyle::new(16.0 * s).bold().color(rank_col));
             let bar = Rect::new(rx, row.y + 36.0 * s, right_w, 4.0 * s);
             c.nine(&sk.panel_sm, bar, theme::LINE);
-            let rate = (b.accuracy_rate / 100.0).clamp(0.0, 1.0) as f32;
+            let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
             c.nine(&sk.panel_sm, Rect::new(bar.x, bar.y, bar.w * rate, bar.h), rank_col);
         }
         None => {
@@ -413,15 +413,15 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
     let ex_w = t.draw(c, &thousands(b.ex_score), area.x, y + 80.0 * s, &TextStyle::new(40.0 * s).bold().color(theme::TEXT));
     let max = format!("/ {}", thousands(song.notes_count as u32 * 2));
     t.draw(c, &max, area.x + ex_w + 10.0 * s, y + 80.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
-    let (rank, rank_col) = theme::rank(b.accuracy_rate);
+    let (rank, rank_col) = theme::rank(b.accuracy_rate());
     t.draw_in(c, rank, Rect::new(area.right() - 120.0 * s, y + 46.0 * s, 120.0 * s, 40.0 * s), Align::Right, &TextStyle::new(36.0 * s).bold().color(rank_col));
 
-    let rate = (b.accuracy_rate / 100.0).clamp(0.0, 1.0) as f32;
+    let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
     widgets::rate_bar(c, t, sk, Rect::new(area.x, y + 96.0 * s, area.w, 4.0 * s), rate, rank_col, s);
 
     // Accuracy, combo, miss count
     let stats = [
-        ("ACCURACY", format!("{:.2}%", b.accuracy_rate)),
+        ("ACCURACY", format!("{:.2}%", b.accuracy_rate())),
         ("MAX COMBO", format!("{} / {}", thousands(b.max_combo), thousands(song.notes_count as u32))),
         ("MISS", thousands(b.bad_count + b.poor_count + b.miss_count)),
     ];
@@ -563,7 +563,7 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beetle_core::{ClearType, PlayMode};
+    use beetle_core::{ClearType, GaugeType, LaneModifier, PlayMode, PlayResult};
 
     fn song(i: usize) -> SongMetadata {
         SongMetadata {
@@ -597,18 +597,22 @@ mod tests {
         let songs: Vec<_> = (0..40).map(song).collect();
         let visible: Vec<_> = (0..40).collect();
         let mut scores = ScoreStore::default();
-        scores.update(ScoreRecord {
+        scores.update(PlayResult {
             chart_hash: 6,
+            lamp: ClearType::FullCombo,
             ex_score: 1900,
             max_combo: 800,
-            accuracy_rate: 94.0,
-            clear_type: ClearType::FullCombo,
             pgreat_count: 900,
             great_count: 100,
             good_count: 5,
             bad_count: 0,
             poor_count: 0,
             miss_count: 0,
+            total_notes: 1010,
+            modifier: LaneModifier::Regular,
+            gauge: GaugeType::Groove,
+            random_seed: None,
+            played_at: 0,
         });
         let chips = vec!["HI-SPEED 1100".to_string(), "REGULAR".into(), "GROOVE".into()];
         let mut ui = Ui::new(vp.scale);

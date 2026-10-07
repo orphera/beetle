@@ -12,6 +12,13 @@ pub enum GaugeType {
 }
 
 impl GaugeType {
+    /// The gauge whose `as_str` name this is.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Easy, Self::Groove, Self::Hard, Self::Hazard]
+            .into_iter()
+            .find(|g| g.as_str() == name)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Easy => "EASY",
@@ -236,7 +243,12 @@ impl ScoreTracker {
         if !self.is_cleared() {
             ClearType::Failed
         } else if self.bad_count + self.poor_count + self.miss_count > 0 {
-            ClearType::Clear
+            match self.gauge_type {
+                GaugeType::Easy => ClearType::Easy,
+                GaugeType::Groove => ClearType::Clear,
+                // Unreachable for Hazard (it already failed on that miss); Hard is the nearest rung.
+                GaugeType::Hard | GaugeType::Hazard => ClearType::Hard,
+            }
         } else if self.great_count + self.good_count > 0 {
             ClearType::FullCombo
         } else {

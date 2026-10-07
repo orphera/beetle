@@ -26,5 +26,5 @@ pub use library::{
 };
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};
-pub use score::{ClearType, ScoreRecord, ScoreStore};
+pub use score::{ClearType, PlayResult, ScoreRecord, ScoreStore, ScoreUpdate, ENGINE_VERSION};
 pub use timing::{TimingModel, TimingSegment};

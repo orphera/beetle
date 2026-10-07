@@ -35,12 +35,13 @@
 `ClearType`을 제자리에서 확장한다. 선언 순서가 곧 대소 순서(`Ord`)다.
 
 ```text
-Failed < Easy < Clear < Hard < Hazard < FullCombo < Perfect
+Failed < Easy < Clear < Hard < FullCombo < Perfect
 ```
 
 - `Clear`는 Groove 게이지 클리어다. 기존 기록의 `C`가 그대로 이 단계로 올라간다.
 - `FullCombo`와 `Perfect`는 게이지와 무관하다 (BAD, POOR, MISS가 없으면 어떤 게이지로든 FullCombo 이상). Easy 게이지의 FullCombo는 Hard 클리어보다 높은 램프다.
-- 화면 표시는 `EASY CLEAR`, `CLEAR`, `HARD CLEAR`, `HAZARD CLEAR`, `FULL COMBO`, `PERFECT`로 한다. 곡 목록 램프 색, 정렬(`ClearLamp`), 분류(`BY CLEAR STATUS`)가 모두 이 순서를 따른다.
+- **Hazard 게이지에는 램프를 따로 두지 않는다.** Hazard는 BAD, POOR, MISS 하나만 나와도 실패하므로, Hazard 클리어는 항상 `FullCombo` 이상이다. 처음 설계에 있던 `Hazard` 단계는 도달할 수 없어서 구현 중에 뺐다. 어떤 게이지로 깼는지는 기록의 `gauge` 필드가 남긴다.
+- 화면 표시는 `EASY CLEAR`, `CLEAR`, `HARD CLEAR`, `FULL COMBO`, `PERFECT`로 한다. 곡 목록 램프 색, 정렬(`ClearLamp`), 분류(`BY CLEAR STATUS`)가 모두 이 순서를 따른다.
 
 ## 기록 한 건의 내용
 
@@ -109,13 +110,14 @@ ScoreRecord
 
 - **LN 정확도가 부풀려진 옛 기록**: 롱노트 꼬리를 총 노트 수에 넣도록 고치기 전의 기록은 롱노트 차트에서 EX 점수가 최대치를 넘을 수 있다. 옛 기록에는 `total_notes`가 없어 보정할 수 없다. 옛 기록의 정확도가 100%를 넘으면 그 EX를 신뢰하지 않고, 다음 플레이의 EX로 대체한다. 100% 이하인 부풀려진 값은 감지할 수 없고, 그대로 둔다.
 - **게이지 램프 해석**: 옛 `C`는 Groove 클리어로 올렸지만 실제로는 Easy나 Hard였을 수 있다.
-- **Hazard 램프 이름**: beatoraja의 EX-HARD에 대응시켰다. 이름은 바꿀 수 있다.
 - **프로필 분리**: 지금은 전역 기록 하나다. 프로필(P2)이 생기면 파일 이름이나 폴더로 나눈다.
 
 ## 구현 단계
 
-1. **core**: `ClearType` 확장, `ScoreRecord` 재구성, 항목별 갱신, `ScoreUpdate`, v2 읽기/쓰기와 v1 이전, 단위 테스트. 이 단계는 앱 코드를 바꾸지 않고 `finish_gameplay`가 쓰는 호출 모양만 호환되게 유지한다.
+1. **core** (완료): `ClearType` 확장, `ScoreRecord` 재구성, 항목별 갱신, `ScoreUpdate`, v2 읽기/쓰기와 v1 이전, 단위 테스트. 이 단계는 앱 코드를 바꾸지 않고 `finish_gameplay`가 쓰는 호출 모양만 호환되게 유지한다.
 2. **app**: `finish_gameplay`가 모디파이어, 게이지, 시드를 담아 `update`를 호출한다. 백업과 원자적 저장, 리플레이 저장 규칙 변경.
 3. **render**: 새 램프 이름과 색, 결과 화면의 항목별 "NEW RECORD", 선곡 화면 개인 최고 패널의 모디파이어와 게이지 표시, 정렬과 분류.
+
+단계 1에서 앱이 컴파일되도록 `finish_gameplay`를 `PlayResult` 기반으로 바꾸고, 백업과 원자적 저장도 함께 넣었다 (단계 2의 일부를 앞당김). 실제 `scores.dat` 사본으로 25개 기록이 모두 읽히고 다시 쓴 파일을 읽은 결과가 같은 것을 확인했다.
 
 각 단계는 별도 커밋으로 하고, 단계 1이 끝난 시점에 이전된 실제 `scores.dat`로 읽기 검증을 한다.

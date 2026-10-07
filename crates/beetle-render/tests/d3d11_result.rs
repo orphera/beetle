@@ -78,7 +78,7 @@ fn result_layouts() {
         _ => JudgeGrade::PerfectGreat,
     });
     assert_eq!(clear.clear_type(), ClearType::Clear);
-    let best = ScoreRecord { chart_hash: 1, ex_score: clear.ex_score - 37, max_combo: 400, accuracy_rate: 90.0, clear_type: ClearType::Clear, pgreat_count: 0, great_count: 0, good_count: 0, bad_count: 0, poor_count: 0, miss_count: 0 };
+    let best = ScoreRecord { chart_hash: 1, ex_score: clear.ex_score - 37, max_combo: 400, total_notes: clear.total_notes, clear_type: ClearType::Clear, ..ScoreRecord::default() };
     assert_eq!(render(&mut gpu, &mut ui, &clear, Some(&best), true, 3.0, None, "clear"), 1);
 
     let mut failed = play(1585, GaugeType::Hard, |i| if i % 4 == 0 { JudgeGrade::Miss } else { JudgeGrade::Great });

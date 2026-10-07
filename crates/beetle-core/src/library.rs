@@ -209,8 +209,8 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
         }
         SortMode::ScoreRate => {
             songs.sort_by(|a, b| {
-                let acc_a = store.get(a.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
-                let acc_b = store.get(b.hash).map(|r| r.accuracy_rate).unwrap_or(0.0);
+                let acc_a = store.get(a.hash).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_b = store.get(b.hash).map(|r| r.accuracy_rate()).unwrap_or(0.0);
                 acc_b
                     .partial_cmp(&acc_a)
                     .unwrap_or(std::cmp::Ordering::Equal)

@@ -775,6 +775,32 @@ mod tests {
     }
 
     #[test]
+    fn clear_lamp_follows_the_gauge_that_was_cleared() {
+        use crate::score::ClearType;
+        // Enough perfect hits to clear any gauge, then one miss to rule out full combo.
+        let lamp = |gauge| {
+            let mut score = ScoreTracker::new(100, 300.0, gauge);
+            for _ in 0..99 {
+                score.record_hit(JudgeGrade::PerfectGreat);
+            }
+            score.record_hit(JudgeGrade::Miss);
+            score.clear_type()
+        };
+        assert_eq!(lamp(GaugeType::Easy), ClearType::Easy);
+        assert_eq!(lamp(GaugeType::Groove), ClearType::Clear);
+        assert_eq!(lamp(GaugeType::Hard), ClearType::Hard);
+        // Hazard fails on the first miss, so only a clean run clears it.
+        assert_eq!(lamp(GaugeType::Hazard), ClearType::Failed);
+
+        // A full combo is a full combo on any gauge.
+        let mut easy = ScoreTracker::new(10, 300.0, GaugeType::Easy);
+        for _ in 0..10 {
+            easy.record_hit(JudgeGrade::Great);
+        }
+        assert_eq!(easy.clear_type(), ClearType::FullCombo);
+    }
+
+    #[test]
     fn test_score_tracker_rank_and_timing_histogram() {
         let mut score = ScoreTracker::new(90, 200.0, GaugeType::Groove);
         // 90 notes -> max EX = 180

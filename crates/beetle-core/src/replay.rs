@@ -1,5 +1,4 @@
 use crate::bms::Lane;
-use crate::score::ScoreRecord;
 use std::fmt::Write;
 
 /// A single timestamped key input event in a replay.
@@ -40,9 +39,9 @@ impl ReplayData {
         });
     }
 
-    pub fn set_score(&mut self, record: &ScoreRecord) {
-        self.ex_score = record.ex_score;
-        self.max_combo = record.max_combo;
+    pub fn set_score(&mut self, ex_score: u32, max_combo: u32) {
+        self.ex_score = ex_score;
+        self.max_combo = max_combo;
     }
 
     /// Serializes replay into compact flat string format.

@@ -5,7 +5,7 @@
 
 mod common;
 
-use beetle_core::{ClearType, PlayMode, ScoreRecord, ScoreStore, SongMetadata};
+use beetle_core::{ClearType, GaugeType, LaneModifier, PlayMode, PlayResult, ScoreStore, SongMetadata};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_song_select, D3d11Backend, GpuBackend, SelectFrame,
@@ -61,18 +61,22 @@ fn scores() -> ScoreStore {
         (8, 100.0, ClearType::Perfect),
     ] {
         let notes = 900 + (hash as u32 - 1) * 137;
-        store.update(ScoreRecord {
+        store.update(PlayResult {
             chart_hash: hash,
+            lamp: clear,
             ex_score: (notes as f64 * 2.0 * rate / 100.0) as u32,
             max_combo: notes * 2 / 3,
-            accuracy_rate: rate,
-            clear_type: clear,
             pgreat_count: notes * 8 / 10,
             great_count: notes / 10,
             good_count: 12,
             bad_count: 4,
             poor_count: 3,
             miss_count: 9,
+            total_notes: notes,
+            modifier: LaneModifier::Regular,
+            gauge: GaugeType::Groove,
+            random_seed: None,
+            played_at: 0,
         });
     }
     store
