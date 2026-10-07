@@ -20,7 +20,7 @@
 | `#RANDOM/#IF/#ELSE/#ENDIF` 미지원 | **확인됨.** 파서에 없음 (`RANDOM`은 플레이 modifier뿐) |
 | 차트 해시가 FNV-1a 64bit | **확인됨.** `compute_chart_hash` (`crates/beetle-core/src/library.rs`) |
 | 판정창이 `#RANK`에 고정 | **확인됨.** `JudgeWindow::from_rank` (`crates/beetle-core/src/judge/mod.rs`) |
-| Landmine이 일반 노트처럼 판정됨 | **부정확.** `NoteType::Landmine` enum과 modifier match만 있고 파서가 생성하는 곳이 없다. 판정 오류가 아니라 **지뢰 채널 파싱 자체가 없을 가능성**이 높다 (착수 전 확인 필요) |
+| Landmine이 일반 노트처럼 판정됨 | **부정확.** `NoteType::Landmine` enum과 modifier match만 있고 파서가 생성하는 곳이 없었다. 판정 오류가 아니라 지뢰 채널 파싱 자체가 없었다. 구현 완료 (아래 진행 상황) |
 | 9K/10K/14K 구현 완료 | 기능은 구현됨. 남은 일은 실차트 검증 |
 
 ## 코퍼스 조사 결과 (2026-10-07, `crates/beetle-core/examples/corpus.rs`)
@@ -29,7 +29,7 @@
 
 | 항목 | 결과 |
 |---|---|
-| `#RANDOM` 계열 | **0건** |
+| `#RANDOM` 계열 | 패키지에서 꺼낸 차트 573개에서는 **0건**. 로컬 BMS 폴더에 `#RANDOM` 차트를 추가한 뒤의 602개에서는 **3개 (0.5%)**, 모두 적합성·스트레스용 차트 (아래) |
 | 지뢰 채널(D1~D9) | 8개 (1.4%, 모두 GdbG 기믹 패키지) |
 | 극단 BPM (<10 또는 >1000) | 51개 (8.9%, 대부분 sasakure.UK Jack-the-Ripper. 최대 BPM 9,990,176) |
 | `#LNMODE` (beatoraja 확장) | 25개 (4.4%). `#LNMODE 1` 12개(기본 LN과 동일), `#LNMODE 2`(CN) 13개 (모두 `#LNOBJ ZZ`, 한 패키지) |
@@ -41,11 +41,18 @@
 
 해석:
 
-- 이 컬렉션에서는 `#RANDOM`이 나오지 않아 Resolver의 실수요를 아직 증명하지 못했다. 구형 아카이브(BOF 등 이벤트 패키지)로 다시 확인하기 전에는 Phase A의 첫 번째 항목으로 두지 않는다.
-- 지뢰는 실제로 쓰이고, 현재 파서가 완전히 무시한다. `#LNMODE`와 스크롤은 쓰이지만 소수다.
+- 일반 음악 차트에서는 `#RANDOM`이 약 1,200개(중복 포함) 중 한 번도 나오지 않았다. 추가로 모은 `#RANDOM` 차트 3개는 `ubmchallenge`(약 8.4MB, `#RANDOM` 6177줄), `nest100`(100단계 중첩 `#RANDOM`), `FANKS Anthology`(소문자 `#random`)이다. 현재 파서는 `#IF` 블록을 구분하지 않고 **모든 분기를 한꺼번에 적용**해서, `ubmchallenge`는 64마디에 노트 135,513개, `nest100`은 노트 1개와 BGM 101개로 읽는다. 오류 없이 "성공"하므로 결과가 조용히 틀린다.
+- 따라서 Resolver는 정확성 문제로서 필요하지만(P0 유지), 사용 빈도로는 낮다. 첫 번째 작업으로 둘 이유는 없고, 지뢰와 롱노트 규칙 다음에 한다. 이 3개 차트가 그대로 Resolver의 수용 테스트가 된다.
+- 지뢰는 실제로 쓰이고, 조사 당시 파서가 완전히 무시했다 (구현 완료). `#LNMODE`와 스크롤은 쓰이지만 소수다.
 - 극단 BPM은 흔하다. 박자 기준 스크롤과 STOP 처리를 이 곡들로 계속 검증한다.
 - LNTYPE 2는 수요가 없어 보류한다.
 - `#LNMODE`는 헤더 파싱보다 LN 판정 규칙(LN/CN/HCN)이 본질이다. 현재 엔진은 모든 롱노트의 머리와 꼬리를 각각 판정하므로 CN에 가깝고, 일반 LN은 규칙이 어긋난다. 이 부분은 Ruleset 설계(P1)에서 다룬다.
+
+## 진행 상황 (2026-10-07)
+
+- 완료: 코퍼스 조사 도구, 변속 스크롤(박자 기준), BPM 범위 표시, `#PREVIEW` 재생과 선곡 화면 배지, STOP 위치 노트를 정지 전 시각으로 처리 (BPM 변경이 STOP보다 먼저), 롱노트 꼬리를 노트 수에 포함해 완벽 플레이가 100%가 되도록 수정, 지뢰 파싱·판정·표시, 롱노트 해제 판정 개선.
+- 남음: `#RANDOM` Resolver, ScoreKey 확장, Chart Identity, LN/CN/HCN 규칙(Ruleset), `#PREVIEW`가 없는 곡의 미리듣기 자동 생성.
+- 사람이 직접 플레이로 확인해야 하는 것: 스크롤, STOP 처리, 지뢰 데미지 값과 판정창, 롱노트 해제 피드백.
 
 ## 우선순위 조정
 
@@ -54,7 +61,8 @@
 - **코퍼스(P0-2)를 `#RANDOM`(P0-1)보다 먼저** 만든다. 어느 gap이 실제로 아픈지 데이터로 정한다.
 - **Ruleset 추상화는 P0에서 P1로 강등.** 두 번째 ruleset이 실제로 필요해질 때까지 `JudgeWindow` 확장으로 충분하다.
 - **ScoreKey에 mode/modifier/ruleset 반영은 P0 유지.** 저장 포맷 마이그레이션이 걸려 있어 늦출수록 비싸다. Mirror와 정규 기록이 섞이는 문제는 지금도 발생한다.
-- **LNTYPE 2 계열**은 코퍼스에서 수요를 확인한 뒤 착수한다.
+- **LNTYPE 2 계열**은 코퍼스에서 수요를 확인한 뒤 착수한다 (현재까지 0건이라 보류).
+- **`#RANDOM` Resolver**는 사용 빈도가 낮아 첫 작업에서 내렸지만, 지금 파서가 틀린 결과를 조용히 만든다는 점에서 P0 정확성 항목으로 남긴다.
 - Landmine은 "판정 수정"이 아니라 "파서 지원 → 판정 → 게이지 영향" 3단계로 본다.
 
 ## 단계
@@ -64,7 +72,7 @@
 1. BMS 호환성 코퍼스 구성 (`parse → resolve → play chart` 자동 검증). 확장자 BMS/BME/BML/PMS, 구형 구문, 비표준 표기, 극단 BPM/STOP, LN 변형, DP/PMS, 깨진 파일, `#RANDOM`.
 2. `#RANDOM/#IF/#ELSE/#ENDIF` Chart Resolver. 파서와 `BmsChart` 사이에 둔다. 시드 주입으로 결정론을 유지하고, 사용한 시드를 Replay/Score에 기록한다.
 3. Landmine 채널 파싱 → 판정. **구현됨 (2026-10-07)**: D1~D9/E1~E9를 지뢰로 파싱하고, 값/2 %만큼 게이지를 깎는다(콤보·EX·총 노트 수에는 영향 없음). 판정창은 GREAT 창, 누르고 있던 키도 발동, 자동 플레이는 지뢰를 밟지 않는다. 값/2 %는 다른 플레이어의 동작을 기억에 의존해 정한 것이므로 실제 지뢰 차트(GdbG 패키지)로 비교 검증이 필요하다.
-4. LN semantics 정리 (코퍼스 결과에 따라 범위 결정).
+4. LN semantics 정리. 해제 처리 개선은 완료 (아래 진행 상황). LN/CN/HCN 규칙 구분은 Ruleset 설계에서 한다.
 5. ScoreKey 확장 (`chart_id × mode × modifier × ruleset`). 기존 ScoreStore 마이그레이션 포함.
 
 ### Phase B — Chart Identity (P0)
