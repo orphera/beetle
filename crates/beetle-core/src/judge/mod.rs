@@ -159,10 +159,9 @@ impl JudgeEngine {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let total_notes = play_notes
-            .iter()
-            .filter(|n| n.note_event.note_type != NoteType::LongNoteEnd)
-            .count() as u32;
+        // Every note is judged, and a long note's head and tail are separate
+        // judgments, so both count (this also matches the song-select NOTES).
+        let total_notes = play_notes.len() as u32;
 
         let window = JudgeWindow::from_rank(chart.header.rank);
         let score = ScoreTracker::new(total_notes, chart.header.total, gauge_type);
@@ -460,6 +459,29 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, Lane::Key2);
         assert_eq!(engine.score().pgreat_count, 2);
+    }
+
+    #[test]
+    fn long_note_head_and_tail_are_both_counted_in_the_totals() {
+        // One tap and one long note (LNTYPE 1 pair). Both ends are judged, so a
+        // perfect run must land exactly on max EX / max combo, never above.
+        let chart = parse_bms(
+            "#BPM 120
+#00111:01
+#00251:0101
+",
+        )
+        .unwrap();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Groove);
+        engine.auto_play_update(10.0);
+
+        let score = engine.score();
+        assert_eq!(score.pgreat_count, 3);
+        assert_eq!(score.total_notes, 3);
+        assert_eq!(score.ex_score, score.max_ex_score());
+        assert_eq!(score.max_combo, score.total_notes);
+        assert_eq!(score.accuracy_rate(), 100.0);
     }
 
     #[test]
