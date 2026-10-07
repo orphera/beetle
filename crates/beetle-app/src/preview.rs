@@ -252,6 +252,8 @@ mod tests {
 
     fn song(chart: &Path) -> SongMetadata {
         SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 1,
             file_path: chart.to_string_lossy().into_owned(),
             title: String::new(),

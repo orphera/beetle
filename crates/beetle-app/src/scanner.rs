@@ -117,10 +117,7 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
                 || ext.eq_ignore_ascii_case("pms")
             {
                 if let Ok(bytes) = fs::read(&path) {
-                    let content = beetle_core::decode_bms_text(&bytes);
-                    if let Some(meta) =
-                        SongMetadata::from_content(&path.to_string_lossy(), &content)
-                    {
+                    if let Some(meta) = SongMetadata::from_bytes(&path.to_string_lossy(), &bytes) {
                         songs.push(meta);
                     }
                 }
@@ -151,10 +148,8 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
 
                     for entry_path in chart_entries {
                         if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                            let content = beetle_core::decode_bms_text(&bytes);
                             let virtual_path = format!("{}::{}", path_str, entry_path);
-                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content)
-                            {
+                            if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
                                 songs.push(meta);
                             }
                         }

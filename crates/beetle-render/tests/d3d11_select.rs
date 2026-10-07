@@ -35,6 +35,8 @@ fn library() -> Vec<SongMetadata> {
         .iter()
         .enumerate()
         .map(|(i, (title, artist, genre, level, mode))| SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: i as u64 + 1,
             file_path: format!("songs/{i}.bms"),
             title: (*title).into(),

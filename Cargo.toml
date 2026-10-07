@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/bms-hash",
     "crates/beetle-core",
     "crates/beetle-audio",
     "crates/beetle-render",
@@ -15,6 +16,7 @@ resolver = "2"
 beetle-core = { path = "crates/beetle-core" }
 beetle-audio = { path = "crates/beetle-audio" }
 beetle-render = { path = "crates/beetle-render" }
+bms-hash = { path = "crates/bms-hash" }
 bms-package = { path = "crates/bms-package" }
 bms-package-manager = { path = "crates/bms-package-manager" }
 bpm-gui = { path = "crates/bpm-gui" }

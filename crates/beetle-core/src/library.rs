@@ -1,4 +1,5 @@
-use crate::bms::{parse_bms, PlayMode};
+use crate::bms::{decode_bms_text, parse_bms, PlayMode};
+use crate::identity::{hash_chart_bytes, md5_from_hex, md5_to_hex, ChartId};
 use crate::score::ScoreStore;
 
 /// High-speed FNV-1a 64-bit hash for chart identification without external cryptographic dependencies.
@@ -49,6 +50,14 @@ impl SortMode {
 /// Metadata summary of a BMS chart stored in memory or cache.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SongMetadata {
+    /// Chart identity: SHA-256 of the file's bytes.
+    pub id: ChartId,
+    /// MD5 of the same bytes. Difficulty tables and LR2 name charts by it; it is
+    /// an alias and never a key.
+    pub md5: [u8; 16],
+    /// The previous chart key: FNV-1a 64 over the decoded text. Scores, replays
+    /// and caches are still keyed by it until they move to `id`; after that it
+    /// only serves to carry the old records over.
     pub hash: u64,
     pub file_path: String,
     pub title: String,
@@ -65,10 +74,13 @@ pub struct SongMetadata {
 }
 
 impl SongMetadata {
-    /// Extracts metadata from raw chart text.
-    pub fn from_content(file_path: &str, content: &str) -> Option<Self> {
-        let chart = parse_bms(content).ok()?;
+    /// Extracts metadata from a chart file's raw bytes. The identity is taken
+    /// from the bytes exactly as stored; only parsing sees them decoded.
+    pub fn from_bytes(file_path: &str, bytes: &[u8]) -> Option<Self> {
+        let content = decode_bms_text(bytes);
+        let chart = parse_bms(&content).ok()?;
         let hash = compute_chart_hash(content.as_bytes());
+        let (id, md5) = hash_chart_bytes(bytes);
         let notes_count = chart.total_notes_count.max(chart.playable_notes_len());
         let (bpm_min, bpm_max) = chart.bpm_range();
         let is_pms = file_path.to_lowercase().ends_with(".pms");
@@ -81,6 +93,8 @@ impl SongMetadata {
         };
 
         Some(Self {
+            id,
+            md5,
             hash,
             file_path: file_path.to_string(),
             title,
@@ -96,6 +110,12 @@ impl SongMetadata {
         })
     }
 
+    /// Extracts metadata from chart text that has no file bytes of its own
+    /// (its UTF-8 bytes are what get hashed).
+    pub fn from_content(file_path: &str, content: &str) -> Option<Self> {
+        Self::from_bytes(file_path, content.as_bytes())
+    }
+
     /// BPM text for display: `150`, or `120-240` when the chart changes tempo.
     pub fn bpm_label(&self) -> String {
         let (lo, hi) = (self.bpm_min.round() as i64, self.bpm_max.round() as i64);
@@ -106,68 +126,82 @@ impl SongMetadata {
         }
     }
 
-    /// Serializes metadata to a simple flat TSV line.
-    pub fn serialize_tsv(&self) -> String {
+    /// Serializes to one `field=value` line, tab separated.
+    pub fn serialize_line(&self) -> String {
         format!(
-            "{:016x}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.2}\t{:.2}",
-            self.hash,
+            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tmode={}\tid={}\tmd5={}\tlegacy={:016x}",
             escape_field(&self.file_path),
             escape_field(&self.title),
             escape_field(&self.subtitle),
             escape_field(&self.artist),
             escape_field(&self.genre),
             self.bpm,
+            self.bpm_min,
+            self.bpm_max,
             self.play_level,
             self.notes_count,
             self.play_mode.as_str(),
-            self.bpm_min,
-            self.bpm_max,
+            self.id,
+            md5_to_hex(&self.md5),
+            self.hash,
         )
     }
 
-    /// Deserializes metadata from a TSV line.
-    pub fn deserialize_tsv(line: &str) -> Option<Self> {
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 9 {
-            return None;
+    /// Parses a line written by `serialize_line`. A line missing its path,
+    /// identity or legacy key is rejected, so a cache that predates any of
+    /// them is rebuilt rather than half-trusted. Unknown fields are ignored.
+    pub fn parse_line(line: &str) -> Option<Self> {
+        let mut file_path = None;
+        let (mut title, mut subtitle, mut artist, mut genre) =
+            (String::new(), String::new(), String::new(), String::new());
+        let (mut bpm, mut bpm_min, mut bpm_max) = (130.0, None, None);
+        let (mut play_level, mut notes_count) = (1, 0);
+        let mut play_mode = PlayMode::Keys7;
+        let (mut id, mut md5, mut hash) = (None, None, None);
+
+        for field in line.split('\t') {
+            let Some((key, value)) = field.split_once('=') else {
+                continue;
+            };
+            match key {
+                "path" => file_path = Some(unescape_field(value)),
+                "title" => title = unescape_field(value),
+                "sub" => subtitle = unescape_field(value),
+                "artist" => artist = unescape_field(value),
+                "genre" => genre = unescape_field(value),
+                "bpm" => bpm = value.parse().unwrap_or(130.0),
+                "bpmmin" => bpm_min = value.parse().ok(),
+                "bpmmax" => bpm_max = value.parse().ok(),
+                "level" => play_level = value.parse().unwrap_or(1),
+                "notes" => notes_count = value.parse().unwrap_or(0),
+                "mode" => {
+                    play_mode = match value {
+                        "5KEYS" => PlayMode::Keys5,
+                        "9KEYS" => PlayMode::Keys9,
+                        "10KEYS" => PlayMode::Keys10,
+                        "14KEYS" => PlayMode::Keys14,
+                        _ => PlayMode::Keys7,
+                    }
+                }
+                "id" => id = ChartId::from_hex(value),
+                "md5" => md5 = md5_from_hex(value),
+                "legacy" => hash = u64::from_str_radix(value, 16).ok(),
+                _ => {}
+            }
         }
 
-        let hash = u64::from_str_radix(parts[0], 16).ok()?;
-        let file_path = unescape_field(parts[1]);
-        let title = unescape_field(parts[2]);
-        let subtitle = unescape_field(parts[3]);
-        let artist = unescape_field(parts[4]);
-        let genre = unescape_field(parts[5]);
-        let bpm = parts[6].parse().unwrap_or(130.0);
-        let play_level = parts[7].parse().unwrap_or(1);
-        let notes_count = parts[8].parse().unwrap_or(0);
-        let play_mode = if parts.len() > 9 {
-            match parts[9].trim() {
-                "5KEYS" => PlayMode::Keys5,
-                "7KEYS" => PlayMode::Keys7,
-                "9KEYS" => PlayMode::Keys9,
-                "10KEYS" => PlayMode::Keys10,
-                "14KEYS" => PlayMode::Keys14,
-                _ => PlayMode::Keys7,
-            }
-        } else {
-            PlayMode::Keys7
-        };
-
-        // Older caches have no range columns: fall back to the single BPM.
-        let bpm_min = parts.get(10).and_then(|v| v.parse().ok()).unwrap_or(bpm);
-        let bpm_max = parts.get(11).and_then(|v| v.parse().ok()).unwrap_or(bpm);
-
         Some(Self {
-            hash,
-            file_path,
+            id: id?,
+            md5: md5?,
+            hash: hash?,
+            file_path: file_path?,
             title,
             subtitle,
             artist,
             genre,
             bpm,
-            bpm_min,
-            bpm_max,
+            bpm_min: bpm_min.unwrap_or(bpm),
+            bpm_max: bpm_max.unwrap_or(bpm),
             play_level,
             notes_count,
             play_mode,
@@ -228,22 +262,29 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
     }
 }
 
+/// First line of a song list cache.
+const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V2";
+
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(32 + songs.len() * 256);
+    out.push_str(SONG_CACHE_HEADER);
+    out.push('\n');
     for song in songs {
-        out.push_str(&song.serialize_tsv());
+        out.push_str(&song.serialize_line());
         out.push('\n');
     }
     out
 }
 
-/// Deserializes song list from flat cache text.
+/// Deserializes a song list from cache text. A cache in an older format (no
+/// header) gives an empty list, which makes the app rescan and rewrite it.
 pub fn deserialize_song_cache(cache_text: &str) -> Vec<SongMetadata> {
-    cache_text
-        .lines()
-        .filter_map(SongMetadata::deserialize_tsv)
-        .collect()
+    let mut lines = cache_text.lines();
+    if lines.next().map(str::trim) != Some(SONG_CACHE_HEADER) {
+        return Vec::new();
+    }
+    lines.filter_map(SongMetadata::parse_line).collect()
 }
 
 #[cfg(test)]
@@ -263,6 +304,8 @@ mod tests {
     #[test]
     fn test_song_metadata_tsv_serialization() {
         let meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 0x123456789abcdef0,
             file_path: "songs/test.bms".to_string(),
             title: "Test Song".to_string(),
@@ -277,8 +320,8 @@ mod tests {
             play_mode: PlayMode::Keys7,
         };
 
-        let tsv = meta.serialize_tsv();
-        let decoded = SongMetadata::deserialize_tsv(&tsv).expect("Failed to deserialize TSV");
+        let line = meta.serialize_line();
+        let decoded = SongMetadata::parse_line(&line).expect("Failed to parse cache line");
 
         assert_eq!(meta, decoded);
     }
@@ -287,6 +330,8 @@ mod tests {
     fn test_sort_songs_by_level() {
         let mut songs = vec![
             SongMetadata {
+                id: Default::default(),
+                md5: [0; 16],
                 hash: 1,
                 file_path: "1.bms".into(),
                 title: "Song B".into(),
@@ -301,6 +346,8 @@ mod tests {
                 play_mode: PlayMode::Keys7,
             },
             SongMetadata {
+                id: Default::default(),
+                md5: [0; 16],
                 hash: 2,
                 file_path: "2.bms".into(),
                 title: "Song A".into(),
@@ -340,10 +387,58 @@ mod tests {
         assert_eq!(flat.bpm_label(), "150");
     }
 
+    const CHART: &[u8] = b"#TITLE T
+#ARTIST A
+#BPM 150
+#00111:01
+";
+
     #[test]
-    fn old_cache_line_without_range_falls_back_to_single_bpm() {
-        let line = "0000000000000001	a.bms	T		A	G	140.00	5	100	7KEYS";
-        let meta = SongMetadata::deserialize_tsv(line).unwrap();
-        assert_eq!(meta.bpm_label(), "140");
+    fn identity_comes_from_the_raw_bytes_not_the_path_or_the_decoded_text() {
+        let a = SongMetadata::from_bytes("songs/one/a.bms", CHART).unwrap();
+        let b = SongMetadata::from_bytes("packages/two.bmsp::x/a.bms", CHART).unwrap();
+        assert_eq!(a.id, b.id, "same bytes, different places: same chart");
+        assert_eq!(a.id, ChartId::of_bytes(CHART));
+        assert_eq!(a.md5, bms_hash::md5_digest(CHART));
+        assert_eq!(a.hash, compute_chart_hash(CHART), "the legacy key is unchanged");
+
+        let crlf = CHART.iter().fold(Vec::new(), |mut v, &c| {
+            if c == b'\n' {
+                v.push(b'\r');
+            }
+            v.push(c);
+            v
+        });
+        let c = SongMetadata::from_bytes("a.bms", &crlf).unwrap();
+        assert_ne!(a.id, c.id, "a different line ending is a different file");
+    }
+
+    #[test]
+    fn song_cache_v2_roundtrips_and_old_caches_are_dropped() {
+        let songs = vec![
+            SongMetadata::from_bytes("a.bms", CHART).unwrap(),
+            SongMetadata::from_bytes("b	tab.bms", b"#TITLE Two
+#BPM 90
+#00112:01
+").unwrap(),
+        ];
+        let text = serialize_song_cache(&songs);
+        assert!(text.starts_with("#BEETLE_SONGS_V2
+"));
+        assert_eq!(deserialize_song_cache(&text), songs);
+
+        // The previous cache had no header: it is not trusted, so the app rescans.
+        let old = "0000000000000001	a.bms	T		A	G	140.00	5	100	7KEYS
+";
+        assert!(deserialize_song_cache(old).is_empty());
+    }
+
+    #[test]
+    fn a_cache_line_without_identity_is_rejected() {
+        let line = SongMetadata::from_bytes("a.bms", CHART).unwrap().serialize_line();
+        let without_id: Vec<&str> = line.split('\t').filter(|f| !f.starts_with("id=")).collect();
+        assert!(SongMetadata::parse_line(&without_id.join("	")).is_none());
+        let without_md5: Vec<&str> = line.split('\t').filter(|f| !f.starts_with("md5=")).collect();
+        assert!(SongMetadata::parse_line(&without_md5.join("	")).is_none());
     }
 }

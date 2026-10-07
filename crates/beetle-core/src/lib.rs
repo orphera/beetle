@@ -5,6 +5,7 @@
 //! Designed with zero GUI/Audio dependencies for maximum portability and fast testing.
 
 pub mod bms;
+pub mod identity;
 pub mod judge;
 pub mod library;
 pub mod modifier;
@@ -16,6 +17,9 @@ pub mod timing;
 pub use bms::{
     decode_base36, decode_bms_text, encode_base36, parse_bms, parse_bms_with_seed, BgaChannel, BgaDefinition, BgaEvent,
     BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType, PlayMode, WavId,
+};
+pub use identity::{
+    hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId,
 };
 pub use judge::{
     GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker,

@@ -69,6 +69,7 @@
 
 ## 4. 모듈 책임 분리 원칙
 
+- `crates/bms-hash`: SHA-256과 MD5만 담은 의존성 없는 작은 크레이트입니다. 차트 식별(`beetle-core`)과 패키지 체크섬(`bms-package`)이 함께 씁니다.
 - `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
 - `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
 - `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다.

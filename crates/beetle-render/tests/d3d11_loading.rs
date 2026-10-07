@@ -15,6 +15,8 @@ const H: u32 = 720;
 fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: &str) -> usize {
     let vp = Viewport::new(W, H);
     let song = SongMetadata {
+        id: Default::default(),
+        md5: [0; 16],
         hash: 1,
         file_path: String::new(),
         title: title.into(),

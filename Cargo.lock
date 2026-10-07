@@ -138,6 +138,9 @@ dependencies = [
 [[package]]
 name = "beetle-core"
 version = "0.1.0"
+dependencies = [
+ "bms-hash",
+]
 
 [[package]]
 name = "beetle-render"
@@ -200,9 +203,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bms-hash"
+version = "0.1.0"
+
+[[package]]
 name = "bms-package"
 version = "0.1.0"
 dependencies = [
+ "bms-hash",
  "serde",
  "serde_json",
  "zip",

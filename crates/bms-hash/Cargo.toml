@@ -1,0 +1,7 @@
+[package]
+name = "bms-hash"
+version = "0.1.0"
+edition = "2021"
+description = "SHA-256 and MD5 for BMS chart and package identity, with no external dependencies"
+
+[dependencies]

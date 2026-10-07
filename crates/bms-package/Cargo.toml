@@ -5,6 +5,7 @@ edition = "2021"
 description = "BMS package format (.bmsp) container, manifest, and archive library"
 
 [dependencies]
+bms-hash = { workspace = true }
 zip = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

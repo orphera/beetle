@@ -931,6 +931,8 @@ mod tests {
         }
 
         let meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 12345,
             file_path: format!("{}::roop_dotm_ogg/01_roop_dotm7SPN.bms", pkg_path),
             title: "roop_dotm".to_string(),
@@ -1048,6 +1050,8 @@ mod tests {
 
         // 5. Test Turbo loading via load_chart_and_audio
         let meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 99999,
             file_path: format!(
                 "{}::test.bms",
@@ -1108,6 +1112,8 @@ mod tests {
         fs::write(&classic_pkg_path, classic_pkg_bytes).unwrap();
 
         let classic_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 88888,
             file_path: format!(
                 "{}::test.bms",
@@ -1208,6 +1214,8 @@ mod tests {
 
         // 5. Test Turbo loading via load_chart_and_audio
         let meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 88888,
             file_path: format!(
                 "{}::test.bms",
@@ -1355,6 +1363,8 @@ mod tests {
 
         // 3. Measure Loading Time: Classic vs Turbo
         let classic_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 10001,
             file_path: format!(
                 "{}::bench.bms",
@@ -1373,6 +1383,8 @@ mod tests {
         };
 
         let turbo_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 10002,
             file_path: format!(
                 "{}::bench.bms",
@@ -1488,6 +1500,8 @@ mod tests {
         fs::write(&bga_bmsp, out.bga_package.unwrap()).unwrap();
 
         let song_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 77777,
             file_path: format!(
                 "{}::main.bms",
@@ -1611,6 +1625,8 @@ mod tests {
         fs::write(&out_bmsp, &out.base_package).unwrap();
 
         let song_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 88888,
             file_path: format!(
                 "{}::main.bms",
@@ -1667,6 +1683,8 @@ mod tests {
         }
 
         let song_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 11111,
             file_path: format!(
                 "{}::alice7-1.bme",
@@ -1706,6 +1724,8 @@ mod tests {
         }
 
         let song_meta = SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 22222,
             file_path: format!(
                 "{}::marisa(NORMAL7).bme",

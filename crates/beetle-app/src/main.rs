@@ -262,10 +262,8 @@ impl ApplicationHandler for BeetleApp {
 
                     for entry_path in chart_entries {
                         if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                            let content = beetle_core::decode_bms_text(&bytes);
                             let virtual_path = format!("{}::{}", path_str, entry_path);
-                            if let Some(meta) = SongMetadata::from_content(&virtual_path, &content)
-                            {
+                            if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
                                 queue_start_gameplay(&mut app_state, &meta);
                                 break;
                             }
@@ -273,8 +271,7 @@ impl ApplicationHandler for BeetleApp {
                     }
                 }
             } else if let Ok(bytes) = fs::read(cli_path) {
-                let content = beetle_core::decode_bms_text(&bytes);
-                if let Some(meta) = SongMetadata::from_content(cli_path, &content) {
+                if let Some(meta) = SongMetadata::from_bytes(cli_path, &bytes) {
                     queue_start_gameplay(&mut app_state, &meta);
                 }
             }
@@ -513,11 +510,8 @@ impl ApplicationHandler for BeetleApp {
 
                         for entry_path in chart_entries {
                             if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                                let content = beetle_core::decode_bms_text(&bytes);
                                 let virtual_path = format!("{}::{}", path_str, entry_path);
-                                if let Some(meta) =
-                                    SongMetadata::from_content(&virtual_path, &content)
-                                {
+                                if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
                                     queue_start_gameplay(state, &meta);
                                     break;
                                 }
@@ -530,10 +524,7 @@ impl ApplicationHandler for BeetleApp {
                     || ext.eq_ignore_ascii_case("pms")
                 {
                     if let Ok(bytes) = fs::read(&path) {
-                        let content = beetle_core::decode_bms_text(&bytes);
-                        if let Some(meta) =
-                            SongMetadata::from_content(&path.to_string_lossy(), &content)
-                        {
+                        if let Some(meta) = SongMetadata::from_bytes(&path.to_string_lossy(), &bytes) {
                             queue_start_gameplay(state, &meta);
                         }
                     }
@@ -733,6 +724,8 @@ mod tests {
     fn test_search_and_category_filtering() {
         let (mut songs, score_store) = init_songs_and_scores(SortMode::Title);
         songs.push(SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 101,
             file_path: "test1.bms".to_string(),
             title: "First Anthem".to_string(),
@@ -747,6 +740,8 @@ mod tests {
             play_mode: beetle_core::PlayMode::Keys7,
         });
         songs.push(SongMetadata {
+            id: Default::default(),
+            md5: [0; 16],
             hash: 102,
             file_path: "test2.bms".to_string(),
             title: "Second Beat".to_string(),
@@ -791,6 +786,8 @@ mod tests {
         // 6. Strict play mode category filter tests
         let test_songs = vec![
             SongMetadata {
+                id: Default::default(),
+                md5: [0; 16],
                 hash: 1,
                 file_path: "pms_song.pms".to_string(),
                 title: "Popn Track".to_string(),
@@ -805,6 +802,8 @@ mod tests {
                 play_mode: beetle_core::PlayMode::Keys9,
             },
             SongMetadata {
+                id: Default::default(),
+                md5: [0; 16],
                 hash: 2,
                 file_path: "dp_10k.bms".to_string(),
                 title: "10K DP Track".to_string(),
@@ -819,6 +818,8 @@ mod tests {
                 play_mode: beetle_core::PlayMode::Keys10,
             },
             SongMetadata {
+                id: Default::default(),
+                md5: [0; 16],
                 hash: 3,
                 file_path: "dp_14k.bme".to_string(),
                 title: "14K DP Track".to_string(),
