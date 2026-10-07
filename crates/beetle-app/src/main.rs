@@ -196,6 +196,7 @@ impl ApplicationHandler for BeetleApp {
             active_timing: None,
             active_chart_id: beetle_core::ChartId::default(),
             active_ln: None,
+            active_hcn: false,
             active_judge: None,
             song_end_time: 0.0,
             score_update: ScoreUpdate::default(),

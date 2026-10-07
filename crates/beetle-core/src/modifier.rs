@@ -1,5 +1,6 @@
 use crate::bms::{Lane, NoteEvent, NoteType};
 use crate::judge::GaugeType;
+use crate::rules::LnOption;
 use std::collections::HashMap;
 
 /// Note lane modifiers for chart variation.
@@ -42,6 +43,7 @@ pub struct PlayOptions {
     pub hi_speed: f32,
     pub lane_modifier: LaneModifier,
     pub gauge_type: GaugeType,
+    pub ln: LnOption,
     pub judge_offset_ms: f64,
 }
 
@@ -51,6 +53,7 @@ impl Default for PlayOptions {
             hi_speed: 400.0, // 400 pixels/sec default
             lane_modifier: LaneModifier::Regular,
             gauge_type: GaugeType::Groove,
+            ln: LnOption::Auto,
             judge_offset_ms: 0.0,
         }
     }

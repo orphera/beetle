@@ -7,6 +7,7 @@
 
 use std::path::Path;
 
+use beetle_core::{LnOption, Ruleset, SongMetadata};
 use beetle_render::{GpuBackend, Ui};
 use winit::dpi::PhysicalSize;
 
@@ -38,13 +39,18 @@ fn finish(state: &mut AppState) {
     state.d3d11.end_frame();
 }
 
-/// "HI-SPEED 1100", "REGULAR", "GROOVE": the options a play will use.
-fn option_chips(state: &AppState) -> [String; 3] {
-    [
+/// "HI-SPEED 1100", "REGULAR", "GROOVE", and for a chart with long notes
+/// "LN" / "CN" / "CN (HCN)": the options a play of `song` will use.
+fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
+    let mut chips = vec![
         format!("HI-SPEED {:.0}", state.play_options.hi_speed),
         state.play_options.lane_modifier.as_str().to_string(),
         state.play_options.gauge_type.as_str().to_string(),
-    ]
+    ];
+    if let Some(song) = song.filter(|s| s.ln_count > 0) {
+        chips.push(Ruleset::resolve(song.ln_mode, state.ln_option()).label());
+    }
+    chips
 }
 
 pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, visual_levels: &[f32; 16]) {
@@ -124,7 +130,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let has_replay = state
         .current_selected_song()
         .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
-    let chips = option_chips(state);
+    let chips = option_chips(state, state.current_selected_song());
     let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
 
     let stage_img = selected_id
@@ -185,6 +191,11 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
         ("MODIFIER", o.lane_modifier.as_str().to_string()),
         ("GAUGE", o.gauge_type.as_str().to_string()),
+        ("LN MODE", match state.current_selected_song().filter(|s| s.ln_count > 0) {
+            // AUTO says what it comes to for the highlighted song.
+            Some(song) if o.ln == LnOption::Auto => format!("AUTO ({})", Ruleset::resolve(song.ln_mode, o.ln).label()),
+            _ => o.ln.as_str().to_string(),
+        }),
         ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
         ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
         ("DISPLAY MODE", state.display_mode.as_str().to_string()),
@@ -217,7 +228,7 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
 }
 
 pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
-    let chips = option_chips(state);
+    let chips = option_chips(state, state.loading_song.as_ref());
     let badge = if state.is_replay_playback {
         Some("REPLAY")
     } else if state.is_auto_play {
@@ -267,6 +278,10 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     } else {
         None
     };
+    let ln_label = state.active_ln.map(|rule| match state.active_hcn {
+        true => format!("{} (HCN)", rule.as_str()),
+        false => rule.as_str().to_string(),
+    });
     let jacket = state
         .active_bga_image
         .as_ref()
@@ -285,6 +300,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 elapsed,
                 jacket,
                 unsaved_reason: unsaved,
+                ln_label: ln_label.as_deref(),
             },
         );
     }

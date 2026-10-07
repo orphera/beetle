@@ -133,6 +133,12 @@ impl SongMetadata {
         }
     }
 
+    /// How many notes the song has under the rule the player's setting gives it
+    /// (the maximum combo, and half the maximum EX score).
+    pub fn notes_for(&self, option: crate::rules::LnOption) -> usize {
+        self.score_rule(option).map_or(self.notes_count, |rule| self.notes_count_for(rule))
+    }
+
     /// The long note rule this song's score record is filed under with the
     /// player's setting: its resolved rule, or `None` when it has no long notes
     /// (the rule changes nothing there, so there is just one record).
@@ -490,6 +496,22 @@ mod tests {
         assert_eq!(song.notes_count_for(LnRule::Ln), 3);
         let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
         assert_eq!(plain.notes_count_for(LnRule::Ln), plain.notes_count_for(LnRule::Cn));
+    }
+
+    #[test]
+    fn notes_for_counts_under_the_rule_the_setting_gives() {
+        use crate::rules::LnOption;
+        let song = SongMetadata::from_bytes(
+            "ln.bms",
+            b"#BPM 120\n#00112:01\n#00251:01000100\n#00252:01000100\n",
+        )
+        .unwrap();
+        // No #LNMODE: AUTO is LN.
+        assert_eq!(song.notes_for(LnOption::Auto), 3);
+        assert_eq!(song.notes_for(LnOption::Ln), 3);
+        assert_eq!(song.notes_for(LnOption::Cn), 5);
+        let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
+        assert_eq!(plain.notes_for(LnOption::Cn), plain.notes_count);
     }
 
     #[test]

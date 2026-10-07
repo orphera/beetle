@@ -54,7 +54,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, score: &ScoreTracker, best: Optio
     ui.begin(W, H, vp.scale);
     draw_result(
         ui,
-        &ResultFrame { viewport: &vp, chart: &chart, score, previous_best: best, update: ScoreUpdate { lamp: new_record, ex: new_record, combo: new_record, bp: false }, elapsed, jacket: None, unsaved_reason: unsaved },
+        &ResultFrame { viewport: &vp, chart: &chart, score, previous_best: best, update: ScoreUpdate { lamp: new_record, ex: new_record, combo: new_record, bp: false }, elapsed, jacket: None, unsaved_reason: unsaved, ln_label: None },
     );
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");

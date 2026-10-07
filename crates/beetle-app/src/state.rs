@@ -170,6 +170,8 @@ pub struct AppState {
     pub active_chart_id: ChartId,
     /// The long note rule the loaded chart is played under; `None` when it has no long notes.
     pub active_ln: Option<LnRule>,
+    /// The loaded chart asked for HCN, which is played as CN.
+    pub active_hcn: bool,
     pub active_judge: Option<JudgeEngine>,
     pub song_end_time: f64,
     /// Which of the chart's bests the last play beat.
@@ -357,10 +359,24 @@ impl AppState {
         self.tables = crate::tables::build_index(&self.songs);
     }
 
-    /// The long note setting the song list shows records for. Gameplay is still
-    /// always CN, so this is too until the LN MODE option exists.
+    /// The player's long note setting: it decides which rule's records the song
+    /// list shows and which rule a play is judged under.
     pub fn ln_option(&self) -> LnOption {
-        LnOption::Cn
+        self.play_options.ln
+    }
+
+    /// Sorts and filters the song list again (the records it orders by depend on
+    /// the long note setting), keeping the highlighted song highlighted.
+    pub fn resort_songs(&mut self) {
+        let keep = self.current_selected_song().map(|s| s.id);
+        let ln_option = self.ln_option();
+        sort_songs(&mut self.songs, self.sort_mode, &self.score_store, ln_option);
+        self.recompute_filtered_songs();
+        if let Some(id) = keep {
+            if let Some(pos) = self.filtered_indices.iter().position(|&i| self.songs[i].id == id) {
+                self.selected_song_idx = pos;
+            }
+        }
     }
 
     pub fn recompute_filtered_songs(&mut self) {

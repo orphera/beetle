@@ -14,7 +14,7 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
-use beetle_core::{LnOption, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
+use beetle_core::{LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
 pub struct SelectFrame<'a> {
@@ -360,7 +360,7 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
     // Chart stats, aligned to the jacket's bottom edge
     let col_w = iw / 3.0;
     let bpm = song.bpm_label();
-    let notes = thousands(song.notes_count as u32);
+    let notes = thousands(song.notes_for(f.ln_option) as u32);
     for (i, (k, v)) in [("BPM", bpm.as_str()), ("NOTES", notes.as_str()), ("MODE", theme::mode_label(song.play_mode))].iter().enumerate() {
         let sx = ix + i as f32 * col_w;
         t.draw(c, k, sx, jacket.bottom() - 30.0 * s, &caption(10.0, s));
@@ -369,7 +369,9 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
 
     let rule_y = jacket.bottom() + 24.0 * s;
     c.fill_rect(Rect::new(inner.x, rule_y, inner.w, s.max(1.0)), theme::LINE);
-    personal_best(c, t, sk, song, f.scores.best(song, f.ln_option), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
+    // Which long note rule the record below is for, when the rule matters.
+    let rule = (song.ln_count > 0).then(|| Ruleset::resolve(song.ln_mode, f.ln_option).label());
+    personal_best(c, t, sk, song, f.scores.best(song, f.ln_option), f.ln_option, rule.as_deref(), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
 
     // Play options + CTA at the bottom
     let cta_h = 52.0 * s;
@@ -418,10 +420,14 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
     t.draw_in(c, "ENTER", Rect::new(cta.right() - 120.0 * s, cta.y, 96.0 * s, cta.h), Align::Right, &TextStyle::new(12.0 * s).bold().tracking(2.0 * s).color(theme::ON_ACCENT.with_alpha(150)));
 }
 
-fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetadata, best: Option<&ScoreRecord>, area: Rect, s: f32) {
+#[allow(clippy::too_many_arguments)]
+fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetadata, best: Option<&ScoreRecord>, ln_option: LnOption, rule: Option<&str>, area: Rect, s: f32) {
     let y = area.y;
     let header_w = t.draw(c, "PERSONAL BEST", area.x, y + 32.0 * s, &caption(10.0, s));
     let Some(b) = best else {
+        if let Some(rule) = rule {
+            t.draw(c, rule, area.x + header_w + 14.0 * s, y + 32.0 * s, &caption(9.0, s).color(theme::MUTED2));
+        }
         t.draw(c, "Not played yet", area.x, y + 70.0 * s, &TextStyle::new(18.0 * s).bold().color(theme::MUTED));
         t.draw(c, "Clear this chart to record a score.", area.x, y + 92.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
         return;
@@ -429,6 +435,9 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
 
     // How the best score was made, and how often the chart was played.
     let mut notes = Vec::new();
+    if let Some(rule) = rule {
+        notes.push(rule.to_string());
+    }
     if let Some(modifier) = b.modifier {
         notes.push(modifier.as_str().to_string());
     }
@@ -454,7 +463,7 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
 
     // EX score / max, rank
     let ex_w = t.draw(c, &thousands(b.ex_score), area.x, y + 80.0 * s, &TextStyle::new(40.0 * s).bold().color(theme::TEXT));
-    let max = format!("/ {}", thousands(song.notes_count as u32 * 2));
+    let max = format!("/ {}", thousands(song.notes_for(ln_option) as u32 * 2));
     t.draw(c, &max, area.x + ex_w + 10.0 * s, y + 80.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
     let (rank, rank_col) = theme::rank(b.accuracy_rate());
     t.draw_in(c, rank, Rect::new(area.right() - 120.0 * s, y + 46.0 * s, 120.0 * s, 40.0 * s), Align::Right, &TextStyle::new(36.0 * s).bold().color(rank_col));
@@ -465,7 +474,7 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
     // Accuracy, combo, miss count
     let stats = [
         ("ACCURACY", format!("{:.2}%", b.accuracy_rate())),
-        ("MAX COMBO", format!("{} / {}", thousands(b.max_combo), thousands(song.notes_count as u32))),
+        ("MAX COMBO", format!("{} / {}", thousands(b.max_combo), thousands(song.notes_for(ln_option) as u32))),
         ("MIN BP", thousands(b.min_bp)),
     ];
     let col_w = area.w / 3.0;

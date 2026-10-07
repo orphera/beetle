@@ -1,5 +1,5 @@
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
-use beetle_core::{GaugeType, LaneModifier, PlayOptions, SortMode};
+use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
 use std::fs;
 use std::path::Path;
 
@@ -257,6 +257,9 @@ impl AppConfig {
                         _ => GaugeType::Groove,
                     };
                 }
+                "ln_mode" => {
+                    config.play_options.ln = LnOption::from_name(val).unwrap_or_default();
+                }
                 "judge_offset_ms" => {
                     if let Ok(v) = val.parse::<f64>() {
                         config.play_options.judge_offset_ms = v.clamp(-100.0, 100.0);
@@ -328,11 +331,12 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
             self.play_options.gauge_type.as_str(),
+            self.play_options.ln.as_str(),
             self.play_options.judge_offset_ms,
             self.sort_mode.as_str(),
             self.master_volume,
@@ -364,6 +368,7 @@ mod tests {
                 hi_speed: 550.0,
                 lane_modifier: LaneModifier::Random,
                 gauge_type: GaugeType::Hard,
+                ln: LnOption::Cn,
                 judge_offset_ms: -4.0,
             },
             lane_cover_ratio: 0.25,
@@ -397,6 +402,7 @@ mod tests {
             config.play_options.gauge_type,
             parsed.play_options.gauge_type
         );
+        assert_eq!(config.play_options.ln, parsed.play_options.ln);
         assert_eq!(
             config.play_options.judge_offset_ms,
             parsed.play_options.judge_offset_ms

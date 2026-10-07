@@ -33,6 +33,8 @@ pub struct ResultFrame<'a> {
     pub jacket: Option<SizedTexture>,
     /// Why the score was not saved ("AUTO PLAY", "REPLAY"), if so.
     pub unsaved_reason: Option<&'a str>,
+    /// The long note rule the play was judged under, for a chart with long notes (`LN`, `CN`, `CN (HCN)`).
+    pub ln_label: Option<&'a str>,
 }
 
 const HINTS: [(&str, &str); 3] = [("ENTER", "SONG SELECT"), ("R", "RETRY"), ("P", "SCREENSHOT")];
@@ -179,7 +181,11 @@ fn outcome_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &ResultFrame,
     let score = f.score;
     let gcol = gauge_color(score);
     let bar = Rect::new(inner.x, inner.bottom() - 18.0 * s, inner.w, 18.0 * s);
-    t.draw(c, &format!("{} GAUGE", score.gauge_type.as_str()), inner.x, bar.y - 12.0 * s, &caption(10.0, s));
+    let gauge_caption = match f.ln_label {
+        Some(rule) => format!("{} GAUGE  ·  {rule}", score.gauge_type.as_str()),
+        None => format!("{} GAUGE", score.gauge_type.as_str()),
+    };
+    t.draw(c, &gauge_caption, inner.x, bar.y - 12.0 * s, &caption(10.0, s));
     let pct = format!("{:.1}%", score.gauge);
     t.draw_in(c, &pct, Rect::new(inner.x, bar.y - 30.0 * s, inner.w, 24.0 * s), Align::Right, &TextStyle::new(16.0 * s).bold().color(gcol));
     c.nine(&sk.panel_sm, bar, theme::SURF2);
@@ -400,6 +406,7 @@ mod tests {
                     elapsed,
                     jacket: None,
                     unsaved_reason: Some("AUTO PLAY"),
+                    ln_label: Some("CN (HCN)"),
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
