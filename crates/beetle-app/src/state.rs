@@ -7,7 +7,7 @@ use std::time::Instant;
 use beetle_audio::AudioEngine;
 use beetle_core::{
     compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, PlayMode, PlayOptions,
-    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TimingModel,
+    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex, TimingModel,
 };
 use beetle_render::{ImageBuffer, ViewState};
 use winit::window::Window;
@@ -41,11 +41,17 @@ pub enum SongCategory {
     Keys14,
     Level,
     ClearStatus,
+    /// A difficulty table folder: the index into the installed tables.
+    Table(usize),
 }
 
 impl SongCategory {
-    pub fn next(self) -> Self {
+    /// The next folder; the installed difficulty tables come after the built-in ones.
+    pub fn next(self, tables: usize) -> Self {
         match self {
+            SongCategory::ClearStatus if tables > 0 => SongCategory::Table(0),
+            SongCategory::Table(i) if i + 1 < tables => SongCategory::Table(i + 1),
+            SongCategory::Table(_) => SongCategory::All,
             SongCategory::All => SongCategory::Keys5,
             SongCategory::Keys5 => SongCategory::Keys7,
             SongCategory::Keys7 => SongCategory::Keys9,
@@ -57,8 +63,11 @@ impl SongCategory {
         }
     }
 
-    pub fn prev(self) -> Self {
+    pub fn prev(self, tables: usize) -> Self {
         match self {
+            SongCategory::All if tables > 0 => SongCategory::Table(tables - 1),
+            SongCategory::Table(0) => SongCategory::ClearStatus,
+            SongCategory::Table(i) => SongCategory::Table(i - 1),
             SongCategory::All => SongCategory::ClearStatus,
             SongCategory::Keys5 => SongCategory::All,
             SongCategory::Keys7 => SongCategory::Keys5,
@@ -80,8 +89,39 @@ impl SongCategory {
             SongCategory::Keys14 => "14 KEYS",
             SongCategory::Level => "BY LEVEL",
             SongCategory::ClearStatus => "BY CLEAR STATUS",
+            SongCategory::Table(_) => "TABLE",
         }
     }
+
+    /// What the folder selector shows: the name, and for a table also how many
+    /// of its charts are in the song list (`SATELLITE  15 / 2,467`).
+    pub fn title(self, tables: &TableIndex) -> String {
+        let SongCategory::Table(i) = self else {
+            return self.as_str().to_string();
+        };
+        let Some(table) = tables.tables().get(i) else {
+            return SongCategory::All.as_str().to_string();
+        };
+        const LONGEST_NAME: usize = 20;
+        let mut name: String = table.name.to_uppercase().chars().take(LONGEST_NAME).collect();
+        if table.name.chars().count() > LONGEST_NAME {
+            name.truncate(name.trim_end().len());
+            name.push('…');
+        }
+        format!("{name}  {} / {}", thousands(tables.owned_count(i)), thousands(table.entries.len()))
+    }
+}
+
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 pub struct AppState {
@@ -96,6 +136,8 @@ pub struct AppState {
     pub search_query: String,
     pub is_search_active: bool,
     pub category_mode: SongCategory,
+    /// Installed difficulty tables, matched to `songs`.
+    pub tables: TableIndex,
     pub sort_mode: SortMode,
     pub show_option_modal: bool,
     pub show_exit_modal: bool,
@@ -307,12 +349,22 @@ impl AppState {
         app_config.save();
     }
 
+    /// Reads the tables folder again and matches it to the song list.
+    pub fn reload_tables(&mut self) {
+        self.tables = crate::tables::build_index(&self.songs);
+    }
+
     pub fn recompute_filtered_songs(&mut self) {
+        // A table folder whose table is gone (removed, or the list changed) falls back to all songs.
+        if matches!(self.category_mode, SongCategory::Table(i) if i >= self.tables.tables().len()) {
+            self.category_mode = SongCategory::All;
+        }
         self.filtered_indices = filter_song_indices(
             &self.songs,
             &self.search_query,
             self.category_mode,
             &self.score_store,
+            &self.tables,
         );
 
         if self.filtered_indices.is_empty() {
@@ -437,9 +489,10 @@ pub fn filter_song_indices(
     search_query: &str,
     category: SongCategory,
     score_store: &ScoreStore,
+    tables: &TableIndex,
 ) -> Vec<usize> {
     let q = search_query.to_lowercase().trim().to_string();
-    songs
+    let mut indices: Vec<usize> = songs
         .iter()
         .enumerate()
         .filter_map(|(idx, s)| {
@@ -500,9 +553,20 @@ pub fn filter_song_indices(
                         None
                     }
                 }
+                SongCategory::Table(i) => tables.entry_for(i, s.id).map(|_| idx),
             }
         })
-        .collect()
+        .collect();
+
+    // A table folder lists its charts in the table's level order; within a
+    // level the songs stay in the current sort order (the sort is stable).
+    if let SongCategory::Table(i) = category {
+        if let Some(table) = tables.tables().get(i) {
+            let level_of = |idx: usize| tables.entry_for(i, songs[idx].id).map_or("", |e| e.level.as_str());
+            indices.sort_by(|&a, &b| table.compare_levels(level_of(a), level_of(b)));
+        }
+    }
+    indices
 }
 
 /// Where a chart's replay is kept.

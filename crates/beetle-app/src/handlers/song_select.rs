@@ -83,12 +83,12 @@ pub fn handle_song_select_input(
             state.is_search_active = true;
         }
         KeyCode::F1 => {
-            state.category_mode = state.category_mode.prev();
+            state.category_mode = state.category_mode.prev(state.tables.tables().len());
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::F3 => {
-            state.category_mode = state.category_mode.next();
+            state.category_mode = state.category_mode.next(state.tables.tables().len());
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
         }
@@ -177,6 +177,7 @@ pub fn handle_song_select_input(
             state.songs =
                 crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
             crate::state::migrate_chart_keys(&state.songs, &mut state.score_store);
+            state.reload_tables();
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
         }

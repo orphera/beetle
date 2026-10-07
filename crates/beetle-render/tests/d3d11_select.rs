@@ -94,6 +94,23 @@ enum Overlay {
 fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, overlay: Overlay, name: &str) -> usize {
     let vp = Viewport::new(W, H);
     let songs = library();
+    // Two tables: song 6 (the highlighted one) is in both, a few others in the first.
+    let entry = |n: u64, level: &str| beetle_core::TableEntry {
+        level: level.into(),
+        sha256: Some(beetle_core::ChartId::synthetic(n)),
+        ..Default::default()
+    };
+    let table = |name: &str, symbol: &str, entries: Vec<beetle_core::TableEntry>| beetle_core::DifficultyTable {
+        name: name.into(),
+        symbol: symbol.into(),
+        entries,
+        ..Default::default()
+    };
+    let mut tables = beetle_core::TableIndex::new(vec![
+        table("Satellite", "sl", vec![entry(6, "3"), entry(2, "1"), entry(4, "12")]),
+        table("Stella", "st", vec![entry(6, "5")]),
+    ]);
+    tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
     let visible: Vec<usize> = if search.is_empty() {
         (0..songs.len()).collect()
     } else {
@@ -112,7 +129,9 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
             visible: &visible,
             selected,
             scores: &scores,
-            folder: "ALL SONGS",
+            tables: &tables,
+            // The longest kind of folder title: a difficulty table with its owned count.
+            folder: if name == "noplay" { "A TABLE WITH A VERY…  1,234 / 12,345" } else { "ALL SONGS" },
             sort: "TITLE",
             search,
             search_active: !search.is_empty(),

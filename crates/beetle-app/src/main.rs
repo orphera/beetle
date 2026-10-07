@@ -12,6 +12,7 @@ mod preview;
 mod present;
 mod scanner;
 mod state;
+mod tables;
 
 #[cfg(not(target_os = "windows"))]
 compile_error!("beetle-app is Windows-only: it renders with Direct3D 11 (ADR-026).");
@@ -151,6 +152,7 @@ impl ApplicationHandler for BeetleApp {
         let gpu_ui = gpu_ui::GpuUi::new(view.viewport.scale);
 
         let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
+        let tables = tables::build_index(&songs);
 
         let mut app_state = AppState {
             window,
@@ -163,6 +165,7 @@ impl ApplicationHandler for BeetleApp {
             search_query: String::new(),
             is_search_active: false,
             category_mode: SongCategory::All,
+            tables,
             sort_mode: saved_config.sort_mode,
             show_option_modal: false,
             show_exit_modal: false,
@@ -708,14 +711,111 @@ mod tests {
 
     #[test]
     fn test_song_category_transitions() {
-        assert_eq!(SongCategory::All.next(), SongCategory::Keys5);
-        assert_eq!(SongCategory::Keys5.next(), SongCategory::Keys7);
-        assert_eq!(SongCategory::Keys7.next(), SongCategory::Keys9);
-        assert_eq!(SongCategory::Keys9.next(), SongCategory::Keys10);
-        assert_eq!(SongCategory::Keys10.next(), SongCategory::Keys14);
-        assert_eq!(SongCategory::Keys14.next(), SongCategory::Level);
-        assert_eq!(SongCategory::Level.next(), SongCategory::ClearStatus);
-        assert_eq!(SongCategory::ClearStatus.next(), SongCategory::All);
+        assert_eq!(SongCategory::All.next(0), SongCategory::Keys5);
+        assert_eq!(SongCategory::Keys5.next(0), SongCategory::Keys7);
+        assert_eq!(SongCategory::Keys7.next(0), SongCategory::Keys9);
+        assert_eq!(SongCategory::Keys9.next(0), SongCategory::Keys10);
+        assert_eq!(SongCategory::Keys10.next(0), SongCategory::Keys14);
+        assert_eq!(SongCategory::Keys14.next(0), SongCategory::Level);
+        assert_eq!(SongCategory::Level.next(0), SongCategory::ClearStatus);
+        assert_eq!(SongCategory::ClearStatus.next(0), SongCategory::All);
+    }
+
+    #[test]
+    fn table_folders_follow_the_built_in_ones_and_wrap_both_ways() {
+        let forward: Vec<SongCategory> =
+            std::iter::successors(Some(SongCategory::ClearStatus), |c| Some(c.next(2))).skip(1).take(4).collect();
+        assert_eq!(
+            forward,
+            [SongCategory::Table(0), SongCategory::Table(1), SongCategory::All, SongCategory::Keys5]
+        );
+        let backward: Vec<SongCategory> =
+            std::iter::successors(Some(SongCategory::Keys5), |c| Some(c.prev(2))).skip(1).take(4).collect();
+        assert_eq!(
+            backward,
+            [SongCategory::All, SongCategory::Table(1), SongCategory::Table(0), SongCategory::ClearStatus]
+        );
+        // With no tables the cycle is the old one.
+        assert_eq!(SongCategory::All.prev(0), SongCategory::ClearStatus);
+        assert_eq!(SongCategory::ClearStatus.next(0), SongCategory::All);
+    }
+
+    fn table_with(name: &str, symbol: &str, levels_by_song: &[(u64, &str)], total: usize) -> beetle_core::DifficultyTable {
+        let mut entries: Vec<beetle_core::TableEntry> = levels_by_song
+            .iter()
+            .map(|(n, level)| beetle_core::TableEntry {
+                level: (*level).into(),
+                sha256: Some(beetle_core::ChartId::synthetic(*n)),
+                ..Default::default()
+            })
+            .collect();
+        // Charts the player does not have.
+        while entries.len() < total {
+            entries.push(beetle_core::TableEntry {
+                level: "1".into(),
+                sha256: Some(beetle_core::ChartId::synthetic(1_000_000 + entries.len() as u64)),
+                ..Default::default()
+            });
+        }
+        beetle_core::DifficultyTable { name: name.into(), symbol: symbol.into(), entries, ..Default::default() }
+    }
+
+    fn song(n: u64, title: &str) -> SongMetadata {
+        SongMetadata {
+            id: beetle_core::ChartId::synthetic(n),
+            md5: [0; 16],
+            legacy_hash: n,
+            file_path: format!("{title}.bms"),
+            title: title.into(),
+            subtitle: String::new(),
+            artist: String::new(),
+            genre: String::new(),
+            bpm: 120.0,
+            bpm_min: 120.0,
+            bpm_max: 120.0,
+            play_level: 5,
+            notes_count: 100,
+            play_mode: beetle_core::PlayMode::Keys7,
+        }
+    }
+
+    #[test]
+    fn a_table_folder_lists_its_charts_by_level_then_by_the_current_sort() {
+        // Songs arrive in title order; the table puts level 2 before 10 before "?".
+        let songs = vec![song(1, "Apple"), song(2, "Banana"), song(3, "Cherry"), song(4, "Date"), song(5, "Elder")];
+        let mut tables = beetle_core::TableIndex::new(vec![table_with(
+            "Sat", "sl", &[(1, "10"), (2, "2"), (3, "?"), (4, "2")], 4,
+        )]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+
+        let store = beetle_core::ScoreStore::new();
+        let folder = filter_song_indices(&songs, "", SongCategory::Table(0), &store, &tables);
+        // Banana and Date are both level 2 and keep title order; Elder is not in the table.
+        assert_eq!(folder, [1, 3, 0, 2]);
+
+        // Search works inside the folder.
+        let searched = filter_song_indices(&songs, "date", SongCategory::Table(0), &store, &tables);
+        assert_eq!(searched, [3]);
+        // A table that is not installed matches nothing.
+        assert!(filter_song_indices(&songs, "", SongCategory::Table(7), &store, &tables).is_empty());
+        // The other folders ignore tables.
+        assert_eq!(filter_song_indices(&songs, "", SongCategory::All, &store, &tables).len(), 5);
+    }
+
+    #[test]
+    fn folder_titles_show_the_owned_count() {
+        let songs: Vec<SongMetadata> = (1..=15).map(|n| song(n, &format!("S{n}"))).collect();
+        let levels: Vec<(u64, &str)> = (1..=15).map(|n| (n, "1")).collect();
+        let mut tables = beetle_core::TableIndex::new(vec![
+            table_with("Satellite", "sl", &levels, 2467),
+            table_with("A Table With A Very Long Name Indeed", "x", &levels[..1], 1),
+        ]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+
+        assert_eq!(SongCategory::Table(0).title(&tables), "SATELLITE  15 / 2,467");
+        assert_eq!(SongCategory::Table(1).title(&tables), "A TABLE WITH A VERY…  1 / 1");
+        assert_eq!(SongCategory::Keys7.title(&tables), "7 KEYS");
+        assert_eq!(SongCategory::Table(9).title(&tables), "ALL SONGS", "a table that is gone");
     }
 
     #[test]
@@ -755,30 +855,30 @@ mod tests {
         });
 
         // 1. Initial unfiltered indices
-        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store);
+        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
         assert!(all_indices.len() >= 2);
 
         // 2. Filter by title "anthem"
-        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store);
+        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(anthem_indices.len(), 1);
         let match_song = &songs[anthem_indices[0]];
         assert_eq!(match_song.title, "First Anthem");
 
         // 3. Filter by artist "dj beat"
         let artist_indices =
-            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store);
+            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(artist_indices.len(), 1);
         assert_eq!(songs[artist_indices[0]].title, "Second Beat");
 
         // 4. Filter by genre "hardcore"
         let genre_indices =
-            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store);
+            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(genre_indices.len(), 1);
         assert_eq!(songs[genre_indices[0]].title, "Second Beat");
 
         // 5. Non-matching search query
         let empty_indices =
-            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store);
+            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(empty_indices.len(), 0);
 
         // 6. Strict play mode category filter tests
@@ -833,7 +933,7 @@ mod tests {
             },
         ];
 
-        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store);
+        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(keys9_indices.len(), 1);
         assert_eq!(
             test_songs[keys9_indices[0]].play_mode,
@@ -841,7 +941,7 @@ mod tests {
         );
 
         let keys10_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store);
+            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(keys10_indices.len(), 1);
         assert_eq!(
             test_songs[keys10_indices[0]].play_mode,
@@ -849,7 +949,7 @@ mod tests {
         );
 
         let keys14_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store);
+            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store, &beetle_core::TableIndex::default());
         assert_eq!(keys14_indices.len(), 1);
         assert_eq!(
             test_songs[keys14_indices[0]].play_mode,

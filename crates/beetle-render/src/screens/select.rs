@@ -14,7 +14,7 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
-use beetle_core::{ScoreRecord, ScoreStore, SongMetadata};
+use beetle_core::{ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
 pub struct SelectFrame<'a> {
@@ -25,6 +25,8 @@ pub struct SelectFrame<'a> {
     /// Cursor position within `visible`.
     pub selected: usize,
     pub scores: &'a ScoreStore,
+    /// Installed difficulty tables, matched to the song list (level chips).
+    pub tables: &'a TableIndex,
     pub folder: &'a str,
     pub sort: &'a str,
     pub search: &'a str,
@@ -158,7 +160,8 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
     for (slot, &idx) in f.visible.iter().enumerate().skip(start).take(rows) {
         let Some(song) = f.songs.get(idx) else { continue };
         let row = Rect::new(list.x, list.y + (slot - start) as f32 * step, row_w, ROW_H * s);
-        song_row(c, t, sk, song, f.scores.get(song.id), row, slot == f.selected, s);
+        let chip = f.tables.chip(song.id);
+        song_row(c, t, sk, song, f.scores.get(song.id), chip.as_deref(), row, slot == f.selected, s);
     }
 
     // Scrollbar
@@ -172,12 +175,24 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Small pill with a difficulty table level (`sl3`); returns its width.
+fn level_chip(c: &mut Canvas, t: &mut TextEngine, text: &str, x: f32, baseline: f32, s: f32) -> f32 {
+    let st = caption(9.0, s).color(theme::PURPLE);
+    let w = t.measure(c, text, &st) + 12.0 * s;
+    let pill = Rect::new(x, baseline - 12.0 * s, w, 16.0 * s);
+    c.fill_rect(pill, theme::PURPLE.with_alpha(36));
+    c.stroke_rect(pill, s.max(1.0), theme::PURPLE.with_alpha(140));
+    t.draw_in(c, text, pill, Align::Center, &st);
+    w
+}
+
 fn song_row(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
     song: &SongMetadata,
     best: Option<&ScoreRecord>,
+    table_chip: Option<&str>,
     row: Rect,
     on: bool,
     s: f32,
@@ -218,7 +233,10 @@ fn song_row(
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
     let mode = theme::mode_label(song.play_mode);
     let mode_w = t.draw(c, mode, tx, row.y + 42.0 * s, &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED2 }));
-    let ax = tx + mode_w + 8.0 * s;
+    let mut ax = tx + mode_w + 8.0 * s;
+    if let Some(chip) = table_chip {
+        ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
+    }
     let artist = t.fit(c, &song.artist, text_w - (ax - tx), &sub_st).into_owned();
     t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
 
@@ -300,7 +318,14 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
     let ix = jacket.right() + 24.0 * s;
     let iw = inner.right() - ix;
     let tier_txt = format!("{tier} {}", song.play_level);
-    t.draw(c, &tier_txt, ix, inner.y + 14.0 * s, &caption(11.0, s).color(tier_col));
+    let tier_w = t.draw(c, &tier_txt, ix, inner.y + 14.0 * s, &caption(11.0, s).color(tier_col));
+    // The tables the chart is in (the first ones; the panel has no room for more).
+    let mut chip_x = ix + tier_w + 12.0 * s;
+    for m in f.tables.matches_for(song.id).iter().take(3) {
+        let table = &f.tables.tables()[m.table];
+        let text = format!("{}{}", table.symbol, table.entries[m.entry].level);
+        chip_x += level_chip(c, t, &text, chip_x, inner.y + 14.0 * s, s) + 6.0 * s;
+    }
     // One line at 26px if it fits, otherwise two lines at 20px.
     let big = TextStyle::new(26.0 * s).bold().color(theme::TEXT);
     let mut y = if t.measure(c, &song.title, &big) <= iw {
@@ -614,6 +639,7 @@ mod tests {
         let vp = Viewport::new(1280, 720);
         let songs: Vec<_> = (0..40).map(song).collect();
         let visible: Vec<_> = (0..40).collect();
+        let tables = TableIndex::default();
         let mut scores = ScoreStore::default();
         scores.update(PlayResult {
             chart: beetle_core::ChartId::synthetic(6),
@@ -640,6 +666,7 @@ mod tests {
             let frame = SelectFrame {
                 viewport: &vp,
                 songs: &songs,
+                tables: &tables,
                 visible,
                 selected,
                 scores: &scores,

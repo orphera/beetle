@@ -138,6 +138,8 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         _ => (None, None),
     };
 
+    let folder = state.category_mode.title(&state.tables);
+
     begin(state, size);
     let vp = state.view.viewport;
     let ui: &mut Ui = &mut state.gpu_ui.ui;
@@ -149,7 +151,8 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             visible: &state.filtered_indices,
             selected: state.selected_song_idx,
             scores: &state.score_store,
-            folder: state.category_mode.as_str(),
+            tables: &state.tables,
+            folder: &folder,
             sort: state.sort_mode.as_str(),
             search: &state.search_query,
             search_active: state.is_search_active,
