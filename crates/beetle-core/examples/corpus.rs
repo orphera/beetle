@@ -181,7 +181,10 @@ fn collect_charts(dir: &Path, out: &mut Vec<PathBuf>) {
 /// True when `tag` names something Beetle's parser already handles.
 fn is_supported(tag: &str) -> bool {
     match tag.split_once(':') {
-        Some(("H", key)) => SUPPORTED_HEADERS.contains(&key),
+        Some(("H", key)) => {
+            SUPPORTED_HEADERS.contains(&key)
+                || beetle_core::resolver::has_control_flow(&format!("#{key} 1"))
+        }
         Some(("C", ch)) => is_supported_channel(ch),
         _ => true,
     }
@@ -191,7 +194,7 @@ fn is_supported(tag: &str) -> bool {
 fn is_problem_flag(tag: &str) -> bool {
     matches!(
         tag,
-        "F:random" | "F:no-playable-notes" | "F:extreme-bpm" | "F:bad-duration"
+        "F:no-playable-notes" | "F:extreme-bpm" | "F:bad-duration"
     ) || tag.starts_with("F:ln.channel-lntype")
 }
 
@@ -268,7 +271,7 @@ fn main() {
 
     println!("\n== play-mode / extension / LN-style distribution ==");
     for (tag, idxs) in by_tag.iter().filter(|(t, _)| {
-        ["F:mode.", "F:ext.", "F:ln.", "F:mine"].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
+        ["F:mode.", "F:ext.", "F:ln.", "F:mine", "F:random"].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
     }) {
         println!("  {:>6} ({:>5.1}%)  {tag}", idxs.len(), pct(idxs.len()));
     }

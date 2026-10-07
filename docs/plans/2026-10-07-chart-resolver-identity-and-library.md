@@ -50,8 +50,9 @@
 
 ## 진행 상황 (2026-10-07)
 
-- 완료: 코퍼스 조사 도구, 변속 스크롤(박자 기준), BPM 범위 표시, `#PREVIEW` 재생과 선곡 화면 배지, STOP 위치 노트를 정지 전 시각으로 처리 (BPM 변경이 STOP보다 먼저), 롱노트 꼬리를 노트 수에 포함해 완벽 플레이가 100%가 되도록 수정, 지뢰 파싱·판정·표시, 롱노트 해제 판정 개선.
-- 남음: `#RANDOM` Resolver, ScoreKey 확장, Chart Identity, LN/CN/HCN 규칙(Ruleset), `#PREVIEW`가 없는 곡의 미리듣기 자동 생성.
+- 완료: `#RANDOM` Resolver, 코퍼스 조사 도구, 변속 스크롤(박자 기준), BPM 범위 표시, `#PREVIEW` 재생과 선곡 화면 배지, STOP 위치 노트를 정지 전 시각으로 처리 (BPM 변경이 STOP보다 먼저), 롱노트 꼬리를 노트 수에 포함해 완벽 플레이가 100%가 되도록 수정, 지뢰 파싱·판정·표시, 롱노트 해제 판정 개선.
+- 남음: ScoreKey 확장, Chart Identity, LN/CN/HCN 규칙(Ruleset), `#PREVIEW`가 없는 곡의 미리듣기 자동 생성.
+- 알려진 한계: 리플레이 재생은 레인 모디파이어(Random 등)를 다시 적용하지 않고, 그 시드도 기록하지 않는다. 모디파이어를 켜고 기록한 리플레이는 재현되지 않는다 (Resolver 이전부터 있던 문제).
 - 사람이 직접 플레이로 확인해야 하는 것: 스크롤, STOP 처리, 지뢰 데미지 값과 판정창, 롱노트 해제 피드백.
 
 ## 우선순위 조정
@@ -70,7 +71,8 @@
 ### Phase A — Resolver와 코퍼스 (P0)
 
 1. BMS 호환성 코퍼스 구성 (`parse → resolve → play chart` 자동 검증). 확장자 BMS/BME/BML/PMS, 구형 구문, 비표준 표기, 극단 BPM/STOP, LN 변형, DP/PMS, 깨진 파일, `#RANDOM`.
-2. `#RANDOM/#IF/#ELSE/#ENDIF` Chart Resolver. 파서와 `BmsChart` 사이에 둔다. 시드 주입으로 결정론을 유지하고, 사용한 시드를 Replay/Score에 기록한다.
+2. `#RANDOM/#IF/#ELSE/#ENDIF` Chart Resolver. **구현됨 (2026-10-07)**: `crates/beetle-core/src/resolver.rs`가 파서 앞에서 BMS 텍스트를 한 번의 굴림이 만드는 구체적인 텍스트로 바꾼다. 시드를 받아 결정론적으로 동작하고, 사용한 시드는 `BmsChart::random_seed`와 리플레이(`seed=` 줄)에 기록된다. 지원: `#RANDOM`, `#SETRANDOM`, `#IF`, `#ELSEIF`, `#ELSE`, `#ENDIF`, `#ENDRANDOM`, 깊이 제한 없는 중첩. 미지원: `#SWITCH` 계열. `#IF` 안에 쓴 `#RANDOM`은 그 블록 안에서만 유효하다(뒤따르는 형제 `#IF`는 바깥 굴림을 본다). 이 중첩 범위 규칙은 다른 플레이어와 대조해 확인한 것이 아니라 선택한 규칙이다. 수용 테스트로 쓴 실제 차트 3개는 노트 수가 정상 범위로 돌아왔다 (`ubmchallenge` 135,513 → 약 700개).
+   - 곡 목록(메타데이터)은 고정 시드로 읽어서 노트 수 등이 실행마다 같다. 실제 플레이는 매번 새 시드로 굴린다.
 3. Landmine 채널 파싱 → 판정. **구현됨 (2026-10-07)**: D1~D9/E1~E9를 지뢰로 파싱하고, 값/2 %만큼 게이지를 깎는다(콤보·EX·총 노트 수에는 영향 없음). 판정창은 GREAT 창, 누르고 있던 키도 발동, 자동 플레이는 지뢰를 밟지 않는다. 값/2 %는 다른 플레이어의 동작을 기억에 의존해 정한 것이므로 실제 지뢰 차트(GdbG 패키지)로 비교 검증이 필요하다.
 4. LN semantics 정리. 해제 처리 개선은 완료 (아래 진행 상황). LN/CN/HCN 규칙 구분은 Ruleset 설계에서 한다.
 5. ScoreKey 확장 (`chart_id × mode × modifier × ruleset`). 기존 ScoreStore 마이그레이션 포함.

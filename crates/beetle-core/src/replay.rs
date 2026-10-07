@@ -16,6 +16,8 @@ pub struct ReplayData {
     pub chart_hash: u64,
     pub ex_score: u32,
     pub max_combo: u32,
+    /// Seed the chart's `#RANDOM` sections were rolled with (`None` for charts without any).
+    pub random_seed: Option<u64>,
     pub events: Vec<ReplayEvent>,
 }
 
@@ -25,6 +27,7 @@ impl ReplayData {
             chart_hash,
             ex_score: 0,
             max_combo: 0,
+            random_seed: None,
             events: Vec::new(),
         }
     }
@@ -49,6 +52,9 @@ impl ReplayData {
         let _ = writeln!(buf, "hash={:016x}", self.chart_hash);
         let _ = writeln!(buf, "ex_score={}", self.ex_score);
         let _ = writeln!(buf, "max_combo={}", self.max_combo);
+        if let Some(seed) = self.random_seed {
+            let _ = writeln!(buf, "seed={seed:016x}");
+        }
         let _ = writeln!(buf, "#EVENTS");
 
         for ev in &self.events {
@@ -92,6 +98,7 @@ impl ReplayData {
         let mut chart_hash = 0;
         let mut ex_score = 0;
         let mut max_combo = 0;
+        let mut random_seed = None;
         let mut in_events = false;
         let mut events = Vec::new();
 
@@ -115,6 +122,7 @@ impl ReplayData {
                         "hash" => chart_hash = u64::from_str_radix(val, 16).unwrap_or(0),
                         "ex_score" => ex_score = val.parse::<u32>().unwrap_or(0),
                         "max_combo" => max_combo = val.parse::<u32>().unwrap_or(0),
+                        "seed" => random_seed = u64::from_str_radix(val, 16).ok(),
                         _ => (),
                     }
                 }
@@ -159,6 +167,7 @@ impl ReplayData {
             chart_hash,
             ex_score,
             max_combo,
+            random_seed,
             events,
         })
     }
@@ -173,6 +182,7 @@ mod tests {
         let mut replay = ReplayData::new(0x123456789ABCDEF0);
         replay.ex_score = 1520;
         replay.max_combo = 850;
+        replay.random_seed = Some(0xfeed_beef_1234);
         replay.record(1.2345, Lane::Key1, true);
         replay.record(1.3456, Lane::Key1, false);
         replay.record(2.0000, Lane::Scratch, true);
@@ -184,6 +194,7 @@ mod tests {
         assert_eq!(replay.chart_hash, parsed.chart_hash);
         assert_eq!(replay.ex_score, parsed.ex_score);
         assert_eq!(replay.max_combo, parsed.max_combo);
+        assert_eq!(replay.random_seed, parsed.random_seed);
         assert_eq!(replay.events.len(), parsed.events.len());
         assert_eq!(replay.events[0].lane, parsed.events[0].lane);
         assert_eq!(replay.events[0].is_down, parsed.events[0].is_down);

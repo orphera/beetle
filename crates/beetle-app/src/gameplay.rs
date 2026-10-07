@@ -11,6 +11,13 @@ use beetle_core::{
 use crate::loader::{load_stage_image, spawn_background_song_loader};
 use crate::state::{AppScreen, AppState, REPLAYS_DIR, SCORES_FILE};
 
+fn fresh_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(42)
+}
+
 pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.screen = AppScreen::Loading;
     state.loading_song = Some(song.clone());
@@ -25,7 +32,15 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .entry(selected_hash)
         .or_insert_with(|| load_stage_image(song));
 
-    state.loading_receiver = Some(spawn_background_song_loader(song));
+    // A replay re-rolls `#RANDOM` with the seed it was recorded with; a fresh
+    // play rolls anew.
+    let seed = state
+        .playback_replay
+        .as_ref()
+        .filter(|_| state.is_replay_playback)
+        .and_then(|r| r.random_seed)
+        .unwrap_or_else(fresh_seed);
+    state.loading_receiver = Some(spawn_background_song_loader(song, seed));
     state.window.request_redraw();
 }
 
@@ -194,7 +209,9 @@ pub fn finalize_start_gameplay(
     state.bgm_cursor = bgm_cursor;
     state.is_new_record = false;
     state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
-        Some(ReplayData::new(song.hash))
+        let mut replay = ReplayData::new(song.hash);
+        replay.random_seed = chart.random_seed;
+        Some(replay)
     } else {
         None
     };

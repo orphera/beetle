@@ -9,11 +9,12 @@ pub mod judge;
 pub mod library;
 pub mod modifier;
 pub mod replay;
+pub mod resolver;
 pub mod score;
 pub mod timing;
 
 pub use bms::{
-    decode_base36, decode_bms_text, encode_base36, parse_bms, BgaChannel, BgaDefinition, BgaEvent,
+    decode_base36, decode_bms_text, encode_base36, parse_bms, parse_bms_with_seed, BgaChannel, BgaDefinition, BgaEvent,
     BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType, PlayMode, WavId,
 };
 pub use judge::{

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
-use beetle_core::{parse_bms, BmpId, BmsChart, SongMetadata, TimingModel};
+use beetle_core::{parse_bms, parse_bms_with_seed, BmpId, BmsChart, SongMetadata, TimingModel};
 use beetle_render::{is_video_path, ImageBuffer};
 
 use crate::demo;
@@ -524,10 +524,26 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     None
 }
 
-/// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
-#[allow(clippy::map_entry)]
+/// `load_chart_and_audio_with_seed` with the library's fixed `#RANDOM` seed.
+#[cfg(test)]
 pub fn load_chart_and_audio(
     song: &SongMetadata,
+) -> (
+    BmsChart,
+    TimingModel,
+    SampleBank,
+    HashMap<BmpId, ImageBuffer>,
+    HashMap<BmpId, VideoSource>,
+) {
+    load_chart_and_audio_with_seed(song, beetle_core::bms::DEFAULT_RANDOM_SEED)
+}
+
+/// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
+/// `seed` decides the rolls of any `#RANDOM` sections in the chart.
+#[allow(clippy::map_entry)]
+pub fn load_chart_and_audio_with_seed(
+    song: &SongMetadata,
+    seed: u64,
 ) -> (
     BmsChart,
     TimingModel,
@@ -553,7 +569,7 @@ pub fn load_chart_and_audio(
 
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
                 let content = beetle_core::decode_bms_text(&bms_bytes);
-                if let Ok(chart) = parse_bms(&content) {
+                if let Ok(chart) = parse_bms_with_seed(&content, seed) {
                     let timing = TimingModel::from_chart(&chart);
                     let mut soundbank = SampleBank::new();
                     let mut bga_bank = HashMap::new();
@@ -808,7 +824,7 @@ pub fn load_chart_and_audio(
     let path = Path::new(&song.file_path);
     if let Ok(bytes) = fs::read(path) {
         let content = beetle_core::decode_bms_text(&bytes);
-        if let Ok(chart) = parse_bms(&content) {
+        if let Ok(chart) = parse_bms_with_seed(&content, seed) {
             let timing = TimingModel::from_chart(&chart);
             let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
             let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
@@ -875,12 +891,12 @@ pub fn load_chart_and_audio(
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
-pub fn spawn_background_song_loader(song: &SongMetadata) -> SongLoadReceiver {
+pub fn spawn_background_song_loader(song: &SongMetadata, seed: u64) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio(&song_clone);
+        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio_with_seed(&song_clone, seed);
         let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_sources)));
     });
 

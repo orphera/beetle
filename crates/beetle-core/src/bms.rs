@@ -243,6 +243,8 @@ pub struct BmsChart {
     pub has_2p_key1: bool,
     pub has_pms_ch: bool,
     pub has_k67: bool,
+    /// Seed the `#RANDOM` rolls were made with; `None` when the chart has no random sections.
+    pub random_seed: Option<u64>,
 }
 
 impl BmsChart {
@@ -514,8 +516,26 @@ pub fn is_measure_line(content: &str) -> bool {
         && (bytes[5] == b':' || bytes[5] == b' ')
 }
 
-/// Parses raw BMS/BME/BML chart text into a `BmsChart`.
+/// Seed `parse_bms` rolls `#RANDOM` with: library metadata stays stable from run to run.
+pub const DEFAULT_RANDOM_SEED: u64 = 1;
+
+/// Parses raw BMS/BME/BML chart text into a `BmsChart`, rolling any `#RANDOM`
+/// with `DEFAULT_RANDOM_SEED`.
 pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
+    parse_bms_with_seed(input, DEFAULT_RANDOM_SEED)
+}
+
+/// Parses a chart, resolving `#RANDOM` / `#IF` sections with the rolls `seed`
+/// produces. The same text and seed always give the same chart; the seed used
+/// is kept in `BmsChart::random_seed` (so a replay can ask for the same one).
+pub fn parse_bms_with_seed(input: &str, seed: u64) -> Result<BmsChart, BmsParseError> {
+    let resolved = crate::resolver::resolve_random(input, seed);
+    let mut chart = parse_resolved(resolved.as_deref().unwrap_or(input))?;
+    chart.random_seed = resolved.is_some().then_some(seed);
+    Ok(chart)
+}
+
+fn parse_resolved(input: &str) -> Result<BmsChart, BmsParseError> {
     let mut chart = BmsChart::default();
     let mut raw_ln_events: Vec<(u32, f64, Lane, WavId)> = Vec::new();
 
@@ -1235,6 +1255,26 @@ mod tests {
             .notes
             .iter()
             .any(|n| n.lane == Lane::Key1 && n.note_type == NoteType::LongNoteEnd));
+    }
+
+    #[test]
+    fn random_sections_are_resolved_before_parsing() {
+        let src = "#BPM 120\n#RANDOM 1\n#IF 1\n#00111:01\n#ENDIF\n#IF 2\n#00112:01\n#00113:01\n#ENDIF\n";
+        let chart = parse_bms_with_seed(src, 5).unwrap();
+        // Only the taken branch's note is in the chart, and the seed is remembered.
+        assert_eq!(chart.notes.len(), 1);
+        assert_eq!(chart.notes[0].lane, Lane::Key1);
+        assert_eq!(chart.random_seed, Some(5));
+        // A chart without random sections has no seed to remember.
+        assert_eq!(parse_bms("#BPM 120\n#00111:01\n").unwrap().random_seed, None);
+    }
+
+    #[test]
+    fn same_seed_same_chart_different_seed_can_differ() {
+        let src = "#RANDOM 2\n#IF 1\n#00111:01\n#ENDIF\n#IF 2\n#00112:01\n#ENDIF\n";
+        let lane_of = |seed| parse_bms_with_seed(src, seed).unwrap().notes[0].lane;
+        assert_eq!(lane_of(9), lane_of(9));
+        assert!((0..64).any(|s| lane_of(s) != lane_of(0)));
     }
 
     #[test]
