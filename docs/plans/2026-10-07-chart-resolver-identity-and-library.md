@@ -79,9 +79,9 @@
 
 ### Phase B — Chart Identity (P0)
 
-정체성 규칙을 먼저 문서(spec)로 고정하고 구현한다.
+정체성 규칙은 [Chart Identity 설계](2026-10-08-chart-identity-design.md)에 정리했다. 기본 키는 원본 파일 바이트의 SHA-256이고 MD5를 외부 호환 별칭으로 함께 저장한다. 아래 목록은 설계 이전의 초안이다.
 
-- 정규화 버전(`canonicalization version`)을 identity에 포함한다.
+- ~~정규화 버전(`canonicalization version`)을 identity에 포함한다.~~ 원본 바이트를 그대로 해시하기로 해서 필요 없어졌다. 의미상 같은 차트 묶기(`ContentKey`)에서 정규화가 필요해질 때 정한다.
 - 결정할 것: 암호학적 해시로 올릴지 (FNV-1a 64bit 충돌 허용 범위), 공백·개행·인코딩 차이 처리, `#RANDOM` 포함 차트의 identity (원본 소스 identity와 resolve 결과 identity를 구분).
 - 같은 차트를 다른 패키지/경로에서 설치해도 같은 chart로 인식해야 한다.
 - 구성: content hash, package identity, difficulty identity, provenance.
