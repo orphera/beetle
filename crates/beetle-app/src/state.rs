@@ -7,7 +7,7 @@ use std::time::Instant;
 use beetle_audio::AudioEngine;
 use beetle_core::{
     compute_chart_hash, sort_songs, BmsChart, JudgeEngine, Lane, PlayMode, PlayOptions, ReplayData,
-    ScoreRecord, ScoreStore, SongMetadata, SortMode, TimingModel,
+    ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TimingModel,
 };
 use beetle_render::{ImageBuffer, ViewState};
 use winit::window::Window;
@@ -127,7 +127,8 @@ pub struct AppState {
     pub active_chart_hash: u64,
     pub active_judge: Option<JudgeEngine>,
     pub song_end_time: f64,
-    pub is_new_record: bool,
+    /// Which of the chart's bests the last play beat.
+    pub score_update: ScoreUpdate,
     pub previous_best: Option<ScoreRecord>,
     /// Key layout per key mode (5K / 7K / 9K / 10K / 14K).
     pub key_bindings: crate::input::KeyBindings,

@@ -17,7 +17,7 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::{RANK_POP_SECONDS, SCORE_COUNT_SECONDS};
-use beetle_core::{BmsChart, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker};
+use beetle_core::{BmsChart, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate};
 
 /// Everything the result screen shows for one frame.
 pub struct ResultFrame<'a> {
@@ -26,7 +26,8 @@ pub struct ResultFrame<'a> {
     pub score: &'a ScoreTracker,
     /// Best record before this play (`None` = first play).
     pub previous_best: Option<&'a ScoreRecord>,
-    pub new_record: bool,
+    /// Which of the chart's bests this play beat (all false when nothing was saved).
+    pub update: ScoreUpdate,
     /// Seconds since the screen was entered (drives the reveal).
     pub elapsed: f64,
     pub jacket: Option<SizedTexture>,
@@ -160,7 +161,10 @@ fn outcome_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &ResultFrame,
     let st = TextStyle::new(18.0 * s).bold().tracking(4.0 * s).color(lamp_col);
     let sw = t.measure(c, status, &st);
     t.draw(c, status, cx - sw / 2.0, baseline + 44.0 * s, &st);
-    if f.new_record {
+    if f.update.lamp {
+        new_tag(c, t, cx + sw / 2.0 + 10.0 * s, baseline + 44.0 * s, s);
+    }
+    if f.update.any() {
         let st = caption(11.0, s).tracking(3.0 * s).color(theme::WHITE);
         let w = t.measure(c, "NEW RECORD", &st) + 40.0 * s;
         let chip = Rect::new(cx - w / 2.0, baseline + 64.0 * s, w, 28.0 * s);
@@ -197,13 +201,25 @@ fn outcome_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &ResultFrame,
 // Score: EX score, vs best, stats, judge breakdown
 // ---------------------------------------------------------------------------
 
+/// Small "NEW" tag marking a best this play beat; `baseline` is the label's baseline.
+fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, s: f32) {
+    let st = caption(8.0, s).color(theme::WHITE);
+    let w = t.measure(c, "NEW", &st) + 10.0 * s;
+    let tag = Rect::new(x, baseline - 11.0 * s, w, 14.0 * s);
+    c.fill_rect(tag, theme::MAGENTA);
+    t.draw_in(c, "NEW", tag, Align::Center, &st);
+}
+
 fn score_panel_draw(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &ResultFrame, p: Rect, reveal: f32, s: f32) {
     panel(c, sk, p);
     let inner = p.inset(24.0 * s);
     let score = f.score;
     let y = inner.y;
 
-    t.draw(c, "EX SCORE", inner.x, y + 14.0 * s, &caption(10.0, s));
+    let label_w = t.draw(c, "EX SCORE", inner.x, y + 14.0 * s, &caption(10.0, s));
+    if f.update.ex {
+        new_tag(c, t, inner.x + label_w + 8.0 * s, y + 14.0 * s, s);
+    }
     let shown = (score.ex_score as f32 * reveal).round() as u32;
     let ex_w = t.draw(c, &thousands(shown), inner.x, y + 72.0 * s, &TextStyle::new(56.0 * s).bold().color(theme::TEXT));
     let max = format!("/ {}", thousands(score.max_ex_score()));
@@ -243,6 +259,15 @@ fn score_panel_draw(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &ResultFra
     for (i, (k, v, suffix)) in stats.iter().enumerate() {
         let sx = inner.x + i as f32 * col_w;
         t.draw(c, k, sx, y + 152.0 * s, &caption(10.0, s));
+        let beaten = match i {
+            1 => f.update.combo,
+            2 => f.update.bp,
+            _ => false,
+        };
+        if beaten {
+            // Above the label: the columns are too narrow to fit it beside one.
+            new_tag(c, t, sx, y + 138.0 * s, s);
+        }
         let vw = t.draw(c, v, sx, y + 176.0 * s, &TextStyle::new(17.0 * s).bold().color(theme::TEXT));
         if let Some(suffix) = suffix {
             t.draw(c, suffix, sx + vw + 4.0 * s, y + 176.0 * s, &TextStyle::new(11.0 * s).color(theme::MUTED2));
@@ -361,7 +386,8 @@ mod tests {
             score.record_hit(if i % 9 == 0 { JudgeGrade::Great } else { JudgeGrade::PerfectGreat });
         }
         let mut ui = Ui::new(vp.scale);
-        for (elapsed, new_record) in [(0.0, false), (0.2, true), (5.0, true)] {
+        let beaten = ScoreUpdate { lamp: true, ex: true, combo: true, bp: true };
+        for (elapsed, update) in [(0.0, ScoreUpdate::default()), (0.2, beaten), (5.0, beaten)] {
             ui.begin(1280, 720, vp.scale);
             draw_result(
                 &mut ui,
@@ -370,7 +396,7 @@ mod tests {
                     chart: &chart,
                     score: &score,
                     previous_best: None,
-                    new_record,
+                    update,
                     elapsed,
                     jacket: None,
                     unsaved_reason: Some("AUTO PLAY"),

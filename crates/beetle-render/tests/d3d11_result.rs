@@ -5,7 +5,7 @@
 
 mod common;
 
-use beetle_core::{BmsChart, BmsHeader, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker};
+use beetle_core::{BmsChart, BmsHeader, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{draw_result, D3d11Backend, GpuBackend, ResultFrame, Ui, Viewport};
 use common::{write_bmp, HiddenWindow};
@@ -54,7 +54,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, score: &ScoreTracker, best: Optio
     ui.begin(W, H, vp.scale);
     draw_result(
         ui,
-        &ResultFrame { viewport: &vp, chart: &chart, score, previous_best: best, new_record, elapsed, jacket: None, unsaved_reason: unsaved },
+        &ResultFrame { viewport: &vp, chart: &chart, score, previous_best: best, update: ScoreUpdate { lamp: new_record, ex: new_record, combo: new_record, bp: false }, elapsed, jacket: None, unsaved_reason: unsaved },
     );
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");

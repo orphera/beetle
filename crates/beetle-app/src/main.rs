@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use beetle_core::{GaugeType, LaneModifier, SongMetadata};
+use beetle_core::{GaugeType, LaneModifier, ScoreUpdate, SongMetadata};
 use beetle_render::{SkinConfig, ViewState};
 use config::{AppConfig, DisplayMode};
 use gameplay::{
@@ -194,7 +194,7 @@ impl ApplicationHandler for BeetleApp {
             active_chart_hash: 0,
             active_judge: None,
             song_end_time: 0.0,
-            is_new_record: false,
+            score_update: ScoreUpdate::default(),
             previous_best: None,
             key_bindings: KeyBindings::load(
                 &saved_config.key_layouts,

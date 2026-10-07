@@ -393,12 +393,28 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
 
 fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetadata, best: Option<&ScoreRecord>, area: Rect, s: f32) {
     let y = area.y;
-    t.draw(c, "PERSONAL BEST", area.x, y + 32.0 * s, &caption(10.0, s));
+    let header_w = t.draw(c, "PERSONAL BEST", area.x, y + 32.0 * s, &caption(10.0, s));
     let Some(b) = best else {
         t.draw(c, "Not played yet", area.x, y + 70.0 * s, &TextStyle::new(18.0 * s).bold().color(theme::MUTED));
         t.draw(c, "Clear this chart to record a score.", area.x, y + 92.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
         return;
     };
+
+    // How the best score was made, and how often the chart was played.
+    let mut notes = Vec::new();
+    if let Some(modifier) = b.modifier {
+        notes.push(modifier.as_str().to_string());
+    }
+    if let Some(gauge) = b.gauge {
+        notes.push(format!("{} GAUGE", gauge.as_str()));
+    }
+    if b.play_count > 0 {
+        notes.push(format!("{} {}", b.play_count, if b.play_count == 1 { "PLAY" } else { "PLAYS" }));
+    }
+    if !notes.is_empty() {
+        let st = caption(9.0, s).color(theme::MUTED2);
+        t.draw(c, &notes.join("  ·  "), area.x + header_w + 14.0 * s, y + 32.0 * s, &st);
+    }
 
     // Clear lamp chip
     let (lamp, lamp_col) = theme::clear_lamp(Some(b.clear_type));
@@ -423,7 +439,7 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
     let stats = [
         ("ACCURACY", format!("{:.2}%", b.accuracy_rate())),
         ("MAX COMBO", format!("{} / {}", thousands(b.max_combo), thousands(song.notes_count as u32))),
-        ("MISS", thousands(b.bad_count + b.poor_count + b.miss_count)),
+        ("MIN BP", thousands(b.min_bp)),
     ];
     let col_w = area.w / 3.0;
     for (i, (k, v)) in stats.iter().enumerate() {

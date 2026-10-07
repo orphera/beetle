@@ -274,7 +274,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 chart,
                 score: judge.score(),
                 previous_best: state.previous_best.as_ref(),
-                new_record: state.is_new_record,
+                update: state.score_update,
                 elapsed,
                 jacket,
                 unsaved_reason: unsaved,

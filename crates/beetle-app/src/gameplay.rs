@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreStore,
+    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreStore, ScoreUpdate,
     SongMetadata, TimingModel,
 };
 
@@ -207,7 +207,7 @@ pub fn finalize_start_gameplay(
     state.active_bga_image = load_stage_image(song).map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
-    state.is_new_record = false;
+    state.score_update = ScoreUpdate::default();
     state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
         let mut replay = ReplayData::new(song.hash);
         replay.random_seed = chart.random_seed;
@@ -264,7 +264,7 @@ pub fn finish_gameplay(state: &mut AppState) {
         state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
             let update = state.score_store.update(play);
-            state.is_new_record = update.any();
+            state.score_update = update;
             save_scores(&state.score_store);
 
             // The replay on disk is the one that set the best EX score; a play
@@ -278,7 +278,7 @@ pub fn finish_gameplay(state: &mut AppState) {
                 }
             }
         } else {
-            state.is_new_record = false;
+            state.score_update = ScoreUpdate::default();
         }
     }
 
