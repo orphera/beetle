@@ -19,7 +19,7 @@ pub use bms::{
     BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType, PlayMode, WavId,
 };
 pub use identity::{
-    hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId,
+    hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId, ChartKey,
 };
 pub use judge::{
     GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker,

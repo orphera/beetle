@@ -73,6 +73,51 @@ impl FromStr for ChartId {
     }
 }
 
+impl ChartId {
+    /// An id for a synthetic chart that has no file (the built-in demo, tests):
+    /// the SHA-256 of the number's bytes. Not derived from any real file.
+    pub fn synthetic(n: u64) -> Self {
+        Self::of_bytes(&n.to_le_bytes())
+    }
+}
+
+/// What a stored record of a chart is filed under: its identity, or, for a
+/// record made before chart identity existed, the previous FNV-1a key. Legacy
+/// keys are replaced by ids as soon as the chart shows up in the song list.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+pub enum ChartKey {
+    Id(ChartId),
+    Legacy(u64),
+}
+
+impl Default for ChartKey {
+    fn default() -> Self {
+        Self::Legacy(0)
+    }
+}
+
+impl ChartKey {
+    /// Reads `sha256:<64 hex>` or the old 16-digit hex form.
+    pub fn parse(text: &str) -> Option<Self> {
+        if text.starts_with(PREFIX) || text.len() == 64 {
+            ChartId::from_hex(text).map(Self::Id)
+        } else if text.len() == 16 {
+            u64::from_str_radix(text, 16).ok().map(Self::Legacy)
+        } else {
+            None
+        }
+    }
+}
+
+impl fmt::Display for ChartKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Id(id) => write!(f, "{id}"),
+            Self::Legacy(hash) => write!(f, "{hash:016x}"),
+        }
+    }
+}
+
 /// MD5 of a chart file's bytes, as difficulty tables and LR2 name charts.
 pub fn md5_of_bytes(data: &[u8]) -> [u8; 16] {
     md5_digest(data)
@@ -134,6 +179,24 @@ mod tests {
         assert_eq!(ChartId::from_hex("sha256:1234"), None);
         assert_eq!(ChartId::from_hex(&"g".repeat(64)), None);
         assert_eq!(ChartId::from_hex(""), None);
+    }
+
+    #[test]
+    fn keys_print_and_parse_in_both_forms() {
+        let id = ChartId::of_bytes(b"x");
+        for key in [ChartKey::Id(id), ChartKey::Legacy(0xdead_beef_0000_0042)] {
+            assert_eq!(ChartKey::parse(&key.to_string()), Some(key));
+        }
+        assert_eq!(ChartKey::Legacy(0x42).to_string(), "0000000000000042");
+        assert_eq!(ChartKey::parse(&id.to_hex()), Some(ChartKey::Id(id)));
+        assert_eq!(ChartKey::parse("short"), None);
+        assert_eq!(ChartKey::parse("zzzzzzzzzzzzzzzz"), None);
+    }
+
+    #[test]
+    fn synthetic_ids_differ_by_number() {
+        assert_ne!(ChartId::synthetic(1), ChartId::synthetic(2));
+        assert_eq!(ChartId::synthetic(7), ChartId::synthetic(7));
     }
 
     #[test]

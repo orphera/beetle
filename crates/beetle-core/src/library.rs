@@ -55,10 +55,9 @@ pub struct SongMetadata {
     /// MD5 of the same bytes. Difficulty tables and LR2 name charts by it; it is
     /// an alias and never a key.
     pub md5: [u8; 16],
-    /// The previous chart key: FNV-1a 64 over the decoded text. Scores, replays
-    /// and caches are still keyed by it until they move to `id`; after that it
-    /// only serves to carry the old records over.
-    pub hash: u64,
+    /// The previous chart key: FNV-1a 64 over the decoded text. Only used to
+    /// carry records made under it over to `id`.
+    pub legacy_hash: u64,
     pub file_path: String,
     pub title: String,
     pub subtitle: String,
@@ -79,7 +78,7 @@ impl SongMetadata {
     pub fn from_bytes(file_path: &str, bytes: &[u8]) -> Option<Self> {
         let content = decode_bms_text(bytes);
         let chart = parse_bms(&content).ok()?;
-        let hash = compute_chart_hash(content.as_bytes());
+        let legacy_hash = compute_chart_hash(content.as_bytes());
         let (id, md5) = hash_chart_bytes(bytes);
         let notes_count = chart.total_notes_count.max(chart.playable_notes_len());
         let (bpm_min, bpm_max) = chart.bpm_range();
@@ -95,7 +94,7 @@ impl SongMetadata {
         Some(Self {
             id,
             md5,
-            hash,
+            legacy_hash,
             file_path: file_path.to_string(),
             title,
             subtitle: chart.header.subtitle,
@@ -143,7 +142,7 @@ impl SongMetadata {
             self.play_mode.as_str(),
             self.id,
             md5_to_hex(&self.md5),
-            self.hash,
+            self.legacy_hash,
         )
     }
 
@@ -193,7 +192,7 @@ impl SongMetadata {
         Some(Self {
             id: id?,
             md5: md5?,
-            hash: hash?,
+            legacy_hash: hash?,
             file_path: file_path?,
             title,
             subtitle,
@@ -236,15 +235,15 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
         }
         SortMode::ClearLamp => {
             songs.sort_by(|a, b| {
-                let lamp_a = store.get(a.hash).map(|r| r.clear_type);
-                let lamp_b = store.get(b.hash).map(|r| r.clear_type);
+                let lamp_a = store.get(a.id).map(|r| r.clear_type);
+                let lamp_b = store.get(b.id).map(|r| r.clear_type);
                 lamp_b.cmp(&lamp_a).then_with(|| a.title.cmp(&b.title))
             });
         }
         SortMode::ScoreRate => {
             songs.sort_by(|a, b| {
-                let acc_a = store.get(a.hash).map(|r| r.accuracy_rate()).unwrap_or(0.0);
-                let acc_b = store.get(b.hash).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_a = store.get(a.id).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_b = store.get(b.id).map(|r| r.accuracy_rate()).unwrap_or(0.0);
                 acc_b
                     .partial_cmp(&acc_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -304,9 +303,9 @@ mod tests {
     #[test]
     fn test_song_metadata_tsv_serialization() {
         let meta = SongMetadata {
-            id: Default::default(),
+            id: ChartId::synthetic(0x123456789abcdef0),
             md5: [0; 16],
-            hash: 0x123456789abcdef0,
+            legacy_hash: 0x123456789abcdef0,
             file_path: "songs/test.bms".to_string(),
             title: "Test Song".to_string(),
             subtitle: "Original".to_string(),
@@ -330,9 +329,9 @@ mod tests {
     fn test_sort_songs_by_level() {
         let mut songs = vec![
             SongMetadata {
-                id: Default::default(),
+                id: ChartId::synthetic(1),
                 md5: [0; 16],
-                hash: 1,
+                legacy_hash: 1,
                 file_path: "1.bms".into(),
                 title: "Song B".into(),
                 subtitle: "".into(),
@@ -346,9 +345,9 @@ mod tests {
                 play_mode: PlayMode::Keys7,
             },
             SongMetadata {
-                id: Default::default(),
+                id: ChartId::synthetic(2),
                 md5: [0; 16],
-                hash: 2,
+                legacy_hash: 2,
                 file_path: "2.bms".into(),
                 title: "Song A".into(),
                 subtitle: "".into(),
@@ -400,7 +399,7 @@ mod tests {
         assert_eq!(a.id, b.id, "same bytes, different places: same chart");
         assert_eq!(a.id, ChartId::of_bytes(CHART));
         assert_eq!(a.md5, bms_hash::md5_digest(CHART));
-        assert_eq!(a.hash, compute_chart_hash(CHART), "the legacy key is unchanged");
+        assert_eq!(a.legacy_hash, compute_chart_hash(CHART), "the legacy key is unchanged");
 
         let crlf = CHART.iter().fold(Vec::new(), |mut v, &c| {
             if c == b'\n' {

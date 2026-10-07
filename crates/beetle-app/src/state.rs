@@ -6,8 +6,8 @@ use std::time::Instant;
 
 use beetle_audio::AudioEngine;
 use beetle_core::{
-    compute_chart_hash, sort_songs, BmsChart, JudgeEngine, Lane, PlayMode, PlayOptions, ReplayData,
-    ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TimingModel,
+    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, PlayMode, PlayOptions,
+    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TimingModel,
 };
 use beetle_render::{ImageBuffer, ViewState};
 use winit::window::Window;
@@ -112,7 +112,7 @@ pub struct AppState {
     pub playback_replay: Option<ReplayData>,
     pub playback_cursor: usize,
     pub start_measure: u32,
-    pub stage_image_cache: std::collections::HashMap<u64, Option<ImageBuffer>>,
+    pub stage_image_cache: std::collections::HashMap<ChartId, Option<ImageBuffer>>,
     pub bga_bank: std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
     pub bga_cursor: usize,
     pub current_bga_bmp: Option<beetle_core::BmpId>,
@@ -124,7 +124,7 @@ pub struct AppState {
     pub video_start_times: std::collections::HashMap<beetle_core::BmpId, f64>,
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
-    pub active_chart_hash: u64,
+    pub active_chart_id: ChartId,
     pub active_judge: Option<JudgeEngine>,
     pub song_end_time: f64,
     /// Which of the chart's bests the last play beat.
@@ -155,8 +155,8 @@ pub struct AppState {
     pub result_entered_at: Instant,
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
-    pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
-    pub stage_image_loading_hash: Option<u64>,
+    pub stage_image_receiver: Option<Receiver<(ChartId, Option<ImageBuffer>)>>,
+    pub stage_image_loading_id: Option<ChartId>,
     /// Song-select audio preview (`#PREVIEW`).
     pub preview: crate::preview::Preview,
     /// Canvas UI + song textures.
@@ -493,7 +493,7 @@ pub fn filter_song_indices(
                 }
                 SongCategory::Level => Some(idx),
                 SongCategory::ClearStatus => {
-                    let best = score_store.get(s.hash);
+                    let best = score_store.get(s.id);
                     if best.is_some() || s.file_path == ":demo:" {
                         Some(idx)
                     } else {
@@ -503,6 +503,76 @@ pub fn filter_song_indices(
             }
         })
         .collect()
+}
+
+/// Where a chart's replay is kept.
+pub fn replay_path(id: ChartId) -> String {
+    format!("{}/{}.rep", REPLAYS_DIR, id.short())
+}
+
+/// Writes the score file. The first save over a file in the original format
+/// keeps a copy of it, and the write goes through a temporary file so an
+/// interrupted save cannot leave a half-written `scores.dat`.
+pub fn save_scores(store: &ScoreStore) {
+    if let Ok(old) = fs::read_to_string(SCORES_FILE) {
+        let backup = format!("{SCORES_FILE}.v1.bak");
+        if ScoreStore::is_legacy_format(&old) && !Path::new(&backup).exists() {
+            let _ = fs::write(backup, old);
+        }
+    }
+    let temp = format!("{SCORES_FILE}.tmp");
+    if fs::write(&temp, store.save_to_string()).is_ok() {
+        let _ = fs::rename(&temp, SCORES_FILE);
+    }
+}
+
+/// Moves records and replays made under the old chart keys over to chart ids,
+/// for every chart in the song list. Records and replays of charts that are
+/// not in the list are left alone until the chart turns up.
+pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
+    let pairs: Vec<(u64, ChartId)> = songs
+        .iter()
+        .map(|s| (s.legacy_hash, s.id))
+        .collect();
+
+    if store.legacy_count() > 0 {
+        // Keep the file as it was before the keys change, once.
+        let backup = format!("{SCORES_FILE}.pre-id.bak");
+        if !Path::new(&backup).exists() {
+            if let Ok(old) = fs::read_to_string(SCORES_FILE) {
+                let _ = fs::write(backup, old);
+            }
+        }
+        if store.migrate(&pairs) > 0 {
+            save_scores(store);
+        }
+    }
+
+    migrate_replays(&pairs);
+}
+
+/// Copies replays named by the old key to the chart-id names. The old files
+/// stay where they are; a new name that already exists is never overwritten.
+fn migrate_replays(pairs: &[(u64, ChartId)]) {
+    let Ok(entries) = fs::read_dir(REPLAYS_DIR) else {
+        return;
+    };
+    let old_keys: std::collections::HashSet<u64> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            let stem = name.strip_suffix(".rep")?;
+            (stem.len() == 16).then(|| u64::from_str_radix(stem, 16).ok()).flatten()
+        })
+        .collect();
+    for &(legacy, id) in pairs {
+        if old_keys.contains(&legacy) {
+            let new = replay_path(id);
+            if !Path::new(&new).exists() {
+                let _ = fs::copy(format!("{REPLAYS_DIR}/{legacy:016x}.rep"), new);
+            }
+        }
+    }
 }
 
 pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
@@ -522,7 +592,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     let demo_meta = SongMetadata {
         id,
         md5,
-        hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
+        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
         title: demo_chart.header.title,
         subtitle: demo_chart.header.subtitle,
@@ -540,6 +610,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
         songs.insert(0, demo_meta);
     }
 
+    migrate_chart_keys(&songs, &mut score_store);
     sort_songs(&mut songs, sort_mode, &score_store);
 
     (songs, score_store)
@@ -554,7 +625,7 @@ pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) ->
     let demo_meta = SongMetadata {
         id,
         md5,
-        hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
+        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
         title: demo_chart.header.title,
         subtitle: demo_chart.header.subtitle,

@@ -158,7 +158,7 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
     for (slot, &idx) in f.visible.iter().enumerate().skip(start).take(rows) {
         let Some(song) = f.songs.get(idx) else { continue };
         let row = Rect::new(list.x, list.y + (slot - start) as f32 * step, row_w, ROW_H * s);
-        song_row(c, t, sk, song, f.scores.get(song.hash), row, slot == f.selected, s);
+        song_row(c, t, sk, song, f.scores.get(song.id), row, slot == f.selected, s);
     }
 
     // Scrollbar
@@ -342,7 +342,7 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
 
     let rule_y = jacket.bottom() + 24.0 * s;
     c.fill_rect(Rect::new(inner.x, rule_y, inner.w, s.max(1.0)), theme::LINE);
-    personal_best(c, t, sk, song, f.scores.get(song.hash), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
+    personal_best(c, t, sk, song, f.scores.get(song.id), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
 
     // Play options + CTA at the bottom
     let cta_h = 52.0 * s;
@@ -583,9 +583,9 @@ mod tests {
 
     fn song(i: usize) -> SongMetadata {
         SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(i as u64 + 1),
             md5: [0; 16],
-            hash: i as u64 + 1,
+            legacy_hash: i as u64 + 1,
             file_path: format!("songs/{i}.bms"),
             title: format!("Song number {i} with a fairly long title (ANOTHER)"),
             subtitle: String::new(),
@@ -616,7 +616,7 @@ mod tests {
         let visible: Vec<_> = (0..40).collect();
         let mut scores = ScoreStore::default();
         scores.update(PlayResult {
-            chart_hash: 6,
+            chart: beetle_core::ChartId::synthetic(6),
             lamp: ClearType::FullCombo,
             ex_score: 1900,
             max_combo: 800,

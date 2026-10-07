@@ -176,9 +176,9 @@ mod tests {
     fn every_frame_is_one_batch() {
         let vp = Viewport::new(1280, 720);
         let song = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(1),
             md5: [0; 16],
-            hash: 1,
+            legacy_hash: 1,
             file_path: String::new(),
             title: "A very long song title that certainly needs two lines (Extended Mix)".into(),
             subtitle: String::new(),

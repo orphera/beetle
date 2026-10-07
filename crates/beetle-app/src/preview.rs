@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
-use beetle_core::{decode_bms_text, parse_bms, SongMetadata, WavId};
+use beetle_core::{decode_bms_text, parse_bms, ChartId, SongMetadata, WavId};
 
 const AUDIO_EXTS: [&str; 3] = ["ogg", "wav", "flac"];
 /// How often the event loop checks on a loading or looping preview.
@@ -121,19 +121,19 @@ fn stem_of(file: &str) -> String {
 /// One preview sample looping on its own audio stream.
 struct PreviewPlayer {
     engine: AudioEngine,
-    hash: u64,
+    id: ChartId,
     length: Duration,
     started: Instant,
 }
 
 impl PreviewPlayer {
-    fn start(hash: u64, pcm: PcmBuffer, volume: f32) -> Option<Self> {
+    fn start(id: ChartId, pcm: PcmBuffer, volume: f32) -> Option<Self> {
         let length = Duration::from_secs_f64(pcm.duration_seconds());
         let mut bank = SampleBank::new();
         bank.insert(SAMPLE, pcm);
         let mut engine = AudioEngine::new(bank).ok()?;
         let _ = engine.set_master_volume(volume);
-        let mut player = Self { engine, hash, length, started: Instant::now() };
+        let mut player = Self { engine, id, length, started: Instant::now() };
         player.restart();
         Some(player)
     }
@@ -162,19 +162,19 @@ impl PreviewPlayer {
 #[derive(Default)]
 pub struct Preview {
     player: Option<PreviewPlayer>,
-    receiver: Option<Receiver<(u64, Option<PcmBuffer>)>>,
+    receiver: Option<Receiver<(ChartId, Option<PcmBuffer>)>>,
     /// Song whose preview was last requested (so it is not requested twice).
-    requested: Option<u64>,
+    requested: Option<ChartId>,
 }
 
 impl Preview {
     /// Drives the preview for the highlighted song. `settled` is true once the
     /// cursor has rested. Returns how soon the event loop should wake again.
     pub fn update(&mut self, selected: Option<&SongMetadata>, settled: bool, volume: f32) -> Option<Duration> {
-        let want = selected.map(|s| s.hash);
+        let want = selected.map(|s| s.id);
 
         // Moving the cursor cuts the old preview immediately.
-        if self.player.as_ref().is_some_and(|p| Some(p.hash) != want) {
+        if self.player.as_ref().is_some_and(|p| Some(p.id) != want) {
             self.player = None;
         }
         if self.requested != want {
@@ -184,10 +184,10 @@ impl Preview {
 
         if let Some(rx) = &self.receiver {
             match rx.try_recv() {
-                Ok((hash, pcm)) => {
+                Ok((id, pcm)) => {
                     self.receiver = None;
-                    if Some(hash) == want {
-                        self.player = pcm.and_then(|pcm| PreviewPlayer::start(hash, pcm, volume));
+                    if Some(id) == want {
+                        self.player = pcm.and_then(|pcm| PreviewPlayer::start(id, pcm, volume));
                     }
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => return Some(POLL),
@@ -197,11 +197,11 @@ impl Preview {
 
         if settled && self.requested.is_none() {
             if let Some(song) = selected {
-                self.requested = Some(song.hash);
-                let (hash, song) = (song.hash, song.clone());
+                self.requested = Some(song.id);
+                let (id, song) = (song.id, song.clone());
                 let (tx, rx) = channel();
                 thread::spawn(move || {
-                    let _ = tx.send((hash, load_preview_pcm(&song)));
+                    let _ = tx.send((id, load_preview_pcm(&song)));
                 });
                 self.receiver = Some(rx);
                 return Some(POLL);
@@ -252,9 +252,9 @@ mod tests {
 
     fn song(chart: &Path) -> SongMetadata {
         SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(1),
             md5: [0; 16],
-            hash: 1,
+            legacy_hash: 1,
             file_path: chart.to_string_lossy().into_owned(),
             title: String::new(),
             subtitle: String::new(),

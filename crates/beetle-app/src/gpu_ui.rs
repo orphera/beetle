@@ -6,7 +6,7 @@
 //! cleared to transparent.
 
 use crate::config::GpuBackendSetting;
-use beetle_core::BmpId;
+use beetle_core::{BmpId, ChartId};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{BgaVideoPlayer, D3d11Backend, GpuBackend, ImageBuffer, SizedTexture, Ui};
 use std::collections::HashMap;
@@ -34,8 +34,8 @@ pub fn create_backend(window: &Window, setting: GpuBackendSetting) -> Result<D3d
 pub enum ImageKey {
     /// A BGA bitmap; `true` = black color-keyed (layer channel).
     Bga(BmpId, bool),
-    /// The selected song's stage / jacket image, by song hash.
-    Stage(u64),
+    /// The selected song's stage / jacket image, by chart id.
+    Stage(ChartId),
 }
 
 struct VideoTexture {
@@ -124,7 +124,7 @@ impl GpuUi {
     /// Keeps stage-image textures bounded while browsing: past
     /// `MAX_STAGE_TEXTURES`, frees all of them except `keep` (they are
     /// re-uploaded from the CPU-side cache on demand).
-    pub fn trim_stage_textures(&mut self, backend: &mut dyn GpuBackend, keep: u64) {
+    pub fn trim_stage_textures(&mut self, backend: &mut dyn GpuBackend, keep: ChartId) {
         const MAX_STAGE_TEXTURES: usize = 32;
         let count = self.images.keys().filter(|k| matches!(k, ImageKey::Stage(_))).count();
         if count <= MAX_STAGE_TEXTURES {
@@ -186,13 +186,13 @@ pub fn gameplay_bga_texture(
     poor_bmp: Option<BmpId>,
     current_bmp: Option<BmpId>,
     stage_image: Option<&ImageBuffer>,
-    song_hash: u64,
+    song_id: ChartId,
     audio_time: f64,
 ) -> Option<SizedTexture> {
     let available = |id| bank.contains_key(&id) || videos.get(&id).is_some_and(|v| v.current_frame().is_some());
     match crate::state::resolve_bga_id(poor_until_time, poor_bmp, current_bmp, available, audio_time) {
         Some(id) => bga_texture(gpu, backend, bank, videos, id, false),
-        None => gpu.image(backend, ImageKey::Stage(song_hash), stage_image?),
+        None => gpu.image(backend, ImageKey::Stage(song_id), stage_image?),
     }
 }
 

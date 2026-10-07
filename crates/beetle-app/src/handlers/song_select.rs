@@ -6,7 +6,7 @@ use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
 use crate::handlers::options::handle_option_modal_input;
-use crate::state::{AppScreen, AppState, REPLAYS_DIR};
+use crate::state::{replay_path, AppScreen, AppState};
 
 /// Handles keyboard input for the Song Select screen.
 pub fn handle_song_select_input(
@@ -102,7 +102,7 @@ pub fn handle_song_select_input(
         KeyCode::KeyR => {
             // Launch replay playback if replay file exists
             if let Some(song) = state.current_selected_song().cloned() {
-                let path_str = format!("{}/{:016x}.rep", REPLAYS_DIR, song.hash);
+                let path_str = replay_path(song.id);
                 if let Ok(rep_str) = fs::read_to_string(&path_str) {
                     if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
                         state.is_replay_playback = true;
@@ -173,9 +173,10 @@ pub fn handle_song_select_input(
         KeyCode::F5 => {
             state.stage_image_cache.clear();
             state.stage_image_receiver = None;
-            state.stage_image_loading_hash = None;
+            state.stage_image_loading_id = None;
             state.songs =
                 crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
+            crate::state::migrate_chart_keys(&state.songs, &mut state.score_store);
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
         }

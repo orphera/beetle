@@ -4,12 +4,12 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreStore, ScoreUpdate,
+    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreUpdate,
     SongMetadata, TimingModel,
 };
 
 use crate::loader::{load_stage_image, spawn_background_song_loader};
-use crate::state::{AppScreen, AppState, REPLAYS_DIR, SCORES_FILE};
+use crate::state::{replay_path, save_scores, AppScreen, AppState, REPLAYS_DIR};
 
 fn fresh_seed() -> u64 {
     std::time::SystemTime::now()
@@ -26,10 +26,9 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.loading_started_at = Instant::now();
 
     // Cache stage image for loading screen
-    let selected_hash = song.hash;
     state
         .stage_image_cache
-        .entry(selected_hash)
+        .entry(song.id)
         .or_insert_with(|| load_stage_image(song));
 
     // A replay re-rolls `#RANDOM` with the seed it was recorded with; a fresh
@@ -194,7 +193,7 @@ pub fn finalize_start_gameplay(
 
     state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
-    state.active_chart_hash = song.hash;
+    state.active_chart_id = song.id;
     state.active_judge = Some(judge_engine);
     state.bga_bank = bga_bank;
     state.bga_cursor = bga_cursor;
@@ -209,7 +208,7 @@ pub fn finalize_start_gameplay(
     state.bgm_cursor = bgm_cursor;
     state.score_update = ScoreUpdate::default();
     state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
-        let mut replay = ReplayData::new(song.hash);
+        let mut replay = ReplayData::new(song.id);
         replay.random_seed = chart.random_seed;
         replay.modifier = Some(state.play_options.lane_modifier);
         replay.gauge = Some(state.play_options.gauge_type);
@@ -228,29 +227,13 @@ pub fn finalize_start_gameplay(
     state.window.request_redraw();
 }
 
-/// Writes the score file. The first save over a file in the original format
-/// keeps a copy of it, and the write goes through a temporary file so an
-/// interrupted save cannot leave a half-written `scores.dat`.
-fn save_scores(store: &ScoreStore) {
-    if let Ok(old) = fs::read_to_string(SCORES_FILE) {
-        let backup = format!("{SCORES_FILE}.v1.bak");
-        if ScoreStore::is_legacy_format(&old) && !Path::new(&backup).exists() {
-            let _ = fs::write(backup, old);
-        }
-    }
-    let temp = format!("{SCORES_FILE}.tmp");
-    if fs::write(&temp, store.save_to_string()).is_ok() {
-        let _ = fs::rename(&temp, SCORES_FILE);
-    }
-}
-
 pub fn finish_gameplay(state: &mut AppState) {
     if let Some(judge) = &state.active_judge {
         let score = judge.score();
         let (ex_score, max_combo) = (score.ex_score, score.max_combo);
 
         let play = PlayResult::from_tracker(
-            state.active_chart_hash,
+            state.active_chart_id,
             score,
             state.play_options.lane_modifier,
             state.active_chart.as_ref().and_then(|c| c.random_seed),
@@ -261,7 +244,7 @@ pub fn finish_gameplay(state: &mut AppState) {
         );
 
         // Only save score records and replays for actual manual playthroughs from start
-        state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
+        state.previous_best = state.score_store.get(state.active_chart_id).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
             let update = state.score_store.update(play);
             state.score_update = update;
@@ -269,7 +252,7 @@ pub fn finish_gameplay(state: &mut AppState) {
 
             // The replay on disk is the one that set the best EX score; a play
             // that only raised the lamp or combo must not replace it.
-            let rep_path = format!("{}/{:016x}.rep", REPLAYS_DIR, state.active_chart_hash);
+            let rep_path = replay_path(state.active_chart_id);
             if update.ex || !Path::new(&rep_path).exists() {
                 if let Some(mut rep) = state.current_replay.take() {
                     rep.set_score(ex_score, max_combo);

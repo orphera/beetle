@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
-use beetle_core::{parse_bms, parse_bms_with_seed, BmpId, BmsChart, SongMetadata, TimingModel};
+use beetle_core::{parse_bms, parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel};
 use beetle_render::{is_video_path, ImageBuffer};
 
 use crate::demo;
@@ -302,7 +302,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 
     // 1. Check persistent on-disk artwork cache first (fastest)
     let cache_dir = Path::new(ARTWORKS_CACHE_DIR);
-    let cache_file = cache_dir.join(format!("{:016x}.bmp", song.hash));
+    let cache_file = cache_dir.join(format!("{}.bmp", song.id.short()));
     if cache_file.exists() {
         if let Some(img) = ImageBuffer::load_from_file(&cache_file) {
             return Some(img);
@@ -906,14 +906,14 @@ pub fn spawn_background_song_loader(song: &SongMetadata, seed: u64) -> SongLoadR
 /// Spawns a background thread to load a song's stage image without blocking the UI thread.
 pub fn spawn_background_stage_image_loader(
     song: &SongMetadata,
-) -> Receiver<(u64, Option<ImageBuffer>)> {
-    let hash = song.hash;
+) -> Receiver<(ChartId, Option<ImageBuffer>)> {
+    let id = song.id;
     let song_clone = song.clone();
     let (tx, rx) = channel();
 
     thread::spawn(move || {
         let img = load_stage_image(&song_clone);
-        let _ = tx.send((hash, img));
+        let _ = tx.send((id, img));
     });
 
     rx
@@ -931,9 +931,9 @@ mod tests {
         }
 
         let meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(12345),
             md5: [0; 16],
-            hash: 12345,
+            legacy_hash: 12345,
             file_path: format!("{}::roop_dotm_ogg/01_roop_dotm7SPN.bms", pkg_path),
             title: "roop_dotm".to_string(),
             subtitle: "".to_string(),
@@ -1050,9 +1050,9 @@ mod tests {
 
         // 5. Test Turbo loading via load_chart_and_audio
         let meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(99999),
             md5: [0; 16],
-            hash: 99999,
+            legacy_hash: 99999,
             file_path: format!(
                 "{}::test.bms",
                 pkg_path.to_string_lossy().replace('\\', "/")
@@ -1112,9 +1112,9 @@ mod tests {
         fs::write(&classic_pkg_path, classic_pkg_bytes).unwrap();
 
         let classic_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
-            hash: 88888,
+            legacy_hash: 88888,
             file_path: format!(
                 "{}::test.bms",
                 classic_pkg_path.to_string_lossy().replace('\\', "/")
@@ -1214,9 +1214,9 @@ mod tests {
 
         // 5. Test Turbo loading via load_chart_and_audio
         let meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
-            hash: 88888,
+            legacy_hash: 88888,
             file_path: format!(
                 "{}::test.bms",
                 pkg_path.to_string_lossy().replace('\\', "/")
@@ -1363,9 +1363,9 @@ mod tests {
 
         // 3. Measure Loading Time: Classic vs Turbo
         let classic_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(10001),
             md5: [0; 16],
-            hash: 10001,
+            legacy_hash: 10001,
             file_path: format!(
                 "{}::bench.bms",
                 classic_path.to_string_lossy().replace('\\', "/")
@@ -1383,9 +1383,9 @@ mod tests {
         };
 
         let turbo_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(10002),
             md5: [0; 16],
-            hash: 10002,
+            legacy_hash: 10002,
             file_path: format!(
                 "{}::bench.bms",
                 turbo_path.to_string_lossy().replace('\\', "/")
@@ -1500,9 +1500,9 @@ mod tests {
         fs::write(&bga_bmsp, out.bga_package.unwrap()).unwrap();
 
         let song_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(77777),
             md5: [0; 16],
-            hash: 77777,
+            legacy_hash: 77777,
             file_path: format!(
                 "{}::main.bms",
                 base_bmsp.to_string_lossy().replace('\\', "/")
@@ -1625,9 +1625,9 @@ mod tests {
         fs::write(&out_bmsp, &out.base_package).unwrap();
 
         let song_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(88888),
             md5: [0; 16],
-            hash: 88888,
+            legacy_hash: 88888,
             file_path: format!(
                 "{}::main.bms",
                 out_bmsp.to_string_lossy().replace('\\', "/")
@@ -1683,9 +1683,9 @@ mod tests {
         }
 
         let song_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(11111),
             md5: [0; 16],
-            hash: 11111,
+            legacy_hash: 11111,
             file_path: format!(
                 "{}::alice7-1.bme",
                 pkg_path.to_string_lossy().replace('\\', "/")
@@ -1724,9 +1724,9 @@ mod tests {
         }
 
         let song_meta = SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(22222),
             md5: [0; 16],
-            hash: 22222,
+            legacy_hash: 22222,
             file_path: format!(
                 "{}::marisa(NORMAL7).bme",
                 pkg_path.to_string_lossy().replace('\\', "/")

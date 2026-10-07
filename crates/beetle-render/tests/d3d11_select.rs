@@ -35,9 +35,9 @@ fn library() -> Vec<SongMetadata> {
         .iter()
         .enumerate()
         .map(|(i, (title, artist, genre, level, mode))| SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(i as u64 + 1),
             md5: [0; 16],
-            hash: i as u64 + 1,
+            legacy_hash: i as u64 + 1,
             file_path: format!("songs/{i}.bms"),
             title: (*title).into(),
             subtitle: String::new(),
@@ -64,7 +64,7 @@ fn scores() -> ScoreStore {
     ] {
         let notes = 900 + (hash as u32 - 1) * 137;
         store.update(PlayResult {
-            chart_hash: hash,
+            chart: beetle_core::ChartId::synthetic(hash),
             lamp: clear,
             ex_score: (notes as f64 * 2.0 * rate / 100.0) as u32,
             max_combo: notes * 2 / 3,

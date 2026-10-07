@@ -1,4 +1,5 @@
 use crate::bms::Lane;
+use crate::identity::{ChartId, ChartKey};
 use crate::judge::GaugeType;
 use crate::modifier::LaneModifier;
 use std::fmt::Write;
@@ -14,7 +15,8 @@ pub struct ReplayEvent {
 /// Recorded replay data for a chart playthrough.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReplayData {
-    pub chart_hash: u64,
+    /// The chart it was played on: its id, or the old key in a replay from before chart ids.
+    pub chart: ChartKey,
     pub ex_score: u32,
     pub max_combo: u32,
     /// Seed the chart's `#RANDOM` sections were rolled with (`None` for charts without any).
@@ -26,9 +28,9 @@ pub struct ReplayData {
 }
 
 impl ReplayData {
-    pub fn new(chart_hash: u64) -> Self {
+    pub fn new(chart: ChartId) -> Self {
         Self {
-            chart_hash,
+            chart: ChartKey::Id(chart),
             ex_score: 0,
             max_combo: 0,
             random_seed: None,
@@ -55,7 +57,7 @@ impl ReplayData {
     pub fn serialize_to_string(&self) -> String {
         let mut buf = String::with_capacity(64 + self.events.len() * 24);
         let _ = writeln!(buf, "#BEETLE_REPLAY_V1");
-        let _ = writeln!(buf, "hash={:016x}", self.chart_hash);
+        let _ = writeln!(buf, "chart={}", self.chart);
         let _ = writeln!(buf, "ex_score={}", self.ex_score);
         let _ = writeln!(buf, "max_combo={}", self.max_combo);
         if let Some(seed) = self.random_seed {
@@ -107,7 +109,7 @@ impl ReplayData {
             return None;
         }
 
-        let mut chart_hash = 0;
+        let mut chart = ChartKey::default();
         let mut ex_score = 0;
         let mut max_combo = 0;
         let mut random_seed = None;
@@ -133,7 +135,11 @@ impl ReplayData {
                     let key = parts[0].trim();
                     let val = parts[1].trim();
                     match key {
-                        "hash" => chart_hash = u64::from_str_radix(val, 16).unwrap_or(0),
+                        // `hash=` is the header replays had before chart ids.
+                        "hash" => {
+                            chart = u64::from_str_radix(val, 16).map_or(chart, ChartKey::Legacy)
+                        }
+                        "chart" => chart = ChartKey::parse(val).unwrap_or(chart),
                         "ex_score" => ex_score = val.parse::<u32>().unwrap_or(0),
                         "max_combo" => max_combo = val.parse::<u32>().unwrap_or(0),
                         "seed" => random_seed = u64::from_str_radix(val, 16).ok(),
@@ -180,7 +186,7 @@ impl ReplayData {
         }
 
         Some(Self {
-            chart_hash,
+            chart,
             ex_score,
             max_combo,
             random_seed,
@@ -196,8 +202,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn replays_from_before_chart_ids_still_read() {
+        let old = "#BEETLE_REPLAY_V1
+hash=00000000000000ab
+ex_score=10
+max_combo=5
+#EVENTS
+1.0000	1	D
+";
+        let replay = ReplayData::parse_from_str(old).expect("old replay parses");
+        assert_eq!(replay.chart, ChartKey::Legacy(0xab));
+        assert_eq!(replay.events.len(), 1);
+    }
+
+    #[test]
     fn test_replay_serialization_roundtrip() {
-        let mut replay = ReplayData::new(0x123456789ABCDEF0);
+        let mut replay = ReplayData::new(ChartId::synthetic(0x1234));
         replay.ex_score = 1520;
         replay.max_combo = 850;
         replay.random_seed = Some(0xfeed_beef_1234);
@@ -211,7 +231,7 @@ mod tests {
         let serialized = replay.serialize_to_string();
         let parsed = ReplayData::parse_from_str(&serialized).expect("Failed to parse replay");
 
-        assert_eq!(replay.chart_hash, parsed.chart_hash);
+        assert_eq!(replay.chart, parsed.chart);
         assert_eq!(replay.ex_score, parsed.ex_score);
         assert_eq!(replay.max_combo, parsed.max_combo);
         assert_eq!(replay.random_seed, parsed.random_seed);

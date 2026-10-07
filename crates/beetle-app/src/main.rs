@@ -191,7 +191,7 @@ impl ApplicationHandler for BeetleApp {
             video_start_times: std::collections::HashMap::new(),
             active_chart: None,
             active_timing: None,
-            active_chart_hash: 0,
+            active_chart_id: beetle_core::ChartId::default(),
             active_judge: None,
             song_end_time: 0.0,
             score_update: ScoreUpdate::default(),
@@ -219,7 +219,7 @@ impl ApplicationHandler for BeetleApp {
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
-            stage_image_loading_hash: None,
+            stage_image_loading_id: None,
             preview: preview::Preview::default(),
             gpu_ui,
             capture: devtools::Capture::from_env(),
@@ -377,10 +377,10 @@ impl ApplicationHandler for BeetleApp {
             AppScreen::SongSelect => {
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
-                    if let Ok((hash, img)) = rx.try_recv() {
-                        state.stage_image_cache.insert(hash, img);
+                    if let Ok((id, img)) = rx.try_recv() {
+                        state.stage_image_cache.insert(id, img);
                         state.stage_image_receiver = None;
-                        state.stage_image_loading_hash = None;
+                        state.stage_image_loading_id = None;
                         state.window.request_redraw();
                     }
                 }
@@ -388,7 +388,7 @@ impl ApplicationHandler for BeetleApp {
                 // 2. Dispatch background loading ONLY if cursor has settled for at least 150ms
                 let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
-                let selected_hash = selected_song.as_ref().map(|s| s.hash).unwrap_or(0);
+                let selected_id = selected_song.as_ref().map(|s| s.id);
                 let preview_wait =
                     state.preview.update(selected_song.as_ref(), is_settled, state.master_volume);
 
@@ -397,12 +397,10 @@ impl ApplicationHandler for BeetleApp {
                     let rem = Duration::from_millis(150)
                         .saturating_sub(state.cursor_settle_time.elapsed());
                     event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + rem));
-                } else if selected_hash != 0
-                    && !state.stage_image_cache.contains_key(&selected_hash)
-                {
-                    if state.stage_image_loading_hash != Some(selected_hash) {
+                } else if selected_id.is_some_and(|id| !state.stage_image_cache.contains_key(&id)) {
+                    if state.stage_image_loading_id != selected_id {
                         if let Some(song) = selected_song {
-                            state.stage_image_loading_hash = Some(selected_hash);
+                            state.stage_image_loading_id = selected_id;
                             state.stage_image_receiver =
                                 Some(spawn_background_stage_image_loader(&song));
                         }
@@ -724,9 +722,9 @@ mod tests {
     fn test_search_and_category_filtering() {
         let (mut songs, score_store) = init_songs_and_scores(SortMode::Title);
         songs.push(SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(101),
             md5: [0; 16],
-            hash: 101,
+            legacy_hash: 101,
             file_path: "test1.bms".to_string(),
             title: "First Anthem".to_string(),
             subtitle: "".to_string(),
@@ -740,9 +738,9 @@ mod tests {
             play_mode: beetle_core::PlayMode::Keys7,
         });
         songs.push(SongMetadata {
-            id: Default::default(),
+            id: beetle_core::ChartId::synthetic(102),
             md5: [0; 16],
-            hash: 102,
+            legacy_hash: 102,
             file_path: "test2.bms".to_string(),
             title: "Second Beat".to_string(),
             subtitle: "".to_string(),
@@ -786,9 +784,9 @@ mod tests {
         // 6. Strict play mode category filter tests
         let test_songs = vec![
             SongMetadata {
-                id: Default::default(),
+                id: beetle_core::ChartId::synthetic(1),
                 md5: [0; 16],
-                hash: 1,
+                legacy_hash: 1,
                 file_path: "pms_song.pms".to_string(),
                 title: "Popn Track".to_string(),
                 subtitle: "".to_string(),
@@ -802,9 +800,9 @@ mod tests {
                 play_mode: beetle_core::PlayMode::Keys9,
             },
             SongMetadata {
-                id: Default::default(),
+                id: beetle_core::ChartId::synthetic(2),
                 md5: [0; 16],
-                hash: 2,
+                legacy_hash: 2,
                 file_path: "dp_10k.bms".to_string(),
                 title: "10K DP Track".to_string(),
                 subtitle: "".to_string(),
@@ -818,9 +816,9 @@ mod tests {
                 play_mode: beetle_core::PlayMode::Keys10,
             },
             SongMetadata {
-                id: Default::default(),
+                id: beetle_core::ChartId::synthetic(3),
                 md5: [0; 16],
-                hash: 3,
+                legacy_hash: 3,
                 file_path: "dp_14k.bme".to_string(),
                 title: "14K DP Track".to_string(),
                 subtitle: "".to_string(),

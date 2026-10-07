@@ -13,7 +13,7 @@ use winit::dpi::PhysicalSize;
 use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, lanes_for, KeyPreset};
-use crate::state::{AppState, REPLAYS_DIR};
+use crate::state::{replay_path, AppState};
 
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
@@ -57,7 +57,7 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
         state.poor_bga_bmp,
         state.current_bga_bmp,
         state.active_bga_image.as_ref(),
-        state.active_chart_hash,
+        state.active_chart_id,
         audio_time,
     );
     let layer = state.current_layer_bmp.and_then(|id| {
@@ -119,19 +119,19 @@ fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) ->
 
 /// Song select plus its option / quit modals.
 pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
-    let selected_hash = state.current_selected_song().map(|s| s.hash);
-    let has_replay = selected_hash.is_some_and(|h| Path::new(&format!("{}/{:016x}.rep", REPLAYS_DIR, h)).exists());
+    let selected_id = state.current_selected_song().map(|s| s.id);
+    let has_replay = selected_id.is_some_and(|id| Path::new(&replay_path(id)).exists());
     let chips = option_chips(state);
     let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
 
-    let stage_img = selected_hash
-        .and_then(|h| state.stage_image_cache.get(&h))
+    let stage_img = selected_id
+        .and_then(|id| state.stage_image_cache.get(&id))
         .and_then(|img| img.as_ref());
-    let (jacket, ambient) = match (selected_hash, stage_img) {
-        (Some(hash), Some(img)) => {
-            state.gpu_ui.trim_stage_textures(&mut state.d3d11, hash);
+    let (jacket, ambient) = match (selected_id, stage_img) {
+        (Some(id), Some(img)) => {
+            state.gpu_ui.trim_stage_textures(&mut state.d3d11, id);
             (
-                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(hash), img),
+                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(id), img),
                 Some(img.average_color_sampled(6)),
             )
         }
@@ -220,9 +220,9 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     };
     let elapsed = state.loading_started_at.elapsed().as_secs_f64();
     let (jacket, ambient) = match state.loading_song.as_ref() {
-        Some(song) => match state.stage_image_cache.get(&song.hash).and_then(|img| img.as_ref()) {
+        Some(song) => match state.stage_image_cache.get(&song.id).and_then(|img| img.as_ref()) {
             Some(img) => (
-                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(song.hash), img),
+                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(song.id), img),
                 Some(img.average_color_sampled(6)),
             ),
             None => (None, None),
@@ -263,7 +263,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     let jacket = state
         .active_bga_image
         .as_ref()
-        .and_then(|img| state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(state.active_chart_hash), img));
+        .and_then(|img| state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(state.active_chart_id), img));
 
     begin(state, size);
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
