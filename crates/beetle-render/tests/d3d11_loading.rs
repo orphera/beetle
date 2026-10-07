@@ -22,6 +22,8 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         artist: "モリモリあつし".into(),
         genre: "Future Bass".into(),
         bpm: 174.0,
+        bpm_min: 174.0,
+        bpm_max: 174.0,
         play_level: 10,
         notes_count: 1873,
         play_mode: PlayMode::Keys7,

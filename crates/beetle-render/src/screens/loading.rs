@@ -108,7 +108,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     }
 
     // Chart stats, aligned to the jacket's bottom
-    let bpm = format!("{}", song.bpm.round() as i64);
+    let bpm = song.bpm_label();
     let notes = thousands(song.notes_count as u32);
     for (i, (k, v)) in [("BPM", bpm.as_str()), ("NOTES", notes.as_str()), ("MODE", theme::mode_label(song.play_mode))].iter().enumerate() {
         let sx = x + i as f32 * 112.0 * s;
@@ -183,6 +183,8 @@ mod tests {
             artist: "Artist".into(),
             genre: "GENRE".into(),
             bpm: 150.0,
+            bpm_min: 150.0,
+            bpm_max: 150.0,
             play_level: 12,
             notes_count: 1500,
             play_mode: PlayMode::Keys7,

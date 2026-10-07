@@ -241,6 +241,20 @@ pub struct BmsChart {
 }
 
 impl BmsChart {
+    /// Lowest and highest BPM the chart passes through (initial BPM included).
+    pub fn bpm_range(&self) -> (f64, f64) {
+        let (mut min, mut max) = (self.header.bpm, self.header.bpm);
+        for event in &self.timing_events {
+            if let TimingEventKind::BpmChange(bpm) = event.kind {
+                if bpm > 0.0 {
+                    min = min.min(bpm);
+                    max = max.max(bpm);
+                }
+            }
+        }
+        (min, max)
+    }
+
     /// Detects the play mode based on header commands and note lanes present.
     pub fn detect_play_mode(&self) -> PlayMode {
         self.detect_play_mode_with_hint(false)

@@ -514,6 +514,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
 
     // Always ensure demo track is available in library
     let demo_chart = demo::create_demo_chart();
+    let (bpm_min, bpm_max) = demo_chart.bpm_range();
     let demo_meta = SongMetadata {
         hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
@@ -522,6 +523,8 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
         artist: demo_chart.header.artist,
         genre: demo_chart.header.genre,
         bpm: demo_chart.header.bpm,
+        bpm_min,
+        bpm_max,
         play_level: demo_chart.header.play_level,
         notes_count: demo_chart.notes.len(),
         play_mode: beetle_core::PlayMode::Keys7,
@@ -540,6 +543,7 @@ pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) ->
     let mut songs = crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR);
 
     let demo_chart = demo::create_demo_chart();
+    let (bpm_min, bpm_max) = demo_chart.bpm_range();
     let demo_meta = SongMetadata {
         hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
         file_path: ":demo:".to_string(),
@@ -548,6 +552,8 @@ pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) ->
         artist: demo_chart.header.artist,
         genre: demo_chart.header.genre,
         bpm: demo_chart.header.bpm,
+        bpm_min,
+        bpm_max,
         play_level: demo_chart.header.play_level,
         notes_count: demo_chart.notes.len(),
         play_mode: beetle_core::PlayMode::Keys7,

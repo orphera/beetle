@@ -313,7 +313,7 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
 
     // Chart stats, aligned to the jacket's bottom edge
     let col_w = iw / 3.0;
-    let bpm = format!("{}", song.bpm.round() as i64);
+    let bpm = song.bpm_label();
     let notes = thousands(song.notes_count as u32);
     for (i, (k, v)) in [("BPM", bpm.as_str()), ("NOTES", notes.as_str()), ("MODE", theme::mode_label(song.play_mode))].iter().enumerate() {
         let sx = ix + i as f32 * col_w;
@@ -555,6 +555,8 @@ mod tests {
             artist: "Artist 아티스트 アーティスト".into(),
             genre: "TRANCE".into(),
             bpm: 150.0,
+            bpm_min: 150.0,
+            bpm_max: 150.0,
             play_level: (i % 13) as u32,
             notes_count: 1000 + i,
             play_mode: if i % 3 == 0 { PlayMode::Keys14 } else { PlayMode::Keys7 },

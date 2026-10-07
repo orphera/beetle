@@ -56,6 +56,9 @@ pub struct SongMetadata {
     pub artist: String,
     pub genre: String,
     pub bpm: f64,
+    /// Lowest/highest BPM in the chart (equal to `bpm` when it never changes).
+    pub bpm_min: f64,
+    pub bpm_max: f64,
     pub play_level: u32,
     pub notes_count: usize,
     pub play_mode: PlayMode,
@@ -67,6 +70,7 @@ impl SongMetadata {
         let chart = parse_bms(content).ok()?;
         let hash = compute_chart_hash(content.as_bytes());
         let notes_count = chart.total_notes_count.max(chart.notes.len());
+        let (bpm_min, bpm_max) = chart.bpm_range();
         let is_pms = file_path.to_lowercase().ends_with(".pms");
         let play_mode = chart.detect_play_mode_with_hint(is_pms);
 
@@ -84,16 +88,28 @@ impl SongMetadata {
             artist: chart.header.artist,
             genre: chart.header.genre,
             bpm: chart.header.bpm,
+            bpm_min,
+            bpm_max,
             play_level: chart.header.play_level,
             notes_count,
             play_mode,
         })
     }
 
+    /// BPM text for display: `150`, or `120-240` when the chart changes tempo.
+    pub fn bpm_label(&self) -> String {
+        let (lo, hi) = (self.bpm_min.round() as i64, self.bpm_max.round() as i64);
+        if lo == hi {
+            lo.to_string()
+        } else {
+            format!("{lo}-{hi}")
+        }
+    }
+
     /// Serializes metadata to a simple flat TSV line.
     pub fn serialize_tsv(&self) -> String {
         format!(
-            "{:016x}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}",
+            "{:016x}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{:.2}\t{:.2}",
             self.hash,
             escape_field(&self.file_path),
             escape_field(&self.title),
@@ -104,6 +120,8 @@ impl SongMetadata {
             self.play_level,
             self.notes_count,
             self.play_mode.as_str(),
+            self.bpm_min,
+            self.bpm_max,
         )
     }
 
@@ -136,6 +154,10 @@ impl SongMetadata {
             PlayMode::Keys7
         };
 
+        // Older caches have no range columns: fall back to the single BPM.
+        let bpm_min = parts.get(10).and_then(|v| v.parse().ok()).unwrap_or(bpm);
+        let bpm_max = parts.get(11).and_then(|v| v.parse().ok()).unwrap_or(bpm);
+
         Some(Self {
             hash,
             file_path,
@@ -144,6 +166,8 @@ impl SongMetadata {
             artist,
             genre,
             bpm,
+            bpm_min,
+            bpm_max,
             play_level,
             notes_count,
             play_mode,
@@ -246,6 +270,8 @@ mod tests {
             artist: "Sound Team".to_string(),
             genre: "Hardcore".to_string(),
             bpm: 180.0,
+            bpm_min: 90.0,
+            bpm_max: 240.0,
             play_level: 10,
             notes_count: 1200,
             play_mode: PlayMode::Keys7,
@@ -268,6 +294,8 @@ mod tests {
                 artist: "A".into(),
                 genre: "".into(),
                 bpm: 120.0,
+                bpm_min: 120.0,
+                bpm_max: 120.0,
                 play_level: 8,
                 notes_count: 100,
                 play_mode: PlayMode::Keys7,
@@ -280,6 +308,8 @@ mod tests {
                 artist: "A".into(),
                 genre: "".into(),
                 bpm: 140.0,
+                bpm_min: 140.0,
+                bpm_max: 140.0,
                 play_level: 4,
                 notes_count: 50,
                 play_mode: PlayMode::Keys7,
@@ -289,5 +319,31 @@ mod tests {
         sort_songs(&mut songs, SortMode::Level, &store);
         assert_eq!(songs[0].play_level, 4);
         assert_eq!(songs[1].play_level, 8);
+    }
+
+    #[test]
+    fn bpm_label_shows_range_only_when_tempo_changes() {
+        let content = "#TITLE T
+#BPM 150
+#BPM01 300
+#BPM02 75
+#00108:01
+#00208:02
+";
+        let meta = SongMetadata::from_content("a.bms", content).unwrap();
+        assert_eq!((meta.bpm_min, meta.bpm_max), (75.0, 300.0));
+        assert_eq!(meta.bpm_label(), "75-300");
+
+        let flat = SongMetadata::from_content("b.bms", "#TITLE T
+#BPM 150
+").unwrap();
+        assert_eq!(flat.bpm_label(), "150");
+    }
+
+    #[test]
+    fn old_cache_line_without_range_falls_back_to_single_bpm() {
+        let line = "0000000000000001	a.bms	T		A	G	140.00	5	100	7KEYS";
+        let meta = SongMetadata::deserialize_tsv(line).unwrap();
+        assert_eq!(meta.bpm_label(), "140");
     }
 }

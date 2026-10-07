@@ -42,6 +42,8 @@ fn library() -> Vec<SongMetadata> {
             artist: (*artist).into(),
             genre: (*genre).into(),
             bpm: 140.0 + i as f64 * 7.0,
+            bpm_min: 140.0 + i as f64 * 7.0,
+            bpm_max: 140.0 + i as f64 * 7.0,
             play_level: *level,
             notes_count: 900 + i * 137,
             play_mode: *mode,
