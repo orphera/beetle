@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 const CHART_EXTS: [&str; 4] = ["bms", "bme", "bml", "pms"];
 
 /// Header commands `parse_bms` understands (snapshot; keep in sync with `parse_header_line`).
-const SUPPORTED_HEADERS: [&str; 21] = [
+const SUPPORTED_HEADERS: [&str; 22] = [
     "PLAYER", "DIFFICULTY", "LNTYPE", "TITLE", "SUBTITLE", "ARTIST", "SUBARTIST", "GENRE", "BPM",
-    "PLAYLEVEL", "RANK", "TOTAL", "VOLWAV", "STAGEFILE", "BANNER", "LNOBJ", "WAVxx", "BMPxx",
+    "PLAYLEVEL", "RANK", "TOTAL", "VOLWAV", "STAGEFILE", "BANNER", "PREVIEW", "LNOBJ", "WAVxx", "BMPxx",
     "BGAxx", "BPMxx", "STOPxx",
 ];
 

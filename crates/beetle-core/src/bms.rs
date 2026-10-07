@@ -165,6 +165,8 @@ pub struct BmsHeader {
     pub vol_wav: f64,
     pub stage_file: String,
     pub banner: String,
+    /// `#PREVIEW` audio file played on song select (empty when absent).
+    pub preview: String,
     pub ln_obj: Option<WavId>,
     pub difficulty: Option<u32>,
     pub lntype: u32,
@@ -191,6 +193,7 @@ impl Default for BmsHeader {
             vol_wav: 1.0,
             stage_file: String::new(),
             banner: String::new(),
+            preview: String::new(),
             ln_obj: None,
             difficulty: None,
             lntype: 1,
@@ -659,6 +662,8 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
         header.stage_file = val.to_string();
     } else if key.eq_ignore_ascii_case("BANNER") {
         header.banner = val.to_string();
+    } else if key.eq_ignore_ascii_case("PREVIEW") {
+        header.preview = val.to_string();
     } else if key.eq_ignore_ascii_case("LNOBJ") {
         let val_bytes = val.as_bytes();
         if val_bytes.len() >= 2 {
@@ -1129,6 +1134,18 @@ mod tests {
         assert_eq!(decode_hex(b'9', b'6'), Some(150));
         assert_eq!(decode_hex(b'F', b'F'), Some(255));
         assert_eq!(decode_hex(b'g', b'0'), None);
+    }
+
+    #[test]
+    fn parses_preview_header() {
+        let chart = parse_bms("#TITLE T
+#PREVIEW preview.ogg
+#00111:01
+").unwrap();
+        assert_eq!(chart.header.preview, "preview.ogg");
+        assert!(parse_bms("#TITLE T
+#00111:01
+").unwrap().header.preview.is_empty());
     }
 
     #[test]

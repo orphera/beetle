@@ -156,6 +156,8 @@ pub struct AppState {
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(u64, Option<ImageBuffer>)>>,
     pub stage_image_loading_hash: Option<u64>,
+    /// Song-select audio preview (`#PREVIEW`).
+    pub preview: crate::preview::Preview,
     /// Canvas UI + song textures.
     pub gpu_ui: crate::gpu_ui::GpuUi,
     /// Env-driven screenshot hook (see devtools.rs); `None` normally.

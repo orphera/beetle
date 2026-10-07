@@ -8,6 +8,7 @@ mod gpu_ui;
 mod handlers;
 mod input;
 mod loader;
+mod preview;
 mod present;
 mod scanner;
 mod state;
@@ -219,6 +220,7 @@ impl ApplicationHandler for BeetleApp {
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
             stage_image_loading_hash: None,
+            preview: preview::Preview::default(),
             gpu_ui,
             capture: devtools::Capture::from_env(),
             pending_screenshot: None,
@@ -296,6 +298,10 @@ impl ApplicationHandler for BeetleApp {
         // (60 = vsync, otherwise paced by the event loop below).
         let vsync = state.screen != AppScreen::Gameplay || state.target_fps == 60;
         state.d3d11.set_vsync(vsync);
+
+        if state.screen != AppScreen::SongSelect {
+            state.preview.stop();
+        }
 
         match state.screen {
             AppScreen::Loading => {
@@ -386,6 +392,8 @@ impl ApplicationHandler for BeetleApp {
                 let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
                 let selected_hash = selected_song.as_ref().map(|s| s.hash).unwrap_or(0);
+                let preview_wait =
+                    state.preview.update(selected_song.as_ref(), is_settled, state.master_volume);
 
                 if !is_settled {
                     // While holding arrow key or scrolling, don't spawn background threads
@@ -410,7 +418,10 @@ impl ApplicationHandler for BeetleApp {
                         Instant::now() + Duration::from_millis(16),
                     ));
                 } else {
-                    event_loop.set_control_flow(ControlFlow::Wait);
+                    event_loop.set_control_flow(match preview_wait {
+                        Some(wait) => ControlFlow::WaitUntil(Instant::now() + wait),
+                        None => ControlFlow::Wait,
+                    });
                 }
             }
             _ => {
