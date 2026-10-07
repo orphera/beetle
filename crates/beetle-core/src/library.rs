@@ -1,4 +1,5 @@
 use crate::bms::{decode_bms_text, parse_bms, PlayMode};
+use crate::escape::{escape_field, unescape_field};
 use crate::identity::{hash_chart_bytes, md5_from_hex, md5_to_hex, ChartId};
 use crate::score::ScoreStore;
 
@@ -206,18 +207,6 @@ impl SongMetadata {
             play_mode,
         })
     }
-}
-
-fn escape_field(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('\t', "\\t")
-        .replace('\n', "\\n")
-}
-
-fn unescape_field(s: &str) -> String {
-    s.replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace("\\\\", "\\")
 }
 
 /// Sorts song list in-place according to the chosen sort mode.

@@ -5,6 +5,7 @@
 //! Designed with zero GUI/Audio dependencies for maximum portability and fast testing.
 
 pub mod bms;
+mod escape;
 pub mod identity;
 pub mod judge;
 pub mod library;
@@ -12,6 +13,7 @@ pub mod modifier;
 pub mod replay;
 pub mod resolver;
 pub mod score;
+pub mod table;
 pub mod timing;
 
 pub use bms::{
@@ -31,4 +33,5 @@ pub use library::{
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};
 pub use score::{ClearType, PlayResult, ScoreRecord, ScoreStore, ScoreUpdate, ENGINE_VERSION};
+pub use table::{DifficultyTable, TableEntry, TableIndex, TableMatch};
 pub use timing::{TimingModel, TimingSegment};
