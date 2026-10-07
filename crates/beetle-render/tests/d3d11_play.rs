@@ -31,6 +31,11 @@ fn chart(mode: PlayMode) -> BmsChart {
             let lane = lanes[((m * 3 + k * 5) as usize) % lanes.len()];
             let note_type = if k == 3 && m % 4 == 1 { NoteType::LongNoteStart } else { NoteType::Tap };
             notes.push(NoteEvent { measure: m, fraction: k as f64 / 8.0, lane, wav_id: None, note_type });
+            if k == 2 && m % 3 == 2 {
+                // A landmine on a lane the tap above does not use.
+                let mine_lane = lanes[((m * 3 + k * 5 + 1) as usize) % lanes.len()];
+                notes.push(NoteEvent { measure: m, fraction: k as f64 / 8.0, lane: mine_lane, wav_id: Some(beetle_core::WavId(10)), note_type: NoteType::Landmine });
+            }
             if note_type == NoteType::LongNoteStart {
                 notes.push(NoteEvent {
                     measure: m,

@@ -38,7 +38,8 @@ const RANDOM_KEYS: [&str; 10] = [
 ];
 
 fn is_supported_channel(ch: &str) -> bool {
-    matches!(
+    is_mine_channel(ch)
+        || matches!(
         ch,
         "01" | "02" | "03" | "04" | "06" | "07" | "08" | "09"
             | "11" | "12" | "13" | "14" | "15" | "16" | "18" | "19"
@@ -190,7 +191,7 @@ fn is_supported(tag: &str) -> bool {
 fn is_problem_flag(tag: &str) -> bool {
     matches!(
         tag,
-        "F:random" | "F:mine" | "F:no-playable-notes" | "F:extreme-bpm" | "F:bad-duration"
+        "F:random" | "F:no-playable-notes" | "F:extreme-bpm" | "F:bad-duration"
     ) || tag.starts_with("F:ln.channel-lntype")
 }
 
@@ -267,7 +268,7 @@ fn main() {
 
     println!("\n== play-mode / extension / LN-style distribution ==");
     for (tag, idxs) in by_tag.iter().filter(|(t, _)| {
-        ["F:mode.", "F:ext.", "F:ln."].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
+        ["F:mode.", "F:ext.", "F:ln.", "F:mine"].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
     }) {
         println!("  {:>6} ({:>5.1}%)  {tag}", idxs.len(), pct(idxs.len()));
     }

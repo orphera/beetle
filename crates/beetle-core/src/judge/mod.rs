@@ -2,6 +2,7 @@ pub mod score_tracker;
 
 use crate::bms::{BmsChart, Lane, NoteEvent, NoteType, WavId};
 use crate::timing::TimingModel;
+use std::collections::HashSet;
 
 pub use score_tracker::{GaugeType, ScoreTracker};
 
@@ -126,6 +127,8 @@ pub struct JudgeEngine {
     notes: Vec<PlayNote>,
     window: JudgeWindow,
     score: ScoreTracker,
+    /// Lanes whose key is currently down (a held key sets off a mine too).
+    lanes_down: HashSet<Lane>,
 }
 
 impl JudgeEngine {
@@ -161,7 +164,10 @@ impl JudgeEngine {
 
         // Every note is judged, and a long note's head and tail are separate
         // judgments, so both count (this also matches the song-select NOTES).
-        let total_notes = play_notes.len() as u32;
+        let total_notes = play_notes
+            .iter()
+            .filter(|n| n.note_event.note_type != NoteType::Landmine)
+            .count() as u32;
 
         let window = JudgeWindow::from_rank(chart.header.rank);
         let score = ScoreTracker::new(total_notes, chart.header.total, gauge_type);
@@ -170,6 +176,7 @@ impl JudgeEngine {
             notes: play_notes,
             window,
             score,
+            lanes_down: HashSet::new(),
         }
     }
 
@@ -180,9 +187,15 @@ impl JudgeEngine {
         lane: Lane,
         current_time_seconds: f64,
     ) -> Option<(JudgeResult, Option<WavId>)> {
+        self.lanes_down.insert(lane);
+        self.trigger_mines(lane, current_time_seconds);
+
         // Find earliest unjudged note in this lane within poor window
         for note in self.notes.iter_mut() {
-            if note.is_judged || note.note_event.lane != lane {
+            if note.is_judged
+                || note.note_event.lane != lane
+                || note.note_event.note_type == NoteType::Landmine
+            {
                 continue;
             }
 
@@ -204,8 +217,28 @@ impl JudgeEngine {
         None
     }
 
+    /// Sets off every unjudged mine on `lane` that is within the GREAT window
+    /// of `time_seconds`. Each one drains the gauge by half its value in percent.
+    fn trigger_mines(&mut self, lane: Lane, time_seconds: f64) {
+        for note in self.notes.iter_mut() {
+            if note.is_judged
+                || note.note_event.lane != lane
+                || note.note_event.note_type != NoteType::Landmine
+            {
+                continue;
+            }
+            let delta_ms = (time_seconds - note.target_time_seconds) * 1000.0;
+            if delta_ms.abs() <= self.window.great_ms {
+                note.is_judged = true;
+                let value = note.note_event.wav_id.map_or(0, |id| id.0);
+                self.score.record_mine_hit(f64::from(value) / 2.0);
+            }
+        }
+    }
+
     /// Handles key release on a specific lane (for long note releases).
     pub fn handle_key_up(&mut self, lane: Lane, current_time_seconds: f64) -> Option<JudgeResult> {
+        self.lanes_down.remove(&lane);
         for note in self.notes.iter_mut() {
             if note.is_judged
                 || note.note_event.lane != lane
@@ -231,6 +264,10 @@ impl JudgeEngine {
     pub fn update_misses(&mut self, current_time_seconds: f64) -> Vec<(Lane, JudgeResult)> {
         let mut misses = Vec::new();
 
+        for lane in self.lanes_down.clone() {
+            self.trigger_mines(lane, current_time_seconds);
+        }
+
         for note in self.notes.iter_mut() {
             if note.is_judged {
                 continue;
@@ -238,6 +275,14 @@ impl JudgeEngine {
 
             let delta_seconds = current_time_seconds - note.target_time_seconds;
             let delta_ms = delta_seconds * 1000.0;
+
+            // A mine nobody stepped on just goes by.
+            if note.note_event.note_type == NoteType::Landmine {
+                if delta_ms > self.window.great_ms {
+                    note.is_judged = true;
+                }
+                continue;
+            }
 
             // Past poor window (note passed judgment line)
             if delta_ms > self.window.poor_ms {
@@ -266,6 +311,9 @@ impl JudgeEngine {
             }
             if current_time_seconds >= note.target_time_seconds {
                 note.is_judged = true;
+                if note.note_event.note_type == NoteType::Landmine {
+                    continue; // auto play never steps on a mine
+                }
                 let result = JudgeResult {
                     grade: JudgeGrade::PerfectGreat,
                     delta_ms: 0.0,
@@ -481,6 +529,93 @@ mod tests {
         assert_eq!(score.total_notes, 3);
         assert_eq!(score.ex_score, score.max_ex_score());
         assert_eq!(score.max_combo, score.total_notes);
+        assert_eq!(score.accuracy_rate(), 100.0);
+    }
+
+    /// One tap on lane 2 at 4.0s and a mine (value 0A = 5% gauge) on lane 1 at 2.0s.
+    fn mine_chart() -> BmsChart {
+        parse_bms("#BPM 120
+#001D1:0A
+#00212:01
+").unwrap()
+    }
+
+    #[test]
+    fn stepping_on_a_mine_drains_the_gauge_but_not_combo_or_ex() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        assert_eq!(engine.score().total_notes, 1);
+
+        // Hit the tap first so there is a combo to protect.
+        engine.handle_key_down(Lane::Key2, 4.0);
+        let gauge = engine.score().gauge;
+        assert!(engine.handle_key_down(Lane::Key1, 2.01).is_none());
+
+        let score = engine.score();
+        assert_eq!(score.mine_hit_count, 1);
+        assert_eq!(score.gauge, gauge - 5.0);
+        assert_eq!(score.current_combo, 1);
+        assert_eq!(score.ex_score, 2);
+
+        // A mine only goes off once.
+        engine.handle_key_down(Lane::Key1, 2.02);
+        assert_eq!(engine.score().mine_hit_count, 1);
+    }
+
+    #[test]
+    fn untouched_mine_costs_nothing_and_is_not_a_miss() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        let misses = engine.update_misses(2.5);
+        assert!(misses.is_empty());
+        assert_eq!(engine.score().miss_count, 0);
+        assert_eq!(engine.score().mine_hit_count, 0);
+        assert_eq!(engine.score().gauge, 100.0);
+    }
+
+    #[test]
+    fn mine_outside_the_great_window_is_safe_to_press_near() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        engine.handle_key_down(Lane::Key1, 2.3);
+        assert_eq!(engine.score().mine_hit_count, 0);
+    }
+
+    #[test]
+    fn a_key_held_through_a_mine_sets_it_off() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        engine.handle_key_down(Lane::Key1, 1.0); // pressed long before the mine
+        engine.update_misses(1.5);
+        assert_eq!(engine.score().mine_hit_count, 0);
+        engine.update_misses(1.99); // mine now within the window, key still down
+        assert_eq!(engine.score().mine_hit_count, 1);
+    }
+
+    #[test]
+    fn released_key_does_not_set_off_a_mine() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        engine.handle_key_down(Lane::Key1, 1.0);
+        engine.handle_key_up(Lane::Key1, 1.2);
+        engine.update_misses(2.0);
+        assert_eq!(engine.score().mine_hit_count, 0);
+    }
+
+    #[test]
+    fn auto_play_skips_mines_and_still_scores_perfectly() {
+        let chart = mine_chart();
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Hard);
+        engine.auto_play_update(10.0);
+        let score = engine.score();
+        assert_eq!(score.mine_hit_count, 0);
+        assert_eq!(score.pgreat_count, 1);
         assert_eq!(score.accuracy_rate(), 100.0);
     }
 

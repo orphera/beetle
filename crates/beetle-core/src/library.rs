@@ -69,7 +69,7 @@ impl SongMetadata {
     pub fn from_content(file_path: &str, content: &str) -> Option<Self> {
         let chart = parse_bms(content).ok()?;
         let hash = compute_chart_hash(content.as_bytes());
-        let notes_count = chart.total_notes_count.max(chart.notes.len());
+        let notes_count = chart.total_notes_count.max(chart.playable_notes_len());
         let (bpm_min, bpm_max) = chart.bpm_range();
         let is_pms = file_path.to_lowercase().ends_with(".pms");
         let play_mode = chart.detect_play_mode_with_hint(is_pms);

@@ -104,6 +104,8 @@ pub enum NoteType {
     Tap,
     LongNoteStart,
     LongNoteEnd,
+    /// Channels D1..D9 / E1..E9. `wav_id` carries the object value: the
+    /// damage, in half-percent units of the gauge. Never a playable note.
     Landmine,
 }
 
@@ -244,6 +246,14 @@ pub struct BmsChart {
 }
 
 impl BmsChart {
+    /// Notes the player has to hit; landmines are obstacles, not notes.
+    pub fn playable_notes_len(&self) -> usize {
+        self.notes
+            .iter()
+            .filter(|n| n.note_type != NoteType::Landmine)
+            .count()
+    }
+
     /// Lowest and highest BPM the chart passes through (initial BPM included).
     pub fn bpm_range(&self) -> (f64, f64) {
         let (mut min, mut max) = (self.header.bpm, self.header.bpm);
@@ -998,11 +1008,39 @@ fn parse_measure_line(
                     }
                 }
             }
+            // D1..D9 / E1..E9: landmines on the 1P / 2P lanes that 11..19 / 21..29
+            // use. They are not notes: no keysound, not counted in the totals.
+            _ if is_mine_channel(channel) => {
+                if let (Some(value), Some(lane)) =
+                    (decode_base36(c1, c2), mine_channel_to_lane(channel, mode))
+                {
+                    chart.notes.push(NoteEvent {
+                        measure,
+                        fraction,
+                        lane,
+                        wav_id: Some(value),
+                        note_type: NoteType::Landmine,
+                    });
+                }
+            }
             _ => (),
         }
     }
 
     Ok(())
+}
+
+fn is_mine_channel(ch: &str) -> bool {
+    let b = ch.as_bytes();
+    b.len() == 2
+        && matches!(b[0].to_ascii_uppercase(), b'D' | b'E')
+        && (b'1'..=b'9').contains(&b[1])
+}
+
+fn mine_channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
+    let b = ch.as_bytes();
+    let side = if b[0].eq_ignore_ascii_case(&b'D') { '1' } else { '2' };
+    channel_to_lane(&format!("{side}{}", b[1] as char), mode)
 }
 
 fn channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
@@ -1090,6 +1128,11 @@ fn process_lnobj_notes(ln_obj: WavId, notes: &mut [NoteEvent]) {
     let mut last_note_per_lane: HashMap<Lane, usize> = HashMap::new();
 
     for i in 0..notes.len() {
+        // A mine's value is a damage amount, not an object id, and must not
+        // become (or come between) the head and tail of a long note.
+        if notes[i].note_type == NoteType::Landmine {
+            continue;
+        }
         let lane = notes[i].lane;
         if notes[i].wav_id == Some(ln_obj) {
             notes[i].note_type = NoteType::LongNoteEnd;
@@ -1160,6 +1203,38 @@ mod tests {
         .unwrap();
         assert!(matches!(chart.timing_events[0].kind, TimingEventKind::BpmChange(_)));
         assert!(matches!(chart.timing_events[1].kind, TimingEventKind::StopMeasures(_)));
+    }
+
+    #[test]
+    fn landmine_channels_become_non_playable_mines() {
+        let chart = parse_bms(
+            "#BPM 120
+#LNOBJ 0A
+#00111:01
+#001d1:0A
+#00111:00000A00
+#001E3:01
+#00212:01
+",
+        )
+        .unwrap();
+        let mines: Vec<_> = chart
+            .notes
+            .iter()
+            .filter(|n| n.note_type == NoteType::Landmine)
+            .collect();
+        // Case-insensitive D1 on Key1; the E3 mine is dropped (no 2P lanes in a 7K chart).
+        assert_eq!(mines.len(), 1);
+        assert_eq!(mines[0].lane, Lane::Key1);
+        assert_eq!(mines[0].wav_id, Some(WavId(10)));
+        // Mines are not notes: not counted, and the LNOBJ pairing ignores them
+        // even though the mine's value equals the LNOBJ id.
+        assert_eq!(chart.playable_notes_len(), chart.notes.len() - 1);
+        assert_eq!(chart.total_notes_count, 3);
+        assert!(chart
+            .notes
+            .iter()
+            .any(|n| n.lane == Lane::Key1 && n.note_type == NoteType::LongNoteEnd));
     }
 
     #[test]

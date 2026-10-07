@@ -62,7 +62,7 @@
 
 1. BMS 호환성 코퍼스 구성 (`parse → resolve → play chart` 자동 검증). 확장자 BMS/BME/BML/PMS, 구형 구문, 비표준 표기, 극단 BPM/STOP, LN 변형, DP/PMS, 깨진 파일, `#RANDOM`.
 2. `#RANDOM/#IF/#ELSE/#ENDIF` Chart Resolver. 파서와 `BmsChart` 사이에 둔다. 시드 주입으로 결정론을 유지하고, 사용한 시드를 Replay/Score에 기록한다.
-3. Landmine 채널 파싱 → 판정(gauge 감소, combo 영향).
+3. Landmine 채널 파싱 → 판정. **구현됨 (2026-10-07)**: D1~D9/E1~E9를 지뢰로 파싱하고, 값/2 %만큼 게이지를 깎는다(콤보·EX·총 노트 수에는 영향 없음). 판정창은 GREAT 창, 누르고 있던 키도 발동, 자동 플레이는 지뢰를 밟지 않는다. 값/2 %는 다른 플레이어의 동작을 기억에 의존해 정한 것이므로 실제 지뢰 차트(GdbG 패키지)로 비교 검증이 필요하다.
 4. LN semantics 정리 (코퍼스 결과에 따라 범위 결정).
 5. ScoreKey 확장 (`chart_id × mode × modifier × ruleset`). 기존 ScoreStore 마이그레이션 포함.
 

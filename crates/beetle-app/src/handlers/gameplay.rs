@@ -134,7 +134,9 @@ pub fn handle_gameplay_input(
 
                             if let Some(j) = &state.active_judge {
                                 for pn in j.notes() {
-                                    if pn.is_judged {
+                                    if pn.is_judged
+                                        || pn.note_event.note_type == beetle_core::NoteType::Landmine
+                                    {
                                         continue;
                                     }
                                     let delta_ms = (effective_judge_time - pn.target_time_seconds)

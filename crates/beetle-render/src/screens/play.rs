@@ -230,6 +230,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         let head_y = y_at(note.target_time_seconds);
         match note.note_event.note_type {
             NoteType::Tap => draw_note(c, sk, x, head_y - note_h, w, note_h, col),
+            // A mine: a slim red bar with a dark core, gone once it has gone off.
+            NoteType::Landmine if !note.is_judged => {
+                let h = note_h * 0.7;
+                let y = head_y - (note_h + h) / 2.0;
+                draw_note(c, sk, x, y, w, h, theme::RED);
+                c.fill_rect(Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3), theme::BG.with_alpha(200));
+            }
             NoteType::LongNoteStart => {
                 let tail_y = y_at(note.end_target_time_seconds);
                 let (top, bottom) = (tail_y.max(field.y), head_y.min(judge_y));

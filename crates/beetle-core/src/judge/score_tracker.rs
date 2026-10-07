@@ -40,6 +40,8 @@ pub struct ScoreTracker {
     pub is_failed: bool,
     pub fast_count: u32,
     pub slow_count: u32,
+    /// Landmines stepped on (each one already cost gauge; they never touch combo or EX).
+    pub mine_hit_count: u32,
     pub timing_histogram: [u32; 17], // -40ms ~ +40ms binned in 5ms buckets
     gauge_gain_pgreat: f64,
     gauge_gain_great: f64,
@@ -88,6 +90,7 @@ impl ScoreTracker {
             is_failed: false,
             fast_count: 0,
             slow_count: 0,
+            mine_hit_count: 0,
             timing_histogram: [0; 17],
             gauge_gain_pgreat: gain_pgreat,
             gauge_gain_great: gain_great,
@@ -173,6 +176,16 @@ impl ScoreTracker {
         if self.current_combo > self.max_combo {
             self.max_combo = self.current_combo;
         }
+    }
+
+    /// A landmine was stepped on: the gauge drops by `damage_percent`, and the
+    /// combo and EX score are left alone.
+    pub fn record_mine_hit(&mut self, damage_percent: f64) {
+        if self.is_failed && matches!(self.gauge_type, GaugeType::Hard | GaugeType::Hazard) {
+            return;
+        }
+        self.mine_hit_count += 1;
+        self.apply_gauge_delta(-damage_percent);
     }
 
     fn apply_gauge_delta(&mut self, delta: f64) {
