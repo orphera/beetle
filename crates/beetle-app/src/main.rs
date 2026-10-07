@@ -195,6 +195,7 @@ impl ApplicationHandler for BeetleApp {
             active_chart: None,
             active_timing: None,
             active_chart_id: beetle_core::ChartId::default(),
+            active_ln: None,
             active_judge: None,
             song_end_time: 0.0,
             score_update: ScoreUpdate::default(),
@@ -722,6 +723,15 @@ mod tests {
     }
 
     #[test]
+    fn replays_are_named_by_chart_and_long_note_rule() {
+        let id = beetle_core::ChartId::of_bytes(b"x");
+        let short = id.short();
+        assert_eq!(state::replay_path(id, None), format!("replays/{short}.rep"));
+        assert_eq!(state::replay_path(id, Some(beetle_core::LnRule::Cn)), format!("replays/{short}-cn.rep"));
+        assert_eq!(state::replay_path(id, Some(beetle_core::LnRule::Ln)), format!("replays/{short}-ln.rep"));
+    }
+
+    #[test]
     fn table_folders_follow_the_built_in_ones_and_wrap_both_ways() {
         let forward: Vec<SongCategory> =
             std::iter::successors(Some(SongCategory::ClearStatus), |c| Some(c.next(2))).skip(1).take(4).collect();
@@ -791,17 +801,17 @@ mod tests {
         tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
 
         let store = beetle_core::ScoreStore::new();
-        let folder = filter_song_indices(&songs, "", SongCategory::Table(0), &store, &tables);
+        let folder = filter_song_indices(&songs, "", SongCategory::Table(0), &store, &tables, beetle_core::LnOption::Cn);
         // Banana and Date are both level 2 and keep title order; Elder is not in the table.
         assert_eq!(folder, [1, 3, 0, 2]);
 
         // Search works inside the folder.
-        let searched = filter_song_indices(&songs, "date", SongCategory::Table(0), &store, &tables);
+        let searched = filter_song_indices(&songs, "date", SongCategory::Table(0), &store, &tables, beetle_core::LnOption::Cn);
         assert_eq!(searched, [3]);
         // A table that is not installed matches nothing.
-        assert!(filter_song_indices(&songs, "", SongCategory::Table(7), &store, &tables).is_empty());
+        assert!(filter_song_indices(&songs, "", SongCategory::Table(7), &store, &tables, beetle_core::LnOption::Cn).is_empty());
         // The other folders ignore tables.
-        assert_eq!(filter_song_indices(&songs, "", SongCategory::All, &store, &tables).len(), 5);
+        assert_eq!(filter_song_indices(&songs, "", SongCategory::All, &store, &tables, beetle_core::LnOption::Cn).len(), 5);
     }
 
     #[test]
@@ -861,30 +871,30 @@ mod tests {
         });
 
         // 1. Initial unfiltered indices
-        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
+        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert!(all_indices.len() >= 2);
 
         // 2. Filter by title "anthem"
-        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
+        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(anthem_indices.len(), 1);
         let match_song = &songs[anthem_indices[0]];
         assert_eq!(match_song.title, "First Anthem");
 
         // 3. Filter by artist "dj beat"
         let artist_indices =
-            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
+            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(artist_indices.len(), 1);
         assert_eq!(songs[artist_indices[0]].title, "Second Beat");
 
         // 4. Filter by genre "hardcore"
         let genre_indices =
-            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
+            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(genre_indices.len(), 1);
         assert_eq!(songs[genre_indices[0]].title, "Second Beat");
 
         // 5. Non-matching search query
         let empty_indices =
-            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store, &beetle_core::TableIndex::default());
+            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(empty_indices.len(), 0);
 
         // 6. Strict play mode category filter tests
@@ -945,7 +955,7 @@ mod tests {
             },
         ];
 
-        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store, &beetle_core::TableIndex::default());
+        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(keys9_indices.len(), 1);
         assert_eq!(
             test_songs[keys9_indices[0]].play_mode,
@@ -953,7 +963,7 @@ mod tests {
         );
 
         let keys10_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store, &beetle_core::TableIndex::default());
+            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(keys10_indices.len(), 1);
         assert_eq!(
             test_songs[keys10_indices[0]].play_mode,
@@ -961,7 +971,7 @@ mod tests {
         );
 
         let keys14_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store, &beetle_core::TableIndex::default());
+            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
         assert_eq!(keys14_indices.len(), 1);
         assert_eq!(
             test_songs[keys14_indices[0]].play_mode,

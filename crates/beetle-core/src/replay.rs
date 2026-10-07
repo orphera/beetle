@@ -2,6 +2,7 @@ use crate::bms::Lane;
 use crate::identity::{ChartId, ChartKey};
 use crate::judge::GaugeType;
 use crate::modifier::LaneModifier;
+use crate::rules::LnRule;
 use std::fmt::Write;
 
 /// A single timestamped key input event in a replay.
@@ -24,6 +25,8 @@ pub struct ReplayData {
     /// Lane modifier and gauge the play was made with (`None` in older files).
     pub modifier: Option<LaneModifier>,
     pub gauge: Option<GaugeType>,
+    /// The long note rule it was played under (`None` for a chart without long notes, or an older file).
+    pub ln: Option<LnRule>,
     pub events: Vec<ReplayEvent>,
 }
 
@@ -36,6 +39,7 @@ impl ReplayData {
             random_seed: None,
             modifier: None,
             gauge: None,
+            ln: None,
             events: Vec::new(),
         }
     }
@@ -68,6 +72,9 @@ impl ReplayData {
         }
         if let Some(gauge) = self.gauge {
             let _ = writeln!(buf, "gauge={}", gauge.as_str());
+        }
+        if let Some(ln) = self.ln {
+            let _ = writeln!(buf, "ln={}", ln.as_str());
         }
         let _ = writeln!(buf, "#EVENTS");
 
@@ -115,6 +122,7 @@ impl ReplayData {
         let mut random_seed = None;
         let mut modifier = None;
         let mut gauge = None;
+        let mut ln = None;
         let mut in_events = false;
         let mut events = Vec::new();
 
@@ -145,6 +153,7 @@ impl ReplayData {
                         "seed" => random_seed = u64::from_str_radix(val, 16).ok(),
                         "modifier" => modifier = LaneModifier::from_name(val),
                         "gauge" => gauge = GaugeType::from_name(val),
+                        "ln" => ln = LnRule::from_name(val),
                         _ => (),
                     }
                 }
@@ -192,6 +201,7 @@ impl ReplayData {
             random_seed,
             modifier,
             gauge,
+            ln,
             events,
         })
     }
@@ -223,6 +233,7 @@ max_combo=5
         replay.random_seed = Some(0xfeed_beef_1234);
         replay.modifier = Some(LaneModifier::Mirror);
         replay.gauge = Some(GaugeType::Hard);
+        replay.ln = Some(LnRule::Cn);
         replay.record(1.2345, Lane::Key1, true);
         replay.record(1.3456, Lane::Key1, false);
         replay.record(2.0000, Lane::Scratch, true);
@@ -237,6 +248,7 @@ max_combo=5
         assert_eq!(replay.random_seed, parsed.random_seed);
         assert_eq!(replay.modifier, parsed.modifier);
         assert_eq!(replay.gauge, parsed.gauge);
+        assert_eq!(replay.ln, parsed.ln);
         assert_eq!(replay.events.len(), parsed.events.len());
         assert_eq!(replay.events[0].lane, parsed.events[0].lane);
         assert_eq!(replay.events[0].is_down, parsed.events[0].is_down);

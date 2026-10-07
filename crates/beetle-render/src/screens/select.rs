@@ -14,7 +14,7 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
-use beetle_core::{ScoreRecord, ScoreStore, SongMetadata, TableIndex};
+use beetle_core::{LnOption, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
 pub struct SelectFrame<'a> {
@@ -25,6 +25,8 @@ pub struct SelectFrame<'a> {
     /// Cursor position within `visible`.
     pub selected: usize,
     pub scores: &'a ScoreStore,
+    /// The player's long note setting, which decides which record of a chart with long notes is shown.
+    pub ln_option: LnOption,
     /// Installed difficulty tables, matched to the song list (level chips).
     pub tables: &'a TableIndex,
     pub folder: &'a str,
@@ -161,7 +163,7 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
         let Some(song) = f.songs.get(idx) else { continue };
         let row = Rect::new(list.x, list.y + (slot - start) as f32 * step, row_w, ROW_H * s);
         let chip = f.tables.chip(song.id);
-        song_row(c, t, sk, song, f.scores.get(song.id), chip.as_deref(), row, slot == f.selected, s);
+        song_row(c, t, sk, song, f.scores.best(song, f.ln_option), chip.as_deref(), row, slot == f.selected, s);
     }
 
     // Scrollbar
@@ -367,7 +369,7 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
 
     let rule_y = jacket.bottom() + 24.0 * s;
     c.fill_rect(Rect::new(inner.x, rule_y, inner.w, s.max(1.0)), theme::LINE);
-    personal_best(c, t, sk, song, f.scores.get(song.id), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
+    personal_best(c, t, sk, song, f.scores.best(song, f.ln_option), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
 
     // Play options + CTA at the bottom
     let cta_h = 52.0 * s;
@@ -645,6 +647,7 @@ mod tests {
         let mut scores = ScoreStore::default();
         scores.update(PlayResult {
             chart: beetle_core::ChartId::synthetic(6),
+            ln: None,
             lamp: ClearType::FullCombo,
             ex_score: 1900,
             max_combo: 800,
@@ -669,6 +672,7 @@ mod tests {
                 viewport: &vp,
                 songs: &songs,
                 tables: &tables,
+                ln_option: LnOption::Auto,
                 visible,
                 selected,
                 scores: &scores,

@@ -102,7 +102,7 @@ pub fn handle_song_select_input(
         KeyCode::KeyR => {
             // Launch replay playback if replay file exists
             if let Some(song) = state.current_selected_song().cloned() {
-                let path_str = replay_path(song.id);
+                let path_str = replay_path(song.id, song.score_rule(state.ln_option()));
                 if let Ok(rep_str) = fs::read_to_string(&path_str) {
                     if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
                         state.is_replay_playback = true;
@@ -121,7 +121,8 @@ pub fn handle_song_select_input(
         KeyCode::F2 => {
             // Cycle Sort Mode
             state.sort_mode = state.sort_mode.next();
-            sort_songs(&mut state.songs, state.sort_mode, &state.score_store);
+            let ln_option = state.ln_option();
+            sort_songs(&mut state.songs, state.sort_mode, &state.score_store, ln_option);
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
             state.save_config();

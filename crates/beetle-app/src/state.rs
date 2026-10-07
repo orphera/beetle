@@ -6,7 +6,8 @@ use std::time::Instant;
 
 use beetle_audio::AudioEngine;
 use beetle_core::{
-    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, PlayMode, PlayOptions,
+    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule, PlayMode,
+    PlayOptions,
     ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex, TimingModel,
 };
 use beetle_render::{ImageBuffer, ViewState};
@@ -167,6 +168,8 @@ pub struct AppState {
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
     pub active_chart_id: ChartId,
+    /// The long note rule the loaded chart is played under; `None` when it has no long notes.
+    pub active_ln: Option<LnRule>,
     pub active_judge: Option<JudgeEngine>,
     pub song_end_time: f64,
     /// Which of the chart's bests the last play beat.
@@ -354,6 +357,12 @@ impl AppState {
         self.tables = crate::tables::build_index(&self.songs);
     }
 
+    /// The long note setting the song list shows records for. Gameplay is still
+    /// always CN, so this is too until the LN MODE option exists.
+    pub fn ln_option(&self) -> LnOption {
+        LnOption::Cn
+    }
+
     pub fn recompute_filtered_songs(&mut self) {
         // A table folder whose table is gone (removed, or the list changed) falls back to all songs.
         if matches!(self.category_mode, SongCategory::Table(i) if i >= self.tables.tables().len()) {
@@ -365,6 +374,7 @@ impl AppState {
             self.category_mode,
             &self.score_store,
             &self.tables,
+            self.ln_option(),
         );
 
         if self.filtered_indices.is_empty() {
@@ -490,6 +500,7 @@ pub fn filter_song_indices(
     category: SongCategory,
     score_store: &ScoreStore,
     tables: &TableIndex,
+    ln_option: LnOption,
 ) -> Vec<usize> {
     let q = search_query.to_lowercase().trim().to_string();
     let mut indices: Vec<usize> = songs
@@ -546,7 +557,7 @@ pub fn filter_song_indices(
                 }
                 SongCategory::Level => Some(idx),
                 SongCategory::ClearStatus => {
-                    let best = score_store.get(s.id);
+                    let best = score_store.best(s, ln_option);
                     if best.is_some() || s.file_path == ":demo:" {
                         Some(idx)
                     } else {
@@ -570,8 +581,12 @@ pub fn filter_song_indices(
 }
 
 /// Where a chart's replay is kept.
-pub fn replay_path(id: ChartId) -> String {
-    format!("{}/{}.rep", REPLAYS_DIR, id.short())
+/// A chart with long notes has a replay for each long note rule.
+pub fn replay_path(id: ChartId, ln: Option<LnRule>) -> String {
+    match ln {
+        None => format!("{}/{}.rep", REPLAYS_DIR, id.short()),
+        Some(rule) => format!("{}/{}-{}.rep", REPLAYS_DIR, id.short(), rule.as_str().to_lowercase()),
+    }
 }
 
 /// Writes the score file. The first save over a file in the original format
@@ -599,6 +614,18 @@ pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
         .map(|s| (s.legacy_hash, s.id))
         .collect();
 
+    let long_note_charts: Vec<ChartId> = songs.iter().filter(|s| s.ln_count > 0).map(|s| s.id).collect();
+    // Records from before long note rules belong to CN: they move under it.
+    let ln_pending = long_note_charts.iter().any(|&id| store.get(id).is_some());
+    if ln_pending {
+        let backup = format!("{SCORES_FILE}.pre-ln.bak");
+        if !Path::new(&backup).exists() {
+            if let Ok(old) = fs::read_to_string(SCORES_FILE) {
+                let _ = fs::write(backup, old);
+            }
+        }
+    }
+
     if store.legacy_count() > 0 {
         // Keep the file as it was before the keys change, once.
         let backup = format!("{SCORES_FILE}.pre-id.bak");
@@ -611,8 +638,23 @@ pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
             save_scores(store);
         }
     }
+    if store.migrate_ln_rules(&long_note_charts) > 0 {
+        save_scores(store);
+    }
 
     migrate_replays(&pairs);
+    migrate_ln_replays(&long_note_charts);
+}
+
+/// A replay of a chart with long notes from before the rules existed was
+/// played under what is now CN: copy it to the CN name.
+fn migrate_ln_replays(charts: &[ChartId]) {
+    for &id in charts {
+        let (old, new) = (replay_path(id, None), replay_path(id, Some(LnRule::Cn)));
+        if Path::new(&old).exists() && !Path::new(&new).exists() {
+            let _ = fs::copy(old, new);
+        }
+    }
 }
 
 /// Copies replays named by the old key to the chart-id names. The old files
@@ -631,7 +673,7 @@ fn migrate_replays(pairs: &[(u64, ChartId)]) {
         .collect();
     for &(legacy, id) in pairs {
         if old_keys.contains(&legacy) {
-            let new = replay_path(id);
+            let new = replay_path(id, None);
             if !Path::new(&new).exists() {
                 let _ = fs::copy(format!("{REPLAYS_DIR}/{legacy:016x}.rep"), new);
             }
@@ -677,7 +719,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     }
 
     migrate_chart_keys(&songs, &mut score_store);
-    sort_songs(&mut songs, sort_mode, &score_store);
+    sort_songs(&mut songs, sort_mode, &score_store, LnOption::Cn);
 
     (songs, score_store)
 }
@@ -711,7 +753,7 @@ pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) ->
         songs.insert(0, demo_meta);
     }
 
-    sort_songs(&mut songs, sort_mode, score_store);
+    sort_songs(&mut songs, sort_mode, score_store, LnOption::Cn);
 
     songs
 }

@@ -120,7 +120,10 @@ fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) ->
 /// Song select plus its option / quit modals.
 pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let selected_id = state.current_selected_song().map(|s| s.id);
-    let has_replay = selected_id.is_some_and(|id| Path::new(&replay_path(id)).exists());
+    let ln_option = state.ln_option();
+    let has_replay = state
+        .current_selected_song()
+        .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
     let chips = option_chips(state);
     let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
 
@@ -152,6 +155,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             selected: state.selected_song_idx,
             scores: &state.score_store,
             tables: &state.tables,
+            ln_option,
             folder: &folder,
             sort: state.sort_mode.as_str(),
             search: &state.search_query,

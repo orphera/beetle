@@ -67,6 +67,7 @@ fn scores() -> ScoreStore {
         let notes = 900 + (hash as u32 - 1) * 137;
         store.update(PlayResult {
             chart: beetle_core::ChartId::synthetic(hash),
+            ln: None,
             lamp: clear,
             ex_score: (notes as f64 * 2.0 * rate / 100.0) as u32,
             max_combo: notes * 2 / 3,
@@ -132,6 +133,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
             selected,
             scores: &scores,
             tables: &tables,
+            ln_option: beetle_core::LnOption::Auto,
             // The longest kind of folder title: a difficulty table with its owned count.
             folder: if name == "noplay" { "A TABLE WITH A VERY…  1,234 / 12,345" } else { "ALL SONGS" },
             sort: "TITLE",

@@ -133,6 +133,13 @@ impl SongMetadata {
         }
     }
 
+    /// The long note rule this song's score record is filed under with the
+    /// player's setting: its resolved rule, or `None` when it has no long notes
+    /// (the rule changes nothing there, so there is just one record).
+    pub fn score_rule(&self, option: crate::rules::LnOption) -> Option<LnRule> {
+        (self.ln_count > 0).then(|| crate::rules::Ruleset::resolve(self.ln_mode, option).ln)
+    }
+
     /// Extracts metadata from chart text that has no file bytes of its own
     /// (its UTF-8 bytes are what get hashed).
     pub fn from_content(file_path: &str, content: &str) -> Option<Self> {
@@ -240,7 +247,12 @@ impl SongMetadata {
 }
 
 /// Sorts song list in-place according to the chosen sort mode.
-pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore) {
+pub fn sort_songs(
+    songs: &mut [SongMetadata],
+    mode: SortMode,
+    store: &ScoreStore,
+    ln_option: crate::rules::LnOption,
+) {
     match mode {
         SortMode::Title => {
             songs.sort_by_key(|a| a.title.to_lowercase());
@@ -254,15 +266,15 @@ pub fn sort_songs(songs: &mut [SongMetadata], mode: SortMode, store: &ScoreStore
         }
         SortMode::ClearLamp => {
             songs.sort_by(|a, b| {
-                let lamp_a = store.get(a.id).map(|r| r.clear_type);
-                let lamp_b = store.get(b.id).map(|r| r.clear_type);
+                let lamp_a = store.best(a, ln_option).map(|r| r.clear_type);
+                let lamp_b = store.best(b, ln_option).map(|r| r.clear_type);
                 lamp_b.cmp(&lamp_a).then_with(|| a.title.cmp(&b.title))
             });
         }
         SortMode::ScoreRate => {
             songs.sort_by(|a, b| {
-                let acc_a = store.get(a.id).map(|r| r.accuracy_rate()).unwrap_or(0.0);
-                let acc_b = store.get(b.id).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_a = store.best(a, ln_option).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_b = store.best(b, ln_option).map(|r| r.accuracy_rate()).unwrap_or(0.0);
                 acc_b
                     .partial_cmp(&acc_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -387,7 +399,7 @@ mod tests {
             },
         ];
         let store = ScoreStore::new();
-        sort_songs(&mut songs, SortMode::Level, &store);
+        sort_songs(&mut songs, SortMode::Level, &store, crate::rules::LnOption::Auto);
         assert_eq!(songs[0].play_level, 4);
         assert_eq!(songs[1].play_level, 8);
     }

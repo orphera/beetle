@@ -66,12 +66,12 @@ pub fn finalize_start_gameplay(
 
     // Long notes are still judged the way they always were (CN) until the LN MODE
     // option and the per-rule score records are in; then this resolves the rule.
-    let mut judge_engine = JudgeEngine::new(
-        &play_chart,
-        &timing,
-        state.play_options.gauge_type,
-        beetle_core::Ruleset::CN,
-    );
+    let ruleset = beetle_core::Ruleset::CN;
+    let play_chart_has_long_notes = play_chart
+        .notes
+        .iter()
+        .any(|n| n.note_type == beetle_core::NoteType::LongNoteStart);
+    let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type, ruleset);
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();
@@ -201,6 +201,7 @@ pub fn finalize_start_gameplay(
     state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
     state.active_chart_id = song.id;
+    state.active_ln = play_chart_has_long_notes.then_some(ruleset.ln);
     state.active_judge = Some(judge_engine);
     state.bga_bank = bga_bank;
     state.bga_cursor = bga_cursor;
@@ -248,10 +249,11 @@ pub fn finish_gameplay(state: &mut AppState) {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
+            state.active_ln,
         );
 
         // Only save score records and replays for actual manual playthroughs from start
-        state.previous_best = state.score_store.get(state.active_chart_id).cloned();
+        state.previous_best = state.score_store.get_for(state.active_chart_id, state.active_ln).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
             let update = state.score_store.update(play);
             state.score_update = update;
@@ -259,10 +261,11 @@ pub fn finish_gameplay(state: &mut AppState) {
 
             // The replay on disk is the one that set the best EX score; a play
             // that only raised the lamp or combo must not replace it.
-            let rep_path = replay_path(state.active_chart_id);
+            let rep_path = replay_path(state.active_chart_id, state.active_ln);
             if update.ex || !Path::new(&rep_path).exists() {
                 if let Some(mut rep) = state.current_replay.take() {
                     rep.set_score(ex_score, max_combo);
+                    rep.ln = state.active_ln;
                     let _ = fs::create_dir_all(REPLAYS_DIR);
                     let _ = fs::write(&rep_path, rep.serialize_to_string());
                 }

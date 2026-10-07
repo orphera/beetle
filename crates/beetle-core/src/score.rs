@@ -1,12 +1,15 @@
 use crate::identity::{ChartId, ChartKey};
 use crate::judge::{GaugeType, ScoreTracker};
+use crate::library::SongMetadata;
 use crate::modifier::LaneModifier;
+use crate::rules::{LnOption, LnRule};
 use std::collections::HashMap;
 use std::fmt::Write;
 
 /// Version of the play and judgment rules a record was made under. Records
-/// from before rules were tracked are 0.
-pub const ENGINE_VERSION: u32 = 1;
+/// from before rules were tracked are 0. Version 2 added the long note rule
+/// (records of version 1 and earlier were made under what is now CN).
+pub const ENGINE_VERSION: u32 = 2;
 
 /// Clear lamps, lowest to highest. The declaration order is the ranking:
 /// a clear on a harder gauge outranks one on an easier gauge, and a full
@@ -65,6 +68,8 @@ impl ClearType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayResult {
     pub chart: ChartId,
+    /// The long note rule the play was judged under; `None` for a chart with no long notes.
+    pub ln: Option<LnRule>,
     pub lamp: ClearType,
     pub ex_score: u32,
     pub max_combo: u32,
@@ -91,9 +96,11 @@ impl PlayResult {
         modifier: LaneModifier,
         random_seed: Option<u64>,
         played_at: u64,
+        ln: Option<LnRule>,
     ) -> Self {
         Self {
             chart,
+            ln,
             lamp: score.clear_type(),
             ex_score: score.ex_score,
             max_combo: score.max_combo,
@@ -126,6 +133,8 @@ impl PlayResult {
 pub struct ScoreRecord {
     /// What the record is filed under: the chart's id, or an old key awaiting migration.
     pub chart: ChartKey,
+    /// The long note rule the record belongs to; `None` for a chart with no long notes.
+    pub ln: Option<LnRule>,
     pub clear_type: ClearType,
     pub ex_score: u32,
     pub max_combo: u32,
@@ -164,6 +173,7 @@ impl ScoreRecord {
     fn first_play(play: &PlayResult) -> Self {
         let mut record = Self {
             chart: ChartKey::Id(play.chart),
+            ln: play.ln,
             clear_type: play.lamp,
             max_combo: play.max_combo,
             min_bp: play.bp(),
@@ -231,10 +241,14 @@ impl ScoreRecord {
     /// round-trips unchanged.
     pub fn serialize_line(&self) -> String {
         let mut line = String::with_capacity(160);
+        let _ = write!(line, "chart={}", self.chart);
+        if let Some(ln) = self.ln {
+            let _ = write!(line, "\tln={}", ln.as_str());
+        }
+        line.push('\t');
         let _ = write!(
             line,
-            "chart={}\tlamp={}\tex={}\tcombo={}\tbp={}\tn={}\tpg={}\tgr={}\tgd={}\tbd={}\tpr={}\tms={}",
-            self.chart,
+            "lamp={}\tex={}\tcombo={}\tbp={}\tn={}\tpg={}\tgr={}\tgd={}\tbd={}\tpr={}\tms={}",
             self.clear_type.code(),
             self.ex_score,
             self.max_combo,
@@ -279,6 +293,7 @@ impl ScoreRecord {
                     record.chart = ChartKey::parse(value)?;
                     has_chart = true;
                 }
+                "ln" => record.ln = LnRule::from_name(value),
                 "lamp" => record.clear_type = ClearType::from_code(value),
                 "ex" => record.ex_score = number(),
                 "combo" => record.max_combo = number(),
@@ -334,6 +349,7 @@ impl ScoreRecord {
 
         Some(Self {
             chart,
+            ln: None,
             clear_type,
             ex_score,
             max_combo,
@@ -382,7 +398,8 @@ const FILE_HEADER: &str = "#BEETLE_SCORES_V2";
 /// Local flat-file score storage manager (no SQLite / embedded DB dependencies).
 #[derive(Debug, Default, Clone)]
 pub struct ScoreStore {
-    records: HashMap<ChartKey, ScoreRecord>,
+    /// By chart and long note rule: a chart with long notes has one record per rule.
+    records: HashMap<(ChartKey, Option<LnRule>), ScoreRecord>,
 }
 
 impl ScoreStore {
@@ -392,21 +409,33 @@ impl ScoreStore {
         }
     }
 
-    /// Retrieves the personal bests for a chart.
+    /// The personal bests of a chart that has no long notes (and so no rule).
+    /// For any chart that might have long notes use `best`.
     pub fn get(&self, chart: ChartId) -> Option<&ScoreRecord> {
-        self.records.get(&ChartKey::Id(chart))
+        self.get_for(chart, None)
     }
 
-    /// Retrieves a record by whatever key it is filed under, old keys included.
+    /// The personal bests of a chart under a long note rule (`None`: no long notes).
+    pub fn get_for(&self, chart: ChartId, ln: Option<LnRule>) -> Option<&ScoreRecord> {
+        self.records.get(&(ChartKey::Id(chart), ln))
+    }
+
+    /// The personal bests shown for a song: under the rule the player's setting
+    /// gives it, or the one record it has when it has no long notes.
+    pub fn best(&self, song: &SongMetadata, option: LnOption) -> Option<&ScoreRecord> {
+        self.get_for(song.id, song.score_rule(option))
+    }
+
+    /// Retrieves a rule-less record by whatever key it is filed under, old keys included.
     pub fn get_key(&self, key: ChartKey) -> Option<&ScoreRecord> {
-        self.records.get(&key)
+        self.records.get(&(key, None))
     }
 
     /// How many records are still filed under an old key.
     pub fn legacy_count(&self) -> usize {
         self.records
             .keys()
-            .filter(|k| matches!(k, ChartKey::Legacy(_)))
+            .filter(|(chart, _)| matches!(chart, ChartKey::Legacy(_)))
             .count()
     }
 
@@ -426,22 +455,51 @@ impl ScoreStore {
             }
         }
 
+        let old_keys: Vec<(ChartKey, Option<LnRule>)> = self
+            .records
+            .keys()
+            .filter(|(chart, _)| matches!(chart, ChartKey::Legacy(h) if ids_by_legacy.contains_key(h)))
+            .copied()
+            .collect();
+
         let mut moved = 0;
-        for (legacy, ids) in ids_by_legacy {
-            let Some(record) = self.records.remove(&ChartKey::Legacy(legacy)) else {
+        for key in old_keys {
+            let ChartKey::Legacy(legacy) = key.0 else { continue };
+            let Some(record) = self.records.remove(&key) else { continue };
+            moved += 1;
+            for &id in &ids_by_legacy[&legacy] {
+                let mut copy = record.clone();
+                copy.chart = ChartKey::Id(id);
+                self.file(copy);
+            }
+        }
+        moved
+    }
+
+    /// Files a record under its own key, merging into one already there.
+    fn file(&mut self, record: ScoreRecord) {
+        match self.records.get_mut(&(record.chart, record.ln)) {
+            Some(existing) => existing.absorb(&record),
+            None => {
+                self.records.insert((record.chart, record.ln), record);
+            }
+        }
+    }
+
+    /// Records made before long note rules existed carry no rule, and were all
+    /// made under what is now CN. For the charts given (those that have long
+    /// notes) such a record moves to the CN rule, merging into a CN record if
+    /// there already is one. Charts without long notes keep their rule-less
+    /// record. Returns how many records moved.
+    pub fn migrate_ln_rules(&mut self, charts_with_long_notes: &[ChartId]) -> usize {
+        let mut moved = 0;
+        for &id in charts_with_long_notes {
+            let Some(mut record) = self.records.remove(&(ChartKey::Id(id), None)) else {
                 continue;
             };
             moved += 1;
-            for id in ids {
-                let mut copy = record.clone();
-                copy.chart = ChartKey::Id(id);
-                match self.records.get_mut(&copy.chart) {
-                    Some(existing) => existing.absorb(&copy),
-                    None => {
-                        self.records.insert(copy.chart, copy);
-                    }
-                }
-            }
+            record.ln = Some(LnRule::Cn);
+            self.file(record);
         }
         moved
     }
@@ -450,7 +508,7 @@ impl ScoreStore {
     /// its own, so a play that only raises the lamp leaves the best EX score
     /// alone. Returns which bests the play beat.
     pub fn update(&mut self, play: PlayResult) -> ScoreUpdate {
-        let key = ChartKey::Id(play.chart);
+        let key = (ChartKey::Id(play.chart), play.ln);
         let Some(record) = self.records.get_mut(&key) else {
             self.records.insert(key, ScoreRecord::first_play(&play));
             return ScoreUpdate::everything();
@@ -500,7 +558,7 @@ impl ScoreStore {
                 ScoreRecord::parse_line(line)
             };
             if let Some(record) = record {
-                self.records.insert(record.chart, record);
+                self.records.insert((record.chart, record.ln), record);
             }
         }
     }
@@ -509,7 +567,7 @@ impl ScoreStore {
     /// so the same contents always give the same text.
     pub fn save_to_string(&self) -> String {
         let mut records: Vec<&ScoreRecord> = self.records.values().collect();
-        records.sort_by_key(|r| r.chart);
+        records.sort_by_key(|r| (r.chart, r.ln));
 
         let mut out = String::with_capacity(32 + records.len() * 160);
         out.push_str(FILE_HEADER);
@@ -529,6 +587,7 @@ mod tests {
     fn play(n: u64, lamp: ClearType, ex: u32, combo: u32, bp: u32) -> PlayResult {
         PlayResult {
             chart: ChartId::synthetic(n),
+            ln: None,
             lamp,
             ex_score: ex,
             max_combo: combo,
@@ -621,6 +680,7 @@ mod tests {
     fn record_line_roundtrip_keeps_every_field() {
         let record = ScoreRecord {
             chart: ChartKey::Id(ChartId::synthetic(0xaabb)),
+            ln: Some(LnRule::Cn),
             clear_type: ClearType::Hard,
             ex_score: 1540,
             max_combo: 680,
@@ -820,6 +880,126 @@ mod tests {
         let mut reloaded = ScoreStore::new();
         reloaded.load_from_str(&text);
         assert_eq!(reloaded.get(ChartId::synthetic(50)), store.get(ChartId::synthetic(50)));
+    }
+
+
+    // ---- long note rules ----
+
+    fn ln_play(n: u64, rule: Option<LnRule>, lamp: ClearType, ex: u32) -> PlayResult {
+        PlayResult { ln: rule, ..play(n, lamp, ex, 50, 2) }
+    }
+
+    #[test]
+    fn a_chart_has_a_separate_record_for_each_long_note_rule() {
+        let mut store = ScoreStore::new();
+        let id = ChartId::synthetic(1);
+        assert!(store.update(ln_play(1, Some(LnRule::Cn), ClearType::Clear, 400)).any());
+        // Another rule is a first play, not a comparison against the CN record.
+        assert_eq!(store.update(ln_play(1, Some(LnRule::Ln), ClearType::Easy, 200)), ScoreUpdate::everything());
+
+        assert_eq!(store.get_for(id, Some(LnRule::Cn)).unwrap().ex_score, 400);
+        assert_eq!(store.get_for(id, Some(LnRule::Ln)).unwrap().ex_score, 200);
+        assert!(store.get_for(id, None).is_none());
+
+        // Beating one leaves the other alone.
+        assert!(store.update(ln_play(1, Some(LnRule::Ln), ClearType::Hard, 260)).ex);
+        assert_eq!(store.get_for(id, Some(LnRule::Cn)).unwrap().ex_score, 400);
+        assert_eq!(store.get_for(id, Some(LnRule::Ln)).unwrap().ex_score, 260);
+    }
+
+    #[test]
+    fn a_chart_without_long_notes_has_one_record_whatever_the_setting() {
+        let mut store = ScoreStore::new();
+        store.update(ln_play(2, None, ClearType::Clear, 300));
+        let song = SongMetadata::from_bytes("plain.bms", b"#BPM 120\n#00111:01\n").unwrap();
+        // Not the synthetic id used above: file the record under the song's own.
+        store.update(PlayResult { chart: song.id, ..ln_play(2, None, ClearType::Clear, 300) });
+        for option in [LnOption::Auto, LnOption::Ln, LnOption::Cn] {
+            assert_eq!(store.best(&song, option).unwrap().ex_score, 300, "{option:?}");
+        }
+    }
+
+    #[test]
+    fn best_looks_a_song_up_under_the_rule_its_setting_gives() {
+        let song = SongMetadata::from_bytes(
+            "ln.bms",
+            b"#BPM 120\n#LNMODE 2\n#00111:01\n#00151:01000100\n",
+        )
+        .unwrap();
+        let mut store = ScoreStore::new();
+        store.update(PlayResult { chart: song.id, ..ln_play(3, Some(LnRule::Cn), ClearType::Clear, 111) });
+        store.update(PlayResult { chart: song.id, ..ln_play(3, Some(LnRule::Ln), ClearType::Clear, 222) });
+
+        // The chart says CN, so AUTO shows the CN record; forcing LN shows the other.
+        assert_eq!(store.best(&song, LnOption::Auto).unwrap().ex_score, 111);
+        assert_eq!(store.best(&song, LnOption::Cn).unwrap().ex_score, 111);
+        assert_eq!(store.best(&song, LnOption::Ln).unwrap().ex_score, 222);
+
+        let no_mode = SongMetadata::from_bytes("ln2.bms", b"#BPM 120\n#00111:01\n#00151:01000100\n").unwrap();
+        assert_eq!(no_mode.score_rule(LnOption::Auto), Some(LnRule::Ln), "LN is the default");
+    }
+
+    #[test]
+    fn old_records_of_charts_with_long_notes_move_to_the_cn_rule() {
+        let (with_ln, without_ln) = (ChartId::synthetic(10), ChartId::synthetic(11));
+        let mut store = ScoreStore::new();
+        // Both made before rules existed: rule-less.
+        store.update(play(10, ClearType::Hard, 300, 80, 4));
+        store.update(play(11, ClearType::Clear, 200, 60, 6));
+        assert_eq!(store.migrate_ln_rules(&[with_ln]), 1);
+
+        assert!(store.get(with_ln).is_none(), "no rule-less record is left for a chart with long notes");
+        let moved = store.get_for(with_ln, Some(LnRule::Cn)).unwrap();
+        assert_eq!((moved.clear_type, moved.ex_score), (ClearType::Hard, 300));
+        assert_eq!(store.get(without_ln).unwrap().ex_score, 200, "a chart without long notes is untouched");
+        // Nothing left to move the second time.
+        assert_eq!(store.migrate_ln_rules(&[with_ln]), 0);
+    }
+
+    #[test]
+    fn moving_to_cn_merges_into_a_cn_record_that_already_exists() {
+        let id = ChartId::synthetic(12);
+        let mut store = ScoreStore::new();
+        store.update(play(12, ClearType::Easy, 150, 40, 9)); // old, rule-less
+        store.update(ln_play(12, Some(LnRule::Cn), ClearType::Clear, 120)); // since played under CN
+
+        store.migrate_ln_rules(&[id]);
+        let record = store.get_for(id, Some(LnRule::Cn)).unwrap();
+        assert_eq!(record.ex_score, 150, "best of the two");
+        assert_eq!(record.clear_type, ClearType::Clear);
+        assert_eq!(record.play_count, 2);
+        assert!(store.get(id).is_none());
+    }
+
+    #[test]
+    fn the_rule_is_saved_and_read_back_and_files_without_it_stay_rule_less() {
+        let mut store = ScoreStore::new();
+        store.update(ln_play(20, Some(LnRule::Ln), ClearType::Clear, 100));
+        store.update(ln_play(20, Some(LnRule::Cn), ClearType::Clear, 190));
+        store.update(ln_play(21, None, ClearType::Clear, 90));
+        let text = store.save_to_string();
+        assert!(text.contains("\tln=LN\t") && text.contains("\tln=CN\t"));
+        assert_eq!(text.lines().filter(|l| l.contains("\tln=")).count(), 2, "the rule-less record has no ln field");
+
+        let mut loaded = ScoreStore::new();
+        loaded.load_from_str(&text);
+        assert_eq!(loaded.save_to_string(), text);
+        assert_eq!(loaded.get_for(ChartId::synthetic(20), Some(LnRule::Cn)).unwrap().ex_score, 190);
+
+        // A file from before rules existed has no ln fields, and reads as rule-less.
+        let line = format!("chart={}\tlamp=C\tex=5\tcombo=1", ChartId::synthetic(30));
+        let mut old = ScoreStore::new();
+        old.load_from_str(&format!("#BEETLE_SCORES_V2\n{line}\n"));
+        assert!(old.get(ChartId::synthetic(30)).is_some());
+    }
+
+    #[test]
+    fn new_records_carry_the_new_engine_version() {
+        let mut store = ScoreStore::new();
+        store.update(ln_play(40, Some(LnRule::Ln), ClearType::Clear, 100));
+        let record = store.get_for(ChartId::synthetic(40), Some(LnRule::Ln)).unwrap();
+        assert_eq!(record.engine, ENGINE_VERSION);
+        assert_eq!(ENGINE_VERSION, 2);
     }
 
     #[test]
