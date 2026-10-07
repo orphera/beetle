@@ -94,6 +94,38 @@ impl HttpClient {
         RemoteRegistryIndex::from_json_str(&body)
     }
 
+    /// Fetches a small document (a web page or JSON), refusing anything
+    /// larger than `max_bytes` whether the server announces the size or not.
+    pub fn get_bytes(&self, url: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
+        let response = self
+            .agent
+            .get(url)
+            .set("User-Agent", &self.user_agent)
+            .call()
+            .map_err(|e| format!("HTTP request to '{url}' failed: {e}"))?;
+
+        let status = response.status();
+        if status != 200 {
+            return Err(format!("HTTP request to '{url}' returned status {status}"));
+        }
+        if let Some(len) = response.header("Content-Length").and_then(|h| h.parse::<u64>().ok()) {
+            if len > max_bytes {
+                return Err(format!("'{url}' is {len} bytes, more than the {max_bytes} allowed"));
+            }
+        }
+
+        let mut body = Vec::new();
+        response
+            .into_reader()
+            .take(max_bytes + 1)
+            .read_to_end(&mut body)
+            .map_err(|e| format!("Failed to read the response from '{url}': {e}"))?;
+        if body.len() as u64 > max_bytes {
+            return Err(format!("'{url}' is more than the {max_bytes} bytes allowed"));
+        }
+        Ok(body)
+    }
+
     /// Downloads a remote file to `target_path` while streaming SHA-256 verification and progress updates.
     ///
     /// If `expected_sha256` does not match or size exceeds `max_bytes`, the file is removed and an error returned.

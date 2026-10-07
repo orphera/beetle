@@ -1,7 +1,7 @@
 use bms_package_manager::{
-    find_available_updates, HttpClient, PackageManager, PackageManagerError, PackageUpdater,
+    fetch_table, find_available_updates, HttpClient, PackageManager, PackageManagerError, PackageUpdater,
     RegistryCacheManager, RegistrySource, RemotePackageInstaller, RemoteRegistryIndex,
-    SourcesConfig,
+    SourcesConfig, TableStore, UpdateOutcome,
 };
 use std::env;
 use std::fs;
@@ -16,6 +16,7 @@ fn print_usage() {
     println!("  bpm search <query>                     Search remote packages across configured registries");
     println!("  bpm upgrade                            Batch upgrade installed packages to latest remote versions");
     println!("  bpm source <list|add|remove>           Manage remote registry sources (sources.json)");
+    println!("  bpm table <add|update|list|remove>     Manage difficulty tables (tables/, read by the player)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
     println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
@@ -77,10 +78,140 @@ fn get_default_packages_dir() -> PathBuf {
         })
 }
 
+fn print_table_usage() {
+    println!("Usage:");
+    println!("  bpm table add <address>             Install a difficulty table from its page or header.json");
+    println!("  bpm table update [name] [--force]   Fetch installed tables again (all, or one)");
+    println!("  bpm table list                      List installed tables");
+    println!("  bpm table remove <name>             Delete an installed table");
+    println!();
+    println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// "3 days ago", "5 hours ago", "just now".
+fn ago(fetched: u64, now: u64) -> String {
+    if fetched == 0 {
+        return "never".to_string();
+    }
+    let secs = now.saturating_sub(fetched);
+    match secs {
+        0..=89 => "just now".to_string(),
+        90..=5399 => format!("{} minutes ago", secs / 60),
+        5400..=129_599 => format!("{} hours ago", secs / 3600),
+        _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
+fn run_table_command(args: &[String]) {
+    let dir = env::var("BEETLE_TABLES_DIR").unwrap_or_else(|_| "tables".to_string());
+    let store = TableStore::new(dir);
+    let client = HttpClient::with_timeouts(
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
+    );
+    let get = |url: &str, max: u64| client.get_bytes(url, max);
+    let fail = |message: &dyn std::fmt::Display| -> ! {
+        eprintln!("Error: {message}");
+        std::process::exit(1);
+    };
+
+    match args.first().map(String::as_str) {
+        Some("add") => {
+            let Some(address) = args.get(1) else {
+                eprintln!("Error: Missing table address.");
+                print_table_usage();
+                std::process::exit(1);
+            };
+            println!("Fetching {address} ...");
+            let table = fetch_table(&get, address).unwrap_or_else(|e| fail(&e));
+            let path = store.install(&table).unwrap_or_else(|e| fail(&e));
+            println!(
+                "Installed '{}' ({} charts, {} levels) -> {}",
+                table.name,
+                table.entries.len(),
+                table.levels().len(),
+                path.display()
+            );
+        }
+        Some("update") => {
+            let force = args.iter().any(|a| a == "--force");
+            let wanted = args.iter().skip(1).find(|a| !a.starts_with("--"));
+            let installed: Vec<_> = match wanted {
+                Some(name) => vec![store.find(name).unwrap_or_else(|| fail(&format!("no installed table named '{name}'")))],
+                None => store.list(),
+            };
+            if installed.is_empty() {
+                println!("No tables installed. Add one with `bpm table add <address>`.");
+                return;
+            }
+            let mut failed = false;
+            for entry in &installed {
+                let name = &entry.1.name;
+                match store.update(&get, entry, force, now_secs()) {
+                    Ok(UpdateOutcome::Updated { entries, previous_entries }) => {
+                        println!("{name}: {entries} charts ({:+} since the last update)", entries as i64 - previous_entries as i64);
+                    }
+                    Ok(UpdateOutcome::TooSoon { minutes_ago }) => {
+                        println!("{name}: fetched {minutes_ago} minutes ago, skipped (use --force to fetch anyway)");
+                    }
+                    Err(e) => {
+                        eprintln!("{name}: {e} (the installed copy is unchanged)");
+                        failed = true;
+                    }
+                }
+            }
+            if failed {
+                std::process::exit(1);
+            }
+        }
+        Some("list") => {
+            let tables = store.list();
+            if tables.is_empty() {
+                println!("No tables installed. Add one with `bpm table add <address>`.");
+                return;
+            }
+            let now = now_secs();
+            for (path, table) in tables {
+                println!(
+                    "{:<24} {:<6} {:>6} charts   {:<16} {}",
+                    table.name,
+                    table.symbol,
+                    table.entries.len(),
+                    ago(table.fetched, now),
+                    path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+                );
+            }
+        }
+        Some("remove") => {
+            let Some(name) = args.get(1) else {
+                eprintln!("Error: Missing table name.");
+                print_table_usage();
+                std::process::exit(1);
+            };
+            let removed = store.remove(name).unwrap_or_else(|e| fail(&e));
+            println!("Removed '{removed}'.");
+        }
+        _ => print_table_usage(),
+    }
+}
+
 fn main() -> Result<(), PackageManagerError> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         print_usage();
+        return Ok(());
+    }
+
+    // Difficulty tables have nothing to do with package storage.
+    if args[1] == "table" {
+        run_table_command(&args[2..]);
         return Ok(());
     }
 

@@ -11,6 +11,7 @@ pub mod pack;
 pub mod registry;
 pub mod serve;
 pub mod storage;
+pub mod table;
 pub mod updater;
 pub mod vfs;
 
@@ -36,6 +37,7 @@ pub use registry::{
 };
 pub use serve::{build_serve_state, compute_file_sha256, get_local_ip, BmsServeServer, ServeState};
 pub use storage::PackageStorage;
+pub use table::{fetch_table, resolve_url, TableError, TableStore, UpdateOutcome};
 pub use updater::PackageUpdater;
 pub use vfs::{VfsEntry, VirtualBmsFs, VirtualFile, WebDavServer};
 
