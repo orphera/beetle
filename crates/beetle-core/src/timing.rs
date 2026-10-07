@@ -150,14 +150,21 @@ impl TimingModel {
     pub fn beat_to_time_seconds(&self, measure: u32, fraction: f64) -> f64 {
         let target_beat = self.beat_position(measure, fraction);
 
-        // Find the segment applicable to target_beat
-        let mut best_segment = &self.segments[0];
-        for seg in &self.segments {
-            if seg.start_beat <= target_beat {
-                best_segment = seg;
-            } else {
-                break;
-            }
+        // Last segment starting at or before target_beat.
+        let idx = self
+            .segments
+            .partition_point(|s| s.start_beat <= target_beat)
+            .saturating_sub(1);
+        let best_segment = &self.segments[idx];
+
+        // An object exactly on a STOP's beat is hit before the stop begins:
+        // use the time of the first segment at that beat, ahead of any stops.
+        if target_beat <= best_segment.start_beat {
+            let first = self.segments[..=idx]
+                .iter()
+                .rposition(|s| s.start_beat < best_segment.start_beat)
+                .map_or(0, |i| i + 1);
+            return self.segments[first].start_time_seconds;
         }
 
         let delta_beats = target_beat - best_segment.start_beat;
@@ -314,9 +321,11 @@ mod tests {
         let model = TimingModel::from_chart(&chart);
 
         // Measure 0 -> 2.0s
-        // Measure 1 start -> time = 2.0s + 2.0s (stop) = 4.0s for playback beyond stop
+        // Measure 1 start is the stop's own beat: an object there is hit at 2.0s,
+        // before the stop. Anything after it is pushed back by the 2.0s stop.
         assert_eq!(model.beat_to_time_seconds(0, 0.0), 0.0);
-        assert_eq!(model.beat_to_time_seconds(1, 0.0), 4.0);
+        assert_eq!(model.beat_to_time_seconds(1, 0.0), 2.0);
+        assert_eq!(model.beat_to_time_seconds(1, 0.25), 4.5);
         assert_eq!(model.beat_to_time_seconds(2, 0.0), 6.0);
 
         // Time during stop (2.5s) maps to measure 1, fraction 0.0
@@ -356,6 +365,40 @@ mod tests {
         assert_eq!(model.time_to_beat_position(4.5), 10.0);
         // Before the start, extrapolate at the first BPM.
         assert_eq!(model.time_to_beat_position(-1.0), -2.0);
+    }
+
+    #[test]
+    fn objects_on_a_stacked_stop_beat_are_hit_before_all_of_the_stops() {
+        let stop = |measures| TimingEvent {
+            measure: 1,
+            fraction: 0.0,
+            kind: TimingEventKind::StopMeasures(measures),
+        };
+        let chart = BmsChart {
+            header: BmsHeader {
+                bpm: 120.0,
+                ..Default::default()
+            },
+            // BPM change first (parser order), then two stops, all at beat 4.
+            timing_events: vec![
+                TimingEvent {
+                    measure: 1,
+                    fraction: 0.0,
+                    kind: TimingEventKind::BpmChange(240.0),
+                },
+                stop(1.0),
+                stop(0.5),
+            ],
+            ..Default::default()
+        };
+        let model = TimingModel::from_chart(&chart);
+
+        // Beat 4 is reached at 2.0s; stops last 1.0s + 0.5s at 240 BPM.
+        assert_eq!(model.beat_to_time_seconds(1, 0.0), 2.0);
+        assert_eq!(model.beat_to_time_seconds(1, 0.5), 2.0 + 1.5 + 0.5);
+        assert_eq!(model.time_to_beat_position(2.0), 4.0);
+        assert_eq!(model.time_to_beat_position(3.4), 4.0);
+        assert_eq!(model.time_to_beat_position(4.0), 4.0 + 0.5 * 4.0);
     }
 
     #[test]

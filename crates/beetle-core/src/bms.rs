@@ -600,12 +600,21 @@ pub fn parse_bms(input: &str) -> Result<BmsChart, BmsParseError> {
         })
     });
 
+    // At the same position a BPM change applies before a STOP, whatever order
+    // the file lists their channels in (a stop lasts as long as the BPM then in effect).
+    let kind_rank = |e: &TimingEvent| match e.kind {
+        TimingEventKind::BpmChange(_) => 0,
+        TimingEventKind::StopMeasures(_) => 1,
+    };
     chart.timing_events.sort_by(|a, b| {
-        a.measure.cmp(&b.measure).then_with(|| {
-            a.fraction
-                .partial_cmp(&b.fraction)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        a.measure
+            .cmp(&b.measure)
+            .then_with(|| {
+                a.fraction
+                    .partial_cmp(&b.fraction)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| kind_rank(a).cmp(&kind_rank(b)))
     });
 
     Ok(chart)
@@ -1134,6 +1143,23 @@ mod tests {
         assert_eq!(decode_hex(b'9', b'6'), Some(150));
         assert_eq!(decode_hex(b'F', b'F'), Some(255));
         assert_eq!(decode_hex(b'g', b'0'), None);
+    }
+
+    #[test]
+    fn bpm_change_sorts_before_stop_at_the_same_position() {
+        // Stop channel (09) listed before the BPM channel (08) in the file.
+        let chart = parse_bms(
+            "#BPM 120
+#BPM01 240
+#STOP01 192
+#00109:01
+#00108:01
+#00111:01
+",
+        )
+        .unwrap();
+        assert!(matches!(chart.timing_events[0].kind, TimingEventKind::BpmChange(_)));
+        assert!(matches!(chart.timing_events[1].kind, TimingEventKind::StopMeasures(_)));
     }
 
     #[test]
