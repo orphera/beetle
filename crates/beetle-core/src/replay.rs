@@ -1,4 +1,6 @@
 use crate::bms::Lane;
+use crate::judge::GaugeType;
+use crate::modifier::LaneModifier;
 use std::fmt::Write;
 
 /// A single timestamped key input event in a replay.
@@ -17,6 +19,9 @@ pub struct ReplayData {
     pub max_combo: u32,
     /// Seed the chart's `#RANDOM` sections were rolled with (`None` for charts without any).
     pub random_seed: Option<u64>,
+    /// Lane modifier and gauge the play was made with (`None` in older files).
+    pub modifier: Option<LaneModifier>,
+    pub gauge: Option<GaugeType>,
     pub events: Vec<ReplayEvent>,
 }
 
@@ -27,6 +32,8 @@ impl ReplayData {
             ex_score: 0,
             max_combo: 0,
             random_seed: None,
+            modifier: None,
+            gauge: None,
             events: Vec::new(),
         }
     }
@@ -53,6 +60,12 @@ impl ReplayData {
         let _ = writeln!(buf, "max_combo={}", self.max_combo);
         if let Some(seed) = self.random_seed {
             let _ = writeln!(buf, "seed={seed:016x}");
+        }
+        if let Some(modifier) = self.modifier {
+            let _ = writeln!(buf, "modifier={}", modifier.as_str());
+        }
+        if let Some(gauge) = self.gauge {
+            let _ = writeln!(buf, "gauge={}", gauge.as_str());
         }
         let _ = writeln!(buf, "#EVENTS");
 
@@ -98,6 +111,8 @@ impl ReplayData {
         let mut ex_score = 0;
         let mut max_combo = 0;
         let mut random_seed = None;
+        let mut modifier = None;
+        let mut gauge = None;
         let mut in_events = false;
         let mut events = Vec::new();
 
@@ -122,6 +137,8 @@ impl ReplayData {
                         "ex_score" => ex_score = val.parse::<u32>().unwrap_or(0),
                         "max_combo" => max_combo = val.parse::<u32>().unwrap_or(0),
                         "seed" => random_seed = u64::from_str_radix(val, 16).ok(),
+                        "modifier" => modifier = LaneModifier::from_name(val),
+                        "gauge" => gauge = GaugeType::from_name(val),
                         _ => (),
                     }
                 }
@@ -167,6 +184,8 @@ impl ReplayData {
             ex_score,
             max_combo,
             random_seed,
+            modifier,
+            gauge,
             events,
         })
     }
@@ -182,6 +201,8 @@ mod tests {
         replay.ex_score = 1520;
         replay.max_combo = 850;
         replay.random_seed = Some(0xfeed_beef_1234);
+        replay.modifier = Some(LaneModifier::Mirror);
+        replay.gauge = Some(GaugeType::Hard);
         replay.record(1.2345, Lane::Key1, true);
         replay.record(1.3456, Lane::Key1, false);
         replay.record(2.0000, Lane::Scratch, true);
@@ -194,6 +215,8 @@ mod tests {
         assert_eq!(replay.ex_score, parsed.ex_score);
         assert_eq!(replay.max_combo, parsed.max_combo);
         assert_eq!(replay.random_seed, parsed.random_seed);
+        assert_eq!(replay.modifier, parsed.modifier);
+        assert_eq!(replay.gauge, parsed.gauge);
         assert_eq!(replay.events.len(), parsed.events.len());
         assert_eq!(replay.events[0].lane, parsed.events[0].lane);
         assert_eq!(replay.events[0].is_down, parsed.events[0].is_down);

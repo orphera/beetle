@@ -211,6 +211,8 @@ pub fn finalize_start_gameplay(
     state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
         let mut replay = ReplayData::new(song.hash);
         replay.random_seed = chart.random_seed;
+        replay.modifier = Some(state.play_options.lane_modifier);
+        replay.gauge = Some(state.play_options.gauge_type);
         Some(replay)
     } else {
         None
@@ -261,12 +263,14 @@ pub fn finish_gameplay(state: &mut AppState) {
         // Only save score records and replays for actual manual playthroughs from start
         state.previous_best = state.score_store.get(state.active_chart_hash).cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
-            state.is_new_record = state.score_store.update(play).any();
+            let update = state.score_store.update(play);
+            state.is_new_record = update.any();
             save_scores(&state.score_store);
 
-            // Save replay file
+            // The replay on disk is the one that set the best EX score; a play
+            // that only raised the lamp or combo must not replace it.
             let rep_path = format!("{}/{:016x}.rep", REPLAYS_DIR, state.active_chart_hash);
-            if state.is_new_record || !Path::new(&rep_path).exists() {
+            if update.ex || !Path::new(&rep_path).exists() {
                 if let Some(mut rep) = state.current_replay.take() {
                     rep.set_score(ex_score, max_combo);
                     let _ = fs::create_dir_all(REPLAYS_DIR);
