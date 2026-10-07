@@ -2,7 +2,7 @@ pub mod score_tracker;
 
 use crate::bms::{BmsChart, Lane, NoteEvent, NoteType, WavId};
 use crate::timing::TimingModel;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub use score_tracker::{GaugeType, ScoreTracker};
 
@@ -120,6 +120,10 @@ pub struct PlayNote {
     pub end_target_time_seconds: f64,
     pub is_judged: bool,
     pub is_holding: bool,
+    /// For a long note head: index (in the engine's sorted note list) of its tail.
+    pub tail_index: Option<usize>,
+    /// For a long note tail: index of its head. A tail only counts while its head is held.
+    pub head_index: Option<usize>,
 }
 
 /// The runtime judgment engine managing live notes, hit detection, and misses.
@@ -152,6 +156,8 @@ impl JudgeEngine {
                 end_target_time_seconds: end_time,
                 is_judged: false,
                 is_holding: false,
+                tail_index: None,
+                head_index: None,
             });
         }
 
@@ -161,6 +167,24 @@ impl JudgeEngine {
                 .partial_cmp(&b.target_time_seconds)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+
+        // Pair each long note head with its tail (same lane, in time order).
+        let mut open_heads: HashMap<Lane, usize> = HashMap::new();
+        for i in 0..play_notes.len() {
+            let lane = play_notes[i].note_event.lane;
+            match play_notes[i].note_event.note_type {
+                NoteType::LongNoteStart => {
+                    open_heads.insert(lane, i);
+                }
+                NoteType::LongNoteEnd => {
+                    if let Some(head) = open_heads.remove(&lane) {
+                        play_notes[head].tail_index = Some(i);
+                        play_notes[i].head_index = Some(head);
+                    }
+                }
+                _ => {}
+            }
+        }
 
         // Every note is judged, and a long note's head and tail are separate
         // judgments, so both count (this also matches the song-select NOTES).
@@ -192,9 +216,13 @@ impl JudgeEngine {
 
         // Find earliest unjudged note in this lane within poor window
         for note in self.notes.iter_mut() {
+            // Tails are judged on release, mines by `trigger_mines`; a press is never either.
             if note.is_judged
                 || note.note_event.lane != lane
-                || note.note_event.note_type == NoteType::Landmine
+                || matches!(
+                    note.note_event.note_type,
+                    NoteType::Landmine | NoteType::LongNoteEnd
+                )
             {
                 continue;
             }
@@ -237,25 +265,37 @@ impl JudgeEngine {
     }
 
     /// Handles key release on a specific lane (for long note releases).
+    ///
+    /// Releasing a held long note judges its tail by how close the release is
+    /// to the tail's time. Letting go earlier than the POOR window allows is
+    /// a MISS right away (the hold is over); a release past the tail's window
+    /// is left to `update_misses`. A tail whose head is not being held is
+    /// never judged by a release.
     pub fn handle_key_up(&mut self, lane: Lane, current_time_seconds: f64) -> Option<JudgeResult> {
         self.lanes_down.remove(&lane);
-        for note in self.notes.iter_mut() {
+        for i in 0..self.notes.len() {
+            let note = &self.notes[i];
             if note.is_judged
                 || note.note_event.lane != lane
                 || note.note_event.note_type != NoteType::LongNoteEnd
             {
                 continue;
             }
+            let Some(head) = note.head_index.filter(|&h| self.notes[h].is_holding) else {
+                continue;
+            };
 
-            let delta_seconds = current_time_seconds - note.target_time_seconds;
-            let delta_ms = delta_seconds * 1000.0;
+            let delta_ms = (current_time_seconds - note.target_time_seconds) * 1000.0;
+            let grade = match self.window.evaluate(delta_ms) {
+                Some(grade) => grade,
+                None if delta_ms < 0.0 => JudgeGrade::Miss,
+                None => continue,
+            };
 
-            if let Some(grade) = self.window.evaluate(delta_ms) {
-                note.is_judged = true;
-                let result = JudgeResult { grade, delta_ms };
-                self.score.record_hit_with_delta(grade, delta_ms);
-                return Some(result);
-            }
+            self.notes[i].is_judged = true;
+            self.notes[head].is_holding = false;
+            self.score.record_hit_with_delta(grade, delta_ms);
+            return Some(JudgeResult { grade, delta_ms });
         }
         None
     }
@@ -263,6 +303,7 @@ impl JudgeEngine {
     /// Updates missed notes that passed beyond the POOR timing window.
     pub fn update_misses(&mut self, current_time_seconds: f64) -> Vec<(Lane, JudgeResult)> {
         let mut misses = Vec::new();
+        let mut tail_misses: Vec<(usize, Lane, f64)> = Vec::new();
 
         for lane in self.lanes_down.clone() {
             self.trigger_mines(lane, current_time_seconds);
@@ -287,12 +328,31 @@ impl JudgeEngine {
             // Past poor window (note passed judgment line)
             if delta_ms > self.window.poor_ms {
                 note.is_judged = true;
+                note.is_holding = false;
+                let lane = note.note_event.lane;
                 let result = JudgeResult {
                     grade: JudgeGrade::Miss,
                     delta_ms,
                 };
                 self.score.record_hit(JudgeGrade::Miss);
-                misses.push((note.note_event.lane, result));
+                misses.push((lane, result));
+                // A missed head takes its tail with it: the player cannot hold
+                // what was never grabbed, so the tail is a MISS right now too.
+                if let Some(tail) = note.tail_index {
+                    tail_misses.push((tail, lane, delta_ms));
+                }
+            }
+        }
+
+        for (tail, lane, delta_ms) in tail_misses {
+            if !self.notes[tail].is_judged {
+                self.notes[tail].is_judged = true;
+                let result = JudgeResult {
+                    grade: JudgeGrade::Miss,
+                    delta_ms,
+                };
+                self.score.record_hit(JudgeGrade::Miss);
+                misses.push((lane, result));
             }
         }
 
@@ -327,9 +387,13 @@ impl JudgeEngine {
 
     /// Fast-forwards note states when jumping to a practice measure.
     pub fn advance_to_time(&mut self, start_time_seconds: f64) {
-        for note in self.notes.iter_mut() {
-            if note.target_time_seconds < start_time_seconds {
-                note.is_judged = true;
+        for i in 0..self.notes.len() {
+            if self.notes[i].target_time_seconds < start_time_seconds {
+                self.notes[i].is_judged = true;
+                // A long note whose head is skipped is skipped whole.
+                if let Some(tail) = self.notes[i].tail_index {
+                    self.notes[tail].is_judged = true;
+                }
             }
         }
     }
@@ -617,6 +681,97 @@ mod tests {
         assert_eq!(score.mine_hit_count, 0);
         assert_eq!(score.pgreat_count, 1);
         assert_eq!(score.accuracy_rate(), 100.0);
+    }
+
+    /// One long note on lane 1: head at 2.0s, tail at 3.0s (120 BPM).
+    fn ln_chart() -> BmsChart {
+        parse_bms("#BPM 120
+#00151:01000100
+").unwrap()
+    }
+
+    fn ln_engine() -> JudgeEngine {
+        let chart = ln_chart();
+        let timing = TimingModel::from_chart(&chart);
+        JudgeEngine::new(&chart, &timing, GaugeType::Hard)
+    }
+
+    #[test]
+    fn releasing_a_held_long_note_on_time_judges_the_tail() {
+        let mut engine = ln_engine();
+        engine.handle_key_down(Lane::Key1, 2.0);
+        let result = engine.handle_key_up(Lane::Key1, 3.01).expect("tail judged");
+        assert_eq!(result.grade, JudgeGrade::PerfectGreat);
+        assert_eq!(engine.score().pgreat_count, 2);
+        assert_eq!(engine.score().max_combo, 2);
+        // Nothing left over to miss afterwards.
+        assert!(engine.update_misses(10.0).is_empty());
+        assert_eq!(engine.score().miss_count, 0);
+    }
+
+    #[test]
+    fn letting_go_far_too_early_is_a_miss_immediately() {
+        let mut engine = ln_engine();
+        engine.handle_key_down(Lane::Key1, 2.0);
+        let result = engine.handle_key_up(Lane::Key1, 2.3).expect("tail judged now");
+        assert_eq!(result.grade, JudgeGrade::Miss);
+        assert_eq!(engine.score().miss_count, 1);
+        assert_eq!(engine.score().current_combo, 0);
+        // It does not miss a second time when the tail's time comes around.
+        assert!(engine.update_misses(10.0).is_empty());
+        assert_eq!(engine.score().miss_count, 1);
+    }
+
+    #[test]
+    fn pressing_again_near_the_tail_does_not_hit_it() {
+        let mut engine = ln_engine();
+        engine.handle_key_down(Lane::Key1, 2.0);
+        engine.handle_key_up(Lane::Key1, 2.3); // early release: tail missed
+        let before = engine.score().pgreat_count;
+        assert!(engine.handle_key_down(Lane::Key1, 3.0).is_none());
+        assert_eq!(engine.score().pgreat_count, before);
+    }
+
+    #[test]
+    fn a_missed_head_misses_the_tail_with_it() {
+        let mut engine = ln_engine();
+        let misses = engine.update_misses(2.5); // head's POOR window is over
+        assert_eq!(misses.len(), 2);
+        assert_eq!(engine.score().miss_count, 2);
+        // Releasing a key near the tail must not give a free judgment.
+        assert!(engine.handle_key_up(Lane::Key1, 3.0).is_none());
+        assert!(engine.update_misses(10.0).is_empty());
+        assert_eq!(engine.score().miss_count, 2);
+    }
+
+    #[test]
+    fn release_without_holding_the_head_judges_nothing() {
+        let mut engine = ln_engine();
+        // Key goes down long before the head's window, so the head is not hit.
+        assert!(engine.handle_key_down(Lane::Key1, 0.5).is_none());
+        assert!(engine.handle_key_up(Lane::Key1, 3.0).is_none());
+        assert_eq!(engine.score().pgreat_count, 0);
+    }
+
+    #[test]
+    fn holding_well_past_the_tail_still_misses_it() {
+        let mut engine = ln_engine();
+        engine.handle_key_down(Lane::Key1, 2.0);
+        assert!(engine.update_misses(3.2).is_empty());
+        let misses = engine.update_misses(3.5);
+        assert_eq!(misses.len(), 1);
+        assert_eq!(misses[0].1.grade, JudgeGrade::Miss);
+        // The late release afterwards is not judged again.
+        assert!(engine.handle_key_up(Lane::Key1, 3.6).is_none());
+        assert_eq!(engine.score().miss_count, 1);
+    }
+
+    #[test]
+    fn practice_jump_past_a_head_skips_the_whole_long_note() {
+        let mut engine = ln_engine();
+        engine.advance_to_time(2.5);
+        assert!(engine.update_misses(10.0).is_empty());
+        assert_eq!(engine.score().miss_count, 0);
     }
 
     #[test]
