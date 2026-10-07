@@ -418,6 +418,9 @@ impl ApplicationHandler for BeetleApp {
                         Instant::now() + Duration::from_millis(16),
                     ));
                 } else {
+                    if state.preview.playing_for().is_some() {
+                        state.window.request_redraw();
+                    }
                     event_loop.set_control_flow(match preview_wait {
                         Some(wait) => ControlFlow::WaitUntil(Instant::now() + wait),
                         None => ControlFlow::Wait,

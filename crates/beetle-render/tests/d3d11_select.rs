@@ -115,6 +115,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
             option_chips: &chips,
             auto_play: false,
             has_replay: selected == 5,
+            preview_secs: (selected == 5 && search.is_empty()).then_some(0.4),
         },
     );
     match overlay {

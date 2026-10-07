@@ -158,6 +158,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             option_chips: &chips,
             auto_play: state.is_auto_play,
             has_replay,
+            preview_secs: state.preview.playing_for(),
         },
     );
     if let Some(rows) = &option_rows {

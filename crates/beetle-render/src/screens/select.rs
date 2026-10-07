@@ -37,6 +37,8 @@ pub struct SelectFrame<'a> {
     pub option_chips: &'a [String],
     pub auto_play: bool,
     pub has_replay: bool,
+    /// Seconds the selected song's audio preview has been playing; `None` when it is not.
+    pub preview_secs: Option<f32>,
 }
 
 // Layout grid (1280×720 units).
@@ -254,6 +256,20 @@ fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, 
 // Detail panel
 // ---------------------------------------------------------------------------
 
+/// "PREVIEW" pill with a small level meter in the jacket's lower-left corner.
+fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s: f32) {
+    let pill = Rect::new(jacket.x + 8.0 * s, jacket.bottom() - 28.0 * s, 86.0 * s, 20.0 * s);
+    c.fill_rect(pill, theme::BG.with_alpha(205));
+    c.stroke_rect(pill, s.max(1.0), theme::CYAN.with_alpha(110));
+    let (bar_w, gap, floor) = (3.0 * s, 2.0 * s, pill.bottom() - 5.0 * s);
+    for i in 0..4 {
+        let phase = secs * 7.0 + i as f32 * 1.7;
+        let h = (3.0 + 8.0 * (0.5 + 0.5 * phase.sin())) * s;
+        c.fill_rect(Rect::new(pill.x + 7.0 * s + i as f32 * (bar_w + gap), floor - h, bar_w, h), theme::CYAN);
+    }
+    t.draw(c, "PREVIEW", pill.x + 30.0 * s, pill.bottom() - 6.0 * s, &caption(9.0, s).color(theme::CYAN));
+}
+
 fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, song: &SongMetadata, panel: Rect, s: f32) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
@@ -276,6 +292,9 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
         }
     }
     c.stroke_rect(jacket, s.max(1.0), theme::LINE);
+    if let Some(secs) = f.preview_secs {
+        preview_badge(c, t, jacket, secs, s);
+    }
 
     // Title block, right of the jacket
     let ix = jacket.right() + 24.0 * s;
@@ -611,6 +630,7 @@ mod tests {
                 option_chips: &chips,
                 auto_play: selected == 0,
                 has_replay: selected == 5,
+                preview_secs: None,
             };
             draw_song_select(&mut ui, &frame);
             draw_options_modal(&mut ui, &vp, &[("HI-SPEED", "1100".into()), ("GAUGE", "GROOVE".into())], 1);

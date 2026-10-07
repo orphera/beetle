@@ -17,6 +17,8 @@ use beetle_core::{decode_bms_text, parse_bms, SongMetadata, WavId};
 const AUDIO_EXTS: [&str; 3] = ["ogg", "wav", "flac"];
 /// How often the event loop checks on a loading or looping preview.
 const POLL: Duration = Duration::from_millis(16);
+/// Redraw interval for the animated "PREVIEW" badge (about 30 fps).
+const BADGE_FRAME: Duration = Duration::from_millis(33);
 const PREVIEW_VOLUME: f32 = 0.8;
 const SAMPLE: WavId = WavId(1);
 
@@ -206,7 +208,13 @@ impl Preview {
             }
         }
 
-        self.player.as_mut().map(PreviewPlayer::tick)
+        // While playing, wake often enough to animate the on-screen badge.
+        self.player.as_mut().map(|p| p.tick().min(BADGE_FRAME))
+    }
+
+    /// Seconds the highlighted song's preview has been playing, if it is.
+    pub fn playing_for(&self) -> Option<f32> {
+        self.player.as_ref().map(|p| p.started.elapsed().as_secs_f32())
     }
 
     /// Stops playback and forgets the request (leaving song select).
