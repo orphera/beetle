@@ -35,6 +35,8 @@ enum ModalMode {
     },
     ApplyDelta,
     CreateDelta,
+    /// Legacy BMS folders the player scans in place (`library.txt`).
+    Library,
 }
 
 enum BgTaskMessage {
@@ -85,6 +87,39 @@ struct AppState {
     remote_selected_idx: usize,
     remote_level_filter: u8,
     cursor_pos: (f32, f32),
+    library: Vec<String>,
+}
+
+/// One Enter in the library modal: a list number removes that folder, a
+/// registered path removes it, any other existing folder is added.
+fn apply_library_input(state: &mut AppState, text: &str) {
+    let mut list = bms_package_manager::load_library();
+    let by_number = text
+        .parse::<usize>()
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|i| list.paths().get(i).cloned());
+    let result = if let Some(path) = by_number {
+        list.remove(&path).then(|| format!("Removed {path}"))
+    } else {
+        match bms_package_manager::absolute_dir(text) {
+            Ok(abs) if list.add(&abs) => Some(format!("Added {abs} (player rescans on next start)")),
+            Ok(abs) if list.remove(&abs) => Some(format!("Removed {abs}")),
+            Ok(_) => None,
+            Err(e) if list.remove(text) => Some(format!("Removed {text} ({e})")),
+            Err(e) => {
+                state.status_msg = format!("Library: {e}");
+                return;
+            }
+        }
+    };
+    if let Some(msg) = result {
+        state.status_msg = match bms_package_manager::save_library(&list) {
+            Ok(()) => msg,
+            Err(e) => format!("Library save error: {e}"),
+        };
+    }
+    state.library = list.paths().to_vec();
 }
 
 impl AppState {
@@ -388,6 +423,7 @@ impl ApplicationHandler for BpmGuiApp {
             remote_selected_idx: 0,
             remote_level_filter: 0,
             cursor_pos: (0.0, 0.0),
+            library: bms_package_manager::load_library().paths().to_vec(),
         };
 
         app_state.refresh_packages();
@@ -605,16 +641,34 @@ impl ApplicationHandler for BpmGuiApp {
                         .filter_map(|&idx| state.remote_packages.get(idx).cloned())
                         .collect();
 
+                    let library_lines: Vec<String> = state
+                        .library
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let tag = if Path::new(p).is_dir() { "ok" } else { "missing" };
+                            format!("{}. [{tag}] {p}", i + 1)
+                        })
+                        .collect();
+
                     let modal_info = state.modal.as_ref().map(|(mode, input)| match mode {
+                        ModalMode::Library => ui::ModalDisplayInfo {
+                            prompt: "Legacy BMS folders (path: add / path or number: remove):",
+                            input: input.as_str(),
+                            pack_options: None,
+                            list: &library_lines,
+                        },
                         ModalMode::ImportFolder => ui::ModalDisplayInfo {
                             prompt: "Import BMS Folder (enter directory path):",
                             input: input.as_str(),
                             pack_options: None,
+                            list: &[],
                         },
                         ModalMode::InstallBmsp => ui::ModalDisplayInfo {
                             prompt: "Install .bmsp Package (enter file path):",
                             input: input.as_str(),
                             pack_options: None,
+                            list: &[],
                         },
                         ModalMode::PackFolder { is_turbo, bga_mode } => ui::ModalDisplayInfo {
                             prompt: "Pack BMS Folder (configure options & path below):",
@@ -623,16 +677,19 @@ impl ApplicationHandler for BpmGuiApp {
                                 is_turbo: *is_turbo,
                                 bga_mode: *bga_mode,
                             }),
+                            list: &[],
                         },
                         ModalMode::ApplyDelta => ui::ModalDisplayInfo {
                             prompt: "Apply Delta .bmdp (enter file path):",
                             input: input.as_str(),
                             pack_options: None,
+                            list: &[],
                         },
                         ModalMode::CreateDelta => ui::ModalDisplayInfo {
                             prompt: "Create Delta (enter '<base_path> <target_path>'):",
                             input: input.as_str(),
                             pack_options: None,
+                            list: &[],
                         },
                     });
 
@@ -1047,6 +1104,14 @@ fn handle_key_input(
             KeyCode::Enter => {
                 let target_path = input.trim().to_string();
                 let m = *mode;
+                if m == ModalMode::Library {
+                    // Stays open so the list shows the change.
+                    input.clear();
+                    if !target_path.is_empty() {
+                        apply_library_input(state, &target_path);
+                    }
+                    return;
+                }
                 state.modal = None;
 
                 if target_path.is_empty() {
@@ -1063,6 +1128,7 @@ fn handle_key_input(
                 state.bg_cancel_flag = Some(cancel_flag.clone());
 
                 match m {
+                    ModalMode::Library => unreachable!("handled before the background task starts"),
                     ModalMode::ImportFolder => {
                         let clean_path = target_path.trim().trim_matches('"').to_string();
                         let roots = bms_package_manager::find_bms_song_roots(&clean_path);
@@ -1835,6 +1901,10 @@ fn handle_key_input(
         }
         KeyCode::KeyI | KeyCode::F1 => {
             state.modal = Some((ModalMode::ImportFolder, String::new()));
+        }
+        KeyCode::KeyL => {
+            state.library = bms_package_manager::load_library().paths().to_vec();
+            state.modal = Some((ModalMode::Library, String::new()));
         }
         KeyCode::F2 => {
             state.modal = Some((ModalMode::InstallBmsp, String::new()));

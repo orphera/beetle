@@ -1,7 +1,7 @@
 use bms_package_manager::{
     fetch_table, find_available_updates, HttpClient, PackageManager, PackageManagerError, PackageUpdater,
     RegistryCacheManager, RegistrySource, RemotePackageInstaller, RemoteRegistryIndex,
-    SourcesConfig, TableStore, UpdateOutcome,
+    absolute_dir, load_library, save_library, SourcesConfig, TableStore, UpdateOutcome,
 };
 use std::env;
 use std::fs;
@@ -110,28 +110,14 @@ fn ago(fetched: u64, now: u64) -> String {
     }
 }
 
-/// Absolute form of an existing folder, without the `\\?\` prefix Windows adds.
-fn absolute_dir(path: &str) -> Result<String, String> {
-    let p = fs::canonicalize(path).map_err(|e| format!("'{path}': {e}"))?;
-    if !p.is_dir() {
-        return Err(format!("'{path}' is not a folder"));
-    }
-    let s = p.to_string_lossy().into_owned();
-    Ok(s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s))
-}
-
 fn run_library_command(args: &[String]) {
-    let file = PathBuf::from(
-        env::var("BEETLE_LIBRARY_FILE").unwrap_or_else(|_| "library.txt".to_string()),
-    );
-    let mut list =
-        beetle_core::LibraryPaths::parse(&fs::read_to_string(&file).unwrap_or_default());
+    let mut list = load_library();
     let fail = |message: &dyn std::fmt::Display| -> ! {
         eprintln!("Error: {message}");
         std::process::exit(1);
     };
     let save = |list: &beetle_core::LibraryPaths| {
-        fs::write(&file, list.serialize()).unwrap_or_else(|e| fail(&e));
+        save_library(list).unwrap_or_else(|e| fail(&e));
     };
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("add"), Some(path)) => {

@@ -5,6 +5,7 @@
 pub mod error;
 pub mod export;
 pub mod flac;
+pub mod library;
 pub mod manager;
 pub mod net;
 pub mod pack;
@@ -18,6 +19,7 @@ pub mod vfs;
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use flac::encode_wav_to_flac;
+pub use library::{absolute_dir, library_file, load_library, save_library};
 pub use manager::{InstalledPackage, PackageManager};
 pub use net::{
     find_available_updates, upgrade_packages, DownloadProgressCallback, DownloadTempFile,

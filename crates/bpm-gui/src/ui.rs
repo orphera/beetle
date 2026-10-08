@@ -43,6 +43,8 @@ pub struct ModalDisplayInfo<'a> {
     pub prompt: &'a str,
     pub input: &'a str,
     pub pack_options: Option<PackModalOptionsDisplay>,
+    /// Extra lines under the hints (the legacy folder list).
+    pub list: &'a [String],
 }
 
 #[derive(Debug, Clone)]
@@ -626,7 +628,7 @@ impl GuiRenderer {
 
         // Help shortcuts
         let help_text = if active_tab == ActiveTab::Installed {
-            "[↑/↓]: Move  [I]: Import  [P]: Pack  [T]: Turbo  [S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub"
+            "[↑/↓]: Move  [I]: Import  [L]: Legacy folders  [P]: Pack  [T]: Turbo  [S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub"
         } else {
             "[↑/↓]: Move  [Enter]/[I]: Install  [U]: Upgrade  [B]: With BGA  [0-4]: Filter  [F5]: Refresh  [Tab]: Installed"
         };
@@ -655,7 +657,14 @@ impl GuiRenderer {
         if let Some(modal) = modal_info {
             let is_pack = modal.pack_options.is_some();
             let modal_w = if is_pack { 580.0 } else { 540.0 };
-            let modal_h = if is_pack { 226.0 } else { 160.0 };
+            let list_rows = modal.list.len().min(8) as f32;
+            let modal_h = if is_pack {
+                226.0
+            } else if modal.list.is_empty() {
+                160.0
+            } else {
+                160.0 + 8.0 + list_rows * 16.0
+            };
             let modal_x = (w - modal_w) / 2.0;
             let modal_y = (h - modal_h) / 2.0;
 
@@ -815,6 +824,16 @@ impl GuiRenderer {
                     1,
                     ColorRgba::new(140, 140, 160, 255),
                 );
+                for (i, line) in modal.list.iter().take(8).enumerate() {
+                    BitmapFont::draw_text(
+                        &mut self.pixmap.as_mut(),
+                        line,
+                        (modal_x + 20.0) as i32,
+                        (modal_y + 142.0 + i as f32 * 16.0) as i32,
+                        1,
+                        ColorRgba::new(190, 200, 225, 255),
+                    );
+                }
             }
         }
 
