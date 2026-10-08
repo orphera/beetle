@@ -163,7 +163,7 @@ fn test_cli_search_and_upgrade_with_cached_index() {
 #[test]
 fn test_cli_library_add_list_remove() {
     let dir = create_temp_storage();
-    let file = dir.join("library.txt");
+    let file = dir.join("library.dat");
     let bms = dir.join("old_bms");
     fs::create_dir_all(&bms).unwrap();
     let run = |args: &[&str]| {

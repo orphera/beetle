@@ -150,7 +150,7 @@ fn run_library_command(args: &[String]) {
         }
         _ => {
             eprintln!("Usage: bpm library <add|remove> <folder> | bpm library list");
-            eprintln!("Folders are kept in ./library.txt (or $BEETLE_LIBRARY_FILE), scanned in place by the player.");
+            eprintln!("Folders are kept in ./library.dat (or $BEETLE_LIBRARY_FILE), scanned in place by the player.");
             std::process::exit(1);
         }
     }

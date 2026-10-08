@@ -1,14 +1,14 @@
-//! Reading and writing `library.txt`, the list of legacy BMS folders the
+//! Reading and writing `library.dat`, the list of legacy BMS folders the
 //! player scans in place (shared by `bpm library` and `bpm-gui`).
 
 use beetle_core::LibraryPaths;
 use std::fs;
 use std::path::PathBuf;
 
-/// `library.txt` in the working directory, or `$BEETLE_LIBRARY_FILE`. The
+/// `library.dat` in the working directory, or `$BEETLE_LIBRARY_FILE`. The
 /// player reads the same file.
 pub fn library_file() -> PathBuf {
-    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.txt"), PathBuf::from)
+    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }
 
 pub fn load_library() -> LibraryPaths {

@@ -1,5 +1,5 @@
 //! The list of extra folders the player scans for existing BMS collections
-//! (`library.txt`, managed by `bpm library`).
+//! (`library.dat`, managed by `bpm library`).
 //!
 //! Pure part only: parsing, editing and serializing. Checking that a folder
 //! exists and turning it into an absolute path is the caller's job.

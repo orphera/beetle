@@ -9,7 +9,7 @@ pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
 /// Where `bpm library` keeps the extra BMS folders; the same file it writes to.
 fn library_file() -> PathBuf {
-    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.txt"), PathBuf::from)
+    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }
 
 fn library_paths() -> Vec<PathBuf> {

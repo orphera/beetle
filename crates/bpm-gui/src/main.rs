@@ -35,7 +35,7 @@ enum ModalMode {
     },
     ApplyDelta,
     CreateDelta,
-    /// Legacy BMS folders the player scans in place (`library.txt`).
+    /// Legacy BMS folders the player scans in place (`library.dat`).
     Library,
 }
 
