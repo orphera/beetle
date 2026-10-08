@@ -528,7 +528,10 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
 
 /// Section headers of the play options modal: (first row index, label).
 /// Row order is defined by the app's option handler.
-pub const OPTION_SECTIONS: [(usize, &str); 4] = [(0, "PLAY"), (4, "AUDIO"), (5, "DISPLAY / SYSTEM"), (9, "INPUT & SESSION")];
+pub const OPTION_SECTIONS: [(usize, &str); 5] =
+    [(0, "PLAY"), (5, "AUDIO"), (6, "LAYOUT"), (9, "DISPLAY / SYSTEM"), (13, "INPUT & SESSION")];
+/// First row of the modal's right column (when there are more rows than this).
+pub const OPTION_COLUMN_BREAK: usize = 9;
 
 fn modal_panel(c: &mut Canvas, sk: &Skin, vp: &Viewport, w: f32, h: f32, s: f32) -> Rect {
     c.fill_rect(Rect::new(vp.x, vp.y, vp.width, vp.height), theme::BLACK.with_alpha(180));
@@ -546,38 +549,53 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
     let s = vp.scale;
     let row_h = 30.0 * s;
     let section_h = 30.0 * s;
-    let sections = OPTION_SECTIONS.iter().filter(|(i, _)| *i < rows.len()).count() as f32;
-    let h = (84.0 * s + rows.len() as f32 * row_h + sections * section_h + 56.0 * s).min(vp.height - 32.0 * s);
-    let panel = modal_panel(c, &sk, vp, 560.0 * s, h, s);
+    // Rows split into two side-by-side columns when there are many of them.
+    let split = OPTION_COLUMN_BREAK.min(rows.len());
+    let columns = [0..split, split..rows.len()];
+    let n_cols = if split < rows.len() { 2 } else { 1 };
+    let column_h = |range: &std::ops::Range<usize>| {
+        let sections = OPTION_SECTIONS.iter().filter(|(i, _)| range.contains(i)).count() as f32;
+        range.len() as f32 * row_h + sections * section_h
+    };
+    let body_h = columns.iter().map(column_h).fold(0.0, f32::max);
+    let h = (84.0 * s + body_h + 56.0 * s).min(vp.height - 32.0 * s);
+    let col_gap = 40.0 * s;
+    let panel = modal_panel(c, &sk, vp, if n_cols > 1 { 960.0 * s } else { 560.0 * s }, h, s);
     let inner = panel.inset(28.0 * s);
+    let col_w = (inner.w - col_gap * (n_cols - 1) as f32) / n_cols as f32;
 
     t.draw(c, "PLAY OPTIONS", inner.x, inner.y + 22.0 * s, &TextStyle::new(22.0 * s).bold().tracking(3.0 * s).color(theme::TEXT));
-    let mut y = inner.y + 40.0 * s;
-    for (i, (label, value)) in rows.iter().enumerate() {
-        if let Some((_, section)) = OPTION_SECTIONS.iter().find(|(at, _)| *at == i) {
-            let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
-            let w = t.draw(c, section, inner.x, y + 20.0 * s, &cap);
-            c.fill_rect(Rect::new(inner.x + w + 12.0 * s, y + 16.0 * s, inner.w - w - 12.0 * s, s.max(1.0)), theme::LINE);
-            y += section_h;
+    for (ci, range) in columns.iter().take(n_cols).enumerate() {
+        let col = Rect::new(inner.x + ci as f32 * (col_w + col_gap), inner.y, col_w, inner.h);
+        let mut y = col.y + 40.0 * s;
+        for (i, (label, value)) in rows.iter().enumerate().take(range.end).skip(range.start) {
+            if let Some((_, section)) = OPTION_SECTIONS.iter().find(|(at, _)| *at == i) {
+                let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
+                let w = t.draw(c, section, col.x, y + 20.0 * s, &cap);
+                c.fill_rect(Rect::new(col.x + w + 12.0 * s, y + 16.0 * s, col.w - w - 12.0 * s, s.max(1.0)), theme::LINE);
+                y += section_h;
+            }
+            let row = Rect::new(col.x - 8.0 * s, y, col.w + 16.0 * s, row_h - 2.0 * s);
+            let on = i == selected;
+            if on {
+                c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
+                c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
+            }
+            let label_st = TextStyle::new(13.0 * s).bold().tracking(1.0 * s).color(if on { theme::TEXT } else { theme::MUTED });
+            t.draw_in(c, label, Rect::new(row.x + 14.0 * s, row.y, 150.0 * s, row.h), Align::Left, &label_st);
+            let value_st = TextStyle::new(13.0 * s).bold().color(if on { theme::TEXT } else { theme::MUTED });
+            let icon = 16.0 * s;
+            let value_w = (row.w - 170.0 * s).min(300.0 * s);
+            let vr = Rect::new(row.right() - value_w, row.y, value_w - 12.0 * s - icon, row.h);
+            let value = t.fit(c, value, vr.w - icon - 4.0 * s, &value_st).into_owned();
+            t.draw_in(c, &value, Rect::new(vr.x + icon, vr.y, vr.w - icon - 4.0 * s, vr.h), Align::Center, &value_st);
+            if on {
+                let iy = row.y + (row.h - icon) / 2.0;
+                c.sprite(sk.icons.chevron_left, Rect::new(vr.x, iy, icon, icon), theme::CYAN);
+                c.sprite(sk.icons.chevron_right, Rect::new(vr.right(), iy, icon, icon), theme::CYAN);
+            }
+            y += row_h;
         }
-        let row = Rect::new(inner.x - 8.0 * s, y, inner.w + 16.0 * s, row_h - 2.0 * s);
-        let on = i == selected;
-        if on {
-            c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
-            c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
-        }
-        let label_st = TextStyle::new(13.0 * s).bold().tracking(1.0 * s).color(if on { theme::TEXT } else { theme::MUTED });
-        t.draw_in(c, label, Rect::new(row.x + 14.0 * s, row.y, 220.0 * s, row.h), Align::Left, &label_st);
-        let value_st = TextStyle::new(13.0 * s).bold().color(if on { theme::TEXT } else { theme::MUTED });
-        let icon = 16.0 * s;
-        let vr = Rect::new(row.right() - 300.0 * s, row.y, 300.0 * s - 12.0 * s - icon, row.h);
-        t.draw_in(c, value, Rect::new(vr.x + icon, vr.y, vr.w - icon - 4.0 * s, vr.h), Align::Center, &value_st);
-        if on {
-            let iy = row.y + (row.h - icon) / 2.0;
-            c.sprite(sk.icons.chevron_left, Rect::new(vr.x, iy, icon, icon), theme::CYAN);
-            c.sprite(sk.icons.chevron_right, Rect::new(vr.right(), iy, icon, icon), theme::CYAN);
-        }
-        y += row_h;
     }
     let hints = [("↑↓", "SELECT"), (LEFT_RIGHT, "CHANGE"), ("TAB", "CLOSE")];
     let w = hint_row(c, t, &sk, &hints, 0.0, 0.0, s, false);

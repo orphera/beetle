@@ -37,10 +37,90 @@ impl ColorRgba {
     }
 }
 
+/// Where a single play playfield sits on screen. Double Play fills the
+/// screen from the left whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FieldPosition {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl FieldPosition {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Left => "LEFT",
+            Self::Center => "CENTER",
+            Self::Right => "RIGHT",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "CENTER" => Self::Center,
+            "RIGHT" => Self::Right,
+            _ => Self::Left,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Left => Self::Center,
+            Self::Center => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        self.next().next()
+    }
+}
+
+/// Which edge of a single play playfield (5K / 7K) the scratch lane is on.
+/// Double Play keeps the 1P scratch left and the 2P scratch right.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScratchSide {
+    #[default]
+    Left,
+    Right,
+}
+
+impl ScratchSide {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Left => "LEFT",
+            Self::Right => "RIGHT",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Self {
+        if s.eq_ignore_ascii_case("RIGHT") {
+            Self::Right
+        } else {
+            Self::Left
+        }
+    }
+
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+}
+
 /// Gameplay lane layout (playfield geometry, lane widths and note colors).
 #[derive(Debug, Clone)]
 pub struct SkinConfig {
     pub play_mode: PlayMode,
+    pub field_position: FieldPosition,
+    pub scratch_side: ScratchSide,
+    /// Horizontal extent and scale of the 16:9 viewport, kept by
+    /// `update_layout` so a play mode change can re-place the playfield.
+    pub area_x: f32,
+    pub area_width: f32,
+    pub area_scale: f32,
     pub playfield_x: f32,
     pub playfield_y: f32,
     pub playfield_width: f32,
@@ -63,6 +143,11 @@ impl Default for SkinConfig {
 
         Self {
             play_mode: PlayMode::Keys7,
+            field_position: FieldPosition::Left,
+            scratch_side: ScratchSide::Left,
+            area_x: 0.0,
+            area_width: 1280.0,
+            area_scale: 1.0,
             playfield_x: 50.0,
             playfield_y: 24.0,
             playfield_width: total_w,
@@ -108,16 +193,47 @@ impl SkinConfig {
     /// Updates playfield geometry and lane dimensions based on the active 16:9 viewport.
     pub fn update_layout(&mut self, vp: &crate::view::Viewport) {
         let s = vp.scale;
-        self.playfield_x = vp.x + 50.0 * s;
+        (self.area_x, self.area_width, self.area_scale) = (vp.x, vp.width, s);
         self.playfield_y = vp.y + 24.0 * s;
         self.playfield_height = 672.0 * s;
         self.judge_line_y = vp.y + 616.0 * s;
 
         self.scratch_lane_width = 72.0 * s;
         self.lane_width = 50.0 * s;
+        self.place_field();
+    }
 
-        self.playfield_width =
-            playfield_width_for(self.play_mode, self.lane_width, self.scratch_lane_width);
+    /// Sets `playfield_width` for the play mode and `playfield_x` for the
+    /// field position (single play only; Double Play stays on the left).
+    fn place_field(&mut self) {
+        self.playfield_width = playfield_width_for(self.play_mode, self.lane_width, self.scratch_lane_width);
+        let margin = 50.0 * self.area_scale;
+        self.playfield_x = match self.effective_position() {
+            FieldPosition::Left => self.area_x + margin,
+            FieldPosition::Center => self.area_x + (self.area_width - self.playfield_width) / 2.0,
+            FieldPosition::Right => self.area_x + self.area_width - margin - self.playfield_width,
+        };
+    }
+
+    /// Sets where the playfield sits and which side the scratch is on.
+    pub fn set_field_layout(&mut self, position: FieldPosition, scratch: ScratchSide) {
+        self.field_position = position;
+        self.scratch_side = scratch;
+        self.place_field();
+    }
+
+    /// Where the playfield actually sits: Double Play is too wide to move,
+    /// so it is always `Left`.
+    pub fn effective_position(&self) -> FieldPosition {
+        match self.play_mode {
+            PlayMode::Keys10 | PlayMode::Keys14 => FieldPosition::Left,
+            _ => self.field_position,
+        }
+    }
+
+    /// The single play scratch lane is drawn on the right edge.
+    fn scratch_on_right(&self) -> bool {
+        self.scratch_side == ScratchSide::Right && matches!(self.play_mode, PlayMode::Keys5 | PlayMode::Keys7)
     }
 
     /// Active lane list based on current PlayMode.
@@ -194,7 +310,7 @@ impl SkinConfig {
     /// Sets play mode and updates playfield geometry accordingly.
     pub fn set_play_mode(&mut self, mode: PlayMode) {
         self.play_mode = mode;
-        self.playfield_width = playfield_width_for(mode, self.lane_width, self.scratch_lane_width);
+        self.place_field();
     }
 
     /// Keys per Double Play side (5 for Keys10, 7 for Keys14).
@@ -215,13 +331,15 @@ impl SkinConfig {
 
     /// Returns the X-coordinate for a specific lane.
     pub fn lane_x(&self, lane: Lane) -> f32 {
-        // PMS (9K) has no scratch lane, so the key block starts at playfield_x.
-        let key_area_x = if self.play_mode == PlayMode::Keys9 {
+        // PMS (9K) has no scratch lane and a right-side scratch comes after
+        // the keys, so in both the key block starts at playfield_x.
+        let key_area_x = if self.play_mode == PlayMode::Keys9 || self.scratch_on_right() {
             self.playfield_x
         } else {
             self.playfield_x + self.scratch_lane_width
         };
         match lane {
+            Lane::Scratch if self.scratch_on_right() => self.playfield_x + self.playfield_width - self.scratch_lane_width,
             Lane::Scratch => self.playfield_x,
             Lane::Key1 => key_area_x,
             Lane::Key2 => key_area_x + self.lane_width,
@@ -271,6 +389,7 @@ impl SkinConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::Viewport;
 
     /// Skin with fixed, un-scaled lane dimensions (no Viewport needed) so
     /// expected pixel values are simple arithmetic.
@@ -294,6 +413,36 @@ mod tests {
             skin.playfield_x + 72.0 + 6.0 * 50.0
         );
         assert_eq!(skin.active_lanes().len(), 8);
+    }
+
+    #[test]
+    fn scratch_on_the_right_follows_the_keys() {
+        let mut skin = test_skin();
+        skin.set_field_layout(FieldPosition::Left, ScratchSide::Right);
+        assert_eq!(skin.lane_x(Lane::Key1), skin.playfield_x);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key7) + 50.0);
+        assert_eq!(skin.lane_x(Lane::Scratch) + 72.0, skin.playfield_x + skin.playfield_width);
+        // 5K too; PMS has no scratch and DP keeps the cabinet arrangement.
+        skin.set_play_mode(PlayMode::Keys5);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key5) + 50.0);
+        skin.set_play_mode(PlayMode::Keys14);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
+    }
+
+    #[test]
+    fn field_position_places_single_play_only() {
+        let mut skin = SkinConfig::default();
+        skin.update_layout(&Viewport::new(1280, 720));
+        let w = skin.playfield_width;
+        skin.set_field_layout(FieldPosition::Center, ScratchSide::Left);
+        assert!((skin.playfield_x - (1280.0 - w) / 2.0).abs() < 1e-3);
+        skin.set_field_layout(FieldPosition::Right, ScratchSide::Left);
+        assert!((skin.playfield_x + w - (1280.0 - 50.0)).abs() < 1e-3);
+        // Survives a resize and a mode change; DP stays on the left.
+        skin.update_layout(&Viewport::new(1920, 1080));
+        assert!((skin.playfield_x + skin.playfield_width - (1920.0 - 75.0)).abs() < 1e-3);
+        skin.set_play_mode(PlayMode::Keys14);
+        assert!((skin.playfield_x - 75.0).abs() < 1e-3);
     }
 
     #[test]

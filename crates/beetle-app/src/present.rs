@@ -198,6 +198,9 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         }),
         ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
         ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
+        ("PLAYFIELD", state.view.skin.field_position.as_str().to_string()),
+        ("SCRATCH", state.view.skin.scratch_side.as_str().to_string()),
+        ("TRACK BGA", state.track_bga.as_str().to_string()),
         ("DISPLAY MODE", state.display_mode.as_str().to_string()),
         ("RESOLUTION", state.current_resolution_label().to_string()),
         (
@@ -223,7 +226,6 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         }),
         ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
         ("START MEASURE", format!("M.{}", state.start_measure)),
-        ("TRACK BGA", state.track_bga.as_str().to_string()),
     ]
 }
 

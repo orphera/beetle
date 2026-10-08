@@ -340,6 +340,8 @@ impl AppState {
         let app_config = AppConfig {
             play_options: self.play_options.clone(),
             lane_cover_ratio: self.view.skin.lane_cover_ratio,
+            field_position: self.view.skin.field_position,
+            scratch_side: self.view.skin.scratch_side,
             sort_mode: self.sort_mode,
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,

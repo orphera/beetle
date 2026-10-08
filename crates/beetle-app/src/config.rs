@@ -1,5 +1,6 @@
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
+use beetle_render::{FieldPosition, ScratchSide};
 use std::fs;
 use std::path::Path;
 
@@ -153,6 +154,9 @@ impl TrackBgaSetting {
 pub struct AppConfig {
     pub play_options: PlayOptions,
     pub lane_cover_ratio: f32,
+    /// Where the single play playfield sits and which side its scratch is on.
+    pub field_position: FieldPosition,
+    pub scratch_side: ScratchSide,
     pub sort_mode: SortMode,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
@@ -174,6 +178,8 @@ impl Default for AppConfig {
         Self {
             play_options: PlayOptions::default(),
             lane_cover_ratio: 0.0,
+            field_position: FieldPosition::Left,
+            scratch_side: ScratchSide::Left,
             sort_mode: SortMode::Title,
             key_layouts: Default::default(),
             legacy_key_layout: None,
@@ -306,6 +312,8 @@ impl AppConfig {
                         config.target_fps = fps;
                     }
                 }
+                "field_position" => config.field_position = FieldPosition::from_name(val),
+                "scratch_side" => config.scratch_side = ScratchSide::from_name(val),
                 "track_bga" => {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
@@ -331,7 +339,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\nfield_position={}\nscratch_side={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -346,6 +354,8 @@ impl AppConfig {
             self.window_height,
             self.target_fps,
             self.track_bga.as_str(),
+            self.field_position.as_str(),
+            self.scratch_side.as_str(),
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -372,6 +382,8 @@ mod tests {
                 judge_offset_ms: -4.0,
             },
             lane_cover_ratio: 0.25,
+            field_position: FieldPosition::Center,
+            scratch_side: ScratchSide::Right,
             sort_mode: SortMode::Level,
             key_layouts: [
                 Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
@@ -418,5 +430,7 @@ mod tests {
         assert_eq!(config.window_height, parsed.window_height);
         assert_eq!(config.target_fps, parsed.target_fps);
         assert_eq!(config.track_bga, parsed.track_bga);
+        assert_eq!(config.field_position, parsed.field_position);
+        assert_eq!(config.scratch_side, parsed.scratch_side);
     }
 }

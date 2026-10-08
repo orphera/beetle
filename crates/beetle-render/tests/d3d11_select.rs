@@ -154,16 +154,19 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
                 ("HI-SPEED", "1100 px/s"),
                 ("MODIFIER", "REGULAR"),
                 ("GAUGE", "GROOVE"),
+                ("LN MODE", "AUTO (LN)"),
                 ("JUDGE OFFSET", "+0 ms"),
                 ("MASTER VOLUME", "80%"),
+                ("PLAYFIELD", "CENTER"),
+                ("SCRATCH", "RIGHT"),
+                ("TRACK BGA", "OFF (0%)"),
                 ("DISPLAY MODE", "WINDOWED"),
                 ("RESOLUTION", "1280 x 720"),
-                ("GRAPHICS GPU", "AUTO"),
+                ("GRAPHICS", "WARP (CPU) (AFTER RESTART)"),
                 ("TARGET FPS", "UNLIMITED"),
-                ("KEY LAYOUT", "HOME ROW"),
+                ("KEY LAYOUT", "7K  HOME ROW"),
                 ("AUTO PLAY", "OFF"),
                 ("START MEASURE", "M.0"),
-                ("TRACK BGA", "OFF (0%)"),
             ]
             .iter()
             .map(|(k, v)| (*k, v.to_string()))

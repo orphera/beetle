@@ -1,4 +1,5 @@
-//! Gameplay screen on a real D3D11 device (WARP): 7K mid-song, 7K paused and
+//! Gameplay screen on a real D3D11 device (WARP): 7K mid-song (left, center
+//! and right playfield, scratch on either side), 7K paused and
 //! 14K double play. Captures go to `target/play-*.bmp` for layout review.
 #![cfg(target_os = "windows")]
 
@@ -10,7 +11,8 @@ use beetle_core::{
 };
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{
-    draw_gameplay, D3d11Backend, GpuBackend, HitBurst, PlayFrame, SkinConfig, Ui, Viewport,
+    draw_gameplay, D3d11Backend, FieldPosition, GpuBackend, HitBurst, PlayFrame, ScratchSide,
+    SkinConfig, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -23,6 +25,7 @@ fn chart(mode: PlayMode) -> BmsChart {
             Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5, Lane::Key6,
             Lane::Key7, Lane::P2Key1, Lane::P2Key3, Lane::P2Key5, Lane::P2Key7, Lane::P2Scratch,
         ],
+        PlayMode::Keys5 => &[Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5],
         _ => &[Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5, Lane::Key6, Lane::Key7],
     };
     let mut notes = Vec::new();
@@ -63,11 +66,15 @@ fn chart(mode: PlayMode) -> BmsChart {
     }
 }
 
-fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, pause: Option<usize>, name: &str) -> usize {
+type Placement = (FieldPosition, ScratchSide);
+const LEFT: Placement = (FieldPosition::Left, ScratchSide::Left);
+
+fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, at: Placement, pause: Option<usize>, name: &str) -> usize {
     let vp = Viewport::new(W, H);
     let mut layout = SkinConfig::default();
     layout.update_layout(&vp);
     layout.set_play_mode(mode);
+    layout.set_field_layout(at.0, at.1);
     layout.hi_speed = 700.0;
     let chart = chart(mode);
     let timing = TimingModel::from_chart(&chart);
@@ -128,7 +135,11 @@ fn gameplay_layouts() {
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, None, "7k"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, Some(1), "paused"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, None, "14k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, LEFT, None, "7k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, (FieldPosition::Center, ScratchSide::Left), None, "7k-center"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, (FieldPosition::Right, ScratchSide::Right), None, "7k-right"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, (FieldPosition::Center, ScratchSide::Right), None, "7k-center-sr"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys5, (FieldPosition::Right, ScratchSide::Left), None, "5k-right"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, LEFT, Some(1), "paused"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, (FieldPosition::Center, ScratchSide::Right), None, "14k"), 1);
 }

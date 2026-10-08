@@ -10,10 +10,11 @@ use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::view::{lane_index, HitBurst, Viewport, LANE_COUNT};
-use crate::skin::{ColorRgba, SkinConfig};
+use crate::skin::{ColorRgba, FieldPosition, SkinConfig};
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
+use super::widgets;
 use beetle_core::{
     BmsChart, GaugeType, JudgeGrade, Lane, NoteType, PlayMode, PlayNote, ScoreTracker, TimingModel,
 };
@@ -65,11 +66,13 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     let field = Rect::new(l.playfield_x, l.playfield_y, l.playfield_width, l.playfield_height);
     let danger = is_danger(f.score) && (f.audio_time * 6.0).sin() > 0.0;
 
+    let sides = sides(f, field, s);
+
     backdrop(c, &sk, f, lite);
     playfield(c, &sk, f, field, danger, s);
-    gauge(c, t, &sk, f, field, danger, s);
+    gauge(c, t, &sk, f, sides.gauge, danger, s);
     combo_and_judge(c, t, &sk, f, field, s);
-    hud(c, t, &sk, f, field, s);
+    hud(c, t, &sk, f, &sides, s);
     if let Some(selected) = f.pause {
         pause_menu(c, t, &sk, f, selected, s);
     }
@@ -83,6 +86,33 @@ fn is_danger(score: &ScoreTracker) -> bool {
         GaugeType::Hard => score.gauge < 30.0,
         GaugeType::Hazard => score.gauge < 100.0,
         GaugeType::Easy | GaugeType::Groove => false,
+    }
+}
+
+/// Where the gauge and the HUD columns go around the playfield.
+struct Sides {
+    gauge: Rect,
+    /// Song header and score panel.
+    info: Rect,
+    /// BGA, spectrum and key hint: a column of their own on the other side
+    /// of a centered playfield, otherwise under the info in its column.
+    media: Option<Rect>,
+}
+
+fn sides(f: &PlayFrame, field: Rect, s: f32) -> Sides {
+    let vp = f.viewport;
+    let (left, right) = (vp.x + 24.0 * s, vp.x + vp.width - 24.0 * s);
+    let column = |x0: f32, x1: f32| Rect::from_ltrb(x0, field.y, x1.max(x0), field.bottom());
+    let gauge_at = |x: f32| Rect::new(x, field.y + 18.0 * s, 18.0 * s, field.h - 52.0 * s);
+    let gauge_right = gauge_at(field.right() + 16.0 * s);
+    match f.layout.effective_position() {
+        FieldPosition::Left => Sides { gauge: gauge_right, info: column(field.right() + 56.0 * s, right), media: None },
+        FieldPosition::Right => Sides { gauge: gauge_at(field.x - 34.0 * s), info: column(left, field.x - 56.0 * s), media: None },
+        FieldPosition::Center => Sides {
+            gauge: gauge_right,
+            info: column(left, field.x - 56.0 * s),
+            media: Some(column(field.right() + 56.0 * s, right)),
+        },
     }
 }
 
@@ -162,8 +192,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     } else {
         theme::LINE.with_alpha(150)
     };
-    for &lane in l.active_lanes().iter().skip(1) {
-        c.fill_rect(Rect::new(l.lane_x(lane), field.y, hair, judge_y - field.y), sep);
+    // A separator on each lane's left edge but the field's own (the scratch
+    // may be on either side, so that is not always the first lane).
+    for &lane in l.active_lanes() {
+        let x = l.lane_x(lane);
+        if x > field.x + 0.5 {
+            c.fill_rect(Rect::new(x, field.y, hair, judge_y - field.y), sep);
+        }
     }
     let edge = if danger { theme::RED } else { theme::LINE };
     c.fill_rect(Rect::new(field.x - 2.0 * hair, field.y, 2.0 * hair, field.h), edge);
@@ -339,9 +374,8 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-fn gauge(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool, s: f32) {
+fn gauge(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: Rect, danger: bool, s: f32) {
     let score = f.score;
-    let r = Rect::new(field.right() + 16.0 * s, field.y + 18.0 * s, 18.0 * s, field.h - 52.0 * s);
     c.nine(&sk.panel_sm, r, theme::SURF2);
     let col = match score.gauge_type {
         GaugeType::Easy | GaugeType::Groove if score.gauge >= 80.0 => theme::CYAN,
@@ -445,17 +479,27 @@ fn combo_and_judge(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame,
     }
 }
 
-fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
-    let vp = f.viewport;
-    let x = field.right() + 56.0 * s;
-    let right = vp.x + vp.width - 24.0 * s;
-    let w = right - x;
-    if w < 160.0 * s {
-        return;
+fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, sides: &Sides, s: f32) {
+    let min_w = 160.0 * s;
+    let info = sides.info;
+    if info.w >= min_w {
+        let bottom = info_column(c, t, sk, f, info, sides.media.is_some(), s);
+        if sides.media.is_none() {
+            media_column(c, t, sk, f, Rect::from_ltrb(info.x, bottom, info.right(), info.bottom()), s);
+        }
     }
+    if let Some(media) = sides.media.filter(|m| m.w >= min_w) {
+        media_column(c, t, sk, f, media, s);
+    }
+}
+
+/// Song header and score panel from the top of `col`; returns where they end.
+#[allow(clippy::too_many_arguments)]
+fn info_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, col: Rect, score_at_bottom: bool, s: f32) -> f32 {
+    let (x, w, right) = (col.x, col.w, col.right());
     let score = f.score;
     let header = &f.chart.header;
-    let mut y = field.y;
+    let mut y = col.y;
 
     // Song header
     let (tier, tier_col) = theme::level_tier(header.play_level);
@@ -480,7 +524,9 @@ fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect
     c.fill_rect(prog, theme::LINE);
     let ratio = if f.song_length > 0.0 { (f.audio_time / f.song_length).clamp(0.0, 1.0) as f32 } else { 0.0 };
     c.fill_rect_hgradient(Rect::new(prog.x, prog.y, prog.w * ratio, prog.h), theme::CYAN, theme::MAGENTA);
-    y += 104.0 * s;
+    // Alone in its column (centered playfield) the score panel sits at the
+    // bottom, level with the judge line; otherwise it follows the header.
+    y = if score_at_bottom { col.bottom() - 196.0 * s } else { y + 104.0 * s };
 
     // Score panel
     let panel = Rect::new(x, y, w, 196.0 * s);
@@ -544,12 +590,16 @@ fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect
         t.draw(c, theme::judge_label(*g), lx + 12.0 * s, ly, &caption(10.0, s).color(theme::MUTED));
         t.draw_in(c, &thousands(*n), Rect::new(lx, ly - 13.0 * s, col_w - 16.0 * s, 16.0 * s), Align::Right, &TextStyle::new(13.0 * s).bold().color(theme::TEXT));
     }
-    y = panel.bottom() + 20.0 * s;
+    panel.bottom() + 20.0 * s
+}
 
-    // BGA + visualizer, filling the rest of the column.
+/// BGA + visualizer filling `col`, with the key hint along its bottom.
+fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, col: Rect, s: f32) {
+    let (x, w) = (col.x, col.w);
+    let mut y = col.y;
     let hint_h = 26.0 * s;
     let vis_h = 40.0 * s;
-    let avail_h = (field.bottom() - hint_h - vis_h - 12.0 * s - y).max(0.0);
+    let avail_h = (col.bottom() - hint_h - vis_h - 12.0 * s - y).max(0.0);
     let bga_h = (w * 9.0 / 16.0).min(avail_h);
     let bga_w = bga_h * 16.0 / 9.0;
     if bga_h > 40.0 * s {
@@ -583,8 +633,24 @@ fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect
     }
 
     let hint_st = TextStyle::new(11.0 * s).color(theme::MUTED2);
-    let hint = t.fit(c, f.hint, w, &hint_st).into_owned();
-    t.draw(c, &hint, x, field.bottom() - 6.0 * s, &hint_st);
+    // Too long for a narrow column: break between the hint's groups (they
+    // are four spaces apart) rather than inside one.
+    let group_break = (t.measure(c, f.hint, &hint_st) > w)
+        .then(|| f.hint.match_indices("    ").map(|(i, _)| i).filter(|&i| t.measure(c, &f.hint[..i], &hint_st) <= w).last())
+        .flatten();
+    let lines = match group_break {
+        Some(i) => (f.hint[..i].to_string(), Some(t.fit(c, f.hint[i..].trim_start(), w, &hint_st).into_owned())),
+        None => widgets::wrap2(c, t, f.hint, w, &hint_st),
+    };
+    match lines {
+        (line, None) => {
+            t.draw(c, &line, x, col.bottom() - 6.0 * s, &hint_st);
+        }
+        (first, Some(second)) => {
+            t.draw(c, &first, x, col.bottom() - 22.0 * s, &hint_st);
+            t.draw(c, &second, x, col.bottom() - 6.0 * s, &hint_st);
+        }
+    }
 }
 
 fn pause_menu(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, selected: usize, s: f32) {
