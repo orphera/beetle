@@ -17,7 +17,7 @@ const W: u32 = 1280;
 const H: u32 = 720;
 
 fn library() -> Vec<SongMetadata> {
-    let entries: [(&str, &str, &str, u32, PlayMode); 12] = [
+    let entries: [(&str, &str, &str, u32, PlayMode); 15] = [
         ("Aci-L", "裏吉川", "TRANCE", 7, PlayMode::Keys7),
         ("Aci-L -EX-", "裏吉川", "TRANCE", 11, PlayMode::Keys7),
         ("AIRSHAVER [7key, Another]", "Unknown", "HARDCORE", 12, PlayMode::Keys7),
@@ -29,6 +29,9 @@ fn library() -> Vec<SongMetadata> {
         ("Concertino in Blue", "Tatsh", "CLASSICAL", 8, PlayMode::Keys7),
         ("Love & Justice ~Endless Summer Night Extended Mix~", "BACO", "SPEEDCORE", 13, PlayMode::Keys7),
         ("MilK", "moe", "ELECTRO", 6, PlayMode::Keys7),
+        ("Blue-White Crazystars [6K]", "beta", "HAPPY HARDCORE", 12, PlayMode::Keys6),
+        ("Black Lotus [8K]", "Wa.", "TRANCE", 10, PlayMode::Keys8),
+        ("Bahamut [4K]", "UE", "TRANCE", 11, PlayMode::Keys4),
         ("PrayStation (HD Edit)", "Ras", "BREAKCORE", 11, PlayMode::Keys14),
     ];
     entries
@@ -192,6 +195,7 @@ fn song_select_layouts() {
     assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::None, "list"), 1);
     assert_eq!(render(&mut gpu, &mut ui, 9, "", Overlay::None, "noplay"), 1);
     assert_eq!(render(&mut gpu, &mut ui, 0, "zzz", Overlay::None, "empty"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, 13, "", Overlay::None, "ue-modes"), 1);
     assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::Options, "options"), 1);
     assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::Exit, "exit"), 1);
 

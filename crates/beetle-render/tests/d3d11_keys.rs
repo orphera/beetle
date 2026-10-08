@@ -78,4 +78,7 @@ fn key_config_layouts() {
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, 4, None, "7k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, 0, None, "14k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys9, 3, Some(Rebind::Add), "9k-add"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys4, 1, None, "4k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys6, 3, None, "6k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys8, 0, None, "8k"), 1);
 }
