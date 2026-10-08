@@ -121,6 +121,8 @@ impl ApplicationHandler for BeetleApp {
                 saved_config.window_height,
             ))
             .with_min_inner_size(LogicalSize::new(800, 600))
+            // Shown once the first frame is drawn, so no unpainted window is seen.
+            .with_visible(false)
             .with_resizable(false);
 
         let window = match event_loop.create_window(window_attributes) {
@@ -282,6 +284,14 @@ impl ApplicationHandler for BeetleApp {
                 }
             }
         }
+
+        // A hidden window gets no redraw events, so draw the first frame here;
+        // presenting it shows the window.
+        if app_state.screen == AppScreen::Boot {
+            let size = app_state.window.inner_size();
+            present::boot(&mut app_state, size);
+        }
+        app_state.window.set_visible(true);
 
         self.state = Some(app_state);
     }
