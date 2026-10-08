@@ -137,17 +137,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
 fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: f32) {
     let vp = f.viewport;
     let track = Rect::new(vp.x + 160.0 * s, vp.y + 540.0 * s, vp.width - 320.0 * s, 4.0 * s);
-    c.nine(&sk.panel_sm, track, theme::LINE);
-    let period = 1.4;
-    let ph = ((f.elapsed % period) / period) as f32;
-    let seg = track.w * 0.28;
-    let head = track.x - seg + (track.w + seg) * ease_in_out(ph);
-    c.push_clip(Rect::new(track.x, track.y - 8.0 * s, track.w, track.h + 16.0 * s));
-    c.fill_rect_hgradient(Rect::new(head, track.y, seg, track.h), theme::CYAN.with_alpha(0), theme::CYAN);
-    c.set_additive(true);
-    c.sprite_centered(sk.glow, head + seg, track.y + track.h / 2.0, 80.0 * s, 26.0 * s, theme::CYAN.with_alpha(140));
-    c.set_additive(false);
-    c.pop_clip();
+    widgets::sweep_bar(c, sk, track, f.elapsed, s);
 
     let dots = ((f.elapsed * 3.0) as usize) % 4;
     let status = format!("{}{}", f.status, ".".repeat(dots));
@@ -157,14 +147,6 @@ fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: 
 
     let bar = widgets::footer_bar(c, vp, s);
     widgets::footer_hints(c, t, sk, &[("ESC", "CANCEL")], bar, s);
-}
-
-fn ease_in_out(p: f32) -> f32 {
-    if p < 0.5 {
-        4.0 * p * p * p
-    } else {
-        1.0 - (-2.0 * p + 2.0).powi(3) / 2.0
-    }
 }
 
 #[cfg(test)]

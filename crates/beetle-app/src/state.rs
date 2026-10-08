@@ -20,9 +20,11 @@ use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 pub const SCORES_FILE: &str = "scores.dat";
 pub const REPLAYS_DIR: &str = "replays";
 
-/// Application screens for song select, loading, gameplay, results, and key configuration.
+/// Application screens for boot, song select, loading, gameplay, results, and key configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppScreen {
+    /// Reading the song library in the background (startup and F5 rescan).
+    Boot,
     SongSelect,
     Loading,
     Gameplay,
@@ -193,6 +195,10 @@ pub struct AppState {
     pub track_bga: crate::config::TrackBgaSetting,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
+    /// The song library being read on a worker thread (`AppScreen::Boot`).
+    pub library_receiver: Option<Receiver<LibraryLoad>>,
+    pub library_job: LibraryJob,
+    pub library_started_at: Instant,
     pub loading_song: Option<SongMetadata>,
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
     pub loading_spinner_frame: usize,
@@ -356,9 +362,49 @@ impl AppState {
         app_config.save();
     }
 
-    /// Reads the tables folder again and matches it to the song list.
-    pub fn reload_tables(&mut self) {
-        self.tables = crate::tables::build_index(&self.songs);
+    /// Takes the song library from the worker once it is done. The screen
+    /// leaves `Boot` for song select; any other screen (a song launched from the
+    /// command line meanwhile) stays as it is. Call every loop iteration.
+    pub fn poll_library(&mut self) {
+        let Some(rx) = &self.library_receiver else {
+            return;
+        };
+        let load = match rx.try_recv() {
+            Ok(load) => load,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            // The worker died; carry on with an empty library.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => LibraryLoad::default(),
+        };
+        self.library_receiver = None;
+        self.songs = load.songs;
+        self.tables = load.tables;
+        match (self.library_job, load.score_store) {
+            (LibraryJob::Startup, Some(store)) => self.score_store = store,
+            (LibraryJob::Startup, None) => {}
+            (LibraryJob::Rescan, _) => {
+                migrate_chart_keys(&self.songs, &mut self.score_store);
+                sort_songs(&mut self.songs, self.sort_mode, &self.score_store, LnOption::Cn);
+            }
+        }
+        self.recompute_filtered_songs();
+        self.cursor_settle_time = Instant::now();
+        if self.screen == AppScreen::Boot {
+            self.screen = crate::devtools::start_screen().unwrap_or(AppScreen::SongSelect);
+            self.key_config_edit_mode = self.key_config_mode();
+        }
+        self.window.request_redraw();
+    }
+
+    /// Re-reads the song folders and tables on a worker (F5). Shows the Boot screen meanwhile.
+    pub fn start_rescan(&mut self) {
+        self.stage_image_cache.clear();
+        self.stage_image_receiver = None;
+        self.stage_image_loading_id = None;
+        self.library_job = LibraryJob::Rescan;
+        self.library_started_at = Instant::now();
+        self.library_receiver = Some(spawn_library_rescan());
+        self.screen = AppScreen::Boot;
+        self.window.request_redraw();
     }
 
     /// The player's long note setting: it decides which rule's records the song
@@ -699,6 +745,69 @@ fn migrate_replays(pairs: &[(u64, ChartId)]) {
     }
 }
 
+/// What the library worker hands back.
+#[derive(Default)]
+pub struct LibraryLoad {
+    pub songs: Vec<SongMetadata>,
+    pub tables: TableIndex,
+    /// Present at startup (the scores are read with the library); a rescan keeps the current ones.
+    pub score_store: Option<ScoreStore>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryJob {
+    Startup,
+    Rescan,
+}
+
+/// Reads scores, songs and tables on a worker thread so the window keeps painting (INV-5).
+pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (songs, score_store) = init_songs_and_scores(sort_mode);
+        let tables = crate::tables::build_index(&songs);
+        let _ = tx.send(LibraryLoad { songs, tables, score_store: Some(score_store) });
+    });
+    rx
+}
+
+/// Forces a rescan of the song folders on a worker thread. Sorting and score
+/// key migration are left to `poll_library`, which owns the scores.
+pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let songs = rescan_songs();
+        let tables = crate::tables::build_index(&songs);
+        let _ = tx.send(LibraryLoad { songs, tables, score_store: None });
+    });
+    rx
+}
+
+/// The built-in demo track, always in the library.
+fn demo_song() -> SongMetadata {
+    let demo_chart = demo::create_demo_chart();
+    let (bpm_min, bpm_max) = demo_chart.bpm_range();
+    let (id, md5) = beetle_core::hash_chart_bytes(b"BEETLE_INTERNAL_DEMO_CHART_V1");
+    SongMetadata {
+        id,
+        md5,
+        ln_count: 0,
+        ln_mode: None,
+        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
+        file_path: ":demo:".to_string(),
+        title: demo_chart.header.title,
+        subtitle: demo_chart.header.subtitle,
+        artist: demo_chart.header.artist,
+        genre: demo_chart.header.genre,
+        bpm: demo_chart.header.bpm,
+        bpm_min,
+        bpm_max,
+        play_level: demo_chart.header.play_level,
+        notes_count: demo_chart.notes.len(),
+        play_mode: beetle_core::PlayMode::Keys7,
+    }
+}
+
 pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
@@ -708,32 +817,8 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     }
 
     let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR);
-
-    // Always ensure demo track is available in library
-    let demo_chart = demo::create_demo_chart();
-    let (bpm_min, bpm_max) = demo_chart.bpm_range();
-    let (id, md5) = beetle_core::hash_chart_bytes(b"BEETLE_INTERNAL_DEMO_CHART_V1");
-    let demo_meta = SongMetadata {
-        id,
-        md5,
-        ln_count: 0,
-        ln_mode: None,
-        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
-        file_path: ":demo:".to_string(),
-        title: demo_chart.header.title,
-        subtitle: demo_chart.header.subtitle,
-        artist: demo_chart.header.artist,
-        genre: demo_chart.header.genre,
-        bpm: demo_chart.header.bpm,
-        bpm_min,
-        bpm_max,
-        play_level: demo_chart.header.play_level,
-        notes_count: demo_chart.notes.len(),
-        play_mode: beetle_core::PlayMode::Keys7,
-    };
-
     if !songs.iter().any(|s| s.file_path == ":demo:") {
-        songs.insert(0, demo_meta);
+        songs.insert(0, demo_song());
     }
 
     migrate_chart_keys(&songs, &mut score_store);
@@ -742,36 +827,11 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     (songs, score_store)
 }
 
-pub fn rescan_songs_and_scores(sort_mode: SortMode, score_store: &ScoreStore) -> Vec<SongMetadata> {
+/// Scans the song folders again, ignoring `songs.cache`; unsorted.
+fn rescan_songs() -> Vec<SongMetadata> {
     let mut songs = crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR);
-
-    let demo_chart = demo::create_demo_chart();
-    let (bpm_min, bpm_max) = demo_chart.bpm_range();
-    let (id, md5) = beetle_core::hash_chart_bytes(b"BEETLE_INTERNAL_DEMO_CHART_V1");
-    let demo_meta = SongMetadata {
-        id,
-        md5,
-        ln_count: 0,
-        ln_mode: None,
-        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
-        file_path: ":demo:".to_string(),
-        title: demo_chart.header.title,
-        subtitle: demo_chart.header.subtitle,
-        artist: demo_chart.header.artist,
-        genre: demo_chart.header.genre,
-        bpm: demo_chart.header.bpm,
-        bpm_min,
-        bpm_max,
-        play_level: demo_chart.header.play_level,
-        notes_count: demo_chart.notes.len(),
-        play_mode: beetle_core::PlayMode::Keys7,
-    };
-
     if !songs.iter().any(|s| s.file_path == ":demo:") {
-        songs.insert(0, demo_meta);
+        songs.insert(0, demo_song());
     }
-
-    sort_songs(&mut songs, sort_mode, score_store, LnOption::Cn);
-
     songs
 }

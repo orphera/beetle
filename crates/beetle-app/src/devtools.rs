@@ -2,7 +2,7 @@
 //! screenshots of the real app (used to review UI changes):
 //!
 //! - `BEETLE_CAPTURE=<file.bmp>`: write one backbuffer capture to this path.
-//! - `BEETLE_CAPTURE_SCREEN=songselect|loading|gameplay|result|keyconfig`
+//! - `BEETLE_CAPTURE_SCREEN=boot|songselect|loading|gameplay|result|keyconfig`
 //!   (default `songselect`): screen to capture.
 //! - `BEETLE_CAPTURE_DELAY=<seconds>` (default 2): wall time after entering
 //!   that screen.
@@ -30,6 +30,7 @@ pub struct Capture {
 
 fn parse_screen(s: &str) -> Option<AppScreen> {
     Some(match s.to_ascii_lowercase().as_str() {
+        "boot" => AppScreen::Boot,
         "songselect" => AppScreen::SongSelect,
         "loading" => AppScreen::Loading,
         "gameplay" => AppScreen::Gameplay,

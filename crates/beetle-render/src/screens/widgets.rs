@@ -140,3 +140,27 @@ pub(crate) fn wrap2(c: &mut Canvas, t: &mut TextEngine, text: &str, max_w: f32, 
     let rest = t.fit(c, rest.trim_start(), max_w, st).into_owned();
     (first.trim_end().to_string(), Some(rest))
 }
+
+/// Indeterminate progress track: a highlight sweeping along `track`, looping
+/// every 1.4 s of `elapsed`.
+pub(crate) fn sweep_bar(c: &mut Canvas, sk: &Skin, track: Rect, elapsed: f64, s: f32) {
+    c.nine(&sk.panel_sm, track, theme::LINE);
+    let period = 1.4;
+    let ph = ((elapsed % period) / period) as f32;
+    let seg = track.w * 0.28;
+    let head = track.x - seg + (track.w + seg) * ease_in_out(ph);
+    c.push_clip(Rect::new(track.x, track.y - 8.0 * s, track.w, track.h + 16.0 * s));
+    c.fill_rect_hgradient(Rect::new(head, track.y, seg, track.h), theme::CYAN.with_alpha(0), theme::CYAN);
+    c.set_additive(true);
+    c.sprite_centered(sk.glow, head + seg, track.y + track.h / 2.0, 80.0 * s, 26.0 * s, theme::CYAN.with_alpha(140));
+    c.set_additive(false);
+    c.pop_clip();
+}
+
+fn ease_in_out(p: f32) -> f32 {
+    if p < 0.5 {
+        4.0 * p * p * p
+    } else {
+        1.0 - (-2.0 * p + 2.0).powi(3) / 2.0
+    }
+}

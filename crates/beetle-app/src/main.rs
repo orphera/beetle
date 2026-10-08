@@ -37,7 +37,7 @@ use handlers::{
 use input::KeyBindings;
 use loader::spawn_background_stage_image_loader;
 use beetle_render::GpuBackend;
-use state::{init_songs_and_scores, AppScreen, AppState, SongCategory};
+use state::{spawn_library_load, AppScreen, AppState, LibraryJob, SongCategory};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -110,6 +110,9 @@ impl ApplicationHandler for BeetleApp {
         }
 
         let saved_config = AppConfig::load();
+        // The song library is read on a worker while the window and Direct3D
+        // come up; the Boot screen covers the wait (INV-5).
+        let library_receiver = spawn_library_load(saved_config.sort_mode);
 
         let window_attributes = Window::default_attributes()
             .with_title("Beetle — BMS Rhythm Engine")
@@ -153,28 +156,25 @@ impl ApplicationHandler for BeetleApp {
         };
         let gpu_ui = gpu_ui::GpuUi::new(view.viewport.scale);
 
-        let (songs, score_store) = init_songs_and_scores(saved_config.sort_mode);
-        let tables = tables::build_index(&songs);
-
         let mut app_state = AppState {
             window,
             view,
             audio_engine: None,
-            screen: AppScreen::SongSelect,
-            songs,
+            screen: AppScreen::Boot,
+            songs: Vec::new(),
             filtered_indices: Vec::new(),
             selected_song_idx: 0,
             search_query: String::new(),
             is_search_active: false,
             category_mode: SongCategory::All,
-            tables,
+            tables: beetle_core::TableIndex::default(),
             sort_mode: saved_config.sort_mode,
             show_option_modal: false,
             show_exit_modal: false,
             should_exit_app: false,
             modal_row: 0,
             selected_key_idx: 0,
-            score_store,
+            score_store: beetle_core::ScoreStore::new(),
             play_options: saved_config.play_options,
             is_auto_play: devtools::autoplay_requested(),
             is_replay_playback: false,
@@ -217,6 +217,9 @@ impl ApplicationHandler for BeetleApp {
             track_bga: saved_config.track_bga,
             is_alt_pressed: false,
             bgm_cursor: 0,
+            library_receiver: Some(library_receiver),
+            library_job: LibraryJob::Startup,
+            library_started_at: Instant::now(),
             loading_song: None,
             loading_receiver: None,
             loading_spinner_frame: 0,
@@ -238,10 +241,6 @@ impl ApplicationHandler for BeetleApp {
         app_state.apply_display_mode();
         app_state.recompute_filtered_songs();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
-        if let Some(screen) = devtools::start_screen() {
-            app_state.screen = screen;
-            app_state.key_config_edit_mode = app_state.key_config_mode();
-        }
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
@@ -307,7 +306,15 @@ impl ApplicationHandler for BeetleApp {
             state.preview.stop();
         }
 
+        state.poll_library();
+
         match state.screen {
+            AppScreen::Boot => {
+                state.window.request_redraw();
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(16),
+                ));
+            }
             AppScreen::Loading => {
                 if let Some(rx) = &state.loading_receiver {
                     match rx.try_recv() {
@@ -586,6 +593,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                         present::gameplay(state, size, audio_time, &visual_levels);
                     }
+                    AppScreen::Boot => present::boot(state, size),
                     AppScreen::SongSelect => present::song_select(state, size),
                     AppScreen::Loading => present::loading(state, size),
                     AppScreen::Result => {
@@ -671,6 +679,8 @@ fn handle_keyboard_input(
     }
 
     match state.screen {
+        // Nothing to do until the library is read; the window can still be closed.
+        AppScreen::Boot => {}
         AppScreen::SongSelect => handle_song_select_input(state, key_state, code, text),
         AppScreen::Loading => {
             if key_state == ElementState::Pressed && code == KeyCode::Escape {
@@ -711,7 +721,7 @@ fn main() {
 mod tests {
     use super::*;
     use beetle_core::SortMode;
-    use state::filter_song_indices;
+    use state::{filter_song_indices, init_songs_and_scores};
 
     #[test]
     fn test_song_category_transitions() {

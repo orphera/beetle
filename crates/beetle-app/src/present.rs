@@ -14,7 +14,7 @@ use winit::dpi::PhysicalSize;
 use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, lanes_for, KeyPreset};
-use crate::state::{replay_path, AppState};
+use crate::state::{replay_path, AppState, LibraryJob};
 
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
@@ -230,6 +230,24 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
         ("START MEASURE", format!("M.{}", state.start_measure)),
     ]
+}
+
+pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
+    let (title, status) = match state.library_job {
+        LibraryJob::Startup => ("STARTING UP", "Reading song library"),
+        LibraryJob::Rescan => ("RESCANNING LIBRARY", "Scanning song folders"),
+    };
+    begin(state, size);
+    beetle_render::draw_boot(
+        &mut state.gpu_ui.ui,
+        &beetle_render::BootFrame {
+            viewport: &state.view.viewport,
+            elapsed: state.library_started_at.elapsed().as_secs_f64(),
+            title,
+            status,
+        },
+    );
+    finish(state);
 }
 
 pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {

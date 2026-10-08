@@ -171,17 +171,7 @@ pub fn handle_song_select_input(
                 queue_start_gameplay(state, &song);
             }
         }
-        KeyCode::F5 => {
-            state.stage_image_cache.clear();
-            state.stage_image_receiver = None;
-            state.stage_image_loading_id = None;
-            state.songs =
-                crate::state::rescan_songs_and_scores(state.sort_mode, &state.score_store);
-            crate::state::migrate_chart_keys(&state.songs, &mut state.score_store);
-            state.reload_tables();
-            state.recompute_filtered_songs();
-            state.cursor_settle_time = std::time::Instant::now();
-        }
+        KeyCode::F5 => state.start_rescan(),
         _ => {
             if let Some(t) = text {
                 if t == "/" {
