@@ -114,7 +114,10 @@ pub fn clear_lamp(clear: Option<ClearType>) -> (&'static str, ColorRgba) {
 /// Short key-mode tag: "7K", "14K", ...
 pub fn mode_label(mode: PlayMode) -> &'static str {
     match mode {
+        PlayMode::Keys4 => "4K",
         PlayMode::Keys5 => "5K",
+        PlayMode::Keys6 => "6K",
+        PlayMode::Keys8 => "8K",
         PlayMode::Keys7 => "7K",
         PlayMode::Keys9 => "9K",
         PlayMode::Keys10 => "10K",

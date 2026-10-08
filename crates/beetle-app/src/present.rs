@@ -117,6 +117,9 @@ fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) ->
         KeyPreset::HomeRow => "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
         KeyPreset::ArcadeZx => "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
         KeyPreset::Pms9K => "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Ue4K => "KEYS  S D L ;    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Ue6K => "KEYS  A S D L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Ue8K => "KEYS  A S D F K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
         KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
         KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
     };

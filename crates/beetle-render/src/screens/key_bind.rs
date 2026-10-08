@@ -38,7 +38,16 @@ pub enum Rebind {
 }
 
 /// Key modes in tab order.
-pub const KEY_MODES: [PlayMode; 5] = [PlayMode::Keys5, PlayMode::Keys7, PlayMode::Keys9, PlayMode::Keys10, PlayMode::Keys14];
+pub const KEY_MODES: [PlayMode; 8] = [
+    PlayMode::Keys4,
+    PlayMode::Keys5,
+    PlayMode::Keys6,
+    PlayMode::Keys7,
+    PlayMode::Keys8,
+    PlayMode::Keys9,
+    PlayMode::Keys10,
+    PlayMode::Keys14,
+];
 
 pub struct KeyConfigFrame<'a> {
     pub viewport: &'a Viewport,

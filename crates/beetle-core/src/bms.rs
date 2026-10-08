@@ -321,7 +321,8 @@ impl BmsChart {
     pub fn detect_play_mode_with_hint(&self, is_pms_ext: bool) -> PlayMode {
         if is_pms_ext {
             PlayMode::Keys9
-        } else if let Some(mode) = self.header.declared_mode.filter(|_| self.header.player <= 1) {
+        } else if let Some(mode) = self.header.declared_mode {
+            // Wins over a stray `#PLAYER 2/3`: 4K/6K/8K are single play.
             mode
         } else if self.header.player == 2 || self.header.player == 3 {
             // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play)
@@ -1589,11 +1590,11 @@ mod tests {
         assert_eq!(mode("#00111:01
 #00118:01
 "), PlayMode::Keys7);
-        // A declaration never overrides Double Play.
-        assert_eq!(mode("#4K
+        // 4K/6K/8K are single play, so a stray #PLAYER 3 doesn't turn them into DP.
+        assert_eq!(mode("#6K
 #PLAYER 3
 #00111:01
-"), PlayMode::Keys10);
+"), PlayMode::Keys6);
     }
 
     #[test]

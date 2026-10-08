@@ -178,6 +178,9 @@ fn dp_side_width(mode: PlayMode, lane_width: f32, scratch_lane_width: f32) -> f3
 /// screen element (BGA, HUD, gauge) that anchors off
 /// `playfield_x + playfield_width` then automatically clears the 2P side.
 fn playfield_width_for(mode: PlayMode, lane_width: f32, scratch_lane_width: f32) -> f32 {
+    if let Some(scale) = even_lane_scale(mode) {
+        return scale * lane_width * lanes_of(mode).len() as f32;
+    }
     match mode {
         PlayMode::Keys5 => scratch_lane_width + 5.0 * lane_width,
         PlayMode::Keys7 => scratch_lane_width + 7.0 * lane_width,
@@ -186,7 +189,24 @@ fn playfield_width_for(mode: PlayMode, lane_width: f32, scratch_lane_width: f32)
             let side = dp_side_width(mode, lane_width, scratch_lane_width);
             side * 2.0 + lane_width * 0.6
         }
+        PlayMode::Keys4 | PlayMode::Keys6 | PlayMode::Keys8 => unreachable!("even-lane modes return above"),
     }
+}
+
+/// 4K / 6K / 8K draw every lane (the 8K scratch too) at one width: this
+/// many times a key lane, so a narrow field still reads well.
+fn even_lane_scale(mode: PlayMode) -> Option<f32> {
+    match mode {
+        PlayMode::Keys4 => Some(1.5),
+        PlayMode::Keys6 => Some(1.2),
+        PlayMode::Keys8 => Some(1.0),
+        _ => None,
+    }
+}
+
+/// Lanes of a mode, left to right, for the modes that restrict their lanes.
+fn lanes_of(mode: PlayMode) -> &'static [Lane] {
+    mode.restricted_lanes().unwrap_or(&[])
 }
 
 impl SkinConfig {
@@ -239,6 +259,7 @@ impl SkinConfig {
     /// Active lane list based on current PlayMode.
     pub fn active_lanes(&self) -> &'static [Lane] {
         match self.play_mode {
+            PlayMode::Keys4 | PlayMode::Keys6 | PlayMode::Keys8 => lanes_of(self.play_mode),
             PlayMode::Keys5 => &[
                 Lane::Scratch,
                 Lane::Key1,
@@ -331,6 +352,10 @@ impl SkinConfig {
 
     /// Returns the X-coordinate for a specific lane.
     pub fn lane_x(&self, lane: Lane) -> f32 {
+        if even_lane_scale(self.play_mode).is_some() {
+            let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
+            return self.playfield_x + index as f32 * self.lane_width(lane);
+        }
         // PMS (9K) has no scratch lane and a right-side scratch comes after
         // the keys, so in both the key block starts at playfield_x.
         let key_area_x = if self.play_mode == PlayMode::Keys9 || self.scratch_on_right() {
@@ -368,6 +393,9 @@ impl SkinConfig {
 
     /// Returns the width in pixels for a specific lane.
     pub fn lane_width(&self, lane: Lane) -> f32 {
+        if let Some(scale) = even_lane_scale(self.play_mode) {
+            return self.lane_width * scale;
+        }
         match lane {
             Lane::Scratch | Lane::P2Scratch => self.scratch_lane_width,
             _ => self.lane_width,
@@ -376,6 +404,17 @@ impl SkinConfig {
 
     /// Get color assigned to note on a lane.
     pub fn lane_color(&self, lane: Lane) -> ColorRgba {
+        // 4K / 6K: mirrored colors by position (the empty middle lane means
+        // Key parity would give uneven pairs).
+        let by_position: Option<&[bool]> = match self.play_mode {
+            PlayMode::Keys4 => Some(&[false, true, true, false]),
+            PlayMode::Keys6 => Some(&[false, true, false, false, true, false]),
+            _ => None,
+        };
+        if let Some(blue) = by_position {
+            let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
+            return if blue[index] { self.blue_key_color } else { self.white_key_color };
+        }
         match lane {
             Lane::Scratch | Lane::P2Scratch => self.scratch_key_color,
             Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 | Lane::Key9 => self.white_key_color,
@@ -443,6 +482,32 @@ mod tests {
         assert!((skin.playfield_x + skin.playfield_width - (1920.0 - 75.0)).abs() < 1e-3);
         skin.set_play_mode(PlayMode::Keys14);
         assert!((skin.playfield_x - 75.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn ue_modes_draw_only_their_lanes_side_by_side() {
+        let mut skin = test_skin();
+        skin.set_play_mode(PlayMode::Keys4);
+        let w = 50.0 * 1.5;
+        assert_eq!(skin.playfield_width, 4.0 * w);
+        // Key3 is skipped: Key4 sits right after Key2.
+        assert_eq!(skin.lane_x(Lane::Key4), skin.playfield_x + 2.0 * w);
+        assert_eq!(skin.lane_x(Lane::Key5), skin.playfield_x + 3.0 * w);
+        assert_eq!(skin.lane_color(Lane::Key1), skin.lane_color(Lane::Key5));
+        assert_eq!(skin.lane_color(Lane::Key2), skin.lane_color(Lane::Key4));
+
+        skin.set_play_mode(PlayMode::Keys6);
+        let w = 50.0 * 1.2;
+        assert_eq!(skin.active_lanes().len(), 6);
+        assert_eq!(skin.lane_x(Lane::Key5), skin.playfield_x + 3.0 * w);
+        assert_eq!(skin.playfield_width, 6.0 * w);
+
+        // 8K: the scratch is one more even lane, on the left.
+        skin.set_play_mode(PlayMode::Keys8);
+        assert_eq!(skin.active_lanes().len(), 8);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
+        assert_eq!(skin.lane_x(Lane::Key1), skin.playfield_x + 50.0);
+        assert_eq!(skin.lane_width(Lane::Scratch), 50.0);
     }
 
     #[test]

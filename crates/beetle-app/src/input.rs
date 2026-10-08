@@ -12,6 +12,12 @@ pub enum KeyPreset {
     ArcadeZx,
     /// PMS (9-Key, no scratch): S D F Space J K L ; ' (Keys 1..9)
     Pms9K,
+    /// UE 4K: S D L ; (Key1, Key2, Key4, Key5)
+    Ue4K,
+    /// UE 6K: A S D L ; ' (Key1..Key3, Key5..Key7)
+    Ue6K,
+    /// UE 8K: A S D F K L ; ' (Scratch, Key1..Key7)
+    Ue8K,
     /// Double Play (10K/14K): 1P side mirrors ArcadeZx, 2P side mirrors it
     /// on the right hand (RShift + U I O P [ ] \)
     DoublePlay,
@@ -26,13 +32,25 @@ impl KeyPreset {
             Self::HomeRow => "HomeRow",
             Self::ArcadeZx => "ArcadeZx",
             Self::Pms9K => "Pms9K",
+            Self::Ue4K => "Ue4K",
+            Self::Ue6K => "Ue6K",
+            Self::Ue8K => "Ue8K",
             Self::DoublePlay => "DoublePlay",
             Self::Custom => "Custom",
         }
     }
 
     pub fn from_id(s: &str) -> Option<Self> {
-        [Self::HomeRow, Self::ArcadeZx, Self::Pms9K, Self::DoublePlay, Self::Custom]
+        [
+            Self::HomeRow,
+            Self::ArcadeZx,
+            Self::Pms9K,
+            Self::Ue4K,
+            Self::Ue6K,
+            Self::Ue8K,
+            Self::DoublePlay,
+            Self::Custom,
+        ]
             .into_iter()
             .find(|p| p.id() == s)
     }
@@ -42,6 +60,9 @@ impl KeyPreset {
         match mode {
             PlayMode::Keys5 | PlayMode::Keys7 => &[Self::HomeRow, Self::ArcadeZx],
             PlayMode::Keys9 => &[Self::Pms9K],
+            PlayMode::Keys4 => &[Self::Ue4K],
+            PlayMode::Keys6 => &[Self::Ue6K],
+            PlayMode::Keys8 => &[Self::Ue8K],
             PlayMode::Keys10 | PlayMode::Keys14 => &[Self::DoublePlay],
         }
     }
@@ -55,6 +76,9 @@ impl KeyPreset {
             Self::HomeRow => "HomeRow (S D F Space J K L)",
             Self::ArcadeZx => "ArcadeZx (Z S X D C F V)",
             Self::Pms9K => "PMS 9K (S D F Space J K L ; ')",
+            Self::Ue4K => "4K (S D L ;)",
+            Self::Ue6K => "6K (A S D L ; ')",
+            Self::Ue8K => "8K (A S D F K L ; ')",
             Self::DoublePlay => "Double Play (LShift+ZSXDCFV / RShift+UIOP[]\\)",
             Self::Custom => "Custom Layout",
         }
@@ -113,6 +137,31 @@ fn preset_pairs(preset: KeyPreset) -> &'static [(KeyCode, Lane)] {
             (K::KeyL, L::Key7),
             (K::Semicolon, L::Key8),
             (K::Quote, L::Key9),
+        ],
+        KeyPreset::Ue4K => &[
+            (K::KeyS, L::Key1),
+            (K::KeyD, L::Key2),
+            (K::KeyL, L::Key4),
+            (K::Semicolon, L::Key5),
+        ],
+        KeyPreset::Ue6K => &[
+            (K::KeyA, L::Key1),
+            (K::KeyS, L::Key2),
+            (K::KeyD, L::Key3),
+            (K::KeyL, L::Key5),
+            (K::Semicolon, L::Key6),
+            (K::Quote, L::Key7),
+        ],
+        // The 8K scratch is an ordinary key here (leftmost).
+        KeyPreset::Ue8K => &[
+            (K::KeyA, L::Scratch),
+            (K::KeyS, L::Key1),
+            (K::KeyD, L::Key2),
+            (K::KeyF, L::Key3),
+            (K::KeyK, L::Key4),
+            (K::KeyL, L::Key5),
+            (K::Semicolon, L::Key6),
+            (K::Quote, L::Key7),
         ],
         // 1P side mirrors ArcadeZx; 2P side mirrors it on the right hand.
         KeyPreset::DoublePlay => &[
@@ -310,12 +359,15 @@ pub fn lanes_for(mode: PlayMode) -> &'static [Lane] {
 }
 
 /// Key modes that each keep their own layout.
-pub const MODE_SLOTS: [PlayMode; 5] = [
+pub const MODE_SLOTS: [PlayMode; 8] = [
     PlayMode::Keys5,
     PlayMode::Keys7,
     PlayMode::Keys9,
     PlayMode::Keys10,
     PlayMode::Keys14,
+    PlayMode::Keys4,
+    PlayMode::Keys6,
+    PlayMode::Keys8,
 ];
 
 /// `config.dat` suffix for a mode slot ("5k", "7k", ...).
@@ -326,6 +378,9 @@ pub fn mode_slot_name(mode: PlayMode) -> &'static str {
         PlayMode::Keys9 => "9k",
         PlayMode::Keys10 => "10k",
         PlayMode::Keys14 => "14k",
+        PlayMode::Keys4 => "4k",
+        PlayMode::Keys6 => "6k",
+        PlayMode::Keys8 => "8k",
     }
 }
 
@@ -340,7 +395,7 @@ pub type SavedLayout = (KeyPreset, String);
 /// set up without disturbing the others.
 #[derive(Debug, Clone)]
 pub struct KeyBindings {
-    layouts: [InputConfig; 5],
+    layouts: [InputConfig; 8],
 }
 
 impl Default for KeyBindings {
@@ -356,7 +411,7 @@ impl KeyBindings {
     /// `MODE_SLOTS[i]`. Slots without one take the pre-per-mode `legacy`
     /// layout (one layout shared by all modes) when it fits that mode, else
     /// the mode's default preset.
-    pub fn load(saved: &[Option<SavedLayout>; 5], legacy: Option<&SavedLayout>) -> Self {
+    pub fn load(saved: &[Option<SavedLayout>; 8], legacy: Option<&SavedLayout>) -> Self {
         let restore = |(preset, bindings): &SavedLayout| {
             let mut cfg = InputConfig::new(*preset);
             cfg.deserialize_bindings(bindings);
@@ -380,7 +435,7 @@ impl KeyBindings {
     }
 
     /// Layouts to store, in `MODE_SLOTS` order.
-    pub fn to_saved(&self) -> [SavedLayout; 5] {
+    pub fn to_saved(&self) -> [SavedLayout; 8] {
         std::array::from_fn(|i| (self.layouts[i].preset, self.layouts[i].serialize_bindings()))
     }
 
@@ -906,7 +961,7 @@ mod tests {
 
     #[test]
     fn test_legacy_layout_migrates_to_the_modes_it_fits() {
-        let none: [Option<SavedLayout>; 5] = Default::default();
+        let none: [Option<SavedLayout>; 8] = Default::default();
         // An old ArcadeZx setting applies to 5K and 7K only.
         let kb = KeyBindings::load(&none, Some(&(KeyPreset::ArcadeZx, String::new())));
         assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::ArcadeZx);

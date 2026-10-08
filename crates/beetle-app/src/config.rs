@@ -160,7 +160,7 @@ pub struct AppConfig {
     pub sort_mode: SortMode,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
-    pub key_layouts: [Option<SavedLayout>; 5],
+    pub key_layouts: [Option<SavedLayout>; 8],
     /// The single layout older versions shared across all modes
     /// (`key_preset` / `custom_key_bindings`); read only for migration.
     pub legacy_key_layout: Option<SavedLayout>,
@@ -217,8 +217,8 @@ impl AppConfig {
 
     fn parse_str(data: &str) -> Self {
         let mut config = Self::default();
-        let mut presets: [Option<KeyPreset>; 5] = [None; 5];
-        let mut bindings: [String; 5] = Default::default();
+        let mut presets: [Option<KeyPreset>; 8] = [None; 8];
+        let mut bindings: [String; 8] = Default::default();
         let (mut legacy_preset, mut legacy_bindings) = (None, String::new());
 
         for line in data.lines() {
@@ -391,6 +391,9 @@ mod tests {
                 Some((KeyPreset::Pms9K, String::new())),
                 Some((KeyPreset::DoublePlay, String::new())),
                 Some((KeyPreset::DoublePlay, "P2Scratch:KeyQ".to_string())),
+                Some((KeyPreset::Ue4K, String::new())),
+                None,
+                Some((KeyPreset::Ue8K, String::new())),
             ],
             legacy_key_layout: None,
             master_volume: 0.85,
