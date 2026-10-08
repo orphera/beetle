@@ -152,8 +152,86 @@ impl SampleBank {
     }
 
     /// Decode WAV from any `Read + Seek` stream into stereo normalized `PcmBuffer`.
-    pub fn load_wav_from_reader<R: Read + Seek>(reader: R) -> Result<PcmBuffer, AudioDecodeError> {
-        let mut wav_reader = WavReader::new(reader)?;
+    pub fn load_wav_from_reader<R: Read + Seek>(
+        mut reader: R,
+    ) -> Result<PcmBuffer, AudioDecodeError> {
+        match WavReader::new(&mut reader) {
+            Ok(wav_reader) => Self::decode_hound_wav(wav_reader),
+            Err(e) => {
+                // Early-2000s BMS keysounds often carry a data chunk length that
+                // doesn't match the file (odd, or past EOF); hound rejects them
+                // outright. Players tolerate that, so retry with a lenient parse.
+                reader.rewind()?;
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes)?;
+                Self::decode_wav_lenient(&bytes).ok_or_else(|| e.into())
+            }
+        }
+    }
+
+    /// Minimal tolerant RIFF/WAVE reader: PCM 8/16/24/32-bit and float32, with
+    /// the `data` length clamped to the bytes actually present and whole frames.
+    fn decode_wav_lenient(b: &[u8]) -> Option<PcmBuffer> {
+        if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
+            return None;
+        }
+        let u16_at = |p: usize| u16::from_le_bytes([b[p], b[p + 1]]);
+        let u32_at = |p: usize| u32::from_le_bytes([b[p], b[p + 1], b[p + 2], b[p + 3]]);
+        let (mut fmt, mut data) = (None, None);
+        let mut p = 12;
+        while p + 8 <= b.len() {
+            let size = u32_at(p + 4) as usize;
+            let body = p + 8;
+            match &b[p..p + 4] {
+                b"fmt " if size >= 16 && body + 16 <= b.len() => {
+                    fmt = Some((u16_at(body), u16_at(body + 2), u32_at(body + 4), u16_at(body + 14)));
+                }
+                b"data" => {
+                    data = Some(&b[body..body.saturating_add(size).min(b.len())]);
+                    break;
+                }
+                _ => {}
+            }
+            p = body.saturating_add(size).saturating_add(size & 1);
+        }
+        let ((tag, channels, sample_rate, bits), data) = (fmt?, data?);
+        let channels = channels as usize;
+        if channels == 0 || channels > 2 {
+            return None;
+        }
+        let bytes_per = (bits as usize / 8).max(1);
+        let data = &data[..data.len() / (bytes_per * channels) * (bytes_per * channels)];
+        let raw: Vec<f32> = match (tag, bits) {
+            (1 | 0xFFFE, 8) => data.iter().map(|&s| (s as f32 - 128.0) / 128.0).collect(),
+            (1 | 0xFFFE, 16) => data
+                .chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+                .collect(),
+            (1 | 0xFFFE, 24) => data
+                .chunks_exact(3)
+                .map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8388608.0)
+                .collect(),
+            (1 | 0xFFFE, 32) => data
+                .chunks_exact(4)
+                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2147483648.0)
+                .collect(),
+            (3, 32) => data
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+            _ => return None,
+        };
+        let samples = if channels == 1 {
+            raw.iter().flat_map(|&s| [s, s]).collect()
+        } else {
+            raw
+        };
+        Some(PcmBuffer::new(sample_rate, samples))
+    }
+
+    fn decode_hound_wav<R: Read>(
+        mut wav_reader: WavReader<R>,
+    ) -> Result<PcmBuffer, AudioDecodeError> {
         let spec = wav_reader.spec();
 
         let channels = spec.channels as usize;
@@ -514,5 +592,31 @@ mod tests {
             "Expected ~0.992 for 255 max, got {}",
             pcm.samples[4]
         );
+    }
+
+    #[test]
+    fn lenient_wav_accepts_overlong_and_odd_data_chunk() {
+        // 8-bit stereo @22050 with a data length claiming more than the file
+        // holds, and an odd byte count: hound rejects it, we keep whole frames.
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF    WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        for v in [1u16, 2] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(&22050u32.to_le_bytes());
+        b.extend_from_slice(&44100u32.to_le_bytes());
+        for v in [2u16, 8] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&1001u32.to_le_bytes());
+        b.extend_from_slice(&[255, 0, 128, 128, 255]);
+        assert!(hound::WavReader::new(Cursor::new(&b)).is_err());
+        let pcm = SampleBank::load_wav_from_reader(Cursor::new(&b)).unwrap();
+        assert_eq!(pcm.sample_rate, 22050);
+        assert_eq!(pcm.frame_count(), 2);
+        assert!((pcm.samples[0] - 127.0 / 128.0).abs() < 1e-6);
+        assert!((pcm.samples[1] + 1.0).abs() < 1e-6);
     }
 }
