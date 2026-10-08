@@ -217,7 +217,10 @@ impl SongMetadata {
                 "lnmode" => ln_mode = value.parse().ok(),
                 "mode" => {
                     play_mode = match value {
+                        "4KEYS" => PlayMode::Keys4,
                         "5KEYS" => PlayMode::Keys5,
+                        "6KEYS" => PlayMode::Keys6,
+                        "8KEYS" => PlayMode::Keys8,
                         "9KEYS" => PlayMode::Keys9,
                         "10KEYS" => PlayMode::Keys10,
                         "14KEYS" => PlayMode::Keys14,

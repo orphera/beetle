@@ -27,11 +27,47 @@ pub enum PlayMode {
     Keys9,
     Keys10,
     Keys14,
+    /// UE-pack 4K: Key1, Key2, Key4, Key5. Declared by `#4K`.
+    Keys4,
+    /// UE-pack 6K: Key1..Key3, Key5..Key7. Declared by `#6K`.
+    Keys6,
+    /// UE-pack 8K: Scratch + Key1..Key7. Declared by `#8K`.
+    Keys8,
 }
 
 impl PlayMode {
+    /// Lanes a declared 4K/6K/8K chart can play; other modes have no
+    /// restriction beyond what their channels map to (`None`).
+    pub fn restricted_lanes(&self) -> Option<&'static [Lane]> {
+        match self {
+            Self::Keys4 => Some(&[Lane::Key1, Lane::Key2, Lane::Key4, Lane::Key5]),
+            Self::Keys6 => Some(&[
+                Lane::Key1,
+                Lane::Key2,
+                Lane::Key3,
+                Lane::Key5,
+                Lane::Key6,
+                Lane::Key7,
+            ]),
+            Self::Keys8 => Some(&[
+                Lane::Scratch,
+                Lane::Key1,
+                Lane::Key2,
+                Lane::Key3,
+                Lane::Key4,
+                Lane::Key5,
+                Lane::Key6,
+                Lane::Key7,
+            ]),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Keys4 => "4KEYS",
+            Self::Keys6 => "6KEYS",
+            Self::Keys8 => "8KEYS",
             Self::Keys7 => "7KEYS",
             Self::Keys5 => "5KEYS",
             Self::Keys9 => "9KEYS",
@@ -155,6 +191,8 @@ pub struct BgaDefinition {
 #[derive(Debug, Clone)]
 pub struct BmsHeader {
     pub player: u32,
+    /// Mode named by a `#4K` / `#6K` / `#8K` line; `None` when absent.
+    pub declared_mode: Option<PlayMode>,
     pub genre: String,
     pub title: String,
     pub subtitle: String,
@@ -185,6 +223,7 @@ impl Default for BmsHeader {
     fn default() -> Self {
         Self {
             player: 1,
+            declared_mode: None,
             genre: String::new(),
             title: String::new(),
             subtitle: String::new(),
@@ -282,6 +321,8 @@ impl BmsChart {
     pub fn detect_play_mode_with_hint(&self, is_pms_ext: bool) -> PlayMode {
         if is_pms_ext {
             PlayMode::Keys9
+        } else if let Some(mode) = self.header.declared_mode.filter(|_| self.header.player <= 1) {
+            mode
         } else if self.header.player == 2 || self.header.player == 3 {
             // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play)
             if self.has_k67 {
@@ -541,6 +582,7 @@ pub fn parse_bms_with_seed(input: &str, seed: u64) -> Result<BmsChart, BmsParseE
 fn parse_resolved(input: &str) -> Result<BmsChart, BmsParseError> {
     let mut chart = BmsChart::default();
     let mut raw_ln_events: Vec<(u32, f64, Lane, WavId)> = Vec::new();
+    let mut skipped_ln_events: Vec<(u32, f64, String, WavId)> = Vec::new();
 
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -591,7 +633,30 @@ fn parse_resolved(input: &str) -> Result<BmsChart, BmsParseError> {
         if content.is_empty() || !is_measure_line(content) {
             continue;
         }
-        parse_measure_line(content, &mut chart, &mut raw_ln_events, play_mode)?;
+        parse_measure_line(
+            content,
+            &mut chart,
+            &mut raw_ln_events,
+            &mut skipped_ln_events,
+            play_mode,
+        )?;
+    }
+
+    // Long notes on a lane the declared mode doesn't have play as sound only:
+    // the sound of each head, none for the tail.
+    skipped_ln_events.sort_by(|a, b| {
+        a.2.cmp(&b.2)
+            .then(a.0.cmp(&b.0))
+            .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    let mut open_channel: Option<&str> = None;
+    for (measure, fraction, channel, wav_id) in &skipped_ln_events {
+        if open_channel == Some(channel.as_str()) {
+            open_channel = None;
+        } else {
+            open_channel = Some(channel.as_str());
+            chart.bgm_notes.push((*measure, *fraction, *wav_id));
+        }
     }
 
     // Process LNTYPE 1 long notes (pairs of channel 5x events)
@@ -657,6 +722,19 @@ fn parse_header_line(content: &str, header: &mut BmsHeader) {
     let mut parts = content.splitn(2, |c: char| c.is_whitespace() || c == ':');
     let key = parts.next().unwrap_or("").trim();
     let val = parts.next().unwrap_or("").trim();
+
+    if val.is_empty() && header.declared_mode.is_none() {
+        let declared = match key.to_ascii_uppercase().as_str() {
+            "4K" => Some(PlayMode::Keys4),
+            "6K" => Some(PlayMode::Keys6),
+            "8K" => Some(PlayMode::Keys8),
+            _ => None,
+        };
+        if declared.is_some() {
+            header.declared_mode = declared;
+            return;
+        }
+    }
 
     if key.eq_ignore_ascii_case("PLAYER") {
         if let Ok(p) = val.parse::<u32>() {
@@ -854,6 +932,7 @@ fn parse_measure_line(
     content: &str,
     chart: &mut BmsChart,
     raw_ln_events: &mut Vec<(u32, f64, Lane, WavId)>,
+    skipped_ln_events: &mut Vec<(u32, f64, String, WavId)>,
     mode: PlayMode,
 ) -> Result<(), BmsParseError> {
     let mut parts = content.splitn(2, [':', ' ']);
@@ -975,8 +1054,8 @@ fn parse_measure_line(
             // 11..19: 1P Tap Notes
             "11" | "12" | "13" | "14" | "15" | "16" | "18" | "19" => {
                 if let Some(wav_id) = decode_base36(c1, c2) {
-                    chart.total_notes_count += 1;
                     if let Some(lane) = channel_to_lane(channel, mode) {
+                        chart.total_notes_count += 1;
                         chart.notes.push(NoteEvent {
                             measure,
                             fraction,
@@ -984,6 +1063,9 @@ fn parse_measure_line(
                             wav_id: Some(wav_id),
                             note_type: NoteType::Tap,
                         });
+                    } else if Some(wav_id) != chart.header.ln_obj {
+                        // A lane the declared 4K/6K mode doesn't have: sound only.
+                        chart.bgm_notes.push((measure, fraction, wav_id));
                     }
                 }
             }
@@ -1018,6 +1100,8 @@ fn parse_measure_line(
                 if let Some(wav_id) = decode_base36(c1, c2) {
                     if let Some(lane) = channel_to_lane(channel, mode) {
                         raw_ln_events.push((measure, fraction, lane, wav_id));
+                    } else {
+                        skipped_ln_events.push((measure, fraction, channel.to_string(), wav_id));
                     }
                 }
             }
@@ -1069,6 +1153,14 @@ fn mine_channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
 }
 
 fn channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
+    let lane = channel_to_lane_unrestricted(ch, mode)?;
+    match mode.restricted_lanes() {
+        Some(lanes) if !lanes.contains(&lane) => None,
+        _ => Some(lane),
+    }
+}
+
+fn channel_to_lane_unrestricted(ch: &str, mode: PlayMode) -> Option<Lane> {
     match ch {
         "11" | "51" => Some(Lane::Key1),
         "12" | "52" => Some(Lane::Key2),
@@ -1475,6 +1567,74 @@ mod tests {
             chart.timing_events[1].kind,
             TimingEventKind::StopMeasures(96.0 / 192.0)
         );
+    }
+
+    #[test]
+    fn declared_4k_6k_8k_modes() {
+        let mode = |src: &str| parse_bms(src).unwrap().detect_play_mode();
+        assert_eq!(mode("#4K
+#00111:01
+"), PlayMode::Keys4);
+        assert_eq!(mode("#4k
+#00111:01
+"), PlayMode::Keys4);
+        assert_eq!(mode("#6K
+#00118:01
+"), PlayMode::Keys6);
+        assert_eq!(mode("#8K
+#00116:01
+#00118:01
+"), PlayMode::Keys8);
+        // Without a declaration the old channel-based detection applies.
+        assert_eq!(mode("#00111:01
+#00118:01
+"), PlayMode::Keys7);
+        // A declaration never overrides Double Play.
+        assert_eq!(mode("#4K
+#PLAYER 3
+#00111:01
+"), PlayMode::Keys10);
+    }
+
+    #[test]
+    fn declared_mode_turns_foreign_lanes_into_sound_only() {
+        let chart = parse_bms(
+            "#4K
+#WAV01 a.wav
+#WAV02 b.wav
+#00111:01
+#00113:0200
+#00119:01
+",
+        )
+        .unwrap();
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys4);
+        // Only the Key1 note is playable; Key3 (13) and Key7 (19) are not 4K lanes.
+        assert_eq!(chart.notes.len(), 1);
+        assert_eq!(chart.notes[0].lane, Lane::Key1);
+        assert_eq!(chart.total_notes_count, 1);
+        assert_eq!(chart.bgm_notes.len(), 2);
+    }
+
+    #[test]
+    fn declared_mode_long_note_on_foreign_lane_is_one_sound() {
+        let chart = parse_bms(
+            "#6K
+#LNTYPE 1
+#WAV01 a.wav
+#00114:01
+#00154:01
+#00254:01
+#00112:01
+",
+        )
+        .unwrap();
+        assert_eq!(chart.detect_play_mode(), PlayMode::Keys6);
+        // Key4 isn't a 6K lane: its tap and LN (head + tail) are not notes;
+        // sound plays for the tap and the LN head only.
+        assert_eq!(chart.notes.len(), 1);
+        assert_eq!(chart.notes[0].lane, Lane::Key2);
+        assert_eq!(chart.bgm_notes.len(), 2);
     }
 
     #[test]
