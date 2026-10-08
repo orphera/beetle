@@ -9,6 +9,7 @@ mod escape;
 pub mod identity;
 pub mod judge;
 pub mod library;
+pub mod library_paths;
 pub mod modifier;
 pub mod replay;
 pub mod resolver;
@@ -31,6 +32,7 @@ pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
     SortMode,
 };
+pub use library_paths::LibraryPaths;
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};
 pub use rules::{LnOption, LnRule, Ruleset};

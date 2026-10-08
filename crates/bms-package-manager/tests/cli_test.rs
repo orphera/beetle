@@ -159,3 +159,33 @@ fn test_cli_search_and_upgrade_with_cached_index() {
 
     let _ = fs::remove_dir_all(&storage);
 }
+
+#[test]
+fn test_cli_library_add_list_remove() {
+    let dir = create_temp_storage();
+    let file = dir.join("library.txt");
+    let bms = dir.join("old_bms");
+    fs::create_dir_all(&bms).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(get_bpm_exe())
+            .env("BEETLE_LIBRARY_FILE", &file)
+            .arg("library")
+            .args(args)
+            .output()
+            .expect("failed to run bpm library")
+    };
+    let bms_str = bms.to_str().unwrap();
+
+    assert!(run(&["add", bms_str]).status.success());
+    // Same folder again is a no-op, not an error or a duplicate line.
+    assert!(run(&["add", bms_str]).status.success());
+    let listed = String::from_utf8_lossy(&run(&["list"]).stdout).into_owned();
+    assert!(listed.contains("[ok]") && listed.contains("old_bms"), "{listed}");
+    assert_eq!(fs::read_to_string(&file).unwrap().matches("old_bms").count(), 1);
+
+    assert!(!run(&["add", dir.join("nope").to_str().unwrap()]).status.success());
+
+    assert!(run(&["remove", bms_str]).status.success());
+    assert!(!run(&["remove", bms_str]).status.success());
+    assert!(!fs::read_to_string(&file).unwrap().contains("old_bms"));
+}

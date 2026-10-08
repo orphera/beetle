@@ -1,11 +1,30 @@
-use beetle_core::{deserialize_song_cache, serialize_song_cache, SongMetadata};
+use beetle_core::{deserialize_song_cache, serialize_song_cache, LibraryPaths, SongMetadata};
 use bms_package::PackageReader;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_SONGS_DIR: &str = "songs";
 pub const DEFAULT_PACKAGES_DIR: &str = "packages";
 pub const SONGS_CACHE_FILE: &str = "songs.cache";
+
+/// Where `bpm library` keeps the extra BMS folders; the same file it writes to.
+fn library_file() -> PathBuf {
+    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.txt"), PathBuf::from)
+}
+
+fn library_paths() -> Vec<PathBuf> {
+    let text = fs::read_to_string(library_file()).unwrap_or_default();
+    LibraryPaths::parse(&text).paths().iter().map(PathBuf::from).collect()
+}
+
+/// A cache older than the library list was built without some folders.
+fn cache_is_stale(cache: &Path) -> bool {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (modified(cache), modified(&library_file())) {
+        (Some(c), Some(l)) => c < l,
+        _ => false,
+    }
+}
 
 /// Scans the target directory for BMS files, utilizing `songs.cache` when available.
 pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
@@ -17,7 +36,7 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         &dir_path.join(SONGS_CACHE_FILE),
         Path::new("target/release/songs.cache"),
     ] {
-        if candidate.exists() {
+        if candidate.exists() && !cache_is_stale(candidate) {
             if let Ok(cache_text) = fs::read_to_string(candidate) {
                 let cached_songs = deserialize_song_cache(&cache_text);
                 if !cached_songs.is_empty() {
@@ -74,7 +93,13 @@ pub fn scan_directory<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         }
     }
 
-    if let Ok(env_dir) = std::env::var("BMS_DIR") {
+    for p in library_paths() {
+        if p != dir_path {
+            scan_recursive(&p, &mut songs);
+        }
+    }
+
+    if let Ok(env_dir) =std::env::var("BMS_DIR") {
         let p = Path::new(&env_dir);
         if p.exists() && p != dir_path {
             scan_recursive(p, &mut songs);

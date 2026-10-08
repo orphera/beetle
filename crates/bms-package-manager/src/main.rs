@@ -17,6 +17,7 @@ fn print_usage() {
     println!("  bpm upgrade                            Batch upgrade installed packages to latest remote versions");
     println!("  bpm source <list|add|remove>           Manage remote registry sources (sources.json)");
     println!("  bpm table <add|update|list|remove>     Manage difficulty tables (tables/, read by the player)");
+    println!("  bpm library <add|list|remove> [path]   Register existing BMS folders the player scans in place (no copy)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
     println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
@@ -106,6 +107,66 @@ fn ago(fetched: u64, now: u64) -> String {
         90..=5399 => format!("{} minutes ago", secs / 60),
         5400..=129_599 => format!("{} hours ago", secs / 3600),
         _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
+/// Absolute form of an existing folder, without the `\\?\` prefix Windows adds.
+fn absolute_dir(path: &str) -> Result<String, String> {
+    let p = fs::canonicalize(path).map_err(|e| format!("'{path}': {e}"))?;
+    if !p.is_dir() {
+        return Err(format!("'{path}' is not a folder"));
+    }
+    let s = p.to_string_lossy().into_owned();
+    Ok(s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s))
+}
+
+fn run_library_command(args: &[String]) {
+    let file = PathBuf::from(
+        env::var("BEETLE_LIBRARY_FILE").unwrap_or_else(|_| "library.txt".to_string()),
+    );
+    let mut list =
+        beetle_core::LibraryPaths::parse(&fs::read_to_string(&file).unwrap_or_default());
+    let fail = |message: &dyn std::fmt::Display| -> ! {
+        eprintln!("Error: {message}");
+        std::process::exit(1);
+    };
+    let save = |list: &beetle_core::LibraryPaths| {
+        fs::write(&file, list.serialize()).unwrap_or_else(|e| fail(&e));
+    };
+    match (args.first().map(String::as_str), args.get(1)) {
+        (Some("add"), Some(path)) => {
+            let abs = absolute_dir(path).unwrap_or_else(|e| fail(&e));
+            if list.add(&abs) {
+                save(&list);
+                println!("Added {abs} (the player rescans on next start)");
+            } else {
+                println!("Already registered: {abs}");
+            }
+        }
+        (Some("remove"), Some(path)) => {
+            // The folder may be gone already, so fall back to the text as typed.
+            let abs = absolute_dir(path).unwrap_or_else(|_| path.clone());
+            if list.remove(&abs) {
+                save(&list);
+                println!("Removed {abs}");
+            } else {
+                fail(&format!("not registered: {abs}"));
+            }
+        }
+        (Some("list"), _) => {
+            if list.paths().is_empty() {
+                println!("No folders registered. Add one with: bpm library add <folder>");
+            }
+            for p in list.paths() {
+                let status = if Path::new(p).is_dir() { "ok" } else { "missing" };
+                println!("[{status}] {p}");
+            }
+        }
+        _ => {
+            eprintln!("Usage: bpm library <add|remove> <folder> | bpm library list");
+            eprintln!("Folders are kept in ./library.txt (or $BEETLE_LIBRARY_FILE), scanned in place by the player.");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -206,6 +267,11 @@ fn main() -> Result<(), PackageManagerError> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         print_usage();
+        return Ok(());
+    }
+
+    if args[1] == "library" {
+        run_library_command(&args[2..]);
         return Ok(());
     }
 
