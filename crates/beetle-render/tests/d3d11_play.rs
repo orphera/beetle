@@ -26,6 +26,7 @@ fn chart(mode: PlayMode) -> BmsChart {
             Lane::Key7, Lane::P2Key1, Lane::P2Key3, Lane::P2Key5, Lane::P2Key7, Lane::P2Scratch,
         ],
         PlayMode::Keys5 => &[Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5],
+        PlayMode::Keys4 | PlayMode::Keys6 => mode.restricted_lanes().unwrap(),
         _ => &[Lane::Scratch, Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key4, Lane::Key5, Lane::Key6, Lane::Key7],
     };
     let mut notes = Vec::new();
@@ -142,4 +143,7 @@ fn gameplay_layouts() {
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys5, (FieldPosition::Right, ScratchSide::Left), None, "5k-right"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, LEFT, Some(1), "paused"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, (FieldPosition::Center, ScratchSide::Right), None, "14k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys4, (FieldPosition::Center, ScratchSide::Left), None, "4k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys6, (FieldPosition::Center, ScratchSide::Left), None, "6k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys8, (FieldPosition::Center, ScratchSide::Left), None, "8k"), 1);
 }
