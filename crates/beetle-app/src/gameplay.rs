@@ -39,7 +39,7 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .filter(|_| state.is_replay_playback)
         .and_then(|r| r.random_seed)
         .unwrap_or_else(fresh_seed);
-    state.loading_receiver = Some(spawn_background_song_loader(song, seed));
+    state.loading_receiver = Some(spawn_background_song_loader(song, seed, state.bga_enabled));
     state.window.request_redraw();
 }
 
@@ -219,7 +219,8 @@ pub fn finalize_start_gameplay(
     state.poor_until_time = 0.0;
     state.video_players = video_players;
     state.video_start_times = video_start_times;
-    state.active_bga_image = load_stage_image(song).map(|img| img.create_scaled(320, 180));
+    state.active_bga_image =
+        load_stage_image(song).filter(|_| state.bga_enabled).map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
     state.score_update = ScoreUpdate::default();

@@ -54,19 +54,23 @@ fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
 }
 
 pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, visual_levels: &[f32; 16]) {
-    let bga = gameplay_bga_texture(
-        &mut state.gpu_ui,
-        &mut state.d3d11,
-        &state.bga_bank,
-        &state.video_players,
-        state.poor_until_time,
-        state.poor_bga_bmp,
-        state.current_bga_bmp,
-        state.active_bga_image.as_ref(),
-        state.active_chart_id,
-        audio_time,
-    );
-    let layer = state.current_layer_bmp.and_then(|id| {
+    // BGA OFF: no texture lookups or uploads at all.
+    let bga = state.bga_enabled.then(|| {
+        gameplay_bga_texture(
+            &mut state.gpu_ui,
+            &mut state.d3d11,
+            &state.bga_bank,
+            &state.video_players,
+            state.poor_until_time,
+            state.poor_bga_bmp,
+            state.current_bga_bmp,
+            state.active_bga_image.as_ref(),
+            state.active_chart_id,
+            audio_time,
+        )
+    });
+    let bga = bga.flatten();
+    let layer = state.current_layer_bmp.filter(|_| state.bga_enabled).and_then(|id| {
         bga_texture(&mut state.gpu_ui, &mut state.d3d11, &state.bga_bank, &state.video_players, id, true)
     });
     state.view.clean_expired_hit_bursts(audio_time);
@@ -92,7 +96,7 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
                 visual_levels,
                 bga,
                 layer,
-                track_bga_opacity: state.track_bga.opacity(),
+                track_bga_opacity: if state.bga_enabled { state.track_bga.opacity() } else { 0.0 },
                 key_pressed: state.view.key_pressed(),
                 hit_bursts: state.view.hit_bursts(),
                 last_judge: state.view.last_judge(),
@@ -203,6 +207,7 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
         ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
         ("PLAYFIELD", state.view.skin.field_position.as_str().to_string()),
+        ("BGA", if state.bga_enabled { "ON" } else { "OFF" }.to_string()),
         ("TRACK BGA", state.track_bga.as_str().to_string()),
         ("DISPLAY MODE", state.display_mode.as_str().to_string()),
         ("RESOLUTION", state.current_resolution_label().to_string()),

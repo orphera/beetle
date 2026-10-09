@@ -194,6 +194,7 @@ pub struct AppState {
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
     pub track_bga: crate::config::TrackBgaSetting,
+    pub bga_enabled: bool,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     /// The song library being read on a worker thread (`AppScreen::Boot`).
@@ -360,6 +361,7 @@ impl AppState {
             window_height: size.height.max(480),
             target_fps: self.target_fps,
             track_bga: self.track_bga,
+            bga_enabled: self.bga_enabled,
         };
         app_config.save();
     }

@@ -173,6 +173,8 @@ pub struct AppConfig {
     pub window_height: u32,
     pub target_fps: u32,
     pub track_bga: TrackBgaSetting,
+    /// BGA images and videos: when off they are neither decoded nor drawn.
+    pub bga_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -193,6 +195,7 @@ impl Default for AppConfig {
             window_height: 720,
             target_fps: 240,
             track_bga: TrackBgaSetting::Off,
+            bga_enabled: true,
         }
     }
 }
@@ -330,6 +333,7 @@ impl AppConfig {
                     side_set[i] = true;
                 }
                 "eight_k_form" => config.eight_k_form = EightKForm::from_name(val),
+                "bga" => config.bga_enabled = val != "OFF",
                 "track_bga" => {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
@@ -362,7 +366,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -376,6 +380,7 @@ impl AppConfig {
             self.window_width,
             self.window_height,
             self.target_fps,
+            if self.bga_enabled { "ON" } else { "OFF" },
             self.track_bga.as_str(),
             self.field_position.as_str(),
             self.scratch_sides[0].as_str(),
@@ -430,6 +435,7 @@ mod tests {
             window_height: 1080,
             target_fps: 360,
             track_bga: TrackBgaSetting::Medium,
+            bga_enabled: false,
         };
 
         let serialized = config.serialize_str();
@@ -460,6 +466,7 @@ mod tests {
         assert_eq!(config.window_height, parsed.window_height);
         assert_eq!(config.target_fps, parsed.target_fps);
         assert_eq!(config.track_bga, parsed.track_bga);
+        assert_eq!(config.bga_enabled, parsed.bga_enabled);
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);
         assert_eq!(config.eight_k_form, parsed.eight_k_form);

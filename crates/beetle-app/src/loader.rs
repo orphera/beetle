@@ -535,7 +535,7 @@ pub fn load_chart_and_audio(
     HashMap<BmpId, ImageBuffer>,
     HashMap<BmpId, VideoSource>,
 ) {
-    load_chart_and_audio_with_seed(song, beetle_core::bms::DEFAULT_RANDOM_SEED)
+    load_chart_and_audio_with_seed(song, beetle_core::bms::DEFAULT_RANDOM_SEED, true)
 }
 
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
@@ -544,6 +544,7 @@ pub fn load_chart_and_audio(
 pub fn load_chart_and_audio_with_seed(
     song: &SongMetadata,
     seed: u64,
+    load_bga: bool,
 ) -> (
     BmsChart,
     TimingModel,
@@ -571,6 +572,9 @@ pub fn load_chart_and_audio_with_seed(
                 let content = beetle_core::decode_bms_text(&bms_bytes);
                 if let Ok(chart) = parse_bms_with_seed(&content, seed) {
                     let timing = TimingModel::from_chart(&chart);
+                    // BGA OFF: nothing to decode, so no image or video work.
+                    let no_bmps = HashMap::new();
+                    let bmp_table = if load_bga { &chart.header.bmp_table } else { &no_bmps };
                     let mut soundbank = SampleBank::new();
                     let mut bga_bank = HashMap::new();
                     let mut video_sources = HashMap::new();
@@ -633,7 +637,7 @@ pub fn load_chart_and_audio_with_seed(
                         if let Some(path) = delta_path {
                             if let Ok(delta_bytes) = pkg.read_entry(&path) {
                                 if let Ok(unpacked) = delta_meta.unpack_all(&delta_bytes) {
-                                    for (&bmp_id, filename) in &chart.header.bmp_table {
+                                    for (&bmp_id, filename) in bmp_table {
                                         if !bga_bank.contains_key(&bmp_id) {
                                             let norm = filename.replace('\\', "/");
                                             let file_name = Path::new(&norm)
@@ -693,7 +697,7 @@ pub fn load_chart_and_audio_with_seed(
                                 if let Ok(atlas_bytes) = pkg.read_entry(&path) {
                                     if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
                                         // Map chart BmpId -> chart filename -> atlas frame.
-                                        for (&bmp_id, filename) in &chart.header.bmp_table {
+                                        for (&bmp_id, filename) in bmp_table {
                                             if !bga_bank.contains_key(&bmp_id) {
                                                 let norm = filename.replace('\\', "/");
                                                 let file_name = Path::new(&norm)
@@ -736,7 +740,7 @@ pub fn load_chart_and_audio_with_seed(
                     }
 
                     if !loaded_bga {
-                        for (&bmp_id, filename) in &chart.header.bmp_table {
+                        for (&bmp_id, filename) in bmp_table {
                             if !is_video_path(filename) {
                                 if let Some(target_path) = pkg.find_entry_path(&base_dir, filename)
                                 {
@@ -751,15 +755,17 @@ pub fn load_chart_and_audio_with_seed(
                     }
 
                     // 1. Search videos inside primary .bmsp package
-                    load_videos_from_package_archive(
-                        &mut pkg,
-                        &base_dir,
-                        &chart,
-                        &mut video_sources,
-                    );
+                    if load_bga {
+                        load_videos_from_package_archive(
+                            &mut pkg,
+                            &base_dir,
+                            &chart,
+                            &mut video_sources,
+                        );
+                    }
 
                     // 2. Search companion BGA package if no video was found in primary package
-                    if video_sources.is_empty() {
+                    if load_bga && video_sources.is_empty() {
                         let pkg_file_path = Path::new(pkg_path);
                         let parent_dir = pkg_file_path.parent().unwrap_or_else(|| Path::new("."));
                         let pkg_stem = pkg_file_path
@@ -829,17 +835,19 @@ pub fn load_chart_and_audio_with_seed(
             let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
             let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
             let mut bga_bank = HashMap::new();
+            let no_bmps = HashMap::new();
+            let bmp_table = if load_bga { &chart.header.bmp_table } else { &no_bmps };
 
-            for (&bmp_id, filename) in &chart.header.bmp_table {
+            for (&bmp_id, filename) in bmp_table {
                 if let Some(img) = load_image_from_dir_or_case_insensitive(parent_dir, filename) {
                     bga_bank.insert(bmp_id, img);
                 }
             }
 
-            let mut video_sources = find_video_files_in_dir(parent_dir, &chart);
+            let mut video_sources = if load_bga { find_video_files_in_dir(parent_dir, &chart) } else { HashMap::new() };
 
             // If folder has no videos, check for adjacent companion package
-            if video_sources.is_empty() {
+            if load_bga && video_sources.is_empty() {
                 let dir_name = parent_dir
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -891,12 +899,12 @@ pub fn load_chart_and_audio_with_seed(
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
-pub fn spawn_background_song_loader(song: &SongMetadata, seed: u64) -> SongLoadReceiver {
+pub fn spawn_background_song_loader(song: &SongMetadata, seed: u64, load_bga: bool) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio_with_seed(&song_clone, seed);
+        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio_with_seed(&song_clone, seed, load_bga);
         let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_sources)));
     });
 

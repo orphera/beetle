@@ -7,7 +7,7 @@ const FPS_PRESETS: [u32; 6] = [60, 120, 144, 240, 360, 0];
 
 /// Rows of the play options modal, in the order `present::option_modal_rows`
 /// lists them (`state.modal_row` indexes this).
-pub const OPTION_ROWS: usize = 15;
+pub const OPTION_ROWS: usize = 16;
 
 /// Handles keyboard input when the play options modal is open.
 pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
@@ -73,28 +73,32 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             skin.set_field_layout(position, skin.scratch_side_of(skin.play_mode));
         }
         7 => {
+            // BGA on/off
+            state.bga_enabled = !state.bga_enabled;
+        }
+        8 => {
             // Track BGA
             state.track_bga = if forward { state.track_bga.next() } else { state.track_bga.prev() };
         }
-        8 => {
+        9 => {
             // Display Mode
             state.display_mode = if forward { state.display_mode.next() } else { state.display_mode.prev() };
             state.apply_display_mode();
         }
-        9 => {
+        10 => {
             // Resolution
             state.cycle_resolution(forward);
         }
-        10 => {
+        11 => {
             // Graphics GPU
             // Takes effect on the next start (see AppState::d3d11).
             state.gpu_backend = if forward { state.gpu_backend.next() } else { state.gpu_backend.prev() };
         }
-        11 => {
+        12 => {
             // Target FPS
             state.target_fps = cycle(&FPS_PRESETS, state.target_fps, forward);
         }
-        12 => {
+        13 => {
             // Key Layout (of the selected song's key mode); Enter edits it.
             if code == KeyCode::Enter || code == KeyCode::Space {
                 state.screen = AppScreen::KeyConfig;
@@ -107,11 +111,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
                 state.sync_eight_k_form();
             }
         }
-        13 => {
+        14 => {
             // Auto Play
             state.is_auto_play = !state.is_auto_play;
         }
-        14 => {
+        15 => {
             // Start Measure
             state.start_measure = if forward { (state.start_measure + 1).min(200) } else { state.start_measure.saturating_sub(1) };
         }

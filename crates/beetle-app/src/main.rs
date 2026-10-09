@@ -218,6 +218,7 @@ impl ApplicationHandler for BeetleApp {
             gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,
             track_bga: saved_config.track_bga,
+            bga_enabled: saved_config.bga_enabled,
             is_alt_pressed: false,
             bgm_cursor: 0,
             library_receiver: Some(library_receiver),
