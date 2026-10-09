@@ -7,7 +7,7 @@ use bms_package_manager::{
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
     RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -920,21 +920,40 @@ fn run_table_command(args: &[String]) {
             if index.locations.is_empty() {
                 eprintln!("Note: the collection index is empty. Run `bpm scan` first.");
             }
-            let mut matcher = TableIndex::new(tables);
-            matcher.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
-            for (table_index, table) in matcher.tables().iter().enumerate() {
-                let missing = matcher.missing_entries(table_index);
+            // A chart counts as owned only with an intact copy (every key sound next to it).
+            // A copy with key sounds missing is kept, but the body must come first.
+            let mut any_copy = TableIndex::new(tables.clone());
+            any_copy.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
+            let mut intact = TableIndex::new(tables);
+            intact.match_songs(
+                index
+                    .locations
+                    .iter()
+                    .filter(|l| l.is_intact())
+                    .map(|l| (l.chart, l.md5)),
+            );
+            for (table_index, table) in intact.tables().iter().enumerate() {
+                let missing = intact.missing_entries(table_index);
+                let no_copy: HashSet<usize> =
+                    any_copy.missing_entries(table_index).into_iter().collect();
+                let body_needed = missing.iter().filter(|i| !no_copy.contains(i)).count();
                 println!(
-                    "{} ({}): {} of {} charts missing",
+                    "{} ({}): {} of {} charts missing ({} need their body)",
                     table.name,
                     table.symbol,
                     missing.len(),
-                    table.entries.len()
+                    table.entries.len(),
+                    body_needed
                 );
                 for entry_index in missing {
                     let entry = &table.entries[entry_index];
+                    let tag = if no_copy.contains(&entry_index) {
+                        ""
+                    } else {
+                        "[body needed] "
+                    };
                     println!(
-                        "  #{:<5} {:<6} {} / {}",
+                        "  #{:<5} {:<6} {tag}{} / {}",
                         entry_index + 1,
                         entry.level,
                         entry.title,
@@ -1041,8 +1060,9 @@ fn fetch_difference_packs(
         let _ = fs::remove_dir_all(&scratch);
         match result {
             Ok((matched, pack_dir)) if matched > 0 => println!(
-                "#{number}: kept {matched} matching chart(s) in {}. Run `bpm scan` to index them.",
-                pack_dir.display()
+                "#{number}: kept {matched} matching chart(s) in {}. Run `bpm scan` to index them.\n         It counts as owned only once its key sounds are in the collection. Body page: {}",
+                pack_dir.display(),
+                entry.url
             ),
             Ok(_) => {
                 eprintln!("#{number}: no chart in the pack matches the table entry; nothing kept")
