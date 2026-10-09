@@ -64,3 +64,15 @@ Satellite 표(`https://stellabms.xyz/sl/table.html`)를 `bpm table add`로 설�
 - **BMS SEARCH**: 공식 API가 있다고 공지되어 있다(1절 참고). 검색과 목록에는 쓸 수 있지만, 파일 다운로드 API는 문서로 확인되지 않았다.
 
 따라서 2절과 3절의 설계는 그대로 유효하다. 2a(수동 내보내기)를 먼저 하고, 호스트별 처리는 실제 응답을 본 뒤 추가한다.
+
+### 6.1 BMS-Community/resources 확인 (2026-10-09)
+
+[BMS-Community/resources](https://github.com/BMS-Community/resources)는 링크 목록 저장소다. API나 해시 색인은 없다. 확인한 내용은 다음과 같다.
+
+- 표 목록 섹션은 표의 주소만 나열한다(Satellite, Stella, Stardust 등). `bpm table add`로 설치할 주소를 찾는 데는 쓸 수 있다.
+- "BMS uploader Mirror"(`darksabun.club/mirror/absolute/`)는 2015년 이후 갱신이 없고, 페이지에도 "현재 다운로드만"이라고 적혀 있다. 해시 조회는 없다.
+- "BMS uploader Mirror (alternative)"(`mirror.lovelyrad.io`)는 정적 디렉터리 목록이고, 2021년 이후 파일이 없는 폴더(`bof/`, `longnote/`, `turntable/`, `uploader/`)만 있다.
+- "Packages for all the major difficulty tables"는 `bms.kyouko.moe`를 가리키는데, 6절에서 확인한 대로 Google Drive로 이동된다.
+- 나머지 대부분은 Google Drive, Dropbox, OneDrive, pastebin 링크다. 자동 접근에 맞지 않는다.
+
+결론: 이 저장소에서도 해시로 곡을 찾아 받는 자동화 경로는 나오지 않았다. 2a(수동 내보내기)를 진행하는 방향은 바뀌지 않는다.
