@@ -8,9 +8,10 @@
 //! `bpm library` and every installed package state.
 
 use crate::manager::InstalledPackage;
-use beetle_core::{
-    choose_load_index, decode_bms_text, md5_from_hex, md5_to_hex, parse_bms, ChartId, SongMetadata,
+use beetle_core::key_sounds::{
+    count_missing, declared_key_sounds, folder_sound_candidates, without_extension,
 };
+use beetle_core::{choose_load_index, md5_from_hex, md5_to_hex, ChartId, SongMetadata};
 use bms_package::PackageReader;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -27,7 +28,6 @@ pub const TRASH_DIR: &str = ".bpm-trash";
 
 const SKIP_DIRS: &[&str] = &[TRASH_DIR, ".tmp_install"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
-const SOUND_EXTENSIONS: &[&str] = &["wav", "ogg", "flac", "mp3"];
 const HEADER_PREFIX: &str = "# bpm collection index";
 
 /// Where the index is kept: `collection.idx` in the working directory, or
@@ -340,11 +340,8 @@ fn folder_location(source: &str, root: &Path, file: &Path, bytes: &[u8]) -> Opti
         .collect::<Vec<_>>()
         .join("/");
     let meta = SongMetadata::from_bytes(&file.to_string_lossy(), bytes)?;
-    let names = declared_sounds(bytes)?;
-    let missing_keys = names
-        .iter()
-        .filter(|name| !folder_has_sound(chart_dir, name))
-        .count() as u32;
+    let names = declared_key_sounds(bytes)?;
+    let missing_keys = count_missing(&names, |name| folder_has_sound(chart_dir, name));
     Some(location_from(
         meta,
         LocationKind::Folder,
@@ -377,7 +374,7 @@ fn scan_package(source: &str, package: &InstalledPackage) -> Option<(Vec<Locatio
             continue;
         };
         let (meta, bytes) = meta;
-        let Some(names) = declared_sounds(&bytes) else {
+        let Some(names) = declared_key_sounds(&bytes) else {
             skipped += 1;
             continue;
         };
@@ -398,24 +395,10 @@ fn scan_package(source: &str, package: &InstalledPackage) -> Option<(Vec<Locatio
     Some((locations, skipped))
 }
 
-/// The key-sound file names a chart declares with `#WAVxx`.
-fn declared_sounds(bytes: &[u8]) -> Option<Vec<String>> {
-    let chart = parse_bms(&decode_bms_text(bytes)).ok()?;
-    let mut names: Vec<String> = chart.header.wav_table.values().cloned().collect();
-    names.sort();
-    names.dedup();
-    Some(names)
-}
-
 fn folder_has_sound(chart_dir: &Path, name: &str) -> bool {
-    let rel = name.trim().replace('\\', "/");
-    if chart_dir.join(&rel).is_file() {
-        return true;
-    }
-    let stem = without_extension(&rel);
-    SOUND_EXTENSIONS
+    folder_sound_candidates(name)
         .iter()
-        .any(|ext| chart_dir.join(format!("{stem}.{ext}")).is_file())
+        .any(|candidate| chart_dir.join(candidate).is_file())
 }
 
 fn location_from(
@@ -452,15 +435,6 @@ fn location_from(
 pub fn normalize_stem(name: &str) -> String {
     let unified = name.trim().replace('\\', "/").to_ascii_lowercase();
     without_extension(unified.trim_start_matches("./")).to_string()
-}
-
-/// Drops the extension of the last path segment, if it has one.
-fn without_extension(path: &str) -> &str {
-    let segment_start = path.rfind('/').map_or(0, |slash| slash + 1);
-    match path[segment_start..].rfind('.') {
-        Some(dot) if dot > 0 => &path[..segment_start + dot],
-        _ => path,
-    }
 }
 
 /// Escapes the characters that separate index fields, so any text fits on one line.
