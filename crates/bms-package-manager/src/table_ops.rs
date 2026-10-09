@@ -123,6 +123,17 @@ pub fn base_report(
     number: usize,
     index: &Index,
 ) -> Result<BaseReport, String> {
+    base_report_in(table, number, index, &base_match::places_from_index(index))
+}
+
+/// `base_report` with the places already built from `index`, for many entries in a row.
+/// `places` must come from this same `index` (`base_match::places_from_index`).
+pub fn base_report_in(
+    table: &DifficultyTable,
+    number: usize,
+    index: &Index,
+    places: &[base_match::Place],
+) -> Result<BaseReport, String> {
     let entry = number
         .checked_sub(1)
         .and_then(|i| table.entries.get(i))
@@ -137,7 +148,7 @@ pub fn base_report(
         title: &entry.title,
         artist: &entry.artist,
     };
-    let places = base_match::places_from_index(index);
+
     let copies: Vec<&Location> = index
         .locations
         .iter()
@@ -155,7 +166,7 @@ pub fn base_report(
         .or(copies.first())
     else {
         return Ok(BaseReport {
-            verdict: base_match::estimate(meta, &Default::default(), &places),
+            verdict: base_match::estimate(meta, &Default::default(), places),
             diff_copy: None,
             diff_places: Vec::new(),
             required: Default::default(),
@@ -180,11 +191,7 @@ pub fn base_report(
         .filter(|stem| !folder_keys.contains(*stem))
         .cloned()
         .collect();
-    let others: Vec<_> = places
-        .into_iter()
-        .filter(|place| !diff_places.contains(&place.id))
-        .collect();
-    let verdict = base_match::estimate(meta, &required, &others);
+    let verdict = base_match::estimate_excluding(meta, &required, places, &diff_places);
     Ok(BaseReport {
         verdict,
         diff_copy: Some(copy.chart),

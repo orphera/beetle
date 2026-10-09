@@ -45,8 +45,8 @@ pub struct Place {
     pub id: String,
     /// Key sounds (normalized stems) of the intact charts in this place.
     pub keys: BTreeSet<String>,
-    /// Raw (title, artist) of every chart in this place, intact or not.
-    pub charts: Vec<(String, String)>,
+    /// Comparison form (see `title_key`, `artist_key`) of the (title, artist) of every chart in this place, intact or not.
+    charts: Vec<(String, String)>,
 }
 
 /// A place that shares key sounds with the difference.
@@ -137,14 +137,31 @@ fn bigram_counts(chars: &[char]) -> BTreeMap<(char, char), usize> {
 /// Strong: artist matches and the title matches exactly or strongly.
 /// Weak: the title matches exactly, or the artist does, or the title is similar.
 pub fn evidence(entry: EntryMeta, chart_title: &str, chart_artist: &str) -> Evidence {
-    let entry_title = title_key(entry.title);
-    let chart_title = title_key(chart_title);
-    let entry_artist = artist_key(entry.artist);
-    let chart_artist = artist_key(chart_artist);
+    evidence_keys(
+        &normalized_entry(entry),
+        &title_key(chart_title),
+        &artist_key(chart_artist),
+    )
+}
 
-    let title_exact = !entry_title.is_empty() && entry_title == chart_title;
-    let artist_exact = !entry_artist.is_empty() && entry_artist == chart_artist;
-    let similarity = title_similarity(&entry_title, &chart_title);
+/// The difference's title and artist in comparison form, computed once per estimate.
+struct NormalizedEntry {
+    title: String,
+    artist: String,
+}
+
+fn normalized_entry(entry: EntryMeta) -> NormalizedEntry {
+    NormalizedEntry {
+        title: title_key(entry.title),
+        artist: artist_key(entry.artist),
+    }
+}
+
+/// `evidence` with both sides already in comparison form.
+fn evidence_keys(entry: &NormalizedEntry, chart_title: &str, chart_artist: &str) -> Evidence {
+    let title_exact = !entry.title.is_empty() && entry.title == chart_title;
+    let artist_exact = !entry.artist.is_empty() && entry.artist == chart_artist;
+    let similarity = title_similarity(&entry.title, chart_title);
 
     if artist_exact && (title_exact || similarity >= TITLE_STRONG) {
         Evidence::Strong
@@ -160,12 +177,12 @@ fn title_key(title: &str) -> String {
     title_base(title).to_ascii_lowercase()
 }
 
-/// Best evidence any chart of a place gives.
-fn place_evidence(entry: EntryMeta, place: &Place) -> Evidence {
+/// Best evidence any chart of a place gives. The place's charts are already in comparison form.
+fn place_evidence(entry: &NormalizedEntry, place: &Place) -> Evidence {
     place
         .charts
         .iter()
-        .map(|(title, artist)| evidence(entry, title, artist))
+        .map(|(title, artist)| evidence_keys(entry, title, artist))
         .max()
         .unwrap_or(Evidence::None)
 }
@@ -180,7 +197,7 @@ fn is_serial_place(place: &Place) -> bool {
 /// strong match is never pushed out by weaker ones. Only the output is capped to
 /// `Weak`: metadata alone is never strong.
 fn metadata_list<'a>(
-    entry: EntryMeta,
+    entry: &NormalizedEntry,
     places: impl Iterator<Item = &'a Place>,
 ) -> Vec<MetadataCandidate> {
     let mut found: Vec<(Evidence, &str)> = places
@@ -213,7 +230,7 @@ fn shared_if_passing(required: &BTreeSet<String>, place: &Place) -> Option<usize
 
 /// Stage A: places whose charts agree with the difference's title and artist.
 pub fn metadata_candidates(entry: EntryMeta, places: &[Place]) -> Vec<MetadataCandidate> {
-    metadata_list(entry, places.iter())
+    metadata_list(&normalized_entry(entry), places.iter())
 }
 
 /// Stage B: places that pass the key-sound filters, best first.
@@ -225,11 +242,25 @@ pub fn key_candidates(
     required: &BTreeSet<String>,
     places: &[Place],
 ) -> Vec<Candidate> {
+    key_candidates_in(
+        &normalized_entry(entry),
+        required,
+        &places.iter().collect::<Vec<_>>(),
+    )
+}
+
+/// `key_candidates` over places given by reference, so callers can leave some out
+/// without copying their keys.
+fn key_candidates_in(
+    entry: &NormalizedEntry,
+    required: &BTreeSet<String>,
+    places: &[&Place],
+) -> Vec<Candidate> {
     let mut out = Vec::new();
     if required.is_empty() {
         return out;
     }
-    for place in places {
+    for &place in places {
         // Cheap filters first; the serial check runs only on places that survive them.
         let Some(shared) = shared_if_passing(required, place) else {
             continue;
@@ -276,15 +307,36 @@ fn meets_confident_bar(candidate: &Candidate) -> bool {
 /// Callers pass an empty `required` set when the difference's sounds could not be
 /// read (parse failure), so this falls back to metadata.
 pub fn estimate(entry: EntryMeta, required: &BTreeSet<String>, places: &[Place]) -> Verdict {
+    estimate_excluding(entry, required, places, &BTreeSet::new())
+}
+
+/// `estimate`, leaving out the places whose ids are in `excluded` (for example the
+/// places holding the difference itself).
+pub fn estimate_excluding(
+    entry: EntryMeta,
+    required: &BTreeSet<String>,
+    places: &[Place],
+    excluded: &BTreeSet<String>,
+) -> Verdict {
+    let active: Vec<&Place> = places
+        .iter()
+        .filter(|place| !excluded.contains(&place.id))
+        .collect();
+    estimate_in(entry, required, &active)
+}
+
+fn estimate_in(entry: EntryMeta, required: &BTreeSet<String>, places: &[&Place]) -> Verdict {
+    let entry = &normalized_entry(entry);
     if required.is_empty() || mostly_serial_names(required.iter().map(String::as_str)) {
-        return Verdict::MetadataOnly(metadata_candidates(entry, places));
+        return Verdict::MetadataOnly(metadata_list(entry, places.iter().copied()));
     }
-    let candidates = key_candidates(entry, required, places);
+    let candidates = key_candidates_in(entry, required, places);
     let Some(top) = candidates.first() else {
         // Places that passed the key filters but were skipped for serial names: the
         // only ones that would have been key candidates, so the only ones to show by metadata.
         let skipped_serial = places
             .iter()
+            .copied()
             .filter(|place| shared_if_passing(required, place).is_some() && is_serial_place(place));
         return Verdict::NoKeyMatch(metadata_list(entry, skipped_serial));
     };
@@ -321,7 +373,7 @@ pub fn places_from_index(index: &Index) -> Vec<Place> {
         });
         place
             .charts
-            .push((location.title.clone(), location.artist.clone()));
+            .push((title_key(&location.title), artist_key(&location.artist)));
         if location.is_intact() {
             place.keys.extend(location.key_stems.iter().cloned());
         }
@@ -345,7 +397,7 @@ mod tests {
             keys: set(keys),
             charts: charts
                 .iter()
-                .map(|(t, a)| (t.to_string(), a.to_string()))
+                .map(|(t, a)| (title_key(t), artist_key(a)))
                 .collect(),
         }
     }
