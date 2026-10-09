@@ -184,14 +184,12 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
         .and_then(|n| n.to_str())
         .unwrap_or("bms_song");
 
-    let mut found_title = String::new();
-    let mut found_artist = String::new();
     let mut found_genre = String::new();
 
     // Look for .bms, .bme, .bml, .pms files in target_dir
+    let mut bms_paths = Vec::new();
     for entry in fs::read_dir(target_dir)? {
-        let entry = entry?;
-        let path = entry.path();
+        let path = entry?.path();
         if path.is_file() {
             let ext = path
                 .extension()
@@ -200,34 +198,34 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
                 .to_ascii_lowercase();
 
             if matches!(ext.as_str(), "bms" | "bme" | "bml" | "pms") {
-                if let Ok(bytes) = fs::read(&path) {
-                    let content = String::from_utf8_lossy(&bytes);
-                    let (title, artist, genre) = extract_bms_header_tags(&content);
-                    if !title.is_empty() && found_title.is_empty() {
-                        found_title = title;
-                    }
-                    if !artist.is_empty() && found_artist.is_empty() {
-                        found_artist = artist;
-                    }
-                    if !genre.is_empty() && found_genre.is_empty() {
-                        found_genre = genre;
-                    }
-                }
+                bms_paths.push(path);
+            }
+        }
+    }
+    // read_dir order is platform-defined; sort so the chosen values are the same on every run.
+    bms_paths.sort();
+
+    let mut titles = Vec::new();
+    let mut artists = Vec::new();
+    for path in &bms_paths {
+        if let Ok(bytes) = fs::read(path) {
+            let content = String::from_utf8_lossy(&bytes);
+            let (title, artist, genre) = extract_bms_header_tags(&content);
+            if !title.is_empty() {
+                titles.push(canonicalize_title(&title));
+            }
+            if !artist.is_empty() {
+                artists.push(artist);
+            }
+            if !genre.is_empty() && found_genre.is_empty() {
+                found_genre = genre;
             }
         }
     }
 
-    let final_title = if !found_title.is_empty() {
-        found_title
-    } else {
-        dir_name.to_string()
-    };
+    let final_title = pick_most_common(&titles).unwrap_or_else(|| canonicalize_title(dir_name));
 
-    let final_artist = if !found_artist.is_empty() {
-        found_artist
-    } else {
-        "Unknown".to_string()
-    };
+    let final_artist = pick_most_common(&artists).unwrap_or_else(|| "Unknown".to_string());
 
     let package_id = generate_slug_id(&final_artist, &final_title);
 
@@ -829,6 +827,114 @@ fn extract_bms_header_tags(content: &str) -> (String, String, String) {
     (title, artist, genre)
 }
 
+/// Strips chart-variant brackets such as `(14K Normal)` or `[Tora no another]` from a title.
+///
+/// A top-level bracket group is dropped when its content contains a difficulty, mode or key-count
+/// token. Other brackets (`(Remix)`, `(Official)`) are kept. If nothing usable remains, the
+/// original title is returned unchanged.
+fn canonicalize_title(raw: &str) -> String {
+    let mut kept = String::with_capacity(raw.len());
+    let mut open_at = None;
+    let mut depth = 0usize;
+
+    for (i, c) in raw.char_indices() {
+        if matches!(c, '(' | '[' | '{') {
+            if depth == 0 {
+                open_at = Some(i);
+            }
+            depth += 1;
+        } else if matches!(c, ')' | ']' | '}') && depth > 0 {
+            depth -= 1;
+            if depth == 0 {
+                let start = open_at.take().unwrap_or(i);
+                if !is_variant_marker(&raw[start + 1..i]) {
+                    kept.push_str(&raw[start..=i]);
+                }
+            }
+        } else if depth == 0 {
+            kept.push(c);
+        }
+    }
+    // An unclosed bracket is not a variant marker we can trust, so keep it verbatim.
+    if let Some(start) = open_at {
+        kept.push_str(&raw[start..]);
+    }
+
+    let canonical = kept
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches(['-', '_', '/', ':'])
+        .trim_end()
+        .to_string();
+
+    if canonical.is_empty() {
+        raw.trim().to_string()
+    } else {
+        canonical
+    }
+}
+
+/// Picks the value shared by the most charts in a folder (title or artist). Ties go to the
+/// lexicographically smallest value, so the result does not depend on file order.
+fn pick_most_common(values: &[String]) -> Option<String> {
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for value in values {
+        *counts.entry(value.as_str()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(value, _)| value.to_string())
+}
+
+/// Difficulty and mode words that appear in chart-variant brackets. Matched as whole words.
+const VARIANT_TOKENS: &[&str] = &[
+    "beginner",
+    "normal",
+    "hyper",
+    "another",
+    "insane",
+    "leggendaria",
+    "expert",
+    "oni",
+    "sp",
+    "dp",
+    "spa",
+    "spb",
+    "spn",
+    "sph",
+    "spl",
+    "dpa",
+    "dpn",
+    "dph",
+];
+
+fn is_variant_marker(inner: &str) -> bool {
+    inner
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_lowercase)
+        .any(|t| VARIANT_TOKENS.contains(&t.as_str()) || is_key_count(&t) || is_level_token(&t))
+}
+
+/// Matches key-count tokens such as `7k`, `14k`, `7key`, `14keys`.
+fn is_key_count(token: &str) -> bool {
+    ["keys", "key", "k"].iter().any(|suffix| {
+        token
+            .strip_suffix(suffix)
+            .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
+/// Matches level tokens such as `lv12`, `level12`.
+fn is_level_token(token: &str) -> bool {
+    token
+        .strip_prefix("lv")
+        .or_else(|| token.strip_prefix("level"))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn generate_slug_id(artist: &str, title: &str) -> String {
     let clean_artist = slugify(artist);
     let clean_title = slugify(title);
@@ -866,6 +972,77 @@ mod tests {
         assert_eq!(slugify("DJ MAX - Techno"), "dj_max_techno");
         assert_eq!(slugify("곡 제목 (2026)"), "2026");
         assert_eq!(generate_slug_id("Tatsh", "RED ZONE"), "tatsh.red_zone");
+    }
+
+    #[test]
+    fn test_canonicalize_title_strips_chart_variant_brackets() {
+        assert_eq!(canonicalize_title("Song (14K Normal)"), "Song");
+        assert_eq!(
+            canonicalize_title("Tora no Song [Tora no another]"),
+            "Tora no Song"
+        );
+        assert_eq!(
+            canonicalize_title("aliceblue (Radio Edit) (SP ANOTHER)"),
+            "aliceblue (Radio Edit)"
+        );
+        assert_eq!(
+            canonicalize_title("곡 제목 [7K Hyper] (Remix)"),
+            "곡 제목 (Remix)"
+        );
+        assert_eq!(canonicalize_title("Song [Lv12] (14keys)"), "Song");
+    }
+
+    #[test]
+    fn test_canonicalize_title_keeps_ordinary_titles() {
+        assert_eq!(
+            canonicalize_title("Conflict (Official)"),
+            "Conflict (Official)"
+        );
+        assert_eq!(canonicalize_title("Anotherway"), "Anotherway");
+        assert_eq!(canonicalize_title("Unclosed (14K"), "Unclosed (14K");
+        // Nothing left after stripping falls back to the original title.
+        assert_eq!(canonicalize_title("(14K Normal)"), "(14K Normal)");
+    }
+
+    #[test]
+    fn test_pick_most_common_uses_majority_then_smallest() {
+        let values = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            pick_most_common(&values(&["Song", "Other", "Song"])),
+            Some("Song".to_string())
+        );
+        assert_eq!(
+            pick_most_common(&values(&["Zeta", "Alpha"])),
+            Some("Alpha".to_string())
+        );
+        assert_eq!(pick_most_common(&[]), None);
+    }
+
+    #[test]
+    fn test_analyze_bms_folder_votes_over_all_charts() {
+        let dir = std::env::temp_dir().join(format!(
+            "bpm_analyze_vote_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.bms"), "#TITLE Song (Odd Remix)\n#ARTIST Odd\n").unwrap();
+        fs::write(dir.join("b.bme"), "#TITLE Song (14K Normal)\n#ARTIST X\n").unwrap();
+        fs::write(
+            dir.join("c.pms"),
+            "#TITLE Song [Tora no another]\n#ARTIST X\n",
+        )
+        .unwrap();
+        fs::write(dir.join("d.bml"), "#TITLE Song (14K Hyper)\n#ARTIST Y\n").unwrap();
+
+        let manifest = analyze_bms_folder(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(manifest.name, "Song");
+        assert_eq!(manifest.author.as_deref(), Some("X"));
+        assert_eq!(manifest.id, "x.song");
     }
 
     #[test]
