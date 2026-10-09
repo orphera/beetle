@@ -834,7 +834,7 @@ fn extract_bms_header_tags(content: &str) -> (String, String, String) {
 /// A top-level bracket group is dropped when its content contains a difficulty, mode or key-count
 /// token. Other brackets (`(Remix)`, `(Official)`) are kept. If nothing usable remains, the
 /// original title is returned unchanged.
-fn canonicalize_title(raw: &str) -> String {
+pub(crate) fn canonicalize_title(raw: &str) -> String {
     let mut kept = String::with_capacity(raw.len());
     let mut open_at = None;
     let mut depth = 0usize;

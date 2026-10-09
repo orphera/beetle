@@ -1,4 +1,5 @@
 use bms_package_manager::collection::{self, LocationKind};
+use bms_package_manager::songs;
 use bms_package_manager::{
     absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
@@ -16,6 +17,10 @@ fn print_usage() {
     println!("  bpm scan                               Index registered folders and installed packages (collection.idx)");
     println!("  bpm status                             Summarize the collection index: charts, copies, duplicates");
     println!("  bpm dupes [--kind folder|mixed]        List charts that exist in more than one place, with the copy that loads");
+    println!("  bpm songs [filters]                    List songs (charts grouped by title, artist and key sounds)");
+    println!("  bpm song <id|title>                    Show one song: its charts, copies, the copy that loads, candidates");
+    println!("  bpm song link|unlink <chart>...        Group charts by hand, or take a chart out of its manual group");
+    println!("  bpm charts [filters]                   List charts with their song, mode, level and copies");
     println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
     println!("  bpm search <query>                     Search remote packages across configured registries");
@@ -273,6 +278,298 @@ fn run_dupes(args: &[String]) {
             None => {}
         }
     }
+}
+
+#[derive(Default)]
+struct ChartFilter {
+    mode: Option<String>,
+    level: Option<u32>,
+    packaged: Option<bool>,
+    dupes: bool,
+}
+
+fn parse_chart_filter(args: &[String]) -> ChartFilter {
+    const USAGE: &str = "usage: [--mode 7k] [--level N] [--packaged|--unpackaged] [--dupes]";
+    let mut filter = ChartFilter::default();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--mode" => {
+                let value = it.next().unwrap_or_else(|| exit_with(&USAGE));
+                filter.mode = Some(normalize_mode(value));
+            }
+            "--level" => {
+                let value = it.next().unwrap_or_else(|| exit_with(&USAGE));
+                filter.level = Some(value.parse().unwrap_or_else(|_| {
+                    exit_with(&format!("--level expects a number, got '{value}'"))
+                }));
+            }
+            "--packaged" => filter.packaged = Some(true),
+            "--unpackaged" => filter.packaged = Some(false),
+            "--dupes" => filter.dupes = true,
+            _ => exit_with(&USAGE),
+        }
+    }
+    filter
+}
+
+/// `7k`, `7K` and `7KEYS` all name the same mode.
+fn normalize_mode(text: &str) -> String {
+    text.to_ascii_uppercase().replace("KEYS", "K")
+}
+
+fn chart_matches(record: &songs::ChartRecord, filter: &ChartFilter) -> bool {
+    filter
+        .mode
+        .as_ref()
+        .is_none_or(|m| *m == normalize_mode(&record.mode))
+        && filter.level.is_none_or(|l| l == record.play_level)
+        && filter.packaged.is_none_or(|p| p == record.is_packaged())
+        && (!filter.dupes || record.copies.len() > 1)
+}
+
+fn run_songs(args: &[String]) {
+    let filter = parse_chart_filter(args);
+    let index = load_index_or_exit();
+    let collection = songs::build(&index, &songs::load_links());
+
+    let rows: Vec<_> = collection
+        .songs
+        .iter()
+        .filter_map(|song| {
+            let matching = song
+                .charts
+                .iter()
+                .filter(|&&i| chart_matches(&collection.records[i], &filter))
+                .count();
+            (matching > 0).then_some((song, matching))
+        })
+        .collect();
+    println!(
+        "{:<10} {:<34} {:<22} {:>7} {:>7}  PACKAGED",
+        "SONG", "TITLE", "ARTIST", "CHARTS", "COPIES"
+    );
+    println!("{:-<90}", "");
+    for (song, matching) in &rows {
+        let copies: usize = song
+            .charts
+            .iter()
+            .map(|&i| collection.records[i].copies.len())
+            .sum();
+        let packaged = song
+            .charts
+            .iter()
+            .filter(|&&i| collection.records[i].is_packaged())
+            .count();
+        println!(
+            "{:<10} {:<34} {:<22} {:>7} {:>7}  {}",
+            song.id,
+            truncate(&song.title, 34),
+            truncate(&song.artist, 22),
+            format!("{matching}/{}", song.charts.len()),
+            copies,
+            packaged
+        );
+    }
+    println!("{} song(s)", rows.len());
+}
+
+fn run_charts(args: &[String]) {
+    let filter = parse_chart_filter(args);
+    let index = load_index_or_exit();
+    let collection = songs::build(&index, &songs::load_links());
+    let mut song_of = vec![String::new(); collection.records.len()];
+    for song in &collection.songs {
+        for &i in &song.charts {
+            song_of[i] = song.id.clone();
+        }
+    }
+
+    let mut shown = 0;
+    println!(
+        "{:<10} {:<17} {:<7} {:>3} {:>9}  TITLE / ARTIST",
+        "SONG", "CHART", "MODE", "LV", "COPIES"
+    );
+    println!("{:-<90}", "");
+    for (i, record) in collection.records.iter().enumerate() {
+        if !chart_matches(record, &filter) {
+            continue;
+        }
+        shown += 1;
+        let folders = record
+            .copies
+            .iter()
+            .filter(|c| c.kind == LocationKind::Folder)
+            .count();
+        println!(
+            "{:<10} {:<17} {:<7} {:>3} {:>9}  {} / {}",
+            song_of[i],
+            record.chart.short(),
+            normalize_mode(&record.mode),
+            record.play_level,
+            format!("{}f {}p", folders, record.copies.len() - folders),
+            truncate(&record.title, 40),
+            record.artist
+        );
+    }
+    println!("{shown} chart(s)");
+}
+
+fn truncate(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        text.to_string()
+    } else {
+        let kept: String = text.chars().take(width.saturating_sub(1)).collect();
+        format!("{kept}~")
+    }
+}
+
+/// A chart named by its full id (with or without `sha256:`) or by a unique hex prefix of at least 8 characters.
+fn resolve_chart(index: &collection::Index, text: &str) -> beetle_core::ChartId {
+    if let Some(id) = beetle_core::ChartId::from_hex(text) {
+        return id;
+    }
+    let hex = text
+        .strip_prefix("sha256:")
+        .unwrap_or(text)
+        .to_ascii_lowercase();
+    if hex.len() < 8 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        exit_with(&format!(
+            "'{text}' is not a chart id (use 8+ hex characters)"
+        ));
+    }
+    let matches: BTreeSet<beetle_core::ChartId> = index
+        .locations
+        .iter()
+        .map(|l| l.chart)
+        .filter(|id| id.to_hex().starts_with(&hex))
+        .collect();
+    match matches.len() {
+        1 => *matches
+            .iter()
+            .next()
+            .unwrap_or_else(|| exit_with(&"unreachable")),
+        0 => exit_with(&format!("no chart starts with '{text}'")),
+        n => exit_with(&format!("'{text}' matches {n} charts; use more characters")),
+    }
+}
+
+fn run_song(args: &[String]) {
+    match args.first().map(String::as_str) {
+        Some("link") => return run_song_link(&args[1..]),
+        Some("unlink") => return run_song_unlink(&args[1..]),
+        None => exit_with(&"usage: bpm song <song id or title> | link <chart>... | unlink <chart>"),
+        _ => {}
+    }
+    let query = args.join(" ");
+    let index = load_index_or_exit();
+    let collection = songs::build(&index, &songs::load_links());
+
+    let lowered = query.to_ascii_lowercase();
+    let found: Vec<&songs::Song> = collection
+        .songs
+        .iter()
+        .filter(|s| s.id.starts_with(&lowered) || s.title.to_ascii_lowercase() == lowered)
+        .collect();
+    let song = match found.as_slice() {
+        [one] => *one,
+        [] => exit_with(&format!("no song matches '{query}'")),
+        many => {
+            let list: Vec<String> = many
+                .iter()
+                .map(|s| format!("{} {} / {}", s.id, s.title, s.artist))
+                .collect();
+            exit_with(&format!(
+                "'{query}' matches {} songs; use the id:\n  {}",
+                many.len(),
+                list.join("\n  ")
+            ))
+        }
+    };
+
+    let copies: usize = song
+        .charts
+        .iter()
+        .map(|&i| collection.records[i].copies.len())
+        .sum();
+    let packaged = song
+        .charts
+        .iter()
+        .filter(|&&i| collection.records[i].is_packaged())
+        .count();
+    println!("{} / {}   song:{}", song.title, song.artist, song.id);
+    println!(
+        "  charts {} · copies {copies} · packaged charts {packaged}",
+        song.charts.len()
+    );
+    for &i in &song.charts {
+        let record = &collection.records[i];
+        println!();
+        println!(
+            "  {} {} lv{}  {}  copies {}",
+            normalize_mode(&record.mode),
+            record.title,
+            record.play_level,
+            record.chart.short(),
+            record.copies.len()
+        );
+        for copy in &record.copies {
+            println!("    {}", describe_location(copy));
+        }
+        if let Some(loaded) = collection::Index::load_index(&record.copies) {
+            let copy = record.copies[loaded];
+            let note = if copy.is_intact() {
+                "first intact copy".to_string()
+            } else {
+                format!("no intact copy; {} key sound(s) missing", copy.missing_keys)
+            };
+            println!("    loads: {} ({note})", describe_location(copy));
+        }
+    }
+    if !song.candidates.is_empty() {
+        println!();
+        println!("  candidates (same title and artist, key sounds differ; not merged):");
+        for &c in &song.candidates {
+            let other = &collection.songs[c];
+            println!(
+                "    {} {} / {}  charts {}",
+                other.id,
+                other.title,
+                other.artist,
+                other.charts.len()
+            );
+        }
+    }
+}
+
+fn run_song_link(args: &[String]) {
+    if args.len() < 2 {
+        exit_with(&"usage: bpm song link <chart> <chart> [...]");
+    }
+    let index = load_index_or_exit();
+    let group: Vec<beetle_core::ChartId> = args.iter().map(|a| resolve_chart(&index, a)).collect();
+    let mut links = songs::load_links();
+    links.push(group.clone());
+    songs::save_links(&links).unwrap_or_else(|e| exit_with(&e));
+    println!("Linked {} charts into one song.", group.len());
+}
+
+fn run_song_unlink(args: &[String]) {
+    if args.len() != 1 {
+        exit_with(&"usage: bpm song unlink <chart>");
+    }
+    let index = load_index_or_exit();
+    let chart = resolve_chart(&index, &args[0]);
+    let mut links = songs::load_links();
+    let mut removed = 0;
+    for group in &mut links {
+        let before = group.len();
+        group.retain(|id| *id != chart);
+        removed += before - group.len();
+    }
+    links.retain(|group| group.len() > 1);
+    songs::save_links(&links).unwrap_or_else(|e| exit_with(&e));
+    println!("Removed {removed} manual link(s) for {}.", chart.short());
 }
 
 fn describe_location(copy: &collection::Location) -> String {
@@ -1307,6 +1604,9 @@ fn main() -> Result<(), PackageManagerError> {
         "scan" => run_scan(&manager),
         "status" => run_status(),
         "dupes" => run_dupes(&args[2..]),
+        "songs" => run_songs(&args[2..]),
+        "song" => run_song(&args[2..]),
+        "charts" => run_charts(&args[2..]),
         "list" => {
             let packages = manager.list_active_packages();
             if packages.is_empty() {

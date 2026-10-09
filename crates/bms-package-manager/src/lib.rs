@@ -13,6 +13,7 @@ pub mod net;
 pub mod pack;
 pub mod registry;
 pub mod serve;
+pub mod songs;
 pub mod storage;
 pub mod table;
 pub mod updater;
