@@ -237,6 +237,7 @@ dependencies = [
 name = "bpm-gui"
 version = "0.1.0"
 dependencies = [
+ "beetle-core",
  "beetle-render",
  "bms-package",
  "bms-package-manager",

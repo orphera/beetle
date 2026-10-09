@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 bms-package = { workspace = true }
 bms-package-manager = { workspace = true }
+beetle-core = { workspace = true }
 beetle-render = { workspace = true }
 winit = { workspace = true }
 softbuffer = { workspace = true }

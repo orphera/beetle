@@ -13,6 +13,7 @@ use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
 pub enum ActiveTab {
     Installed,
     OnlineHub,
+    Tables,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +123,7 @@ impl GuiRenderer {
         status_msg: &str,
         modal_info: Option<ModalDisplayInfo>,
         bg_task_info: Option<TaskProgressInfo>,
+        tables: &mut crate::tables_tab::TablesTab,
     ) {
         let w = self.pixmap.width() as f32;
         let h = self.pixmap.height() as f32;
@@ -209,8 +211,40 @@ impl GuiRenderer {
             tab2_fg,
         );
 
+        let tab3_x = 520.0;
+        let tab3_w = 150.0;
+        let tab3_active = active_tab == ActiveTab::Tables;
+        let tab3_bg = if tab3_active {
+            ColorRgba::new(40, 28, 60, 255)
+        } else {
+            ColorRgba::new(20, 20, 28, 255)
+        };
+        let tab3_border = if tab3_active {
+            ColorRgba::new(200, 150, 255, 255)
+        } else {
+            ColorRgba::new(50, 50, 70, 255)
+        };
+        let tab3_fg = if tab3_active {
+            ColorRgba::new(215, 180, 255, 255)
+        } else {
+            ColorRgba::new(140, 140, 160, 255)
+        };
+        self.draw_rect(tab3_x, 14.0, tab3_w, 28.0, tab3_bg);
+        self.draw_rect(tab3_x, 14.0, tab3_w, 1.0, tab3_border);
+        self.draw_rect(tab3_x, 41.0, tab3_w, 1.0, tab3_border);
+        self.draw_rect(tab3_x, 14.0, 1.0, 28.0, tab3_border);
+        self.draw_rect(tab3_x + tab3_w - 1.0, 14.0, 1.0, 28.0, tab3_border);
+        BitmapFont::draw_text_centered(
+            &mut self.pixmap.as_mut(),
+            "[3] Tables",
+            (tab3_x + tab3_w / 2.0) as i32,
+            22,
+            1,
+            tab3_fg,
+        );
+
         // Search Input Box
-        let search_box_x = (w - 320.0).max(520.0);
+        let search_box_x = (w - 320.0).max(690.0);
         let s_w = w - search_box_x - 16.0;
         let search_border_col = if is_search_active {
             ColorRgba::new(255, 220, 80, 255)
@@ -614,7 +648,7 @@ impl GuiRenderer {
                     ColorRgba::new(130, 170, 220, 255),
                 );
             } // ends if let Some(&selected_pkg)
-        } else {
+        } else if active_tab == ActiveTab::OnlineHub {
             self.render_online_hub(
                 w,
                 h,
@@ -624,6 +658,8 @@ impl GuiRenderer {
                 remote_selected_idx,
                 remote_level_filter,
             );
+        } else {
+            tables.draw(self, 16.0, content_y, w - 32.0, content_h);
         }
 
         // 5. Bottom Status / Footer Bar
@@ -652,10 +688,15 @@ impl GuiRenderer {
                 "[Up/Down]: Move  [I]: Import  [L]: Legacy folders  [P]: Pack  [T]: Turbo",
                 "[S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub",
             )
-        } else {
+        } else if active_tab == ActiveTab::OnlineHub {
             (
                 "[Up/Down]: Move  [Enter]/[I]: Install  [U]: Upgrade  [B]: With BGA",
-                "[0-4]: Filter  [F5]: Refresh  [Tab]: Installed",
+                "[0-4]: Filter  [F5]: Refresh  [Tab]: Tables",
+            )
+        } else {
+            (
+                "[Up/Down]: Move  [[ ]]: Switch table  [O]: Open body  [D]: Get diff  [G]: Get from body",
+                "[S]: Scan  [R]: Reload index  [Tab]: Installed",
             )
         };
         for (i, line) in [help_line1, help_line2].iter().enumerate() {

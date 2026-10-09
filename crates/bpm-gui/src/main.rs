@@ -3,6 +3,7 @@
 mod bitmap_font;
 mod clipboard;
 mod image_draw;
+mod tables_tab;
 mod ui;
 
 use beetle_render::image::ImageBuffer;
@@ -80,6 +81,7 @@ struct AppState {
     spinner_frame: usize,
     last_anim_time: Instant,
     active_tab: ui::ActiveTab,
+    tables: tables_tab::TablesTab,
     remote_packages: Vec<ui::RemotePackageDisplayInfo>,
     remote_raw_packages: Vec<(bms_package_manager::RemotePackageMetadata, String)>,
     remote_filtered_indices: Vec<usize>,
@@ -407,6 +409,7 @@ impl ApplicationHandler for BpmGuiApp {
             spinner_frame: 0,
             last_anim_time: Instant::now(),
             active_tab: ui::ActiveTab::Installed,
+            tables: tables_tab::TablesTab::load(),
             remote_packages: Vec::new(),
             remote_raw_packages: Vec::new(),
             remote_filtered_indices: Vec::new(),
@@ -532,8 +535,13 @@ impl ApplicationHandler for BpmGuiApp {
                     state.active_tab = ui::ActiveTab::OnlineHub;
                     state.is_search_active = false;
                     state.window.request_redraw();
+                } else if (14.0..=42.0).contains(&my) && (520.0..=670.0).contains(&mx) {
+                    // Tab 3: Tables
+                    state.active_tab = ui::ActiveTab::Tables;
+                    state.is_search_active = false;
+                    state.window.request_redraw();
                 } else {
-                    let search_box_x = (w - 320.0).max(520.0);
+                    let search_box_x = (w - 320.0).max(690.0);
                     let s_w = w - search_box_x - 16.0;
                     if (14.0..=42.0).contains(&my)
                         && (search_box_x..=(search_box_x + s_w)).contains(&mx)
@@ -711,6 +719,7 @@ impl ApplicationHandler for BpmGuiApp {
                         &state.status_msg,
                         modal_info,
                         bg_task_info,
+                        &mut state.tables,
                     );
 
                     if let Ok(mut buffer) = state.surface.buffer_mut() {
@@ -1732,7 +1741,8 @@ fn handle_key_input(
     if code == KeyCode::Tab {
         state.active_tab = match state.active_tab {
             ui::ActiveTab::Installed => ui::ActiveTab::OnlineHub,
-            ui::ActiveTab::OnlineHub => ui::ActiveTab::Installed,
+            ui::ActiveTab::OnlineHub => ui::ActiveTab::Tables,
+            ui::ActiveTab::Tables => ui::ActiveTab::Installed,
         };
         return;
     }
@@ -1750,6 +1760,23 @@ fn handle_key_input(
 
     if code == KeyCode::Slash {
         state.is_search_active = true;
+        return;
+    }
+
+    if state.active_tab == ui::ActiveTab::Tables {
+        match code {
+            KeyCode::ArrowUp | KeyCode::KeyK => state.tables.move_selection(-1),
+            KeyCode::ArrowDown | KeyCode::KeyJ => state.tables.move_selection(1),
+            KeyCode::PageUp => state.tables.move_selection(-20),
+            KeyCode::PageDown => state.tables.move_selection(20),
+            KeyCode::BracketLeft => state.tables.switch_table(false),
+            KeyCode::BracketRight => state.tables.switch_table(true),
+            KeyCode::KeyR => {
+                state.tables.reload_index();
+                state.status_msg = "Reloaded the collection index".to_string();
+            }
+            _ => {}
+        }
         return;
     }
 
