@@ -441,9 +441,20 @@ fn folder_sounds_match(outlier: &[String], anchor: &BTreeSet<&str>) -> bool {
     common >= 4 && common * 10 >= own.len() * 8
 }
 
-fn mostly_serial(names: &[String]) -> bool {
-    let serial = names.iter().filter(|n| is_serial_name(n)).count();
-    serial * 2 > names.len()
+pub(crate) fn mostly_serial(names: &[String]) -> bool {
+    mostly_serial_names(names.iter().map(String::as_str))
+}
+
+/// `mostly_serial` over any sequence of names, without collecting them first.
+pub(crate) fn mostly_serial_names<'a>(names: impl Iterator<Item = &'a str>) -> bool {
+    let (mut total, mut serial) = (0usize, 0usize);
+    for name in names {
+        total += 1;
+        if is_serial_name(name) {
+            serial += 1;
+        }
+    }
+    serial * 2 > total
 }
 
 /// A name whose last segment is all digits, or exactly two letters or digits.
