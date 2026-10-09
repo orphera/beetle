@@ -553,32 +553,36 @@ mod tests {
 
     #[test]
     fn confident_needs_the_best_precision_among_all_candidates_not_just_the_runner_up() {
-        let required = set(&["kick", "snare", "hat", "bass"]);
-        // Top covers all four but its folder is half other sounds (precision 0.5).
-        let top = place(
-            "top",
-            &["kick", "snare", "hat", "bass", "x1", "x2", "x3", "x4"],
-            &[("Song A", "Artist")],
-        );
-        // Runner-up covers four of four as well, with less folder noise, so it is not beaten by top on coverage.
-        let tight = place(
-            "tight",
-            &["kick", "snare", "hat", "bass"],
-            &[("Song A", "Artist")],
-        );
-        // A third candidate with the best precision (1.0) but less coverage: top must not stay confident.
-        let third = place(
-            "third",
-            &["kick", "snare", "hat", "bass"],
-            &[("Song A", "Artist")],
-        );
-        let third = Place {
-            id: "zz-third".into(),
-            ..third
+        // Coverage order is top (1.0), second (0.9), third (0.8). Only third has the
+        // best precision. Comparing top with the runner-up alone would call top
+        // confident; it must be Ranked.
+        let required: Vec<String> = (0..10).map(|i| format!("req-{i}")).collect();
+        let required_set: BTreeSet<String> = required.iter().cloned().collect();
+        let folder = |own_required: usize, noise: usize, tag: &str| -> BTreeSet<String> {
+            required[..own_required]
+                .iter()
+                .cloned()
+                .chain((0..noise).map(|i| format!("{tag}-noise-{i}")))
+                .collect()
         };
-        let trio = [top, tight, third];
-        let verdict = estimate(ENTRY, &required, &trio);
-        assert!(!matches!(verdict, Verdict::Confident(_)), "{verdict:?}");
+        let place_of = |id: &str, keys: BTreeSet<String>| Place {
+            id: id.to_string(),
+            keys,
+            charts: vec![(title_key("Song A"), artist_key("Artist"))],
+        };
+        // coverage 10/10, precision 10/20
+        let top = place_of("top", folder(10, 10, "t"));
+        // coverage 9/10, precision 9/23
+        let second = place_of("second", folder(9, 14, "s"));
+        // coverage 8/10, precision 8/8
+        let third = place_of("third", folder(8, 0, "x"));
+        match estimate(ENTRY, &required_set, &[top, second, third]) {
+            Verdict::Ranked(list) => {
+                let ids: Vec<&str> = list.iter().map(|c| c.place.as_str()).collect();
+                assert_eq!(ids, vec!["top", "second", "third"]);
+            }
+            other => panic!("expected ranked, got {other:?}"),
+        }
     }
 
     #[test]
