@@ -13,37 +13,80 @@
 
 use crate::collection::{Index, Location, LocationKind};
 use beetle_core::ChartId;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
-/// Where `bpm song link` keeps its manual groups: `collection-links.txt`, or
-/// `$BEETLE_COLLECTION_LINKS`. One group per line, chart ids separated by spaces.
+/// The user's hand-made decisions about songs, kept apart from the index so a
+/// rescan never loses them.
+///
+/// - `links`: groups `bpm song link` joined. Each group is one song.
+/// - `splits`: pairs `bpm song unlink` separated. The two charts never join
+///   again, whatever the automatic rules say.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Manual {
+    pub links: Vec<Vec<ChartId>>,
+    pub splits: Vec<(ChartId, ChartId)>,
+}
+
+const LINKS_HEADER: &str =
+    "# bpm song link groups: one group per line, chart ids separated by spaces\n";
+const SPLITS_HEADER: &str =
+    "# bpm song unlink pairs: two chart ids per line, never grouped together\n";
+
+impl Manual {
+    /// Reads `collection-links.txt` and `collection-splits.txt` (or the
+    /// `$BEETLE_COLLECTION_LINKS` / `$BEETLE_COLLECTION_SPLITS` overrides).
+    /// Missing files mean no decisions yet.
+    pub fn load() -> Self {
+        let links_text = fs::read_to_string(links_file()).unwrap_or_default();
+        let links = links_text
+            .lines()
+            .map(|line| {
+                line.split_whitespace()
+                    .filter_map(ChartId::from_hex)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|group| group.len() > 1)
+            .collect();
+        let splits_text = fs::read_to_string(splits_file()).unwrap_or_default();
+        let splits = splits_text
+            .lines()
+            .filter_map(|line| {
+                let mut ids = line.split_whitespace().filter_map(ChartId::from_hex);
+                Some((ids.next()?, ids.next()?))
+            })
+            .collect();
+        Self { links, splits }
+    }
+
+    pub fn save(&self) -> std::io::Result<()> {
+        let mut links = String::from(LINKS_HEADER);
+        for group in self.links.iter().filter(|g| g.len() > 1) {
+            let ids: Vec<String> = group.iter().map(ChartId::to_hex).collect();
+            links.push_str(&ids.join(" "));
+            links.push('\n');
+        }
+        fs::write(links_file(), links)?;
+
+        let mut splits = String::from(SPLITS_HEADER);
+        for (a, b) in &self.splits {
+            splits.push_str(&format!("{} {}\n", a.to_hex(), b.to_hex()));
+        }
+        fs::write(splits_file(), splits)
+    }
+}
+
+/// `collection-links.txt`, or `$BEETLE_COLLECTION_LINKS`.
 pub fn links_file() -> PathBuf {
     std::env::var("BEETLE_COLLECTION_LINKS")
         .map_or_else(|_| PathBuf::from("collection-links.txt"), PathBuf::from)
 }
 
-pub fn load_links() -> Vec<Vec<ChartId>> {
-    let text = fs::read_to_string(links_file()).unwrap_or_default();
-    text.lines()
-        .map(|line| {
-            line.split_whitespace()
-                .filter_map(ChartId::from_hex)
-                .collect::<Vec<_>>()
-        })
-        .filter(|group| group.len() > 1)
-        .collect()
-}
-
-pub fn save_links(groups: &[Vec<ChartId>]) -> std::io::Result<()> {
-    let mut out = String::from("# manual song groups (bpm song link/unlink); one group per line\n");
-    for group in groups.iter().filter(|g| g.len() > 1) {
-        let ids: Vec<String> = group.iter().map(ChartId::to_hex).collect();
-        out.push_str(&ids.join(" "));
-        out.push('\n');
-    }
-    fs::write(links_file(), out)
+/// `collection-splits.txt`, or `$BEETLE_COLLECTION_SPLITS`.
+pub fn splits_file() -> PathBuf {
+    std::env::var("BEETLE_COLLECTION_SPLITS")
+        .map_or_else(|_| PathBuf::from("collection-splits.txt"), PathBuf::from)
 }
 
 /// One chart as the song view sees it: its copies plus the values the grouping uses.
@@ -90,8 +133,10 @@ pub struct Collection<'a> {
     pub songs: Vec<Song>,
 }
 
-/// Groups the index into songs using the rules above, with `links` as manual groups.
-pub fn build<'a>(index: &'a Index, links: &[Vec<ChartId>]) -> Collection<'a> {
+/// Groups the index into songs using the rules above and the user's `manual` decisions.
+/// A split pair is never joined, even by a manual link: `bpm song link` clears the
+/// splits it contradicts before it saves.
+pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
     let mut by_chart: BTreeMap<ChartId, Vec<&'a Location>> = BTreeMap::new();
     for location in &index.locations {
         by_chart.entry(location.chart).or_default().push(location);
@@ -120,16 +165,23 @@ pub fn build<'a>(index: &'a Index, links: &[Vec<ChartId>]) -> Collection<'a> {
         .map(|(i, r)| (r.chart, i))
         .collect();
 
+    let mut forbidden = HashSet::new();
+    for (a, b) in &manual.splits {
+        if let (Some(&x), Some(&y)) = (position.get(a), position.get(b)) {
+            forbidden.insert((x, y));
+            forbidden.insert((y, x));
+        }
+    }
     let mut sets = DisjointSets::new(records.len());
 
     // Rule 0: manual links.
-    for group in links {
+    for group in &manual.links {
         let members: Vec<usize> = group
             .iter()
             .filter_map(|id| position.get(id).copied())
             .collect();
         for pair in members.windows(2) {
-            sets.union(pair[0], pair[1]);
+            sets.try_union(pair[0], pair[1], &forbidden);
         }
     }
 
@@ -146,7 +198,7 @@ pub fn build<'a>(index: &'a Index, links: &[Vec<ChartId>]) -> Collection<'a> {
                 .or_default()
                 .entry(record.title_key.as_str())
                 .or_insert(i);
-            sets.union(*first_of_title, i);
+            sets.try_union(*first_of_title, i, &forbidden);
         }
     }
 
@@ -168,7 +220,7 @@ pub fn build<'a>(index: &'a Index, links: &[Vec<ChartId>]) -> Collection<'a> {
                     continue;
                 }
                 if sounds_match(&records[a].stems, &records[b].stems) {
-                    sets.union(a, b);
+                    sets.try_union(a, b, &forbidden);
                 } else {
                     unmatched_pairs.push((a, b));
                 }
@@ -330,15 +382,19 @@ pub fn artist_key(raw: &str) -> String {
         .join(" ")
 }
 
-/// Union-find over chart records.
+/// Union-find over chart records that also remembers each set's members, so a
+/// join can be refused when it would put a forbidden pair in one song.
 struct DisjointSets {
     parent: Vec<usize>,
+    /// Members of each root's set; empty for non-roots.
+    members: Vec<Vec<usize>>,
 }
 
 impl DisjointSets {
     fn new(n: usize) -> Self {
         Self {
             parent: (0..n).collect(),
+            members: (0..n).map(|i| vec![i]).collect(),
         }
     }
 
@@ -350,13 +406,27 @@ impl DisjointSets {
         x
     }
 
-    fn union(&mut self, a: usize, b: usize) {
+    /// Joins the sets of `a` and `b` unless a forbidden pair would end up together.
+    /// Returns whether they are in one set afterwards.
+    fn try_union(&mut self, a: usize, b: usize, forbidden: &HashSet<(usize, usize)>) -> bool {
         let (ra, rb) = (self.find(a), self.find(b));
-        if ra != rb {
-            // Keep the smaller index as root so results do not depend on call order.
-            let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
-            self.parent[hi] = lo;
+        if ra == rb {
+            return true;
         }
+        let clash = self.members[ra].iter().any(|&x| {
+            self.members[rb]
+                .iter()
+                .any(|&y| forbidden.contains(&(x, y)))
+        });
+        if clash {
+            return false;
+        }
+        // Keep the smaller index as root so results do not depend on call order.
+        let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
+        let moved = std::mem::take(&mut self.members[hi]);
+        self.members[lo].extend(moved);
+        self.parent[hi] = lo;
+        true
     }
 }
 
@@ -400,11 +470,22 @@ mod tests {
     }
 
     #[test]
-    fn disjoint_sets_union_and_find() {
+    fn disjoint_sets_join_and_find() {
+        let none = HashSet::new();
         let mut sets = DisjointSets::new(4);
-        sets.union(3, 1);
-        sets.union(1, 2);
+        sets.try_union(3, 1, &none);
+        sets.try_union(1, 2, &none);
         assert_eq!(sets.find(3), sets.find(2));
         assert_ne!(sets.find(0), sets.find(3));
+    }
+
+    #[test]
+    fn a_join_that_would_pair_split_charts_is_refused() {
+        // 0 and 2 must stay apart. Joining 0-1 and then 1-2 would put them together.
+        let forbidden: HashSet<(usize, usize)> = [(0, 2), (2, 0)].into_iter().collect();
+        let mut sets = DisjointSets::new(3);
+        assert!(sets.try_union(0, 1, &forbidden));
+        assert!(!sets.try_union(1, 2, &forbidden));
+        assert_ne!(sets.find(0), sets.find(2));
     }
 }

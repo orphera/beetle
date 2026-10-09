@@ -1,3 +1,4 @@
+use beetle_core::{ChartId, TableIndex};
 use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
 use bms_package_manager::{
@@ -286,10 +287,13 @@ struct ChartFilter {
     level: Option<u32>,
     packaged: Option<bool>,
     dupes: bool,
+    /// A table's name or symbol, or a level chip such as `sl3`.
+    table: Option<String>,
 }
 
 fn parse_chart_filter(args: &[String]) -> ChartFilter {
-    const USAGE: &str = "usage: [--mode 7k] [--level N] [--packaged|--unpackaged] [--dupes]";
+    const USAGE: &str =
+        "usage: [--mode 7k] [--level N] [--table sl|sl3] [--packaged|--unpackaged] [--dupes]";
     let mut filter = ChartFilter::default();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -303,6 +307,10 @@ fn parse_chart_filter(args: &[String]) -> ChartFilter {
                 filter.level = Some(value.parse().unwrap_or_else(|_| {
                     exit_with(&format!("--level expects a number, got '{value}'"))
                 }));
+            }
+            "--table" => {
+                let value = it.next().unwrap_or_else(|| exit_with(&USAGE));
+                filter.table = Some(value.to_ascii_lowercase());
             }
             "--packaged" => filter.packaged = Some(true),
             "--unpackaged" => filter.packaged = Some(false),
@@ -318,7 +326,48 @@ fn normalize_mode(text: &str) -> String {
     text.to_ascii_uppercase().replace("KEYS", "K")
 }
 
-fn chart_matches(record: &songs::ChartRecord, filter: &ChartFilter) -> bool {
+/// The installed difficulty tables, matched against the charts in the index.
+fn load_tables(index: &collection::Index) -> TableIndex {
+    let dir = env::var("BEETLE_TABLES_DIR").unwrap_or_else(|_| "tables".to_string());
+    let tables: Vec<_> = TableStore::new(dir)
+        .list()
+        .into_iter()
+        .map(|(_, table)| table)
+        .collect();
+    let mut matched = TableIndex::new(tables);
+    matched.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
+    matched
+}
+
+/// Whether the chart is in a table whose name, symbol, or `symbol+level` is `query`.
+fn in_table(tables: &TableIndex, chart: ChartId, query: &str) -> bool {
+    tables.matches_for(chart).iter().any(|m| {
+        let table = &tables.tables()[m.table];
+        let entry = &table.entries[m.entry];
+        table.name.eq_ignore_ascii_case(query)
+            || table.symbol.eq_ignore_ascii_case(query)
+            || format!("{}{}", table.symbol, entry.level).eq_ignore_ascii_case(query)
+    })
+}
+
+/// Level chips of a chart in every table that has it (`sl3 st2`), or `-`.
+fn table_chips(tables: &TableIndex, chart: ChartId) -> String {
+    let chips: Vec<String> = tables
+        .matches_for(chart)
+        .iter()
+        .map(|m| {
+            let table = &tables.tables()[m.table];
+            format!("{}{}", table.symbol, table.entries[m.entry].level)
+        })
+        .collect();
+    if chips.is_empty() {
+        "-".to_string()
+    } else {
+        chips.join(" ")
+    }
+}
+
+fn chart_matches(record: &songs::ChartRecord, filter: &ChartFilter, tables: &TableIndex) -> bool {
     filter
         .mode
         .as_ref()
@@ -326,12 +375,17 @@ fn chart_matches(record: &songs::ChartRecord, filter: &ChartFilter) -> bool {
         && filter.level.is_none_or(|l| l == record.play_level)
         && filter.packaged.is_none_or(|p| p == record.is_packaged())
         && (!filter.dupes || record.copies.len() > 1)
+        && filter
+            .table
+            .as_ref()
+            .is_none_or(|query| in_table(tables, record.chart, query))
 }
 
 fn run_songs(args: &[String]) {
     let filter = parse_chart_filter(args);
     let index = load_index_or_exit();
-    let collection = songs::build(&index, &songs::load_links());
+    let tables = load_tables(&index);
+    let collection = songs::build(&index, &songs::Manual::load());
 
     let rows: Vec<_> = collection
         .songs
@@ -340,7 +394,7 @@ fn run_songs(args: &[String]) {
             let matching = song
                 .charts
                 .iter()
-                .filter(|&&i| chart_matches(&collection.records[i], &filter))
+                .filter(|&&i| chart_matches(&collection.records[i], &filter, &tables))
                 .count();
             (matching > 0).then_some((song, matching))
         })
@@ -377,7 +431,8 @@ fn run_songs(args: &[String]) {
 fn run_charts(args: &[String]) {
     let filter = parse_chart_filter(args);
     let index = load_index_or_exit();
-    let collection = songs::build(&index, &songs::load_links());
+    let tables = load_tables(&index);
+    let collection = songs::build(&index, &songs::Manual::load());
     let mut song_of = vec![String::new(); collection.records.len()];
     for song in &collection.songs {
         for &i in &song.charts {
@@ -387,12 +442,12 @@ fn run_charts(args: &[String]) {
 
     let mut shown = 0;
     println!(
-        "{:<10} {:<17} {:<7} {:>3} {:>9}  TITLE / ARTIST",
-        "SONG", "CHART", "MODE", "LV", "COPIES"
+        "{:<10} {:<17} {:<7} {:>3} {:<12} {:>7}  TITLE / ARTIST",
+        "SONG", "CHART", "MODE", "LV", "TABLE", "COPIES"
     );
-    println!("{:-<90}", "");
+    println!("{:-<100}", "");
     for (i, record) in collection.records.iter().enumerate() {
-        if !chart_matches(record, &filter) {
+        if !chart_matches(record, &filter, &tables) {
             continue;
         }
         shown += 1;
@@ -402,11 +457,12 @@ fn run_charts(args: &[String]) {
             .filter(|c| c.kind == LocationKind::Folder)
             .count();
         println!(
-            "{:<10} {:<17} {:<7} {:>3} {:>9}  {} / {}",
+            "{:<10} {:<17} {:<7} {:>3} {:<12} {:>7}  {} / {}",
             song_of[i],
             record.chart.short(),
             normalize_mode(&record.mode),
             record.play_level,
+            truncate(&table_chips(&tables, record.chart), 12),
             format!("{}f {}p", folders, record.copies.len() - folders),
             truncate(&record.title, 40),
             record.artist
@@ -425,8 +481,8 @@ fn truncate(text: &str, width: usize) -> String {
 }
 
 /// A chart named by its full id (with or without `sha256:`) or by a unique hex prefix of at least 8 characters.
-fn resolve_chart(index: &collection::Index, text: &str) -> beetle_core::ChartId {
-    if let Some(id) = beetle_core::ChartId::from_hex(text) {
+fn resolve_chart(index: &collection::Index, text: &str) -> ChartId {
+    if let Some(id) = ChartId::from_hex(text) {
         return id;
     }
     let hex = text
@@ -438,15 +494,15 @@ fn resolve_chart(index: &collection::Index, text: &str) -> beetle_core::ChartId 
             "'{text}' is not a chart id (use 8+ hex characters)"
         ));
     }
-    let matches: BTreeSet<beetle_core::ChartId> = index
+    let matches: BTreeSet<ChartId> = index
         .locations
         .iter()
         .map(|l| l.chart)
         .filter(|id| id.to_hex().starts_with(&hex))
         .collect();
     match matches.len() {
-        1 => *matches
-            .iter()
+        1 => matches
+            .into_iter()
             .next()
             .unwrap_or_else(|| exit_with(&"unreachable")),
         0 => exit_with(&format!("no chart starts with '{text}'")),
@@ -463,7 +519,8 @@ fn run_song(args: &[String]) {
     }
     let query = args.join(" ");
     let index = load_index_or_exit();
-    let collection = songs::build(&index, &songs::load_links());
+    let tables = load_tables(&index);
+    let collection = songs::build(&index, &songs::Manual::load());
 
     let lowered = query.to_ascii_lowercase();
     let found: Vec<&songs::Song> = collection
@@ -506,11 +563,12 @@ fn run_song(args: &[String]) {
         let record = &collection.records[i];
         println!();
         println!(
-            "  {} {} lv{}  {}  copies {}",
+            "  {} {} lv{}  {}  table {}  copies {}",
             normalize_mode(&record.mode),
             record.title,
             record.play_level,
             record.chart.short(),
+            table_chips(&tables, record.chart),
             record.copies.len()
         );
         for copy in &record.copies {
@@ -547,10 +605,14 @@ fn run_song_link(args: &[String]) {
         exit_with(&"usage: bpm song link <chart> <chart> [...]");
     }
     let index = load_index_or_exit();
-    let group: Vec<beetle_core::ChartId> = args.iter().map(|a| resolve_chart(&index, a)).collect();
-    let mut links = songs::load_links();
-    links.push(group.clone());
-    songs::save_links(&links).unwrap_or_else(|e| exit_with(&e));
+    let group: Vec<ChartId> = args.iter().map(|a| resolve_chart(&index, a)).collect();
+    let mut manual = songs::Manual::load();
+    // Linking is an explicit decision that overrides an earlier unlink between these charts.
+    manual
+        .splits
+        .retain(|(a, b)| !(group.contains(a) && group.contains(b)));
+    manual.links.push(group.clone());
+    manual.save().unwrap_or_else(|e| exit_with(&e));
     println!("Linked {} charts into one song.", group.len());
 }
 
@@ -560,16 +622,45 @@ fn run_song_unlink(args: &[String]) {
     }
     let index = load_index_or_exit();
     let chart = resolve_chart(&index, &args[0]);
-    let mut links = songs::load_links();
-    let mut removed = 0;
-    for group in &mut links {
-        let before = group.len();
+    let mut manual = songs::Manual::load();
+    let collection = songs::build(&index, &manual);
+    // Everything else in the chart's current song must stop being its song-mate.
+    let mates: Vec<ChartId> = collection
+        .songs
+        .iter()
+        .find(|s| {
+            s.charts
+                .iter()
+                .any(|&i| collection.records[i].chart == chart)
+        })
+        .map(|s| {
+            s.charts
+                .iter()
+                .map(|&i| collection.records[i].chart)
+                .filter(|&c| c != chart)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for group in &mut manual.links {
         group.retain(|id| *id != chart);
-        removed += before - group.len();
     }
-    links.retain(|group| group.len() > 1);
-    songs::save_links(&links).unwrap_or_else(|e| exit_with(&e));
-    println!("Removed {removed} manual link(s) for {}.", chart.short());
+    manual.links.retain(|g| g.len() > 1);
+    for &mate in &mates {
+        let known = manual
+            .splits
+            .iter()
+            .any(|(a, b)| (*a == chart && *b == mate) || (*a == mate && *b == chart));
+        if !known {
+            manual.splits.push((chart, mate));
+        }
+    }
+    manual.save().unwrap_or_else(|e| exit_with(&e));
+    println!(
+        "Separated {} from {} other chart(s) in its song.",
+        chart.short(),
+        mates.len()
+    );
 }
 
 fn describe_location(copy: &collection::Location) -> String {
