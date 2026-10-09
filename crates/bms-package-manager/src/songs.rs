@@ -6,7 +6,9 @@
 //! `docs/plans/2026-10-09-bpm-collection-manager-design.md`, §3 and §3.1):
 //!
 //! 0. Links the user made with `bpm song link` always join their charts.
-//! 1. Charts in the same folder (or the same package directory) with the same title join.
+//! 1. Charts in one place (folder or package directory): when a title covers at least
+//!    half of them, that title is the anchor and the others join only on key-sound
+//!    overlap with it. Without such a title, only charts with the same title join.
 //! 2. Charts in different places join when title and artist match and their
 //!    key sounds overlap (`sounds_match`). Title and artist alone only make a
 //!    candidate, which is shown but not merged.
@@ -226,26 +228,74 @@ pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
         }
     }
 
-    // Rule 1: same place (folder or package directory) and same title.
-    let mut by_place: BTreeMap<(LocationKind, &str, &str), BTreeMap<&str, usize>> = BTreeMap::new();
+    // Rule 1: charts in one place (folder or package directory).
+    //
+    // A place with a majority title (the title covers at least half of its
+    // charts) is one song: the anchor. Other charts there join only when their
+    // key sounds overlap the anchor's. Without a majority, charts join only with
+    // the same title.
+    let mut unmatched_pairs = Vec::new();
+    let mut by_place: BTreeMap<(LocationKind, &str, &str), BTreeSet<usize>> = BTreeMap::new();
     for (i, record) in records.iter().enumerate() {
-        if record.title_key.is_empty() {
-            continue;
-        }
         for copy in &record.copies {
             let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-            // Each chart joins the previous chart with the same title in its place,
-            // so a refused join (a split) cannot strand the charts after it.
-            let previous = by_place
+            by_place
                 .entry((copy.kind, copy.source.as_str(), dir))
                 .or_default()
-                .insert(record.title_key.as_str(), i);
-            if let Some(previous) = previous {
-                sets.try_union(previous, i, &forbidden);
+                .insert(i);
+        }
+    }
+    for charts in by_place.values() {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for &i in charts {
+            if !records[i].title_key.is_empty() {
+                *counts.entry(records[i].title_key.as_str()).or_insert(0) += 1;
+            }
+        }
+        // Most common title; ties go to the smaller title.
+        let anchor = counts
+            .iter()
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+            .map(|(key, count)| (*key, *count));
+        match anchor {
+            Some((key, count)) if count * 2 >= charts.len() => {
+                let members: Vec<usize> = charts
+                    .iter()
+                    .copied()
+                    .filter(|&i| records[i].title_key == key)
+                    .collect();
+                join_in_order(&mut sets, &members, &forbidden);
+                let anchor_stems: BTreeSet<&str> = members
+                    .iter()
+                    .flat_map(|&i| records[i].stems.iter().map(String::as_str))
+                    .collect();
+                for &i in charts {
+                    if records[i].title_key != key {
+                        if folder_sounds_match(&records[i].stems, &anchor_stems) {
+                            sets.try_union(i, members[0], &forbidden);
+                        } else {
+                            unmatched_pairs.push((i, members[0]));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // No majority: a folder of several songs. Join the same title only.
+                let mut by_title: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+                for &i in charts {
+                    if !records[i].title_key.is_empty() {
+                        by_title
+                            .entry(records[i].title_key.as_str())
+                            .or_default()
+                            .push(i);
+                    }
+                }
+                for members in by_title.values() {
+                    join_in_order(&mut sets, members, &forbidden);
+                }
             }
         }
     }
-
     // Rule 2: same title and artist in different places, joined only by key sounds.
     let mut by_name: BTreeMap<(&str, &str), Vec<usize>> = BTreeMap::new();
     for (i, record) in records.iter().enumerate() {
@@ -256,7 +306,6 @@ pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
                 .push(i);
         }
     }
-    let mut unmatched_pairs = Vec::new();
     for members in by_name.values() {
         for (k, &a) in members.iter().enumerate() {
             for &b in &members[k + 1..] {
@@ -374,6 +423,22 @@ pub fn sounds_match(a: &[String], b: &[String]) -> bool {
     let union = a.len() + b.len() - inter;
     let small = a.len().min(b.len());
     (inter * 2 >= union && inter >= 8) || (inter * 10 >= small * 9 && small >= 16)
+}
+
+/// Joins each chart to the previous one in `members`, so a refused join never strands the rest.
+fn join_in_order(sets: &mut DisjointSets, members: &[usize], forbidden: &HashSet<(usize, usize)>) {
+    for pair in members.windows(2) {
+        sets.try_union(pair[0], pair[1], forbidden);
+    }
+}
+
+/// Whether a chart in a folder belongs to the folder's anchor song: at least 4 key
+/// sounds in common, covering at least 80% of the chart's own key sounds. Serial
+/// names count here: charts in one folder share the same files.
+fn folder_sounds_match(outlier: &[String], anchor: &BTreeSet<&str>) -> bool {
+    let own: BTreeSet<&str> = outlier.iter().map(String::as_str).collect();
+    let common = own.iter().filter(|name| anchor.contains(*name)).count();
+    common >= 4 && common * 10 >= own.len() * 8
 }
 
 fn mostly_serial(names: &[String]) -> bool {
@@ -542,5 +607,88 @@ mod tests {
         assert!(sets.try_union(0, 1, &forbidden));
         assert!(!sets.try_union(1, 2, &forbidden));
         assert_ne!(sets.find(0), sets.find(2));
+    }
+}
+
+#[cfg(test)]
+mod place_rule_tests {
+    use super::*;
+    use crate::collection::Index;
+
+    fn copy(n: u8, title: &str, path: &str, stems: &[&str]) -> Location {
+        Location {
+            chart: ChartId::of_bytes(&[n]),
+            md5: [0; 16],
+            kind: LocationKind::Folder,
+            source: r"D:\bms".to_string(),
+            path: path.to_string(),
+            title: title.to_string(),
+            artist: "A".to_string(),
+            play_level: 1,
+            mode: "7K".to_string(),
+            missing_keys: 0,
+            key_stems: stems.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn sound_names(count: usize) -> Vec<String> {
+        (0..count).map(|i| format!("snd{i:02}")).collect()
+    }
+
+    fn with_stems(list: &[String]) -> Vec<&str> {
+        list.iter().map(String::as_str).collect()
+    }
+
+    fn song_count(locations: Vec<Location>) -> usize {
+        let index = Index {
+            locations,
+            ..Index::default()
+        };
+        build(&index, &Manual::default()).songs.len()
+    }
+
+    #[test]
+    fn a_majority_title_anchors_the_folder_and_matching_variants_join() {
+        let shared = sound_names(12);
+        let stems = with_stems(&shared);
+        let mut locations: Vec<Location> = (0..4)
+            .map(|n| copy(n, "Foo", &format!("f/{n}.bme"), &stems))
+            .collect();
+        locations.push(copy(9, "Foo (sabun by X)", "f/v.bme", &stems));
+        assert_eq!(song_count(locations), 1);
+    }
+
+    #[test]
+    fn a_variant_without_shared_sounds_stays_a_separate_song() {
+        let shared = sound_names(12);
+        let own = ["zz1", "zz2", "zz3", "zz4", "zz5", "zz6"];
+        let mut locations: Vec<Location> = (0..4)
+            .map(|n| copy(n, "Foo", &format!("f/{n}.bme"), &with_stems(&shared)))
+            .collect();
+        locations.push(copy(9, "Foo (sabun by X)", "f/v.bme", &own));
+        assert_eq!(song_count(locations), 2);
+    }
+
+    #[test]
+    fn a_folder_without_a_majority_joins_only_the_same_title() {
+        let shared = sound_names(12);
+        let stems = with_stems(&shared);
+        let locations = vec![
+            copy(1, "Aa", "p/1.bme", &stems),
+            copy(2, "Bb", "p/2.bme", &stems),
+            copy(3, "Cc", "p/3.bme", &stems),
+        ];
+        assert_eq!(song_count(locations), 3);
+    }
+
+    #[test]
+    fn serial_sound_names_do_not_block_a_folder_match() {
+        let serial: Vec<String> = (1..=20).map(|i| format!("{i:02}")).collect();
+        let stems = with_stems(&serial);
+        let mut locations: Vec<Location> = (0..3)
+            .map(|n| copy(n, "Foo", &format!("f/{n}.bme"), &stems))
+            .collect();
+        locations.push(copy(9, "Foo (sabun)", "f/v.bme", &stems));
+        assert_eq!(song_count(locations), 1);
     }
 }

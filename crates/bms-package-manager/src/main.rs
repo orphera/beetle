@@ -269,12 +269,12 @@ fn run_dupes(args: &[String]) {
         match loaded {
             Some(i) if group.copies[i].is_intact() => {
                 println!(
-                    "    loads: {} (first intact copy)",
+                    "    loads: {} (first intact copy; the game does not follow this rule yet)",
                     describe_location(group.copies[i])
                 )
             }
             Some(i) => println!(
-                "    loads: {} (no intact copy; key sounds missing)",
+                "    loads: {} (no intact copy; key sounds missing; the game does not follow this rule yet)",
                 describe_location(group.copies[i])
             ),
             None => {}
@@ -618,12 +618,15 @@ fn run_song(args: &[String]) {
             } else {
                 format!("no intact copy; {} key sound(s) missing", copy.missing_keys)
             };
-            println!("    loads: {} ({note})", describe_location(copy));
+            println!(
+                "    loads: {} ({note}; the game does not follow this rule yet)",
+                describe_location(copy)
+            );
         }
     }
     if !song.candidates.is_empty() {
         println!();
-        println!("  candidates (same title and artist, key sounds differ; not merged):");
+        println!("  candidates (not merged automatically; join with bpm song link if they are one song):");
         for &c in &song.candidates {
             let other = &collection.songs[c];
             println!(
