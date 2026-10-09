@@ -33,7 +33,7 @@ pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
     SortMode,
 };
-pub use library_paths::LibraryPaths;
+pub use library_paths::{collection_folders, LibraryPaths};
 pub use load_location::choose_load_index;
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};

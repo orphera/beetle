@@ -85,3 +85,52 @@ mod tests {
         assert_eq!(LibraryPaths::parse(&l.serialize()), l);
     }
 }
+
+/// The folders scanned for charts, in scan order: the `library.dat` folders,
+/// then the default songs folder, then the `BMS_DIR` folder. A folder listed
+/// twice keeps its first place. The caller makes the paths absolute first.
+pub fn collection_folders(
+    library: &LibraryPaths,
+    songs: Option<&str>,
+    bms_dir: Option<&str>,
+) -> Vec<String> {
+    let mut folders: Vec<String> = Vec::new();
+    let candidates = library
+        .paths()
+        .iter()
+        .map(String::as_str)
+        .chain(songs)
+        .chain(bms_dir);
+    for folder in candidates {
+        if !folders.iter().any(|known| known == folder) {
+            folders.push(folder.to_string());
+        }
+    }
+    folders
+}
+
+#[cfg(test)]
+mod collection_folder_tests {
+    use super::*;
+
+    #[test]
+    fn folders_keep_library_order_then_songs_then_bms_dir() {
+        let mut library = LibraryPaths::default();
+        library.add("D:/Packs");
+        library.add("E:/Old");
+        assert_eq!(
+            collection_folders(&library, Some("C:/game/songs"), Some("F:/Extra")),
+            vec!["D:/Packs", "E:/Old", "C:/game/songs", "F:/Extra"]
+        );
+    }
+
+    #[test]
+    fn duplicate_folders_are_dropped_keeping_the_first() {
+        let mut library = LibraryPaths::default();
+        library.add("C:/game/songs");
+        assert_eq!(
+            collection_folders(&library, Some("C:/game/songs"), Some("C:/game/songs")),
+            vec!["C:/game/songs"]
+        );
+    }
+}
