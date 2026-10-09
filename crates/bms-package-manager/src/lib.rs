@@ -17,6 +17,7 @@ pub mod songs;
 pub mod storage;
 pub mod table;
 pub mod table_fetch;
+pub mod table_ops;
 pub mod updater;
 pub mod vfs;
 

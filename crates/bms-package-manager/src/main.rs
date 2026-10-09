@@ -2,12 +2,13 @@ use beetle_core::{ChartId, TableIndex};
 use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
 use bms_package_manager::table_fetch;
+use bms_package_manager::table_ops;
 use bms_package_manager::{
     absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
     RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -923,49 +924,32 @@ fn run_table_command(args: &[String]) {
                 eprintln!("Note: the collection index is empty. Run `bpm scan` first.");
             }
             // A chart counts as owned only with an intact copy (every key sound next to it).
-            // A copy with key sounds missing is kept, but the body must come first.
-            let mut any_copy = TableIndex::new(tables.clone());
-            any_copy.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
-            let mut intact = TableIndex::new(tables);
-            intact.match_songs(
-                index
-                    .locations
-                    .iter()
-                    .filter(|l| l.is_intact())
-                    .map(|l| (l.chart, l.md5)),
-            );
-            for (table_index, table) in intact.tables().iter().enumerate() {
-                let missing = intact.missing_entries(table_index);
-                let no_copy: HashSet<usize> =
-                    any_copy.missing_entries(table_index).into_iter().collect();
-                let body_needed = missing.iter().filter(|i| !no_copy.contains(i)).count();
+            for table in &tables {
+                let rows = table_ops::missing_rows(table, &index);
+                let body_needed = rows.iter().filter(|row| row.body_needed).count();
                 println!(
                     "{} ({}): {} of {} charts missing ({} need their body)",
                     table.name,
                     table.symbol,
-                    missing.len(),
+                    rows.len(),
                     table.entries.len(),
                     body_needed
                 );
-                for entry_index in missing {
-                    let entry = &table.entries[entry_index];
-                    let tag = if no_copy.contains(&entry_index) {
-                        ""
-                    } else {
+                for row in &rows {
+                    let tag = if row.body_needed {
                         "[body needed] "
+                    } else {
+                        ""
                     };
                     println!(
                         "  #{:<5} {:<6} {tag}{} / {}",
-                        entry_index + 1,
-                        entry.level,
-                        entry.title,
-                        entry.artist
+                        row.number, row.level, row.title, row.artist
                     );
-                    if !entry.url.is_empty() {
-                        println!("         {}", entry.url);
+                    if !row.url.is_empty() {
+                        println!("         {}", row.url);
                     }
-                    if !entry.url_diff.is_empty() {
-                        println!("         diff: {}", entry.url_diff);
+                    if !row.url_diff.is_empty() {
+                        println!("         diff: {}", row.url_diff);
                     }
                 }
                 println!();
@@ -1120,17 +1104,10 @@ fn get_entry_in(
     scratch: &Path,
     direct_pack: bool,
 ) -> Result<(), String> {
-    let body_dir = scratch.join("body");
-    bms_package_manager::extract_archive(body_file, &body_dir).map_err(|e| e.to_string())?;
-    let body_root = single_top_folder(&body_dir);
+    let body_root = table_ops::unpack_body(body_file, scratch)?;
 
     if direct_pack {
-        let bytes = client
-            .get_bytes(&entry.url_diff, table_fetch::MAX_PACK_BYTES)
-            .map_err(|e| format!("cannot download the difference pack: {e}"))?;
-        let zip = scratch.join("diff.zip");
-        fs::write(&zip, bytes).map_err(|e| e.to_string())?;
-        let kept = table_fetch::keep_pack(&zip, entry, &scratch.join("diff-work"), &body_root)?;
+        let kept = table_ops::fetch_diff(client, entry, &scratch.join("diff"), &body_root)?;
         if kept.matching == 0 {
             return Err(
                 "the difference pack has no chart with this entry's hash; nothing imported".into(),
@@ -1142,10 +1119,7 @@ fn get_entry_in(
         );
     }
 
-    let matching_chart = table_fetch::chart_files(&body_root)
-        .into_iter()
-        .find(|file| fs::read(file).is_ok_and(|bytes| table_fetch::chart_matches(entry, &bytes)));
-    let Some(chart) = matching_chart else {
+    let Some(chart) = table_ops::find_matching_chart(entry, &body_root) else {
         return Err("the body has no chart with this entry's hash; nothing imported".into());
     };
     let missing = table_fetch::missing_key_sounds(&chart).unwrap_or(0);
@@ -1158,20 +1132,17 @@ fn get_entry_in(
 
     let packages = get_default_packages_dir();
     let mut manager = PackageManager::new(&packages).map_err(|e| e.to_string())?;
-    import_bms_folders(&mut manager, &body_root.to_string_lossy(), table_name)?;
-    println!("Imported #{number} into the package storage.");
-    Ok(())
-}
-
-/// The only folder inside `dir` when it holds exactly one folder and nothing else.
-fn single_top_folder(dir: &Path) -> PathBuf {
-    let entries: Vec<PathBuf> = fs::read_dir(dir)
-        .map(|rd| rd.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
-    match entries.as_slice() {
-        [only] if only.is_dir() => only.clone(),
-        _ => dir.to_path_buf(),
+    let installed = table_ops::import_body_folder(&mut manager, &body_root)?;
+    for package in &installed {
+        println!(
+            "Installed '{}' ({}) -> {}",
+            package.name,
+            package.id,
+            package.location.display()
+        );
     }
+    println!("Imported #{number} from '{table_name}' into the package storage.");
+    Ok(())
 }
 
 /// Opens the body page (the entry's `url`) of each chosen entry in the browser.
