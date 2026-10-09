@@ -106,6 +106,19 @@ pub fn keep_pack(
     Ok(kept)
 }
 
+/// How many key sounds a chart declares that are not next to it, as the
+/// collection counts them. `None` when the chart cannot be read or parsed.
+pub fn missing_key_sounds(chart: &Path) -> Option<u32> {
+    let bytes = fs::read(chart).ok()?;
+    let names = beetle_core::key_sounds::declared_key_sounds(&bytes)?;
+    let dir = chart.parent().unwrap_or_else(|| Path::new("."));
+    Some(beetle_core::key_sounds::count_missing(&names, |name| {
+        beetle_core::key_sounds::folder_sound_candidates(name)
+            .iter()
+            .any(|candidate| dir.join(candidate).is_file())
+    }))
+}
+
 /// Every chart file under `dir`, in sorted order.
 pub fn chart_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -253,6 +266,30 @@ mod tests {
         let kept = keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &target).unwrap();
         assert_eq!((kept.copied, kept.skipped), (1, 1));
         assert_eq!(fs::read(target.join("kick.wav")).unwrap(), b"body's own");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn missing_key_sounds_counts_only_the_absent_ones() {
+        let root = scratch("sounds");
+        let chart = root.join("diff.bme");
+        fs::write(
+            &chart,
+            b"#TITLE D
+#WAV01 kick.wav
+#WAV02 snare.wav
+#00111:0102
+",
+        )
+        .unwrap();
+        fs::write(root.join("kick.ogg"), b"x").unwrap();
+        assert_eq!(
+            missing_key_sounds(&chart),
+            Some(1),
+            "kick.wav is found as kick.ogg"
+        );
+        fs::write(root.join("snare.wav"), b"x").unwrap();
+        assert_eq!(missing_key_sounds(&chart), Some(0));
         fs::remove_dir_all(&root).ok();
     }
 

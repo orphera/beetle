@@ -92,6 +92,7 @@ fn print_table_usage() {
     println!("  bpm table missing [name]            Charts in the tables the collection lacks (after `bpm scan`)");
     println!("  bpm table fetch <name> <#>... [--yes]  Download the difference packs of the chosen entries (direct links only)");
     println!("  bpm table fetch <name> <#>... --body   Open the body pages of the chosen entries in the browser");
+    println!("  bpm table get <name> <#> [--body-file <file>] [--yes]  Get one entry: body file + difference, imported as a package");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -1012,7 +1013,164 @@ fn run_table_command(args: &[String]) {
                 fetch_difference_packs(&client, &table, &numbers, yes, into.as_deref());
             }
         }
+        Some("get") => {
+            let Some(name) = args.get(1).filter(|a| !a.starts_with("--")) else {
+                eprintln!("Error: Missing table name.");
+                print_table_usage();
+                std::process::exit(1);
+            };
+            let number = args
+                .get(2)
+                .and_then(|a| a.trim_start_matches('#').parse::<usize>().ok())
+                .unwrap_or_else(|| fail(&"give one entry number, as `table missing` prints it"));
+            let yes = args.iter().any(|a| a == "--yes");
+            let body_file = args
+                .iter()
+                .position(|a| a == "--body-file")
+                .and_then(|i| args.get(i + 1));
+            let (_, table) = store
+                .find(name)
+                .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
+            let entry = number
+                .checked_sub(1)
+                .and_then(|i| table.entries.get(i))
+                .unwrap_or_else(|| fail(&format!("no entry #{number} in '{}'", table.name)));
+            match body_file {
+                None => {
+                    if entry.url.is_empty() {
+                        println!(
+                            "#{number} has no body link in the table. Get the body yourself, then:"
+                        );
+                    } else {
+                        if let Err(e) = table_fetch::open_in_browser(&entry.url) {
+                            eprintln!("{e}");
+                        }
+                        println!("Opened the body page for #{number}. Save the body file, then:");
+                    }
+                    println!(
+                        "  bpm table get \"{}\" {number} --body-file <saved file>",
+                        table.name
+                    );
+                }
+                Some(path) => {
+                    if let Err(message) =
+                        get_entry(&client, &table.name, entry, number, Path::new(path), yes)
+                    {
+                        eprintln!("#{number}: {message}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         _ => print_table_usage(),
+    }
+}
+
+/// Gets one table entry from a body file: downloads its difference pack when it
+/// is a direct link, adds the pack's charts to the body folder beside their key
+/// sounds, and imports that folder as a package.
+fn get_entry(
+    client: &HttpClient,
+    table_name: &str,
+    entry: &beetle_core::TableEntry,
+    number: usize,
+    body_file: &Path,
+    yes: bool,
+) -> Result<(), String> {
+    if !body_file.is_file() {
+        return Err(format!("'{}' is not a file", body_file.display()));
+    }
+    let direct_pack = table_fetch::is_direct_pack(&entry.url_diff);
+    println!("Plan for #{number} {} / {}:", entry.title, entry.artist);
+    println!("  body:    {}", body_file.display());
+    if direct_pack {
+        println!("  diff:    download {} and check its hash", entry.url_diff);
+    }
+    println!("  import:  the body folder, as a package, into the package storage");
+    if !yes && !confirm("Continue? [y/N] ") {
+        println!("Nothing done.");
+        return Ok(());
+    }
+
+    let scratch = env::temp_dir().join(format!("bpm-get-{}-{number}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+    let result = get_entry_in(
+        client,
+        table_name,
+        entry,
+        number,
+        body_file,
+        yes,
+        &scratch,
+        direct_pack,
+    );
+    let _ = fs::remove_dir_all(&scratch);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn get_entry_in(
+    client: &HttpClient,
+    table_name: &str,
+    entry: &beetle_core::TableEntry,
+    number: usize,
+    body_file: &Path,
+    yes: bool,
+    scratch: &Path,
+    direct_pack: bool,
+) -> Result<(), String> {
+    let body_dir = scratch.join("body");
+    bms_package_manager::extract_archive(body_file, &body_dir).map_err(|e| e.to_string())?;
+    let body_root = single_top_folder(&body_dir);
+
+    if direct_pack {
+        let bytes = client
+            .get_bytes(&entry.url_diff, table_fetch::MAX_PACK_BYTES)
+            .map_err(|e| format!("cannot download the difference pack: {e}"))?;
+        let zip = scratch.join("diff.zip");
+        fs::write(&zip, bytes).map_err(|e| e.to_string())?;
+        let kept = table_fetch::keep_pack(&zip, entry, &scratch.join("diff-work"), &body_root)?;
+        if kept.matching == 0 {
+            return Err(
+                "the difference pack has no chart with this entry's hash; nothing imported".into(),
+            );
+        }
+        println!(
+            "Added the difference to the body folder ({} file(s) copied, {} already there).",
+            kept.copied, kept.skipped
+        );
+    }
+
+    let matching_chart = table_fetch::chart_files(&body_root)
+        .into_iter()
+        .find(|file| fs::read(file).is_ok_and(|bytes| table_fetch::chart_matches(entry, &bytes)));
+    let Some(chart) = matching_chart else {
+        return Err("the body has no chart with this entry's hash; nothing imported".into());
+    };
+    let missing = table_fetch::missing_key_sounds(&chart).unwrap_or(0);
+    if missing > 0 {
+        println!("{missing} key sound(s) of this chart are still missing from the body.");
+        if !yes && !confirm("Import it anyway? [y/N] ") {
+            return Err("stopped before the import".into());
+        }
+    }
+
+    let packages = get_default_packages_dir();
+    let mut manager = PackageManager::new(&packages).map_err(|e| e.to_string())?;
+    import_bms_folders(&mut manager, &body_root.to_string_lossy(), table_name)?;
+    println!("Imported #{number} into the package storage.");
+    Ok(())
+}
+
+/// The only folder inside `dir` when it holds exactly one folder and nothing else.
+fn single_top_folder(dir: &Path) -> PathBuf {
+    let entries: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|rd| rd.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    match entries.as_slice() {
+        [only] if only.is_dir() => only.clone(),
+        _ => dir.to_path_buf(),
     }
 }
 
