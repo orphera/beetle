@@ -3,9 +3,8 @@
 //! The caller sorts its copies into one fixed order (kind, source, path) and
 //! passes one `intact` flag per copy in that order.
 //!
-//! Only `bpm` calls this function for now. The game still opens the first copy in
-//! its own scan order, so `bpm`'s `loads:` line can differ from the game until the
-//! game adopts this rule in its own milestone.
+//! `bpm` and the game (`beetle-app` scanner) both call this function, so the copy
+//! `bpm` shows as loaded is the copy the game opens.
 
 /// Index of the copy to load: the first intact one, or the first copy when
 /// none is intact. `None` when there are no copies at all.
