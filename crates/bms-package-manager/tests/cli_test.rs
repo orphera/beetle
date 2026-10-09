@@ -200,3 +200,41 @@ fn test_cli_library_add_list_remove() {
     assert!(!run(&["remove", bms_str]).status.success());
     assert!(!fs::read_to_string(&file).unwrap().contains("old_bms"));
 }
+
+#[test]
+fn test_cli_import_zip_with_multiple_song_folders() {
+    let dir = create_temp_storage();
+    let storage = dir.join("packages");
+    let zip_path = dir.join("pack.zip");
+
+    // Build a zip holding two BMS song folders.
+    {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = SimpleFileOptions::default();
+        for (name, title) in [("alpha/main.bms", "Alpha"), ("beta/main.bms", "Beta")] {
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(format!("#TITLE {title}\n#ARTIST Tester\n#00111:01\n").as_bytes())
+                .unwrap();
+        }
+        zip.start_file("../escape.bms", opts).unwrap();
+        zip.write_all(b"#TITLE Escape\n").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let output = Command::new(get_bpm_exe())
+        .env("BEETLE_PACKAGES_DIR", &storage)
+        .arg("import")
+        .arg(&zip_path)
+        .output()
+        .expect("failed to run bpm import");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Batch import finished: 2/2"),
+        "stdout: {stdout}"
+    );
+}

@@ -2,6 +2,7 @@
 //!
 //! Package lifecycle, installation, registry management, and discovery layer for `.bmsp` packages.
 
+pub mod archive;
 pub mod error;
 pub mod export;
 pub mod flac;
@@ -16,6 +17,7 @@ pub mod table;
 pub mod updater;
 pub mod vfs;
 
+pub use archive::extract_zip_archive;
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use flac::encode_wav_to_flac;

@@ -230,6 +230,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "zip",
 ]
 
 [[package]]

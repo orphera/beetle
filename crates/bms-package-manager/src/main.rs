@@ -20,7 +20,7 @@ fn print_usage() {
     );
     println!("  bpm table <add|update|list|remove>     Manage difficulty tables (tables/, read by the player)");
     println!("  bpm library <add|list|remove> [path]   Register existing BMS folders the player scans in place (no copy)");
-    println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
+    println!("  bpm import <folder_or_zip>             Import BMS folder(s) or a zip of BMS folders into managed storage");
     println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!(
@@ -263,6 +263,77 @@ fn run_table_command(args: &[String]) {
         }
         _ => print_table_usage(),
     }
+}
+
+/// Returns true when `path` names a zip archive by its extension.
+fn is_zip_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+}
+
+/// Imports every BMS song folder found under `folder` into managed storage.
+///
+/// `display_name` is the user-supplied path, used only in messages.
+/// A single song is reported individually; several songs are imported one by one and
+/// failures are reported without stopping the batch.
+fn import_bms_folders(
+    manager: &mut PackageManager,
+    folder: &str,
+    display_name: &str,
+) -> Result<(), String> {
+    let roots = bms_package_manager::find_bms_song_roots(folder);
+    if roots.is_empty() {
+        return Err(format!(
+            "Error: No BMS chart files found in '{display_name}'"
+        ));
+    }
+
+    if roots.len() == 1 {
+        let target_root = &roots[0];
+        if target_root != Path::new(folder) {
+            println!("Detected BMS song root at '{}'", target_root.display());
+        }
+        let installed = manager
+            .import_folder(target_root, None)
+            .map_err(|e| format!("Import failed: {e}"))?;
+        println!(
+            "Successfully imported and installed '{}' ({}) -> state {}",
+            installed.name, installed.id, installed.state_hash
+        );
+        println!("Location: {}", installed.location.display());
+    } else {
+        println!(
+            "Found {} BMS song directories under '{}'. Batch importing each...",
+            roots.len(),
+            display_name
+        );
+        let mut success = 0;
+        for (i, target_root) in roots.iter().enumerate() {
+            print!(
+                "[{}/{}] Importing '{}'... ",
+                i + 1,
+                roots.len(),
+                target_root.display()
+            );
+            match manager.import_folder(target_root, None) {
+                Ok(installed) => {
+                    println!("OK -> '{}' ({})", installed.name, installed.id);
+                    success += 1;
+                }
+                Err(e) => {
+                    println!("FAILED ({e})");
+                }
+            }
+        }
+        println!(
+            "Batch import finished: {}/{} songs imported into registry.",
+            success,
+            roots.len()
+        );
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), PackageManagerError> {
@@ -724,64 +795,36 @@ fn main() -> Result<(), PackageManagerError> {
         }
         "import" => {
             if args.len() < 3 {
-                eprintln!("Error: Missing folder path.");
-                eprintln!("Usage: bpm import <folder_path>");
+                eprintln!("Error: Missing folder path or zip archive.");
+                eprintln!("Usage: bpm import <folder_path_or_zip>");
                 std::process::exit(1);
             }
-            let folder = &args[2];
-            let roots = bms_package_manager::find_bms_song_roots(folder);
-            if roots.is_empty() {
-                eprintln!("Error: No BMS chart files found in '{}'", folder);
+            let input = &args[2];
+            if is_zip_path(input) {
+                let extract_dir = env::temp_dir().join(format!(
+                    "bpm_import_{}_{}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0)
+                ));
+                println!("Extracting '{}'...", input);
+                let result = match bms_package_manager::extract_zip_archive(input, &extract_dir) {
+                    Ok(count) => {
+                        println!("Extracted {} files.", count);
+                        import_bms_folders(&mut manager, &extract_dir.to_string_lossy(), input)
+                    }
+                    Err(e) => Err(format!("Failed to extract '{input}': {e}")),
+                };
+                let _ = fs::remove_dir_all(&extract_dir);
+                if let Err(msg) = result {
+                    eprintln!("{msg}");
+                    std::process::exit(1);
+                }
+            } else if let Err(msg) = import_bms_folders(&mut manager, input, input) {
+                eprintln!("{msg}");
                 std::process::exit(1);
-            }
-
-            if roots.len() == 1 {
-                let target_root = &roots[0];
-                if target_root != Path::new(folder) {
-                    println!("Detected BMS song root at '{}'", target_root.display());
-                }
-                match manager.import_folder(target_root, None) {
-                    Ok(installed) => {
-                        println!(
-                            "Successfully imported and installed '{}' ({}) -> state {}",
-                            installed.name, installed.id, installed.state_hash
-                        );
-                        println!("Location: {}", installed.location.display());
-                    }
-                    Err(e) => {
-                        eprintln!("Import failed: {e}");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                println!(
-                    "Found {} BMS song directories under '{}'. Batch importing each...",
-                    roots.len(),
-                    folder
-                );
-                let mut success = 0;
-                for (i, target_root) in roots.iter().enumerate() {
-                    print!(
-                        "[{}/{}] Importing '{}'... ",
-                        i + 1,
-                        roots.len(),
-                        target_root.display()
-                    );
-                    match manager.import_folder(target_root, None) {
-                        Ok(installed) => {
-                            println!("OK -> '{}' ({})", installed.name, installed.id);
-                            success += 1;
-                        }
-                        Err(e) => {
-                            println!("FAILED ({e})");
-                        }
-                    }
-                }
-                println!(
-                    "Batch import finished: {}/{} songs imported into registry.",
-                    success,
-                    roots.len()
-                );
             }
         }
         "install" => {
