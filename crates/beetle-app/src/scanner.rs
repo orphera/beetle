@@ -1,5 +1,6 @@
 use beetle_core::{deserialize_song_cache, serialize_song_cache, LibraryPaths, SongMetadata};
 use bms_package::PackageReader;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -45,7 +46,8 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
             if let Ok(cache_text) = fs::read_to_string(candidate) {
                 let cached_songs = deserialize_song_cache(&cache_text);
                 if !cached_songs.is_empty() {
-                    return cached_songs;
+                    // Caches written before deduplication may still list a chart twice.
+                    return dedup_songs(cached_songs);
                 }
             }
         }
@@ -111,12 +113,25 @@ pub fn scan_directory<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         }
     }
 
-    // Deduplicate by file_path
-    songs.sort_by(|a, b| a.file_path.cmp(&b.file_path));
-    songs.dedup_by(|a, b| a.file_path == b.file_path);
-
-    songs.sort_by(|a, b| a.title.cmp(&b.title));
+    // Scan order is kept until here, so a copy in the main folder wins over one in an extra folder.
+    let mut songs = dedup_songs(songs);
+    songs.sort_by(|a, b| {
+        a.title
+            .cmp(&b.title)
+            .then_with(|| a.file_path.cmp(&b.file_path))
+    });
     songs
+}
+
+/// Keeps the first entry of each chart. The same file can be reached through two
+/// paths, and the same bytes can sit in two folders; both are one chart (same `id`).
+fn dedup_songs(songs: Vec<SongMetadata>) -> Vec<SongMetadata> {
+    let mut seen_paths = HashSet::new();
+    let mut seen_ids = HashSet::new();
+    songs
+        .into_iter()
+        .filter(|s| seen_paths.insert(s.file_path.clone()) && seen_ids.insert(s.id))
+        .collect()
 }
 
 fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
@@ -187,5 +202,27 @@ fn scan_recursive(dir: &Path, songs: &mut Vec<SongMetadata>) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CHART: &[u8] = b"#TITLE T\n#BPM 150\n#00111:01\n";
+
+    #[test]
+    fn the_same_chart_in_two_folders_is_listed_once() {
+        let main = SongMetadata::from_bytes("songs/a/t.bms", CHART).unwrap();
+        let extra = SongMetadata::from_bytes("extra/b/t.bms", CHART).unwrap();
+        let other = SongMetadata::from_bytes("songs/c/u.bms", b"#TITLE U\n#00111:01\n").unwrap();
+        let kept = dedup_songs(vec![main.clone(), extra, other.clone()]);
+        assert_eq!(kept, vec![main, other]);
+    }
+
+    #[test]
+    fn the_same_path_twice_is_listed_once() {
+        let song = SongMetadata::from_bytes("songs/a/t.bms", CHART).unwrap();
+        assert_eq!(dedup_songs(vec![song.clone(), song.clone()]), vec![song]);
     }
 }
