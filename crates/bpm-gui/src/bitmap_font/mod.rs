@@ -12,12 +12,18 @@ pub use ascii::get_ascii_glyph;
 pub use hangul::get_hangul_glyph;
 pub use kana::get_kana_or_symbol_glyph;
 
-/// Unified multilingual bitmap font engine (ASCII 5x7, Hangul 10x8, Kana/CJK 10x8, Bold 8x12).
+/// Text engine for bpm-gui: proportional, antialiased TrueType text at a
+/// real pixel size, with the hand-drawn bitmap tables as a last resort.
 pub struct BitmapFont;
 
 impl BitmapFont {
+    /// Em size in px for one unit of `scale`. Scale 1 is 13px (cap height
+    /// ~9px), the smallest size where 1px Latin strokes and Hangul stay
+    /// legible; scale 2 is the header title size.
+    pub const PX_PER_SCALE: u32 = 13;
+
+    /// Cell sizes used only by the hand-drawn bitmap fallback.
     pub const ASCII_WIDTH: u32 = 5;
-    pub const ASCII_HEIGHT: u32 = 7;
     pub const ASCII_SPACING: u32 = 1;
 
     pub const CJK_WIDTH: u32 = 10;
@@ -39,54 +45,38 @@ impl BitmapFont {
         || matches!(c, '★' | '☆' | '♪' | '♫' | '◆' | '◇' | '▲' | '▼' | '▶' | '◀' | '♥' | '♡' | '✓' | '✗' | '※')
     }
 
-    /// Returns step advance (width + spacing) for a single character at a given scale.
+    /// Em size in px for a scale factor.
     #[inline(always)]
-    pub fn char_advance(c: char, scale: u32) -> u32 {
+    fn em_px(scale: u32) -> u16 {
+        (Self::PX_PER_SCALE * scale.max(1)).min(u16::MAX as u32) as u16
+    }
+
+    /// Returns the horizontal advance in px for a single character at a given scale.
+    pub fn char_advance(c: char, scale: u32) -> f32 {
         let scale = scale.max(1);
+        if let Some(advance) = truetype_font::advance(c, Self::em_px(scale), false) {
+            return advance;
+        }
+        // Characters outside the embedded fonts keep the old cell width.
         if Self::is_fullwidth(c) {
-            (Self::CJK_WIDTH + Self::CJK_SPACING) * scale
+            ((Self::CJK_WIDTH + Self::CJK_SPACING) * scale) as f32
         } else {
-            (Self::ASCII_WIDTH + Self::ASCII_SPACING) * scale
+            ((Self::ASCII_WIDTH + Self::ASCII_SPACING) * scale) as f32
         }
     }
 
     /// Calculates horizontal width in pixels of any mixed ASCII / Hangul / Japanese string.
-    pub fn text_width(text: &str, scale: u32) -> u32 {
-        let scale = scale.max(1);
-        let mut total = 0;
-        let mut count = 0;
-
-        for c in text.chars() {
-            total += Self::char_advance(c, scale);
-            count += 1;
-        }
-
-        if count == 0 {
-            0
-        } else {
-            // Subtract trailing spacing from the last character
-            let last_c = text.chars().last().unwrap_or(' ');
-            let trailing = if Self::is_fullwidth(last_c) {
-                Self::CJK_SPACING * scale
-            } else {
-                Self::ASCII_SPACING * scale
-            };
-            total.saturating_sub(trailing)
-        }
+    pub fn text_width(text: &str, scale: u32) -> f32 {
+        text.chars().map(|c| Self::char_advance(c, scale)).sum()
     }
 
-    /// Renders a single character glyph onto the pixmap.
+    /// Renders a single character with its top (cap-height line) at `y`.
     ///
-    /// Font system (see docs/plans/2026-10-03-pulse-redesign.md for the
-    /// decision history): tries the embedded TrueType fonts
-    /// (`truetype_font::draw_char_ttf`) first — real antialiased glyphs
-    /// for Latin, common-use Hangul, and joyo-kanji+kana Japanese, all
-    /// resampled to fit the SAME fixed-width cell grid the hand bitmap
-    /// tables use, so no screen's calibrated layout/kerning math changes.
-    /// Falls through to the hand bitmap tables only for characters outside
-    /// the embedded fonts' subsetted coverage (rare Hanja, obscure Hangul,
-    /// symbols) — those stay hand-drawn (synthetic-bold ASCII, 10x8
-    /// Hangul/Kana) or go to the Windows GDI system-font fallback.
+    /// Tries the embedded TrueType fonts first (real antialiased glyphs for
+    /// Latin, common-use Hangul, and joyo-kanji+kana Japanese). Falls
+    /// through to the hand bitmap tables only for characters outside the
+    /// embedded fonts' subsetted coverage (rare Hanja, obscure Hangul,
+    /// symbols) — those stay hand-drawn or go to the Windows GDI fallback.
     pub fn draw_char(
         pixmap: &mut PixmapMut,
         c: char,
@@ -117,20 +107,9 @@ impl BitmapFont {
             return;
         }
 
-        let fullwidth = Self::is_fullwidth(c);
-        let (cell_w, cell_h) = if fullwidth {
-            (
-                (Self::CJK_WIDTH * scale) as i32,
-                (Self::CJK_HEIGHT * scale) as i32,
-            )
-        } else {
-            (
-                (Self::ASCII_WIDTH * scale) as i32,
-                (Self::ASCII_HEIGHT * scale) as i32,
-            )
-        };
-
-        if truetype_font::draw_char_ttf(pixmap, c, x, y, cell_w, cell_h, bold, color) {
+        let px = Self::em_px(scale);
+        let baseline = y + truetype_font::cap_height(px);
+        if truetype_font::draw_char(pixmap, c, x, baseline, px, bold, color) {
             return;
         }
 
@@ -177,19 +156,21 @@ impl BitmapFont {
         draw_10x8_glyph(pixmap, &fallback_glyph, x, y, scale, color);
     }
 
-    /// Renders a text string at (x, y) with support for mixed ASCII, Korean, and Japanese.
+    /// Renders a text string with its cap-height line at `y`, mixing ASCII,
+    /// Korean and Japanese with each glyph's own advance.
     pub fn draw_text(
         pixmap: &mut PixmapMut,
         text: &str,
-        mut x: i32,
+        x: i32,
         y: i32,
         scale: u32,
         color: ColorRgba,
     ) {
         let scale = scale.max(1);
+        let mut pen = x as f32;
         for c in text.chars() {
-            Self::draw_char(pixmap, c, x, y, scale, color);
-            x += Self::char_advance(c, scale) as i32;
+            Self::draw_char(pixmap, c, pen.round() as i32, y, scale, color);
+            pen += Self::char_advance(c, scale);
         }
     }
 
@@ -202,8 +183,8 @@ impl BitmapFont {
         scale: u32,
         color: ColorRgba,
     ) {
-        let width = Self::text_width(text, scale) as i32;
-        let x = center_x - (width / 2);
+        let width = Self::text_width(text, scale);
+        let x = center_x - (width / 2.0).round() as i32;
         Self::draw_text(pixmap, text, x, y, scale, color);
     }
 }
@@ -293,21 +274,17 @@ mod tests {
 
     #[test]
     fn test_ascii_and_multilingual_text_width() {
-        // "1234" -> 4 chars. 4 * 5 + 3 * 1 = 23 at scale 1
-        assert_eq!(BitmapFont::text_width("1234", 1), 23);
-        assert_eq!(BitmapFont::text_width("1234", 2), 46);
-        assert_eq!(BitmapFont::text_width("", 1), 0);
+        assert_eq!(BitmapFont::text_width("", 1), 0.0);
 
-        // Korean "가나다" (3 fullwidth chars) -> 3 * 10 + 2 * 2 = 34
-        assert_eq!(BitmapFont::text_width("가나다", 1), 34);
+        // Latin and Hangul share one em grid, so Hangul is roughly one em
+        // per glyph while Latin is narrower.
+        let one = BitmapFont::text_width("1", 1);
+        let four = BitmapFont::text_width("1234", 1);
+        assert!(four > one * 3.0 && four < one * 5.0, "{one} {four}");
+        assert!(BitmapFont::text_width("1234", 2) > BitmapFont::text_width("1234", 1) * 1.8);
 
-        // Japanese "さくら" (3 fullwidth chars) -> 3 * 10 + 2 * 2 = 34
-        assert_eq!(BitmapFont::text_width("さくら", 1), 34);
-
-        // Mixed: "Lv.12 곡" -> 5 ASCII ('L','v','.','1','2'), 1 space (' '), 1 Korean ('곡')
-        // 6 halfwidth (6 * 6) + 1 fullwidth (1 * 12) - trailing = 48 - 2 = 46
-        let mixed_w = BitmapFont::text_width("Lv.12 곡", 1);
-        assert!(mixed_w > 0);
+        let hangul = BitmapFont::text_width("가나다", 1);
+        assert!(hangul > 3.0 * 11.0 && hangul < 3.0 * 14.0, "{hangul}");
     }
 
     #[test]
@@ -333,12 +310,11 @@ mod tests {
         assert!(has_white_pixel);
 
         // Most of this string (Latin, common Hangul/Kana, joyo kanji) is
-        // now rendered by the embedded TrueType fonts (truetype_font.rs),
-        // not the GDI system-font fallback. GDI is only still reached for
+        // rendered by the embedded TrueType fonts (truetype_font.rs), not
+        // the GDI system-font fallback. GDI is only still reached for
         // characters outside those subsets — here, '龍' is not in the
         // joyo-kanji list (its joyo equivalent is the simplified '竜'), so
-        // exactly one GDI cache entry is expected, not "most of the string"
-        // like before the TrueType font system existed.
+        // exactly one GDI cache entry is expected.
         #[cfg(target_os = "windows")]
         {
             assert!(gdi_fallback::cache_len() >= 1);

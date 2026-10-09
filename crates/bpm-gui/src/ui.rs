@@ -1,5 +1,10 @@
 use crate::bitmap_font::BitmapFont;
 use beetle_render::image::ImageBuffer;
+
+/// Height of the bottom status/help footer in px.
+const FOOTER_H: f32 = 56.0;
+/// Space kept below the content panels: the footer plus an 8px gap.
+pub const FOOTER_RESERVE: f32 = FOOTER_H + 8.0;
 use beetle_render::skin::ColorRgba;
 use bms_package_manager::PackageRecord;
 use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
@@ -248,7 +253,7 @@ impl GuiRenderer {
         );
 
         let content_y = 68.0;
-        let content_h = h - content_y - 48.0;
+        let content_h = h - content_y - FOOTER_RESERVE;
 
         if active_tab == ActiveTab::Installed {
             // 3. Left Panel: Package List View
@@ -622,34 +627,45 @@ impl GuiRenderer {
         }
 
         // 5. Bottom Status / Footer Bar
-        let footer_y = h - 40.0;
-        self.draw_rect(0.0, footer_y, w, 40.0, ColorRgba::new(16, 16, 24, 255));
+        // Three rows: status message, then two rows of key hints. Real-size
+        // text is wider than the old 5px cells, so the hints wrap instead of
+        // running off the right edge.
+        let footer_y = h - FOOTER_H;
+        self.draw_rect(0.0, footer_y, w, FOOTER_H, ColorRgba::new(16, 16, 24, 255));
         self.draw_rect(0.0, footer_y, w, 1.0, ColorRgba::new(35, 35, 50, 255));
-
-        // Help shortcuts
-        let help_text = if active_tab == ActiveTab::Installed {
-            "[↑/↓]: Move  [I]: Import  [L]: Legacy folders  [P]: Pack  [T]: Turbo  [S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub"
-        } else {
-            "[↑/↓]: Move  [Enter]/[I]: Install  [U]: Upgrade  [B]: With BGA  [0-4]: Filter  [F5]: Refresh  [Tab]: Installed"
-        };
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            help_text,
-            16,
-            (footer_y + 14.0) as i32,
-            1,
-            ColorRgba::new(160, 160, 180, 255),
-        );
 
         // Status message
         if !status_msg.is_empty() {
             BitmapFont::draw_text(
                 &mut self.pixmap.as_mut(),
                 status_msg,
-                (w - 380.0) as i32,
-                (footer_y + 14.0) as i32,
+                16,
+                (footer_y + 6.0) as i32,
                 1,
                 ColorRgba::new(80, 220, 140, 255),
+            );
+        }
+
+        // Help shortcuts
+        let (help_line1, help_line2) = if active_tab == ActiveTab::Installed {
+            (
+                "[Up/Down]: Move  [I]: Import  [L]: Legacy folders  [P]: Pack  [T]: Turbo",
+                "[S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub",
+            )
+        } else {
+            (
+                "[Up/Down]: Move  [Enter]/[I]: Install  [U]: Upgrade  [B]: With BGA",
+                "[0-4]: Filter  [F5]: Refresh  [Tab]: Installed",
+            )
+        };
+        for (i, line) in [help_line1, help_line2].iter().enumerate() {
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                line,
+                16,
+                (footer_y + 22.0 + i as f32 * 16.0) as i32,
+                1,
+                ColorRgba::new(160, 160, 180, 255),
             );
         }
 
@@ -1359,7 +1375,7 @@ impl GuiRenderer {
             dy += 18.0;
 
             let bga_str = if selected_pkg.has_companion_bga {
-                "Companion BGA: Available (.bga.bmsp ready to split/diet)"
+                "Companion BGA: Available (split/diet ready)"
             } else {
                 "Companion BGA: None (Audio and charts only)"
             };
@@ -1441,7 +1457,7 @@ impl GuiRenderer {
             );
 
             let action_sub = if selected_pkg.has_companion_bga {
-                "[B]: Install with BGA   [0-4]: Filter   [F5]: Sync Sources"
+                "[B]: With BGA  [0-4]: Filter  [F5]: Sync Sources"
             } else {
                 "[0-4]: Filter   [F5]: Sync Sources   [Tab]: Installed"
             };

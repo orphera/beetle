@@ -565,7 +565,7 @@ impl ApplicationHandler for BpmGuiApp {
                         } else {
                             // Catalog list: catalog_y = 126.0, row_h = 50.0
                             let catalog_y = 126.0;
-                            let content_h = size.height as f32 - 68.0 - 48.0;
+                            let content_h = size.height as f32 - 68.0 - ui::FOOTER_RESERVE;
                             let catalog_h = content_h - 58.0;
                             let row_h = 50.0;
                             let max_visible_rows = (catalog_h / row_h) as usize;
@@ -588,7 +588,7 @@ impl ApplicationHandler for BpmGuiApp {
                     } else if state.active_tab == ui::ActiveTab::Installed {
                         let list_w = 420.0;
                         let row_y_start = 68.0 + 32.0;
-                        let content_h = size.height as f32 - 68.0 - 48.0;
+                        let content_h = size.height as f32 - 68.0 - ui::FOOTER_RESERVE;
                         let row_h = 44.0;
                         let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
                         let scroll_offset = if state.selected_idx >= max_visible_rows {
