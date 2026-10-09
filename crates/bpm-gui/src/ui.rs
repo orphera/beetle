@@ -243,48 +243,50 @@ impl GuiRenderer {
             tab3_fg,
         );
 
-        // Search Input Box
-        let search_box_x = (w - 320.0).max(690.0);
-        let s_w = w - search_box_x - 16.0;
-        let search_border_col = if is_search_active {
-            ColorRgba::new(255, 220, 80, 255)
-        } else {
-            ColorRgba::new(60, 60, 80, 255)
-        };
-        self.draw_rect(
-            search_box_x,
-            14.0,
-            s_w,
-            28.0,
-            ColorRgba::new(16, 16, 24, 255),
-        );
-        self.draw_rect(search_box_x, 14.0, s_w, 1.0, search_border_col);
-        self.draw_rect(search_box_x, 41.0, s_w, 1.0, search_border_col);
-        self.draw_rect(search_box_x, 14.0, 1.0, 28.0, search_border_col);
-        self.draw_rect(search_box_x + s_w - 1.0, 14.0, 1.0, 28.0, search_border_col);
-
-        let search_display = if search_query.is_empty() {
-            if is_search_active {
-                "Type to search..._"
+        // Search Input Box (not used on the Tables tab)
+        if active_tab != ActiveTab::Tables {
+            let search_box_x = (w - 320.0).max(690.0);
+            let s_w = w - search_box_x - 16.0;
+            let search_border_col = if is_search_active {
+                ColorRgba::new(255, 220, 80, 255)
             } else {
-                "Search (press [/])..."
-            }
-        } else {
-            search_query
-        };
-        let search_text_col = if is_search_active {
-            ColorRgba::new(255, 255, 255, 255)
-        } else {
-            ColorRgba::new(120, 120, 140, 255)
-        };
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            search_display,
-            (search_box_x + 10.0) as i32,
-            22,
-            1,
-            search_text_col,
-        );
+                ColorRgba::new(60, 60, 80, 255)
+            };
+            self.draw_rect(
+                search_box_x,
+                14.0,
+                s_w,
+                28.0,
+                ColorRgba::new(16, 16, 24, 255),
+            );
+            self.draw_rect(search_box_x, 14.0, s_w, 1.0, search_border_col);
+            self.draw_rect(search_box_x, 41.0, s_w, 1.0, search_border_col);
+            self.draw_rect(search_box_x, 14.0, 1.0, 28.0, search_border_col);
+            self.draw_rect(search_box_x + s_w - 1.0, 14.0, 1.0, 28.0, search_border_col);
+
+            let search_display = if search_query.is_empty() {
+                if is_search_active {
+                    "Type to search..._"
+                } else {
+                    "Search (press [/])..."
+                }
+            } else {
+                search_query
+            };
+            let search_text_col = if is_search_active {
+                ColorRgba::new(255, 255, 255, 255)
+            } else {
+                ColorRgba::new(120, 120, 140, 255)
+            };
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                search_display,
+                (search_box_x + 10.0) as i32,
+                22,
+                1,
+                search_text_col,
+            );
+        }
 
         let content_y = 68.0;
         let content_h = h - content_y - FOOTER_RESERVE;
@@ -695,8 +697,8 @@ impl GuiRenderer {
             )
         } else {
             (
-                "[Up/Down]: Move  [[ ]]: Switch table  [O]: Open body  [D]: Get diff  [G]: Get from body",
-                "[S]: Scan  [R]: Reload index  [Tab]: Installed",
+                "[Up/Down]: Move  [PgUp/PgDn]: Page  [ [ / ] ]: Prev/Next table  [O]: Song page  [D]: Download chart",
+                "[Shift+D]: Chart page  [G]: Add from song file  [S]: Scan  [Tab]: Installed",
             )
         };
         for (i, line) in [help_line1, help_line2].iter().enumerate() {

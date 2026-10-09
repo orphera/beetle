@@ -25,6 +25,8 @@ pub struct TablesTab {
     first_visible: usize,
     /// One line under the header: what the tab is showing or needs.
     pub note: String,
+    /// A chart was added since the index was last scanned: the list may be out of date.
+    pub stale: bool,
 }
 
 impl TablesTab {
@@ -44,6 +46,7 @@ impl TablesTab {
             selected: 0,
             first_visible: 0,
             note: String::new(),
+            stale: false,
         };
         tab.reload_index();
         tab
@@ -72,7 +75,7 @@ impl TablesTab {
         self.rows = table_ops::missing_rows(table, index);
         let body = self.rows.iter().filter(|row| row.body_needed).count();
         self.note = format!(
-            "{} of {} charts missing ({} need their body)",
+            "{} of {} charts missing ({} also need the song files)",
             self.rows.len(),
             table.entries.len(),
             body
@@ -149,6 +152,18 @@ impl TablesTab {
             1,
             ColorRgba::new(170, 170, 190, 255),
         );
+        if self.stale {
+            let msg = "Out of date: press [S] to rescan";
+            let msg_x = x + w - BitmapFont::text_width(msg, 1) - 6.0;
+            BitmapFont::draw_text(
+                &mut r.pixmap.as_mut(),
+                msg,
+                msg_x as i32,
+                y as i32 + 18,
+                1,
+                ColorRgba::new(255, 200, 60, 255),
+            );
+        }
 
         let list_y = y + 42.0;
         let list_h = (h - 42.0 - DETAIL_H).max(0.0);
@@ -171,10 +186,14 @@ impl TablesTab {
             } else {
                 ColorRgba::new(200, 200, 215, 255)
             };
-            let tag = if row.body_needed { "[body] " } else { "" };
+            let tag = if row.body_needed { "[needs song] " } else { "" };
+            let level = match self.tables.get(self.table_idx) {
+                Some(table) => format!("{}{}", table.symbol, row.level),
+                None => row.level.clone(),
+            };
             let text = format!(
                 "#{:<5} {:<6} {tag}{} / {}",
-                row.number, row.level, row.title, row.artist
+                row.number, level, row.title, row.artist
             );
             let text = fit(&text, w - 12.0);
             BitmapFont::draw_text(
@@ -190,9 +209,16 @@ impl TablesTab {
         let detail_y = list_y + list_h + 8.0;
         let link_col = ColorRgba::new(120, 200, 255, 255);
         if let Some(row) = self.selected_row() {
+            let or_none = |link: &str| {
+                if link.is_empty() {
+                    "(none in the table)".to_string()
+                } else {
+                    link.to_string()
+                }
+            };
             let lines = [
-                format!("body: {}", row.url),
-                format!("diff: {}", row.url_diff),
+                format!("Song (本体): {}", or_none(&row.url)),
+                format!("Chart (差分): {}", or_none(&row.url_diff)),
             ];
             for (i, line) in lines.iter().enumerate() {
                 BitmapFont::draw_text(
@@ -253,6 +279,32 @@ mod snapshot {
             &mut tables,
         );
         write_bmp(&renderer, Path::new(&path));
+
+        // The same tab after a download, with the out-of-date mark and a dialog open.
+        tables.stale = true;
+        let dialog = crate::ui::ModalDisplayInfo {
+            prompt: "Download the chart for #1 \"Fresco\" into C:\\songs\\satellite\\1? Enter = yes, Esc = no",
+            input: "",
+            pack_options: None,
+            list: &[],
+        };
+        renderer.render_frame(
+            crate::ui::ActiveTab::Tables,
+            &[],
+            0,
+            0,
+            None,
+            &[],
+            0,
+            0,
+            "",
+            false,
+            "",
+            Some(dialog),
+            None,
+            &mut tables,
+        );
+        write_bmp(&renderer, &Path::new(&path).with_extension("modal.bmp"));
     }
 
     fn write_bmp(renderer: &GuiRenderer, path: &Path) {

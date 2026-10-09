@@ -86,6 +86,12 @@ struct AppState {
     last_anim_time: Instant,
     active_tab: ui::ActiveTab,
     tables: tables_tab::TablesTab,
+    /// The question shown in the dialog open now (download or path).
+    pending_prompt: String,
+    /// Lines under the dialog's hints (where a download will be saved).
+    pending_lines: Vec<String>,
+    /// The table task running now, if any.
+    table_task: Option<TableTaskKind>,
     remote_packages: Vec<ui::RemotePackageDisplayInfo>,
     remote_raw_packages: Vec<(bms_package_manager::RemotePackageMetadata, String)>,
     remote_filtered_indices: Vec<usize>,
@@ -414,6 +420,9 @@ impl ApplicationHandler for BpmGuiApp {
             last_anim_time: Instant::now(),
             active_tab: ui::ActiveTab::Installed,
             tables: tables_tab::TablesTab::load(),
+            pending_prompt: String::new(),
+            pending_lines: Vec::new(),
+            table_task: None,
             remote_packages: Vec::new(),
             remote_raw_packages: Vec::new(),
             remote_filtered_indices: Vec::new(),
@@ -458,10 +467,16 @@ impl ApplicationHandler for BpmGuiApp {
                         state.status_msg = msg;
                         state.refresh_packages();
                         state.tables.reload_index();
+                        match state.table_task.take() {
+                            Some(TableTaskKind::Adds) => state.tables.stale = true,
+                            Some(TableTaskKind::Scan) => state.tables.stale = false,
+                            None => {}
+                        }
                         state.window.request_redraw();
                         break;
                     }
                     BgTaskMessage::Failed(err) => {
+                        state.table_task = None;
                         state.bg_receiver = None;
                         state.bg_task_running = None;
                         state.bg_cancel_flag = None;
@@ -549,6 +564,7 @@ impl ApplicationHandler for BpmGuiApp {
                     let search_box_x = (w - 320.0).max(690.0);
                     let s_w = w - search_box_x - 16.0;
                     if (14.0..=42.0).contains(&my)
+                        && state.active_tab != ui::ActiveTab::Tables
                         && (search_box_x..=(search_box_x + s_w)).contains(&mx)
                     {
                         state.is_search_active = true;
@@ -658,6 +674,8 @@ impl ApplicationHandler for BpmGuiApp {
                         })
                         .collect();
 
+                    let pending_prompt = state.pending_prompt.clone();
+                    let pending_lines = state.pending_lines.clone();
                     let modal_info = state.modal.as_ref().map(|(mode, input)| match mode {
                         ModalMode::Library => ui::ModalDisplayInfo {
                             prompt: "Legacy BMS folders (path: add / path or number: remove):",
@@ -666,16 +684,16 @@ impl ApplicationHandler for BpmGuiApp {
                             list: &library_lines,
                         },
                         ModalMode::TableFetchDiff => ui::ModalDisplayInfo {
-                            prompt: "Download the difference pack of the selected entry? Enter = yes, Esc = no",
+                            prompt: pending_prompt.as_str(),
                             input: "",
                             pack_options: None,
-                            list: &[],
+                            list: &pending_lines,
                         },
                         ModalMode::TableGetBody => ui::ModalDisplayInfo {
-                            prompt: "Body file (zip, rar or 7z) to get the selected entry from:",
+                            prompt: pending_prompt.as_str(),
                             input: input.as_str(),
                             pack_options: None,
-                            list: &[],
+                            list: &pending_lines,
                         },
                         ModalMode::ImportFolder => ui::ModalDisplayInfo {
                             prompt: "Import BMS Folder (enter directory path):",
@@ -1776,6 +1794,16 @@ fn handle_key_input(
         return;
     }
 
+    if code == KeyCode::Escape
+        && state.active_tab == ui::ActiveTab::Tables
+        && state.search_query.is_empty()
+    {
+        state.status_msg =
+            "Esc does not quit from this tab. Press Tab to switch tabs, or close the window."
+                .to_string();
+        return;
+    }
+
     if code == KeyCode::Escape {
         if !state.search_query.is_empty() {
             state.search_query.clear();
@@ -1787,7 +1815,7 @@ fn handle_key_input(
         return;
     }
 
-    if code == KeyCode::Slash {
+    if code == KeyCode::Slash && state.active_tab != ui::ActiveTab::Tables {
         state.is_search_active = true;
         return;
     }
@@ -1801,6 +1829,7 @@ fn handle_key_input(
             KeyCode::BracketLeft => state.tables.switch_table(false),
             KeyCode::BracketRight => state.tables.switch_table(true),
             KeyCode::KeyO => table_open_body(state),
+            KeyCode::KeyD if state.modifiers.shift_key() => table_open_chart_page(state),
             KeyCode::KeyD => table_ask_diff(state),
             KeyCode::KeyG => table_ask_body(state),
             KeyCode::KeyS => table_scan(state),
@@ -2023,9 +2052,18 @@ fn handle_key_input(
     }
 }
 
+/// Which table task is running, so its result can update the list's freshness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableTaskKind {
+    /// Added a chart or a difference: the collection index is now out of date.
+    Adds,
+    /// Rescanned: the collection index is current.
+    Scan,
+}
+
 /// Runs `work` on a background thread, with the task bar shown, and reports its
 /// result in the status line.
-fn start_table_task<F>(state: &mut AppState, title: &str, work: F)
+fn start_table_task<F>(state: &mut AppState, title: &str, phase: &str, kind: TableTaskKind, work: F)
 where
     F: FnOnce() -> Result<String, String> + Send + 'static,
 {
@@ -2035,12 +2073,13 @@ where
     }
     state.bg_task_running = Some(BgTaskState {
         title: title.to_string(),
-        phase: "Working...".to_string(),
+        phase: phase.to_string(),
         current: 0,
         total: 0,
         detail: String::new(),
     });
     state.bg_cancel_flag = Some(Arc::new(AtomicBool::new(false)));
+    state.table_task = Some(kind);
     let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
     state.bg_receiver = Some(rx);
     thread::spawn(move || {
@@ -2052,52 +2091,99 @@ where
     });
 }
 
-/// Opens the selected entry's body page in the browser.
+/// The folder a downloaded chart goes to: `songs/<table>/<#>` under the folder
+/// the window was started from, the same `songs` folder the game reads.
+fn table_chart_folder(table_name: &str, number: usize) -> PathBuf {
+    let base = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    base.join("songs")
+        .join(bms_package_manager::TableStore::slug(table_name))
+        .join(number.to_string())
+}
+
+/// Opens the selected entry's song (body) page in the browser.
 fn table_open_body(state: &mut AppState) {
     let Some(row) = state.tables.selected_row() else {
         state.status_msg = "No entry selected".to_string();
         return;
     };
     if row.url.is_empty() {
-        state.status_msg = format!("#{} has no body link in the table", row.number);
+        state.status_msg = format!("#{}: the table has no song link for this entry", row.number);
         return;
     }
     state.status_msg = match bms_package_manager::table_fetch::open_in_browser(&row.url) {
-        Ok(()) => format!("Opened the body page for #{}", row.number),
+        Ok(()) => format!("#{}: opened the song page in the browser", row.number),
         Err(e) => e,
     };
 }
 
-/// Asks before downloading the selected entry's difference pack.
+/// Opens the selected entry's chart (difference) page in the browser. Only for
+/// links that are web pages; a direct zip link is downloaded with [D] instead.
+fn table_open_chart_page(state: &mut AppState) {
+    let Some(row) = state.tables.selected_row() else {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    };
+    if row.url_diff.is_empty() {
+        state.status_msg = format!(
+            "#{}: the table has no chart link for this entry",
+            row.number
+        );
+        return;
+    }
+    state.status_msg = match bms_package_manager::table_fetch::open_in_browser(&row.url_diff) {
+        Ok(()) => format!("#{}: opened the chart page in the browser", row.number),
+        Err(e) => e,
+    };
+}
+
+/// Asks before downloading the selected entry's chart (difference) into its folder.
 fn table_ask_diff(state: &mut AppState) {
     let Some(row) = state.tables.selected_row() else {
         state.status_msg = "No entry selected".to_string();
         return;
     };
     if row.url_diff.is_empty() {
-        state.status_msg = format!("#{} has no difference link in the table", row.number);
+        state.status_msg = format!(
+            "#{}: the table has no chart link for this entry",
+            row.number
+        );
         return;
     }
     if !bms_package_manager::table_fetch::is_direct_pack(&row.url_diff) {
         state.status_msg = format!(
-            "The difference of #{} is a page, not a file: {}",
-            row.number, row.url_diff
+            "#{}: the chart link is a web page, not a direct file. Press [Shift+D] to open it in the browser.",
+            row.number
         );
         return;
     }
+    let (number, title) = (row.number, row.title.clone());
+    let table_name = state
+        .tables
+        .table()
+        .map(|t| t.name.clone())
+        .unwrap_or_default();
+    let folder = table_chart_folder(&table_name, number);
+    state.pending_prompt =
+        format!("Download the chart for #{number} \"{title}\"? Enter = yes, Esc = no");
+    state.pending_lines = vec![format!("Saved to: {}", folder.display())];
     state.modal = Some((ModalMode::TableFetchDiff, String::new()));
 }
 
-/// Asks for the body file to get the selected entry from.
+/// Asks for the song archive (body) to add the selected entry from.
 fn table_ask_body(state: &mut AppState) {
-    if state.tables.selected_row().is_none() {
+    let Some(row) = state.tables.selected_row() else {
         state.status_msg = "No entry selected".to_string();
         return;
-    }
+    };
+    state.pending_prompt = format!(
+        "Add #{} \"{}\" from its song archive:",
+        row.number, row.title
+    );
+    state.pending_lines = vec!["Path of the .zip, .rar or .7z file, then Enter".to_string()];
     state.modal = Some((ModalMode::TableGetBody, String::new()));
 }
 
-/// Downloads the difference of the selected entry into `songs/<table>/<#>`.
+/// Downloads the chart of the selected entry into `songs/<table>/<#>`.
 fn table_start_diff(state: &mut AppState) {
     let (Some(row), Some(entry), Some(table)) = (
         state.tables.selected_row().cloned(),
@@ -2108,14 +2194,14 @@ fn table_start_diff(state: &mut AppState) {
         return;
     };
     let number = row.number;
-    let folder = PathBuf::from("songs")
-        .join(bms_package_manager::TableStore::slug(&table))
-        .join(number.to_string());
+    let folder = table_chart_folder(&table, number);
     let scratch =
         std::env::temp_dir().join(format!("bpm-gui-diff-{}-{number}", std::process::id()));
     start_table_task(
         state,
-        &format!("Downloading the difference of #{number}"),
+        &format!("Downloading the chart for #{number}"),
+        "Downloading and checking the chart...",
+        TableTaskKind::Adds,
         move || {
             let _ = fs::remove_dir_all(&scratch);
             let client = bms_package_manager::HttpClient::new();
@@ -2125,11 +2211,11 @@ fn table_start_diff(state: &mut AppState) {
             let kept = result?;
             if kept.matching == 0 {
                 return Err(format!(
-                    "#{number}: no chart in the pack has this entry's hash"
+                    "#{number}: the downloaded pack has no matching chart (wrong version?). Nothing was kept."
                 ));
             }
             Ok(format!(
-                "#{number}: kept {} chart(s) in {} ({} copied, {} already there). Press [S] to rescan.",
+                "#{number}: saved {} chart(s) to {} ({} copied, {} already there). Press [S] to rescan.",
                 kept.matching,
                 folder.display(),
                 kept.copied,
@@ -2139,7 +2225,7 @@ fn table_start_diff(state: &mut AppState) {
     );
 }
 
-/// Gets the selected entry from the body file at `path`.
+/// Adds the selected entry from the song archive at `path`.
 fn table_start_get(state: &mut AppState, path: &str) {
     let path = path.trim().trim_matches('"').to_string();
     if path.is_empty() {
@@ -2153,35 +2239,43 @@ fn table_start_get(state: &mut AppState, path: &str) {
     let number = state.tables.selected_row().map_or(0, |row| row.number);
     let packages_root = state.manager.root_dir().to_path_buf();
     let scratch = std::env::temp_dir().join(format!("bpm-gui-get-{}-{number}", std::process::id()));
-    start_table_task(state, &format!("Getting #{number}"), move || {
-        let _ = fs::remove_dir_all(&scratch);
-        let client = bms_package_manager::HttpClient::new();
-        let result = bms_package_manager::table_ops::get_from_body(
-            &client,
-            &entry,
-            Path::new(&path),
-            &scratch,
-            &packages_root,
-        );
-        let _ = fs::remove_dir_all(&scratch);
-        result.map(|summary| format!("#{number}: {summary}. Press [S] to rescan."))
-    });
+    start_table_task(
+        state,
+        &format!("Adding #{number}"),
+        "Unpacking the song archive...",
+        TableTaskKind::Adds,
+        move || {
+            let _ = fs::remove_dir_all(&scratch);
+            let client = bms_package_manager::HttpClient::new();
+            let result = bms_package_manager::table_ops::get_from_body(
+                &client,
+                &entry,
+                Path::new(&path),
+                &scratch,
+                &packages_root,
+            );
+            let _ = fs::remove_dir_all(&scratch);
+            result.map(|summary| format!("#{number}: {summary}. Press [S] to rescan."))
+        },
+    );
 }
 
 /// Scans the library folders, the songs folder, and the packages into the index.
 fn table_scan(state: &mut AppState) {
     let packages_root = state.manager.root_dir().to_path_buf();
-    start_table_task(state, "Scanning the collection", move || {
-        let report = bms_package_manager::table_ops::scan_collection(&packages_root)?;
-        Ok(format!(
-            "Scanned {} folder(s) and {} package state(s): {} copies, {} charts, {} duplicate charts",
-            report.folders,
-            report.package_states,
-            report.copies,
-            report.charts,
-            report.duplicate_groups
-        ))
-    });
+    start_table_task(
+        state,
+        "Scanning the collection",
+        "Reading the folders and packages...",
+        TableTaskKind::Scan,
+        move || {
+            let report = bms_package_manager::table_ops::scan_collection(&packages_root)?;
+            Ok(format!(
+                "Scan done: {} charts found. The missing list is up to date.",
+                report.charts
+            ))
+        },
+    );
 }
 
 fn start_remote_install(state: &mut AppState, with_bga: bool) {
