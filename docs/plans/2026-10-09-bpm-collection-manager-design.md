@@ -251,9 +251,11 @@ Opus 검토(2026-10-09) 결과를 요약한다. 자동 묶기는 보수적으로
 
 ### 9.7 게임 로드 위치 통일 (완료)
 
-- 게임 스캐너(`beetle-app/src/scanner.rs`)가 bpm과 같은 출처 목록(`collection_folders`: library, `songs/`, `BMS_DIR`)을 쓰고, 활성 패키지 state만 읽습니다(`bms_package::installed`).
+- 게임 스캐너(`beetle-app/src/scanner.rs`)가 bpm과 같은 출처 목록(`collection_folders`: library, `songs/`)을 쓰고, 활성 패키지 state만 읽습니다(`bms_package::installed`). `BMS_DIR`와 개발용 패키지 경로(`target/release/packages`, `../packages`)는 정식 출처에서 뺐습니다. 패키지 폴더는 `packages/`(또는 `BEETLE_PACKAGES_DIR`)뿐입니다.
+- 경로 형식: Windows의 `\\?\` 접두사는 `beetle_core::display_path`로 한 곳에서만 뗍니다. bpm과 게임이 같은 문자열로 출처를 정렬하고 중복을 거르게 하기 위함입니다(이전에는 bpm 쪽 접두사 제거가 동작하지 않아 정렬 순서가 어긋날 수 있었습니다).
+- `bpm scan`은 `songs.cache`(cwd와 `songs/`)를 지웁니다. 게임은 다음 실행 때 같은 출처로 다시 스캔하므로, 인덱스와 게임이 같은 사본을 고릅니다.
 - 같은 ChartId의 사본은 `(kind, source, path)` 순으로 정렬한 뒤 `choose_load_index`로 하나를 고릅니다. 온전성(누락 키음)은 사본이 둘 이상인 ChartId에만 계산합니다(`beetle_core::key_sounds`).
-- 사용자 결정: 레지스트리에 없는 `packages/`의 `.bmsp`는 게임 목록에서 뺍니다. 개발용 패키지 경로(`target/release/packages`, `../packages`)는 스캔하지 않습니다.
-- `songs.cache`는 `#BEETLE_SONGS_V5`로 올렸고, `registry.json`이 캐시보다 새로우면 다시 스캔합니다.
+- 사용자 결정: 레지스트리에 없는 `packages/`의 `.bmsp`는 게임 목록에서 뺍니다. 개발용 패키지 경로(`target/release/packages`, `../packages`)와 `BMS_DIR`는 정식 출처에서 뺍니다(사용자 결정, 2026-10-09).
+- `songs.cache`는 `#BEETLE_SONGS_V6`로 올렸고, `registry.json`이 캐시보다 새로우면 다시 스캔합니다.
 - 결과로 일부 중복 차트는 예전과 다른 사본에서 열릴 수 있습니다. 사용자가 수용했습니다.
 - 검증: `beetle-app` scanner 테스트 5개(교차 검증 `game_and_bpm_choose_the_same_copy` 포함)와 전체 워크스페이스 테스트 통과. 게임 실행 확인은 아직 하지 않았습니다(아래 수동 확인).

@@ -15,9 +15,8 @@ pub const REGISTRY_FILENAME: &str = "registry.json";
 /// The file name of a state's package inside its state folder.
 pub const PACKAGE_FILENAME: &str = "package.bmsp";
 
-/// Packages folders tried when `BEETLE_PACKAGES_DIR` is not set, in order.
-/// The first one that holds a registry is used; `packages` is the default.
-pub const PACKAGES_CANDIDATES: &[&str] = &["packages", "target/release/packages", "../packages"];
+/// The default packages folder, next to the game. `BEETLE_PACKAGES_DIR` overrides it.
+pub const DEFAULT_PACKAGES_DIR: &str = "packages";
 
 /// One installed state that is the active state of its package.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,29 +46,10 @@ struct StateRecord {
     path: String,
 }
 
-/// The packages folder to use: `env_value` when set, otherwise the first of
-/// `PACKAGES_CANDIDATES` for which `has_registry` is true, otherwise `packages`.
-pub fn choose_packages_root(
-    env_value: Option<&str>,
-    has_registry: impl Fn(&Path) -> bool,
-) -> PathBuf {
-    if let Some(value) = env_value {
-        return PathBuf::from(value);
-    }
-    PACKAGES_CANDIDATES
-        .iter()
-        .map(PathBuf::from)
-        .find(|candidate| has_registry(&candidate.join(REGISTRY_FILENAME)))
-        .unwrap_or_else(|| PathBuf::from("packages"))
-}
-
-/// The packages folder for this process: `BEETLE_PACKAGES_DIR`, or the first
-/// candidate that holds a registry.
+/// The packages folder for this process: `BEETLE_PACKAGES_DIR`, or `packages`.
 pub fn packages_root() -> PathBuf {
-    choose_packages_root(
-        std::env::var("BEETLE_PACKAGES_DIR").ok().as_deref(),
-        |registry| registry.exists(),
-    )
+    std::env::var("BEETLE_PACKAGES_DIR")
+        .map_or_else(|_| PathBuf::from(DEFAULT_PACKAGES_DIR), PathBuf::from)
 }
 
 /// The active state of every package in `root`'s registry. A missing registry
@@ -157,23 +137,5 @@ mod tests {
         let root = temp_root("missing");
         assert_eq!(read_active_states(&root).unwrap(), Vec::new());
         fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn env_value_wins_over_candidates() {
-        let root = choose_packages_root(Some("elsewhere"), |_| true);
-        assert_eq!(root, PathBuf::from("elsewhere"));
-    }
-
-    #[test]
-    fn first_candidate_with_a_registry_is_used() {
-        let root = choose_packages_root(None, |registry| {
-            registry.starts_with("target/release/packages")
-        });
-        assert_eq!(root, PathBuf::from("target/release/packages"));
-        assert_eq!(
-            choose_packages_root(None, |_| false),
-            PathBuf::from("packages")
-        );
     }
 }

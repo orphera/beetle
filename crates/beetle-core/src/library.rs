@@ -308,8 +308,12 @@ pub fn sort_songs(
     }
 }
 
+/// File name of the song list cache, kept in the working directory and in the songs folder.
+/// `bpm scan` deletes it so the game rebuilds it from the same copies bpm indexed.
+pub const SONGS_CACHE_FILE: &str = "songs.cache";
+
 /// First line of a song list cache.
-const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V5";
+const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V6";
 
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
@@ -489,11 +493,11 @@ mod tests {
             .unwrap(),
         ];
         let text = serialize_song_cache(&songs);
-        assert!(text.starts_with("#BEETLE_SONGS_V5\n"));
+        assert!(text.starts_with("#BEETLE_SONGS_V6\n"));
         assert_eq!(deserialize_song_cache(&text), songs);
 
         // Earlier caches have no long note fields: not trusted, so the app rescans.
-        let v2 = text.replacen("#BEETLE_SONGS_V5", "#BEETLE_SONGS_V4", 1);
+        let v2 = text.replacen("#BEETLE_SONGS_V6", "#BEETLE_SONGS_V4", 1);
         assert!(deserialize_song_cache(&v2).is_empty());
         let old = "0000000000000001\ta.bms\tT\t\tA\tG\t140.00\t5\t100\t7KEYS\n";
         assert!(deserialize_song_cache(old).is_empty());

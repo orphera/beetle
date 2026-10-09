@@ -31,9 +31,9 @@ pub use judge::{
 };
 pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
-    SortMode,
+    SortMode, SONGS_CACHE_FILE,
 };
-pub use library_paths::{collection_folders, LibraryPaths};
+pub use library_paths::{collection_folders, display_path, LibraryPaths};
 pub use load_location::choose_load_index;
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};

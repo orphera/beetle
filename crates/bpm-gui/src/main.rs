@@ -8,7 +8,6 @@ mod ui;
 use beetle_render::image::ImageBuffer;
 use bms_package_manager::{PackageManager, PackageRecord};
 use softbuffer::{Context, Surface};
-use std::env;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -378,17 +377,7 @@ impl ApplicationHandler for BpmGuiApp {
             }
         };
 
-        let packages_dir = env::var("BEETLE_PACKAGES_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                for candidate in &["packages", "target/release/packages", "../packages"] {
-                    let p = Path::new(candidate);
-                    if p.join("registry.json").exists() {
-                        return p.to_path_buf();
-                    }
-                }
-                PathBuf::from("packages")
-            });
+        let packages_dir = bms_package::installed::packages_root();
 
         let manager =
             PackageManager::new(&packages_dir).expect("Failed to initialize PackageManager");

@@ -1,7 +1,7 @@
 //! Finds the charts the game plays, and which copy of each chart it loads.
 //!
 //! Sources are the folders from `beetle_core::collection_folders` (library
-//! folders, the songs folder, `BMS_DIR`) and the active package states in the
+//! folders and the songs folder) and the active package states in the
 //! registry. A copy of a chart is a file (or package entry) whose bytes have the
 //! same `ChartId`; the game lists each chart once, loading the copy that
 //! `beetle_core::choose_load_index` picks among the copies in the same order
@@ -9,8 +9,8 @@
 
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
 use beetle_core::{
-    choose_load_index, collection_folders, deserialize_song_cache, serialize_song_cache, ChartId,
-    LibraryPaths, SongMetadata,
+    choose_load_index, collection_folders, deserialize_song_cache, display_path,
+    serialize_song_cache, ChartId, LibraryPaths, SongMetadata, SONGS_CACHE_FILE,
 };
 use bms_package::installed::{self, REGISTRY_FILENAME};
 use bms_package::PackageReader;
@@ -19,7 +19,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_SONGS_DIR: &str = "songs";
-pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
 const SKIP_DIRS: &[&str] = &[".bpm-trash", ".tmp_install"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
@@ -174,28 +173,20 @@ fn missing_key_sounds(copy: &Copy, readers: &mut BTreeMap<String, PackageReader>
     }
 }
 
-/// The folders to scan now: `library.dat`, the songs folder, and `BMS_DIR`.
+/// The folders to scan now: `library.dat` and the songs folder.
 fn current_folders(songs_dir: &Path) -> Vec<String> {
     let library = LibraryPaths::parse(&fs::read_to_string(library_file()).unwrap_or_default());
     let songs = absolute_dir(songs_dir);
-    let bms_dir = std::env::var("BMS_DIR")
-        .ok()
-        .and_then(|dir| absolute_dir(Path::new(&dir)));
-    collection_folders(&library, songs.as_deref(), bms_dir.as_deref())
+    collection_folders(&library, songs.as_deref())
 }
 
-/// Absolute form of an existing folder, without the `\\?\` prefix Windows adds.
+/// Absolute form of an existing folder, as the collection stores it (`display_path`).
 fn absolute_dir(path: &Path) -> Option<String> {
     let full = fs::canonicalize(path).ok()?;
     if !full.is_dir() {
         return None;
     }
-    let text = full.to_string_lossy().into_owned();
-    Some(
-        text.strip_prefix(r"\\?\")
-            .map(str::to_string)
-            .unwrap_or(text),
-    )
+    Some(display_path(&full.to_string_lossy()).to_string())
 }
 
 /// A cache older than the library list or the registry was built without some

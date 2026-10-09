@@ -132,17 +132,20 @@ fn load_index_or_exit() -> collection::Index {
 }
 
 fn run_scan(manager: &PackageManager) {
-    // The same sources the game scans: library folders, the default songs folder, and BMS_DIR.
+    // The same sources the game scans: library folders and the default songs folder.
     let songs_dir = absolute_dir("songs").ok();
-    let bms_dir = env::var("BMS_DIR")
-        .ok()
-        .and_then(|dir| absolute_dir(&dir).ok());
-    let folders =
-        beetle_core::collection_folders(&load_library(), songs_dir.as_deref(), bms_dir.as_deref());
+    let folders = beetle_core::collection_folders(&load_library(), songs_dir.as_deref());
     let installed = manager.list_active_packages();
     let (index, counts) = collection::build_index(&folders, &installed);
     let path = collection::index_file();
     fs::write(&path, index.serialize()).unwrap_or_else(|e| exit_with(&e));
+    // The game's song cache was built from the old copies; let it rebuild from this scan's sources.
+    for cache in [
+        PathBuf::from(beetle_core::SONGS_CACHE_FILE),
+        Path::new(&songs_dir.unwrap_or_default()).join(beetle_core::SONGS_CACHE_FILE),
+    ] {
+        let _ = fs::remove_file(cache);
+    }
 
     let distinct = distinct_charts(&index);
     println!(

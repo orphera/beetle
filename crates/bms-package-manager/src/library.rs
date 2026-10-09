@@ -20,12 +20,11 @@ pub fn save_library(list: &LibraryPaths) -> std::io::Result<()> {
     fs::write(library_file(), list.serialize())
 }
 
-/// Absolute form of an existing folder, without the `\?\` prefix Windows adds.
+/// Absolute form of an existing folder, as the collection stores it (`beetle_core::display_path`).
 pub fn absolute_dir(path: &str) -> Result<String, String> {
     let p = fs::canonicalize(path).map_err(|e| format!("'{path}': {e}"))?;
     if !p.is_dir() {
         return Err(format!("'{path}' is not a folder"));
     }
-    let s = p.to_string_lossy().into_owned();
-    Ok(s.strip_prefix(r"\?\").map(str::to_string).unwrap_or(s))
+    Ok(beetle_core::display_path(&p.to_string_lossy()).to_string())
 }
