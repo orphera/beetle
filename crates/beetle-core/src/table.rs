@@ -222,16 +222,23 @@ pub struct TableIndex {
     matches: HashMap<ChartId, Vec<TableMatch>>,
     /// Per table, how many of its entries are in the song list.
     owned: Vec<usize>,
+    /// Per table, per entry: whether the song list has the chart.
+    found: Vec<Vec<bool>>,
 }
 
 impl TableIndex {
     /// Tables in the order they should be shown and prioritized.
     pub fn new(tables: Vec<DifficultyTable>) -> Self {
         let owned = vec![0; tables.len()];
+        let found = tables
+            .iter()
+            .map(|t| vec![false; t.entries.len()])
+            .collect();
         Self {
             tables,
             matches: HashMap::new(),
             owned,
+            found,
         }
     }
 
@@ -258,19 +265,25 @@ impl TableIndex {
 
         self.matches.clear();
         self.owned = vec![0; self.tables.len()];
+        self.found = self
+            .tables
+            .iter()
+            .map(|t| vec![false; t.entries.len()])
+            .collect();
         for (table_index, table) in self.tables.iter().enumerate() {
             let mut labeled: HashSet<ChartId> = HashSet::new();
             for (entry_index, entry) in table.entries.iter().enumerate() {
-                let found: Vec<ChartId> = match (entry.sha256, entry.md5) {
+                let matched: Vec<ChartId> = match (entry.sha256, entry.md5) {
                     (Some(sha), _) => ids.get(&sha).copied().into_iter().collect(),
                     (None, Some(md5)) => by_md5.get(&md5).cloned().unwrap_or_default(),
                     (None, None) => Vec::new(),
                 };
-                if found.is_empty() {
+                if matched.is_empty() {
                     continue;
                 }
                 self.owned[table_index] += 1;
-                for id in found {
+                self.found[table_index][entry_index] = true;
+                for id in matched {
                     if labeled.insert(id) {
                         self.matches.entry(id).or_default().push(TableMatch {
                             table: table_index,
@@ -306,6 +319,22 @@ impl TableIndex {
     /// How many of a table's entries are in the song list.
     pub fn owned_count(&self, table: usize) -> usize {
         self.owned.get(table).copied().unwrap_or(0)
+    }
+
+    /// Indices of a table's entries that the song list does not have, in table order.
+    /// Uses the same matching rule as `match_songs`.
+    pub fn missing_entries(&self, table: usize) -> Vec<usize> {
+        self.found
+            .get(table)
+            .map(|flags| {
+                flags
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, owned)| !**owned)
+                    .map(|(index, _)| index)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -440,6 +469,22 @@ mod tests {
         t.level_order = vec!["?".into(), "10".into(), "1".into()];
         // Listed levels first in the given order, then the rest naturally.
         assert_eq!(t.levels(), ["?", "10", "1", "2"]);
+    }
+
+    #[test]
+    fn missing_entries_are_the_ones_the_song_list_lacks() {
+        let mut index = TableIndex::new(vec![table(
+            "Sat",
+            "sl",
+            vec![entry("3", 1), entry("4", 2), entry("5", 3)],
+        )]);
+        index.match_songs([chart(2)]);
+        assert_eq!(index.missing_entries(0), vec![0, 2]);
+        assert_eq!(index.owned_count(0), 1);
+
+        index.match_songs([chart(1), chart(2), chart(3)]);
+        assert!(index.missing_entries(0).is_empty());
+        assert!(index.missing_entries(9).is_empty(), "unknown table");
     }
 
     #[test]

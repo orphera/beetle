@@ -88,6 +88,7 @@ fn print_table_usage() {
     println!("  bpm table add <address>             Install a difficulty table from its page or header.json");
     println!("  bpm table update [name] [--force]   Fetch installed tables again (all, or one)");
     println!("  bpm table list                      List installed tables");
+    println!("  bpm table missing [name]            Charts in the tables that the collection does not have (run `bpm scan` first)");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -896,6 +897,47 @@ fn run_table_command(args: &[String]) {
             };
             let removed = store.remove(name).unwrap_or_else(|e| fail(&e));
             println!("Removed '{removed}'.");
+        }
+        Some("missing") => {
+            let wanted = args.get(1).filter(|a| !a.starts_with("--"));
+            let tables: Vec<_> = match wanted {
+                Some(name) => vec![
+                    store
+                        .find(name)
+                        .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")))
+                        .1,
+                ],
+                None => store.list().into_iter().map(|(_, table)| table).collect(),
+            };
+            if tables.is_empty() {
+                println!("No tables installed. Add one with `bpm table add <address>`.");
+                return;
+            }
+            // Charts in packages count as owned too, so both kinds of copy come from the index.
+            let index = load_index_or_exit();
+            let mut matcher = TableIndex::new(tables);
+            matcher.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
+            for (table_index, table) in matcher.tables().iter().enumerate() {
+                let missing = matcher.missing_entries(table_index);
+                println!(
+                    "{} ({}): {} of {} charts missing",
+                    table.name,
+                    table.symbol,
+                    missing.len(),
+                    table.entries.len()
+                );
+                for entry_index in missing {
+                    let entry = &table.entries[entry_index];
+                    println!("  {:<6} {} / {}", entry.level, entry.title, entry.artist);
+                    if !entry.url.is_empty() {
+                        println!("         {}", entry.url);
+                    }
+                    if !entry.url_diff.is_empty() {
+                        println!("         diff: {}", entry.url_diff);
+                    }
+                }
+                println!();
+            }
         }
         _ => print_table_usage(),
     }
