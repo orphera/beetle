@@ -1,6 +1,7 @@
 use beetle_core::{ChartId, TableIndex};
 use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
+use bms_package_manager::table_fetch;
 use bms_package_manager::{
     absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
@@ -89,6 +90,7 @@ fn print_table_usage() {
     println!("  bpm table update [name] [--force]   Fetch installed tables again (all, or one)");
     println!("  bpm table list                      List installed tables");
     println!("  bpm table missing [name]            Charts in the tables the collection lacks (after `bpm scan`)");
+    println!("  bpm table fetch <name> <#>... [--yes]  Download the difference packs of the chosen entries (direct links only)");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -931,7 +933,13 @@ fn run_table_command(args: &[String]) {
                 );
                 for entry_index in missing {
                     let entry = &table.entries[entry_index];
-                    println!("  {:<6} {} / {}", entry.level, entry.title, entry.artist);
+                    println!(
+                        "  #{:<5} {:<6} {} / {}",
+                        entry_index + 1,
+                        entry.level,
+                        entry.title,
+                        entry.artist
+                    );
                     if !entry.url.is_empty() {
                         println!("         {}", entry.url);
                     }
@@ -942,8 +950,117 @@ fn run_table_command(args: &[String]) {
                 println!();
             }
         }
+        Some("fetch") => {
+            let Some(name) = args.get(1).filter(|a| !a.starts_with("--")) else {
+                eprintln!("Error: Missing table name.");
+                print_table_usage();
+                std::process::exit(1);
+            };
+            let yes = args.iter().any(|a| a == "--yes");
+            let numbers: Vec<usize> = args
+                .iter()
+                .skip(2)
+                .filter(|a| !a.starts_with("--"))
+                .map(|a| a.trim_start_matches('#').parse::<usize>().ok())
+                .collect::<Option<_>>()
+                .unwrap_or_else(|| {
+                    fail(&"entry numbers must be numbers, as `table missing` prints them")
+                });
+            let (_, table) = store
+                .find(name)
+                .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
+            fetch_difference_packs(&client, &table, &numbers, yes);
+        }
         _ => print_table_usage(),
     }
+}
+
+/// Downloads the difference packs of the chosen table entries (numbers as
+/// `table missing` prints them), after the user confirms. Each pack goes to
+/// `songs/<table>/<number>` when one of its charts has the entry's hash.
+fn fetch_difference_packs(
+    client: &HttpClient,
+    table: &beetle_core::DifficultyTable,
+    numbers: &[usize],
+    yes: bool,
+) {
+    let mut planned = Vec::new();
+    for &number in numbers {
+        let Some(entry) = number.checked_sub(1).and_then(|i| table.entries.get(i)) else {
+            eprintln!("#{number}: no such entry in '{}'", table.name);
+            continue;
+        };
+        if table_fetch::is_direct_pack(&entry.url_diff) {
+            planned.push((number, entry));
+        } else if entry.url_diff.is_empty() {
+            println!("#{number}: no difference link in the table");
+        } else {
+            println!(
+                "#{number}: not a direct pack link. Open it in a browser: {}",
+                entry.url_diff
+            );
+        }
+    }
+    if planned.is_empty() {
+        return;
+    }
+
+    println!(
+        "About to download {} pack(s) for '{}':",
+        planned.len(),
+        table.name
+    );
+    for (number, entry) in &planned {
+        println!(
+            "  #{number} {} / {}  {}",
+            entry.title, entry.artist, entry.url_diff
+        );
+    }
+    if !yes && !confirm("Download these packs? [y/N] ") {
+        println!("Nothing downloaded.");
+        return;
+    }
+
+    let slug = TableStore::slug(&table.name);
+    for (number, entry) in planned {
+        let scratch = env::temp_dir().join(format!("bpm-fetch-{}-{number}", std::process::id()));
+        let _ = fs::remove_dir_all(&scratch);
+        if let Err(e) = fs::create_dir_all(&scratch) {
+            eprintln!("#{number}: {e}");
+            continue;
+        }
+        let result = client
+            .get_bytes(&entry.url_diff, table_fetch::MAX_PACK_BYTES)
+            .and_then(|bytes| {
+                let zip = scratch.join("pack.zip");
+                fs::write(&zip, bytes).map_err(|e| e.to_string())?;
+                let pack_dir = PathBuf::from("songs").join(&slug).join(number.to_string());
+                table_fetch::keep_pack(&zip, entry, &scratch, &pack_dir)
+                    .map(|matched| (matched, pack_dir))
+            });
+        let _ = fs::remove_dir_all(&scratch);
+        match result {
+            Ok((matched, pack_dir)) if matched > 0 => println!(
+                "#{number}: kept {matched} matching chart(s) in {}. Run `bpm scan` to index them.",
+                pack_dir.display()
+            ),
+            Ok(_) => {
+                eprintln!("#{number}: no chart in the pack matches the table entry; nothing kept")
+            }
+            Err(e) => eprintln!("#{number}: {e}"),
+        }
+    }
+}
+
+/// Asks a yes/no question on stdin. Anything but `y` or `yes` is no.
+fn confirm(question: &str) -> bool {
+    print!("{question}");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let mut answer = String::new();
+    if std::io::stdin().read_line(&mut answer).is_err() {
+        return false;
+    }
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 /// Returns true when `path` names a zip archive by its extension.
