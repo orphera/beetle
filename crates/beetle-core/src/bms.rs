@@ -432,8 +432,30 @@ pub fn decode_hex(c1: u8, c2: u8) -> Option<u8> {
     Some(d1 * 16 + d2)
 }
 
+/// Decodes text that starts with a UTF-16 byte order mark. Such files are
+/// rare, but a lossy UTF-8 read of them leaves a NUL between every letter.
+fn decode_utf16_bom(bytes: &[u8]) -> Option<String> {
+    let (rest, big_endian) = match bytes {
+        [0xFF, 0xFE, rest @ ..] => (rest, false),
+        [0xFE, 0xFF, rest @ ..] => (rest, true),
+        _ => return None,
+    };
+    let units: Vec<u16> = rest
+        .chunks_exact(2)
+        .map(|c| {
+            if big_endian {
+                u16::from_be_bytes([c[0], c[1]])
+            } else {
+                u16::from_le_bytes([c[0], c[1]])
+            }
+        })
+        .collect();
+    Some(String::from_utf16_lossy(&units))
+}
+
 /// Safely decodes BMS chart text bytes into a UTF-8 Rust `String`.
 /// Attempts:
+/// 0. UTF-16 when the bytes start with a byte order mark
 /// 1. Strict UTF-8 first (if valid UTF-8, returns immediately)
 /// 2. On Windows: Native Win32 `MultiByteToWideChar` with CP932 (Shift-JIS) then CP949 (Korean)
 /// 3. Fallback: `String::from_utf8_lossy(bytes)`
@@ -441,6 +463,9 @@ pub fn decode_hex(c1: u8, c2: u8) -> Option<u8> {
 pub fn decode_bms_text(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::new();
+    }
+    if let Some(s) = decode_utf16_bom(bytes) {
+        return s;
     }
     // 1. Strict UTF-8
     if let Ok(s) = std::str::from_utf8(bytes) {
@@ -479,7 +504,9 @@ pub fn decode_bms_text(bytes: &[u8]) -> String {
 
 #[cfg(not(target_os = "windows"))]
 pub fn decode_bms_text(bytes: &[u8]) -> String {
-    if let Ok(s) = std::str::from_utf8(bytes) {
+    if let Some(s) = decode_utf16_bom(bytes) {
+        s
+    } else if let Ok(s) = std::str::from_utf8(bytes) {
         s.to_string()
     } else {
         String::from_utf8_lossy(bytes).into_owned()
@@ -2012,5 +2039,20 @@ mod tests {
         // half-width katakana), so a CP932-first decode would wrongly succeed.
         let cp949: &[u8] = &[0xB0, 0xA1, 0xB3, 0xAA, 0xB4, 0xD9];
         assert_eq!(decode_bms_text(cp949), "가나다");
+    }
+
+    #[test]
+    fn test_decode_bms_text_utf16_with_bom() {
+        // "#TITLE A" as UTF-16LE with a byte order mark.
+        let le: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain("#TITLE A".encode_utf16().flat_map(|u| u.to_le_bytes()))
+            .collect();
+        assert_eq!(decode_bms_text(&le), "#TITLE A");
+        let be: Vec<u8> = [0xFE, 0xFF]
+            .into_iter()
+            .chain("#TITLE A".encode_utf16().flat_map(|u| u.to_be_bytes()))
+            .collect();
+        assert_eq!(decode_bms_text(&be), "#TITLE A");
     }
 }

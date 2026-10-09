@@ -209,7 +209,9 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
     let mut artists = Vec::new();
     for path in &bms_paths {
         if let Ok(bytes) = fs::read(path) {
-            let content = String::from_utf8_lossy(&bytes);
+            // Same decoding as the chart loader: a lossy UTF-8 read turned
+            // Shift-JIS and CP949 titles into U+FFFD boxes in the registry.
+            let content = beetle_core::decode_bms_text(&bytes);
             let (title, artist, genre) = extract_bms_header_tags(&content);
             if !title.is_empty() {
                 titles.push(canonicalize_title(&title));
@@ -1043,6 +1045,30 @@ mod tests {
         assert_eq!(manifest.name, "Song");
         assert_eq!(manifest.author.as_deref(), Some("X"));
         assert_eq!(manifest.id, "x.song");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_analyze_bms_folder_keeps_legacy_encoded_title() {
+        let dir = std::env::temp_dir().join(format!(
+            "bpm_analyze_legacy_title_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        // "#TITLE 가나다" in CP949 (EUC-KR), which is not valid UTF-8.
+        let mut bytes = b"#TITLE ".to_vec();
+        bytes.extend_from_slice(&[0xB0, 0xA1, 0xB3, 0xAA, 0xB4, 0xD9]);
+        bytes.extend_from_slice(b"\n#ARTIST X\n");
+        fs::write(dir.join("a.bms"), bytes).unwrap();
+
+        let manifest = analyze_bms_folder(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(manifest.name, "가나다");
+        assert!(!manifest.name.contains('\u{FFFD}'));
     }
 
     #[test]
