@@ -543,6 +543,16 @@ impl SkinConfig {
             let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
             return if blue[index] { self.blue_key_color } else { self.white_key_color };
         }
+        // Straight 8K: red - white - blue - white white - blue - white - red,
+        // by position (the scratch may be at either end).
+        if self.play_mode == PlayMode::Keys8 && !self.eight_k_triggers() {
+            let index = self.screen_lanes().iter().position(|&l| l == lane).unwrap_or(0);
+            return match index {
+                0 | 7 => self.scratch_key_color,
+                2 | 5 => self.blue_key_color,
+                _ => self.white_key_color,
+            };
+        }
         if self.eight_k_triggers() {
             return match lane {
                 Lane::Scratch | Lane::Key7 => self.scratch_key_color,
@@ -662,6 +672,26 @@ mod tests {
         skin.set_play_mode(PlayMode::Keys7);
         assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key7) + 50.0);
         assert_eq!(skin.screen_lanes().last(), Some(&Lane::Scratch));
+    }
+
+    #[test]
+    fn straight_eight_k_is_red_white_blue_white_white_blue_white_red() {
+        let mut skin = test_skin();
+        skin.set_play_mode(PlayMode::Keys8);
+        let colors = |skin: &SkinConfig| -> Vec<char> {
+            skin.screen_lanes()
+                .iter()
+                .map(|&l| match skin.lane_color(l) {
+                    c if c == skin.scratch_key_color => 'R',
+                    c if c == skin.blue_key_color => 'B',
+                    _ => 'W',
+                })
+                .collect()
+        };
+        assert_eq!(colors(&skin).iter().collect::<String>(), "RWBWWBWR");
+        // Positional: the same with the scratch on the right.
+        skin.set_scratch_side(PlayMode::Keys8, ScratchSide::Right);
+        assert_eq!(colors(&skin).iter().collect::<String>(), "RWBWWBWR");
     }
 
     #[test]

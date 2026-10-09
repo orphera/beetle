@@ -198,7 +198,10 @@ fn is_trigger(lane: Lane) -> bool {
 }
 
 /// Width of one side (scratch + keys) in layout units.
-fn side_width(lanes: &[&KeyBinding], triggers: bool) -> f32 {
+fn side_width(lanes: &[&KeyBinding], triggers: bool, straight: bool) -> f32 {
+    if straight {
+        return (lanes.len() as f32 - 1.0).max(0.0) * KEY_STEP + KEY_W;
+    }
     if triggers {
         let keys = lanes.iter().filter(|b| !is_trigger(b.lane)).count() as f32;
         return 2.0 * (TRIGGER_W + TRIGGER_GAP) + (keys - 1.0).max(0.0) * KEY_STEP + KEY_W;
@@ -214,6 +217,8 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
     layout.set_scratch_side(f.mode, f.scratch);
     layout.set_eight_k_form(f.form);
     let triggers = f.mode == PlayMode::Keys8 && f.form == EightKForm::Triggers;
+    // Straight 8K: all eight lanes are the same square buttons in one row.
+    let straight = f.mode == PlayMode::Keys8 && !triggers;
     let sides: Vec<Vec<(usize, &KeyBinding)>> = {
         let p1: Vec<_> = f.lanes.iter().enumerate().filter(|(_, b)| !is_2p(b.lane)).collect();
         let p2: Vec<_> = f.lanes.iter().enumerate().filter(|(_, b)| is_2p(b.lane)).collect();
@@ -221,7 +226,7 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
     };
     let widths: Vec<f32> = sides
         .iter()
-        .map(|side| side_width(&side.iter().map(|(_, b)| *b).collect::<Vec<_>>(), triggers))
+        .map(|side| side_width(&side.iter().map(|(_, b)| *b).collect::<Vec<_>>(), triggers, straight))
         .collect();
     let total = widths.iter().sum::<f32>() + SIDE_GAP * (sides.len() as f32 - 1.0).max(0.0);
     // Shrink to fit (14K is the widest).
@@ -254,6 +259,9 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
                     button(c, t, sk, b, Rect::new(kx, top + ROW_OFFSET * k / 2.0, KEY_W * k, KEY_H * k), col, on, f.rebinding.is_some(), false, s);
                     kx += KEY_STEP * k;
                 }
+            } else if straight {
+                button(c, t, sk, b, Rect::new(kx, top + ROW_OFFSET * k / 2.0, KEY_W * k, KEY_H * k), col, on, f.rebinding.is_some(), false, s);
+                kx += KEY_STEP * k;
             } else if is_scratch(b.lane) {
                 let r = Rect::new(kx, top + (KEY_H + ROW_OFFSET - TABLE) * k / 2.0, TABLE * k, TABLE * k);
                 button(c, t, sk, b, r, col, on, f.rebinding.is_some(), true, s);
@@ -427,7 +435,7 @@ mod tests {
         // 14K at full size would be wider than the content area; it must be
         // scaled down rather than overflow.
         let lanes: Vec<KeyBinding> = (0..8).map(|i| KeyBinding { lane: if i == 0 { Lane::Scratch } else { Lane::Key1 }, label: "", keys: &[] }).collect();
-        let w = side_width(&lanes.iter().collect::<Vec<_>>(), false);
+        let w = side_width(&lanes.iter().collect::<Vec<_>>(), false, false);
         assert!((w - (TABLE + TABLE_GAP + 6.0 * KEY_STEP + KEY_W)).abs() < 1e-3);
     }
 }
