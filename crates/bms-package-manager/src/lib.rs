@@ -20,7 +20,7 @@ pub mod table_fetch;
 pub mod updater;
 pub mod vfs;
 
-pub use archive::extract_zip_archive;
+pub use archive::{extract_archive, extract_zip_archive, find_seven_zip};
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
 pub use flac::encode_wav_to_flac;

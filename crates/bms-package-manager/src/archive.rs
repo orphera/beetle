@@ -46,6 +46,100 @@ pub fn extract_zip_archive<P: AsRef<Path>, Q: AsRef<Path>>(
     Ok(written)
 }
 
+/// Extracts a zip with the built-in reader, and a RAR or 7z with an installed
+/// 7-Zip (see ADR-027). Returns the number of regular files written.
+pub fn extract_archive<P: AsRef<Path>, Q: AsRef<Path>>(
+    archive: P,
+    dest_dir: Q,
+) -> Result<usize, PackageManagerError> {
+    let archive = archive.as_ref();
+    let dest_dir = dest_dir.as_ref();
+    let ext = archive
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "zip" => extract_zip_archive(archive, dest_dir),
+        "rar" | "7z" => {
+            let seven_zip = find_seven_zip().ok_or_else(|| {
+                PackageManagerError::InvalidPackage(format!(
+                    "'{}' needs 7-Zip. Install it, or extract the archive yourself and pass the folder.",
+                    archive.display()
+                ))
+            })?;
+            extract_with_seven_zip(&seven_zip, archive, dest_dir)
+        }
+        _ => Err(PackageManagerError::InvalidPackage(format!(
+            "unsupported archive type: '{}'",
+            archive.display()
+        ))),
+    }
+}
+
+/// The 7-Zip command line tool, found on `PATH` or in the default install folders.
+pub fn find_seven_zip() -> Option<PathBuf> {
+    let on_path = std::process::Command::new("7z")
+        .arg("i")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if on_path {
+        return Some(PathBuf::from("7z"));
+    }
+    [
+        r"C:\Program Files\7-Zip\7z.exe",
+        r"C:\Program Files (x86)\7-Zip\7z.exe",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .find(|path| path.is_file())
+}
+
+/// Runs 7-Zip to extract `archive` into `dest_dir`, then checks that every
+/// extracted file is inside `dest_dir`.
+fn extract_with_seven_zip(
+    seven_zip: &Path,
+    archive: &Path,
+    dest_dir: &Path,
+) -> Result<usize, PackageManagerError> {
+    fs::create_dir_all(dest_dir)?;
+    let status = std::process::Command::new(seven_zip)
+        .arg("x")
+        .arg("-y")
+        .arg(format!("-o{}", dest_dir.display()))
+        .arg(archive)
+        .stdout(std::process::Stdio::null())
+        .status()?;
+    if !status.success() {
+        return Err(PackageManagerError::InvalidPackage(format!(
+            "7-Zip could not extract '{}' (exit {status})",
+            archive.display()
+        )));
+    }
+    let root = fs::canonicalize(dest_dir)?;
+    let mut count = 0;
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir)?.flatten() {
+            let path = fs::canonicalize(entry.path())?;
+            if !path.starts_with(&root) {
+                return Err(PackageManagerError::InvalidPackage(format!(
+                    "7-Zip wrote outside the folder: '{}'",
+                    path.display()
+                )));
+            }
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// Turns an archive entry name into a path under the destination, or `None`
 /// if it would escape it (absolute, drive-prefixed, or containing `..`).
 fn safe_relative_path(name: &str) -> Option<PathBuf> {
@@ -204,5 +298,68 @@ mod tests {
         assert_eq!(written, 1);
         assert!(dest.join("가나").join("main.bms").exists());
         let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod archive_dispatch_tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bpm_archive_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn unknown_archive_types_are_refused() {
+        let root = scratch("unknown");
+        let file = root.join("pack.lzh");
+        fs::write(&file, b"x").unwrap();
+        assert!(extract_archive(&file, root.join("out")).is_err());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_zip_is_extracted_without_seven_zip() {
+        let root = scratch("zip");
+        let zip_path = root.join("pack.zip");
+        {
+            use std::io::Write;
+            use zip::write::SimpleFileOptions;
+            let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+            zip.start_file("song/main.bms", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"#TITLE Song\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let written = extract_archive(&zip_path, root.join("out")).unwrap();
+        assert_eq!(written, 1);
+        assert!(root.join("out/song/main.bms").is_file());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_seven_zip_archive_is_extracted_when_seven_zip_is_installed() {
+        let Some(seven_zip) = find_seven_zip() else {
+            return; // 7-Zip is optional; nothing to check on a machine without it.
+        };
+        let root = scratch("seven");
+        let source = root.join("src");
+        fs::create_dir_all(source.join("song")).unwrap();
+        fs::write(source.join("song/main.bms"), b"#TITLE Song\n").unwrap();
+        let archive = root.join("pack.7z");
+        let made = std::process::Command::new(&seven_zip)
+            .arg("a")
+            .arg(&archive)
+            .arg(source.join("song"))
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let written = extract_archive(&archive, root.join("out")).unwrap();
+        assert_eq!(written, 1);
+        fs::remove_dir_all(&root).ok();
     }
 }
