@@ -426,18 +426,28 @@ impl JudgeEngine {
     ) -> Vec<(Lane, JudgeResult, Option<WavId>)> {
         let ln_rule = self.ruleset.ln == LnRule::Ln;
         let mut hits = Vec::new();
-        for note in self.notes.iter_mut() {
+        for i in 0..self.notes.len() {
+            let note = &mut self.notes[i];
             if note.is_judged {
                 continue;
             }
             if current_time_seconds >= note.target_time_seconds {
                 note.is_judged = true;
-                if note.note_event.note_type == NoteType::Landmine {
-                    continue; // auto play never steps on a mine
+                match note.note_event.note_type {
+                    NoteType::Landmine => continue, // auto play never steps on a mine
+                    // The auto player holds a long note from head to tail.
+                    NoteType::LongNoteStart => note.is_holding = true,
+                    NoteType::LongNoteEnd => {
+                        if let Some(head) = note.head_index {
+                            self.notes[head].is_holding = false;
+                        }
+                        if ln_rule {
+                            continue; // a tail is not a judgment under the LN rule
+                        }
+                    }
+                    _ => {}
                 }
-                if ln_rule && note.note_event.note_type == NoteType::LongNoteEnd {
-                    continue; // a tail is not a judgment under the LN rule
-                }
+                let note = &self.notes[i];
                 let result = JudgeResult {
                     grade: JudgeGrade::PerfectGreat,
                     delta_ms: 0.0,
@@ -881,6 +891,16 @@ mod tests {
         let timing = TimingModel::from_chart(&chart);
         let total = |rule| JudgeEngine::new(&chart, &timing, GaugeType::Groove, rule).score().total_notes;
         assert_eq!((total(Ruleset::LN), total(Ruleset::CN)), (2, 3));
+    }
+
+    #[test]
+    fn auto_play_holds_a_long_note_from_head_to_tail() {
+        let mut engine = ln_engine();
+        engine.auto_play_update(2.0);
+        let head = engine.notes().iter().find(|n| n.tail_index.is_some()).unwrap();
+        assert!(head.is_judged && head.is_holding, "the renderer draws a held note, not a broken one");
+        engine.auto_play_update(3.5);
+        assert!(engine.notes().iter().all(|n| !n.is_holding));
     }
 
     #[test]

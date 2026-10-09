@@ -264,7 +264,8 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         let col = l.lane_color(lane);
         let head_y = y_at(note.target_time_seconds);
         match note.note_event.note_type {
-            NoteType::Tap => draw_note(c, sk, x, head_y - note_h, w, note_h, col),
+            // A judged note is gone: it does not linger on the line while it scrolls past.
+            NoteType::Tap if !note.is_judged => draw_note(c, sk, x, head_y - note_h, w, note_h, col),
             // A mine: a slim red bar with a dark core, gone once it has gone off.
             NoteType::Landmine if !note.is_judged => {
                 let h = note_h * 0.7;
@@ -274,12 +275,24 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
             }
             NoteType::LongNoteStart => {
                 let tail_y = y_at(note.end_target_time_seconds);
-                let (top, bottom) = (tail_y.max(field.y), head_y.min(judge_y));
-                if bottom > top {
-                    c.nine(&sk.ln_body, Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom), col.with_alpha(120));
+                let held = note.is_holding;
+                // Head judged but not held and not yet at its end: missed or let go
+                // early. What is left of it keeps scrolling, dimmed, instead of
+                // sticking to the judge line like a held note.
+                let broken = note.is_judged && !held && f.audio_time < note.end_target_time_seconds - 0.15;
+                if note.is_judged && !held && !broken {
+                    continue;
                 }
-                draw_note(c, sk, x, head_y.min(judge_y) - note_h, w, note_h, col);
-                draw_note(c, sk, x, tail_y - note_h, w, note_h, col);
+                let head_edge = if broken { head_y } else { head_y.min(judge_y) };
+                let (top, bottom) = (tail_y.max(field.y), head_edge.min(judge_y));
+                let body_col = if broken { col.with_alpha(40) } else { col.with_alpha(120) };
+                if bottom > top {
+                    c.nine(&sk.ln_body, Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom), body_col);
+                }
+                if !broken {
+                    draw_note(c, sk, x, head_edge - note_h, w, note_h, col);
+                }
+                draw_note(c, sk, x, tail_y - note_h, w, note_h, if broken { col.with_alpha(70) } else { col });
             }
             _ => {}
         }
