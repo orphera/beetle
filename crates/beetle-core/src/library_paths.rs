@@ -54,21 +54,53 @@ impl LibraryPaths {
     }
 }
 
-/// The form a folder path takes in the collection: the `\\?\` prefix that
-/// `canonicalize` adds on Windows is removed, so bpm and the game compare and
-/// sort the same strings.
-pub fn display_path(path: &str) -> &str {
-    path.strip_prefix(r"\\?\").unwrap_or(path)
+/// The form a folder path takes in the collection. `canonicalize` adds a
+/// verbatim prefix on Windows: `\\?\D:\BMS` becomes `D:\BMS` and
+/// `\\?\UNC\server\share` becomes `\\server\share`. Any other path is returned
+/// unchanged, so a `\\?\` path that is not a plain drive or UNC path keeps its prefix.
+pub fn display_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    match path.strip_prefix(r"\\?\") {
+        Some(rest) if has_drive_letter(rest) => rest.to_string(),
+        _ => path.to_string(),
+    }
 }
 
-/// Windows paths ignore case and treat `/` like `\`.
+fn has_drive_letter(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+/// Windows paths ignore case, treat `/` like `\`, and may carry a verbatim prefix.
 fn same_path(a: &str, b: &str) -> bool {
     let norm = |s: &str| {
-        s.trim_end_matches(['/', '\\'])
+        display_path(s)
+            .trim_end_matches(['/', '\\'])
             .replace('/', "\\")
             .to_lowercase()
     };
     norm(a) == norm(b)
+}
+
+/// The folders scanned for charts, in scan order: the `library.dat` folders,
+/// then the default songs folder. A folder listed twice keeps its first place.
+/// The caller makes the songs path absolute first; both kinds of entry go
+/// through `display_path` here.
+pub fn collection_folders(library: &LibraryPaths, songs: Option<&str>) -> Vec<String> {
+    let mut folders: Vec<String> = Vec::new();
+    let candidates = library
+        .paths()
+        .iter()
+        .map(|p| display_path(p))
+        .chain(songs.map(display_path));
+    for folder in candidates {
+        if !folders.contains(&folder) {
+            folders.push(folder);
+        }
+    }
+    folders
 }
 
 #[cfg(test)]
@@ -91,30 +123,28 @@ mod tests {
         assert!(!l.remove("D:\\BMS"));
         assert_eq!(LibraryPaths::parse(&l.serialize()), l);
     }
-}
 
-/// The folders scanned for charts, in scan order: the `library.dat` folders,
-/// then the default songs folder. A folder listed twice keeps its first place.
-/// The caller makes the songs path absolute first; both kinds of entry go
-/// through `display_path` here.
-pub fn collection_folders(library: &LibraryPaths, songs: Option<&str>) -> Vec<String> {
-    let mut folders: Vec<String> = Vec::new();
-    let candidates = library
-        .paths()
-        .iter()
-        .map(|p| display_path(p))
-        .chain(songs.map(display_path));
-    for folder in candidates {
-        if !folders.iter().any(|known| known == folder) {
-            folders.push(folder.to_string());
-        }
+    #[test]
+    fn display_path_strips_only_the_verbatim_prefix() {
+        assert_eq!(display_path(r"\\?\D:\BMS"), r"D:\BMS");
+        assert_eq!(display_path(r"D:\BMS"), r"D:\BMS");
+        assert_eq!(display_path(r"\\?\UNC\nas\bms"), r"\\nas\bms");
+        assert_eq!(display_path(r"\\?\Volume{1234}\x"), r"\\?\Volume{1234}\x");
     }
-    folders
-}
 
-#[cfg(test)]
-mod collection_folder_tests {
-    use super::*;
+    #[test]
+    fn a_verbatim_entry_is_removed_by_its_plain_path() {
+        let mut l = LibraryPaths::parse(r"\\?\D:\BMS");
+        assert!(l.remove(r"D:\BMS"));
+        assert!(l.paths().is_empty());
+    }
+
+    #[test]
+    fn a_plain_path_is_not_added_twice_after_a_verbatim_entry() {
+        let mut l = LibraryPaths::parse(r"\\?\D:\BMS");
+        assert!(!l.add(r"D:\BMS"));
+        assert_eq!(l.paths().len(), 1);
+    }
 
     #[test]
     fn folders_keep_library_order_then_songs() {
@@ -138,18 +168,12 @@ mod collection_folder_tests {
     }
 
     #[test]
-    fn verbatim_prefix_is_dropped_so_entries_compare_equal() {
+    fn verbatim_entries_are_listed_in_their_plain_form() {
         let mut library = LibraryPaths::default();
         library.add(r"\\?\C:\game\songs");
         assert_eq!(
             collection_folders(&library, Some(r"C:\game\songs")),
             vec![r"C:\game\songs"]
         );
-    }
-
-    #[test]
-    fn display_path_strips_only_the_verbatim_prefix() {
-        assert_eq!(display_path(r"\\?\D:\BMS"), r"D:\BMS");
-        assert_eq!(display_path(r"D:\BMS"), r"D:\BMS");
     }
 }

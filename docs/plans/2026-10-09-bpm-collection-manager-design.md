@@ -229,6 +229,7 @@ Opus 검토(2026-10-09) 결과를 요약한다. 자동 묶기는 보수적으로
 **Q3. `loads:` 줄과 게임이 여는 사본**
 
 - 결정: 게임도 `beetle_core::choose_load_index`를 같은 배치 순서로 쓰게 하는 것이 목표다. 단, 게임 변경은 이번 마일스톤(bpm CLI 1–5단계)에 넣지 않고 다음 별도 마일스톤으로 둔다.
+- (§9.7에서 `BMS_DIR`는 출처에서 빠졌습니다. 아래 내용은 당시 결정 기록입니다.)
 - 이유: 게임의 스캔 순서는 `read_dir` 결과를 정렬하지 않으므로 bpm이 결정론적으로 재현할 수 없다. 출처도 `songs/`, `packages/`, library, `BMS_DIR` 순으로 고정되어 있어 bpm의 출처 목록과 다르다.
 - 이번 마일스톤의 처리: `loads:` 줄에 "the game does not follow this rule yet"을 붙인다. `load_location.rs`의 주석은 현재 bpm만 쓴다고 고쳤다.
 - 다음 마일스톤의 범위: 출처 목록(`library.dat`, 기본 `songs/`, `BMS_DIR`)을 공유 함수 하나로 만들고, 게임은 설치된 state를 패키지 출처로 쓴다. `dedup_songs`는 `(kind, source, path)` 순으로 정렬한 뒤 `choose_load_index`를 호출한다. 온전성 계산은 사본이 2개 이상인 ChartId에만 한다. `songs.cache`는 버전을 올려 무효화한다.
@@ -256,6 +257,6 @@ Opus 검토(2026-10-09) 결과를 요약한다. 자동 묶기는 보수적으로
 - `bpm scan`은 `songs.cache`(cwd와 `songs/`)를 지웁니다. 게임은 다음 실행 때 같은 출처로 다시 스캔하므로, 인덱스와 게임이 같은 사본을 고릅니다.
 - 같은 ChartId의 사본은 `(kind, source, path)` 순으로 정렬한 뒤 `choose_load_index`로 하나를 고릅니다. 온전성(누락 키음)은 사본이 둘 이상인 ChartId에만 계산합니다(`beetle_core::key_sounds`).
 - 사용자 결정: 레지스트리에 없는 `packages/`의 `.bmsp`는 게임 목록에서 뺍니다. 개발용 패키지 경로(`target/release/packages`, `../packages`)와 `BMS_DIR`는 정식 출처에서 뺍니다(사용자 결정, 2026-10-09).
-- `songs.cache`는 `#BEETLE_SONGS_V6`로 올렸고, `registry.json`이 캐시보다 새로우면 다시 스캔합니다.
+- `songs.cache`는 `#BEETLE_SONGS_V6`로 올렸고, `registry.json` 또는 `library.dat`이 캐시보다 새로우면 다시 스캔합니다.
 - 결과로 일부 중복 차트는 예전과 다른 사본에서 열릴 수 있습니다. 사용자가 수용했습니다.
 - 검증: `beetle-app` scanner 테스트 5개(교차 검증 `game_and_bpm_choose_the_same_copy` 포함)와 전체 워크스페이스 테스트 통과. 게임 실행 확인은 아직 하지 않았습니다(아래 수동 확인).

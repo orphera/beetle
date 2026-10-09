@@ -139,7 +139,7 @@ fn run_scan(manager: &PackageManager) {
     let (index, counts) = collection::build_index(&folders, &installed);
     let path = collection::index_file();
     fs::write(&path, index.serialize()).unwrap_or_else(|e| exit_with(&e));
-    // The game's song cache was built from the old copies; let it rebuild from this scan's sources.
+    // Drop the game's song cache so its next launch rebuilds from these sources, not the old list.
     for cache in [
         PathBuf::from(beetle_core::SONGS_CACHE_FILE),
         Path::new(&songs_dir.unwrap_or_default()).join(beetle_core::SONGS_CACHE_FILE),
