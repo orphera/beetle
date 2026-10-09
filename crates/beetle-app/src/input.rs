@@ -18,6 +18,9 @@ pub enum KeyPreset {
     Ue6K,
     /// UE 8K: A S D F K L ; ' (Scratch, Key1..Key7)
     Ue8K,
+    /// UE 8K as six keys with a trigger each side (DJMAX style):
+    /// LShift + S D F J K L + RShift (Scratch = left, Key7 = right)
+    Ue8KTriggers,
     /// Double Play (10K/14K): 1P side mirrors ArcadeZx, 2P side mirrors it
     /// on the right hand (RShift + U I O P [ ] \)
     DoublePlay,
@@ -35,6 +38,7 @@ impl KeyPreset {
             Self::Ue4K => "Ue4K",
             Self::Ue6K => "Ue6K",
             Self::Ue8K => "Ue8K",
+            Self::Ue8KTriggers => "Ue8KTriggers",
             Self::DoublePlay => "DoublePlay",
             Self::Custom => "Custom",
         }
@@ -48,6 +52,7 @@ impl KeyPreset {
             Self::Ue4K,
             Self::Ue6K,
             Self::Ue8K,
+            Self::Ue8KTriggers,
             Self::DoublePlay,
             Self::Custom,
         ]
@@ -62,7 +67,7 @@ impl KeyPreset {
             PlayMode::Keys9 => &[Self::Pms9K],
             PlayMode::Keys4 => &[Self::Ue4K],
             PlayMode::Keys6 => &[Self::Ue6K],
-            PlayMode::Keys8 => &[Self::Ue8K],
+            PlayMode::Keys8 => &[Self::Ue8K, Self::Ue8KTriggers],
             PlayMode::Keys10 | PlayMode::Keys14 => &[Self::DoublePlay],
         }
     }
@@ -79,6 +84,7 @@ impl KeyPreset {
             Self::Ue4K => "4K (S D L ;)",
             Self::Ue6K => "6K (A S D L ; ')",
             Self::Ue8K => "8K (A S D F K L ; ')",
+            Self::Ue8KTriggers => "8K 6K + L/R (LShift S D F J K L RShift)",
             Self::DoublePlay => "Double Play (LShift+ZSXDCFV / RShift+UIOP[]\\)",
             Self::Custom => "Custom Layout",
         }
@@ -162,6 +168,17 @@ fn preset_pairs(preset: KeyPreset) -> &'static [(KeyCode, Lane)] {
             (K::KeyL, L::Key5),
             (K::Semicolon, L::Key6),
             (K::Quote, L::Key7),
+        ],
+        // DJMAX style: the scratch lane is the left trigger, Key7 the right one.
+        KeyPreset::Ue8KTriggers => &[
+            (K::ShiftLeft, L::Scratch),
+            (K::KeyS, L::Key1),
+            (K::KeyD, L::Key2),
+            (K::KeyF, L::Key3),
+            (K::KeyJ, L::Key4),
+            (K::KeyK, L::Key5),
+            (K::KeyL, L::Key6),
+            (K::ShiftRight, L::Key7),
         ],
         // 1P side mirrors ArcadeZx; 2P side mirrors it on the right hand.
         KeyPreset::DoublePlay => &[
@@ -356,6 +373,14 @@ pub fn lanes_for(mode: PlayMode) -> &'static [Lane] {
     let mut skin = SkinConfig::default();
     skin.set_play_mode(mode);
     skin.active_lanes()
+}
+
+/// Lanes of a key mode left to right as drawn, given the skin's scratch side
+/// and 8K form (Key Config selects in this order).
+pub fn screen_lanes_for(skin: &SkinConfig, mode: PlayMode) -> Vec<Lane> {
+    let mut skin = skin.clone();
+    skin.set_play_mode(mode);
+    skin.screen_lanes()
 }
 
 /// Key modes that each keep their own layout.
@@ -982,6 +1007,34 @@ mod tests {
         let kb = KeyBindings::load(&saved, Some(&(KeyPreset::ArcadeZx, String::new())));
         assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::HomeRow);
         assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::ArcadeZx);
+    }
+
+    #[test]
+    fn test_eight_k_trigger_preset_binds_every_lane() {
+        let mut config = InputConfig::new(KeyPreset::Ue8K);
+        assert!(config.covers(PlayMode::Keys8));
+        config.cycle_preset(PlayMode::Keys8);
+        assert_eq!(config.preset, KeyPreset::Ue8KTriggers);
+        assert!(config.covers(PlayMode::Keys8));
+        let k = |c| config.map_key(PhysicalKey::Code(c));
+        assert_eq!(k(KeyCode::ShiftLeft), Some(Lane::Scratch));
+        assert_eq!(k(KeyCode::ShiftRight), Some(Lane::Key7));
+        assert_eq!(k(KeyCode::KeyL), Some(Lane::Key6));
+        assert_eq!(KeyPreset::from_id("Ue8KTriggers"), Some(KeyPreset::Ue8KTriggers));
+        config.cycle_preset(PlayMode::Keys8);
+        assert_eq!(config.preset, KeyPreset::Ue8K);
+    }
+
+    #[test]
+    fn test_screen_lanes_follow_the_scratch_side() {
+        let mut skin = SkinConfig::default();
+        assert_eq!(screen_lanes_for(&skin, PlayMode::Keys7)[0], Lane::Scratch);
+        skin.set_scratch_side(PlayMode::Keys7, beetle_render::ScratchSide::Right);
+        let lanes = screen_lanes_for(&skin, PlayMode::Keys7);
+        assert_eq!(lanes.last(), Some(&Lane::Scratch));
+        assert_eq!(lanes.len(), 8);
+        // Other modes keep theirs.
+        assert_eq!(screen_lanes_for(&skin, PlayMode::Keys5)[0], Lane::Scratch);
     }
 
     #[test]

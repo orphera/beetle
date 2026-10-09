@@ -1,6 +1,6 @@
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
-use beetle_render::{FieldPosition, ScratchSide};
+use beetle_render::{EightKForm, FieldPosition, ScratchSide};
 use std::fs;
 use std::path::Path;
 
@@ -154,9 +154,11 @@ impl TrackBgaSetting {
 pub struct AppConfig {
     pub play_options: PlayOptions,
     pub lane_cover_ratio: f32,
-    /// Where the single play playfield sits and which side its scratch is on.
+    /// Where the single play playfield sits.
     pub field_position: FieldPosition,
-    pub scratch_side: ScratchSide,
+    /// Scratch side of 5K, 7K and 8K.
+    pub scratch_sides: [ScratchSide; 3],
+    pub eight_k_form: EightKForm,
     pub sort_mode: SortMode,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
@@ -179,7 +181,8 @@ impl Default for AppConfig {
             play_options: PlayOptions::default(),
             lane_cover_ratio: 0.0,
             field_position: FieldPosition::Left,
-            scratch_side: ScratchSide::Left,
+            scratch_sides: [ScratchSide::Left; 3],
+            eight_k_form: EightKForm::Inline,
             sort_mode: SortMode::Title,
             key_layouts: Default::default(),
             legacy_key_layout: None,
@@ -220,6 +223,9 @@ impl AppConfig {
         let mut presets: [Option<KeyPreset>; 8] = [None; 8];
         let mut bindings: [String; 8] = Default::default();
         let (mut legacy_preset, mut legacy_bindings) = (None, String::new());
+        // `scratch_side` was one setting for 5K and 7K before each mode got its own.
+        let mut legacy_side = None;
+        let mut side_set = [false; 3];
 
         for line in data.lines() {
             let line = line.trim();
@@ -313,7 +319,17 @@ impl AppConfig {
                     }
                 }
                 "field_position" => config.field_position = FieldPosition::from_name(val),
-                "scratch_side" => config.scratch_side = ScratchSide::from_name(val),
+                "scratch_side" => legacy_side = Some(ScratchSide::from_name(val)),
+                "scratch_side_5k" | "scratch_side_7k" | "scratch_side_8k" => {
+                    let i = match key {
+                        "scratch_side_5k" => 0,
+                        "scratch_side_7k" => 1,
+                        _ => 2,
+                    };
+                    config.scratch_sides[i] = ScratchSide::from_name(val);
+                    side_set[i] = true;
+                }
+                "eight_k_form" => config.eight_k_form = EightKForm::from_name(val),
                 "track_bga" => {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
@@ -334,12 +350,19 @@ impl AppConfig {
             config.key_layouts[i] = presets[i].map(|p| (p, std::mem::take(&mut bindings[i])));
         }
         config.legacy_key_layout = legacy_preset.map(|p| (p, legacy_bindings));
+        if let Some(side) = legacy_side {
+            for i in 0..2 {
+                if !side_set[i] {
+                    config.scratch_sides[i] = side;
+                }
+            }
+        }
         config
     }
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\nfield_position={}\nscratch_side={}\n",
+            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
             self.play_options.hi_speed,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -355,7 +378,10 @@ impl AppConfig {
             self.target_fps,
             self.track_bga.as_str(),
             self.field_position.as_str(),
-            self.scratch_side.as_str(),
+            self.scratch_sides[0].as_str(),
+            self.scratch_sides[1].as_str(),
+            self.scratch_sides[2].as_str(),
+            self.eight_k_form.id(),
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -383,7 +409,8 @@ mod tests {
             },
             lane_cover_ratio: 0.25,
             field_position: FieldPosition::Center,
-            scratch_side: ScratchSide::Right,
+            scratch_sides: [ScratchSide::Right, ScratchSide::Left, ScratchSide::Right],
+            eight_k_form: EightKForm::Triggers,
             sort_mode: SortMode::Level,
             key_layouts: [
                 Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
@@ -434,6 +461,16 @@ mod tests {
         assert_eq!(config.target_fps, parsed.target_fps);
         assert_eq!(config.track_bga, parsed.track_bga);
         assert_eq!(config.field_position, parsed.field_position);
-        assert_eq!(config.scratch_side, parsed.scratch_side);
+        assert_eq!(config.scratch_sides, parsed.scratch_sides);
+        assert_eq!(config.eight_k_form, parsed.eight_k_form);
+    }
+
+    #[test]
+    fn test_old_scratch_side_applies_to_5k_and_7k() {
+        let parsed = AppConfig::parse_str("scratch_side=RIGHT\n");
+        assert_eq!(parsed.scratch_sides, [ScratchSide::Right, ScratchSide::Right, ScratchSide::Left]);
+        // A per-mode value wins, whichever line comes first.
+        let parsed = AppConfig::parse_str("scratch_side_7k=LEFT\nscratch_side=RIGHT\n");
+        assert_eq!(parsed.scratch_sides, [ScratchSide::Right, ScratchSide::Left, ScratchSide::Left]);
     }
 }

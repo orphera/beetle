@@ -137,7 +137,8 @@ impl ApplicationHandler for BeetleApp {
             hi_speed: saved_config.play_options.hi_speed,
             lane_cover_ratio: saved_config.lane_cover_ratio,
             field_position: saved_config.field_position,
-            scratch_side: saved_config.scratch_side,
+            scratch_sides: saved_config.scratch_sides,
+            eight_k_form: saved_config.eight_k_form,
             ..Default::default()
         };
         let view = ViewState::new(size.width, size.height, skin);

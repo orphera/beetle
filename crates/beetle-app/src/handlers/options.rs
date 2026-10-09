@@ -7,7 +7,7 @@ const FPS_PRESETS: [u32; 6] = [60, 120, 144, 240, 360, 0];
 
 /// Rows of the play options modal, in the order `present::option_modal_rows`
 /// lists them (`state.modal_row` indexes this).
-pub const OPTION_ROWS: usize = 16;
+pub const OPTION_ROWS: usize = 15;
 
 /// Handles keyboard input when the play options modal is open.
 pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
@@ -70,36 +70,31 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             // Playfield position
             let skin = &mut state.view.skin;
             let position = if forward { skin.field_position.next() } else { skin.field_position.prev() };
-            skin.set_field_layout(position, skin.scratch_side);
+            skin.set_field_layout(position, skin.scratch_side_of(skin.play_mode));
         }
         7 => {
-            // Scratch side
-            let skin = &mut state.view.skin;
-            skin.set_field_layout(skin.field_position, skin.scratch_side.toggle());
-        }
-        8 => {
             // Track BGA
             state.track_bga = if forward { state.track_bga.next() } else { state.track_bga.prev() };
         }
-        9 => {
+        8 => {
             // Display Mode
             state.display_mode = if forward { state.display_mode.next() } else { state.display_mode.prev() };
             state.apply_display_mode();
         }
-        10 => {
+        9 => {
             // Resolution
             state.cycle_resolution(forward);
         }
-        11 => {
+        10 => {
             // Graphics GPU
             // Takes effect on the next start (see AppState::d3d11).
             state.gpu_backend = if forward { state.gpu_backend.next() } else { state.gpu_backend.prev() };
         }
-        12 => {
+        11 => {
             // Target FPS
             state.target_fps = cycle(&FPS_PRESETS, state.target_fps, forward);
         }
-        13 => {
+        12 => {
             // Key Layout (of the selected song's key mode); Enter edits it.
             if code == KeyCode::Enter || code == KeyCode::Space {
                 state.screen = AppScreen::KeyConfig;
@@ -109,13 +104,14 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             } else {
                 let mode = state.key_config_mode();
                 state.key_bindings.get_mut(mode).cycle_preset(mode);
+                state.sync_eight_k_form();
             }
         }
-        14 => {
+        13 => {
             // Auto Play
             state.is_auto_play = !state.is_auto_play;
         }
-        15 => {
+        14 => {
             // Start Measure
             state.start_measure = if forward { (state.start_measure + 1).min(200) } else { state.start_measure.saturating_sub(1) };
         }

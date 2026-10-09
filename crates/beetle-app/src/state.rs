@@ -10,10 +10,11 @@ use beetle_core::{
     PlayOptions,
     ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex, TimingModel,
 };
-use beetle_render::{ImageBuffer, ViewState};
+use beetle_render::{EightKForm, ImageBuffer, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
+use crate::input::KeyPreset;
 use crate::demo;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 
@@ -347,7 +348,8 @@ impl AppState {
             play_options: self.play_options.clone(),
             lane_cover_ratio: self.view.skin.lane_cover_ratio,
             field_position: self.view.skin.field_position,
-            scratch_side: self.view.skin.scratch_side,
+            scratch_sides: self.view.skin.scratch_sides,
+            eight_k_form: self.view.skin.eight_k_form,
             sort_mode: self.sort_mode,
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,
@@ -451,6 +453,18 @@ impl AppState {
     pub fn current_selected_song(&self) -> Option<&SongMetadata> {
         let real_idx = *self.filtered_indices.get(self.selected_song_idx)?;
         self.songs.get(real_idx)
+    }
+
+    /// Keeps the 8K arrangement in step with the 8K key preset: the trigger
+    /// preset means the trigger form, the straight-row preset the straight
+    /// row; custom bindings keep whatever form is set.
+    pub fn sync_eight_k_form(&mut self) {
+        let form = match self.key_bindings.get(PlayMode::Keys8).preset {
+            KeyPreset::Ue8K => EightKForm::Inline,
+            KeyPreset::Ue8KTriggers => EightKForm::Triggers,
+            _ => return,
+        };
+        self.view.skin.set_eight_k_form(form);
     }
 
     /// Key mode to configure by default: the loaded chart's if there is one,

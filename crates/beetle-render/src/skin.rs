@@ -110,12 +110,71 @@ impl ScratchSide {
     }
 }
 
+/// How the 8K lanes are arranged. Both keep the chart's lane order
+/// (Scratch, Key1..Key7, left to right).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EightKForm {
+    /// Eight keys in a row; the scratch lane goes on either edge.
+    #[default]
+    Inline,
+    /// DJMAX style: six keys between a left and a right trigger lane
+    /// (Scratch = left trigger, Key7 = right trigger).
+    Triggers,
+}
+
+impl EightKForm {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Inline => "INLINE",
+            Self::Triggers => "6K + L/R",
+        }
+    }
+
+    pub fn id(&self) -> &'static str {
+        match self {
+            Self::Inline => "INLINE",
+            Self::Triggers => "TRIGGERS",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Self {
+        if s.eq_ignore_ascii_case("TRIGGERS") {
+            Self::Triggers
+        } else {
+            Self::Inline
+        }
+    }
+
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Inline => Self::Triggers,
+            Self::Triggers => Self::Inline,
+        }
+    }
+}
+
+/// Modes whose scratch lane can sit on either edge (5K / 7K / 8K).
+/// Double Play keeps its cabinet arrangement.
+pub fn scratch_side_applies(mode: PlayMode) -> bool {
+    matches!(mode, PlayMode::Keys5 | PlayMode::Keys7 | PlayMode::Keys8)
+}
+
+fn side_slot(mode: PlayMode) -> usize {
+    match mode {
+        PlayMode::Keys5 => 0,
+        PlayMode::Keys7 => 1,
+        _ => 2,
+    }
+}
+
 /// Gameplay lane layout (playfield geometry, lane widths and note colors).
 #[derive(Debug, Clone)]
 pub struct SkinConfig {
     pub play_mode: PlayMode,
     pub field_position: FieldPosition,
-    pub scratch_side: ScratchSide,
+    /// Scratch side of 5K, 7K and 8K (each mode keeps its own).
+    pub scratch_sides: [ScratchSide; 3],
+    pub eight_k_form: EightKForm,
     /// Horizontal extent and scale of the 16:9 viewport, kept by
     /// `update_layout` so a play mode change can re-place the playfield.
     pub area_x: f32,
@@ -144,7 +203,8 @@ impl Default for SkinConfig {
         Self {
             play_mode: PlayMode::Keys7,
             field_position: FieldPosition::Left,
-            scratch_side: ScratchSide::Left,
+            scratch_sides: [ScratchSide::Left; 3],
+            eight_k_form: EightKForm::Inline,
             area_x: 0.0,
             area_width: 1280.0,
             area_scale: 1.0,
@@ -235,11 +295,38 @@ impl SkinConfig {
         };
     }
 
-    /// Sets where the playfield sits and which side the scratch is on.
+    /// Sets where the playfield sits and which side the current mode's
+    /// scratch is on.
     pub fn set_field_layout(&mut self, position: FieldPosition, scratch: ScratchSide) {
         self.field_position = position;
-        self.scratch_side = scratch;
+        self.set_scratch_side(self.play_mode, scratch);
+    }
+
+    /// The scratch side chosen for `mode` (`Left` for modes without a choice).
+    pub fn scratch_side_of(&self, mode: PlayMode) -> ScratchSide {
+        if scratch_side_applies(mode) {
+            self.scratch_sides[side_slot(mode)]
+        } else {
+            ScratchSide::Left
+        }
+    }
+
+    pub fn set_scratch_side(&mut self, mode: PlayMode, side: ScratchSide) {
+        if scratch_side_applies(mode) {
+            self.scratch_sides[side_slot(mode)] = side;
+        }
         self.place_field();
+    }
+
+    /// Sets how 8K is arranged.
+    pub fn set_eight_k_form(&mut self, form: EightKForm) {
+        self.eight_k_form = form;
+        self.place_field();
+    }
+
+    /// 8K in its trigger form: lanes 1-6 are keys, the outer two triggers.
+    fn eight_k_triggers(&self) -> bool {
+        self.play_mode == PlayMode::Keys8 && self.eight_k_form == EightKForm::Triggers
     }
 
     /// Where the playfield actually sits: Double Play is too wide to move,
@@ -251,9 +338,19 @@ impl SkinConfig {
         }
     }
 
-    /// The single play scratch lane is drawn on the right edge.
+    /// The scratch lane is drawn on the right edge.
     fn scratch_on_right(&self) -> bool {
-        self.scratch_side == ScratchSide::Right && matches!(self.play_mode, PlayMode::Keys5 | PlayMode::Keys7)
+        self.scratch_side_of(self.play_mode) == ScratchSide::Right && !self.eight_k_triggers()
+    }
+
+    /// Lanes left to right as they appear on screen (the scratch moved to
+    /// the right edge when it is set that way). Key Config selects in this order.
+    pub fn screen_lanes(&self) -> Vec<Lane> {
+        let mut lanes = self.active_lanes().to_vec();
+        if self.scratch_on_right() && lanes.first() == Some(&Lane::Scratch) {
+            lanes.rotate_left(1);
+        }
+        lanes
     }
 
     /// Active lane list based on current PlayMode.
@@ -353,7 +450,7 @@ impl SkinConfig {
     /// Returns the X-coordinate for a specific lane.
     pub fn lane_x(&self, lane: Lane) -> f32 {
         if even_lane_scale(self.play_mode).is_some() {
-            let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
+            let index = self.screen_lanes().iter().position(|&l| l == lane).unwrap_or(0);
             return self.playfield_x + index as f32 * self.lane_width(lane);
         }
         // PMS (9K) has no scratch lane and a right-side scratch comes after
@@ -415,6 +512,13 @@ impl SkinConfig {
             let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
             return if blue[index] { self.blue_key_color } else { self.white_key_color };
         }
+        if self.eight_k_triggers() {
+            return match lane {
+                Lane::Scratch | Lane::Key7 => self.scratch_key_color,
+                Lane::Key2 | Lane::Key5 => self.blue_key_color,
+                _ => self.white_key_color,
+            };
+        }
         match lane {
             Lane::Scratch | Lane::P2Scratch => self.scratch_key_color,
             Lane::Key1 | Lane::Key3 | Lane::Key5 | Lane::Key7 | Lane::Key9 => self.white_key_color,
@@ -463,6 +567,7 @@ mod tests {
         assert_eq!(skin.lane_x(Lane::Scratch) + 72.0, skin.playfield_x + skin.playfield_width);
         // 5K too; PMS has no scratch and DP keeps the cabinet arrangement.
         skin.set_play_mode(PlayMode::Keys5);
+        skin.set_field_layout(FieldPosition::Left, ScratchSide::Right);
         assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key5) + 50.0);
         skin.set_play_mode(PlayMode::Keys14);
         assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
@@ -508,6 +613,52 @@ mod tests {
         assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
         assert_eq!(skin.lane_x(Lane::Key1), skin.playfield_x + 50.0);
         assert_eq!(skin.lane_width(Lane::Scratch), 50.0);
+    }
+
+    #[test]
+    fn each_mode_keeps_its_own_scratch_side() {
+        let mut skin = test_skin();
+        skin.set_scratch_side(PlayMode::Keys7, ScratchSide::Right);
+        assert_eq!(skin.scratch_side_of(PlayMode::Keys7), ScratchSide::Right);
+        assert_eq!(skin.scratch_side_of(PlayMode::Keys5), ScratchSide::Left);
+        assert_eq!(skin.scratch_side_of(PlayMode::Keys8), ScratchSide::Left);
+        // Modes without a choice ignore it.
+        skin.set_scratch_side(PlayMode::Keys14, ScratchSide::Right);
+        assert_eq!(skin.scratch_side_of(PlayMode::Keys14), ScratchSide::Left);
+
+        skin.set_play_mode(PlayMode::Keys5);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x, "5K stays left");
+        skin.set_play_mode(PlayMode::Keys7);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key7) + 50.0);
+        assert_eq!(skin.screen_lanes().last(), Some(&Lane::Scratch));
+    }
+
+    #[test]
+    fn eight_k_scratch_on_the_right_moves_to_the_end() {
+        let mut skin = test_skin();
+        skin.set_play_mode(PlayMode::Keys8);
+        skin.set_scratch_side(PlayMode::Keys8, ScratchSide::Right);
+        assert_eq!(skin.lane_x(Lane::Key1), skin.playfield_x);
+        assert_eq!(skin.lane_x(Lane::Key7), skin.playfield_x + 6.0 * 50.0);
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x + 7.0 * 50.0);
+        assert_eq!(skin.playfield_width, 8.0 * 50.0);
+    }
+
+    #[test]
+    fn eight_k_triggers_keep_the_lane_order() {
+        let mut skin = test_skin();
+        skin.set_play_mode(PlayMode::Keys8);
+        skin.set_scratch_side(PlayMode::Keys8, ScratchSide::Right);
+        skin.set_eight_k_form(EightKForm::Triggers);
+        // The scratch side is moot: left trigger, six keys, right trigger.
+        assert_eq!(skin.screen_lanes(), skin.active_lanes());
+        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
+        assert_eq!(skin.lane_x(Lane::Key7), skin.playfield_x + 7.0 * 50.0);
+        assert_eq!(skin.lane_color(Lane::Scratch), skin.lane_color(Lane::Key7));
+        assert_ne!(skin.lane_color(Lane::Key1), skin.lane_color(Lane::Key7));
+        // The form only touches 8K.
+        skin.set_play_mode(PlayMode::Keys7);
+        assert_eq!(skin.lane_color(Lane::Key7), skin.white_key_color);
     }
 
     #[test]

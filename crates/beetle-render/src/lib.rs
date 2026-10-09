@@ -33,7 +33,7 @@ pub use screens::{
     draw_song_select, BootFrame, KeyBinding, KeyConfigFrame, LoadingFrame, PlayFrame, Rebind, KEY_MODES,
     ResultFrame, SelectFrame, SizedTexture,
 };
-pub use skin::{ColorRgba, FieldPosition, ScratchSide, SkinConfig};
+pub use skin::{scratch_side_applies, ColorRgba, EightKForm, FieldPosition, ScratchSide, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
 
 /// Result screen rank-letter pop-in duration (ease_out_back settle).

@@ -5,7 +5,7 @@
 //! staggered rows, odd keys low / even keys high) with the bound key on each
 //! button, instead of a table. Double play shows the 1P and 2P controllers
 //! side by side; lane order (and the selection index) is
-//! `SkinConfig::active_lanes()`, i.e. left to right on screen. Tabs on top
+//! `SkinConfig::screen_lanes()`, i.e. left to right on screen. Tabs on top
 //! switch between the key modes, which each keep their own layout; a lane
 //! can have several keys.
 
@@ -13,7 +13,7 @@ use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::view::Viewport;
-use crate::skin::SkinConfig;
+use crate::skin::{scratch_side_applies, EightKForm, ScratchSide, SkinConfig};
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
 use crate::ui::Ui;
@@ -57,20 +57,34 @@ pub struct KeyConfigFrame<'a> {
     pub selected: usize,
     /// `Some` while waiting for a key press.
     pub rebinding: Option<Rebind>,
-    /// Current preset / layout name.
+    /// Current key preset name.
     pub layout: &'a str,
+    /// Which edge the mode's scratch lane is on (5K / 7K / 8K).
+    pub scratch: ScratchSide,
+    /// How 8K is arranged.
+    pub form: EightKForm,
 }
 
-const HINTS: [(&str, &str); 8] = [
-    (widgets::LEFT_RIGHT, "LANE"),
-    ("↑↓", "MODE"),
-    ("ENTER", "SET KEY"),
-    ("A", "ADD KEY"),
-    ("BKSP", "CLEAR"),
-    ("F1", "LAYOUT"),
-    ("DEL", "RESET"),
-    ("ESC", "BACK"),
-];
+/// Footer hints; F2 (scratch side) and F3 (8K form) only where they apply.
+fn hints_for(mode: PlayMode) -> Vec<(&'static str, &'static str)> {
+    let mut hints = vec![
+        (widgets::LEFT_RIGHT, "LANE"),
+        ("↑↓", "MODE"),
+        ("ENTER", "SET KEY"),
+        ("A", "ADD KEY"),
+        ("BKSP", "CLEAR"),
+        ("F1", "PRESET"),
+    ];
+    if scratch_side_applies(mode) {
+        hints.push(("F2", "SCRATCH"));
+    }
+    if mode == PlayMode::Keys8 {
+        hints.push(("F3", "8K FORM"));
+    }
+    hints.push(("DEL", "RESET"));
+    hints.push(("ESC", "BACK"));
+    hints
+}
 const REBIND_HINTS: [(&str, &str); 2] = [("ANY KEY", "BIND"), ("ESC", "CANCEL")];
 
 pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
@@ -89,8 +103,8 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     );
 
     mode_tabs(c, t, &sk, f.mode, Rect::new(content.x, content.y, content.w, 36.0 * s), s);
-    let sub = "Each key mode keeps its own layout";
-    t.draw_in(c, sub, Rect::new(content.x, content.y + 40.0 * s, content.w, 20.0 * s), Align::Center, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    let sub = layout_summary(f);
+    t.draw_in(c, &sub, Rect::new(content.x, content.y + 40.0 * s, content.w, 20.0 * s), Align::Center, &TextStyle::new(13.0 * s).color(theme::MUTED));
 
     let card = Rect::new(content.x + (content.w - 640.0 * s) / 2.0, content.bottom() - 136.0 * s, 640.0 * s, 136.0 * s);
     controllers(c, t, &sk, f, Rect::from_ltrb(content.x, content.y + 72.0 * s, content.right(), card.y - 16.0 * s), s);
@@ -104,14 +118,25 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     let name_w = t.measure(c, f.layout, &st).min(460.0 * s);
     let name = t.fit(c, f.layout, name_w, &st).into_owned();
     t.draw(c, &name, right - name_w, vp.y + 37.0 * s, &st);
-    let cw = t.measure(c, "LAYOUT", &cap);
-    t.draw(c, "LAYOUT", right - name_w - 12.0 * s - cw, vp.y + 37.0 * s, &cap);
+    let cw = t.measure(c, "PRESET", &cap);
+    t.draw(c, "PRESET", right - name_w - 12.0 * s - cw, vp.y + 37.0 * s, &cap);
 
     let bar = widgets::footer_bar(c, vp, s);
     if f.rebinding.is_some() {
         widgets::footer_hints(c, t, &sk, &REBIND_HINTS, bar, s);
     } else {
-        widgets::footer_hints(c, t, &sk, &HINTS, bar, s);
+        widgets::footer_hints(c, t, &sk, &hints_for(f.mode), bar, s);
+    }
+}
+
+/// The line under the tabs: what is special about the mode's layout.
+fn layout_summary(f: &KeyConfigFrame) -> String {
+    let side = f.scratch.as_str().to_lowercase();
+    match f.mode {
+        PlayMode::Keys8 if f.form == EightKForm::Triggers => "6 keys between a left and a right trigger (F3: straight row)".to_string(),
+        PlayMode::Keys8 => format!("8 keys in a row, scratch on the {side} (F2: swap, F3: 6 keys + triggers)"),
+        mode if scratch_side_applies(mode) => format!("Scratch on the {side} (F2: swap)"),
+        _ => "Each key mode keeps its own layout".to_string(),
     }
 }
 
@@ -164,8 +189,20 @@ fn is_2p(lane: Lane) -> bool {
     )
 }
 
+/// 8K in its trigger form: the outer two lanes are L / R triggers.
+const TRIGGER_W: f32 = 84.0;
+const TRIGGER_GAP: f32 = 20.0;
+
+fn is_trigger(lane: Lane) -> bool {
+    matches!(lane, Lane::Scratch | Lane::Key7)
+}
+
 /// Width of one side (scratch + keys) in layout units.
-fn side_width(lanes: &[&KeyBinding]) -> f32 {
+fn side_width(lanes: &[&KeyBinding], triggers: bool) -> f32 {
+    if triggers {
+        let keys = lanes.iter().filter(|b| !is_trigger(b.lane)).count() as f32;
+        return 2.0 * (TRIGGER_W + TRIGGER_GAP) + (keys - 1.0).max(0.0) * KEY_STEP + KEY_W;
+    }
     let keys = lanes.iter().filter(|b| !is_scratch(b.lane)).count() as f32;
     let scratch = if lanes.iter().any(|b| is_scratch(b.lane)) { TABLE + TABLE_GAP } else { 0.0 };
     scratch + (keys - 1.0).max(0.0) * KEY_STEP + KEY_W
@@ -174,6 +211,9 @@ fn side_width(lanes: &[&KeyBinding]) -> f32 {
 fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame, area: Rect, s: f32) {
     let mut layout = SkinConfig::default();
     layout.set_play_mode(f.mode);
+    layout.set_scratch_side(f.mode, f.scratch);
+    layout.set_eight_k_form(f.form);
+    let triggers = f.mode == PlayMode::Keys8 && f.form == EightKForm::Triggers;
     let sides: Vec<Vec<(usize, &KeyBinding)>> = {
         let p1: Vec<_> = f.lanes.iter().enumerate().filter(|(_, b)| !is_2p(b.lane)).collect();
         let p2: Vec<_> = f.lanes.iter().enumerate().filter(|(_, b)| is_2p(b.lane)).collect();
@@ -181,7 +221,7 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
     };
     let widths: Vec<f32> = sides
         .iter()
-        .map(|side| side_width(&side.iter().map(|(_, b)| *b).collect::<Vec<_>>()))
+        .map(|side| side_width(&side.iter().map(|(_, b)| *b).collect::<Vec<_>>(), triggers))
         .collect();
     let total = widths.iter().sum::<f32>() + SIDE_GAP * (sides.len() as f32 - 1.0).max(0.0);
     // Shrink to fit (14K is the widest).
@@ -204,7 +244,17 @@ fn controllers(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
         for &(idx, b) in side {
             let col = layout.lane_color(b.lane);
             let on = idx == f.selected;
-            if is_scratch(b.lane) {
+            if triggers {
+                // Triggers stand full height at the edges, the keys sit in one row between.
+                let full = KEY_H + ROW_OFFSET;
+                if is_trigger(b.lane) {
+                    button(c, t, sk, b, Rect::new(kx, top, TRIGGER_W * k, full * k), col, on, f.rebinding.is_some(), false, s);
+                    kx += (TRIGGER_W + TRIGGER_GAP) * k;
+                } else {
+                    button(c, t, sk, b, Rect::new(kx, top + ROW_OFFSET * k / 2.0, KEY_W * k, KEY_H * k), col, on, f.rebinding.is_some(), false, s);
+                    kx += KEY_STEP * k;
+                }
+            } else if is_scratch(b.lane) {
                 let r = Rect::new(kx, top + (KEY_H + ROW_OFFSET - TABLE) * k / 2.0, TABLE * k, TABLE * k);
                 button(c, t, sk, b, r, col, on, f.rebinding.is_some(), true, s);
                 kx += (TABLE + TABLE_GAP) * k;
@@ -342,20 +392,32 @@ mod tests {
     fn every_mode_is_one_batch() {
         let vp = Viewport::new(1280, 720);
         let mut ui = Ui::new(vp.scale);
-        for mode in [PlayMode::Keys5, PlayMode::Keys7, PlayMode::Keys9, PlayMode::Keys10, PlayMode::Keys14] {
+        let variants = [
+            (PlayMode::Keys5, ScratchSide::Left, EightKForm::Inline),
+            (PlayMode::Keys7, ScratchSide::Right, EightKForm::Inline),
+            (PlayMode::Keys8, ScratchSide::Left, EightKForm::Inline),
+            (PlayMode::Keys8, ScratchSide::Right, EightKForm::Inline),
+            (PlayMode::Keys8, ScratchSide::Left, EightKForm::Triggers),
+            (PlayMode::Keys9, ScratchSide::Left, EightKForm::Inline),
+            (PlayMode::Keys10, ScratchSide::Left, EightKForm::Inline),
+            (PlayMode::Keys14, ScratchSide::Left, EightKForm::Inline),
+        ];
+        for (mode, scratch, form) in variants {
             let mut layout = SkinConfig::default();
             layout.set_play_mode(mode);
+            layout.set_scratch_side(mode, scratch);
+            layout.set_eight_k_form(form);
             let keys = ["S", "LCtrl", "Q", "W"];
             let lanes: Vec<KeyBinding> = layout
-                .active_lanes()
-                .iter()
+                .screen_lanes()
+                .into_iter()
                 .enumerate()
-                .map(|(i, &lane)| KeyBinding { lane, label: "KEY", keys: &keys[..i % 5] })
+                .map(|(i, lane)| KeyBinding { lane, label: "KEY", keys: &keys[..i % 5] })
                 .collect();
             for rebinding in [None, Some(Rebind::Replace), Some(Rebind::Add)] {
                 ui.begin(1280, 720, vp.scale);
-                draw_key_config(&mut ui, &KeyConfigFrame { viewport: &vp, mode, lanes: &lanes, selected: 1, rebinding, layout: "HomeRow" });
-                assert_eq!(ui.canvas.debug_batches().len(), 1, "{mode:?}");
+                draw_key_config(&mut ui, &KeyConfigFrame { viewport: &vp, mode, lanes: &lanes, selected: 1, rebinding, layout: "HomeRow", scratch, form });
+                assert_eq!(ui.canvas.debug_batches().len(), 1, "{mode:?} {scratch:?} {form:?}");
             }
         }
     }
@@ -365,7 +427,7 @@ mod tests {
         // 14K at full size would be wider than the content area; it must be
         // scaled down rather than overflow.
         let lanes: Vec<KeyBinding> = (0..8).map(|i| KeyBinding { lane: if i == 0 { Lane::Scratch } else { Lane::Key1 }, label: "", keys: &[] }).collect();
-        let w = side_width(&lanes.iter().collect::<Vec<_>>());
+        let w = side_width(&lanes.iter().collect::<Vec<_>>(), false);
         assert!((w - (TABLE + TABLE_GAP + 6.0 * KEY_STEP + KEY_W)).abs() < 1e-3);
     }
 }
