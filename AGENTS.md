@@ -96,6 +96,11 @@ cargo build --release
 Get-Item .\target\release\beetle-app.exe, .\target\release\bpm-gui.exe, .\target\release\bpm.exe | Select-Object Name, Length
 ```
 
+### 커밋 전 게이트 (Pre-commit Gate)
+
+- 커밋 전에 반드시 `cargo fmt --all`을 실행합니다. 포맷으로 생긴 변경분은 해당 작업 커밋에 함께 포함하거나, 포맷 전용 커밋(`style: apply cargo fmt ...`)으로 분리합니다.
+- 포맷 검사만 필요할 때는 `cargo fmt --all -- --check`로 차이가 없는지 확인합니다.
+
 ---
 
 ## 6. 문서 작성 및 링크 참조 규칙 (Documentation & Path Policy)
