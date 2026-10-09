@@ -132,7 +132,13 @@ fn load_index_or_exit() -> collection::Index {
 }
 
 fn run_scan(manager: &PackageManager) {
-    let folders = load_library().paths().to_vec();
+    // The same sources the game scans: library folders, the default songs folder, and BMS_DIR.
+    let songs_dir = absolute_dir("songs").ok();
+    let bms_dir = env::var("BMS_DIR")
+        .ok()
+        .and_then(|dir| absolute_dir(&dir).ok());
+    let folders =
+        beetle_core::collection_folders(&load_library(), songs_dir.as_deref(), bms_dir.as_deref());
     let installed = manager.list_active_packages();
     let (index, counts) = collection::build_index(&folders, &installed);
     let path = collection::index_file();
