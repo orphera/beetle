@@ -5,7 +5,7 @@
 //! confirm, so the same code runs in a terminal and in the window.
 
 use crate::archive::extract_archive;
-use crate::collection::Index;
+use crate::collection::{self, Index};
 use crate::manager::{InstalledPackage, PackageManager};
 use crate::table_fetch::{self, KeptPack};
 use crate::HttpClient;
@@ -129,6 +129,89 @@ pub fn import_body_folder(
     Ok(installed)
 }
 
+/// What a scan found, for the CLI and the window to report.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ScanReport {
+    pub folders: usize,
+    pub package_states: usize,
+    /// Copies of charts, one per file or package entry.
+    pub copies: usize,
+    /// Distinct charts (by hash) across all copies.
+    pub charts: usize,
+    /// Charts that have more than one copy.
+    pub duplicate_groups: usize,
+    pub skipped: u32,
+}
+
+/// Scans the library folders, the songs folder, and the active packages in
+/// `packages_root` into the collection index, and drops the game's song cache
+/// so the game rebuilds it from these sources.
+pub fn scan_collection(packages_root: &Path) -> Result<ScanReport, String> {
+    let songs_dir = crate::absolute_dir("songs").ok();
+    let folders = beetle_core::collection_folders(&crate::load_library(), songs_dir.as_deref());
+    let manager = PackageManager::new(packages_root).map_err(|e| e.to_string())?;
+    let installed = manager.list_active_packages();
+    let (index, counts) = collection::build_index(&folders, &installed);
+    let path = collection::index_file();
+    fs::write(&path, index.serialize())
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    for cache in [
+        PathBuf::from(beetle_core::SONGS_CACHE_FILE),
+        songs_dir
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(beetle_core::SONGS_CACHE_FILE),
+    ] {
+        let _ = fs::remove_file(cache);
+    }
+    let charts = index
+        .locations
+        .iter()
+        .map(|l| l.chart)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    Ok(ScanReport {
+        folders: counts.folders,
+        package_states: counts.package_states,
+        copies: index.locations.len(),
+        charts,
+        duplicate_groups: index.duplicate_groups().len(),
+        skipped: counts.skipped,
+    })
+}
+
+/// Gets one table entry from a body archive or folder, without asking: the
+/// difference pack goes beside the body's key sounds when its link is direct, and
+/// the body folder is imported as a package. Refuses when key sounds are still
+/// missing, so nothing half-working is installed. Returns a summary line.
+pub fn get_from_body(
+    client: &HttpClient,
+    entry: &TableEntry,
+    body_file: &Path,
+    scratch: &Path,
+    packages_root: &Path,
+) -> Result<String, String> {
+    let body_root = unpack_body(body_file, scratch)?;
+    if table_fetch::is_direct_pack(&entry.url_diff) {
+        let kept = fetch_diff(client, entry, &scratch.join("diff"), &body_root)?;
+        if kept.matching == 0 {
+            return Err("the difference pack has no chart with this entry's hash".into());
+        }
+    }
+    let chart = find_matching_chart(entry, &body_root)
+        .ok_or_else(|| "the body has no chart with this entry's hash".to_string())?;
+    let missing = table_fetch::missing_key_sounds(&chart).unwrap_or(0);
+    if missing > 0 {
+        return Err(format!(
+            "{missing} key sound(s) still missing from the body; nothing imported"
+        ));
+    }
+    let mut manager = PackageManager::new(packages_root).map_err(|e| e.to_string())?;
+    let installed = import_body_folder(&mut manager, &body_root)?;
+    let names: Vec<&str> = installed.iter().map(|p| p.name.as_str()).collect();
+    Ok(format!("Imported {}", names.join(", ")))
+}
+
 /// The only folder inside `dir` when it holds exactly one folder and nothing else.
 fn single_top_folder(dir: &Path) -> PathBuf {
     let entries: Vec<PathBuf> = fs::read_dir(dir)
@@ -213,6 +296,68 @@ mod tests {
         assert_eq!(single_top_folder(&root), root.join("only"));
         fs::create_dir_all(root.join("second")).unwrap();
         assert_eq!(single_top_folder(&root), root);
+        fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[cfg(test)]
+mod get_tests {
+    use super::*;
+    use beetle_core::{md5_of_bytes, ChartId};
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    fn entry_for(bytes: &[u8]) -> TableEntry {
+        TableEntry {
+            level: "1".into(),
+            md5: Some(md5_of_bytes(bytes)),
+            sha256: Some(ChartId::of_bytes(bytes)),
+            title: "T".into(),
+            ..TableEntry::default()
+        }
+    }
+
+    fn zip_with(path: &Path, files: &[(&str, &[u8])]) {
+        let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+        for (name, bytes) in files {
+            zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bpm_get_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_body_without_the_entry_chart_is_refused() {
+        let root = scratch("nochart");
+        let body = root.join("body.zip");
+        zip_with(&body, &[("other.bme", b"#TITLE Other\n#00111:01\n")]);
+        let client = HttpClient::new();
+        let entry = entry_for(b"#TITLE Wanted\n");
+        let err =
+            get_from_body(&client, &entry, &body, &root.join("w"), &root.join("p")).unwrap_err();
+        assert!(err.contains("no chart"), "{err}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_chart_with_key_sounds_missing_is_refused_before_any_import() {
+        let root = scratch("sounds");
+        let chart: &[u8] = b"#TITLE Wanted\n#WAV01 kick.wav\n#00111:01\n";
+        let body = root.join("body.zip");
+        zip_with(&body, &[("wanted.bme", chart)]);
+        let client = HttpClient::new();
+        let entry = entry_for(chart);
+        let err =
+            get_from_body(&client, &entry, &body, &root.join("w"), &root.join("p")).unwrap_err();
+        assert!(err.contains("key sound"), "{err}");
+        assert!(!root.join("p").exists(), "nothing was installed");
         fs::remove_dir_all(&root).ok();
     }
 }

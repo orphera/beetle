@@ -138,32 +138,15 @@ fn load_index_or_exit() -> collection::Index {
 }
 
 fn run_scan(manager: &PackageManager) {
-    // The same sources the game scans: library folders and the default songs folder.
-    let songs_dir = absolute_dir("songs").ok();
-    let folders = beetle_core::collection_folders(&load_library(), songs_dir.as_deref());
-    let installed = manager.list_active_packages();
-    let (index, counts) = collection::build_index(&folders, &installed);
+    let report = table_ops::scan_collection(manager.root_dir()).unwrap_or_else(|e| exit_with(&e));
     let path = collection::index_file();
-    fs::write(&path, index.serialize()).unwrap_or_else(|e| exit_with(&e));
-    // Drop the game's song cache so its next launch rebuilds from these sources, not the old list.
-    for cache in [
-        PathBuf::from(beetle_core::SONGS_CACHE_FILE),
-        Path::new(&songs_dir.unwrap_or_default()).join(beetle_core::SONGS_CACHE_FILE),
-    ] {
-        let _ = fs::remove_file(cache);
-    }
-
-    let distinct = distinct_charts(&index);
     println!(
         "Scanned {} folder(s) and {} active package state(s).",
-        counts.folders, counts.package_states
+        report.folders, report.package_states
     );
     println!(
         "  copies: {}   charts: {}   duplicate charts: {}   skipped: {}",
-        index.locations.len(),
-        distinct,
-        index.duplicate_groups().len(),
-        counts.skipped
+        report.copies, report.charts, report.duplicate_groups, report.skipped
     );
     println!("  index: {}", path.display());
 }

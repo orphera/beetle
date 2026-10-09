@@ -10,7 +10,6 @@ use bms_package_manager::collection::{self, Index};
 use bms_package_manager::table_ops::{self, MissingRow};
 use bms_package_manager::TableStore;
 use std::fs;
-use std::path::Path;
 
 /// Height of one list row in px.
 const ROW_H: f32 = 18.0;
@@ -224,6 +223,7 @@ fn fit(text: &str, max_w: f32) -> String {
 #[cfg(test)]
 mod snapshot {
     use super::*;
+    use std::path::Path;
 
     /// Renders one frame of the Tables tab to the BMP file named by
     /// `BPM_GUI_SNAPSHOT`, for a visual check without opening a window.

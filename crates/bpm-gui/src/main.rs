@@ -37,6 +37,10 @@ enum ModalMode {
     CreateDelta,
     /// Legacy BMS folders the player scans in place (`library.dat`).
     Library,
+    /// Yes/no: download the difference pack of the selected table entry.
+    TableFetchDiff,
+    /// Path of a body file to get the selected table entry from.
+    TableGetBody,
 }
 
 enum BgTaskMessage {
@@ -453,6 +457,7 @@ impl ApplicationHandler for BpmGuiApp {
                         state.bg_cancel_flag = None;
                         state.status_msg = msg;
                         state.refresh_packages();
+                        state.tables.reload_index();
                         state.window.request_redraw();
                         break;
                     }
@@ -659,6 +664,18 @@ impl ApplicationHandler for BpmGuiApp {
                             input: input.as_str(),
                             pack_options: None,
                             list: &library_lines,
+                        },
+                        ModalMode::TableFetchDiff => ui::ModalDisplayInfo {
+                            prompt: "Download the difference pack of the selected entry? Enter = yes, Esc = no",
+                            input: "",
+                            pack_options: None,
+                            list: &[],
+                        },
+                        ModalMode::TableGetBody => ui::ModalDisplayInfo {
+                            prompt: "Body file (zip, rar or 7z) to get the selected entry from:",
+                            input: input.as_str(),
+                            pack_options: None,
+                            list: &[],
                         },
                         ModalMode::ImportFolder => ui::ModalDisplayInfo {
                             prompt: "Import BMS Folder (enter directory path):",
@@ -1107,6 +1124,16 @@ fn handle_key_input(
             KeyCode::Enter => {
                 let target_path = input.trim().to_string();
                 let m = *mode;
+                if m == ModalMode::TableFetchDiff {
+                    state.modal = None;
+                    table_start_diff(state);
+                    return;
+                }
+                if m == ModalMode::TableGetBody {
+                    state.modal = None;
+                    table_start_get(state, &target_path);
+                    return;
+                }
                 if m == ModalMode::Library {
                     // Stays open so the list shows the change.
                     input.clear();
@@ -1131,7 +1158,9 @@ fn handle_key_input(
                 state.bg_cancel_flag = Some(cancel_flag.clone());
 
                 match m {
-                    ModalMode::Library => unreachable!("handled before the background task starts"),
+                    ModalMode::Library | ModalMode::TableFetchDiff | ModalMode::TableGetBody => {
+                        unreachable!("handled before the background task starts")
+                    }
                     ModalMode::ImportFolder => {
                         let clean_path = target_path.trim().trim_matches('"').to_string();
                         let roots = bms_package_manager::find_bms_song_roots(&clean_path);
@@ -1771,6 +1800,10 @@ fn handle_key_input(
             KeyCode::PageDown => state.tables.move_selection(20),
             KeyCode::BracketLeft => state.tables.switch_table(false),
             KeyCode::BracketRight => state.tables.switch_table(true),
+            KeyCode::KeyO => table_open_body(state),
+            KeyCode::KeyD => table_ask_diff(state),
+            KeyCode::KeyG => table_ask_body(state),
+            KeyCode::KeyS => table_scan(state),
             KeyCode::KeyR => {
                 state.tables.reload_index();
                 state.status_msg = "Reloaded the collection index".to_string();
@@ -1988,6 +2021,167 @@ fn handle_key_input(
         }
         _ => (),
     }
+}
+
+/// Runs `work` on a background thread, with the task bar shown, and reports its
+/// result in the status line.
+fn start_table_task<F>(state: &mut AppState, title: &str, work: F)
+where
+    F: FnOnce() -> Result<String, String> + Send + 'static,
+{
+    if state.bg_task_running.is_some() {
+        state.status_msg = "Another task is already running".to_string();
+        return;
+    }
+    state.bg_task_running = Some(BgTaskState {
+        title: title.to_string(),
+        phase: "Working...".to_string(),
+        current: 0,
+        total: 0,
+        detail: String::new(),
+    });
+    state.bg_cancel_flag = Some(Arc::new(AtomicBool::new(false)));
+    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
+    state.bg_receiver = Some(rx);
+    thread::spawn(move || {
+        let message = match work() {
+            Ok(text) => BgTaskMessage::Completed(text),
+            Err(text) => BgTaskMessage::Failed(text),
+        };
+        let _ = tx.send(message);
+    });
+}
+
+/// Opens the selected entry's body page in the browser.
+fn table_open_body(state: &mut AppState) {
+    let Some(row) = state.tables.selected_row() else {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    };
+    if row.url.is_empty() {
+        state.status_msg = format!("#{} has no body link in the table", row.number);
+        return;
+    }
+    state.status_msg = match bms_package_manager::table_fetch::open_in_browser(&row.url) {
+        Ok(()) => format!("Opened the body page for #{}", row.number),
+        Err(e) => e,
+    };
+}
+
+/// Asks before downloading the selected entry's difference pack.
+fn table_ask_diff(state: &mut AppState) {
+    let Some(row) = state.tables.selected_row() else {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    };
+    if row.url_diff.is_empty() {
+        state.status_msg = format!("#{} has no difference link in the table", row.number);
+        return;
+    }
+    if !bms_package_manager::table_fetch::is_direct_pack(&row.url_diff) {
+        state.status_msg = format!(
+            "The difference of #{} is a page, not a file: {}",
+            row.number, row.url_diff
+        );
+        return;
+    }
+    state.modal = Some((ModalMode::TableFetchDiff, String::new()));
+}
+
+/// Asks for the body file to get the selected entry from.
+fn table_ask_body(state: &mut AppState) {
+    if state.tables.selected_row().is_none() {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    }
+    state.modal = Some((ModalMode::TableGetBody, String::new()));
+}
+
+/// Downloads the difference of the selected entry into `songs/<table>/<#>`.
+fn table_start_diff(state: &mut AppState) {
+    let (Some(row), Some(entry), Some(table)) = (
+        state.tables.selected_row().cloned(),
+        state.tables.selected_entry().cloned(),
+        state.tables.table().map(|t| t.name.clone()),
+    ) else {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    };
+    let number = row.number;
+    let folder = PathBuf::from("songs")
+        .join(bms_package_manager::TableStore::slug(&table))
+        .join(number.to_string());
+    let scratch =
+        std::env::temp_dir().join(format!("bpm-gui-diff-{}-{number}", std::process::id()));
+    start_table_task(
+        state,
+        &format!("Downloading the difference of #{number}"),
+        move || {
+            let _ = fs::remove_dir_all(&scratch);
+            let client = bms_package_manager::HttpClient::new();
+            let result =
+                bms_package_manager::table_ops::fetch_diff(&client, &entry, &scratch, &folder);
+            let _ = fs::remove_dir_all(&scratch);
+            let kept = result?;
+            if kept.matching == 0 {
+                return Err(format!(
+                    "#{number}: no chart in the pack has this entry's hash"
+                ));
+            }
+            Ok(format!(
+                "#{number}: kept {} chart(s) in {} ({} copied, {} already there). Press [S] to rescan.",
+                kept.matching,
+                folder.display(),
+                kept.copied,
+                kept.skipped
+            ))
+        },
+    );
+}
+
+/// Gets the selected entry from the body file at `path`.
+fn table_start_get(state: &mut AppState, path: &str) {
+    let path = path.trim().trim_matches('"').to_string();
+    if path.is_empty() {
+        state.status_msg = "Path cannot be empty".to_string();
+        return;
+    }
+    let Some(entry) = state.tables.selected_entry().cloned() else {
+        state.status_msg = "No entry selected".to_string();
+        return;
+    };
+    let number = state.tables.selected_row().map_or(0, |row| row.number);
+    let packages_root = state.manager.root_dir().to_path_buf();
+    let scratch = std::env::temp_dir().join(format!("bpm-gui-get-{}-{number}", std::process::id()));
+    start_table_task(state, &format!("Getting #{number}"), move || {
+        let _ = fs::remove_dir_all(&scratch);
+        let client = bms_package_manager::HttpClient::new();
+        let result = bms_package_manager::table_ops::get_from_body(
+            &client,
+            &entry,
+            Path::new(&path),
+            &scratch,
+            &packages_root,
+        );
+        let _ = fs::remove_dir_all(&scratch);
+        result.map(|summary| format!("#{number}: {summary}. Press [S] to rescan."))
+    });
+}
+
+/// Scans the library folders, the songs folder, and the packages into the index.
+fn table_scan(state: &mut AppState) {
+    let packages_root = state.manager.root_dir().to_path_buf();
+    start_table_task(state, "Scanning the collection", move || {
+        let report = bms_package_manager::table_ops::scan_collection(&packages_root)?;
+        Ok(format!(
+            "Scanned {} folder(s) and {} package state(s): {} copies, {} charts, {} duplicate charts",
+            report.folders,
+            report.package_states,
+            report.copies,
+            report.charts,
+            report.duplicate_groups
+        ))
+    });
 }
 
 fn start_remote_install(state: &mut AppState, with_bga: bool) {
