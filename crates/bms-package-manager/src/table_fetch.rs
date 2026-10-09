@@ -23,6 +23,36 @@ pub fn is_direct_pack(url: &str) -> bool {
         .any(|prefix| url.starts_with(prefix))
 }
 
+/// True for `http://` and `https://` addresses. Only these are opened in a browser.
+pub fn is_web_url(url: &str) -> bool {
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
+/// Opens a web address in the default browser. Other schemes are refused.
+///
+/// On Windows this goes through `rundll32`, not `cmd /C start`, so the `&` in
+/// query strings is not read as a command separator.
+pub fn open_in_browser(url: &str) -> Result<(), String> {
+    if !is_web_url(url) {
+        return Err(format!("not a web address: {url}"));
+    }
+    let status = if cfg!(target_os = "windows") {
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url])
+            .status()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).status()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).status()
+    };
+    match status {
+        Ok(code) if code.success() => Ok(()),
+        Ok(code) => Err(format!("the browser command exited with {code}")),
+        Err(e) => Err(format!("cannot start the browser: {e}")),
+    }
+}
+
 /// True when `bytes` is the chart the entry names: by SHA-256 when the entry has
 /// one, otherwise by MD5. An entry with neither matches nothing.
 pub fn chart_matches(entry: &TableEntry, bytes: &[u8]) -> bool {
@@ -142,6 +172,18 @@ mod tests {
         assert!(!is_direct_pack(
             "https://evil.example/stellabms.xyz/upload/1"
         ));
+    }
+
+    #[test]
+    fn only_http_and_https_addresses_open() {
+        assert!(is_web_url(
+            "https://manbow.nothing.sh/event/event.cgi?a=1&b=2"
+        ));
+        assert!(is_web_url("HTTP://example.test/x"));
+        assert!(!is_web_url("file:///C:/secret.txt"));
+        assert!(!is_web_url("javascript:alert(1)"));
+        assert!(!is_web_url(""));
+        assert!(open_in_browser("file:///C:/secret.txt").is_err());
     }
 
     #[test]

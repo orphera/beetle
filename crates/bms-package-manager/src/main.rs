@@ -91,6 +91,7 @@ fn print_table_usage() {
     println!("  bpm table list                      List installed tables");
     println!("  bpm table missing [name]            Charts in the tables the collection lacks (after `bpm scan`)");
     println!("  bpm table fetch <name> <#>... [--yes]  Download the difference packs of the chosen entries (direct links only)");
+    println!("  bpm table fetch <name> <#>... --body   Open the body pages of the chosen entries in the browser");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -988,9 +989,32 @@ fn run_table_command(args: &[String]) {
             let (_, table) = store
                 .find(name)
                 .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
-            fetch_difference_packs(&client, &table, &numbers, yes);
+            if args.iter().any(|a| a == "--body") {
+                open_body_pages(&table, &numbers);
+            } else {
+                fetch_difference_packs(&client, &table, &numbers, yes);
+            }
         }
         _ => print_table_usage(),
+    }
+}
+
+/// Opens the body page (the entry's `url`) of each chosen entry in the browser.
+/// Nothing is downloaded: the user saves the body and runs `bpm scan`.
+fn open_body_pages(table: &beetle_core::DifficultyTable, numbers: &[usize]) {
+    for &number in numbers {
+        let Some(entry) = number.checked_sub(1).and_then(|i| table.entries.get(i)) else {
+            eprintln!("#{number}: no such entry in '{}'", table.name);
+            continue;
+        };
+        if entry.url.is_empty() {
+            println!("#{number}: no body link in the table");
+            continue;
+        }
+        match table_fetch::open_in_browser(&entry.url) {
+            Ok(()) => println!("#{number}: opened {}", entry.url),
+            Err(e) => eprintln!("#{number}: {e}"),
+        }
     }
 }
 
