@@ -10,6 +10,7 @@ pub mod identity;
 pub mod judge;
 pub mod library;
 pub mod library_paths;
+pub mod load_location;
 pub mod modifier;
 pub mod replay;
 pub mod resolver;
@@ -32,6 +33,7 @@ pub use library::{
     SortMode,
 };
 pub use library_paths::LibraryPaths;
+pub use load_location::choose_load_index;
 pub use modifier::{apply_lane_modifier, LaneModifier, PlayOptions};
 pub use replay::{ReplayData, ReplayEvent};
 pub use rules::{LnOption, LnRule, Ruleset};

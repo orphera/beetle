@@ -3,6 +3,7 @@
 //! Package lifecycle, installation, registry management, and discovery layer for `.bmsp` packages.
 
 pub mod archive;
+pub mod collection;
 pub mod error;
 pub mod export;
 pub mod flac;

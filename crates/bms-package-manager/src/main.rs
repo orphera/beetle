@@ -1,8 +1,10 @@
+use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::{
     absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
     RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +13,9 @@ fn print_usage() {
     println!("BMS Package Manager (bpm)");
     println!();
     println!("Usage:");
+    println!("  bpm scan                               Index registered folders and installed packages (collection.idx)");
+    println!("  bpm status                             Summarize the collection index: charts, copies, duplicates");
+    println!("  bpm dupes [--kind folder|mixed]        List charts that exist in more than one place, with the copy that loads");
     println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
     println!("  bpm search <query>                     Search remote packages across configured registries");
@@ -111,6 +116,171 @@ fn ago(fetched: u64, now: u64) -> String {
         90..=5399 => format!("{} minutes ago", secs / 60),
         5400..=129_599 => format!("{} hours ago", secs / 3600),
         _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
+fn exit_with(message: &dyn std::fmt::Display) -> ! {
+    eprintln!("Error: {message}");
+    std::process::exit(1);
+}
+
+/// The index `bpm scan` wrote, or exit with a hint to scan first.
+fn load_index_or_exit() -> collection::Index {
+    let path = collection::index_file();
+    let text = fs::read_to_string(&path).unwrap_or_default();
+    collection::Index::parse(&text).unwrap_or_else(|| {
+        exit_with(&format!(
+            "no usable index at {} (run `bpm scan` first)",
+            path.display()
+        ))
+    })
+}
+
+fn run_scan(manager: &PackageManager) {
+    let folders = load_library().paths().to_vec();
+    let installed = manager.list_all_installed();
+    let (index, counts) = collection::build_index(&folders, &installed);
+    let path = collection::index_file();
+    fs::write(&path, index.serialize()).unwrap_or_else(|e| exit_with(&e));
+
+    let distinct = distinct_charts(&index);
+    println!(
+        "Scanned {} folder(s) and {} installed package state(s).",
+        counts.folders, counts.package_states
+    );
+    println!(
+        "  copies: {}   charts: {}   duplicate charts: {}   skipped: {}",
+        index.locations.len(),
+        distinct,
+        index.duplicate_groups().len(),
+        counts.skipped
+    );
+    println!("  index: {}", path.display());
+}
+
+fn distinct_charts(index: &collection::Index) -> usize {
+    index
+        .locations
+        .iter()
+        .map(|l| l.chart)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn run_status() {
+    let index = load_index_or_exit();
+    let folders = load_library().paths().len();
+    let package_states: BTreeSet<&str> = index
+        .locations
+        .iter()
+        .filter(|l| l.kind == LocationKind::Package)
+        .map(|l| l.source.as_str())
+        .collect();
+    let groups = index.duplicate_groups();
+    let extra_copies: usize = groups.iter().map(|g| g.copies.len() - 1).sum();
+    let packaged: BTreeSet<_> = index
+        .locations
+        .iter()
+        .filter(|l| l.kind == LocationKind::Package)
+        .map(|l| l.chart)
+        .collect();
+
+    println!(
+        "Index:      {} (scanned {}, key_v {})",
+        collection::index_file().display(),
+        ago(index.scanned_at, now_secs()),
+        collection::KEY_VERSION
+    );
+    println!(
+        "Sources:    {folders} folder(s), {} installed package state(s)",
+        package_states.len()
+    );
+    println!(
+        "Charts:     {} distinct, {} copies",
+        distinct_charts(&index),
+        index.locations.len()
+    );
+    println!(
+        "Duplicates: {} chart(s) in more than one place, {extra_copies} extra copies",
+        groups.len()
+    );
+    println!(
+        "Packaged:   {} chart(s) have a package copy",
+        packaged.len()
+    );
+    println!(
+        "Skipped:    {} unreadable chart(s) at last scan",
+        index.skipped
+    );
+    println!("Songs:      - (song grouping comes in a later step)");
+}
+
+fn run_dupes(args: &[String]) {
+    let filter = match args {
+        [] => None,
+        [flag, kind] if flag == "--kind" => match kind.as_str() {
+            "folder" | "mixed" => Some(kind.as_str()),
+            other => exit_with(&format!("unknown --kind '{other}' (use folder or mixed)")),
+        },
+        _ => exit_with(&"usage: bpm dupes [--kind folder|mixed]"),
+    };
+    let index = load_index_or_exit();
+    let groups: Vec<_> = index
+        .duplicate_groups()
+        .into_iter()
+        .filter(|g| match filter {
+            Some("folder") => g.package_copies() == 0,
+            Some(_) => g.folder_copies() > 0 && g.package_copies() > 0,
+            None => true,
+        })
+        .collect();
+
+    println!("Charts in more than one place: {}", groups.len());
+    println!("Only byte-identical copies are matched; same content in different files is not.");
+    for group in &groups {
+        let first = group.copies[0];
+        println!();
+        println!(
+            "{}  {} / {}  {} lv{}  ({} folder, {} package)",
+            group.chart.short(),
+            first.title,
+            first.artist,
+            first.mode,
+            first.play_level,
+            group.folder_copies(),
+            group.package_copies()
+        );
+        let loaded = collection::Index::load_index(&group.copies);
+        for (i, copy) in group.copies.iter().enumerate() {
+            let marker = if Some(i) == loaded { "*" } else { " " };
+            println!(
+                "  {marker} {}  missing {} key sound(s)",
+                describe_location(copy),
+                copy.missing_keys
+            );
+        }
+        match loaded {
+            Some(i) if group.copies[i].is_intact() => {
+                println!(
+                    "    loads: {} (first intact copy)",
+                    describe_location(group.copies[i])
+                )
+            }
+            Some(i) => println!(
+                "    loads: {} (no intact copy; key sounds missing)",
+                describe_location(group.copies[i])
+            ),
+            None => {}
+        }
+    }
+}
+
+fn describe_location(copy: &collection::Location) -> String {
+    match copy.kind {
+        LocationKind::Folder => {
+            format!("folder  {}\\{}", copy.source, copy.path.replace('/', "\\"))
+        }
+        LocationKind::Package => format!("package {} :: {}", copy.source, copy.path),
     }
 }
 
@@ -1134,6 +1304,9 @@ fn main() -> Result<(), PackageManagerError> {
                 }
             }
         }
+        "scan" => run_scan(&manager),
+        "status" => run_status(),
+        "dupes" => run_dupes(&args[2..]),
         "list" => {
             let packages = manager.list_active_packages();
             if packages.is_empty() {
