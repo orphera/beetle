@@ -8,8 +8,8 @@ mod gpu_ui;
 mod handlers;
 mod input;
 mod loader;
-mod preview;
 mod present;
+mod preview;
 mod scanner;
 mod state;
 mod tables;
@@ -31,12 +31,12 @@ use gameplay::{
     GameplayTickResult,
 };
 
+use beetle_render::GpuBackend;
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
 use input::KeyBindings;
 use loader::spawn_background_stage_image_loader;
-use beetle_render::GpuBackend;
 use state::{spawn_library_load, AppScreen, AppState, LibraryJob, SongCategory};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -76,7 +76,12 @@ impl Drop for MultimediaTimerGuard {
 
 #[link(name = "user32")]
 extern "system" {
-    fn MessageBoxW(hwnd: *mut std::ffi::c_void, text: *const u16, caption: *const u16, kind: u32) -> i32;
+    fn MessageBoxW(
+        hwnd: *mut std::ffi::c_void,
+        text: *const u16,
+        caption: *const u16,
+        kind: u32,
+    ) -> i32;
 }
 
 /// Shows an error dialog (the app has no console: `windows_subsystem`).
@@ -85,7 +90,12 @@ fn fatal_error(msg: &str) {
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
     let (text, caption) = (wide(msg), wide("Beetle"));
     unsafe {
-        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_ICONERROR,
+        );
     }
 }
 
@@ -416,7 +426,9 @@ impl ApplicationHandler for BeetleApp {
                 let selected_song = state.current_selected_song().cloned();
                 let selected_id = selected_song.as_ref().map(|s| s.id);
                 let preview_wait =
-                    state.preview.update(selected_song.as_ref(), is_settled, state.master_volume);
+                    state
+                        .preview
+                        .update(selected_song.as_ref(), is_settled, state.master_volume);
 
                 if !is_settled {
                     // While holding arrow key or scrolling, don't spawn background threads
@@ -535,7 +547,8 @@ impl ApplicationHandler for BeetleApp {
                         for entry_path in chart_entries {
                             if let Ok(bytes) = pkg.read_entry(&entry_path) {
                                 let virtual_path = format!("{}::{}", path_str, entry_path);
-                                if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
+                                if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes)
+                                {
                                     queue_start_gameplay(state, &meta);
                                     break;
                                 }
@@ -548,7 +561,9 @@ impl ApplicationHandler for BeetleApp {
                     || ext.eq_ignore_ascii_case("pms")
                 {
                     if let Ok(bytes) = fs::read(&path) {
-                        if let Some(meta) = SongMetadata::from_bytes(&path.to_string_lossy(), &bytes) {
+                        if let Some(meta) =
+                            SongMetadata::from_bytes(&path.to_string_lossy(), &bytes)
+                        {
                             queue_start_gameplay(state, &meta);
                         }
                     }
@@ -632,7 +647,6 @@ fn handle_keyboard_input(
     _repeat: bool,
     text: Option<&str>,
 ) {
-
     let PhysicalKey::Code(code) = physical_key else {
         return;
     };
@@ -752,30 +766,57 @@ mod tests {
         let id = beetle_core::ChartId::of_bytes(b"x");
         let short = id.short();
         assert_eq!(state::replay_path(id, None), format!("replays/{short}.rep"));
-        assert_eq!(state::replay_path(id, Some(beetle_core::LnRule::Cn)), format!("replays/{short}-cn.rep"));
-        assert_eq!(state::replay_path(id, Some(beetle_core::LnRule::Ln)), format!("replays/{short}-ln.rep"));
+        assert_eq!(
+            state::replay_path(id, Some(beetle_core::LnRule::Cn)),
+            format!("replays/{short}-cn.rep")
+        );
+        assert_eq!(
+            state::replay_path(id, Some(beetle_core::LnRule::Ln)),
+            format!("replays/{short}-ln.rep")
+        );
     }
 
     #[test]
     fn table_folders_follow_the_built_in_ones_and_wrap_both_ways() {
         let forward: Vec<SongCategory> =
-            std::iter::successors(Some(SongCategory::ClearStatus), |c| Some(c.next(2))).skip(1).take(4).collect();
+            std::iter::successors(Some(SongCategory::ClearStatus), |c| Some(c.next(2)))
+                .skip(1)
+                .take(4)
+                .collect();
         assert_eq!(
             forward,
-            [SongCategory::Table(0), SongCategory::Table(1), SongCategory::All, SongCategory::Keys5]
+            [
+                SongCategory::Table(0),
+                SongCategory::Table(1),
+                SongCategory::All,
+                SongCategory::Keys5
+            ]
         );
         let backward: Vec<SongCategory> =
-            std::iter::successors(Some(SongCategory::Keys5), |c| Some(c.prev(2))).skip(1).take(4).collect();
+            std::iter::successors(Some(SongCategory::Keys5), |c| Some(c.prev(2)))
+                .skip(1)
+                .take(4)
+                .collect();
         assert_eq!(
             backward,
-            [SongCategory::All, SongCategory::Table(1), SongCategory::Table(0), SongCategory::ClearStatus]
+            [
+                SongCategory::All,
+                SongCategory::Table(1),
+                SongCategory::Table(0),
+                SongCategory::ClearStatus
+            ]
         );
         // With no tables the cycle is the old one.
         assert_eq!(SongCategory::All.prev(0), SongCategory::ClearStatus);
         assert_eq!(SongCategory::ClearStatus.next(0), SongCategory::All);
     }
 
-    fn table_with(name: &str, symbol: &str, levels_by_song: &[(u64, &str)], total: usize) -> beetle_core::DifficultyTable {
+    fn table_with(
+        name: &str,
+        symbol: &str,
+        levels_by_song: &[(u64, &str)],
+        total: usize,
+    ) -> beetle_core::DifficultyTable {
         let mut entries: Vec<beetle_core::TableEntry> = levels_by_song
             .iter()
             .map(|(n, level)| beetle_core::TableEntry {
@@ -788,11 +829,18 @@ mod tests {
         while entries.len() < total {
             entries.push(beetle_core::TableEntry {
                 level: "1".into(),
-                sha256: Some(beetle_core::ChartId::synthetic(1_000_000 + entries.len() as u64)),
+                sha256: Some(beetle_core::ChartId::synthetic(
+                    1_000_000 + entries.len() as u64,
+                )),
                 ..Default::default()
             });
         }
-        beetle_core::DifficultyTable { name: name.into(), symbol: symbol.into(), entries, ..Default::default() }
+        beetle_core::DifficultyTable {
+            name: name.into(),
+            symbol: symbol.into(),
+            entries,
+            ..Default::default()
+        }
     }
 
     fn song(n: u64, title: &str) -> SongMetadata {
@@ -819,24 +867,66 @@ mod tests {
     #[test]
     fn a_table_folder_lists_its_charts_by_level_then_by_the_current_sort() {
         // Songs arrive in title order; the table puts level 2 before 10 before "?".
-        let songs = vec![song(1, "Apple"), song(2, "Banana"), song(3, "Cherry"), song(4, "Date"), song(5, "Elder")];
+        let songs = vec![
+            song(1, "Apple"),
+            song(2, "Banana"),
+            song(3, "Cherry"),
+            song(4, "Date"),
+            song(5, "Elder"),
+        ];
         let mut tables = beetle_core::TableIndex::new(vec![table_with(
-            "Sat", "sl", &[(1, "10"), (2, "2"), (3, "?"), (4, "2")], 4,
+            "Sat",
+            "sl",
+            &[(1, "10"), (2, "2"), (3, "?"), (4, "2")],
+            4,
         )]);
         tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
 
         let store = beetle_core::ScoreStore::new();
-        let folder = filter_song_indices(&songs, "", SongCategory::Table(0), &store, &tables, beetle_core::LnOption::Cn);
+        let folder = filter_song_indices(
+            &songs,
+            "",
+            SongCategory::Table(0),
+            &store,
+            &tables,
+            beetle_core::LnOption::Cn,
+        );
         // Banana and Date are both level 2 and keep title order; Elder is not in the table.
         assert_eq!(folder, [1, 3, 0, 2]);
 
         // Search works inside the folder.
-        let searched = filter_song_indices(&songs, "date", SongCategory::Table(0), &store, &tables, beetle_core::LnOption::Cn);
+        let searched = filter_song_indices(
+            &songs,
+            "date",
+            SongCategory::Table(0),
+            &store,
+            &tables,
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(searched, [3]);
         // A table that is not installed matches nothing.
-        assert!(filter_song_indices(&songs, "", SongCategory::Table(7), &store, &tables, beetle_core::LnOption::Cn).is_empty());
+        assert!(filter_song_indices(
+            &songs,
+            "",
+            SongCategory::Table(7),
+            &store,
+            &tables,
+            beetle_core::LnOption::Cn
+        )
+        .is_empty());
         // The other folders ignore tables.
-        assert_eq!(filter_song_indices(&songs, "", SongCategory::All, &store, &tables, beetle_core::LnOption::Cn).len(), 5);
+        assert_eq!(
+            filter_song_indices(
+                &songs,
+                "",
+                SongCategory::All,
+                &store,
+                &tables,
+                beetle_core::LnOption::Cn
+            )
+            .len(),
+            5
+        );
     }
 
     #[test]
@@ -849,10 +939,20 @@ mod tests {
         ]);
         tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
 
-        assert_eq!(SongCategory::Table(0).title(&tables), "SATELLITE  15 / 2,467");
-        assert_eq!(SongCategory::Table(1).title(&tables), "A TABLE WITH A VERY…  1 / 1");
+        assert_eq!(
+            SongCategory::Table(0).title(&tables),
+            "SATELLITE  15 / 2,467"
+        );
+        assert_eq!(
+            SongCategory::Table(1).title(&tables),
+            "A TABLE WITH A VERY…  1 / 1"
+        );
         assert_eq!(SongCategory::Keys7.title(&tables), "7 KEYS");
-        assert_eq!(SongCategory::Table(9).title(&tables), "ALL SONGS", "a table that is gone");
+        assert_eq!(
+            SongCategory::Table(9).title(&tables),
+            "ALL SONGS",
+            "a table that is gone"
+        );
     }
 
     #[test]
@@ -896,30 +996,62 @@ mod tests {
         });
 
         // 1. Initial unfiltered indices
-        let all_indices = filter_song_indices(&songs, "", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let all_indices = filter_song_indices(
+            &songs,
+            "",
+            SongCategory::All,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert!(all_indices.len() >= 2);
 
         // 2. Filter by title "anthem"
-        let anthem_indices = filter_song_indices(&songs, "anthem", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let anthem_indices = filter_song_indices(
+            &songs,
+            "anthem",
+            SongCategory::All,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(anthem_indices.len(), 1);
         let match_song = &songs[anthem_indices[0]];
         assert_eq!(match_song.title, "First Anthem");
 
         // 3. Filter by artist "dj beat"
-        let artist_indices =
-            filter_song_indices(&songs, "dj beat", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let artist_indices = filter_song_indices(
+            &songs,
+            "dj beat",
+            SongCategory::All,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(artist_indices.len(), 1);
         assert_eq!(songs[artist_indices[0]].title, "Second Beat");
 
         // 4. Filter by genre "hardcore"
-        let genre_indices =
-            filter_song_indices(&songs, "hardcore", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let genre_indices = filter_song_indices(
+            &songs,
+            "hardcore",
+            SongCategory::All,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(genre_indices.len(), 1);
         assert_eq!(songs[genre_indices[0]].title, "Second Beat");
 
         // 5. Non-matching search query
-        let empty_indices =
-            filter_song_indices(&songs, "nonexistentxyz", SongCategory::All, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let empty_indices = filter_song_indices(
+            &songs,
+            "nonexistentxyz",
+            SongCategory::All,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(empty_indices.len(), 0);
 
         // 6. Strict play mode category filter tests
@@ -980,23 +1112,42 @@ mod tests {
             },
         ];
 
-        let keys9_indices = filter_song_indices(&test_songs, "", SongCategory::Keys9, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let keys9_indices = filter_song_indices(
+            &test_songs,
+            "",
+            SongCategory::Keys9,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(keys9_indices.len(), 1);
         assert_eq!(
             test_songs[keys9_indices[0]].play_mode,
             beetle_core::PlayMode::Keys9
         );
 
-        let keys10_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys10, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let keys10_indices = filter_song_indices(
+            &test_songs,
+            "",
+            SongCategory::Keys10,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(keys10_indices.len(), 1);
         assert_eq!(
             test_songs[keys10_indices[0]].play_mode,
             beetle_core::PlayMode::Keys10
         );
 
-        let keys14_indices =
-            filter_song_indices(&test_songs, "", SongCategory::Keys14, &score_store, &beetle_core::TableIndex::default(), beetle_core::LnOption::Cn);
+        let keys14_indices = filter_song_indices(
+            &test_songs,
+            "",
+            SongCategory::Keys14,
+            &score_store,
+            &beetle_core::TableIndex::default(),
+            beetle_core::LnOption::Cn,
+        );
         assert_eq!(keys14_indices.len(), 1);
         assert_eq!(
             test_songs[keys14_indices[0]].play_mode,
@@ -1020,6 +1171,9 @@ mod tests {
         // ...and the base BGA returns once the window expires.
         assert_eq!(resolve_bga_id(3.0, poor, base, all, 3.5), Some(BmpId(1)));
         // A POOR image that failed to load does not blank the BGA.
-        assert_eq!(resolve_bga_id(3.0, poor, base, |id| id == BmpId(1), 2.5), Some(BmpId(1)));
+        assert_eq!(
+            resolve_bga_id(3.0, poor, base, |id| id == BmpId(1), 2.5),
+            Some(BmpId(1))
+        );
     }
 }

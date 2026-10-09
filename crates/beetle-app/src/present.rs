@@ -19,7 +19,9 @@ use crate::state::{replay_path, AppState, LibraryJob};
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     let scale = state.view.viewport.scale;
-    state.d3d11.begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
+    state
+        .d3d11
+        .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
     state.gpu_ui.ui.lite = state.d3d11.is_warp();
     state.gpu_ui.ui.begin(size.width, size.height, scale);
 }
@@ -53,7 +55,12 @@ fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
     chips
 }
 
-pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, visual_levels: &[f32; 16]) {
+pub fn gameplay(
+    state: &mut AppState,
+    size: PhysicalSize<u32>,
+    audio_time: f64,
+    visual_levels: &[f32; 16],
+) {
     // BGA OFF: no texture lookups or uploads at all.
     let bga = state.bga_enabled.then(|| {
         gameplay_bga_texture(
@@ -70,9 +77,19 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
         )
     });
     let bga = bga.flatten();
-    let layer = state.current_layer_bmp.filter(|_| state.bga_enabled).and_then(|id| {
-        bga_texture(&mut state.gpu_ui, &mut state.d3d11, &state.bga_bank, &state.video_players, id, true)
-    });
+    let layer = state
+        .current_layer_bmp
+        .filter(|_| state.bga_enabled)
+        .and_then(|id| {
+            bga_texture(
+                &mut state.gpu_ui,
+                &mut state.d3d11,
+                &state.bga_bank,
+                &state.video_players,
+                id,
+                true,
+            )
+        });
     state.view.clean_expired_hit_bursts(audio_time);
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
@@ -81,7 +98,11 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
     );
 
     begin(state, size);
-    if let (Some(chart), Some(judge), Some(timing)) = (&state.active_chart, &state.active_judge, &state.active_timing) {
+    if let (Some(chart), Some(judge), Some(timing)) = (
+        &state.active_chart,
+        &state.active_judge,
+        &state.active_timing,
+    ) {
         beetle_render::draw_gameplay(
             &mut state.gpu_ui.ui,
             &beetle_render::PlayFrame {
@@ -96,13 +117,19 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
                 visual_levels,
                 bga,
                 layer,
-                track_bga_opacity: if state.bga_enabled { state.track_bga.opacity() } else { 0.0 },
+                track_bga_opacity: if state.bga_enabled {
+                    state.track_bga.opacity()
+                } else {
+                    0.0
+                },
                 key_pressed: state.view.key_pressed(),
                 hit_bursts: state.view.hit_bursts(),
                 last_judge: state.view.last_judge(),
                 hint,
                 badge,
-                pause: state.is_gameplay_paused.then_some(state.pause_selected_option),
+                pause: state
+                    .is_gameplay_paused
+                    .then_some(state.pause_selected_option),
             },
         );
     }
@@ -110,7 +137,11 @@ pub fn gameplay(state: &mut AppState, size: PhysicalSize<u32>, audio_time: f64, 
 }
 
 /// Mode badge and key-hint line for the gameplay HUD.
-fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) -> (Option<&'static str>, &'static str) {
+fn gameplay_badge_and_hint(
+    is_replay: bool,
+    is_auto: bool,
+    preset: KeyPreset,
+) -> (Option<&'static str>, &'static str) {
     if is_replay {
         return (Some("REPLAY"), "ESC  Return to song select");
     }
@@ -118,13 +149,21 @@ fn gameplay_badge_and_hint(is_replay: bool, is_auto: bool, preset: KeyPreset) ->
         return (Some("AUTO PLAY"), "ESC  Return to song select");
     }
     let hint = match preset {
-        KeyPreset::HomeRow => "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::ArcadeZx => "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Pms9K => "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::HomeRow => {
+            "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
+        }
+        KeyPreset::ArcadeZx => {
+            "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
+        }
+        KeyPreset::Pms9K => {
+            "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
+        }
         KeyPreset::Ue4K => "KEYS  S D L ;    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
         KeyPreset::Ue6K => "KEYS  A S D L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
         KeyPreset::Ue8K => "KEYS  A S D F K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Ue8KTriggers => "KEYS  LShift + S D F J K L + RShift    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Ue8KTriggers => {
+            "KEYS  LShift + S D F J K L + RShift    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
+        }
         KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
         KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
     };
@@ -148,7 +187,9 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         (Some(id), Some(img)) => {
             state.gpu_ui.trim_stage_textures(&mut state.d3d11, id);
             (
-                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(id), img),
+                state
+                    .gpu_ui
+                    .image(&mut state.d3d11, ImageKey::Stage(id), img),
                 Some(img.average_color_sampled(6)),
             )
         }
@@ -199,15 +240,29 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
         ("MODIFIER", o.lane_modifier.as_str().to_string()),
         ("GAUGE", o.gauge_type.as_str().to_string()),
-        ("LN MODE", match state.current_selected_song().filter(|s| s.ln_count > 0) {
-            // AUTO says what it comes to for the highlighted song.
-            Some(song) if o.ln == LnOption::Auto => format!("AUTO ({})", Ruleset::resolve(song.ln_mode, o.ln).label()),
-            _ => o.ln.as_str().to_string(),
-        }),
+        (
+            "LN MODE",
+            match state.current_selected_song().filter(|s| s.ln_count > 0) {
+                // AUTO says what it comes to for the highlighted song.
+                Some(song) if o.ln == LnOption::Auto => {
+                    format!("AUTO ({})", Ruleset::resolve(song.ln_mode, o.ln).label())
+                }
+                _ => o.ln.as_str().to_string(),
+            },
+        ),
         ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
-        ("MASTER VOLUME", format!("{:.0}%", state.master_volume * 100.0)),
-        ("PLAYFIELD", state.view.skin.field_position.as_str().to_string()),
-        ("BGA", if state.bga_enabled { "ON" } else { "OFF" }.to_string()),
+        (
+            "MASTER VOLUME",
+            format!("{:.0}%", state.master_volume * 100.0),
+        ),
+        (
+            "PLAYFIELD",
+            state.view.skin.field_position.as_str().to_string(),
+        ),
+        (
+            "BGA",
+            if state.bga_enabled { "ON" } else { "OFF" }.to_string(),
+        ),
         ("TRACK BGA", state.track_bga.as_str().to_string()),
         ("DISPLAY MODE", state.display_mode.as_str().to_string()),
         ("RESOLUTION", state.current_resolution_label().to_string()),
@@ -230,9 +285,16 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
         ("KEY LAYOUT", {
             // Layouts are per key mode; this row edits the selected song's.
             let mode = state.key_config_mode();
-            format!("{}  {}", beetle_render::theme::mode_label(mode), state.key_bindings.get(mode).preset.as_str())
+            format!(
+                "{}  {}",
+                beetle_render::theme::mode_label(mode),
+                state.key_bindings.get(mode).preset.as_str()
+            )
         }),
-        ("AUTO PLAY", if state.is_auto_play { "ON" } else { "OFF" }.to_string()),
+        (
+            "AUTO PLAY",
+            if state.is_auto_play { "ON" } else { "OFF" }.to_string(),
+        ),
         ("START MEASURE", format!("M.{}", state.start_measure)),
     ]
 }
@@ -266,9 +328,15 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     };
     let elapsed = state.loading_started_at.elapsed().as_secs_f64();
     let (jacket, ambient) = match state.loading_song.as_ref() {
-        Some(song) => match state.stage_image_cache.get(&song.id).and_then(|img| img.as_ref()) {
+        Some(song) => match state
+            .stage_image_cache
+            .get(&song.id)
+            .and_then(|img| img.as_ref())
+        {
             Some(img) => (
-                state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(song.id), img),
+                state
+                    .gpu_ui
+                    .image(&mut state.d3d11, ImageKey::Stage(song.id), img),
                 Some(img.average_color_sampled(6)),
             ),
             None => (None, None),
@@ -310,10 +378,13 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
         true => format!("{} (HCN)", rule.as_str()),
         false => rule.as_str().to_string(),
     });
-    let jacket = state
-        .active_bga_image
-        .as_ref()
-        .and_then(|img| state.gpu_ui.image(&mut state.d3d11, ImageKey::Stage(state.active_chart_id), img));
+    let jacket = state.active_bga_image.as_ref().and_then(|img| {
+        state.gpu_ui.image(
+            &mut state.d3d11,
+            ImageKey::Stage(state.active_chart_id),
+            img,
+        )
+    });
 
     begin(state, size);
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
@@ -338,14 +409,22 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
 pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
     let mode = state.key_config_edit_mode;
     let layout = state.key_bindings.get(mode);
-    let (scratch, form) = (state.view.skin.scratch_side_of(mode), state.view.skin.eight_k_form);
-    let keys: Vec<(beetle_core::Lane, Vec<&'static str>)> = screen_lanes_for(&state.view.skin, mode)
-        .into_iter()
-        .map(|lane| (lane, layout.key_names_for_lane(lane)))
-        .collect();
+    let (scratch, form) = (
+        state.view.skin.scratch_side_of(mode),
+        state.view.skin.eight_k_form,
+    );
+    let keys: Vec<(beetle_core::Lane, Vec<&'static str>)> =
+        screen_lanes_for(&state.view.skin, mode)
+            .into_iter()
+            .map(|lane| (lane, layout.key_names_for_lane(lane)))
+            .collect();
     let lanes: Vec<beetle_render::KeyBinding> = keys
         .iter()
-        .map(|(lane, keys)| beetle_render::KeyBinding { lane: *lane, label: lane_label(*lane), keys })
+        .map(|(lane, keys)| beetle_render::KeyBinding {
+            lane: *lane,
+            label: lane_label(*lane),
+            keys,
+        })
         .collect();
     let preset = layout.preset.as_str();
 

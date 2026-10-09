@@ -174,7 +174,9 @@ impl RemotePackageInstaller {
             .unwrap_or_default()
             .as_millis();
         let safe_id = bga.id.replace(['/', '\\', ':', '.'], "_");
-        let temp_path = self.downloads_dir.join(format!("{safe_id}-bga-{timestamp}.tmp"));
+        let temp_path = self
+            .downloads_dir
+            .join(format!("{safe_id}-bga-{timestamp}.tmp"));
         let guard = DownloadTempFile::new(temp_path);
 
         let safety_cap = ((bga.size_bytes as f64 * 1.05) as u64)

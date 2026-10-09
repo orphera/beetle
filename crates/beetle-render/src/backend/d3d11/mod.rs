@@ -799,12 +799,8 @@ impl GpuBackend for D3d11Backend {
         unsafe {
             let sc_vtbl = *(self.swap_chain as *mut *mut IDXGISwapChainVtbl);
             let mut backbuffer: *mut c_void = ptr::null_mut();
-            let hr = ((*sc_vtbl).GetBuffer)(
-                self.swap_chain,
-                0,
-                &IID_ID3D11TEXTURE2D,
-                &mut backbuffer,
-            );
+            let hr =
+                ((*sc_vtbl).GetBuffer)(self.swap_chain, 0, &IID_ID3D11TEXTURE2D, &mut backbuffer);
             if hr < 0 || backbuffer.is_null() {
                 return None;
             }

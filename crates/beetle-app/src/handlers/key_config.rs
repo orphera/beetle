@@ -1,5 +1,5 @@
-use beetle_render::{scratch_side_applies, Rebind, KEY_MODES};
 use beetle_core::{Lane, PlayMode};
+use beetle_render::{scratch_side_applies, Rebind, KEY_MODES};
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
@@ -56,12 +56,17 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
             state.selected_key_idx = state.selected_key_idx.saturating_sub(1);
         }
         KeyCode::ArrowRight | KeyCode::KeyL => {
-            state.selected_key_idx = (state.selected_key_idx + 1).min(lanes.len().saturating_sub(1));
+            state.selected_key_idx =
+                (state.selected_key_idx + 1).min(lanes.len().saturating_sub(1));
         }
         KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::KeyK | KeyCode::KeyJ => {
             let i = KEY_MODES.iter().position(|&m| m == mode).unwrap_or(0);
             let n = KEY_MODES.len();
-            let next = if matches!(code, KeyCode::ArrowUp | KeyCode::KeyK) { (i + n - 1) % n } else { (i + 1) % n };
+            let next = if matches!(code, KeyCode::ArrowUp | KeyCode::KeyK) {
+                (i + n - 1) % n
+            } else {
+                (i + 1) % n
+            };
             state.key_config_edit_mode = KEY_MODES[next];
             let count = lanes_for(KEY_MODES[next]).len();
             state.selected_key_idx = state.selected_key_idx.min(count.saturating_sub(1));
@@ -95,7 +100,10 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
             state.save_config();
         }
         KeyCode::Delete => {
-            state.key_bindings.get_mut(mode).reset_to_preset(KeyPreset::default_for(mode));
+            state
+                .key_bindings
+                .get_mut(mode)
+                .reset_to_preset(KeyPreset::default_for(mode));
             state.save_config();
         }
         _ => (),
@@ -105,7 +113,10 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
 /// After the lanes were rearranged, keeps the selection on the same lane.
 fn follow_lane(state: &mut AppState, mode: PlayMode, lane: Option<Lane>) {
     let Some(lane) = lane else { return };
-    if let Some(i) = screen_lanes_for(&state.view.skin, mode).iter().position(|&l| l == lane) {
+    if let Some(i) = screen_lanes_for(&state.view.skin, mode)
+        .iter()
+        .position(|&l| l == lane)
+    {
         state.selected_key_idx = i;
     }
 }

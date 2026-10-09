@@ -5,7 +5,14 @@ use beetle_render::ImageBuffer;
 use tiny_skia::Pixmap;
 
 /// Blits and scales the image into a target area on the tiny-skia Pixmap.
-pub fn draw_scaled(img: &ImageBuffer, pixmap: &mut Pixmap, dst_x: i32, dst_y: i32, dst_w: u32, dst_h: u32) {
+pub fn draw_scaled(
+    img: &ImageBuffer,
+    pixmap: &mut Pixmap,
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: u32,
+    dst_h: u32,
+) {
     if dst_w == 0 || dst_h == 0 || img.width == 0 || img.height == 0 {
         return;
     }

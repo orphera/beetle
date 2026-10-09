@@ -76,7 +76,9 @@ pub fn handle_gameplay_input(
     // Handle lane key presses and releases
     // The layout of the chart's key mode (set when the song starts).
     let mode = state.view.skin.play_mode;
-    let PhysicalKey::Code(code) = physical_key else { return };
+    let PhysicalKey::Code(code) = physical_key else {
+        return;
+    };
     if let Some(lane) = state.key_bindings.get(mode).map_key(physical_key) {
         let pressed = key_state == ElementState::Pressed;
         if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
@@ -135,7 +137,8 @@ pub fn handle_gameplay_input(
                             if let Some(j) = &state.active_judge {
                                 for pn in j.notes() {
                                     if pn.is_judged
-                                        || pn.note_event.note_type == beetle_core::NoteType::Landmine
+                                        || pn.note_event.note_type
+                                            == beetle_core::NoteType::Landmine
                                     {
                                         continue;
                                     }

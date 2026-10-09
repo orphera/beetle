@@ -195,9 +195,7 @@ fn is_digit(c: char) -> bool {
 /// A leading run of digits, or of non-digits, and the rest.
 fn next_token(s: &str) -> (&str, &str) {
     let digits = s.starts_with(is_digit);
-    let end = s
-        .find(|c: char| is_digit(c) != digits)
-        .unwrap_or(s.len());
+    let end = s.find(|c: char| is_digit(c) != digits).unwrap_or(s.len());
     s.split_at(end)
 }
 
@@ -230,7 +228,11 @@ impl TableIndex {
     /// Tables in the order they should be shown and prioritized.
     pub fn new(tables: Vec<DifficultyTable>) -> Self {
         let owned = vec![0; tables.len()];
-        Self { tables, matches: HashMap::new(), owned }
+        Self {
+            tables,
+            matches: HashMap::new(),
+            owned,
+        }
     }
 
     pub fn tables(&self) -> &[DifficultyTable] {
@@ -270,10 +272,10 @@ impl TableIndex {
                 self.owned[table_index] += 1;
                 for id in found {
                     if labeled.insert(id) {
-                        self.matches
-                            .entry(id)
-                            .or_default()
-                            .push(TableMatch { table: table_index, entry: entry_index });
+                        self.matches.entry(id).or_default().push(TableMatch {
+                            table: table_index,
+                            entry: entry_index,
+                        });
                     }
                 }
             }
@@ -356,8 +358,16 @@ mod tests {
                     url: "https://example.invalid/a?x=1&y=2".into(),
                     url_diff: "https://example.invalid/d".into(),
                 },
-                TableEntry { level: "2".into(), md5: Some(md5), ..TableEntry::default() },
-                TableEntry { level: "2".into(), sha256: Some(id), ..TableEntry::default() },
+                TableEntry {
+                    level: "2".into(),
+                    md5: Some(md5),
+                    ..TableEntry::default()
+                },
+                TableEntry {
+                    level: "2".into(),
+                    sha256: Some(id),
+                    ..TableEntry::default()
+                },
             ],
             ..table("", "", vec![])
         };
@@ -375,7 +385,11 @@ mod tests {
     fn parse_rejects_other_files_and_skips_entries_nothing_could_match() {
         assert_eq!(DifficultyTable::parse(""), None);
         assert_eq!(DifficultyTable::parse("#BEETLE_SONGS_V2\nname=x\n"), None);
-        assert_eq!(DifficultyTable::parse("#BEETLE_TABLE_V1\nsymbol=t\n#ENTRIES\n"), None, "no name");
+        assert_eq!(
+            DifficultyTable::parse("#BEETLE_TABLE_V1\nsymbol=t\n#ENTRIES\n"),
+            None,
+            "no name"
+        );
 
         let (id, _) = chart(3);
         let text = format!(
@@ -383,7 +397,11 @@ mod tests {
             id.to_hex()
         );
         let t = DifficultyTable::parse(&text).unwrap();
-        assert_eq!(t.entries.len(), 1, "only the entry with a usable hash survives");
+        assert_eq!(
+            t.entries.len(),
+            1,
+            "only the entry with a usable hash survives"
+        );
         assert_eq!(t.entries[0].title, "kept");
         assert_eq!(t.entries[0].md5, None, "a malformed md5 is just missing");
     }
@@ -402,14 +420,21 @@ mod tests {
 
         // Numbers too long for any integer type still compare.
         assert_eq!(
-            natural_cmp("100000000000000000000000000000", "99999999999999999999999999999"),
+            natural_cmp(
+                "100000000000000000000000000000",
+                "99999999999999999999999999999"
+            ),
             Ordering::Greater
         );
     }
 
     #[test]
     fn a_tables_own_level_order_wins_over_natural_order() {
-        let mut t = table("T", "t", vec![entry("1", 1), entry("?", 2), entry("10", 3), entry("2", 4)]);
+        let mut t = table(
+            "T",
+            "t",
+            vec![entry("1", 1), entry("?", 2), entry("10", 3), entry("2", 4)],
+        );
         assert_eq!(t.levels(), ["1", "2", "10", "?"]);
 
         t.level_order = vec!["?".into(), "10".into(), "1".into()];
@@ -419,7 +444,8 @@ mod tests {
 
     #[test]
     fn songs_match_by_sha256() {
-        let mut index = TableIndex::new(vec![table("Sat", "sl", vec![entry("3", 1), entry("4", 2)])]);
+        let mut index =
+            TableIndex::new(vec![table("Sat", "sl", vec![entry("3", 1), entry("4", 2)])]);
         index.match_songs([chart(1), chart(99)]);
 
         let (owned, _) = chart(1);
@@ -433,7 +459,11 @@ mod tests {
     #[test]
     fn md5_is_only_the_fallback_for_entries_without_a_sha256() {
         let (id, md5) = chart(5);
-        let md5_only = TableEntry { level: "7".into(), md5: Some(md5), ..TableEntry::default() };
+        let md5_only = TableEntry {
+            level: "7".into(),
+            md5: Some(md5),
+            ..TableEntry::default()
+        };
         // Same md5 but a sha256 that is some other chart: the sha256 decides.
         let sha_disagrees = TableEntry {
             level: "8".into(),
@@ -448,8 +478,15 @@ mod tests {
         ]);
         index.match_songs([(id, md5)]);
 
-        assert_eq!(index.chip(id), Some("a7".into()), "matched by md5 in A only");
-        assert!(index.entry_for(1, id).is_none(), "B's sha256 names another chart");
+        assert_eq!(
+            index.chip(id),
+            Some("a7".into()),
+            "matched by md5 in A only"
+        );
+        assert!(
+            index.entry_for(1, id).is_none(),
+            "B's sha256 names another chart"
+        );
         assert_eq!((index.owned_count(0), index.owned_count(1)), (1, 0));
     }
 
@@ -462,15 +499,27 @@ mod tests {
         index.match_songs([chart(7)]);
         let id = chart(7).0;
 
-        let found: Vec<(usize, usize)> = index.matches_for(id).iter().map(|m| (m.table, m.entry)).collect();
+        let found: Vec<(usize, usize)> = index
+            .matches_for(id)
+            .iter()
+            .map(|m| (m.table, m.entry))
+            .collect();
         assert_eq!(found, [(0, 0), (1, 0)]);
-        assert_eq!(index.chip(id), Some("f1".into()), "the chip comes from the first table");
+        assert_eq!(
+            index.chip(id),
+            Some("f1".into()),
+            "the chip comes from the first table"
+        );
         assert_eq!(index.entry_for(1, id).unwrap().level, "9");
     }
 
     #[test]
     fn a_chart_twice_in_one_table_takes_its_label_from_the_first_entry() {
-        let mut index = TableIndex::new(vec![table("T", "t", vec![entry("2", 8), entry("5", 8), entry("3", 9)])]);
+        let mut index = TableIndex::new(vec![table(
+            "T",
+            "t",
+            vec![entry("2", 8), entry("5", 8), entry("3", 9)],
+        )]);
         index.match_songs([chart(8)]);
         assert_eq!(index.chip(chart(8).0), Some("t2".into()));
         assert_eq!(index.matches_for(chart(8).0).len(), 1);

@@ -254,361 +254,361 @@ impl GuiRenderer {
             // 3. Left Panel: Package List View
             let list_w = 420.0;
 
-        self.draw_rect(
-            16.0,
-            content_y,
-            list_w,
-            content_h,
-            ColorRgba::new(18, 18, 26, 255),
-        );
-        self.draw_rect(
-            16.0,
-            content_y,
-            list_w,
-            28.0,
-            ColorRgba::new(26, 26, 38, 255),
-        );
+            self.draw_rect(
+                16.0,
+                content_y,
+                list_w,
+                content_h,
+                ColorRgba::new(18, 18, 26, 255),
+            );
+            self.draw_rect(
+                16.0,
+                content_y,
+                list_w,
+                28.0,
+                ColorRgba::new(26, 26, 38, 255),
+            );
 
-        let list_title = format!("INSTALLED PACKAGES ({})", packages.len());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &list_title,
-            26,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(170, 170, 190, 255),
-        );
+            let list_title = format!("INSTALLED PACKAGES ({})", packages.len());
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                &list_title,
+                26,
+                (content_y + 8.0) as i32,
+                1,
+                ColorRgba::new(170, 170, 190, 255),
+            );
 
-        let row_h = 44.0;
-        let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
-        let scroll_offset = if selected_idx >= max_visible_rows {
-            selected_idx - max_visible_rows + 1
-        } else {
-            0
-        };
-
-        let mut row_y = content_y + 32.0;
-        for (i, &pkg) in packages
-            .iter()
-            .skip(scroll_offset)
-            .take(max_visible_rows)
-            .enumerate()
-        {
-            let actual_idx = scroll_offset + i;
-            let is_selected = actual_idx == selected_idx;
-
-            if is_selected {
-                self.draw_rect(
-                    18.0,
-                    row_y,
-                    list_w - 4.0,
-                    row_h - 2.0,
-                    ColorRgba::new(35, 45, 70, 255),
-                );
-                self.draw_rect(
-                    18.0,
-                    row_y,
-                    4.0,
-                    row_h - 2.0,
-                    ColorRgba::new(255, 210, 80, 255),
-                );
-            } else if actual_idx % 2 == 1 {
-                self.draw_rect(
-                    18.0,
-                    row_y,
-                    list_w - 4.0,
-                    row_h - 2.0,
-                    ColorRgba::new(22, 22, 30, 255),
-                );
-            }
-
-            // Name
-            // Name
-            let name_col = if is_selected {
-                ColorRgba::new(255, 255, 255, 255)
+            let row_h = 44.0;
+            let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
+            let scroll_offset = if selected_idx >= max_visible_rows {
+                selected_idx - max_visible_rows + 1
             } else {
-                ColorRgba::new(210, 210, 225, 255)
+                0
             };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &pkg.name,
-                30,
-                (row_y + 6.0) as i32,
-                1,
-                name_col,
-            );
 
-            // BGA Status Badge
-            let (bga_tag, bga_bg, bga_fg) = match pkg.bga_status {
-                bms_package_manager::BgaStatus::Embedded => (
-                    "EMBED",
-                    ColorRgba::new(20, 50, 40, 255),
-                    ColorRgba::new(80, 220, 140, 255),
-                ),
-                bms_package_manager::BgaStatus::Companion => (
-                    "COMPANION",
-                    ColorRgba::new(20, 45, 75, 255),
-                    ColorRgba::new(90, 190, 255, 255),
-                ),
-                bms_package_manager::BgaStatus::None => (
-                    "NO-BGA",
-                    ColorRgba::new(32, 32, 42, 255),
-                    ColorRgba::new(130, 130, 150, 255),
-                ),
-            };
-            let badge_w = 72.0;
-            let badge_x = 18.0 + list_w - badge_w - 8.0;
-            self.draw_rect(badge_x, row_y + 5.0, badge_w, 14.0, bga_bg);
-            self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, bga_fg);
-            BitmapFont::draw_text_centered(
-                &mut self.pixmap.as_mut(),
-                bga_tag,
-                (badge_x + badge_w / 2.0) as i32,
-                (row_y + 8.0) as i32,
-                1,
-                bga_fg,
-            );
+            let mut row_y = content_y + 32.0;
+            for (i, &pkg) in packages
+                .iter()
+                .skip(scroll_offset)
+                .take(max_visible_rows)
+                .enumerate()
+            {
+                let actual_idx = scroll_offset + i;
+                let is_selected = actual_idx == selected_idx;
 
-            // ID & Author & State
-            let author = pkg.author.as_deref().unwrap_or("Unknown");
-            let short_active = if pkg.active_state.len() > 10 {
-                &pkg.active_state[..10]
-            } else {
-                &pkg.active_state
-            };
-            let sub_info = format!(
-                "{} | by {} | #{} ({} states)",
-                pkg.id,
-                author,
-                short_active,
-                pkg.state_hashes.len()
-            );
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &sub_info,
-                30,
-                (row_y + 24.0) as i32,
-                1,
-                ColorRgba::new(120, 130, 150, 255),
-            );
+                if is_selected {
+                    self.draw_rect(
+                        18.0,
+                        row_y,
+                        list_w - 4.0,
+                        row_h - 2.0,
+                        ColorRgba::new(35, 45, 70, 255),
+                    );
+                    self.draw_rect(
+                        18.0,
+                        row_y,
+                        4.0,
+                        row_h - 2.0,
+                        ColorRgba::new(255, 210, 80, 255),
+                    );
+                } else if actual_idx % 2 == 1 {
+                    self.draw_rect(
+                        18.0,
+                        row_y,
+                        list_w - 4.0,
+                        row_h - 2.0,
+                        ColorRgba::new(22, 22, 30, 255),
+                    );
+                }
 
-            row_y += row_h;
-        }
-
-        // 4. Right Panel: Package Detail View
-        let detail_x = 16.0 + list_w + 16.0;
-        let detail_w = w - detail_x - 16.0;
-
-        self.draw_rect(
-            detail_x,
-            content_y,
-            detail_w,
-            content_h,
-            ColorRgba::new(18, 18, 26, 255),
-        );
-        self.draw_rect(
-            detail_x,
-            content_y,
-            detail_w,
-            28.0,
-            ColorRgba::new(26, 26, 38, 255),
-        );
-
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            "PACKAGE DETAILS",
-            detail_x as i32 + 12,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(170, 170, 190, 255),
-        );
-
-        if let Some(&selected_pkg) = packages.get(selected_idx) {
-            let mut dy = content_y + 38.0;
-
-            // Artwork Frame (if preview image exists)
-            let art_w = (detail_w - 24.0).min(320.0);
-            let art_h = art_w * (9.0 / 16.0);
-            let art_x = detail_x + (detail_w - art_w) / 2.0;
-
-            self.draw_rect(art_x, dy, art_w, art_h, ColorRgba::new(10, 10, 16, 255));
-            if let Some(img) = preview_img {
-                crate::image_draw::draw_scaled(
-                    img,
-                    &mut self.pixmap,
-                    art_x as i32,
-                    dy as i32,
-                    art_w as u32,
-                    art_h as u32,
-                );
-            } else {
-                BitmapFont::draw_text_centered(
-                    &mut self.pixmap.as_mut(),
-                    "[NO ARTWORK PREVIEW]",
-                    (art_x + art_w / 2.0) as i32,
-                    (dy + art_h / 2.0 - 4.0) as i32,
-                    1,
-                    ColorRgba::new(80, 80, 100, 255),
-                );
-            }
-            dy += art_h + 16.0;
-
-            // Metadata Lines
-            let title_line = format!("Title: {}", selected_pkg.name);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &title_line,
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                ColorRgba::new(240, 240, 250, 255),
-            );
-            dy += 20.0;
-
-            let id_line = format!("ID:    {}", selected_pkg.id);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &id_line,
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                ColorRgba::new(180, 180, 200, 255),
-            );
-            dy += 20.0;
-
-            let author_line = format!(
-                "Author: {}",
-                selected_pkg.author.as_deref().unwrap_or("Unknown")
-            );
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &author_line,
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                ColorRgba::new(180, 180, 200, 255),
-            );
-            dy += 20.0;
-
-            let (bga_label, bga_col) = match selected_pkg.bga_status {
-                bms_package_manager::BgaStatus::Embedded => (
-                    "Embedded in package.bmsp (All-in-one)",
-                    ColorRgba::new(80, 220, 140, 255),
-                ),
-                bms_package_manager::BgaStatus::Companion => (
-                    "Decoupled Companion (.bga.bmsp installed)",
-                    ColorRgba::new(90, 190, 255, 255),
-                ),
-                bms_package_manager::BgaStatus::None => (
-                    "None (Audio & charts only)",
-                    ColorRgba::new(150, 150, 170, 255),
-                ),
-            };
-            let bga_line = format!("BGA:    {}", bga_label);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &bga_line,
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                bga_col,
-            );
-            dy += 20.0;
-
-            if let Some(ref comp_path) = selected_pkg.bga_companion_path {
-                let comp_line = format!("Path:   {}", comp_path);
+                // Name
+                // Name
+                let name_col = if is_selected {
+                    ColorRgba::new(255, 255, 255, 255)
+                } else {
+                    ColorRgba::new(210, 210, 225, 255)
+                };
                 BitmapFont::draw_text(
                     &mut self.pixmap.as_mut(),
-                    &comp_line,
+                    &pkg.name,
+                    30,
+                    (row_y + 6.0) as i32,
+                    1,
+                    name_col,
+                );
+
+                // BGA Status Badge
+                let (bga_tag, bga_bg, bga_fg) = match pkg.bga_status {
+                    bms_package_manager::BgaStatus::Embedded => (
+                        "EMBED",
+                        ColorRgba::new(20, 50, 40, 255),
+                        ColorRgba::new(80, 220, 140, 255),
+                    ),
+                    bms_package_manager::BgaStatus::Companion => (
+                        "COMPANION",
+                        ColorRgba::new(20, 45, 75, 255),
+                        ColorRgba::new(90, 190, 255, 255),
+                    ),
+                    bms_package_manager::BgaStatus::None => (
+                        "NO-BGA",
+                        ColorRgba::new(32, 32, 42, 255),
+                        ColorRgba::new(130, 130, 150, 255),
+                    ),
+                };
+                let badge_w = 72.0;
+                let badge_x = 18.0 + list_w - badge_w - 8.0;
+                self.draw_rect(badge_x, row_y + 5.0, badge_w, 14.0, bga_bg);
+                self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, bga_fg);
+                BitmapFont::draw_text_centered(
+                    &mut self.pixmap.as_mut(),
+                    bga_tag,
+                    (badge_x + badge_w / 2.0) as i32,
+                    (row_y + 8.0) as i32,
+                    1,
+                    bga_fg,
+                );
+
+                // ID & Author & State
+                let author = pkg.author.as_deref().unwrap_or("Unknown");
+                let short_active = if pkg.active_state.len() > 10 {
+                    &pkg.active_state[..10]
+                } else {
+                    &pkg.active_state
+                };
+                let sub_info = format!(
+                    "{} | by {} | #{} ({} states)",
+                    pkg.id,
+                    author,
+                    short_active,
+                    pkg.state_hashes.len()
+                );
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &sub_info,
+                    30,
+                    (row_y + 24.0) as i32,
+                    1,
+                    ColorRgba::new(120, 130, 150, 255),
+                );
+
+                row_y += row_h;
+            }
+
+            // 4. Right Panel: Package Detail View
+            let detail_x = 16.0 + list_w + 16.0;
+            let detail_w = w - detail_x - 16.0;
+
+            self.draw_rect(
+                detail_x,
+                content_y,
+                detail_w,
+                content_h,
+                ColorRgba::new(18, 18, 26, 255),
+            );
+            self.draw_rect(
+                detail_x,
+                content_y,
+                detail_w,
+                28.0,
+                ColorRgba::new(26, 26, 38, 255),
+            );
+
+            BitmapFont::draw_text(
+                &mut self.pixmap.as_mut(),
+                "PACKAGE DETAILS",
+                detail_x as i32 + 12,
+                (content_y + 8.0) as i32,
+                1,
+                ColorRgba::new(170, 170, 190, 255),
+            );
+
+            if let Some(&selected_pkg) = packages.get(selected_idx) {
+                let mut dy = content_y + 38.0;
+
+                // Artwork Frame (if preview image exists)
+                let art_w = (detail_w - 24.0).min(320.0);
+                let art_h = art_w * (9.0 / 16.0);
+                let art_x = detail_x + (detail_w - art_w) / 2.0;
+
+                self.draw_rect(art_x, dy, art_w, art_h, ColorRgba::new(10, 10, 16, 255));
+                if let Some(img) = preview_img {
+                    crate::image_draw::draw_scaled(
+                        img,
+                        &mut self.pixmap,
+                        art_x as i32,
+                        dy as i32,
+                        art_w as u32,
+                        art_h as u32,
+                    );
+                } else {
+                    BitmapFont::draw_text_centered(
+                        &mut self.pixmap.as_mut(),
+                        "[NO ARTWORK PREVIEW]",
+                        (art_x + art_w / 2.0) as i32,
+                        (dy + art_h / 2.0 - 4.0) as i32,
+                        1,
+                        ColorRgba::new(80, 80, 100, 255),
+                    );
+                }
+                dy += art_h + 16.0;
+
+                // Metadata Lines
+                let title_line = format!("Title: {}", selected_pkg.name);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &title_line,
                     detail_x as i32 + 14,
                     dy as i32,
                     1,
-                    ColorRgba::new(130, 150, 180, 255),
+                    ColorRgba::new(240, 240, 250, 255),
                 );
                 dy += 20.0;
-            }
-            dy += 6.0;
 
-            // Installed States Management Box
-            self.draw_rect(
-                detail_x + 10.0,
-                dy,
-                detail_w - 20.0,
-                1.0,
-                ColorRgba::new(45, 45, 60, 255),
-            );
-            dy += 8.0;
-
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                "Installed States (Use [<-/->] to select):",
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                ColorRgba::new(255, 210, 80, 255),
-            );
-            dy += 20.0;
-
-            let state_keys: Vec<&String> = selected_pkg.state_hashes.keys().collect();
-            for (v_idx, &st) in state_keys.iter().enumerate() {
-                let is_state_selected = v_idx == selected_ver_idx;
-                let is_active = st == &selected_pkg.active_state;
-                let short_st = if st.len() > 12 { &st[..12] } else { st };
-
-                let ver_tag = format!(
-                    "{} {} {}{}",
-                    if is_state_selected { ">" } else { " " },
-                    short_st,
-                    if is_active { "[ACTIVE]" } else { "" },
-                    if is_state_selected { " (Selected)" } else { "" }
+                let id_line = format!("ID:    {}", selected_pkg.id);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &id_line,
+                    detail_x as i32 + 14,
+                    dy as i32,
+                    1,
+                    ColorRgba::new(180, 180, 200, 255),
                 );
+                dy += 20.0;
 
-                let ver_col = if is_active {
-                    ColorRgba::new(80, 220, 130, 255)
-                } else if is_state_selected {
-                    ColorRgba::new(255, 230, 120, 255)
-                } else {
-                    ColorRgba::new(150, 150, 170, 255)
+                let author_line = format!(
+                    "Author: {}",
+                    selected_pkg.author.as_deref().unwrap_or("Unknown")
+                );
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &author_line,
+                    detail_x as i32 + 14,
+                    dy as i32,
+                    1,
+                    ColorRgba::new(180, 180, 200, 255),
+                );
+                dy += 20.0;
+
+                let (bga_label, bga_col) = match selected_pkg.bga_status {
+                    bms_package_manager::BgaStatus::Embedded => (
+                        "Embedded in package.bmsp (All-in-one)",
+                        ColorRgba::new(80, 220, 140, 255),
+                    ),
+                    bms_package_manager::BgaStatus::Companion => (
+                        "Decoupled Companion (.bga.bmsp installed)",
+                        ColorRgba::new(90, 190, 255, 255),
+                    ),
+                    bms_package_manager::BgaStatus::None => (
+                        "None (Audio & charts only)",
+                        ColorRgba::new(150, 150, 170, 255),
+                    ),
                 };
+                let bga_line = format!("BGA:    {}", bga_label);
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    &bga_line,
+                    detail_x as i32 + 14,
+                    dy as i32,
+                    1,
+                    bga_col,
+                );
+                dy += 20.0;
+
+                if let Some(ref comp_path) = selected_pkg.bga_companion_path {
+                    let comp_line = format!("Path:   {}", comp_path);
+                    BitmapFont::draw_text(
+                        &mut self.pixmap.as_mut(),
+                        &comp_line,
+                        detail_x as i32 + 14,
+                        dy as i32,
+                        1,
+                        ColorRgba::new(130, 150, 180, 255),
+                    );
+                    dy += 20.0;
+                }
+                dy += 6.0;
+
+                // Installed States Management Box
+                self.draw_rect(
+                    detail_x + 10.0,
+                    dy,
+                    detail_w - 20.0,
+                    1.0,
+                    ColorRgba::new(45, 45, 60, 255),
+                );
+                dy += 8.0;
 
                 BitmapFont::draw_text(
                     &mut self.pixmap.as_mut(),
-                    &ver_tag,
-                    detail_x as i32 + 20,
+                    "Installed States (Use [<-/->] to select):",
+                    detail_x as i32 + 14,
                     dy as i32,
                     1,
-                    ver_col,
+                    ColorRgba::new(255, 210, 80, 255),
                 );
-                dy += 18.0;
-            }
+                dy += 20.0;
 
-            dy += 12.0;
+                let state_keys: Vec<&String> = selected_pkg.state_hashes.keys().collect();
+                for (v_idx, &st) in state_keys.iter().enumerate() {
+                    let is_state_selected = v_idx == selected_ver_idx;
+                    let is_active = st == &selected_pkg.active_state;
+                    let short_st = if st.len() > 12 { &st[..12] } else { st };
 
-            // Actions box
-            self.draw_rect(
-                detail_x + 10.0,
-                dy,
-                detail_w - 20.0,
-                1.0,
-                ColorRgba::new(45, 45, 60, 255),
-            );
-            dy += 8.0;
+                    let ver_tag = format!(
+                        "{} {} {}{}",
+                        if is_state_selected { ">" } else { " " },
+                        short_st,
+                        if is_active { "[ACTIVE]" } else { "" },
+                        if is_state_selected { " (Selected)" } else { "" }
+                    );
 
-            let action_text =
-                if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
-                    "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
-                } else {
-                    "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
-                };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                action_text,
-                detail_x as i32 + 14,
-                dy as i32,
-                1,
-                ColorRgba::new(130, 170, 220, 255),
-            );
-        } // ends if let Some(&selected_pkg)
+                    let ver_col = if is_active {
+                        ColorRgba::new(80, 220, 130, 255)
+                    } else if is_state_selected {
+                        ColorRgba::new(255, 230, 120, 255)
+                    } else {
+                        ColorRgba::new(150, 150, 170, 255)
+                    };
+
+                    BitmapFont::draw_text(
+                        &mut self.pixmap.as_mut(),
+                        &ver_tag,
+                        detail_x as i32 + 20,
+                        dy as i32,
+                        1,
+                        ver_col,
+                    );
+                    dy += 18.0;
+                }
+
+                dy += 12.0;
+
+                // Actions box
+                self.draw_rect(
+                    detail_x + 10.0,
+                    dy,
+                    detail_w - 20.0,
+                    1.0,
+                    ColorRgba::new(45, 45, 60, 255),
+                );
+                dy += 8.0;
+
+                let action_text =
+                    if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
+                        "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
+                    } else {
+                        "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
+                    };
+                BitmapFont::draw_text(
+                    &mut self.pixmap.as_mut(),
+                    action_text,
+                    detail_x as i32 + 14,
+                    dy as i32,
+                    1,
+                    ColorRgba::new(130, 170, 220, 255),
+                );
+            } // ends if let Some(&selected_pkg)
         } else {
             self.render_online_hub(
                 w,
@@ -1142,7 +1142,13 @@ impl GuiRenderer {
                 self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, status_border);
                 self.draw_rect(badge_x, row_y + 19.0, badge_w, 1.0, status_border);
                 self.draw_rect(badge_x, row_y + 5.0, 1.0, 15.0, status_border);
-                self.draw_rect(badge_x + badge_w - 1.0, row_y + 5.0, 1.0, 15.0, status_border);
+                self.draw_rect(
+                    badge_x + badge_w - 1.0,
+                    row_y + 5.0,
+                    1.0,
+                    15.0,
+                    status_border,
+                );
                 BitmapFont::draw_text_centered(
                     &mut self.pixmap.as_mut(),
                     status_text,
@@ -1290,7 +1296,13 @@ impl GuiRenderer {
             };
             self.draw_rect(detail_x + 14.0, dy, detail_w - 28.0, 26.0, banner_bg);
             self.draw_rect(detail_x + 14.0, dy, detail_w - 28.0, 1.0, banner_border);
-            self.draw_rect(detail_x + 14.0, dy + 25.0, detail_w - 28.0, 1.0, banner_border);
+            self.draw_rect(
+                detail_x + 14.0,
+                dy + 25.0,
+                detail_w - 28.0,
+                1.0,
+                banner_border,
+            );
             self.draw_rect(detail_x + 14.0, dy, 1.0, 26.0, banner_border);
             self.draw_rect(detail_x + detail_w - 15.0, dy, 1.0, 26.0, banner_border);
             BitmapFont::draw_text(
@@ -1415,9 +1427,7 @@ impl GuiRenderer {
             );
 
             let action_main = match selected_pkg.status {
-                RemotePackageStatus::UpdateAvailable => {
-                    "[U] / [Enter]: Upgrade to Latest Version"
-                }
+                RemotePackageStatus::UpdateAvailable => "[U] / [Enter]: Upgrade to Latest Version",
                 RemotePackageStatus::Available => "[I] / [Enter]: 1-Click Download & Install",
                 RemotePackageStatus::Installed => "[Enter]: Re-download / Reinstall Package",
             };

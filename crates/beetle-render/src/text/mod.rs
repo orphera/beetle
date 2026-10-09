@@ -192,9 +192,9 @@ impl TextEngine {
         }
         let pxf = px as f32;
         let lm = self.kr.horizontal_line_metrics(pxf);
-        let (ascent, descent, gap) = lm
-            .map(|l| (l.ascent, -l.descent, l.line_gap))
-            .unwrap_or((pxf * 0.88, pxf * 0.24, 0.0));
+        let (ascent, descent, gap) =
+            lm.map(|l| (l.ascent, -l.descent, l.line_gap))
+                .unwrap_or((pxf * 0.88, pxf * 0.24, 0.0));
         let cap = self.kr.metrics('H', pxf);
         let m = FontMetrics {
             ascent,
@@ -291,7 +291,9 @@ impl TextEngine {
 
     fn kern(&self, prev: Option<(char, Source)>, c: char, source: Source, px: f32) -> f32 {
         match (prev, self.font(source)) {
-            (Some((p, ps)), Some(font)) if ps == source => font.horizontal_kern(p, c, px).unwrap_or(0.0),
+            (Some((p, ps)), Some(font)) if ps == source => {
+                font.horizontal_kern(p, c, px).unwrap_or(0.0)
+            }
             _ => 0.0,
         }
     }
@@ -302,7 +304,14 @@ impl TextEngine {
     }
 
     /// Draws `text` with its baseline at `y`, starting at `x`. Returns the advance.
-    pub fn draw(&mut self, canvas: &mut Canvas, text: &str, x: f32, y: f32, style: &TextStyle) -> f32 {
+    pub fn draw(
+        &mut self,
+        canvas: &mut Canvas,
+        text: &str,
+        x: f32,
+        y: f32,
+        style: &TextStyle,
+    ) -> f32 {
         self.run(canvas, text, x, y, style, 1.0, true)
     }
 
@@ -444,48 +453,57 @@ fn embolden(g: &mut RasterGlyph, strength: f32) {
         g.advance += strength;
         return;
     }
-    let dilate = |src: &[u8], w: usize, h: usize, r: f32, horizontal: bool| -> (Vec<u8>, usize, usize) {
-        let ext = r.ceil() as usize;
-        let (nw, nh) = if horizontal { (w + ext, h) } else { (w, h + ext) };
-        let full = r.floor() as usize;
-        let frac = r - full as f32;
-        let mut out = vec![0u8; nw * nh];
-        let get = |x: isize, y: isize| -> f32 {
-            if x < 0 || y < 0 || x >= w as isize || y >= h as isize {
-                0.0
+    let dilate =
+        |src: &[u8], w: usize, h: usize, r: f32, horizontal: bool| -> (Vec<u8>, usize, usize) {
+            let ext = r.ceil() as usize;
+            let (nw, nh) = if horizontal {
+                (w + ext, h)
             } else {
-                src[y as usize * w + x as usize] as f32
-            }
-        };
-        for y in 0..nh {
-            for x in 0..nw {
-                // horizontal: the source sits at the left (x offset 0) and
-                // smears right; vertical: source sits at the bottom (y offset
-                // ext) and smears up.
-                let (sx, sy) = if horizontal {
-                    (x as isize, y as isize)
+                (w, h + ext)
+            };
+            let full = r.floor() as usize;
+            let frac = r - full as f32;
+            let mut out = vec![0u8; nw * nh];
+            let get = |x: isize, y: isize| -> f32 {
+                if x < 0 || y < 0 || x >= w as isize || y >= h as isize {
+                    0.0
                 } else {
-                    (x as isize, y as isize - ext as isize)
-                };
-                let mut v = 0.0f32;
-                for d in 0..=full {
-                    let s = if horizontal {
-                        get(sx - d as isize, sy)
+                    src[y as usize * w + x as usize] as f32
+                }
+            };
+            for y in 0..nh {
+                for x in 0..nw {
+                    // horizontal: the source sits at the left (x offset 0) and
+                    // smears right; vertical: source sits at the bottom (y offset
+                    // ext) and smears up.
+                    let (sx, sy) = if horizontal {
+                        (x as isize, y as isize)
                     } else {
-                        get(sx, sy + d as isize)
+                        (x as isize, y as isize - ext as isize)
                     };
-                    v = v.max(s);
+                    let mut v = 0.0f32;
+                    for d in 0..=full {
+                        let s = if horizontal {
+                            get(sx - d as isize, sy)
+                        } else {
+                            get(sx, sy + d as isize)
+                        };
+                        v = v.max(s);
+                    }
+                    if frac > 0.0 {
+                        let d = full as isize + 1;
+                        let s = if horizontal {
+                            get(sx - d, sy)
+                        } else {
+                            get(sx, sy + d)
+                        };
+                        v = v.max(s * frac);
+                    }
+                    out[y * nw + x] = v as u8;
                 }
-                if frac > 0.0 {
-                    let d = full as isize + 1;
-                    let s = if horizontal { get(sx - d, sy) } else { get(sx, sy + d) };
-                    v = v.max(s * frac);
-                }
-                out[y * nw + x] = v as u8;
             }
-        }
-        (out, nw, nh)
-    };
+            (out, nw, nh)
+        };
     let (w, h) = (g.width as usize, g.height as usize);
     let (hx, w2, h2) = dilate(&g.coverage, w, h, strength, true);
     let ry = strength * 0.5;
@@ -545,8 +563,14 @@ mod tests {
             assert!(g.region.is_some(), "{ch} has a bitmap");
             assert_ne!(g.source, Source::Missing, "{ch}");
         }
-        assert_eq!(t.glyph(&mut c, '한', 18, Weight::Regular).source, Source::Kr);
-        assert_eq!(t.glyph(&mut c, 'あ', 18, Weight::Regular).source, Source::Jp);
+        assert_eq!(
+            t.glyph(&mut c, '한', 18, Weight::Regular).source,
+            Source::Kr
+        );
+        assert_eq!(
+            t.glyph(&mut c, 'あ', 18, Weight::Regular).source,
+            Source::Jp
+        );
         let w = t.measure(&mut c, "한글 テスト", &s);
         assert!(w > 18.0 * 5.0);
     }
@@ -600,10 +624,16 @@ mod tests {
     fn draw_snaps_glyphs_to_pixels_and_uses_one_batch() {
         let (mut t, mut c) = setup();
         c.begin(640, 360);
-        c.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), ColorRgba::new(0, 0, 0, 255));
+        c.fill_rect(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            ColorRgba::new(0, 0, 0, 255),
+        );
         let adv = t.draw(&mut c, "Hi 한글", 10.3, 40.6, &TextStyle::new(18.0));
         assert!(adv > 0.0);
-        c.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), ColorRgba::new(0, 0, 0, 255));
+        c.fill_rect(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            ColorRgba::new(0, 0, 0, 255),
+        );
         let stats = c.debug_batches();
         assert_eq!(stats.len(), 1, "text interleaved with shapes = 1 batch");
         assert!(c

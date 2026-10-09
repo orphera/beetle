@@ -81,13 +81,17 @@ pub struct Skin {
 }
 
 fn put(atlas: &mut UiAtlas, bmp: &Bitmap) -> AtlasRegion {
-    let r = atlas.alloc(bmp.w, bmp.h).expect("skin fits in a fresh atlas");
+    let r = atlas
+        .alloc(bmp.w, bmp.h)
+        .expect("skin fits in a fresh atlas");
     atlas.write_rgba(r, &bmp.to_premultiplied_rgba());
     r
 }
 
 fn put_black(atlas: &mut UiAtlas, bmp: &Bitmap) -> AtlasRegion {
-    let r = atlas.alloc(bmp.w, bmp.h).expect("skin fits in a fresh atlas");
+    let r = atlas
+        .alloc(bmp.w, bmp.h)
+        .expect("skin fits in a fresh atlas");
     atlas.write_rgba(r, &bmp.to_black_rgba());
     r
 }
@@ -321,8 +325,15 @@ fn vignette(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
 
 fn icon_play(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
     let f = size as f32;
-    let pts = [(0.30 * f, 0.20 * f), (0.82 * f, 0.50 * f), (0.30 * f, 0.80 * f)];
-    put(atlas, &Bitmap::supersampled(size, size, 4, |x, y| sdf::in_polygon(x, y, &pts)))
+    let pts = [
+        (0.30 * f, 0.20 * f),
+        (0.82 * f, 0.50 * f),
+        (0.30 * f, 0.80 * f),
+    ];
+    put(
+        atlas,
+        &Bitmap::supersampled(size, size, 4, |x, y| sdf::in_polygon(x, y, &pts)),
+    )
 }
 
 fn icon_chevron(atlas: &mut UiAtlas, size: u32, left: bool) -> AtlasRegion {
@@ -330,8 +341,14 @@ fn icon_chevron(atlas: &mut UiAtlas, size: u32, left: bool) -> AtlasRegion {
     let th = 0.10 * f;
     let (x0, x1) = if left { (0.62, 0.38) } else { (0.38, 0.62) };
     let bmp = Bitmap::mask(size, size, |x, y| {
-        let d = segment(x, y, x0 * f, 0.22 * f, x1 * f, 0.5 * f)
-            .min(segment(x, y, x1 * f, 0.5 * f, x0 * f, 0.78 * f));
+        let d = segment(x, y, x0 * f, 0.22 * f, x1 * f, 0.5 * f).min(segment(
+            x,
+            y,
+            x1 * f,
+            0.5 * f,
+            x0 * f,
+            0.78 * f,
+        ));
         coverage(d - th / 2.0)
     });
     put(atlas, &bmp)
@@ -347,15 +364,24 @@ fn icon_star(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
             (c + r * a.cos(), c + 0.04 * f + r * a.sin())
         })
         .collect();
-    put(atlas, &Bitmap::supersampled(size, size, 4, |x, y| sdf::in_polygon(x, y, &pts)))
+    put(
+        atlas,
+        &Bitmap::supersampled(size, size, 4, |x, y| sdf::in_polygon(x, y, &pts)),
+    )
 }
 
 fn icon_check(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
     let f = size as f32;
     let th = 0.11 * f;
     let bmp = Bitmap::mask(size, size, |x, y| {
-        let d = segment(x, y, 0.22 * f, 0.52 * f, 0.42 * f, 0.72 * f)
-            .min(segment(x, y, 0.42 * f, 0.72 * f, 0.80 * f, 0.30 * f));
+        let d = segment(x, y, 0.22 * f, 0.52 * f, 0.42 * f, 0.72 * f).min(segment(
+            x,
+            y,
+            0.42 * f,
+            0.72 * f,
+            0.80 * f,
+            0.30 * f,
+        ));
         coverage(d - th / 2.0)
     });
     put(atlas, &bmp)
@@ -365,7 +391,9 @@ fn icon_dot(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
     let c = size as f32 / 2.0;
     put(
         atlas,
-        &Bitmap::mask(size, size, |x, y| coverage(sdf::circle(x, y, c, c, size as f32 * 0.3))),
+        &Bitmap::mask(size, size, |x, y| {
+            coverage(sdf::circle(x, y, c, c, size as f32 * 0.3))
+        }),
     )
 }
 
@@ -406,7 +434,15 @@ impl Canvas {
     }
 
     /// Draws a sprite centered on (cx, cy) at `size`.
-    pub fn sprite_centered(&mut self, region: AtlasRegion, cx: f32, cy: f32, w: f32, h: f32, tint: ColorRgba) {
+    pub fn sprite_centered(
+        &mut self,
+        region: AtlasRegion,
+        cx: f32,
+        cy: f32,
+        w: f32,
+        h: f32,
+        tint: ColorRgba,
+    ) {
         self.sprite(region, Rect::new(cx - w / 2.0, cy - h / 2.0, w, h), tint);
     }
 }
@@ -441,6 +477,9 @@ mod tests {
         });
         assert_eq!(bmp.alpha[0], 0.0, "corner pixel outside the arc");
         assert_eq!(bmp.alpha[(size / 2 * size + size / 2) as usize], 1.0);
-        assert!(bmp.alpha.iter().any(|&a| a > 0.1 && a < 0.9), "has AA pixels");
+        assert!(
+            bmp.alpha.iter().any(|&a| a > 0.1 && a < 0.9),
+            "has AA pixels"
+        );
     }
 }

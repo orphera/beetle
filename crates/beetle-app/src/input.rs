@@ -56,8 +56,8 @@ impl KeyPreset {
             Self::DoublePlay,
             Self::Custom,
         ]
-            .into_iter()
-            .find(|p| p.id() == s)
+        .into_iter()
+        .find(|p| p.id() == s)
     }
 
     /// Built-in presets that bind every lane of `mode`.
@@ -229,7 +229,9 @@ impl InputConfig {
 
     /// Whether every lane of `mode` has at least one key.
     pub fn covers(&self, mode: PlayMode) -> bool {
-        lanes_for(mode).iter().all(|&lane| !self.keys_for_lane(lane).is_empty())
+        lanes_for(mode)
+            .iter()
+            .all(|&lane| !self.keys_for_lane(lane).is_empty())
     }
 
     /// Resets all bindings to a specific default preset.
@@ -304,7 +306,10 @@ impl InputConfig {
 
     /// Display names of the keys bound to `lane` (empty when unbound).
     pub fn key_names_for_lane(&self, lane: Lane) -> Vec<&'static str> {
-        self.keys_for_lane(lane).into_iter().map(key_code_to_str).collect()
+        self.keys_for_lane(lane)
+            .into_iter()
+            .map(key_code_to_str)
+            .collect()
     }
 
     /// Serializes custom bindings: "Scratch:ShiftLeft,Scratch:ControlLeft,Key1:KeyS,..."
@@ -354,7 +359,12 @@ impl InputConfig {
 /// presses the lane (two keys can alternate on the turntable), OS key repeat
 /// is ignored, and the lane is released only with its last held key.
 /// Returns `Some(true)` = press, `Some(false)` = release, `None` = nothing.
-pub fn lane_transition(held: &mut Vec<(KeyCode, Lane)>, key: KeyCode, lane: Lane, pressed: bool) -> Option<bool> {
+pub fn lane_transition(
+    held: &mut Vec<(KeyCode, Lane)>,
+    key: KeyCode,
+    lane: Lane,
+    pressed: bool,
+) -> Option<bool> {
     let was_held = held.iter().any(|&(k, _)| k == key);
     if pressed {
         if was_held {
@@ -960,7 +970,11 @@ mod tests {
 
         let mut dp = InputConfig::new(KeyPreset::DoublePlay);
         dp.cycle_preset(PlayMode::Keys14);
-        assert_eq!(dp.preset, KeyPreset::DoublePlay, "only one built-in fits DP");
+        assert_eq!(
+            dp.preset,
+            KeyPreset::DoublePlay,
+            "only one built-in fits DP"
+        );
     }
 
     #[test]
@@ -970,11 +984,16 @@ mod tests {
         assert_eq!(kb.get(PlayMode::Keys14).preset, KeyPreset::DoublePlay);
 
         // Rebinding 5K leaves 7K alone.
-        kb.get_mut(PlayMode::Keys5).bind_key(KeyCode::KeyQ, Lane::Key1);
+        kb.get_mut(PlayMode::Keys5)
+            .bind_key(KeyCode::KeyQ, Lane::Key1);
         let q = PhysicalKey::Code(KeyCode::KeyQ);
         assert_eq!(kb.get(PlayMode::Keys5).map_key(q), Some(Lane::Key1));
         assert_eq!(kb.get(PlayMode::Keys7).map_key(q), None);
-        assert_eq!(kb.get(PlayMode::Keys7).map_key(PhysicalKey::Code(KeyCode::KeyS)), Some(Lane::Key1));
+        assert_eq!(
+            kb.get(PlayMode::Keys7)
+                .map_key(PhysicalKey::Code(KeyCode::KeyS)),
+            Some(Lane::Key1)
+        );
 
         // Save / load round trip.
         let saved = kb.to_saved().map(Some);
@@ -995,7 +1014,8 @@ mod tests {
         assert_eq!(kb.get(PlayMode::Keys14).preset, KeyPreset::DoublePlay);
 
         // Old custom bindings for 8 lanes cover 5K and 7K but not DP.
-        let custom = "Scratch:KeyA,Key1:KeyZ,Key2:KeyS,Key3:KeyX,Key4:KeyD,Key5:KeyC,Key6:KeyF,Key7:KeyV";
+        let custom =
+            "Scratch:KeyA,Key1:KeyZ,Key2:KeyS,Key3:KeyX,Key4:KeyD,Key5:KeyC,Key6:KeyF,Key7:KeyV";
         let kb = KeyBindings::load(&none, Some(&(KeyPreset::Custom, custom.to_string())));
         assert_eq!(kb.get(PlayMode::Keys7).preset, KeyPreset::Custom);
         assert_eq!(kb.get(PlayMode::Keys5).preset, KeyPreset::Custom);
@@ -1020,7 +1040,10 @@ mod tests {
         assert_eq!(k(KeyCode::ShiftLeft), Some(Lane::Scratch));
         assert_eq!(k(KeyCode::ShiftRight), Some(Lane::Key7));
         assert_eq!(k(KeyCode::KeyL), Some(Lane::Key6));
-        assert_eq!(KeyPreset::from_id("Ue8KTriggers"), Some(KeyPreset::Ue8KTriggers));
+        assert_eq!(
+            KeyPreset::from_id("Ue8KTriggers"),
+            Some(KeyPreset::Ue8KTriggers)
+        );
         config.cycle_preset(PlayMode::Keys8);
         assert_eq!(config.preset, KeyPreset::Ue8K);
     }
@@ -1051,7 +1074,10 @@ mod tests {
         // A key moves: adding S to Key2 takes it off Key1.
         config.add_key(KeyCode::KeyS, Lane::Key2);
         assert_eq!(config.keys_for_lane(Lane::Key1), [KeyCode::KeyQ]);
-        assert_eq!(config.keys_for_lane(Lane::Key2), [KeyCode::KeyD, KeyCode::KeyS]);
+        assert_eq!(
+            config.keys_for_lane(Lane::Key2),
+            [KeyCode::KeyD, KeyCode::KeyS]
+        );
 
         // bind_key replaces, clear_lane empties.
         config.bind_key(KeyCode::KeyW, Lane::Key2);
@@ -1065,24 +1091,50 @@ mod tests {
         let s = config.serialize_bindings();
         let mut restored = InputConfig::new(KeyPreset::HomeRow);
         restored.deserialize_bindings(&s);
-        assert_eq!(restored.keys_for_lane(Lane::Key1), config.keys_for_lane(Lane::Key1));
+        assert_eq!(
+            restored.keys_for_lane(Lane::Key1),
+            config.keys_for_lane(Lane::Key1)
+        );
         assert_eq!(restored.keys_for_lane(Lane::Key1).len(), 2);
-        assert_eq!(s, restored.serialize_bindings(), "serialization is deterministic");
+        assert_eq!(
+            s,
+            restored.serialize_bindings(),
+            "serialization is deterministic"
+        );
     }
 
     #[test]
     fn test_lane_held_until_last_key_released() {
         let mut held = Vec::new();
         let (shift, ctrl) = (KeyCode::ShiftLeft, KeyCode::ControlLeft);
-        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, true), Some(true));
-        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, true), None, "key repeat");
+        assert_eq!(
+            lane_transition(&mut held, shift, Lane::Scratch, true),
+            Some(true)
+        );
+        assert_eq!(
+            lane_transition(&mut held, shift, Lane::Scratch, true),
+            None,
+            "key repeat"
+        );
         // Second key on the same lane is a new press...
-        assert_eq!(lane_transition(&mut held, ctrl, Lane::Scratch, true), Some(true));
+        assert_eq!(
+            lane_transition(&mut held, ctrl, Lane::Scratch, true),
+            Some(true)
+        );
         // ...and letting go of one key keeps the lane held (long notes survive).
-        assert_eq!(lane_transition(&mut held, shift, Lane::Scratch, false), None);
-        assert_eq!(lane_transition(&mut held, ctrl, Lane::Scratch, false), Some(false));
+        assert_eq!(
+            lane_transition(&mut held, shift, Lane::Scratch, false),
+            None
+        );
+        assert_eq!(
+            lane_transition(&mut held, ctrl, Lane::Scratch, false),
+            Some(false)
+        );
         // A release without a press (e.g. pressed before the song) does nothing.
-        assert_eq!(lane_transition(&mut held, KeyCode::KeyS, Lane::Key1, false), None);
+        assert_eq!(
+            lane_transition(&mut held, KeyCode::KeyS, Lane::Key1, false),
+            None
+        );
     }
 
     #[test]

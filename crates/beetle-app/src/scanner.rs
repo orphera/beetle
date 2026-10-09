@@ -9,12 +9,17 @@ pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
 /// Where `bpm library` keeps the extra BMS folders; the same file it writes to.
 fn library_file() -> PathBuf {
-    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
+    std::env::var("BEETLE_LIBRARY_FILE")
+        .map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }
 
 fn library_paths() -> Vec<PathBuf> {
     let text = fs::read_to_string(library_file()).unwrap_or_default();
-    LibraryPaths::parse(&text).paths().iter().map(PathBuf::from).collect()
+    LibraryPaths::parse(&text)
+        .paths()
+        .iter()
+        .map(PathBuf::from)
+        .collect()
 }
 
 /// A cache older than the library list was built without some folders.
@@ -99,7 +104,7 @@ pub fn scan_directory<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         }
     }
 
-    if let Ok(env_dir) =std::env::var("BMS_DIR") {
+    if let Ok(env_dir) = std::env::var("BMS_DIR") {
         let p = Path::new(&env_dir);
         if p.exists() && p != dir_path {
             scan_recursive(p, &mut songs);

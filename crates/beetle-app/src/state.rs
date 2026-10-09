@@ -6,16 +6,16 @@ use std::time::Instant;
 
 use beetle_audio::AudioEngine;
 use beetle_core::{
-    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule, PlayMode,
-    PlayOptions,
-    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex, TimingModel,
+    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule,
+    PlayMode, PlayOptions, ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata,
+    SortMode, TableIndex, TimingModel,
 };
 use beetle_render::{EightKForm, ImageBuffer, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
-use crate::input::KeyPreset;
 use crate::demo;
+use crate::input::KeyPreset;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 
 pub const SCORES_FILE: &str = "scores.dat";
@@ -107,12 +107,21 @@ impl SongCategory {
             return SongCategory::All.as_str().to_string();
         };
         const LONGEST_NAME: usize = 20;
-        let mut name: String = table.name.to_uppercase().chars().take(LONGEST_NAME).collect();
+        let mut name: String = table
+            .name
+            .to_uppercase()
+            .chars()
+            .take(LONGEST_NAME)
+            .collect();
         if table.name.chars().count() > LONGEST_NAME {
             name.truncate(name.trim_end().len());
             name.push('…');
         }
-        format!("{name}  {} / {}", thousands(tables.owned_count(i)), thousands(table.entries.len()))
+        format!(
+            "{name}  {} / {}",
+            thousands(tables.owned_count(i)),
+            thousands(table.entries.len())
+        )
     }
 }
 
@@ -387,7 +396,12 @@ impl AppState {
             (LibraryJob::Startup, None) => {}
             (LibraryJob::Rescan, _) => {
                 migrate_chart_keys(&self.songs, &mut self.score_store);
-                sort_songs(&mut self.songs, self.sort_mode, &self.score_store, LnOption::Cn);
+                sort_songs(
+                    &mut self.songs,
+                    self.sort_mode,
+                    &self.score_store,
+                    LnOption::Cn,
+                );
             }
         }
         self.recompute_filtered_songs();
@@ -422,10 +436,19 @@ impl AppState {
     pub fn resort_songs(&mut self) {
         let keep = self.current_selected_song().map(|s| s.id);
         let ln_option = self.ln_option();
-        sort_songs(&mut self.songs, self.sort_mode, &self.score_store, ln_option);
+        sort_songs(
+            &mut self.songs,
+            self.sort_mode,
+            &self.score_store,
+            ln_option,
+        );
         self.recompute_filtered_songs();
         if let Some(id) = keep {
-            if let Some(pos) = self.filtered_indices.iter().position(|&i| self.songs[i].id == id) {
+            if let Some(pos) = self
+                .filtered_indices
+                .iter()
+                .position(|&i| self.songs[i].id == id)
+            {
                 self.selected_song_idx = pos;
             }
         }
@@ -653,7 +676,11 @@ pub fn filter_song_indices(
     // level the songs stay in the current sort order (the sort is stable).
     if let SongCategory::Table(i) = category {
         if let Some(table) = tables.tables().get(i) {
-            let level_of = |idx: usize| tables.entry_for(i, songs[idx].id).map_or("", |e| e.level.as_str());
+            let level_of = |idx: usize| {
+                tables
+                    .entry_for(i, songs[idx].id)
+                    .map_or("", |e| e.level.as_str())
+            };
             indices.sort_by(|&a, &b| table.compare_levels(level_of(a), level_of(b)));
         }
     }
@@ -665,7 +692,12 @@ pub fn filter_song_indices(
 pub fn replay_path(id: ChartId, ln: Option<LnRule>) -> String {
     match ln {
         None => format!("{}/{}.rep", REPLAYS_DIR, id.short()),
-        Some(rule) => format!("{}/{}-{}.rep", REPLAYS_DIR, id.short(), rule.as_str().to_lowercase()),
+        Some(rule) => format!(
+            "{}/{}-{}.rep",
+            REPLAYS_DIR,
+            id.short(),
+            rule.as_str().to_lowercase()
+        ),
     }
 }
 
@@ -689,12 +721,13 @@ pub fn save_scores(store: &ScoreStore) {
 /// for every chart in the song list. Records and replays of charts that are
 /// not in the list are left alone until the chart turns up.
 pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
-    let pairs: Vec<(u64, ChartId)> = songs
-        .iter()
-        .map(|s| (s.legacy_hash, s.id))
-        .collect();
+    let pairs: Vec<(u64, ChartId)> = songs.iter().map(|s| (s.legacy_hash, s.id)).collect();
 
-    let long_note_charts: Vec<ChartId> = songs.iter().filter(|s| s.ln_count > 0).map(|s| s.id).collect();
+    let long_note_charts: Vec<ChartId> = songs
+        .iter()
+        .filter(|s| s.ln_count > 0)
+        .map(|s| s.id)
+        .collect();
     // Records from before long note rules belong to CN: they move under it.
     let ln_pending = long_note_charts.iter().any(|&id| store.get(id).is_some());
     if ln_pending {
@@ -748,7 +781,9 @@ fn migrate_replays(pairs: &[(u64, ChartId)]) {
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
             let stem = name.strip_suffix(".rep")?;
-            (stem.len() == 16).then(|| u64::from_str_radix(stem, 16).ok()).flatten()
+            (stem.len() == 16)
+                .then(|| u64::from_str_radix(stem, 16).ok())
+                .flatten()
         })
         .collect();
     for &(legacy, id) in pairs {
@@ -782,7 +817,11 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
     std::thread::spawn(move || {
         let (songs, score_store) = init_songs_and_scores(sort_mode);
         let tables = crate::tables::build_index(&songs);
-        let _ = tx.send(LibraryLoad { songs, tables, score_store: Some(score_store) });
+        let _ = tx.send(LibraryLoad {
+            songs,
+            tables,
+            score_store: Some(score_store),
+        });
     });
     rx
 }
@@ -794,7 +833,11 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     std::thread::spawn(move || {
         let songs = rescan_songs();
         let tables = crate::tables::build_index(&songs);
-        let _ = tx.send(LibraryLoad { songs, tables, score_store: None });
+        let _ = tx.send(LibraryLoad {
+            songs,
+            tables,
+            score_store: None,
+        });
     });
     rx
 }

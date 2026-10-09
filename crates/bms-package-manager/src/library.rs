@@ -8,7 +8,8 @@ use std::path::PathBuf;
 /// `library.dat` in the working directory, or `$BEETLE_LIBRARY_FILE`. The
 /// player reads the same file.
 pub fn library_file() -> PathBuf {
-    std::env::var("BEETLE_LIBRARY_FILE").map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
+    std::env::var("BEETLE_LIBRARY_FILE")
+        .map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }
 
 pub fn load_library() -> LibraryPaths {

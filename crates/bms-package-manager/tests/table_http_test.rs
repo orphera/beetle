@@ -113,9 +113,13 @@ fn client() -> HttpClient {
 fn small_documents_come_back_whole_and_redirects_are_followed() {
     let server = Server::start();
     let client = client();
-    let direct = client.get_bytes(&server.url("/score.json"), 1_000_000).unwrap();
+    let direct = client
+        .get_bytes(&server.url("/score.json"), 1_000_000)
+        .unwrap();
     assert!(direct.starts_with(b"[{"));
-    let redirected = client.get_bytes(&server.url("/old-place"), 1_000_000).unwrap();
+    let redirected = client
+        .get_bytes(&server.url("/old-place"), 1_000_000)
+        .unwrap();
     assert_eq!(redirected, direct);
 }
 
@@ -123,8 +127,12 @@ fn small_documents_come_back_whole_and_redirects_are_followed() {
 fn error_statuses_and_oversized_bodies_are_refused() {
     let server = Server::start();
     let client = client();
-    assert!(client.get_bytes(&server.url("/missing"), 1_000_000).is_err());
-    assert!(client.get_bytes("http://127.0.0.1:1/nothing-listens-here", 1_000_000).is_err());
+    assert!(client
+        .get_bytes(&server.url("/missing"), 1_000_000)
+        .is_err());
+    assert!(client
+        .get_bytes("http://127.0.0.1:1/nothing-listens-here", 1_000_000)
+        .is_err());
 
     // Announced too large: refused before reading.
     let announced = client.get_bytes(&server.url("/big"), 50).unwrap_err();
@@ -133,7 +141,10 @@ fn error_statuses_and_oversized_bodies_are_refused() {
     let streamed = client.get_bytes(&server.url("/stream"), 1000).unwrap_err();
     assert!(streamed.contains("more than"), "{streamed}");
     // And within the cap it is fine.
-    assert_eq!(client.get_bytes(&server.url("/big"), 100).unwrap().len(), 100);
+    assert_eq!(
+        client.get_bytes(&server.url("/big"), 100).unwrap().len(),
+        100
+    );
 }
 
 #[test]
@@ -143,7 +154,10 @@ fn a_whole_table_is_fetched_and_installed_over_http() {
     let get = |url: &str, max: u64| client.get_bytes(url, max);
 
     let table = fetch_table(&get, &server.url("/table.html")).unwrap();
-    assert_eq!((table.name.as_str(), table.symbol.as_str()), ("Loopback", "lb"));
+    assert_eq!(
+        (table.name.as_str(), table.symbol.as_str()),
+        ("Loopback", "lb")
+    );
     assert_eq!(table.source, server.url("/data/header.json"));
     assert_eq!(table.entries.len(), 2);
 

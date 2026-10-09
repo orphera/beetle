@@ -29,22 +29,38 @@ fn render_pattern(driver: u32) -> Option<(String, Vec<u8>)> {
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     canvas.begin(W, H);
     // 0: opaque red
-    canvas.fill_rect(Rect::new(0.0, 0.0, 32.0, 32.0), ColorRgba::new(255, 0, 0, 255));
+    canvas.fill_rect(
+        Rect::new(0.0, 0.0, 32.0, 32.0),
+        ColorRgba::new(255, 0, 0, 255),
+    );
     // 1: 50% white over black
     canvas.fill_rect(
         Rect::new(32.0, 0.0, 32.0, 32.0),
         ColorRgba::new(255, 255, 255, 128),
     );
     // 2: red + additive green = yellow
-    canvas.fill_rect(Rect::new(64.0, 0.0, 32.0, 32.0), ColorRgba::new(255, 0, 0, 255));
+    canvas.fill_rect(
+        Rect::new(64.0, 0.0, 32.0, 32.0),
+        ColorRgba::new(255, 0, 0, 255),
+    );
     canvas.set_additive(true);
-    canvas.fill_rect(Rect::new(64.0, 0.0, 32.0, 32.0), ColorRgba::new(0, 255, 0, 255));
+    canvas.fill_rect(
+        Rect::new(64.0, 0.0, 32.0, 32.0),
+        ColorRgba::new(0, 255, 0, 255),
+    );
     canvas.set_additive(false);
     // 3: atlas sprite tinted blue
-    canvas.sprite(mask, Rect::new(96.0, 0.0, 32.0, 32.0), ColorRgba::new(0, 0, 255, 255));
+    canvas.sprite(
+        mask,
+        Rect::new(96.0, 0.0, 32.0, 32.0),
+        ColorRgba::new(0, 0, 255, 255),
+    );
     // 4: clipped to its left half
     canvas.push_clip(Rect::new(128.0, 0.0, 16.0, 32.0));
-    canvas.fill_rect(Rect::new(128.0, 0.0, 32.0, 32.0), ColorRgba::new(255, 255, 0, 255));
+    canvas.fill_rect(
+        Rect::new(128.0, 0.0, 32.0, 32.0),
+        ColorRgba::new(255, 255, 0, 255),
+    );
     canvas.pop_clip();
     // 5: 9-slice white
     canvas.nine_slice(
@@ -90,12 +106,20 @@ fn check(driver: u32, tag: &str) {
     write_bmp(&target.join(format!("canvas-test-{tag}.bmp")), W, H, &px);
 
     assert_near(&format!("{name} red"), rgb(&px, 16, 16), [255, 0, 0]);
-    assert_near(&format!("{name} 50% white"), rgb(&px, 48, 16), [128, 128, 128]);
+    assert_near(
+        &format!("{name} 50% white"),
+        rgb(&px, 48, 16),
+        [128, 128, 128],
+    );
     assert_near(&format!("{name} additive"), rgb(&px, 80, 16), [255, 255, 0]);
     assert_near(&format!("{name} sprite"), rgb(&px, 112, 16), [0, 0, 255]);
     assert_near(&format!("{name} clip in"), rgb(&px, 136, 16), [255, 255, 0]);
     assert_near(&format!("{name} clip out"), rgb(&px, 152, 16), [0, 0, 0]);
-    assert_near(&format!("{name} 9-slice"), rgb(&px, 176, 16), [255, 255, 255]);
+    assert_near(
+        &format!("{name} 9-slice"),
+        rgb(&px, 176, 16),
+        [255, 255, 255],
+    );
     let mid = rgb(&px, 128, 48)[0];
     assert!((120..=136).contains(&mid), "{name} gradient midpoint {mid}");
 }

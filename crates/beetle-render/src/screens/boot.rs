@@ -7,7 +7,7 @@
 use super::widgets;
 use crate::canvas::Rect;
 use crate::motion::ease_out_cubic;
-use crate::text::{TextStyle, Align};
+use crate::text::{Align, TextStyle};
 use crate::theme::{self, caption};
 use crate::ui::Ui;
 use crate::view::Viewport;
@@ -39,9 +39,14 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
 
     let x = vp.x + 160.0 * s - slide;
     let y = vp.y + 270.0 * s;
-    let label = caption(11.0, s).tracking(4.0 * s).color(theme::CYAN.with_alpha(a(255)));
+    let label = caption(11.0, s)
+        .tracking(4.0 * s)
+        .color(theme::CYAN.with_alpha(a(255)));
     t.draw(c, f.title, x, y, &label);
-    let mark = TextStyle::new(72.0 * s).bold().tracking(6.0 * s).color(theme::TEXT.with_alpha(a(255)));
+    let mark = TextStyle::new(72.0 * s)
+        .bold()
+        .tracking(6.0 * s)
+        .color(theme::TEXT.with_alpha(a(255)));
     let adv = t.draw(c, "BEETLE", x, y + 92.0 * s, &mark);
     c.fill_rect_hgradient(
         Rect::new(x, y + 108.0 * s, adv, 3.0 * s),
@@ -49,11 +54,22 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
         theme::MAGENTA.with_alpha(0),
     );
 
-    let track = Rect::new(vp.x + 160.0 * s, vp.y + 540.0 * s, vp.width - 320.0 * s, 4.0 * s);
+    let track = Rect::new(
+        vp.x + 160.0 * s,
+        vp.y + 540.0 * s,
+        vp.width - 320.0 * s,
+        4.0 * s,
+    );
     widgets::sweep_bar(c, &sk, track, f.elapsed, s);
     let dots = ((f.elapsed * 3.0) as usize) % 4;
     let status = format!("{}{}", f.status, ".".repeat(dots));
-    t.draw(c, &status, track.x, track.y - 16.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    t.draw(
+        c,
+        &status,
+        track.x,
+        track.y - 16.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
     let elapsed = format!("{:.1}s", f.elapsed);
     t.draw_in(
         c,
@@ -74,7 +90,15 @@ mod tests {
         let mut ui = Ui::new(vp.scale);
         for elapsed in [0.0, 0.1, 0.7, 3.3] {
             ui.begin(1280, 720, vp.scale);
-            draw_boot(&mut ui, &BootFrame { viewport: &vp, elapsed, title: "STARTING UP", status: "Reading song library" });
+            draw_boot(
+                &mut ui,
+                &BootFrame {
+                    viewport: &vp,
+                    elapsed,
+                    title: "STARTING UP",
+                    status: "Reading song library",
+                },
+            );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
         }
     }

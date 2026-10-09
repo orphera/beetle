@@ -184,7 +184,12 @@ impl SampleBank {
             let body = p + 8;
             match &b[p..p + 4] {
                 b"fmt " if size >= 16 && body + 16 <= b.len() => {
-                    fmt = Some((u16_at(body), u16_at(body + 2), u32_at(body + 4), u16_at(body + 14)));
+                    fmt = Some((
+                        u16_at(body),
+                        u16_at(body + 2),
+                        u32_at(body + 4),
+                        u16_at(body + 14),
+                    ));
                 }
                 b"data" => {
                     data = Some(&b[body..body.saturating_add(size).min(b.len())]);

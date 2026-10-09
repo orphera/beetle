@@ -318,7 +318,10 @@ impl JudgeEngine {
                     return None;
                 }
                 self.score.record_hit(LN_BREAK_GRADE);
-                return Some(JudgeResult { grade: LN_BREAK_GRADE, delta_ms });
+                return Some(JudgeResult {
+                    grade: LN_BREAK_GRADE,
+                    delta_ms,
+                });
             }
 
             let grade = match self.window.evaluate(delta_ms) {
@@ -672,10 +675,13 @@ mod tests {
 
     /// One tap on lane 2 at 4.0s and a mine (value 0A = 5% gauge) on lane 1 at 2.0s.
     fn mine_chart() -> BmsChart {
-        parse_bms("#BPM 120
+        parse_bms(
+            "#BPM 120
 #001D1:0A
 #00212:01
-").unwrap()
+",
+        )
+        .unwrap()
     }
 
     #[test]
@@ -759,9 +765,12 @@ mod tests {
 
     /// One long note on lane 1: head at 2.0s, tail at 3.0s (120 BPM).
     fn ln_chart() -> BmsChart {
-        parse_bms("#BPM 120
+        parse_bms(
+            "#BPM 120
 #00151:01000100
-").unwrap()
+",
+        )
+        .unwrap()
     }
 
     fn ln_engine() -> JudgeEngine {
@@ -787,7 +796,9 @@ mod tests {
     fn letting_go_far_too_early_is_a_miss_immediately() {
         let mut engine = ln_engine();
         engine.handle_key_down(Lane::Key1, 2.0);
-        let result = engine.handle_key_up(Lane::Key1, 2.3).expect("tail judged now");
+        let result = engine
+            .handle_key_up(Lane::Key1, 2.3)
+            .expect("tail judged now");
         assert_eq!(result.grade, JudgeGrade::Miss);
         assert_eq!(engine.score().miss_count, 1);
         assert_eq!(engine.score().current_combo, 0);
@@ -889,7 +900,11 @@ mod tests {
         // A tap and a long note: 2 under LN, 3 under CN.
         let chart = parse_bms("#BPM 120\n#00111:01\n#00251:01000100\n").unwrap();
         let timing = TimingModel::from_chart(&chart);
-        let total = |rule| JudgeEngine::new(&chart, &timing, GaugeType::Groove, rule).score().total_notes;
+        let total = |rule| {
+            JudgeEngine::new(&chart, &timing, GaugeType::Groove, rule)
+                .score()
+                .total_notes
+        };
         assert_eq!((total(Ruleset::LN), total(Ruleset::CN)), (2, 3));
     }
 
@@ -897,8 +912,15 @@ mod tests {
     fn auto_play_holds_a_long_note_from_head_to_tail() {
         let mut engine = ln_engine();
         engine.auto_play_update(2.0);
-        let head = engine.notes().iter().find(|n| n.tail_index.is_some()).unwrap();
-        assert!(head.is_judged && head.is_holding, "the renderer draws a held note, not a broken one");
+        let head = engine
+            .notes()
+            .iter()
+            .find(|n| n.tail_index.is_some())
+            .unwrap();
+        assert!(
+            head.is_judged && head.is_holding,
+            "the renderer draws a held note, not a broken one"
+        );
         engine.auto_play_update(3.5);
         assert!(engine.notes().iter().all(|n| !n.is_holding));
     }
@@ -912,11 +934,17 @@ mod tests {
         assert!(engine.update_misses(10.0).is_empty());
 
         let score = engine.score();
-        assert_eq!((score.pgreat_count, score.miss_count, score.poor_count), (1, 0, 0));
+        assert_eq!(
+            (score.pgreat_count, score.miss_count, score.poor_count),
+            (1, 0, 0)
+        );
         assert_eq!(score.ex_score, score.max_ex_score());
         assert_eq!(score.max_combo, 1);
         assert_eq!(score.accuracy_rate(), 100.0);
-        assert!(engine.notes().iter().all(|n| !n.is_holding), "the hold ended with the note");
+        assert!(
+            engine.notes().iter().all(|n| !n.is_holding),
+            "the hold ended with the note"
+        );
         // Letting go after the tail changes nothing either.
         assert!(engine.handle_key_up(Lane::Key1, 10.5).is_none());
         assert_eq!(engine.score().poor_count, 0);
@@ -928,9 +956,15 @@ mod tests {
         for release in [3.0 - slack + 0.005, 3.0, 3.2] {
             let mut engine = ln_rule_engine();
             engine.handle_key_down(Lane::Key1, 2.0);
-            assert!(engine.handle_key_up(Lane::Key1, release).is_none(), "release at {release}");
+            assert!(
+                engine.handle_key_up(Lane::Key1, release).is_none(),
+                "release at {release}"
+            );
             let score = engine.score();
-            assert_eq!((score.pgreat_count, score.poor_count, score.miss_count), (1, 0, 0));
+            assert_eq!(
+                (score.pgreat_count, score.poor_count, score.miss_count),
+                (1, 0, 0)
+            );
             assert_eq!(score.current_combo, 1);
         }
     }
@@ -940,7 +974,9 @@ mod tests {
         let slack = JudgeWindow::from_rank(2).good_ms / 1000.0;
         let mut engine = ln_rule_engine();
         engine.handle_key_down(Lane::Key1, 2.0);
-        let result = engine.handle_key_up(Lane::Key1, 3.0 - slack - 0.01).expect("a break is reported");
+        let result = engine
+            .handle_key_up(Lane::Key1, 3.0 - slack - 0.01)
+            .expect("a break is reported");
         assert_eq!(result.grade, JudgeGrade::Poor);
 
         let score = engine.score();
@@ -991,7 +1027,11 @@ mod tests {
             engine.handle_key_down(Lane::Key2, 4.0);
             engine.handle_key_down(Lane::Key1, 2.01);
             let score = engine.score();
-            assert_eq!((score.pgreat_count, score.mine_hit_count, score.total_notes), (1, 1, 1), "{rule:?}");
+            assert_eq!(
+                (score.pgreat_count, score.mine_hit_count, score.total_notes),
+                (1, 1, 1),
+                "{rule:?}"
+            );
         }
     }
 

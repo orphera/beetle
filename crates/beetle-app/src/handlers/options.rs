@@ -39,13 +39,24 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         }
         1 => {
             // Lane Modifier
-            const ORDER: [LaneModifier; 5] =
-                [LaneModifier::Regular, LaneModifier::Mirror, LaneModifier::Random, LaneModifier::RRandom, LaneModifier::SRandom];
-            state.play_options.lane_modifier = cycle(&ORDER, state.play_options.lane_modifier, forward);
+            const ORDER: [LaneModifier; 5] = [
+                LaneModifier::Regular,
+                LaneModifier::Mirror,
+                LaneModifier::Random,
+                LaneModifier::RRandom,
+                LaneModifier::SRandom,
+            ];
+            state.play_options.lane_modifier =
+                cycle(&ORDER, state.play_options.lane_modifier, forward);
         }
         2 => {
             // Gauge
-            const ORDER: [GaugeType; 4] = [GaugeType::Easy, GaugeType::Groove, GaugeType::Hard, GaugeType::Hazard];
+            const ORDER: [GaugeType; 4] = [
+                GaugeType::Easy,
+                GaugeType::Groove,
+                GaugeType::Hard,
+                GaugeType::Hazard,
+            ];
             state.play_options.gauge_type = cycle(&ORDER, state.play_options.gauge_type, forward);
         }
         3 => {
@@ -69,7 +80,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         6 => {
             // Playfield position
             let skin = &mut state.view.skin;
-            let position = if forward { skin.field_position.next() } else { skin.field_position.prev() };
+            let position = if forward {
+                skin.field_position.next()
+            } else {
+                skin.field_position.prev()
+            };
             skin.set_field_layout(position, skin.scratch_side_of(skin.play_mode));
         }
         7 => {
@@ -78,11 +93,19 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         }
         8 => {
             // Track BGA
-            state.track_bga = if forward { state.track_bga.next() } else { state.track_bga.prev() };
+            state.track_bga = if forward {
+                state.track_bga.next()
+            } else {
+                state.track_bga.prev()
+            };
         }
         9 => {
             // Display Mode
-            state.display_mode = if forward { state.display_mode.next() } else { state.display_mode.prev() };
+            state.display_mode = if forward {
+                state.display_mode.next()
+            } else {
+                state.display_mode.prev()
+            };
             state.apply_display_mode();
         }
         10 => {
@@ -92,7 +115,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         11 => {
             // Graphics GPU
             // Takes effect on the next start (see AppState::d3d11).
-            state.gpu_backend = if forward { state.gpu_backend.next() } else { state.gpu_backend.prev() };
+            state.gpu_backend = if forward {
+                state.gpu_backend.next()
+            } else {
+                state.gpu_backend.prev()
+            };
         }
         12 => {
             // Target FPS
@@ -117,7 +144,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
         }
         15 => {
             // Start Measure
-            state.start_measure = if forward { (state.start_measure + 1).min(200) } else { state.start_measure.saturating_sub(1) };
+            state.start_measure = if forward {
+                (state.start_measure + 1).min(200)
+            } else {
+                state.start_measure.saturating_sub(1)
+            };
         }
         _ => (),
     }
@@ -129,7 +160,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
 fn cycle<T: Copy + PartialEq>(order: &[T], cur: T, forward: bool) -> T {
     let n = order.len();
     let i = order.iter().position(|&v| v == cur).unwrap_or(3.min(n - 1));
-    order[if forward { (i + 1) % n } else { (i + n - 1) % n }]
+    order[if forward {
+        (i + 1) % n
+    } else {
+        (i + n - 1) % n
+    }]
 }
 
 #[cfg(test)]

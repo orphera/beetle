@@ -1149,7 +1149,11 @@ fn is_mine_channel(ch: &str) -> bool {
 
 fn mine_channel_to_lane(ch: &str, mode: PlayMode) -> Option<Lane> {
     let b = ch.as_bytes();
-    let side = if b[0].eq_ignore_ascii_case(&b'D') { '1' } else { '2' };
+    let side = if b[0].eq_ignore_ascii_case(&b'D') {
+        '1'
+    } else {
+        '2'
+    };
     channel_to_lane(&format!("{side}{}", b[1] as char), mode)
 }
 
@@ -1319,8 +1323,14 @@ mod tests {
 ",
         )
         .unwrap();
-        assert!(matches!(chart.timing_events[0].kind, TimingEventKind::BpmChange(_)));
-        assert!(matches!(chart.timing_events[1].kind, TimingEventKind::StopMeasures(_)));
+        assert!(matches!(
+            chart.timing_events[0].kind,
+            TimingEventKind::BpmChange(_)
+        ));
+        assert!(matches!(
+            chart.timing_events[1].kind,
+            TimingEventKind::StopMeasures(_)
+        ));
     }
 
     #[test]
@@ -1357,14 +1367,18 @@ mod tests {
 
     #[test]
     fn random_sections_are_resolved_before_parsing() {
-        let src = "#BPM 120\n#RANDOM 1\n#IF 1\n#00111:01\n#ENDIF\n#IF 2\n#00112:01\n#00113:01\n#ENDIF\n";
+        let src =
+            "#BPM 120\n#RANDOM 1\n#IF 1\n#00111:01\n#ENDIF\n#IF 2\n#00112:01\n#00113:01\n#ENDIF\n";
         let chart = parse_bms_with_seed(src, 5).unwrap();
         // Only the taken branch's note is in the chart, and the seed is remembered.
         assert_eq!(chart.notes.len(), 1);
         assert_eq!(chart.notes[0].lane, Lane::Key1);
         assert_eq!(chart.random_seed, Some(5));
         // A chart without random sections has no seed to remember.
-        assert_eq!(parse_bms("#BPM 120\n#00111:01\n").unwrap().random_seed, None);
+        assert_eq!(
+            parse_bms("#BPM 120\n#00111:01\n").unwrap().random_seed,
+            None
+        );
     }
 
     #[test]
@@ -1377,7 +1391,12 @@ mod tests {
 
     #[test]
     fn lnmode_is_read_and_only_1_to_3_count() {
-        let mode = |text: &str| parse_bms(&format!("#BPM 120\n{text}\n#00111:01\n")).unwrap().header.ln_mode;
+        let mode = |text: &str| {
+            parse_bms(&format!("#BPM 120\n{text}\n#00111:01\n"))
+                .unwrap()
+                .header
+                .ln_mode
+        };
         assert_eq!(mode("#LNMODE 1"), Some(1));
         assert_eq!(mode("#lnmode 2"), Some(2));
         assert_eq!(mode("#LNMODE 3"), Some(3));
@@ -1389,14 +1408,23 @@ mod tests {
 
     #[test]
     fn parses_preview_header() {
-        let chart = parse_bms("#TITLE T
+        let chart = parse_bms(
+            "#TITLE T
 #PREVIEW preview.ogg
 #00111:01
-").unwrap();
+",
+        )
+        .unwrap();
         assert_eq!(chart.header.preview, "preview.ogg");
-        assert!(parse_bms("#TITLE T
+        assert!(parse_bms(
+            "#TITLE T
 #00111:01
-").unwrap().header.preview.is_empty());
+"
+        )
+        .unwrap()
+        .header
+        .preview
+        .is_empty());
     }
 
     #[test]
@@ -1573,28 +1601,58 @@ mod tests {
     #[test]
     fn declared_4k_6k_8k_modes() {
         let mode = |src: &str| parse_bms(src).unwrap().detect_play_mode();
-        assert_eq!(mode("#4K
+        assert_eq!(
+            mode(
+                "#4K
 #00111:01
-"), PlayMode::Keys4);
-        assert_eq!(mode("#4k
+"
+            ),
+            PlayMode::Keys4
+        );
+        assert_eq!(
+            mode(
+                "#4k
 #00111:01
-"), PlayMode::Keys4);
-        assert_eq!(mode("#6K
+"
+            ),
+            PlayMode::Keys4
+        );
+        assert_eq!(
+            mode(
+                "#6K
 #00118:01
-"), PlayMode::Keys6);
-        assert_eq!(mode("#8K
+"
+            ),
+            PlayMode::Keys6
+        );
+        assert_eq!(
+            mode(
+                "#8K
 #00116:01
 #00118:01
-"), PlayMode::Keys8);
+"
+            ),
+            PlayMode::Keys8
+        );
         // Without a declaration the old channel-based detection applies.
-        assert_eq!(mode("#00111:01
+        assert_eq!(
+            mode(
+                "#00111:01
 #00118:01
-"), PlayMode::Keys7);
+"
+            ),
+            PlayMode::Keys7
+        );
         // 4K/6K/8K are single play, so a stray #PLAYER 3 doesn't turn them into DP.
-        assert_eq!(mode("#6K
+        assert_eq!(
+            mode(
+                "#6K
 #PLAYER 3
 #00111:01
-"), PlayMode::Keys6);
+"
+            ),
+            PlayMode::Keys6
+        );
     }
 
     #[test]

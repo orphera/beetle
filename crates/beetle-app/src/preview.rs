@@ -54,8 +54,14 @@ fn resolve_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
     if exact.is_file() {
         return Some(exact);
     }
-    let wanted = Path::new(&name).file_name()?.to_string_lossy().to_lowercase();
-    let wanted_stem = Path::new(&wanted).file_stem()?.to_string_lossy().into_owned();
+    let wanted = Path::new(&name)
+        .file_name()?
+        .to_string_lossy()
+        .to_lowercase();
+    let wanted_stem = Path::new(&wanted)
+        .file_stem()?
+        .to_string_lossy()
+        .into_owned();
     let mut by_stem = None;
     for entry in fs::read_dir(dir).ok()?.flatten() {
         let file = entry.file_name().to_string_lossy().to_lowercase();
@@ -86,25 +92,38 @@ fn find_preview_file(dir: &Path) -> Option<PathBuf> {
 
 fn load_from_package(pkg_path: &str, entry: &str) -> Option<PcmBuffer> {
     let mut pkg = bms_package::PackageReader::open_file(pkg_path).ok()?;
-    let base = Path::new(entry).parent().unwrap_or_else(|| Path::new("")).to_string_lossy().into_owned();
+    let base = Path::new(entry)
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .to_string_lossy()
+        .into_owned();
     let declared = pkg
         .read_entry(entry)
         .ok()
         .and_then(|bytes| parse_bms(&decode_bms_text(&bytes)).ok())
         .map(|c| c.header.preview)
         .filter(|name| !name.is_empty());
-    let path = declared.and_then(|name| pkg.find_entry_path(&base, &name)).or_else(|| {
-        let prefix = if base.is_empty() { String::new() } else { format!("{}/", base.to_lowercase()) };
-        pkg.entries()
-            .iter()
-            .map(|e| e.path.clone())
-            .filter(|p| {
-                let lower = p.to_lowercase();
-                let file = lower.rsplit('/').next().unwrap_or(&lower);
-                lower.starts_with(&prefix) && lower[prefix.len()..] == *file && file.starts_with("preview") && is_audio(file)
-            })
-            .min()
-    })?;
+    let path = declared
+        .and_then(|name| pkg.find_entry_path(&base, &name))
+        .or_else(|| {
+            let prefix = if base.is_empty() {
+                String::new()
+            } else {
+                format!("{}/", base.to_lowercase())
+            };
+            pkg.entries()
+                .iter()
+                .map(|e| e.path.clone())
+                .filter(|p| {
+                    let lower = p.to_lowercase();
+                    let file = lower.rsplit('/').next().unwrap_or(&lower);
+                    lower.starts_with(&prefix)
+                        && lower[prefix.len()..] == *file
+                        && file.starts_with("preview")
+                        && is_audio(file)
+                })
+                .min()
+        })?;
     SampleBank::load_audio_from_bytes(&pkg.read_entry(&path).ok()?).ok()
 }
 
@@ -115,7 +134,10 @@ fn is_audio(file: &str) -> bool {
 }
 
 fn stem_of(file: &str) -> String {
-    Path::new(file).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+    Path::new(file)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// One preview sample looping on its own audio stream.
@@ -133,7 +155,12 @@ impl PreviewPlayer {
         bank.insert(SAMPLE, pcm);
         let mut engine = AudioEngine::new(bank).ok()?;
         let _ = engine.set_master_volume(volume);
-        let mut player = Self { engine, id, length, started: Instant::now() };
+        let mut player = Self {
+            engine,
+            id,
+            length,
+            started: Instant::now(),
+        };
         player.restart();
         Some(player)
     }
@@ -170,7 +197,12 @@ pub struct Preview {
 impl Preview {
     /// Drives the preview for the highlighted song. `settled` is true once the
     /// cursor has rested. Returns how soon the event loop should wake again.
-    pub fn update(&mut self, selected: Option<&SongMetadata>, settled: bool, volume: f32) -> Option<Duration> {
+    pub fn update(
+        &mut self,
+        selected: Option<&SongMetadata>,
+        settled: bool,
+        volume: f32,
+    ) -> Option<Duration> {
         let want = selected.map(|s| s.id);
 
         // Moving the cursor cuts the old preview immediately.
@@ -214,7 +246,9 @@ impl Preview {
 
     /// Seconds the highlighted song's preview has been playing, if it is.
     pub fn playing_for(&self) -> Option<f32> {
-        self.player.as_ref().map(|p| p.started.elapsed().as_secs_f32())
+        self.player
+            .as_ref()
+            .map(|p| p.started.elapsed().as_secs_f32())
     }
 
     /// Stops playback and forgets the request (leaving song select).
@@ -230,7 +264,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("beetle_preview_{name}_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("beetle_preview_{name}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -274,7 +309,11 @@ mod tests {
     #[test]
     fn declared_preview_resolves_case_and_extension_insensitively() {
         let dir = temp_dir("declared");
-        fs::write(dir.join("a.bms"), "#TITLE T\n#PREVIEW Pre_View.OGG\n#00111:01\n").unwrap();
+        fs::write(
+            dir.join("a.bms"),
+            "#TITLE T\n#PREVIEW Pre_View.OGG\n#00111:01\n",
+        )
+        .unwrap();
         write_wav(&dir.join("pre_view.wav"), 0.5);
         let pcm = load_preview_pcm(&song(&dir.join("a.bms"))).expect("preview found");
         assert!((pcm.duration_seconds() - 0.5).abs() < 0.01);

@@ -1,7 +1,7 @@
 use bms_package_manager::{
-    fetch_table, find_available_updates, HttpClient, PackageManager, PackageManagerError, PackageUpdater,
-    RegistryCacheManager, RegistrySource, RemotePackageInstaller, RemoteRegistryIndex,
-    absolute_dir, load_library, save_library, SourcesConfig, TableStore, UpdateOutcome,
+    absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
+    PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
+    RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
 use std::env;
 use std::fs;
@@ -15,7 +15,9 @@ fn print_usage() {
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
     println!("  bpm search <query>                     Search remote packages across configured registries");
     println!("  bpm upgrade                            Batch upgrade installed packages to latest remote versions");
-    println!("  bpm source <list|add|remove>           Manage remote registry sources (sources.json)");
+    println!(
+        "  bpm source <list|add|remove>           Manage remote registry sources (sources.json)"
+    );
     println!("  bpm table <add|update|list|remove>     Manage difficulty tables (tables/, read by the player)");
     println!("  bpm library <add|list|remove> [path]   Register existing BMS folders the player scans in place (no copy)");
     println!("  bpm import <folder_path>               Import an existing BMS folder into managed storage");
@@ -25,7 +27,9 @@ fn print_usage() {
         "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
     );
     println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
-    println!("  bpm bga install <package.bga.bmsp_or_id> Install a decoupled BGA companion package");
+    println!(
+        "  bpm bga install <package.bga.bmsp_or_id> Install a decoupled BGA companion package"
+    );
     println!("  bpm bga remove <package_id>            Remove BGA companion from package to save disk space");
     println!("  bpm bga status <package_id>            Check BGA status of an installed package");
     println!("  bpm mount [--port <port>] [--drive <Z:>] Mount packages onto on-the-fly virtual VFS drive");
@@ -144,7 +148,11 @@ fn run_library_command(args: &[String]) {
                 println!("No folders registered. Add one with: bpm library add <folder>");
             }
             for p in list.paths() {
-                let status = if Path::new(p).is_dir() { "ok" } else { "missing" };
+                let status = if Path::new(p).is_dir() {
+                    "ok"
+                } else {
+                    "missing"
+                };
                 println!("[{status}] {p}");
             }
         }
@@ -191,7 +199,9 @@ fn run_table_command(args: &[String]) {
             let force = args.iter().any(|a| a == "--force");
             let wanted = args.iter().skip(1).find(|a| !a.starts_with("--"));
             let installed: Vec<_> = match wanted {
-                Some(name) => vec![store.find(name).unwrap_or_else(|| fail(&format!("no installed table named '{name}'")))],
+                Some(name) => vec![store
+                    .find(name)
+                    .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")))],
                 None => store.list(),
             };
             if installed.is_empty() {
@@ -202,8 +212,14 @@ fn run_table_command(args: &[String]) {
             for entry in &installed {
                 let name = &entry.1.name;
                 match store.update(&get, entry, force, now_secs()) {
-                    Ok(UpdateOutcome::Updated { entries, previous_entries }) => {
-                        println!("{name}: {entries} charts ({:+} since the last update)", entries as i64 - previous_entries as i64);
+                    Ok(UpdateOutcome::Updated {
+                        entries,
+                        previous_entries,
+                    }) => {
+                        println!(
+                            "{name}: {entries} charts ({:+} since the last update)",
+                            entries as i64 - previous_entries as i64
+                        );
                     }
                     Ok(UpdateOutcome::TooSoon { minutes_ago }) => {
                         println!("{name}: fetched {minutes_ago} minutes ago, skipped (use --force to fetch anyway)");
@@ -639,10 +655,8 @@ fn main() -> Result<(), PackageManagerError> {
 
             let active_sources = sources_cfg.active_sources_by_priority();
             let cached_indexes = cache_mgr.load_all_cached(&active_sources);
-            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
-                .iter()
-                .map(|(s, idx)| (s, idx))
-                .collect();
+            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> =
+                cached_indexes.iter().map(|(s, idx)| (s, idx)).collect();
             let mut packages = SourcesConfig::merge_packages(&pairs);
 
             if !query.is_empty() {
@@ -660,7 +674,9 @@ fn main() -> Result<(), PackageManagerError> {
 
             if packages.is_empty() {
                 if query.is_empty() {
-                    println!("No packages found in registry cache. Run 'bpm update' to fetch indexes.");
+                    println!(
+                        "No packages found in registry cache. Run 'bpm update' to fetch indexes."
+                    );
                 } else {
                     println!("No remote packages matching '{query}' found.");
                 }
@@ -858,10 +874,8 @@ fn main() -> Result<(), PackageManagerError> {
                     cached_indexes = cache_mgr.load_all_cached(&active_sources);
                 }
 
-                let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
-                    .iter()
-                    .map(|(s, idx)| (s, idx))
-                    .collect();
+                let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> =
+                    cached_indexes.iter().map(|(s, idx)| (s, idx)).collect();
                 let packages = SourcesConfig::merge_packages(&pairs);
 
                 let Some(target_pkg) = packages.iter().find(|p| p.id.eq_ignore_ascii_case(path))
@@ -983,10 +997,8 @@ fn main() -> Result<(), PackageManagerError> {
                         let cache_mgr = RegistryCacheManager::new(&storage_dir);
                         let active_sources = sources_cfg.active_sources_by_priority();
                         let cached_indexes = cache_mgr.load_all_cached(&active_sources);
-                        let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
-                            .iter()
-                            .map(|(s, idx)| (s, idx))
-                            .collect();
+                        let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> =
+                            cached_indexes.iter().map(|(s, idx)| (s, idx)).collect();
                         let packages = SourcesConfig::merge_packages(&pairs);
                         let target_pkg =
                             packages.iter().find(|p| p.id.eq_ignore_ascii_case(bga_arg));
@@ -1202,10 +1214,8 @@ fn main() -> Result<(), PackageManagerError> {
             let cache_mgr = RegistryCacheManager::new(&storage_dir);
             let active_sources = sources_cfg.active_sources_by_priority();
             let cached_indexes = cache_mgr.load_all_cached(&active_sources);
-            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> = cached_indexes
-                .iter()
-                .map(|(s, idx)| (s, idx))
-                .collect();
+            let pairs: Vec<(&RegistrySource, &RemoteRegistryIndex)> =
+                cached_indexes.iter().map(|(s, idx)| (s, idx)).collect();
             let remote_packages = SourcesConfig::merge_packages(&pairs);
 
             let updates = find_available_updates(&manager, &remote_packages);

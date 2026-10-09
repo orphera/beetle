@@ -103,7 +103,9 @@ fn apply_library_input(state: &mut AppState, text: &str) {
         list.remove(&path).then(|| format!("Removed {path}"))
     } else {
         match bms_package_manager::absolute_dir(text) {
-            Ok(abs) if list.add(&abs) => Some(format!("Added {abs} (player rescans on next start)")),
+            Ok(abs) if list.add(&abs) => {
+                Some(format!("Added {abs} (player rescans on next start)"))
+            }
             Ok(abs) if list.remove(&abs) => Some(format!("Removed {abs}")),
             Ok(_) => None,
             Err(e) if list.remove(text) => Some(format!("Removed {text} ({e})")),
@@ -160,15 +162,14 @@ impl AppState {
         let mut url_map = std::collections::HashMap::new();
         for (src, index) in &cached_indices {
             for pkg in &index.packages {
-                url_map.entry(pkg.id.clone()).or_insert_with(|| src.url.clone());
+                url_map
+                    .entry(pkg.id.clone())
+                    .or_insert_with(|| src.url.clone());
             }
         }
 
-        let installed_map: std::collections::HashMap<&str, &PackageRecord> = self
-            .packages
-            .iter()
-            .map(|p| (p.id.as_str(), p))
-            .collect();
+        let installed_map: std::collections::HashMap<&str, &PackageRecord> =
+            self.packages.iter().map(|p| (p.id.as_str(), p)).collect();
 
         let mut raw_list = Vec::new();
         let mut display_list = Vec::new();
@@ -646,7 +647,11 @@ impl ApplicationHandler for BpmGuiApp {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            let tag = if Path::new(p).is_dir() { "ok" } else { "missing" };
+                            let tag = if Path::new(p).is_dir() {
+                                "ok"
+                            } else {
+                                "missing"
+                            };
                             format!("{}. [{tag}] {p}", i + 1)
                         })
                         .collect();
@@ -2016,7 +2021,9 @@ fn start_remote_install(state: &mut AppState, with_bga: bool) {
         let mut mgr = match bms_package_manager::PackageManager::new(&root_dir) {
             Ok(m) => m,
             Err(e) => {
-                let _ = tx.send(BgTaskMessage::Failed(format!("PackageManager init error: {e}")));
+                let _ = tx.send(BgTaskMessage::Failed(format!(
+                    "PackageManager init error: {e}"
+                )));
                 return;
             }
         };

@@ -108,9 +108,14 @@ impl HttpClient {
         if status != 200 {
             return Err(format!("HTTP request to '{url}' returned status {status}"));
         }
-        if let Some(len) = response.header("Content-Length").and_then(|h| h.parse::<u64>().ok()) {
+        if let Some(len) = response
+            .header("Content-Length")
+            .and_then(|h| h.parse::<u64>().ok())
+        {
             if len > max_bytes {
-                return Err(format!("'{url}' is {len} bytes, more than the {max_bytes} allowed"));
+                return Err(format!(
+                    "'{url}' is {len} bytes, more than the {max_bytes} allowed"
+                ));
             }
         }
 
@@ -121,7 +126,9 @@ impl HttpClient {
             .read_to_end(&mut body)
             .map_err(|e| format!("Failed to read the response from '{url}': {e}"))?;
         if body.len() as u64 > max_bytes {
-            return Err(format!("'{url}' is more than the {max_bytes} bytes allowed"));
+            return Err(format!(
+                "'{url}' is more than the {max_bytes} bytes allowed"
+            ));
         }
         Ok(body)
     }

@@ -98,14 +98,12 @@ mod tests {
         let mut manager = PackageManager::new(&temp_dir).unwrap();
 
         // Simulate installed package
-        let pkg_bytes = bms_package::PackageBuilder::new(bms_package::Manifest::new(
-            "test.song",
-            "Test Song",
-        ))
-        .add_file("song.bms", b"#TITLE Test".to_vec())
-        .unwrap()
-        .build_to_bytes()
-        .unwrap();
+        let pkg_bytes =
+            bms_package::PackageBuilder::new(bms_package::Manifest::new("test.song", "Test Song"))
+                .add_file("song.bms", b"#TITLE Test".to_vec())
+                .unwrap()
+                .build_to_bytes()
+                .unwrap();
 
         let installed = manager.install_from_bytes(pkg_bytes).unwrap();
         let current_hash = installed.state_hash.clone();

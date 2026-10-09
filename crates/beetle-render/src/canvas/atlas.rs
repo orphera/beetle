@@ -212,11 +212,7 @@ mod tests {
     use super::*;
 
     fn overlaps(a: &AtlasRegion, b: &AtlasRegion) -> bool {
-        a.page == b.page
-            && a.x < b.x + b.w
-            && b.x < a.x + a.w
-            && a.y < b.y + b.h
-            && b.y < a.y + a.h
+        a.page == b.page && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
     }
 
     #[test]

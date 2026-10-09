@@ -122,7 +122,12 @@ pub fn handle_song_select_input(
             // Cycle Sort Mode
             state.sort_mode = state.sort_mode.next();
             let ln_option = state.ln_option();
-            sort_songs(&mut state.songs, state.sort_mode, &state.score_store, ln_option);
+            sort_songs(
+                &mut state.songs,
+                state.sort_mode,
+                &state.score_store,
+                ln_option,
+            );
             state.recompute_filtered_songs();
             state.cursor_settle_time = std::time::Instant::now();
             state.save_config();

@@ -71,7 +71,11 @@ pub fn finalize_start_gameplay(
     // A replay is judged under the rule it was played with; a replay from before
     // rules existed carries none, and was played under CN. Otherwise the
     // chart's `#LNMODE` and the player's LN MODE give the rule.
-    let ruleset = match state.playback_replay.as_ref().filter(|_| state.is_replay_playback) {
+    let ruleset = match state
+        .playback_replay
+        .as_ref()
+        .filter(|_| state.is_replay_playback)
+    {
         Some(replay) => match replay.ln {
             Some(beetle_core::LnRule::Ln) => beetle_core::Ruleset::LN,
             _ => beetle_core::Ruleset::CN,
@@ -79,7 +83,8 @@ pub fn finalize_start_gameplay(
         None => beetle_core::Ruleset::resolve(song.ln_mode, state.ln_option()),
     };
     state.active_hcn = play_chart_has_long_notes && ruleset.hcn_requested;
-    let mut judge_engine = JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type, ruleset);
+    let mut judge_engine =
+        JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type, ruleset);
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();
@@ -219,8 +224,9 @@ pub fn finalize_start_gameplay(
     state.poor_until_time = 0.0;
     state.video_players = video_players;
     state.video_start_times = video_start_times;
-    state.active_bga_image =
-        load_stage_image(song).filter(|_| state.bga_enabled).map(|img| img.create_scaled(320, 180));
+    state.active_bga_image = load_stage_image(song)
+        .filter(|_| state.bga_enabled)
+        .map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
     state.score_update = ScoreUpdate::default();
@@ -262,7 +268,10 @@ pub fn finish_gameplay(state: &mut AppState) {
         );
 
         // Only save score records and replays for actual manual playthroughs from start
-        state.previous_best = state.score_store.get_for(state.active_chart_id, state.active_ln).cloned();
+        state.previous_best = state
+            .score_store
+            .get_for(state.active_chart_id, state.active_ln)
+            .cloned();
         if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
             let update = state.score_store.update(play);
             state.score_update = update;
@@ -369,9 +378,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                 let misses = judge.update_misses(effective_judge_time);
                 for (_lane, miss_res) in misses {
                     state.poor_until_time = audio_time + 0.4;
-                    state
-                        .view
-                        .trigger_judge(miss_res.grade, audio_time, 0.0);
+                    state.view.trigger_judge(miss_res.grade, audio_time, 0.0);
                 }
             }
         } else if state.is_auto_play {

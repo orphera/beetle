@@ -254,7 +254,9 @@ fn playfield_width_for(mode: PlayMode, lane_width: f32, scratch_lane_width: f32)
             let side = dp_side_width(mode, lane_width, scratch_lane_width);
             side * 2.0 + lane_width * 0.6
         }
-        PlayMode::Keys4 | PlayMode::Keys6 | PlayMode::Keys8 => unreachable!("even-lane modes return above"),
+        PlayMode::Keys4 | PlayMode::Keys6 | PlayMode::Keys8 => {
+            unreachable!("even-lane modes return above")
+        }
     }
 }
 
@@ -466,18 +468,23 @@ impl SkinConfig {
     pub fn lane_x(&self, lane: Lane) -> f32 {
         if self.eight_k_triggers() {
             let w = self.lane_width * TRIGGER_KEY_SCALE;
-            return self.playfield_x + w * match lane {
-                Lane::Key1 => 0.0,
-                Lane::Key2 => 1.0,
-                Lane::Key3 => 2.0,
-                Lane::Key4 | Lane::Key7 => 3.0,
-                Lane::Key5 => 4.0,
-                Lane::Key6 => 5.0,
-                _ => 0.0,
-            };
+            return self.playfield_x
+                + w * match lane {
+                    Lane::Key1 => 0.0,
+                    Lane::Key2 => 1.0,
+                    Lane::Key3 => 2.0,
+                    Lane::Key4 | Lane::Key7 => 3.0,
+                    Lane::Key5 => 4.0,
+                    Lane::Key6 => 5.0,
+                    _ => 0.0,
+                };
         }
         if even_lane_scale(self.play_mode).is_some() {
-            let index = self.screen_lanes().iter().position(|&l| l == lane).unwrap_or(0);
+            let index = self
+                .screen_lanes()
+                .iter()
+                .position(|&l| l == lane)
+                .unwrap_or(0);
             return self.playfield_x + index as f32 * self.lane_width(lane);
         }
         // PMS (9K) has no scratch lane and a right-side scratch comes after
@@ -488,7 +495,9 @@ impl SkinConfig {
             self.playfield_x + self.scratch_lane_width
         };
         match lane {
-            Lane::Scratch if self.scratch_on_right() => self.playfield_x + self.playfield_width - self.scratch_lane_width,
+            Lane::Scratch if self.scratch_on_right() => {
+                self.playfield_x + self.playfield_width - self.scratch_lane_width
+            }
             Lane::Scratch => self.playfield_x,
             Lane::Key1 => key_area_x,
             Lane::Key2 => key_area_x + self.lane_width,
@@ -519,7 +528,11 @@ impl SkinConfig {
     pub fn lane_width(&self, lane: Lane) -> f32 {
         if self.eight_k_triggers() {
             let w = self.lane_width * TRIGGER_KEY_SCALE;
-            return if is_side_track(lane) { w * (TRIGGER_KEYS / 2) as f32 } else { w };
+            return if is_side_track(lane) {
+                w * (TRIGGER_KEYS / 2) as f32
+            } else {
+                w
+            };
         }
         if let Some(scale) = even_lane_scale(self.play_mode) {
             return self.lane_width * scale;
@@ -540,13 +553,24 @@ impl SkinConfig {
             _ => None,
         };
         if let Some(blue) = by_position {
-            let index = lanes_of(self.play_mode).iter().position(|&l| l == lane).unwrap_or(0);
-            return if blue[index] { self.blue_key_color } else { self.white_key_color };
+            let index = lanes_of(self.play_mode)
+                .iter()
+                .position(|&l| l == lane)
+                .unwrap_or(0);
+            return if blue[index] {
+                self.blue_key_color
+            } else {
+                self.white_key_color
+            };
         }
         // Straight 8K: red - white - blue - white white - blue - white - red,
         // by position (the scratch may be at either end).
         if self.play_mode == PlayMode::Keys8 && !self.eight_k_triggers() {
-            let index = self.screen_lanes().iter().position(|&l| l == lane).unwrap_or(0);
+            let index = self
+                .screen_lanes()
+                .iter()
+                .position(|&l| l == lane)
+                .unwrap_or(0);
             return match index {
                 0 | 7 => self.scratch_key_color,
                 2 | 5 => self.blue_key_color,
@@ -605,7 +629,10 @@ mod tests {
         skin.set_field_layout(FieldPosition::Left, ScratchSide::Right);
         assert_eq!(skin.lane_x(Lane::Key1), skin.playfield_x);
         assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key7) + 50.0);
-        assert_eq!(skin.lane_x(Lane::Scratch) + 72.0, skin.playfield_x + skin.playfield_width);
+        assert_eq!(
+            skin.lane_x(Lane::Scratch) + 72.0,
+            skin.playfield_x + skin.playfield_width
+        );
         // 5K too; PMS has no scratch and DP keeps the cabinet arrangement.
         skin.set_play_mode(PlayMode::Keys5);
         skin.set_field_layout(FieldPosition::Left, ScratchSide::Right);
@@ -668,7 +695,11 @@ mod tests {
         assert_eq!(skin.scratch_side_of(PlayMode::Keys14), ScratchSide::Left);
 
         skin.set_play_mode(PlayMode::Keys5);
-        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x, "5K stays left");
+        assert_eq!(
+            skin.lane_x(Lane::Scratch),
+            skin.playfield_x,
+            "5K stays left"
+        );
         skin.set_play_mode(PlayMode::Keys7);
         assert_eq!(skin.lane_x(Lane::Scratch), skin.lane_x(Lane::Key7) + 50.0);
         assert_eq!(skin.screen_lanes().last(), Some(&Lane::Scratch));
@@ -721,7 +752,10 @@ mod tests {
         near(skin.lane_x(Lane::Scratch), skin.playfield_x);
         near(skin.lane_width(Lane::Scratch), 3.0 * w);
         near(skin.lane_x(Lane::Key7), skin.playfield_x + 3.0 * w);
-        near(skin.lane_x(Lane::Key7) + skin.lane_width(Lane::Key7), skin.playfield_x + skin.playfield_width);
+        near(
+            skin.lane_x(Lane::Key7) + skin.lane_width(Lane::Key7),
+            skin.playfield_x + skin.playfield_width,
+        );
         assert_eq!(skin.lane_color(Lane::Scratch), skin.lane_color(Lane::Key7));
         assert_ne!(skin.lane_color(Lane::Key1), skin.lane_color(Lane::Key7));
         // The form only touches 8K.
@@ -793,7 +827,11 @@ mod tests {
             skin.lane_x(Lane::P2Scratch) + skin.lane_width(Lane::P2Scratch)
         );
         // Lanes are listed left to right (key config shows them in this order).
-        let xs: Vec<f32> = skin.active_lanes().iter().map(|&l| skin.lane_x(l)).collect();
+        let xs: Vec<f32> = skin
+            .active_lanes()
+            .iter()
+            .map(|&l| skin.lane_x(l))
+            .collect();
         assert!(xs.windows(2).all(|w| w[0] < w[1]));
     }
 }

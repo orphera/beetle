@@ -9,12 +9,12 @@ use super::widgets::{self, wrap2};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::ease_out_cubic;
-use crate::view::Viewport;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
+use crate::view::Viewport;
 use beetle_core::SongMetadata;
 
 pub struct LoadingFrame<'a> {
@@ -43,7 +43,13 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let song = f.song;
     let (tier, tier_col) = theme::level_tier(song.play_level);
 
-    widgets::backdrop(c, &sk, vp, f.ambient.map_or(tier_col, |a| theme::vivid(a, tier_col)), lite);
+    widgets::backdrop(
+        c,
+        &sk,
+        vp,
+        f.ambient.map_or(tier_col, |a| theme::vivid(a, tier_col)),
+        lite,
+    );
 
     // Entrance: jacket and text slide in and fade up.
     let p = ease_out_cubic((f.elapsed / ENTER_SECONDS).clamp(0.0, 1.0) as f32);
@@ -51,19 +57,52 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let slide = (1.0 - p) * 32.0 * s;
 
     // Jacket
-    let jacket = Rect::new(vp.x + 160.0 * s - slide, vp.y + 148.0 * s, 400.0 * s, 300.0 * s);
+    let jacket = Rect::new(
+        vp.x + 160.0 * s - slide,
+        vp.y + 148.0 * s,
+        400.0 * s,
+        300.0 * s,
+    );
     c.halo(&sk.shadow, jacket, theme::WHITE.with_alpha(a(200)));
     match f.jacket {
         Some(tex) => {
             c.fill_rect(jacket, theme::BG.with_alpha(a(255)));
-            c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE.with_alpha(a(255)));
+            c.image(
+                tex.id,
+                jacket,
+                cover_uv(tex, jacket),
+                theme::WHITE.with_alpha(a(255)),
+            );
         }
         None => {
-            c.fill_rect_corners(jacket, [tier_col.with_alpha(a(255)), theme::SURF3.with_alpha(a(255)), theme::BG.with_alpha(a(255)), tier_col.with_alpha(a(160))]);
+            c.fill_rect_corners(
+                jacket,
+                [
+                    tier_col.with_alpha(a(255)),
+                    theme::SURF3.with_alpha(a(255)),
+                    theme::BG.with_alpha(a(255)),
+                    tier_col.with_alpha(a(160)),
+                ],
+            );
             c.set_additive(true);
-            c.sprite_centered(sk.flare, jacket.x + jacket.w * 0.7, jacket.y + jacket.h * 0.3, 260.0 * s, 260.0 * s, theme::WHITE.with_alpha(a(90)));
+            c.sprite_centered(
+                sk.flare,
+                jacket.x + jacket.w * 0.7,
+                jacket.y + jacket.h * 0.3,
+                260.0 * s,
+                260.0 * s,
+                theme::WHITE.with_alpha(a(90)),
+            );
             c.set_additive(false);
-            t.draw_in(c, theme::mode_label(song.play_mode), jacket.inset(20.0 * s), Align::Left, &TextStyle::new(72.0 * s).bold().color(theme::WHITE.with_alpha(a(40))));
+            t.draw_in(
+                c,
+                theme::mode_label(song.play_mode),
+                jacket.inset(20.0 * s),
+                Align::Left,
+                &TextStyle::new(72.0 * s)
+                    .bold()
+                    .color(theme::WHITE.with_alpha(a(40))),
+            );
         }
     }
     c.stroke_rect(jacket, s.max(1.0), theme::LINE.with_alpha(a(255)));
@@ -72,23 +111,41 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let x = jacket.right() + 48.0 * s + slide * 2.0;
     let w = vp.x + vp.width - 160.0 * s - (jacket.right() + 48.0 * s);
     let mut y = jacket.y + 18.0 * s;
-    let now = caption(11.0, s).tracking(4.0 * s).color(theme::CYAN.with_alpha(a(255)));
+    let now = caption(11.0, s)
+        .tracking(4.0 * s)
+        .color(theme::CYAN.with_alpha(a(255)));
     let nw = t.draw(c, "NOW LOADING", x, y, &now);
     if let Some(badge) = f.badge {
         let st = caption(10.0, s).color(theme::ON_ACCENT);
         let bw = t.measure(c, badge, &st) + 20.0 * s;
         let chip = Rect::new(x + nw + 16.0 * s, y - 15.0 * s, bw, 20.0 * s);
         c.nine(&sk.panel_lg, chip, theme::CYAN.with_alpha(a(255)));
-        t.draw_in(c, badge, chip, Align::Center, &st.color(theme::ON_ACCENT.with_alpha(a(255))));
+        t.draw_in(
+            c,
+            badge,
+            chip,
+            Align::Center,
+            &st.color(theme::ON_ACCENT.with_alpha(a(255))),
+        );
     }
     y += 40.0 * s;
-    t.draw(c, &format!("{tier} {}", song.play_level), x, y, &caption(12.0, s).color(tier_col.with_alpha(a(255))));
+    t.draw(
+        c,
+        &format!("{tier} {}", song.play_level),
+        x,
+        y,
+        &caption(12.0, s).color(tier_col.with_alpha(a(255))),
+    );
     y += 42.0 * s;
-    let big = TextStyle::new(34.0 * s).bold().color(theme::TEXT.with_alpha(a(255)));
+    let big = TextStyle::new(34.0 * s)
+        .bold()
+        .color(theme::TEXT.with_alpha(a(255)));
     if t.measure(c, &song.title, &big) <= w {
         t.draw(c, &song.title, x, y, &big);
     } else {
-        let st = TextStyle::new(26.0 * s).bold().color(theme::TEXT.with_alpha(a(255)));
+        let st = TextStyle::new(26.0 * s)
+            .bold()
+            .color(theme::TEXT.with_alpha(a(255)));
         let (l1, l2) = wrap2(c, t, &song.title, w, &st);
         t.draw(c, &l1, x, y - 6.0 * s, &st);
         if let Some(l2) = l2 {
@@ -110,10 +167,31 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     // Chart stats, aligned to the jacket's bottom
     let bpm = song.bpm_label();
     let notes = thousands(song.notes_count as u32);
-    for (i, (k, v)) in [("BPM", bpm.as_str()), ("NOTES", notes.as_str()), ("MODE", theme::mode_label(song.play_mode))].iter().enumerate() {
+    for (i, (k, v)) in [
+        ("BPM", bpm.as_str()),
+        ("NOTES", notes.as_str()),
+        ("MODE", theme::mode_label(song.play_mode)),
+    ]
+    .iter()
+    .enumerate()
+    {
         let sx = x + i as f32 * 112.0 * s;
-        t.draw(c, k, sx, jacket.bottom() - 74.0 * s, &caption(10.0, s).color(theme::MUTED2.with_alpha(a(255))));
-        t.draw(c, v, sx, jacket.bottom() - 46.0 * s, &TextStyle::new(24.0 * s).bold().color(theme::TEXT.with_alpha(a(255))));
+        t.draw(
+            c,
+            k,
+            sx,
+            jacket.bottom() - 74.0 * s,
+            &caption(10.0, s).color(theme::MUTED2.with_alpha(a(255))),
+        );
+        t.draw(
+            c,
+            v,
+            sx,
+            jacket.bottom() - 46.0 * s,
+            &TextStyle::new(24.0 * s)
+                .bold()
+                .color(theme::TEXT.with_alpha(a(255))),
+        );
     }
     // Options in effect
     let mut cx = x;
@@ -136,14 +214,31 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
 /// status line with animated dots and the cancel hint.
 fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: f32) {
     let vp = f.viewport;
-    let track = Rect::new(vp.x + 160.0 * s, vp.y + 540.0 * s, vp.width - 320.0 * s, 4.0 * s);
+    let track = Rect::new(
+        vp.x + 160.0 * s,
+        vp.y + 540.0 * s,
+        vp.width - 320.0 * s,
+        4.0 * s,
+    );
     widgets::sweep_bar(c, sk, track, f.elapsed, s);
 
     let dots = ((f.elapsed * 3.0) as usize) % 4;
     let status = format!("{}{}", f.status, ".".repeat(dots));
-    t.draw(c, &status, track.x, track.y - 16.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    t.draw(
+        c,
+        &status,
+        track.x,
+        track.y - 16.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
     let elapsed = format!("{:.1}s", f.elapsed);
-    t.draw_in(c, &elapsed, Rect::new(track.x, track.y - 30.0 * s, track.w, 20.0 * s), Align::Right, &TextStyle::new(13.0 * s).bold().color(theme::MUTED2));
+    t.draw_in(
+        c,
+        &elapsed,
+        Rect::new(track.x, track.y - 30.0 * s, track.w, 20.0 * s),
+        Align::Right,
+        &TextStyle::new(13.0 * s).bold().color(theme::MUTED2),
+    );
 
     let bar = widgets::footer_bar(c, vp, s);
     widgets::footer_hints(c, t, sk, &[("ESC", "CANCEL")], bar, s);
@@ -181,7 +276,16 @@ mod tests {
             ui.begin(1280, 720, vp.scale);
             draw_loading(
                 &mut ui,
-                &LoadingFrame { viewport: &vp, song: &song, jacket: None, ambient: None, elapsed, status: "Loading", option_chips: &chips, badge: Some("AUTO PLAY") },
+                &LoadingFrame {
+                    viewport: &vp,
+                    song: &song,
+                    jacket: None,
+                    ambient: None,
+                    elapsed,
+                    status: "Loading",
+                    option_chips: &chips,
+                    badge: Some("AUTO PLAY"),
+                },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
         }

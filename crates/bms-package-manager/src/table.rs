@@ -59,8 +59,13 @@ pub fn resolve_url(base: &str, reference: &str) -> Result<String, TableError> {
     }
     let resolved = if is_web_url(reference) {
         reference.to_string()
-    } else if reference.contains("://") || reference.starts_with("javascript:") || reference.starts_with("data:") {
-        return err(format!("only http and https addresses are allowed: {reference}"));
+    } else if reference.contains("://")
+        || reference.starts_with("javascript:")
+        || reference.starts_with("data:")
+    {
+        return err(format!(
+            "only http and https addresses are allowed: {reference}"
+        ));
     } else {
         let scheme_end = base.find("://").map_or(0, |i| i + 3);
         let scheme = &base[..scheme_end.saturating_sub(3)];
@@ -104,7 +109,11 @@ fn normalize_path(path: &str) -> String {
         }
     }
     let joined = segments.join("/");
-    let joined = if joined.starts_with('/') { joined } else { format!("/{joined}") };
+    let joined = if joined.starts_with('/') {
+        joined
+    } else {
+        format!("/{joined}")
+    };
     format!("{joined}{tail}")
 }
 
@@ -147,16 +156,23 @@ fn attribute(tag: &str, tag_lower: &str, name: &str) -> Option<String> {
     while let Some(i) = tag_lower[search..].find(name) {
         let at = search + i;
         search = at + name.len();
-        let before_ok = at == 0 || !tag_lower.as_bytes()[at - 1].is_ascii_alphanumeric() && tag_lower.as_bytes()[at - 1] != b'-';
+        let before_ok = at == 0
+            || !tag_lower.as_bytes()[at - 1].is_ascii_alphanumeric()
+                && tag_lower.as_bytes()[at - 1] != b'-';
         let rest = tag[at + name.len()..].trim_start();
-        let Some(value) = rest.strip_prefix('=') else { continue };
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
         if !before_ok {
             continue;
         }
         let value = value.trim_start();
         return Some(match value.chars().next()? {
             q @ ('"' | '\'') => value[1..].split(q).next()?.to_string(),
-            _ => value.split(|c: char| c.is_whitespace() || c == '>').next()?.to_string(),
+            _ => value
+                .split(|c: char| c.is_whitespace() || c == '>')
+                .next()?
+                .to_string(),
         });
     }
     None
@@ -182,7 +198,11 @@ fn parse_md5(text: &str) -> Option<[u8; 16]> {
 }
 
 fn str_field(entry: &Value, key: &str) -> String {
-    entry.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+    entry
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// Reads a table's data JSON (an array of charts). Entries with neither a
@@ -195,7 +215,10 @@ fn parse_entries(data: &Value) -> Result<Vec<TableEntry>, TableError> {
         .iter()
         .filter_map(|entry| {
             let md5 = entry.get("md5").and_then(Value::as_str).and_then(parse_md5);
-            let sha256 = entry.get("sha256").and_then(Value::as_str).and_then(parse_sha256);
+            let sha256 = entry
+                .get("sha256")
+                .and_then(Value::as_str)
+                .and_then(parse_sha256);
             if md5.is_none() && sha256.is_none() {
                 return None;
             }
@@ -213,7 +236,9 @@ fn parse_entries(data: &Value) -> Result<Vec<TableEntry>, TableError> {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Fetches a table: from its page (`table.html`) or straight from its
@@ -221,10 +246,13 @@ fn now_secs() -> u64 {
 pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableError> {
     let address = address.trim();
     if !is_web_url(address) {
-        return err(format!("only http and https addresses are allowed: {address}"));
+        return err(format!(
+            "only http and https addresses are allowed: {address}"
+        ));
     }
 
-    let first = get(address, MAX_HEADER_BYTES).or_else(|e| err(format!("could not fetch {address}: {e}")))?;
+    let first = get(address, MAX_HEADER_BYTES)
+        .or_else(|e| err(format!("could not fetch {address}: {e}")))?;
     let first_text = body_text(&first)?;
     let (header_url, header_text): (String, String) = if looks_like_json(first_text) {
         (address.to_string(), first_text.to_string())
@@ -233,12 +261,19 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
             return err(format!("{address} has no <meta name=\"bmstable\"> tag, so it is not a difficulty table page"));
         };
         let header_url = resolve_url(address, &content)?;
-        let header = get(&header_url, MAX_HEADER_BYTES).or_else(|e| err(format!("could not fetch {header_url}: {e}")))?;
+        let header = get(&header_url, MAX_HEADER_BYTES)
+            .or_else(|e| err(format!("could not fetch {header_url}: {e}")))?;
         (header_url, body_text(&header)?.to_string())
     };
 
-    let header: Value = serde_json::from_str(&header_text).or_else(|e| err(format!("{header_url} is not valid JSON: {e}")))?;
-    let name = header.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+    let header: Value = serde_json::from_str(&header_text)
+        .or_else(|e| err(format!("{header_url} is not valid JSON: {e}")))?;
+    let name = header
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if name.is_empty() {
         return err(format!("{header_url} has no table name"));
     }
@@ -252,8 +287,10 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
         .map(|levels| levels.iter().filter_map(level_text).collect())
         .unwrap_or_default();
 
-    let data_bytes = get(&data_url, MAX_TABLE_BYTES).or_else(|e| err(format!("could not fetch {data_url}: {e}")))?;
-    let data: Value = serde_json::from_str(body_text(&data_bytes)?).or_else(|e| err(format!("{data_url} is not valid JSON: {e}")))?;
+    let data_bytes = get(&data_url, MAX_TABLE_BYTES)
+        .or_else(|e| err(format!("could not fetch {data_url}: {e}")))?;
+    let data: Value = serde_json::from_str(body_text(&data_bytes)?)
+        .or_else(|e| err(format!("{data_url} is not valid JSON: {e}")))?;
     let entries = parse_entries(&data)?;
     if entries.is_empty() {
         return err(format!("{data_url} has no charts with an md5 or sha256"));
@@ -261,7 +298,12 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
 
     Ok(DifficultyTable {
         name,
-        symbol: header.get("symbol").and_then(Value::as_str).unwrap_or_default().trim().to_string(),
+        symbol: header
+            .get("symbol")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
         source: header_url,
         fetched: now_secs(),
         level_order,
@@ -281,7 +323,10 @@ pub struct TableStore {
 /// What `TableStore::update` did with one table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateOutcome {
-    Updated { entries: usize, previous_entries: usize },
+    Updated {
+        entries: usize,
+        previous_entries: usize,
+    },
     /// Fetched less than `MIN_UPDATE_INTERVAL_SECS` ago and `--force` was not given.
     TooSoon { minutes_ago: u64 },
 }
@@ -307,7 +352,11 @@ impl TableStore {
             }
         }
         let slug = slug.trim_end_matches('-').to_string();
-        if slug.is_empty() { "table".to_string() } else { slug }
+        if slug.is_empty() {
+            "table".to_string()
+        } else {
+            slug
+        }
     }
 
     fn path_for(&self, slug: &str) -> PathBuf {
@@ -340,7 +389,9 @@ impl TableStore {
         let wanted = name.trim().to_lowercase();
         self.list().into_iter().find(|(path, table)| {
             table.name.to_lowercase() == wanted
-                || path.file_stem().is_some_and(|s| s.to_string_lossy().to_lowercase() == wanted)
+                || path
+                    .file_stem()
+                    .is_some_and(|s| s.to_string_lossy().to_lowercase() == wanted)
         })
     }
 
@@ -352,7 +403,10 @@ impl TableStore {
             return err("refusing to install a table with no charts");
         }
         let path = self.path_for(&Self::slug(&table.name));
-        if let Some(existing) = fs::read_to_string(&path).ok().and_then(|t| DifficultyTable::parse(&t)) {
+        if let Some(existing) = fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| DifficultyTable::parse(&t))
+        {
             if existing.source != table.source {
                 return err(format!(
                     "a table named '{}' is already installed from {}; remove it first with `bpm table remove`",
@@ -365,7 +419,8 @@ impl TableStore {
     }
 
     fn write_atomic(&self, path: &Path, text: &str) -> Result<(), TableError> {
-        fs::create_dir_all(&self.dir).or_else(|e| err(format!("cannot create {}: {e}", self.dir.display())))?;
+        fs::create_dir_all(&self.dir)
+            .or_else(|e| err(format!("cannot create {}: {e}", self.dir.display())))?;
         let temp = path.with_extension("tbl.tmp");
         fs::write(&temp, text).or_else(|e| err(format!("cannot write {}: {e}", temp.display())))?;
         fs::rename(&temp, path).or_else(|e| {
@@ -379,21 +434,33 @@ impl TableStore {
         let Some((path, table)) = self.find(name) else {
             return err(format!("no installed table named '{name}'"));
         };
-        fs::remove_file(&path).or_else(|e| err(format!("cannot delete {}: {e}", path.display())))?;
+        fs::remove_file(&path)
+            .or_else(|e| err(format!("cannot delete {}: {e}", path.display())))?;
         Ok(table.name)
     }
 
     /// Fetches an installed table again from where it came from. A failed
     /// fetch leaves the old copy as it was.
-    pub fn update(&self, get: Getter, installed: &(PathBuf, DifficultyTable), force: bool, now: u64) -> Result<UpdateOutcome, TableError> {
+    pub fn update(
+        &self,
+        get: Getter,
+        installed: &(PathBuf, DifficultyTable),
+        force: bool,
+        now: u64,
+    ) -> Result<UpdateOutcome, TableError> {
         let (path, old) = installed;
         let age = now.saturating_sub(old.fetched);
         if !force && old.fetched != 0 && age < MIN_UPDATE_INTERVAL_SECS {
-            return Ok(UpdateOutcome::TooSoon { minutes_ago: age / 60 });
+            return Ok(UpdateOutcome::TooSoon {
+                minutes_ago: age / 60,
+            });
         }
         let fresh = fetch_table(get, &old.source)?;
         self.write_atomic(path, &fresh.serialize())?;
-        Ok(UpdateOutcome::Updated { entries: fresh.entries.len(), previous_entries: old.entries.len() })
+        Ok(UpdateOutcome::Updated {
+            entries: fresh.entries.len(),
+            previous_entries: old.entries.len(),
+        })
     }
 }
 
@@ -413,7 +480,12 @@ mod tests {
 
     impl Web {
         fn new(pages: &[(&str, &str)]) -> Self {
-            Self(pages.iter().map(|(u, b)| (u.to_string(), b.as_bytes().to_vec())).collect())
+            Self(
+                pages
+                    .iter()
+                    .map(|(u, b)| (u.to_string(), b.as_bytes().to_vec()))
+                    .collect(),
+            )
         }
 
         fn get(&self) -> impl Fn(&str, u64) -> Result<Vec<u8>, String> + '_ {
@@ -453,17 +525,50 @@ mod tests {
     #[test]
     fn urls_resolve_like_a_browser() {
         let base = "https://example.invalid/sl/table.html?x=1";
-        assert_eq!(resolve_url(base, "header.json").unwrap(), "https://example.invalid/sl/header.json");
-        assert_eq!(resolve_url(base, "./header.json").unwrap(), "https://example.invalid/sl/header.json");
-        assert_eq!(resolve_url(base, "../data/score.json").unwrap(), "https://example.invalid/data/score.json");
-        assert_eq!(resolve_url(base, "/root/score.json").unwrap(), "https://example.invalid/root/score.json");
-        assert_eq!(resolve_url(base, "//cdn.example.invalid/s.json").unwrap(), "https://cdn.example.invalid/s.json");
-        assert_eq!(resolve_url(base, "http://other.invalid/s.json").unwrap(), "http://other.invalid/s.json");
-        assert_eq!(resolve_url(base, "score.json?v=2").unwrap(), "https://example.invalid/sl/score.json?v=2");
-        assert_eq!(resolve_url("https://example.invalid", "a.json").unwrap(), "https://example.invalid/a.json");
+        assert_eq!(
+            resolve_url(base, "header.json").unwrap(),
+            "https://example.invalid/sl/header.json"
+        );
+        assert_eq!(
+            resolve_url(base, "./header.json").unwrap(),
+            "https://example.invalid/sl/header.json"
+        );
+        assert_eq!(
+            resolve_url(base, "../data/score.json").unwrap(),
+            "https://example.invalid/data/score.json"
+        );
+        assert_eq!(
+            resolve_url(base, "/root/score.json").unwrap(),
+            "https://example.invalid/root/score.json"
+        );
+        assert_eq!(
+            resolve_url(base, "//cdn.example.invalid/s.json").unwrap(),
+            "https://cdn.example.invalid/s.json"
+        );
+        assert_eq!(
+            resolve_url(base, "http://other.invalid/s.json").unwrap(),
+            "http://other.invalid/s.json"
+        );
+        assert_eq!(
+            resolve_url(base, "score.json?v=2").unwrap(),
+            "https://example.invalid/sl/score.json?v=2"
+        );
+        assert_eq!(
+            resolve_url("https://example.invalid", "a.json").unwrap(),
+            "https://example.invalid/a.json"
+        );
         // Never above the root, never another scheme.
-        assert_eq!(resolve_url(base, "../../../x.json").unwrap(), "https://example.invalid/x.json");
-        for bad in ["file:///etc/passwd", "ftp://example.invalid/x", "javascript:alert(1)", "data:text/plain,hi", ""] {
+        assert_eq!(
+            resolve_url(base, "../../../x.json").unwrap(),
+            "https://example.invalid/x.json"
+        );
+        for bad in [
+            "file:///etc/passwd",
+            "ftp://example.invalid/x",
+            "javascript:alert(1)",
+            "data:text/plain,hi",
+            "",
+        ] {
             assert!(resolve_url(base, bad).is_err(), "{bad}");
         }
     }
@@ -477,31 +582,64 @@ mod tests {
             page(r#"<meta charset="utf-8"><meta name=bmstable content=header.json>"#),
             page("<meta\n name=\"bmstable\"\n content=\"header.json\"\n>"),
         ] {
-            assert_eq!(find_bmstable_meta(&html).as_deref(), Some("header.json"), "{html}");
+            assert_eq!(
+                find_bmstable_meta(&html).as_deref(),
+                Some("header.json"),
+                "{html}"
+            );
         }
-        assert_eq!(find_bmstable_meta(&page(r#"<meta name="viewport" content="width=device-width">"#)), None);
+        assert_eq!(
+            find_bmstable_meta(&page(
+                r#"<meta name="viewport" content="width=device-width">"#
+            )),
+            None
+        );
         assert_eq!(find_bmstable_meta("no html here"), None);
     }
 
     #[test]
     fn a_table_is_fetched_from_its_page() {
         let web = Web::new(&[
-            ("https://t.invalid/sl/table.html", &page(r#"<meta name="bmstable" content="header.json">"#)),
-            ("https://t.invalid/sl/header.json", r#"{"name":"Satellite","symbol":"sl","data_url":"score.json","level_order":["?","3",12]}"#),
+            (
+                "https://t.invalid/sl/table.html",
+                &page(r#"<meta name="bmstable" content="header.json">"#),
+            ),
+            (
+                "https://t.invalid/sl/header.json",
+                r#"{"name":"Satellite","symbol":"sl","data_url":"score.json","level_order":["?","3",12]}"#,
+            ),
             ("https://t.invalid/sl/score.json", &data_json()),
         ]);
         let table = fetch_table(&web.get(), "https://t.invalid/sl/table.html").unwrap();
 
-        assert_eq!((table.name.as_str(), table.symbol.as_str()), ("Satellite", "sl"));
-        assert_eq!(table.source, "https://t.invalid/sl/header.json", "updates re-fetch the header");
-        assert_eq!(table.level_order, ["?", "3", "12"], "numbers in level_order become text");
+        assert_eq!(
+            (table.name.as_str(), table.symbol.as_str()),
+            ("Satellite", "sl")
+        );
+        assert_eq!(
+            table.source, "https://t.invalid/sl/header.json",
+            "updates re-fetch the header"
+        );
+        assert_eq!(
+            table.level_order,
+            ["?", "3", "12"],
+            "numbers in level_order become text"
+        );
         // Three of the five entries can be matched.
         assert_eq!(table.entries.len(), 3);
         assert_eq!(table.entries[0].title, "日本語 \"A\"");
         assert_eq!(table.entries[0].sha256, ChartId::from_hex(SHA_A));
         assert_eq!(table.entries[0].md5, md5_from_hex(MD5_A));
-        assert_eq!((table.entries[1].level.as_str(), table.entries[1].sha256), ("12", None), "numeric level, md5 only");
-        assert_eq!(table.entries[1].md5, md5_from_hex(MD5_B), "upper case hex is normalized");
+        assert_eq!(
+            (table.entries[1].level.as_str(), table.entries[1].sha256),
+            ("12", None),
+            "numeric level, md5 only"
+        );
+        assert_eq!(
+            table.entries[1].md5,
+            md5_from_hex(MD5_B),
+            "upper case hex is normalized"
+        );
         assert_eq!(table.entries[2].md5, None);
         assert_eq!(table.entries[2].sha256, ChartId::from_hex(SHA_B));
         assert!(table.fetched > 0);
@@ -510,7 +648,9 @@ mod tests {
     #[test]
     fn a_header_json_address_works_directly_and_a_byte_order_mark_is_ignored() {
         let mut header = b"\xef\xbb\xbf".to_vec();
-        header.extend_from_slice(br#"{"name":"Direct","symbol":"d","data_url":"https://data.invalid/x.json"}"#);
+        header.extend_from_slice(
+            br#"{"name":"Direct","symbol":"d","data_url":"https://data.invalid/x.json"}"#,
+        );
         let mut web = Web::new(&[("https://data.invalid/x.json", &data_json())]);
         web.0.insert("https://t.invalid/header.json".into(), header);
 
@@ -523,12 +663,27 @@ mod tests {
     fn bad_tables_are_refused_with_a_reason() {
         let web = Web::new(&[
             ("https://t.invalid/plain.html", "<html>no table here</html>"),
-            ("https://t.invalid/nameless.json", r#"{"data_url":"d.json"}"#),
+            (
+                "https://t.invalid/nameless.json",
+                r#"{"data_url":"d.json"}"#,
+            ),
             ("https://t.invalid/nodata.json", r#"{"name":"N"}"#),
-            ("https://t.invalid/badscheme.json", r#"{"name":"N","data_url":"file:///etc/passwd"}"#),
-            ("https://t.invalid/empty.json", r#"{"name":"N","data_url":"empty-data.json"}"#),
-            ("https://t.invalid/empty-data.json", r#"[{"title":"no hashes"}]"#),
-            ("https://t.invalid/object.json", r#"{"name":"N","data_url":"object-data.json"}"#),
+            (
+                "https://t.invalid/badscheme.json",
+                r#"{"name":"N","data_url":"file:///etc/passwd"}"#,
+            ),
+            (
+                "https://t.invalid/empty.json",
+                r#"{"name":"N","data_url":"empty-data.json"}"#,
+            ),
+            (
+                "https://t.invalid/empty-data.json",
+                r#"[{"title":"no hashes"}]"#,
+            ),
+            (
+                "https://t.invalid/object.json",
+                r#"{"name":"N","data_url":"object-data.json"}"#,
+            ),
             ("https://t.invalid/object-data.json", r#"{"not":"a list"}"#),
             ("https://t.invalid/garbled.json", r#"{"name":"N""#),
         ]);
@@ -565,7 +720,11 @@ mod tests {
             source: source.into(),
             fetched,
             entries: (0..entries)
-                .map(|i| TableEntry { level: "1".into(), sha256: Some(ChartId::synthetic(i as u64)), ..TableEntry::default() })
+                .map(|i| TableEntry {
+                    level: "1".into(),
+                    sha256: Some(ChartId::synthetic(i as u64)),
+                    ..TableEntry::default()
+                })
                 .collect(),
             ..DifficultyTable::default()
         }
@@ -577,8 +736,17 @@ mod tests {
         let store = TableStore::new(&dir);
         assert!(store.list().is_empty(), "no folder yet is just no tables");
 
-        store.install(&sample_table("Satellite", "https://a.invalid/h.json", 10, 3)).unwrap();
-        store.install(&sample_table("Stella", "https://b.invalid/h.json", 20, 2)).unwrap();
+        store
+            .install(&sample_table(
+                "Satellite",
+                "https://a.invalid/h.json",
+                10,
+                3,
+            ))
+            .unwrap();
+        store
+            .install(&sample_table("Stella", "https://b.invalid/h.json", 20, 2))
+            .unwrap();
 
         let names: Vec<String> = store.list().into_iter().map(|(_, t)| t.name).collect();
         assert_eq!(names, ["Satellite", "Stella"], "ordered by file name");
@@ -587,14 +755,32 @@ mod tests {
         assert!(store.find("nope").is_none());
 
         // Installing the same table again replaces it; no temp file is left.
-        store.install(&sample_table("Satellite", "https://a.invalid/h.json", 30, 5)).unwrap();
+        store
+            .install(&sample_table(
+                "Satellite",
+                "https://a.invalid/h.json",
+                30,
+                5,
+            ))
+            .unwrap();
         assert_eq!(store.find("satellite").unwrap().1.entries.len(), 5);
         assert!(!dir.join("satellite.tbl.tmp").exists());
 
         // Another table with the same file name is not allowed to overwrite it.
-        let clash = store.install(&sample_table("SATELLITE", "https://other.invalid/h.json", 1, 1)).unwrap_err();
+        let clash = store
+            .install(&sample_table(
+                "SATELLITE",
+                "https://other.invalid/h.json",
+                1,
+                1,
+            ))
+            .unwrap_err();
         assert!(clash.0.contains("already installed"), "{clash}");
-        assert_eq!(store.find("satellite").unwrap().1.entries.len(), 5, "left as it was");
+        assert_eq!(
+            store.find("satellite").unwrap().1.entries.len(),
+            5,
+            "left as it was"
+        );
 
         assert_eq!(store.remove("Stella").unwrap(), "Stella");
         assert!(store.remove("Stella").is_err());
@@ -606,7 +792,9 @@ mod tests {
     fn nothing_without_charts_is_installed() {
         let dir = temp_dir("empty");
         let store = TableStore::new(&dir);
-        assert!(store.install(&sample_table("Empty", "https://a.invalid/h.json", 1, 0)).is_err());
+        assert!(store
+            .install(&sample_table("Empty", "https://a.invalid/h.json", 1, 0))
+            .is_err());
         assert!(store.list().is_empty());
         let _ = fs::remove_dir_all(dir);
     }
@@ -615,7 +803,9 @@ mod tests {
     fn files_that_are_not_tables_are_skipped_in_the_list() {
         let dir = temp_dir("junk");
         let store = TableStore::new(&dir);
-        store.install(&sample_table("Real", "https://a.invalid/h.json", 1, 1)).unwrap();
+        store
+            .install(&sample_table("Real", "https://a.invalid/h.json", 1, 1))
+            .unwrap();
         fs::write(dir.join("notes.tbl"), "just some notes").unwrap();
         fs::write(dir.join("readme.txt"), "ignored").unwrap();
         assert_eq!(store.list().len(), 1);
@@ -624,7 +814,10 @@ mod tests {
 
     fn web_with_table() -> Web {
         Web::new(&[
-            ("https://t.invalid/header.json", r#"{"name":"Sat","symbol":"sl","data_url":"score.json"}"#),
+            (
+                "https://t.invalid/header.json",
+                r#"{"name":"Sat","symbol":"sl","data_url":"score.json"}"#,
+            ),
             ("https://t.invalid/score.json", &data_json()),
         ])
     }
@@ -640,12 +833,23 @@ mod tests {
         let fetched = installed.1.fetched;
 
         // Right after fetching: asks for --force.
-        let soon = store.update(&web.get(), &installed, false, fetched + 60).unwrap();
+        let soon = store
+            .update(&web.get(), &installed, false, fetched + 60)
+            .unwrap();
         assert_eq!(soon, UpdateOutcome::TooSoon { minutes_ago: 1 });
         // Forced, or after the interval: fetched again.
-        for (force, now) in [(true, fetched + 60), (false, fetched + MIN_UPDATE_INTERVAL_SECS)] {
+        for (force, now) in [
+            (true, fetched + 60),
+            (false, fetched + MIN_UPDATE_INTERVAL_SECS),
+        ] {
             let outcome = store.update(&web.get(), &installed, force, now).unwrap();
-            assert_eq!(outcome, UpdateOutcome::Updated { entries: 3, previous_entries: 3 });
+            assert_eq!(
+                outcome,
+                UpdateOutcome::Updated {
+                    entries: 3,
+                    previous_entries: 3
+                }
+            );
         }
         let _ = fs::remove_dir_all(dir);
     }
@@ -655,20 +859,33 @@ mod tests {
         let dir = temp_dir("failed");
         let store = TableStore::new(&dir);
         let web = web_with_table();
-        store.install(&fetch_table(&web.get(), "https://t.invalid/header.json").unwrap()).unwrap();
+        store
+            .install(&fetch_table(&web.get(), "https://t.invalid/header.json").unwrap())
+            .unwrap();
         let installed = store.find("sat").unwrap();
         let before = fs::read_to_string(&installed.0).unwrap();
 
         // The server is gone, and then it serves a table with nothing in it.
         let gone = Web::new(&[]);
-        assert!(store.update(&gone.get(), &installed, true, u64::MAX).is_err());
+        assert!(store
+            .update(&gone.get(), &installed, true, u64::MAX)
+            .is_err());
         let emptied = Web::new(&[
-            ("https://t.invalid/header.json", r#"{"name":"Sat","data_url":"score.json"}"#),
+            (
+                "https://t.invalid/header.json",
+                r#"{"name":"Sat","data_url":"score.json"}"#,
+            ),
             ("https://t.invalid/score.json", "[]"),
         ]);
-        assert!(store.update(&emptied.get(), &installed, true, u64::MAX).is_err());
+        assert!(store
+            .update(&emptied.get(), &installed, true, u64::MAX)
+            .is_err());
 
-        assert_eq!(fs::read_to_string(&installed.0).unwrap(), before, "the cache is untouched");
+        assert_eq!(
+            fs::read_to_string(&installed.0).unwrap(),
+            before,
+            "the cache is untouched"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

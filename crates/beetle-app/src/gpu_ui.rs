@@ -53,7 +53,11 @@ pub struct GpuUi {
 fn premultiplied(img: &ImageBuffer, color_key_black: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(img.pixels.len() * 4);
     for p in &img.pixels {
-        let a = if color_key_black && p.r == 0 && p.g == 0 && p.b == 0 { 0 } else { p.a };
+        let a = if color_key_black && p.r == 0 && p.g == 0 && p.b == 0 {
+            0
+        } else {
+            p.a
+        };
         let pm = |c: u8| ((c as u16 * a as u16 + 127) / 255) as u8;
         out.extend_from_slice(&[pm(p.r), pm(p.g), pm(p.b), a]);
     }
@@ -102,7 +106,12 @@ impl GpuUi {
     ) -> Option<SizedTexture> {
         if let Some(v) = self.videos.get_mut(&(id, keyed)) {
             if v.serial != serial && v.tex.width == frame.width && v.tex.height == frame.height {
-                backend.update_texture(v.tex.id, frame.width, frame.height, &premultiplied(frame, keyed));
+                backend.update_texture(
+                    v.tex.id,
+                    frame.width,
+                    frame.height,
+                    &premultiplied(frame, keyed),
+                );
                 v.serial = serial;
             }
             if v.tex.width == frame.width && v.tex.height == frame.height {
@@ -111,13 +120,15 @@ impl GpuUi {
             backend.destroy_texture(v.tex.id);
             self.videos.remove(&(id, keyed));
         }
-        let tex_id = backend.create_texture(frame.width, frame.height, &premultiplied(frame, keyed))?;
+        let tex_id =
+            backend.create_texture(frame.width, frame.height, &premultiplied(frame, keyed))?;
         let tex = SizedTexture {
             id: tex_id,
             width: frame.width,
             height: frame.height,
         };
-        self.videos.insert((id, keyed), VideoTexture { tex, serial });
+        self.videos
+            .insert((id, keyed), VideoTexture { tex, serial });
         Some(tex)
     }
 
@@ -126,7 +137,11 @@ impl GpuUi {
     /// re-uploaded from the CPU-side cache on demand).
     pub fn trim_stage_textures(&mut self, backend: &mut dyn GpuBackend, keep: ChartId) {
         const MAX_STAGE_TEXTURES: usize = 32;
-        let count = self.images.keys().filter(|k| matches!(k, ImageKey::Stage(_))).count();
+        let count = self
+            .images
+            .keys()
+            .filter(|k| matches!(k, ImageKey::Stage(_)))
+            .count();
         if count <= MAX_STAGE_TEXTURES {
             return;
         }
@@ -189,8 +204,15 @@ pub fn gameplay_bga_texture(
     song_id: ChartId,
     audio_time: f64,
 ) -> Option<SizedTexture> {
-    let available = |id| bank.contains_key(&id) || videos.get(&id).is_some_and(|v| v.current_frame().is_some());
-    match crate::state::resolve_bga_id(poor_until_time, poor_bmp, current_bmp, available, audio_time) {
+    let available =
+        |id| bank.contains_key(&id) || videos.get(&id).is_some_and(|v| v.current_frame().is_some());
+    match crate::state::resolve_bga_id(
+        poor_until_time,
+        poor_bmp,
+        current_bmp,
+        available,
+        audio_time,
+    ) {
         Some(id) => bga_texture(gpu, backend, bank, videos, id, false),
         None => gpu.image(backend, ImageKey::Stage(song_id), stage_image?),
     }
@@ -207,7 +229,11 @@ mod tests {
         img.pixels[1] = ColorRgba::new(200, 100, 50, 128);
         img.pixels[2] = ColorRgba::new(10, 0, 0, 255);
         let plain = premultiplied(&img, false);
-        assert_eq!(&plain[0..4], &[0, 0, 0, 255], "black stays opaque without key");
+        assert_eq!(
+            &plain[0..4],
+            &[0, 0, 0, 255],
+            "black stays opaque without key"
+        );
         assert_eq!(&plain[4..8], &[100, 50, 25, 128]);
         let keyed = premultiplied(&img, true);
         assert_eq!(&keyed[0..4], &[0, 0, 0, 0], "pure black keyed out");

@@ -44,7 +44,11 @@ fn parse_screen(s: &str) -> Option<AppScreen> {
 /// subsystem binary, so stderr is not visible).
 fn log(msg: &str) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("devtools.log") {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("devtools.log")
+    {
         let _ = writeln!(f, "{msg}");
     }
 }
@@ -124,7 +128,11 @@ impl Capture {
             self.frames,
             self.frames as f64 / secs,
             backend.backend_name(),
-            if cfg!(debug_assertions) { "debug" } else { "release" }
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }
         ));
         let msg = match save_backbuffer(backend, &self.path) {
             Ok((w, h)) => format!("captured {} ({w}x{h})", self.path),
@@ -144,7 +152,10 @@ pub fn save_backbuffer(backend: &mut dyn GpuBackend, path: &str) -> std::io::Res
     let img = ImageBuffer {
         width: w,
         height: h,
-        pixels: px.chunks_exact(4).map(|p| ColorRgba::new(p[0], p[1], p[2], 255)).collect(),
+        pixels: px
+            .chunks_exact(4)
+            .map(|p| ColorRgba::new(p[0], p[1], p[2], 255))
+            .collect(),
     };
     if let Some(dir) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(dir)?;

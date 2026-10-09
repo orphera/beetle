@@ -21,9 +21,29 @@ const CHART_EXTS: [&str; 4] = ["bms", "bme", "bml", "pms"];
 
 /// Header commands `parse_bms` understands (snapshot; keep in sync with `parse_header_line`).
 const SUPPORTED_HEADERS: [&str; 23] = [
-    "PLAYER", "DIFFICULTY", "LNTYPE", "TITLE", "SUBTITLE", "ARTIST", "SUBARTIST", "GENRE", "BPM",
-    "PLAYLEVEL", "RANK", "TOTAL", "VOLWAV", "STAGEFILE", "BANNER", "PREVIEW", "LNOBJ", "LNMODE", "WAVxx", "BMPxx",
-    "BGAxx", "BPMxx", "STOPxx",
+    "PLAYER",
+    "DIFFICULTY",
+    "LNTYPE",
+    "TITLE",
+    "SUBTITLE",
+    "ARTIST",
+    "SUBARTIST",
+    "GENRE",
+    "BPM",
+    "PLAYLEVEL",
+    "RANK",
+    "TOTAL",
+    "VOLWAV",
+    "STAGEFILE",
+    "BANNER",
+    "PREVIEW",
+    "LNOBJ",
+    "LNMODE",
+    "WAVxx",
+    "BMPxx",
+    "BGAxx",
+    "BPMxx",
+    "STOPxx",
 ];
 
 /// Header families that carry a two-digit base-36 id suffix.
@@ -34,21 +54,78 @@ const ID_PREFIXES: [&str; 12] = [
 
 /// Control-flow commands that make the chart's contents depend on a random roll.
 const RANDOM_KEYS: [&str; 10] = [
-    "RANDOM", "IF", "ELSEIF", "ELSE", "ENDIF", "ENDRANDOM", "SETRANDOM", "SWITCH", "CASE", "ENDSW",
+    "RANDOM",
+    "IF",
+    "ELSEIF",
+    "ELSE",
+    "ENDIF",
+    "ENDRANDOM",
+    "SETRANDOM",
+    "SWITCH",
+    "CASE",
+    "ENDSW",
 ];
 
 fn is_supported_channel(ch: &str) -> bool {
     is_mine_channel(ch)
         || matches!(
-        ch,
-        "01" | "02" | "03" | "04" | "06" | "07" | "08" | "09"
-            | "11" | "12" | "13" | "14" | "15" | "16" | "18" | "19"
-            | "21" | "22" | "23" | "24" | "25" | "26" | "28" | "29"
-            | "31" | "32" | "33" | "34" | "35" | "36" | "38" | "39"
-            | "41" | "42" | "43" | "44" | "45" | "46" | "48" | "49"
-            | "51" | "52" | "53" | "54" | "55" | "56" | "58" | "59"
-            | "61" | "62" | "63" | "64" | "65" | "66" | "68" | "69"
-    )
+            ch,
+            "01" | "02"
+                | "03"
+                | "04"
+                | "06"
+                | "07"
+                | "08"
+                | "09"
+                | "11"
+                | "12"
+                | "13"
+                | "14"
+                | "15"
+                | "16"
+                | "18"
+                | "19"
+                | "21"
+                | "22"
+                | "23"
+                | "24"
+                | "25"
+                | "26"
+                | "28"
+                | "29"
+                | "31"
+                | "32"
+                | "33"
+                | "34"
+                | "35"
+                | "36"
+                | "38"
+                | "39"
+                | "41"
+                | "42"
+                | "43"
+                | "44"
+                | "45"
+                | "46"
+                | "48"
+                | "49"
+                | "51"
+                | "52"
+                | "53"
+                | "54"
+                | "55"
+                | "56"
+                | "58"
+                | "59"
+                | "61"
+                | "62"
+                | "63"
+                | "64"
+                | "65"
+                | "66"
+                | "68"
+                | "69"
+        )
 }
 
 fn normalize_header_key(key: &str) -> String {
@@ -81,14 +158,18 @@ fn survey_file(path: &Path) -> FileReport {
     };
     let text = decode_bms_text(&bytes);
 
-    let is_pms = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pms"));
+    let is_pms = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pms"));
     report.tags.insert(format!("F:ext.{}", ext_lower(path)));
 
     // Raw census, independent of what the parser chooses to look at.
     let mut lntype = 1u32;
     for line in text.lines() {
         let line = line.trim();
-        let Some(content) = line.strip_prefix('#') else { continue };
+        let Some(content) = line.strip_prefix('#') else {
+            continue;
+        };
         let content = content.trim_start();
         if content.is_empty() {
             continue;
@@ -143,7 +224,10 @@ fn survey_file(path: &Path) -> FileReport {
             if !secs.is_finite() || secs <= 0.0 {
                 report.tags.insert("F:bad-duration".into());
             }
-            report.tags.insert(format!("F:mode.{}", chart.detect_play_mode_with_hint(is_pms).as_str()));
+            report.tags.insert(format!(
+                "F:mode.{}",
+                chart.detect_play_mode_with_hint(is_pms).as_str()
+            ));
             if chart.header.ln_obj.is_some() {
                 report.tags.insert("F:ln.lnobj".into());
             }
@@ -163,11 +247,15 @@ fn is_mine_channel(ch: &str) -> bool {
 }
 
 fn ext_lower(path: &Path) -> String {
-    path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
+    path.extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
 }
 
 fn collect_charts(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -253,11 +341,23 @@ fn main() {
     }
 
     let total = files.len();
-    let pct = |n: usize| if total == 0 { 0.0 } else { 100.0 * n as f64 / total as f64 };
+    let pct = |n: usize| {
+        if total == 0 {
+            0.0
+        } else {
+            100.0 * n as f64 / total as f64
+        }
+    };
     let example = |idxs: &[usize]| {
         idxs.iter()
             .take(2)
-            .map(|&i| files[i].strip_prefix(&dir).unwrap_or(&files[i]).display().to_string())
+            .map(|&i| {
+                files[i]
+                    .strip_prefix(&dir)
+                    .unwrap_or(&files[i])
+                    .display()
+                    .to_string()
+            })
             .collect::<Vec<_>>()
             .join("  |  ")
     };
@@ -271,14 +371,22 @@ fn main() {
 
     println!("\n== play-mode / extension / LN-style distribution ==");
     for (tag, idxs) in by_tag.iter().filter(|(t, _)| {
-        ["F:mode.", "F:ext.", "F:ln.", "F:mine", "F:random"].iter().any(|p| t.starts_with(p)) && !t.starts_with("F:ln.channel-")
+        ["F:mode.", "F:ext.", "F:ln.", "F:mine", "F:random"]
+            .iter()
+            .any(|p| t.starts_with(p))
+            && !t.starts_with("F:ln.channel-")
     }) {
         println!("  {:>6} ({:>5.1}%)  {tag}", idxs.len(), pct(idxs.len()));
     }
 
     println!("\n== parsed, but not played correctly (likely gaps) ==");
     for (tag, idxs) in by_tag.iter().filter(|(t, _)| is_problem_flag(t)) {
-        println!("  {:>6} ({:>5.1}%)  {tag}   e.g. {}", idxs.len(), pct(idxs.len()), example(idxs));
+        println!(
+            "  {:>6} ({:>5.1}%)  {tag}   e.g. {}",
+            idxs.len(),
+            pct(idxs.len()),
+            example(idxs)
+        );
     }
 
     println!("\n== used by the corpus, ignored by the parser ==");
@@ -287,8 +395,16 @@ fn main() {
         .filter(|(t, _)| (t.starts_with("H:") || t.starts_with("C:")) && !is_supported(t))
         .collect();
     unsupported.sort_by_key(|(_, idxs)| std::cmp::Reverse(idxs.len()));
-    for (tag, idxs) in unsupported.iter().take(if show_all { usize::MAX } else { 25 }) {
-        println!("  {:>6} ({:>5.1}%)  {tag}   e.g. {}", idxs.len(), pct(idxs.len()), example(idxs));
+    for (tag, idxs) in unsupported
+        .iter()
+        .take(if show_all { usize::MAX } else { 25 })
+    {
+        println!(
+            "  {:>6} ({:>5.1}%)  {tag}   e.g. {}",
+            idxs.len(),
+            pct(idxs.len()),
+            example(idxs)
+        );
     }
     if !show_all && unsupported.len() > 25 {
         println!("  ... {} more (use --all)", unsupported.len() - 25);

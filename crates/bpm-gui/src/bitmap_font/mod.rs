@@ -24,7 +24,6 @@ impl BitmapFont {
     pub const CJK_HEIGHT: u32 = 8;
     pub const CJK_SPACING: u32 = 2;
 
-
     /// Checks if character is a full-width CJK or Hangul/Kana glyph.
     #[inline(always)]
     pub fn is_fullwidth(c: char) -> bool {

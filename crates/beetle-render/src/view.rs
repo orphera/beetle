@@ -147,10 +147,20 @@ impl ViewState {
     }
 
     /// Records a judgement; hits (not POOR / MISS) also spawn a burst on `lane`.
-    pub fn trigger_judge_with_lane(&mut self, lane: Lane, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {
+    pub fn trigger_judge_with_lane(
+        &mut self,
+        lane: Lane,
+        grade: JudgeGrade,
+        time_seconds: f64,
+        delta_ms: f64,
+    ) {
         self.last_judge = Some((grade, time_seconds, delta_ms));
         if grade != JudgeGrade::Miss && grade != JudgeGrade::Poor {
-            self.hit_bursts.push(HitBurst { lane, spawn_time: time_seconds, grade });
+            self.hit_bursts.push(HitBurst {
+                lane,
+                spawn_time: time_seconds,
+                grade,
+            });
         }
     }
 

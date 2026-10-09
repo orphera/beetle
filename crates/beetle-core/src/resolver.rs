@@ -200,7 +200,8 @@ mod tests {
 
     #[test]
     fn elseif_and_else_take_at_most_one_branch() {
-        let src = "#SETRANDOM 3\n#IF 1\nA\n#ELSEIF 2\nB\n#ELSEIF 3\nC\n#ELSEIF 3\nX\n#ELSE\nD\n#ENDIF\n";
+        let src =
+            "#SETRANDOM 3\n#IF 1\nA\n#ELSEIF 2\nB\n#ELSEIF 3\nC\n#ELSEIF 3\nX\n#ELSE\nD\n#ENDIF\n";
         assert_eq!(kept(src, 1), ["C"]);
         let src = "#SETRANDOM 9\n#IF 1\nA\n#ELSEIF 2\nB\n#ELSE\nD\n#ENDIF\n";
         assert_eq!(kept(src, 1), ["D"]);

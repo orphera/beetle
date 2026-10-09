@@ -7,8 +7,8 @@ mod common;
 use beetle_core::{Lane, PlayMode};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{
-    draw_key_config, D3d11Backend, EightKForm, ScratchSide, GpuBackend, KeyBinding, KeyConfigFrame, Rebind, SkinConfig, Ui,
-    Viewport,
+    draw_key_config, D3d11Backend, EightKForm, GpuBackend, KeyBinding, KeyConfigFrame, Rebind,
+    ScratchSide, SkinConfig, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -48,26 +48,68 @@ fn key_for(lane: Lane) -> &'static &'static str {
     }
 }
 
-fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, selected: usize, rebinding: Option<Rebind>, name: &str) -> usize {
-    render_with(gpu, ui, mode, (ScratchSide::Left, EightKForm::Inline), selected, rebinding, name)
+fn render(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    mode: PlayMode,
+    selected: usize,
+    rebinding: Option<Rebind>,
+    name: &str,
+) -> usize {
+    render_with(
+        gpu,
+        ui,
+        mode,
+        (ScratchSide::Left, EightKForm::Inline),
+        selected,
+        rebinding,
+        name,
+    )
 }
 
-fn render_with(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, look: (ScratchSide, EightKForm), selected: usize, rebinding: Option<Rebind>, name: &str) -> usize {
+fn render_with(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    mode: PlayMode,
+    look: (ScratchSide, EightKForm),
+    selected: usize,
+    rebinding: Option<Rebind>,
+    name: &str,
+) -> usize {
     let vp = Viewport::new(W, H);
     let mut layout = SkinConfig::default();
     layout.set_play_mode(mode);
     layout.set_scratch_side(mode, look.0);
     layout.set_eight_k_form(look.1);
     let screen = layout.screen_lanes();
-    let labels: Vec<String> = screen.iter().map(|l| format!("{l:?}").to_uppercase()).collect();
+    let labels: Vec<String> = screen
+        .iter()
+        .map(|l| format!("{l:?}").to_uppercase())
+        .collect();
     let lanes: Vec<KeyBinding> = screen
         .iter()
         .zip(&labels)
-        .map(|(&lane, label)| KeyBinding { lane, label, keys: keys_for(lane) })
+        .map(|(&lane, label)| KeyBinding {
+            lane,
+            label,
+            keys: keys_for(lane),
+        })
         .collect();
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.begin(W, H, vp.scale);
-    draw_key_config(ui, &KeyConfigFrame { viewport: &vp, mode, lanes: &lanes, selected, rebinding, layout: "ArcadeZx (Z S X D C F V)", scratch: look.0, form: look.1 });
+    draw_key_config(
+        ui,
+        &KeyConfigFrame {
+            viewport: &vp,
+            mode,
+            lanes: &lanes,
+            selected,
+            rebinding,
+            layout: "ArcadeZx (Z S X D C F V)",
+            scratch: look.0,
+            form: look.1,
+        },
+    );
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
     gpu.end_frame();
@@ -79,17 +121,64 @@ fn render_with(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, look: (Scrat
 #[test]
 fn key_config_layouts() {
     let window = HiddenWindow::with_size(W, H);
-    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP]).expect("WARP device");
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
     let mut ui = Ui::new(1.0);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, 4, None, "7k"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys14, 0, None, "14k"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys9, 3, Some(Rebind::Add), "9k-add"), 1);
+    assert_eq!(
+        render(&mut gpu, &mut ui, PlayMode::Keys14, 0, None, "14k"),
+        1
+    );
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            PlayMode::Keys9,
+            3,
+            Some(Rebind::Add),
+            "9k-add"
+        ),
+        1
+    );
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys4, 1, None, "4k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys6, 3, None, "6k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys8, 0, None, "8k"), 1);
     let right = (ScratchSide::Right, EightKForm::Inline);
     let triggers = (ScratchSide::Left, EightKForm::Triggers);
-    assert_eq!(render_with(&mut gpu, &mut ui, PlayMode::Keys7, right, 7, None, "7k-right"), 1);
-    assert_eq!(render_with(&mut gpu, &mut ui, PlayMode::Keys8, right, 7, None, "8k-right"), 1);
-    assert_eq!(render_with(&mut gpu, &mut ui, PlayMode::Keys8, triggers, 0, None, "8k-triggers"), 1);
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            PlayMode::Keys7,
+            right,
+            7,
+            None,
+            "7k-right"
+        ),
+        1
+    );
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            PlayMode::Keys8,
+            right,
+            7,
+            None,
+            "8k-right"
+        ),
+        1
+    );
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            PlayMode::Keys8,
+            triggers,
+            0,
+            None,
+            "8k-triggers"
+        ),
+        1
+    );
 }

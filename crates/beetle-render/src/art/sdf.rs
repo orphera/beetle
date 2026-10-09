@@ -91,7 +91,15 @@ pub fn round_box(x: f32, y: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> 
 /// Box from (l, t) to (r, b) with the top-left and bottom-right corners
 /// chamfered by `cut` pixels (the "arcade cabinet" cut-corner shape).
 pub fn cut_box(x: f32, y: f32, l: f32, t: f32, r: f32, b: f32, cut: f32) -> f32 {
-    let bx = round_box(x, y, (l + r) / 2.0, (t + b) / 2.0, (r - l) / 2.0, (b - t) / 2.0, 0.0);
+    let bx = round_box(
+        x,
+        y,
+        (l + r) / 2.0,
+        (t + b) / 2.0,
+        (r - l) / 2.0,
+        (b - t) / 2.0,
+        0.0,
+    );
     let s = std::f32::consts::FRAC_1_SQRT_2;
     let tl = (cut - ((x - l) + (y - t))) * s;
     let br = (cut - ((r - x) + (b - y))) * s;
@@ -126,7 +134,8 @@ pub fn in_polygon(x: f32, y: f32, pts: &[(f32, f32)]) -> bool {
 
 /// Deterministic per-pixel hash noise in 0..1.
 pub fn hash_noise(x: u32, y: u32, seed: u32) -> f32 {
-    let mut h = x.wrapping_mul(0x8da6_b343) ^ y.wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
+    let mut h =
+        x.wrapping_mul(0x8da6_b343) ^ y.wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
     h ^= h >> 13;
     h = h.wrapping_mul(0x5bd1_e995);
     h ^= h >> 15;
@@ -148,9 +157,18 @@ mod tests {
 
     #[test]
     fn cut_box_removes_corners() {
-        assert!(cut_box(0.5, 0.5, 0.0, 0.0, 20.0, 20.0, 6.0) > 0.0, "TL corner cut");
-        assert!(cut_box(19.5, 19.5, 0.0, 0.0, 20.0, 20.0, 6.0) > 0.0, "BR corner cut");
-        assert!(cut_box(19.5, 0.5, 0.0, 0.0, 20.0, 20.0, 6.0) < 0.0, "TR corner kept");
+        assert!(
+            cut_box(0.5, 0.5, 0.0, 0.0, 20.0, 20.0, 6.0) > 0.0,
+            "TL corner cut"
+        );
+        assert!(
+            cut_box(19.5, 19.5, 0.0, 0.0, 20.0, 20.0, 6.0) > 0.0,
+            "BR corner cut"
+        );
+        assert!(
+            cut_box(19.5, 0.5, 0.0, 0.0, 20.0, 20.0, 6.0) < 0.0,
+            "TR corner kept"
+        );
     }
 
     #[test]

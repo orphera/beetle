@@ -97,7 +97,10 @@ impl RegistryCacheManager {
     }
 
     /// Loads all available cached indexes for the given active sources.
-    pub fn load_all_cached(&self, sources: &[&RegistrySource]) -> Vec<(RegistrySource, RemoteRegistryIndex)> {
+    pub fn load_all_cached(
+        &self,
+        sources: &[&RegistrySource],
+    ) -> Vec<(RegistrySource, RemoteRegistryIndex)> {
         let mut results = Vec::new();
         for &source in sources {
             if !source.enabled {
@@ -128,23 +131,26 @@ mod tests {
         let cache = RegistryCacheManager::new(&temp_dir);
 
         let mut index = RemoteRegistryIndex::new("Test", "http://test.org", "2026-09-14");
-        index.packages.push(crate::registry::remote::RemotePackageMetadata {
-            id: "test-song".to_string(),
-            version: "1.0.0".to_string(),
-            state_hash: "abcdef".to_string(),
-            title: "Test Song".to_string(),
-            artist: "Tester".to_string(),
-            genre: None,
-            bpm: None,
-            play_levels: vec![5],
-            keysounds_count: None,
-            size_bytes: 500,
-            sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
-            download_url: "song.bmsp".to_string(),
-            preview_audio_url: None,
-            banner_image_url: None,
-            companion_bga: None,
-        });
+        index
+            .packages
+            .push(crate::registry::remote::RemotePackageMetadata {
+                id: "test-song".to_string(),
+                version: "1.0.0".to_string(),
+                state_hash: "abcdef".to_string(),
+                title: "Test Song".to_string(),
+                artist: "Tester".to_string(),
+                genre: None,
+                bpm: None,
+                play_levels: vec![5],
+                keysounds_count: None,
+                size_bytes: 500,
+                sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    .to_string(),
+                download_url: "song.bmsp".to_string(),
+                preview_audio_url: None,
+                banner_image_url: None,
+                companion_bga: None,
+            });
 
         // 1. Initially not cached
         assert!(cache.load_index("official").unwrap().is_none());

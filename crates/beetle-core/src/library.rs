@@ -1,7 +1,7 @@
 use crate::bms::{decode_bms_text, parse_bms, NoteType, PlayMode};
-use crate::rules::LnRule;
 use crate::escape::{escape_field, unescape_field};
 use crate::identity::{hash_chart_bytes, md5_from_hex, md5_to_hex, ChartId};
+use crate::rules::LnRule;
 use crate::score::ScoreStore;
 
 /// High-speed FNV-1a 64-bit hash for chart identification without external cryptographic dependencies.
@@ -136,7 +136,8 @@ impl SongMetadata {
     /// How many notes the song has under the rule the player's setting gives it
     /// (the maximum combo, and half the maximum EX score).
     pub fn notes_for(&self, option: crate::rules::LnOption) -> usize {
-        self.score_rule(option).map_or(self.notes_count, |rule| self.notes_count_for(rule))
+        self.score_rule(option)
+            .map_or(self.notes_count, |rule| self.notes_count_for(rule))
     }
 
     /// The long note rule this song's score record is filed under with the
@@ -282,8 +283,14 @@ pub fn sort_songs(
         }
         SortMode::ScoreRate => {
             songs.sort_by(|a, b| {
-                let acc_a = store.best(a, ln_option).map(|r| r.accuracy_rate()).unwrap_or(0.0);
-                let acc_b = store.best(b, ln_option).map(|r| r.accuracy_rate()).unwrap_or(0.0);
+                let acc_a = store
+                    .best(a, ln_option)
+                    .map(|r| r.accuracy_rate())
+                    .unwrap_or(0.0);
+                let acc_b = store
+                    .best(b, ln_option)
+                    .map(|r| r.accuracy_rate())
+                    .unwrap_or(0.0);
                 acc_b
                     .partial_cmp(&acc_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -408,7 +415,12 @@ mod tests {
             },
         ];
         let store = ScoreStore::new();
-        sort_songs(&mut songs, SortMode::Level, &store, crate::rules::LnOption::Auto);
+        sort_songs(
+            &mut songs,
+            SortMode::Level,
+            &store,
+            crate::rules::LnOption::Auto,
+        );
         assert_eq!(songs[0].play_level, 4);
         assert_eq!(songs[1].play_level, 8);
     }
@@ -426,9 +438,13 @@ mod tests {
         assert_eq!((meta.bpm_min, meta.bpm_max), (75.0, 300.0));
         assert_eq!(meta.bpm_label(), "75-300");
 
-        let flat = SongMetadata::from_content("b.bms", "#TITLE T
+        let flat = SongMetadata::from_content(
+            "b.bms",
+            "#TITLE T
 #BPM 150
-").unwrap();
+",
+        )
+        .unwrap();
         assert_eq!(flat.bpm_label(), "150");
     }
 
@@ -445,7 +461,11 @@ mod tests {
         assert_eq!(a.id, b.id, "same bytes, different places: same chart");
         assert_eq!(a.id, ChartId::of_bytes(CHART));
         assert_eq!(a.md5, bms_hash::md5_digest(CHART));
-        assert_eq!(a.legacy_hash, compute_chart_hash(CHART), "the legacy key is unchanged");
+        assert_eq!(
+            a.legacy_hash,
+            compute_chart_hash(CHART),
+            "the legacy key is unchanged"
+        );
 
         let crlf = CHART.iter().fold(Vec::new(), |mut v, &c| {
             if c == b'\n' {
@@ -462,7 +482,11 @@ mod tests {
     fn song_cache_v3_roundtrips_and_old_caches_are_dropped() {
         let songs = vec![
             SongMetadata::from_bytes("a.bms", CHART).unwrap(),
-            SongMetadata::from_bytes("b\ttab.bms", b"#TITLE Two\n#BPM 90\n#LNMODE 2\n#00112:01\n#00151:0101\n").unwrap(),
+            SongMetadata::from_bytes(
+                "b\ttab.bms",
+                b"#TITLE Two\n#BPM 90\n#LNMODE 2\n#00112:01\n#00151:0101\n",
+            )
+            .unwrap(),
         ];
         let text = serialize_song_cache(&songs);
         assert!(text.starts_with("#BEETLE_SONGS_V4\n"));
@@ -498,7 +522,10 @@ mod tests {
         assert_eq!(song.notes_count_for(LnRule::Cn), 5);
         assert_eq!(song.notes_count_for(LnRule::Ln), 3);
         let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
-        assert_eq!(plain.notes_count_for(LnRule::Ln), plain.notes_count_for(LnRule::Cn));
+        assert_eq!(
+            plain.notes_count_for(LnRule::Ln),
+            plain.notes_count_for(LnRule::Cn)
+        );
     }
 
     #[test]
@@ -519,10 +546,15 @@ mod tests {
 
     #[test]
     fn a_cache_line_without_identity_is_rejected() {
-        let line = SongMetadata::from_bytes("a.bms", CHART).unwrap().serialize_line();
+        let line = SongMetadata::from_bytes("a.bms", CHART)
+            .unwrap()
+            .serialize_line();
         let without_id: Vec<&str> = line.split('\t').filter(|f| !f.starts_with("id=")).collect();
         assert!(SongMetadata::parse_line(&without_id.join("	")).is_none());
-        let without_md5: Vec<&str> = line.split('\t').filter(|f| !f.starts_with("md5=")).collect();
+        let without_md5: Vec<&str> = line
+            .split('\t')
+            .filter(|f| !f.starts_with("md5="))
+            .collect();
         assert!(SongMetadata::parse_line(&without_md5.join("	")).is_none());
     }
 }

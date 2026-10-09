@@ -5,7 +5,9 @@
 
 mod common;
 
-use beetle_core::{ClearType, GaugeType, LaneModifier, PlayMode, PlayResult, ScoreStore, SongMetadata};
+use beetle_core::{
+    ClearType, GaugeType, LaneModifier, PlayMode, PlayResult, ScoreStore, SongMetadata,
+};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_song_select, D3d11Backend, GpuBackend, SelectFrame,
@@ -20,19 +22,79 @@ fn library() -> Vec<SongMetadata> {
     let entries: [(&str, &str, &str, u32, PlayMode); 15] = [
         ("Aci-L", "裏吉川", "TRANCE", 7, PlayMode::Keys7),
         ("Aci-L -EX-", "裏吉川", "TRANCE", 11, PlayMode::Keys7),
-        ("AIRSHAVER [7key, Another]", "Unknown", "HARDCORE", 12, PlayMode::Keys7),
-        ("AIRSHAVER [14key, Another]", "Unknown", "HARDCORE", 12, PlayMode::Keys14),
-        ("aliceblue (Radio Edit) (SP ANOTHER)", "Ym1024 feat. lamie*", "POP", 10, PlayMode::Keys7),
-        ("冥 -MEI- (Original Mix)", "Amuro vs Killer", "HARD TRANCE", 12, PlayMode::Keys7),
-        ("가을밤의 신호등", "모래시계 사운드", "K-POP", 4, PlayMode::Keys5),
-        ("Chrono Diver -PENDULUMs-", "Sound Holic", "DRUM'N'BASS", 9, PlayMode::Keys7),
-        ("Concertino in Blue", "Tatsh", "CLASSICAL", 8, PlayMode::Keys7),
-        ("Love & Justice ~Endless Summer Night Extended Mix~", "BACO", "SPEEDCORE", 13, PlayMode::Keys7),
+        (
+            "AIRSHAVER [7key, Another]",
+            "Unknown",
+            "HARDCORE",
+            12,
+            PlayMode::Keys7,
+        ),
+        (
+            "AIRSHAVER [14key, Another]",
+            "Unknown",
+            "HARDCORE",
+            12,
+            PlayMode::Keys14,
+        ),
+        (
+            "aliceblue (Radio Edit) (SP ANOTHER)",
+            "Ym1024 feat. lamie*",
+            "POP",
+            10,
+            PlayMode::Keys7,
+        ),
+        (
+            "冥 -MEI- (Original Mix)",
+            "Amuro vs Killer",
+            "HARD TRANCE",
+            12,
+            PlayMode::Keys7,
+        ),
+        (
+            "가을밤의 신호등",
+            "모래시계 사운드",
+            "K-POP",
+            4,
+            PlayMode::Keys5,
+        ),
+        (
+            "Chrono Diver -PENDULUMs-",
+            "Sound Holic",
+            "DRUM'N'BASS",
+            9,
+            PlayMode::Keys7,
+        ),
+        (
+            "Concertino in Blue",
+            "Tatsh",
+            "CLASSICAL",
+            8,
+            PlayMode::Keys7,
+        ),
+        (
+            "Love & Justice ~Endless Summer Night Extended Mix~",
+            "BACO",
+            "SPEEDCORE",
+            13,
+            PlayMode::Keys7,
+        ),
         ("MilK", "moe", "ELECTRO", 6, PlayMode::Keys7),
-        ("Blue-White Crazystars [6K]", "beta", "HAPPY HARDCORE", 12, PlayMode::Keys6),
+        (
+            "Blue-White Crazystars [6K]",
+            "beta",
+            "HAPPY HARDCORE",
+            12,
+            PlayMode::Keys6,
+        ),
         ("Black Lotus [8K]", "Wa.", "TRANCE", 10, PlayMode::Keys8),
         ("Bahamut [4K]", "UE", "TRANCE", 11, PlayMode::Keys4),
-        ("PrayStation (HD Edit)", "Ras", "BREAKCORE", 11, PlayMode::Keys14),
+        (
+            "PrayStation (HD Edit)",
+            "Ras",
+            "BREAKCORE",
+            11,
+            PlayMode::Keys14,
+        ),
     ];
     entries
         .iter()
@@ -97,7 +159,14 @@ enum Overlay {
     Exit,
 }
 
-fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, overlay: Overlay, name: &str) -> usize {
+fn render(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    selected: usize,
+    search: &str,
+    overlay: Overlay,
+    name: &str,
+) -> usize {
     let vp = Viewport::new(W, H);
     let songs = library();
     // Two tables: song 6 (the highlighted one) is in both, a few others in the first.
@@ -106,14 +175,20 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
         sha256: Some(beetle_core::ChartId::synthetic(n)),
         ..Default::default()
     };
-    let table = |name: &str, symbol: &str, entries: Vec<beetle_core::TableEntry>| beetle_core::DifficultyTable {
-        name: name.into(),
-        symbol: symbol.into(),
-        entries,
-        ..Default::default()
+    let table = |name: &str, symbol: &str, entries: Vec<beetle_core::TableEntry>| {
+        beetle_core::DifficultyTable {
+            name: name.into(),
+            symbol: symbol.into(),
+            entries,
+            ..Default::default()
+        }
     };
     let mut tables = beetle_core::TableIndex::new(vec![
-        table("Satellite", "sl", vec![entry(6, "3"), entry(2, "1"), entry(4, "12")]),
+        table(
+            "Satellite",
+            "sl",
+            vec![entry(6, "3"), entry(2, "1"), entry(4, "12")],
+        ),
         table("Stella", "st", vec![entry(6, "5")]),
     ]);
     tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
@@ -123,7 +198,11 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
         Vec::new()
     };
     let scores = scores();
-    let chips = vec!["HI-SPEED 1100".to_string(), "REGULAR".into(), "GROOVE".into()];
+    let chips = vec![
+        "HI-SPEED 1100".to_string(),
+        "REGULAR".into(),
+        "GROOVE".into(),
+    ];
 
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.begin(W, H, vp.scale);
@@ -138,7 +217,11 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, selected: usize, search: &str, ov
             tables: &tables,
             ln_option: beetle_core::LnOption::Auto,
             // The longest kind of folder title: a difficulty table with its owned count.
-            folder: if name == "noplay" { "A TABLE WITH A VERY…  1,234 / 12,345" } else { "ALL SONGS" },
+            folder: if name == "noplay" {
+                "A TABLE WITH A VERY…  1,234 / 12,345"
+            } else {
+                "ALL SONGS"
+            },
             sort: "TITLE",
             search,
             search_active: !search.is_empty(),
@@ -194,9 +277,18 @@ fn song_select_layouts() {
     let mut ui = Ui::new(1.0);
     assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::None, "list"), 1);
     assert_eq!(render(&mut gpu, &mut ui, 9, "", Overlay::None, "noplay"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, 0, "zzz", Overlay::None, "empty"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, 13, "", Overlay::None, "ue-modes"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::Options, "options"), 1);
+    assert_eq!(
+        render(&mut gpu, &mut ui, 0, "zzz", Overlay::None, "empty"),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, 13, "", Overlay::None, "ue-modes"),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", Overlay::Options, "options"),
+        1
+    );
     assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::Exit, "exit"), 1);
 
     // Frame cost on WARP (the low-end fallback), full and lite.
@@ -206,6 +298,9 @@ fn song_select_layouts() {
         for _ in 0..60 {
             render(&mut gpu, &mut ui, 5, "", Overlay::None, "perf");
         }
-        eprintln!("WARP lite={lite}: {:.2} ms/frame (incl. readback)", t0.elapsed().as_secs_f64() * 1000.0 / 60.0);
+        eprintln!(
+            "WARP lite={lite}: {:.2} ms/frame (incl. readback)",
+            t0.elapsed().as_secs_f64() * 1000.0 / 60.0
+        );
     }
 }

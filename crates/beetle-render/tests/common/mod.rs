@@ -82,4 +82,3 @@ pub fn write_bmp(path: &std::path::Path, w: u32, h: u32, px: &[u8]) {
     }
     let _ = std::fs::write(path, out);
 }
-

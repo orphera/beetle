@@ -391,7 +391,10 @@ impl AppConfig {
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
                 let slot = mode_slot_name(mode);
-                out.push_str(&format!("key_preset_{slot}={}\nkey_bindings_{slot}={bindings}\n", preset.id()));
+                out.push_str(&format!(
+                    "key_preset_{slot}={}\nkey_bindings_{slot}={bindings}\n",
+                    preset.id()
+                ));
             }
         }
         out
@@ -475,9 +478,15 @@ mod tests {
     #[test]
     fn test_old_scratch_side_applies_to_5k_and_7k() {
         let parsed = AppConfig::parse_str("scratch_side=RIGHT\n");
-        assert_eq!(parsed.scratch_sides, [ScratchSide::Right, ScratchSide::Right, ScratchSide::Left]);
+        assert_eq!(
+            parsed.scratch_sides,
+            [ScratchSide::Right, ScratchSide::Right, ScratchSide::Left]
+        );
         // A per-mode value wins, whichever line comes first.
         let parsed = AppConfig::parse_str("scratch_side_7k=LEFT\nscratch_side=RIGHT\n");
-        assert_eq!(parsed.scratch_sides, [ScratchSide::Right, ScratchSide::Left, ScratchSide::Left]);
+        assert_eq!(
+            parsed.scratch_sides,
+            [ScratchSide::Right, ScratchSide::Left, ScratchSide::Left]
+        );
     }
 }

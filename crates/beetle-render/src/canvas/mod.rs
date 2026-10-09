@@ -425,10 +425,34 @@ impl Canvas {
     /// Colors in order top-left, top-right, bottom-right, bottom-left.
     fn textured_rect_colors(&mut self, tex: TexSlot, r: Rect, uv: [f32; 4], c: [ColorRgba; 4]) {
         let verts = [
-            V { x: r.x, y: r.y, u: uv[0], v: uv[1], c: self.pm(c[0]) },
-            V { x: r.right(), y: r.y, u: uv[2], v: uv[1], c: self.pm(c[1]) },
-            V { x: r.right(), y: r.bottom(), u: uv[2], v: uv[3], c: self.pm(c[2]) },
-            V { x: r.x, y: r.bottom(), u: uv[0], v: uv[3], c: self.pm(c[3]) },
+            V {
+                x: r.x,
+                y: r.y,
+                u: uv[0],
+                v: uv[1],
+                c: self.pm(c[0]),
+            },
+            V {
+                x: r.right(),
+                y: r.y,
+                u: uv[2],
+                v: uv[1],
+                c: self.pm(c[1]),
+            },
+            V {
+                x: r.right(),
+                y: r.bottom(),
+                u: uv[2],
+                v: uv[3],
+                c: self.pm(c[2]),
+            },
+            V {
+                x: r.x,
+                y: r.bottom(),
+                u: uv[0],
+                v: uv[3],
+                c: self.pm(c[3]),
+            },
         ];
         self.push_poly(tex, &verts);
     }
@@ -525,7 +549,8 @@ impl Canvas {
             self.vertices.push(Vertex2D::new(p.x, p.y, p.u, p.v, p.c));
         }
         for i in 1..(n as u16 - 1) {
-            self.indices.extend_from_slice(&[base, base + i, base + i + 1]);
+            self.indices
+                .extend_from_slice(&[base, base + i, base + i + 1]);
         }
     }
 }
@@ -585,7 +610,12 @@ mod tests {
         }
     }
 
-    type DrawRef<'a> = (&'a Vec<Vertex2D>, &'a Vec<u16>, Option<TextureId>, BlendMode);
+    type DrawRef<'a> = (
+        &'a Vec<Vertex2D>,
+        &'a Vec<u16>,
+        Option<TextureId>,
+        BlendMode,
+    );
 
     impl Mock {
         fn draws(&self) -> Vec<DrawRef<'_>> {
@@ -642,8 +672,18 @@ mod tests {
         let mut gpu = Mock::default();
         canvas.begin(1280, 720);
         canvas.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), RED);
-        canvas.image(TextureId(99), Rect::new(0.0, 0.0, 10.0, 10.0), [0.0, 0.0, 1.0, 1.0], RED);
-        canvas.image(TextureId(99), Rect::new(20.0, 0.0, 10.0, 10.0), [0.0, 0.0, 1.0, 1.0], RED);
+        canvas.image(
+            TextureId(99),
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            [0.0, 0.0, 1.0, 1.0],
+            RED,
+        );
+        canvas.image(
+            TextureId(99),
+            Rect::new(20.0, 0.0, 10.0, 10.0),
+            [0.0, 0.0, 1.0, 1.0],
+            RED,
+        );
         canvas.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), RED);
         assert_eq!(canvas.end(&mut gpu), 3);
         let draws = gpu.draws();
@@ -662,7 +702,10 @@ mod tests {
         assert_eq!(canvas.end(&mut gpu), 2);
         for (v, idx, _, _) in gpu.draws() {
             assert!(v.len() <= MAX_BATCH_VERTICES && idx.len() <= MAX_BATCH_INDICES);
-            assert!(idx.iter().all(|&i| (i as usize) < v.len()), "indices are batch-local");
+            assert!(
+                idx.iter().all(|&i| (i as usize) < v.len()),
+                "indices are batch-local"
+            );
         }
     }
 
@@ -696,7 +739,10 @@ mod tests {
         let grad = draws[1].0;
         assert_eq!(grad.len(), 4, "fully-outside rect emitted nothing");
         let right = grad.iter().find(|v| v.position[0] == 50.0).unwrap();
-        assert!((right.color[0] - 0.5).abs() < 0.01, "color interpolated at clip edge");
+        assert!(
+            (right.color[0] - 0.5).abs() < 0.01,
+            "color interpolated at clip edge"
+        );
     }
 
     #[test]
@@ -719,11 +765,19 @@ mod tests {
         assert_eq!(v[2].position, [8.0, 8.0]);
 
         canvas.begin(1280, 720);
-        canvas.nine_slice(panel, Insets::uniform(4.0), 2.0, Rect::new(0.0, 0.0, 8.0, 8.0), RED);
+        canvas.nine_slice(
+            panel,
+            Insets::uniform(4.0),
+            2.0,
+            Rect::new(0.0, 0.0, 8.0, 8.0),
+            RED,
+        );
         gpu.calls.clear();
         canvas.end(&mut gpu);
         let v = gpu.draws()[0].0.clone();
-        assert!(v.iter().all(|p| p.position[0] <= 8.0 && p.position[1] <= 8.0));
+        assert!(v
+            .iter()
+            .all(|p| p.position[0] <= 8.0 && p.position[1] <= 8.0));
     }
 
     #[test]

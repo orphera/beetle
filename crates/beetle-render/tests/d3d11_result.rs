@@ -5,7 +5,9 @@
 
 mod common;
 
-use beetle_core::{BmsChart, BmsHeader, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate};
+use beetle_core::{
+    BmsChart, BmsHeader, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
+};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{draw_result, D3d11Backend, GpuBackend, ResultFrame, Ui, Viewport};
 use common::{write_bmp, HiddenWindow};
@@ -47,14 +49,38 @@ fn play(notes: u32, gauge: GaugeType, pattern: impl Fn(u32) -> JudgeGrade) -> Sc
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render(gpu: &mut D3d11Backend, ui: &mut Ui, score: &ScoreTracker, best: Option<&ScoreRecord>, new_record: bool, elapsed: f64, unsaved: Option<&str>, name: &str) -> usize {
+fn render(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    score: &ScoreTracker,
+    best: Option<&ScoreRecord>,
+    new_record: bool,
+    elapsed: f64,
+    unsaved: Option<&str>,
+    name: &str,
+) -> usize {
     let vp = Viewport::new(W, H);
     let chart = chart();
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.begin(W, H, vp.scale);
     draw_result(
         ui,
-        &ResultFrame { viewport: &vp, chart: &chart, score, previous_best: best, update: ScoreUpdate { lamp: new_record, ex: new_record, combo: new_record, bp: false }, elapsed, jacket: None, unsaved_reason: unsaved, ln_label: None },
+        &ResultFrame {
+            viewport: &vp,
+            chart: &chart,
+            score,
+            previous_best: best,
+            update: ScoreUpdate {
+                lamp: new_record,
+                ex: new_record,
+                combo: new_record,
+                bp: false,
+            },
+            elapsed,
+            jacket: None,
+            unsaved_reason: unsaved,
+            ln_label: None,
+        },
     );
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
@@ -67,7 +93,8 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, score: &ScoreTracker, best: Optio
 #[test]
 fn result_layouts() {
     let window = HiddenWindow::with_size(W, H);
-    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP]).expect("WARP device");
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
     let mut ui = Ui::new(1.0);
 
     let clear = play(1585, GaugeType::Groove, |i| match i % 37 {
@@ -78,14 +105,62 @@ fn result_layouts() {
         _ => JudgeGrade::PerfectGreat,
     });
     assert_eq!(clear.clear_type(), ClearType::Clear);
-    let best = ScoreRecord { ex_score: clear.ex_score - 37, max_combo: 400, total_notes: clear.total_notes, clear_type: ClearType::Clear, ..ScoreRecord::default() };
-    assert_eq!(render(&mut gpu, &mut ui, &clear, Some(&best), true, 3.0, None, "clear"), 1);
+    let best = ScoreRecord {
+        ex_score: clear.ex_score - 37,
+        max_combo: 400,
+        total_notes: clear.total_notes,
+        clear_type: ClearType::Clear,
+        ..ScoreRecord::default()
+    };
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            &clear,
+            Some(&best),
+            true,
+            3.0,
+            None,
+            "clear"
+        ),
+        1
+    );
 
-    let mut failed = play(1585, GaugeType::Hard, |i| if i % 4 == 0 { JudgeGrade::Miss } else { JudgeGrade::Great });
+    let mut failed = play(1585, GaugeType::Hard, |i| {
+        if i % 4 == 0 {
+            JudgeGrade::Miss
+        } else {
+            JudgeGrade::Great
+        }
+    });
     failed.is_failed = true;
     failed.gauge = 0.0;
-    assert_eq!(render(&mut gpu, &mut ui, &failed, Some(&best), false, 0.25, None, "failed"), 1);
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            &failed,
+            Some(&best),
+            false,
+            0.25,
+            None,
+            "failed"
+        ),
+        1
+    );
 
     let perfect = play(1000, GaugeType::Groove, |_| JudgeGrade::PerfectGreat);
-    assert_eq!(render(&mut gpu, &mut ui, &perfect, None, false, 3.0, Some("AUTO PLAY"), "auto"), 1);
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            &perfect,
+            None,
+            false,
+            3.0,
+            Some("AUTO PLAY"),
+            "auto"
+        ),
+        1
+    );
 }

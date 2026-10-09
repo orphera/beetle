@@ -24,7 +24,9 @@ impl LnRule {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Ln, Self::Cn].into_iter().find(|r| r.as_str() == name)
+        [Self::Ln, Self::Cn]
+            .into_iter()
+            .find(|r| r.as_str() == name)
     }
 }
 
@@ -50,7 +52,9 @@ impl LnOption {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Auto, Self::Ln, Self::Cn].into_iter().find(|o| o.as_str() == name)
+        [Self::Auto, Self::Ln, Self::Cn]
+            .into_iter()
+            .find(|o| o.as_str() == name)
     }
 }
 
@@ -64,8 +68,14 @@ pub struct Ruleset {
 }
 
 impl Ruleset {
-    pub const LN: Self = Self { ln: LnRule::Ln, hcn_requested: false };
-    pub const CN: Self = Self { ln: LnRule::Cn, hcn_requested: false };
+    pub const LN: Self = Self {
+        ln: LnRule::Ln,
+        hcn_requested: false,
+    };
+    pub const CN: Self = Self {
+        ln: LnRule::Cn,
+        hcn_requested: false,
+    };
 
     /// The rules for a chart with the given `#LNMODE` (1 LN, 2 CN, 3 HCN) under
     /// the player's setting. A forced LN or CN wins over the chart; `Auto`
@@ -77,7 +87,10 @@ impl Ruleset {
             LnOption::Auto => match chart_ln_mode {
                 Some(2) => Self::CN,
                 // HCN is not played yet; CN is its nearest neighbor.
-                Some(3) => Self { ln: LnRule::Cn, hcn_requested: true },
+                Some(3) => Self {
+                    ln: LnRule::Cn,
+                    hcn_requested: true,
+                },
                 _ => Self::LN,
             },
         }
@@ -99,7 +112,12 @@ mod tests {
 
     #[test]
     fn auto_follows_the_chart_and_defaults_to_ln() {
-        for (mode, expected) in [(None, Ruleset::LN), (Some(1), Ruleset::LN), (Some(2), Ruleset::CN), (Some(9), Ruleset::LN)] {
+        for (mode, expected) in [
+            (None, Ruleset::LN),
+            (Some(1), Ruleset::LN),
+            (Some(2), Ruleset::CN),
+            (Some(9), Ruleset::LN),
+        ] {
             assert_eq!(Ruleset::resolve(mode, LnOption::Auto), expected, "{mode:?}");
         }
     }
@@ -117,7 +135,11 @@ mod tests {
     fn a_forced_option_wins_over_the_chart() {
         for mode in [None, Some(1), Some(2), Some(3)] {
             assert_eq!(Ruleset::resolve(mode, LnOption::Ln), Ruleset::LN);
-            assert_eq!(Ruleset::resolve(mode, LnOption::Cn), Ruleset::CN, "no HCN note when CN is forced");
+            assert_eq!(
+                Ruleset::resolve(mode, LnOption::Cn),
+                Ruleset::CN,
+                "no HCN note when CN is forced"
+            );
         }
     }
 

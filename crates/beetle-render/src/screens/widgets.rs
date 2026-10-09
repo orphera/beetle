@@ -3,10 +3,10 @@
 
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
-use crate::view::Viewport;
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
+use crate::view::Viewport;
 
 // Screen frame grid (1280×720 units).
 pub(crate) const PAD: f32 = 32.0;
@@ -22,48 +22,117 @@ pub(crate) fn backdrop(c: &mut Canvas, sk: &Skin, vp: &Viewport, ambient: ColorR
     let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
     c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
     c.set_additive(true);
-    c.sprite_centered(sk.glow, vp.x + vp.width * 0.82, vp.y + vp.height * 0.17, vp.width * 0.86, vp.height * 1.05, ambient.with_alpha(64));
-    c.sprite_centered(sk.glow, vp.x + vp.width * 0.1, vp.y + vp.height * 0.97, vp.width * 0.7, vp.height * 0.7, theme::CYAN.with_alpha(20));
+    c.sprite_centered(
+        sk.glow,
+        vp.x + vp.width * 0.82,
+        vp.y + vp.height * 0.17,
+        vp.width * 0.86,
+        vp.height * 1.05,
+        ambient.with_alpha(64),
+    );
+    c.sprite_centered(
+        sk.glow,
+        vp.x + vp.width * 0.1,
+        vp.y + vp.height * 0.97,
+        vp.width * 0.7,
+        vp.height * 0.7,
+        theme::CYAN.with_alpha(20),
+    );
     c.tile(sk.noise, full, theme::WHITE.with_alpha(6));
     c.set_additive(false);
     c.sprite(sk.vignette, full, theme::WHITE.with_alpha(200));
 }
 
 /// Top bar with a wordmark-style screen title; returns the title's width.
-pub(crate) fn top_bar(c: &mut Canvas, t: &mut TextEngine, vp: &Viewport, title: &str, s: f32) -> f32 {
+pub(crate) fn top_bar(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    vp: &Viewport,
+    title: &str,
+    s: f32,
+) -> f32 {
     let bar = Rect::new(vp.x, vp.y, vp.width, TOPBAR_H * s);
     c.fill_rect(bar, theme::BG.with_alpha(200));
     c.fill_rect(Rect::new(bar.x, bar.bottom() - s, bar.w, s), theme::LINE);
     let x0 = vp.x + PAD * s;
-    let logo = TextStyle::new(22.0 * s).bold().tracking(3.0 * s).color(theme::TEXT);
+    let logo = TextStyle::new(22.0 * s)
+        .bold()
+        .tracking(3.0 * s)
+        .color(theme::TEXT);
     let adv = t.draw(c, title, x0, vp.y + 41.0 * s, &logo);
-    c.fill_rect_hgradient(Rect::new(x0, bar.bottom() - 2.0 * s, adv, 2.0 * s), theme::CYAN, theme::MAGENTA.with_alpha(0));
+    c.fill_rect_hgradient(
+        Rect::new(x0, bar.bottom() - 2.0 * s, adv, 2.0 * s),
+        theme::CYAN,
+        theme::MAGENTA.with_alpha(0),
+    );
     adv
 }
 
 /// Footer strip; returns its rect.
 pub(crate) fn footer_bar(c: &mut Canvas, vp: &Viewport, s: f32) -> Rect {
-    let bar = Rect::new(vp.x, vp.y + vp.height - FOOTER_H * s, vp.width, FOOTER_H * s);
+    let bar = Rect::new(
+        vp.x,
+        vp.y + vp.height - FOOTER_H * s,
+        vp.width,
+        FOOTER_H * s,
+    );
     c.fill_rect(bar, theme::BG.with_alpha(220));
     c.fill_rect(Rect::new(bar.x, bar.y, bar.w, s.max(1.0)), theme::LINE);
     bar
 }
 
 /// Key hints right-aligned in the footer `bar`.
-pub(crate) fn footer_hints(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, hints: &[(&str, &str)], bar: Rect, s: f32) {
+pub(crate) fn footer_hints(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hints: &[(&str, &str)],
+    bar: Rect,
+    s: f32,
+) {
     let w = hint_row(c, t, sk, hints, 0.0, 0.0, s, false);
-    hint_row(c, t, sk, hints, bar.right() - PAD * s - w, bar.y + 10.0 * s, s, true);
+    hint_row(
+        c,
+        t,
+        sk,
+        hints,
+        bar.right() - PAD * s - w,
+        bar.y + 10.0 * s,
+        s,
+        true,
+    );
 }
 
 /// Score-rate bar (0..1) with A / AA / AAA marks at the IIDX ninths.
-pub(crate) fn rate_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, bar: Rect, rate: f32, color: ColorRgba, s: f32) {
+pub(crate) fn rate_bar(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    bar: Rect,
+    rate: f32,
+    color: ColorRgba,
+    s: f32,
+) {
     c.nine(&sk.panel_sm, bar, theme::LINE);
-    c.nine(&sk.panel_sm, Rect::new(bar.x, bar.y, bar.w * rate.clamp(0.0, 1.0), bar.h), color);
+    c.nine(
+        &sk.panel_sm,
+        Rect::new(bar.x, bar.y, bar.w * rate.clamp(0.0, 1.0), bar.h),
+        color,
+    );
     for (ninths, label) in [(6.0, "A"), (7.0, "AA"), (8.0, "AAA")] {
         let mx = bar.x + bar.w * ninths / 9.0;
-        c.fill_rect(Rect::new(mx - s / 2.0, bar.y - 3.0 * s, s.max(1.0), bar.h + 6.0 * s), theme::MUTED2);
+        c.fill_rect(
+            Rect::new(mx - s / 2.0, bar.y - 3.0 * s, s.max(1.0), bar.h + 6.0 * s),
+            theme::MUTED2,
+        );
         let lw = t.measure(c, label, &caption(9.0, s));
-        t.draw(c, label, mx - lw / 2.0, bar.bottom() + 14.0 * s, &caption(9.0, s));
+        t.draw(
+            c,
+            label,
+            mx - lw / 2.0,
+            bar.bottom() + 14.0 * s,
+            &caption(9.0, s),
+        );
     }
 }
 
@@ -72,15 +141,33 @@ pub(crate) fn rate_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, bar: Rect,
 /// keycap size).
 pub(crate) fn keycap(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, key: &str, r: Rect, s: f32) {
     c.nine(&sk.panel_sm, r, theme::SURF3);
-    c.nine(&sk.panel_sm, Rect::new(r.x, r.bottom() - 2.0 * s, r.w, 2.0 * s), theme::LINE);
+    c.nine(
+        &sk.panel_sm,
+        Rect::new(r.x, r.bottom() - 2.0 * s, r.w, 2.0 * s),
+        theme::LINE,
+    );
     if key == LEFT_RIGHT {
         let icon = 14.0 * s;
         let (cx, iy) = (r.x + r.w / 2.0, r.y + (r.h - 2.0 * s - icon) / 2.0);
-        c.sprite(sk.icons.chevron_left, Rect::new(cx - icon + 2.0 * s, iy, icon, icon), theme::MUTED);
-        c.sprite(sk.icons.chevron_right, Rect::new(cx - 2.0 * s, iy, icon, icon), theme::MUTED);
+        c.sprite(
+            sk.icons.chevron_left,
+            Rect::new(cx - icon + 2.0 * s, iy, icon, icon),
+            theme::MUTED,
+        );
+        c.sprite(
+            sk.icons.chevron_right,
+            Rect::new(cx - 2.0 * s, iy, icon, icon),
+            theme::MUTED,
+        );
         return;
     }
-    t.draw_in(c, key, Rect::new(r.x, r.y, r.w, r.h - 2.0 * s), Align::Center, &TextStyle::new(10.0 * s).bold().color(theme::MUTED));
+    t.draw_in(
+        c,
+        key,
+        Rect::new(r.x, r.y, r.w, r.h - 2.0 * s),
+        Align::Center,
+        &TextStyle::new(10.0 * s).bold().color(theme::MUTED),
+    );
 }
 
 pub(crate) const LEFT_RIGHT: &str = "←→";
@@ -88,7 +175,16 @@ pub(crate) const LEFT_RIGHT: &str = "←→";
 /// A row of "[key] LABEL" hints starting at `x`, keycaps `y`..`y + 20`.
 /// Returns the total width.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn hint_row(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, hints: &[(&str, &str)], x: f32, y: f32, s: f32, draw: bool) -> f32 {
+pub(crate) fn hint_row(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hints: &[(&str, &str)],
+    x: f32,
+    y: f32,
+    s: f32,
+    draw: bool,
+) -> f32 {
     let label_st = caption(10.0, s).color(theme::MUTED);
     let mut hx = x;
     for (i, (key, label)) in hints.iter().enumerate() {
@@ -112,11 +208,16 @@ pub(crate) fn keycap_width(c: &mut Canvas, t: &mut TextEngine, key: &str, s: f32
     (t.measure(c, key, &TextStyle::new(10.0 * s).bold()) + 12.0 * s).max(20.0 * s)
 }
 
-
 /// Splits `text` into at most two lines that fit `max_w`, preferring to
 /// break after a space (CJK titles without spaces break between glyphs).
 /// The second line is ellipsized if the rest still does not fit.
-pub(crate) fn wrap2(c: &mut Canvas, t: &mut TextEngine, text: &str, max_w: f32, st: &TextStyle) -> (String, Option<String>) {
+pub(crate) fn wrap2(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    text: &str,
+    max_w: f32,
+    st: &TextStyle,
+) -> (String, Option<String>) {
     if t.measure(c, text, st) <= max_w {
         return (text.to_string(), None);
     }
@@ -149,10 +250,26 @@ pub(crate) fn sweep_bar(c: &mut Canvas, sk: &Skin, track: Rect, elapsed: f64, s:
     let ph = ((elapsed % period) / period) as f32;
     let seg = track.w * 0.28;
     let head = track.x - seg + (track.w + seg) * ease_in_out(ph);
-    c.push_clip(Rect::new(track.x, track.y - 8.0 * s, track.w, track.h + 16.0 * s));
-    c.fill_rect_hgradient(Rect::new(head, track.y, seg, track.h), theme::CYAN.with_alpha(0), theme::CYAN);
+    c.push_clip(Rect::new(
+        track.x,
+        track.y - 8.0 * s,
+        track.w,
+        track.h + 16.0 * s,
+    ));
+    c.fill_rect_hgradient(
+        Rect::new(head, track.y, seg, track.h),
+        theme::CYAN.with_alpha(0),
+        theme::CYAN,
+    );
     c.set_additive(true);
-    c.sprite_centered(sk.glow, head + seg, track.y + track.h / 2.0, 80.0 * s, 26.0 * s, theme::CYAN.with_alpha(140));
+    c.sprite_centered(
+        sk.glow,
+        head + seg,
+        track.y + track.h / 2.0,
+        80.0 * s,
+        26.0 * s,
+        theme::CYAN.with_alpha(140),
+    );
     c.set_additive(false);
     c.pop_clip();
 }

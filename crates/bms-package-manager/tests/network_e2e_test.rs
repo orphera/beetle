@@ -1,8 +1,7 @@
 use bms_package::{Manifest, PackageBuilder};
 use bms_package_manager::{
-    BmsServeServer, DownloadProgressCallback, HttpClient, PackageManager,
-    RegistrySource, RemotePackageInstaller, RemotePackageMetadata,
-    RemoteRegistryIndex, SourcesConfig,
+    BmsServeServer, DownloadProgressCallback, HttpClient, PackageManager, RegistrySource,
+    RemotePackageInstaller, RemotePackageMetadata, RemoteRegistryIndex, SourcesConfig,
 };
 use std::fs;
 use std::io::Write;
@@ -36,10 +35,16 @@ fn create_dummy_package(id: &str, name: &str) -> Vec<u8> {
     let manifest = Manifest::new(id, name).with_author("Test Author");
     let mut builder = PackageBuilder::new(manifest);
     builder
-        .add_file("bms/test.bms", b"#TITLE Test Song\n#BPM 160\n#WAV01 01.wav".to_vec())
+        .add_file(
+            "bms/test.bms",
+            b"#TITLE Test Song\n#BPM 160\n#WAV01 01.wav".to_vec(),
+        )
         .unwrap();
     builder
-        .add_file("audio/01.wav", vec![0x52, 0x49, 0x46, 0x46, 0x01, 0x02, 0x03])
+        .add_file(
+            "audio/01.wav",
+            vec![0x52, 0x49, 0x46, 0x46, 0x01, 0x02, 0x03],
+        )
         .unwrap();
     builder.build_to_bytes().unwrap()
 }

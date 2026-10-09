@@ -19,22 +19,24 @@ pub mod ui;
 pub mod video;
 pub mod view;
 
+pub use art::{Halo, NineSlice, Skin};
 #[cfg(target_os = "windows")]
 pub use backend::D3d11Backend;
 pub use backend::{BlendMode, GpuBackend, TextureId, Vertex2D};
-pub use art::{Halo, NineSlice, Skin};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
+pub use image::{BgaAtlasBuilder, ImageBuffer};
+pub use screens::{
+    draw_boot, draw_exit_modal, draw_gameplay, draw_key_config, draw_loading, draw_options_modal,
+    draw_result, draw_song_select, BootFrame, KeyBinding, KeyConfigFrame, LoadingFrame, PlayFrame,
+    Rebind, ResultFrame, SelectFrame, SizedTexture, KEY_MODES,
+};
+pub use skin::{
+    scratch_side_applies, ColorRgba, EightKForm, FieldPosition, ScratchSide, SkinConfig,
+};
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::Ui;
-pub use image::{BgaAtlasBuilder, ImageBuffer};
-pub use view::{HitBurst, ViewState, Viewport};
-pub use screens::{
-    draw_boot, draw_exit_modal, draw_gameplay, draw_key_config, draw_loading, draw_options_modal, draw_result,
-    draw_song_select, BootFrame, KeyBinding, KeyConfigFrame, LoadingFrame, PlayFrame, Rebind, KEY_MODES,
-    ResultFrame, SelectFrame, SizedTexture,
-};
-pub use skin::{scratch_side_applies, ColorRgba, EightKForm, FieldPosition, ScratchSide, SkinConfig};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
+pub use view::{HitBurst, ViewState, Viewport};
 
 /// Result screen rank-letter pop-in duration (ease_out_back settle).
 pub const RANK_POP_SECONDS: f64 = 0.35;

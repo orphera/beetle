@@ -5,15 +5,15 @@
 //! Layout is designed at 1280×720 and multiplied by the viewport scale.
 //! Visual reference: the menu composition in `tests/d3d11_skin.rs`.
 
+use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
-use crate::view::Viewport;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
-use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
+use crate::view::Viewport;
 use beetle_core::{LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
@@ -71,7 +71,12 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         Some(song) => {
             let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
             song_list(c, t, &sk, f, list, s);
-            let detail = Rect::from_ltrb(list.right() + PAD * s, content.y, content.right(), content.bottom());
+            let detail = Rect::from_ltrb(
+                list.right() + PAD * s,
+                content.y,
+                content.right(),
+                content.bottom(),
+            );
             detail_panel(c, t, &sk, f, song, detail, s);
         }
         None => empty_state(c, t, f, content, s),
@@ -104,27 +109,57 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
         let icon = 16.0 * s;
         let iy = vp.y + 32.0 * s - icon / 2.0;
         if arrows {
-            c.sprite(sk.icons.chevron_left, Rect::new(x - 4.0 * s, iy, icon, icon), theme::MUTED);
+            c.sprite(
+                sk.icons.chevron_left,
+                Rect::new(x - 4.0 * s, iy, icon, icon),
+                theme::MUTED,
+            );
             x += icon;
         }
-        let st = TextStyle::new(13.0 * s).bold().tracking(1.0 * s).color(theme::TEXT);
+        let st = TextStyle::new(13.0 * s)
+            .bold()
+            .tracking(1.0 * s)
+            .color(theme::TEXT);
         x += t.draw(c, value, x, vp.y + 37.0 * s, &st);
         if arrows {
-            c.sprite(sk.icons.chevron_right, Rect::new(x + 4.0 * s, iy, icon, icon), theme::MUTED);
+            c.sprite(
+                sk.icons.chevron_right,
+                Rect::new(x + 4.0 * s, iy, icon, icon),
+                theme::MUTED,
+            );
             x += icon + 4.0 * s;
         }
         x += 32.0 * s;
     }
 
     // Search box
-    let search = Rect::new(vp.x + vp.width - (PAD + 280.0) * s, vp.y + 16.0 * s, 280.0 * s, 32.0 * s);
-    c.nine(&sk.panel_lg, search, if f.search_active { theme::SURF3 } else { theme::SURF2 });
+    let search = Rect::new(
+        vp.x + vp.width - (PAD + 280.0) * s,
+        vp.y + 16.0 * s,
+        280.0 * s,
+        32.0 * s,
+    );
+    c.nine(
+        &sk.panel_lg,
+        search,
+        if f.search_active {
+            theme::SURF3
+        } else {
+            theme::SURF2
+        },
+    );
     if f.search_active {
         c.nine(&sk.panel_outline, search, theme::CYAN.with_alpha(200));
     }
     let inner = Rect::new(search.x + 16.0 * s, search.y, search.w - 52.0 * s, search.h);
     if f.search.is_empty() && !f.search_active {
-        t.draw_in(c, "Search title, artist", inner, Align::Left, &TextStyle::new(13.0 * s).color(theme::MUTED2));
+        t.draw_in(
+            c,
+            "Search title, artist",
+            inner,
+            Align::Left,
+            &TextStyle::new(13.0 * s).color(theme::MUTED2),
+        );
     } else {
         let st = TextStyle::new(13.0 * s).color(theme::TEXT);
         // Keep the end of a long query (where the caret is) visible.
@@ -136,10 +171,18 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
         }
         let w = t.draw_in(c, q, inner, Align::Left, &st);
         if f.search_active {
-            c.fill_rect(Rect::new(inner.x + w + 2.0 * s, search.y + 8.0 * s, 2.0 * s, 16.0 * s), theme::CYAN);
+            c.fill_rect(
+                Rect::new(inner.x + w + 2.0 * s, search.y + 8.0 * s, 2.0 * s, 16.0 * s),
+                theme::CYAN,
+            );
         }
     }
-    let key = Rect::new(search.right() - 32.0 * s, search.y + 6.0 * s, 20.0 * s, 20.0 * s);
+    let key = Rect::new(
+        search.right() - 32.0 * s,
+        search.y + 6.0 * s,
+        20.0 * s,
+        20.0 * s,
+    );
     keycap(c, t, sk, "/", key, s);
 }
 
@@ -149,7 +192,9 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
 
 /// First visible row so the cursor sits near the middle of the window.
 fn scroll_start(selected: usize, total: usize, rows: usize) -> usize {
-    selected.saturating_sub(rows / 2).min(total.saturating_sub(rows))
+    selected
+        .saturating_sub(rows / 2)
+        .min(total.saturating_sub(rows))
 }
 
 fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, list: Rect, s: f32) {
@@ -160,25 +205,58 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
     let row_w = list.w - 16.0 * s;
 
     for (slot, &idx) in f.visible.iter().enumerate().skip(start).take(rows) {
-        let Some(song) = f.songs.get(idx) else { continue };
-        let row = Rect::new(list.x, list.y + (slot - start) as f32 * step, row_w, ROW_H * s);
+        let Some(song) = f.songs.get(idx) else {
+            continue;
+        };
+        let row = Rect::new(
+            list.x,
+            list.y + (slot - start) as f32 * step,
+            row_w,
+            ROW_H * s,
+        );
         let chip = f.tables.chip(song.id);
-        song_row(c, t, sk, song, f.scores.best(song, f.ln_option), chip.as_deref(), row, slot == f.selected, s);
+        song_row(
+            c,
+            t,
+            sk,
+            song,
+            f.scores.best(song, f.ln_option),
+            chip.as_deref(),
+            row,
+            slot == f.selected,
+            s,
+        );
     }
 
     // Scrollbar
     if total > rows {
-        let track = Rect::new(list.right() - 4.0 * s, list.y, 3.0 * s, rows as f32 * step - ROW_GAP * s);
+        let track = Rect::new(
+            list.right() - 4.0 * s,
+            list.y,
+            3.0 * s,
+            rows as f32 * step - ROW_GAP * s,
+        );
         c.nine(&sk.panel_sm, track, theme::SURF2);
         let thumb_h = (track.h * rows as f32 / total as f32).max(24.0 * s);
         let thumb_y = track.y + (track.h - thumb_h) * start as f32 / (total - rows) as f32;
-        c.nine(&sk.panel_sm, Rect::new(track.x, thumb_y, track.w, thumb_h), theme::CYAN.with_alpha(200));
+        c.nine(
+            &sk.panel_sm,
+            Rect::new(track.x, thumb_y, track.w, thumb_h),
+            theme::CYAN.with_alpha(200),
+        );
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 /// Small pill with a difficulty table level (`sl3`); returns its width.
-fn level_chip(c: &mut Canvas, t: &mut TextEngine, text: &str, x: f32, baseline: f32, s: f32) -> f32 {
+fn level_chip(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    text: &str,
+    x: f32,
+    baseline: f32,
+    s: f32,
+) -> f32 {
     let st = caption(9.0, s).color(theme::PURPLE);
     let w = t.measure(c, text, &st) + 12.0 * s;
     let pill = Rect::new(x, baseline - 12.0 * s, w, 16.0 * s);
@@ -203,11 +281,22 @@ fn song_row(
         c.halo(&sk.shadow, row, theme::WHITE.with_alpha(200));
         c.nine(&sk.panel, row, theme::SURF3);
         c.push_clip(row);
-        c.fill_rect_hgradient(Rect::new(row.x, row.y, row.w * 0.6, row.h), theme::CYAN.with_alpha(40), theme::CYAN.with_alpha(0));
+        c.fill_rect_hgradient(
+            Rect::new(row.x, row.y, row.w * 0.6, row.h),
+            theme::CYAN.with_alpha(40),
+            theme::CYAN.with_alpha(0),
+        );
         c.pop_clip();
         c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
         c.set_additive(true);
-        c.sprite_centered(sk.glow, row.x, row.y + row.h / 2.0, 80.0 * s, 120.0 * s, theme::CYAN.with_alpha(110));
+        c.sprite_centered(
+            sk.glow,
+            row.x,
+            row.y + row.h / 2.0,
+            80.0 * s,
+            120.0 * s,
+            theme::CYAN.with_alpha(110),
+        );
         c.set_additive(false);
     } else {
         c.nine(&sk.panel, row, theme::SURF1.with_alpha(220));
@@ -216,30 +305,56 @@ fn song_row(
     // Clear lamp: a strip on the left edge (IIDX convention).
     let (_, lamp) = theme::clear_lamp(best.map(|b| b.clear_type));
     let lamp = if best.is_some() { lamp } else { theme::LINE };
-    c.nine(&sk.panel_sm, Rect::new(row.x + 6.0 * s, row.y + 10.0 * s, 4.0 * s, row.h - 20.0 * s), lamp);
+    c.nine(
+        &sk.panel_sm,
+        Rect::new(row.x + 6.0 * s, row.y + 10.0 * s, 4.0 * s, row.h - 20.0 * s),
+        lamp,
+    );
 
     // Level badge
     let (_, diff) = theme::level_tier(song.play_level);
     let badge = Rect::new(row.x + 20.0 * s, row.y + 10.0 * s, 40.0 * s, 32.0 * s);
     c.nine(&sk.panel_sm, badge, diff.with_alpha(40));
-    c.nine(&sk.panel_sm, Rect::new(badge.x, badge.bottom() - 3.0 * s, badge.w, 3.0 * s), diff);
-    t.draw_in(c, &song.play_level.to_string(), badge, Align::Center, &TextStyle::new(17.0 * s).bold().color(diff));
+    c.nine(
+        &sk.panel_sm,
+        Rect::new(badge.x, badge.bottom() - 3.0 * s, badge.w, 3.0 * s),
+        diff,
+    );
+    t.draw_in(
+        c,
+        &song.play_level.to_string(),
+        badge,
+        Align::Center,
+        &TextStyle::new(17.0 * s).bold().color(diff),
+    );
 
     // Title + artist
     let tx = badge.right() + 16.0 * s;
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
-    let title_st = TextStyle::new(16.0 * s).bold().color(if on { theme::TEXT } else { theme::TEXT.with_alpha(215) });
+    let title_st = TextStyle::new(16.0 * s).bold().color(if on {
+        theme::TEXT
+    } else {
+        theme::TEXT.with_alpha(215)
+    });
     let title = t.fit(c, &song.title, text_w, &title_st).into_owned();
     t.draw(c, &title, tx, row.y + 24.0 * s, &title_st);
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
     let mode = theme::mode_label(song.play_mode);
-    let mode_w = t.draw(c, mode, tx, row.y + 42.0 * s, &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED2 }));
+    let mode_w = t.draw(
+        c,
+        mode,
+        tx,
+        row.y + 42.0 * s,
+        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED2 }),
+    );
     let mut ax = tx + mode_w + 8.0 * s;
     if let Some(chip) = table_chip {
         ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
     }
-    let artist = t.fit(c, &song.artist, text_w - (ax - tx), &sub_st).into_owned();
+    let artist = t
+        .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
+        .into_owned();
     t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
 
     // Personal best: rank + score-rate bar, or "NO PLAY".
@@ -247,29 +362,63 @@ fn song_row(
     match best {
         Some(b) => {
             let (rank, rank_col) = theme::rank(b.accuracy_rate());
-            t.draw_in(c, rank, Rect::new(rx, row.y + 8.0 * s, right_w, 22.0 * s), Align::Right, &TextStyle::new(16.0 * s).bold().color(rank_col));
+            t.draw_in(
+                c,
+                rank,
+                Rect::new(rx, row.y + 8.0 * s, right_w, 22.0 * s),
+                Align::Right,
+                &TextStyle::new(16.0 * s).bold().color(rank_col),
+            );
             let bar = Rect::new(rx, row.y + 36.0 * s, right_w, 4.0 * s);
             c.nine(&sk.panel_sm, bar, theme::LINE);
             let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
-            c.nine(&sk.panel_sm, Rect::new(bar.x, bar.y, bar.w * rate, bar.h), rank_col);
+            c.nine(
+                &sk.panel_sm,
+                Rect::new(bar.x, bar.y, bar.w * rate, bar.h),
+                rank_col,
+            );
         }
         None => {
-            t.draw_in(c, "NO PLAY", Rect::new(rx, row.y, right_w, row.h), Align::Right, &caption(10.0, s));
+            t.draw_in(
+                c,
+                "NO PLAY",
+                Rect::new(rx, row.y, right_w, row.h),
+                Align::Right,
+                &caption(10.0, s),
+            );
         }
     }
 }
 
 fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, s: f32) {
     let (head, hint) = if f.search.is_empty() {
-        ("No songs in this folder".to_string(), "Put .bms / .bme / .bmsp files into the songs folder, then press F5 to rescan.")
+        (
+            "No songs in this folder".to_string(),
+            "Put .bms / .bme / .bmsp files into the songs folder, then press F5 to rescan.",
+        )
     } else {
-        (format!("No songs match \"{}\"", f.search), "Press / to edit the search, Esc to clear it.")
+        (
+            format!("No songs match \"{}\"", f.search),
+            "Press / to edit the search, Esc to clear it.",
+        )
     };
     let cy = area.y + area.h * 0.42;
     let head_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
     let head = t.fit(c, &head, area.w, &head_st).into_owned();
-    t.draw_in(c, &head, Rect::new(area.x, cy - 20.0 * s, area.w, 30.0 * s), Align::Center, &head_st);
-    t.draw_in(c, hint, Rect::new(area.x, cy + 16.0 * s, area.w, 20.0 * s), Align::Center, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    t.draw_in(
+        c,
+        &head,
+        Rect::new(area.x, cy - 20.0 * s, area.w, 30.0 * s),
+        Align::Center,
+        &head_st,
+    );
+    t.draw_in(
+        c,
+        hint,
+        Rect::new(area.x, cy + 16.0 * s, area.w, 20.0 * s),
+        Align::Center,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -278,19 +427,46 @@ fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, 
 
 /// "PREVIEW" pill with a small level meter in the jacket's lower-left corner.
 fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s: f32) {
-    let pill = Rect::new(jacket.x + 8.0 * s, jacket.bottom() - 28.0 * s, 86.0 * s, 20.0 * s);
+    let pill = Rect::new(
+        jacket.x + 8.0 * s,
+        jacket.bottom() - 28.0 * s,
+        86.0 * s,
+        20.0 * s,
+    );
     c.fill_rect(pill, theme::BG.with_alpha(205));
     c.stroke_rect(pill, s.max(1.0), theme::CYAN.with_alpha(110));
     let (bar_w, gap, floor) = (3.0 * s, 2.0 * s, pill.bottom() - 5.0 * s);
     for i in 0..4 {
         let phase = secs * 7.0 + i as f32 * 1.7;
         let h = (3.0 + 8.0 * (0.5 + 0.5 * phase.sin())) * s;
-        c.fill_rect(Rect::new(pill.x + 7.0 * s + i as f32 * (bar_w + gap), floor - h, bar_w, h), theme::CYAN);
+        c.fill_rect(
+            Rect::new(
+                pill.x + 7.0 * s + i as f32 * (bar_w + gap),
+                floor - h,
+                bar_w,
+                h,
+            ),
+            theme::CYAN,
+        );
     }
-    t.draw(c, "PREVIEW", pill.x + 30.0 * s, pill.bottom() - 6.0 * s, &caption(9.0, s).color(theme::CYAN));
+    t.draw(
+        c,
+        "PREVIEW",
+        pill.x + 30.0 * s,
+        pill.bottom() - 6.0 * s,
+        &caption(9.0, s).color(theme::CYAN),
+    );
 }
 
-fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, song: &SongMetadata, panel: Rect, s: f32) {
+fn detail_panel(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    song: &SongMetadata,
+    panel: Rect,
+    s: f32,
+) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
     let inner = panel.inset(24.0 * s);
@@ -304,11 +480,29 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
             c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE);
         }
         None => {
-            c.fill_rect_corners(jacket, [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)]);
+            c.fill_rect_corners(
+                jacket,
+                [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
+            );
             c.set_additive(true);
-            c.sprite_centered(sk.flare, jacket.x + jacket.w * 0.7, jacket.y + jacket.h * 0.3, 160.0 * s, 160.0 * s, theme::WHITE.with_alpha(90));
+            c.sprite_centered(
+                sk.flare,
+                jacket.x + jacket.w * 0.7,
+                jacket.y + jacket.h * 0.3,
+                160.0 * s,
+                160.0 * s,
+                theme::WHITE.with_alpha(90),
+            );
             c.set_additive(false);
-            t.draw_in(c, theme::mode_label(song.play_mode), jacket.inset(12.0 * s), Align::Left, &TextStyle::new(44.0 * s).bold().color(theme::WHITE.with_alpha(40)));
+            t.draw_in(
+                c,
+                theme::mode_label(song.play_mode),
+                jacket.inset(12.0 * s),
+                Align::Left,
+                &TextStyle::new(44.0 * s)
+                    .bold()
+                    .color(theme::WHITE.with_alpha(40)),
+            );
         }
     }
     c.stroke_rect(jacket, s.max(1.0), theme::LINE);
@@ -320,7 +514,13 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
     let ix = jacket.right() + 24.0 * s;
     let iw = inner.right() - ix;
     let tier_txt = format!("{tier} {}", song.play_level);
-    let tier_w = t.draw(c, &tier_txt, ix, inner.y + 14.0 * s, &caption(11.0, s).color(tier_col));
+    let tier_w = t.draw(
+        c,
+        &tier_txt,
+        ix,
+        inner.y + 14.0 * s,
+        &caption(11.0, s).color(tier_col),
+    );
     // The tables the chart is in (the first ones; the panel has no room for more).
     let mut chip_x = ix + tier_w + 12.0 * s;
     for m in f.tables.matches_for(song.id).iter().take(3) {
@@ -361,17 +561,40 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
     let col_w = iw / 3.0;
     let bpm = song.bpm_label();
     let notes = thousands(song.notes_for(f.ln_option) as u32);
-    for (i, (k, v)) in [("BPM", bpm.as_str()), ("NOTES", notes.as_str()), ("MODE", theme::mode_label(song.play_mode))].iter().enumerate() {
+    for (i, (k, v)) in [
+        ("BPM", bpm.as_str()),
+        ("NOTES", notes.as_str()),
+        ("MODE", theme::mode_label(song.play_mode)),
+    ]
+    .iter()
+    .enumerate()
+    {
         let sx = ix + i as f32 * col_w;
         t.draw(c, k, sx, jacket.bottom() - 30.0 * s, &caption(10.0, s));
-        t.draw(c, v, sx, jacket.bottom() - 2.0 * s, &TextStyle::new(22.0 * s).bold().color(theme::TEXT));
+        t.draw(
+            c,
+            v,
+            sx,
+            jacket.bottom() - 2.0 * s,
+            &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
+        );
     }
 
     let rule_y = jacket.bottom() + 24.0 * s;
     c.fill_rect(Rect::new(inner.x, rule_y, inner.w, s.max(1.0)), theme::LINE);
     // Which long note rule the record below is for, when the rule matters.
     let rule = (song.ln_count > 0).then(|| Ruleset::resolve(song.ln_mode, f.ln_option).label());
-    personal_best(c, t, sk, song, f.scores.best(song, f.ln_option), f.ln_option, rule.as_deref(), Rect::new(inner.x, rule_y, inner.w, 150.0 * s), s);
+    personal_best(
+        c,
+        t,
+        sk,
+        song,
+        f.scores.best(song, f.ln_option),
+        f.ln_option,
+        rule.as_deref(),
+        Rect::new(inner.x, rule_y, inner.w, 150.0 * s),
+        s,
+    );
 
     // Play options + CTA at the bottom
     let cta_h = 52.0 * s;
@@ -403,33 +626,106 @@ fn detail_panel(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, 
         cta.w -= rw + 12.0 * s;
         c.nine(&sk.cut_panel, replay, theme::SURF2);
         c.nine(&sk.cut_outline, replay, theme::LINE);
-        let st = TextStyle::new(13.0 * s).bold().tracking(2.0 * s).color(theme::TEXT);
+        let st = TextStyle::new(13.0 * s)
+            .bold()
+            .tracking(2.0 * s)
+            .color(theme::TEXT);
         let lw = t.measure(c, "REPLAY", &st);
         let kw = 20.0 * s;
         let x = replay.x + (replay.w - lw - kw - 10.0 * s) / 2.0;
-        t.draw_in(c, "REPLAY", Rect::new(x, replay.y, lw, replay.h), Align::Left, &st);
-        keycap(c, t, sk, "R", Rect::new(x + lw + 10.0 * s, replay.y + (replay.h - kw) / 2.0, kw, kw), s);
+        t.draw_in(
+            c,
+            "REPLAY",
+            Rect::new(x, replay.y, lw, replay.h),
+            Align::Left,
+            &st,
+        );
+        keycap(
+            c,
+            t,
+            sk,
+            "R",
+            Rect::new(x + lw + 10.0 * s, replay.y + (replay.h - kw) / 2.0, kw, kw),
+            s,
+        );
     }
     c.set_additive(true);
-    c.sprite_centered(sk.glow, cta.x + cta.w / 2.0, cta.y + cta.h / 2.0, cta.w * 1.1, 140.0 * s, theme::CYAN.with_alpha(55));
+    c.sprite_centered(
+        sk.glow,
+        cta.x + cta.w / 2.0,
+        cta.y + cta.h / 2.0,
+        cta.w * 1.1,
+        140.0 * s,
+        theme::CYAN.with_alpha(55),
+    );
     c.set_additive(false);
     c.nine_hgradient(&sk.cut_panel, cta, theme::CYAN, theme::BLUE);
-    c.sprite(sk.icons.play, Rect::new(cta.x + 22.0 * s, cta.y + 12.0 * s, 28.0 * s, 28.0 * s), theme::ON_ACCENT);
+    c.sprite(
+        sk.icons.play,
+        Rect::new(cta.x + 22.0 * s, cta.y + 12.0 * s, 28.0 * s, 28.0 * s),
+        theme::ON_ACCENT,
+    );
     let label = if f.auto_play { "AUTO PLAY" } else { "PLAY" };
-    t.draw_in(c, label, Rect::new(cta.x + 60.0 * s, cta.y, cta.w - 160.0 * s, cta.h), Align::Left, &TextStyle::new(20.0 * s).bold().tracking(4.0 * s).color(theme::ON_ACCENT));
-    t.draw_in(c, "ENTER", Rect::new(cta.right() - 120.0 * s, cta.y, 96.0 * s, cta.h), Align::Right, &TextStyle::new(12.0 * s).bold().tracking(2.0 * s).color(theme::ON_ACCENT.with_alpha(150)));
+    t.draw_in(
+        c,
+        label,
+        Rect::new(cta.x + 60.0 * s, cta.y, cta.w - 160.0 * s, cta.h),
+        Align::Left,
+        &TextStyle::new(20.0 * s)
+            .bold()
+            .tracking(4.0 * s)
+            .color(theme::ON_ACCENT),
+    );
+    t.draw_in(
+        c,
+        "ENTER",
+        Rect::new(cta.right() - 120.0 * s, cta.y, 96.0 * s, cta.h),
+        Align::Right,
+        &TextStyle::new(12.0 * s)
+            .bold()
+            .tracking(2.0 * s)
+            .color(theme::ON_ACCENT.with_alpha(150)),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
-fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetadata, best: Option<&ScoreRecord>, ln_option: LnOption, rule: Option<&str>, area: Rect, s: f32) {
+fn personal_best(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    song: &SongMetadata,
+    best: Option<&ScoreRecord>,
+    ln_option: LnOption,
+    rule: Option<&str>,
+    area: Rect,
+    s: f32,
+) {
     let y = area.y;
     let header_w = t.draw(c, "PERSONAL BEST", area.x, y + 32.0 * s, &caption(10.0, s));
     let Some(b) = best else {
         if let Some(rule) = rule {
-            t.draw(c, rule, area.x + header_w + 14.0 * s, y + 32.0 * s, &caption(9.0, s).color(theme::MUTED2));
+            t.draw(
+                c,
+                rule,
+                area.x + header_w + 14.0 * s,
+                y + 32.0 * s,
+                &caption(9.0, s).color(theme::MUTED2),
+            );
         }
-        t.draw(c, "Not played yet", area.x, y + 70.0 * s, &TextStyle::new(18.0 * s).bold().color(theme::MUTED));
-        t.draw(c, "Clear this chart to record a score.", area.x, y + 92.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
+        t.draw(
+            c,
+            "Not played yet",
+            area.x,
+            y + 70.0 * s,
+            &TextStyle::new(18.0 * s).bold().color(theme::MUTED),
+        );
+        t.draw(
+            c,
+            "Clear this chart to record a score.",
+            area.x,
+            y + 92.0 * s,
+            &TextStyle::new(13.0 * s).color(theme::MUTED2),
+        );
         return;
     };
 
@@ -445,11 +741,21 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
         notes.push(format!("{} GAUGE", gauge.as_str()));
     }
     if b.play_count > 0 {
-        notes.push(format!("{} {}", b.play_count, if b.play_count == 1 { "PLAY" } else { "PLAYS" }));
+        notes.push(format!(
+            "{} {}",
+            b.play_count,
+            if b.play_count == 1 { "PLAY" } else { "PLAYS" }
+        ));
     }
     if !notes.is_empty() {
         let st = caption(9.0, s).color(theme::MUTED2);
-        t.draw(c, &notes.join("  ·  "), area.x + header_w + 14.0 * s, y + 32.0 * s, &st);
+        t.draw(
+            c,
+            &notes.join("  ·  "),
+            area.x + header_w + 14.0 * s,
+            y + 32.0 * s,
+            &st,
+        );
     }
 
     // Clear lamp chip
@@ -462,26 +768,65 @@ fn personal_best(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, song: &SongMetad
     t.draw_in(c, lamp, chip, Align::Center, &st);
 
     // EX score / max, rank
-    let ex_w = t.draw(c, &thousands(b.ex_score), area.x, y + 80.0 * s, &TextStyle::new(40.0 * s).bold().color(theme::TEXT));
+    let ex_w = t.draw(
+        c,
+        &thousands(b.ex_score),
+        area.x,
+        y + 80.0 * s,
+        &TextStyle::new(40.0 * s).bold().color(theme::TEXT),
+    );
     let max = format!("/ {}", thousands(song.notes_for(ln_option) as u32 * 2));
-    t.draw(c, &max, area.x + ex_w + 10.0 * s, y + 80.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED2));
+    t.draw(
+        c,
+        &max,
+        area.x + ex_w + 10.0 * s,
+        y + 80.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED2),
+    );
     let (rank, rank_col) = theme::rank(b.accuracy_rate());
-    t.draw_in(c, rank, Rect::new(area.right() - 120.0 * s, y + 46.0 * s, 120.0 * s, 40.0 * s), Align::Right, &TextStyle::new(36.0 * s).bold().color(rank_col));
+    t.draw_in(
+        c,
+        rank,
+        Rect::new(area.right() - 120.0 * s, y + 46.0 * s, 120.0 * s, 40.0 * s),
+        Align::Right,
+        &TextStyle::new(36.0 * s).bold().color(rank_col),
+    );
 
     let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
-    widgets::rate_bar(c, t, sk, Rect::new(area.x, y + 96.0 * s, area.w, 4.0 * s), rate, rank_col, s);
+    widgets::rate_bar(
+        c,
+        t,
+        sk,
+        Rect::new(area.x, y + 96.0 * s, area.w, 4.0 * s),
+        rate,
+        rank_col,
+        s,
+    );
 
     // Accuracy, combo, miss count
     let stats = [
         ("ACCURACY", format!("{:.2}%", b.accuracy_rate())),
-        ("MAX COMBO", format!("{} / {}", thousands(b.max_combo), thousands(song.notes_for(ln_option) as u32))),
+        (
+            "MAX COMBO",
+            format!(
+                "{} / {}",
+                thousands(b.max_combo),
+                thousands(song.notes_for(ln_option) as u32)
+            ),
+        ),
         ("MIN BP", thousands(b.min_bp)),
     ];
     let col_w = area.w / 3.0;
     for (i, (k, v)) in stats.iter().enumerate() {
         let sx = area.x + i as f32 * col_w;
         t.draw(c, k, sx, y + 134.0 * s, &caption(10.0, s));
-        t.draw(c, v, sx, y + 156.0 * s, &TextStyle::new(16.0 * s).bold().color(theme::TEXT));
+        t.draw(
+            c,
+            v,
+            sx,
+            y + 156.0 * s,
+            &TextStyle::new(16.0 * s).bold().color(theme::TEXT),
+        );
     }
 }
 
@@ -508,7 +853,13 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
 
     // Song count (filtered / library)
     let mut x = vp.x + PAD * s;
-    x += t.draw(c, &thousands(f.visible.len() as u32), x, base, &TextStyle::new(13.0 * s).bold().color(theme::TEXT));
+    x += t.draw(
+        c,
+        &thousands(f.visible.len() as u32),
+        x,
+        base,
+        &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
+    );
     let total = format!(" / {} SONGS", thousands(f.songs.len() as u32));
     t.draw(c, &total, x, base, &caption(10.0, s));
 
@@ -516,7 +867,9 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
     let right = vp.x + vp.width - PAD * s;
     let left_limit = x + 200.0 * s;
     let mut first = 0;
-    while first < HINTS.len() && right - hint_row(c, t, sk, &HINTS[first..], 0.0, 0.0, s, false) < left_limit {
+    while first < HINTS.len()
+        && right - hint_row(c, t, sk, &HINTS[first..], 0.0, 0.0, s, false) < left_limit
+    {
         first += 1;
     }
     widgets::footer_hints(c, t, sk, &HINTS[first..], bar, s);
@@ -528,17 +881,34 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
 
 /// Section headers of the play options modal: (first row index, label).
 /// Row order is defined by the app's option handler.
-pub const OPTION_SECTIONS: [(usize, &str); 5] =
-    [(0, "PLAY"), (5, "AUDIO"), (6, "LAYOUT"), (9, "DISPLAY / SYSTEM"), (13, "INPUT & SESSION")];
+pub const OPTION_SECTIONS: [(usize, &str); 5] = [
+    (0, "PLAY"),
+    (5, "AUDIO"),
+    (6, "LAYOUT"),
+    (9, "DISPLAY / SYSTEM"),
+    (13, "INPUT & SESSION"),
+];
 /// First row of the modal's right column (when there are more rows than this).
 pub const OPTION_COLUMN_BREAK: usize = 9;
 
 fn modal_panel(c: &mut Canvas, sk: &Skin, vp: &Viewport, w: f32, h: f32, s: f32) -> Rect {
-    c.fill_rect(Rect::new(vp.x, vp.y, vp.width, vp.height), theme::BLACK.with_alpha(180));
-    let panel = Rect::new(vp.x + (vp.width - w) / 2.0, vp.y + (vp.height - h) / 2.0, w, h);
+    c.fill_rect(
+        Rect::new(vp.x, vp.y, vp.width, vp.height),
+        theme::BLACK.with_alpha(180),
+    );
+    let panel = Rect::new(
+        vp.x + (vp.width - w) / 2.0,
+        vp.y + (vp.height - h) / 2.0,
+        w,
+        h,
+    );
     c.halo(&sk.shadow, panel, theme::WHITE);
     c.nine(&sk.panel_lg, panel, theme::SURF1);
-    c.fill_rect_hgradient(Rect::new(panel.x + 16.0 * s, panel.y, panel.w - 32.0 * s, 2.0 * s), theme::CYAN, theme::MAGENTA);
+    c.fill_rect_hgradient(
+        Rect::new(panel.x + 16.0 * s, panel.y, panel.w - 32.0 * s, 2.0 * s),
+        theme::CYAN,
+        theme::MAGENTA,
+    );
     panel
 }
 
@@ -554,25 +924,57 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
     let columns = [0..split, split..rows.len()];
     let n_cols = if split < rows.len() { 2 } else { 1 };
     let column_h = |range: &std::ops::Range<usize>| {
-        let sections = OPTION_SECTIONS.iter().filter(|(i, _)| range.contains(i)).count() as f32;
+        let sections = OPTION_SECTIONS
+            .iter()
+            .filter(|(i, _)| range.contains(i))
+            .count() as f32;
         range.len() as f32 * row_h + sections * section_h
     };
     let body_h = columns.iter().map(column_h).fold(0.0, f32::max);
     let h = (84.0 * s + body_h + 56.0 * s).min(vp.height - 32.0 * s);
     let col_gap = 40.0 * s;
-    let panel = modal_panel(c, &sk, vp, if n_cols > 1 { 960.0 * s } else { 560.0 * s }, h, s);
+    let panel = modal_panel(
+        c,
+        &sk,
+        vp,
+        if n_cols > 1 { 960.0 * s } else { 560.0 * s },
+        h,
+        s,
+    );
     let inner = panel.inset(28.0 * s);
     let col_w = (inner.w - col_gap * (n_cols - 1) as f32) / n_cols as f32;
 
-    t.draw(c, "PLAY OPTIONS", inner.x, inner.y + 22.0 * s, &TextStyle::new(22.0 * s).bold().tracking(3.0 * s).color(theme::TEXT));
+    t.draw(
+        c,
+        "PLAY OPTIONS",
+        inner.x,
+        inner.y + 22.0 * s,
+        &TextStyle::new(22.0 * s)
+            .bold()
+            .tracking(3.0 * s)
+            .color(theme::TEXT),
+    );
     for (ci, range) in columns.iter().take(n_cols).enumerate() {
-        let col = Rect::new(inner.x + ci as f32 * (col_w + col_gap), inner.y, col_w, inner.h);
+        let col = Rect::new(
+            inner.x + ci as f32 * (col_w + col_gap),
+            inner.y,
+            col_w,
+            inner.h,
+        );
         let mut y = col.y + 40.0 * s;
         for (i, (label, value)) in rows.iter().enumerate().take(range.end).skip(range.start) {
             if let Some((_, section)) = OPTION_SECTIONS.iter().find(|(at, _)| *at == i) {
                 let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
                 let w = t.draw(c, section, col.x, y + 20.0 * s, &cap);
-                c.fill_rect(Rect::new(col.x + w + 12.0 * s, y + 16.0 * s, col.w - w - 12.0 * s, s.max(1.0)), theme::LINE);
+                c.fill_rect(
+                    Rect::new(
+                        col.x + w + 12.0 * s,
+                        y + 16.0 * s,
+                        col.w - w - 12.0 * s,
+                        s.max(1.0),
+                    ),
+                    theme::LINE,
+                );
                 y += section_h;
             }
             let row = Rect::new(col.x - 8.0 * s, y, col.w + 16.0 * s, row_h - 2.0 * s);
@@ -581,25 +983,67 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
                 c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
                 c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
             }
-            let label_st = TextStyle::new(13.0 * s).bold().tracking(1.0 * s).color(if on { theme::TEXT } else { theme::MUTED });
-            t.draw_in(c, label, Rect::new(row.x + 14.0 * s, row.y, 150.0 * s, row.h), Align::Left, &label_st);
-            let value_st = TextStyle::new(13.0 * s).bold().color(if on { theme::TEXT } else { theme::MUTED });
+            let label_st = TextStyle::new(13.0 * s)
+                .bold()
+                .tracking(1.0 * s)
+                .color(if on { theme::TEXT } else { theme::MUTED });
+            t.draw_in(
+                c,
+                label,
+                Rect::new(row.x + 14.0 * s, row.y, 150.0 * s, row.h),
+                Align::Left,
+                &label_st,
+            );
+            let value_st =
+                TextStyle::new(13.0 * s)
+                    .bold()
+                    .color(if on { theme::TEXT } else { theme::MUTED });
             let icon = 16.0 * s;
             let value_w = (row.w - 170.0 * s).min(300.0 * s);
-            let vr = Rect::new(row.right() - value_w, row.y, value_w - 12.0 * s - icon, row.h);
-            let value = t.fit(c, value, vr.w - icon - 4.0 * s, &value_st).into_owned();
-            t.draw_in(c, &value, Rect::new(vr.x + icon, vr.y, vr.w - icon - 4.0 * s, vr.h), Align::Center, &value_st);
+            let vr = Rect::new(
+                row.right() - value_w,
+                row.y,
+                value_w - 12.0 * s - icon,
+                row.h,
+            );
+            let value = t
+                .fit(c, value, vr.w - icon - 4.0 * s, &value_st)
+                .into_owned();
+            t.draw_in(
+                c,
+                &value,
+                Rect::new(vr.x + icon, vr.y, vr.w - icon - 4.0 * s, vr.h),
+                Align::Center,
+                &value_st,
+            );
             if on {
                 let iy = row.y + (row.h - icon) / 2.0;
-                c.sprite(sk.icons.chevron_left, Rect::new(vr.x, iy, icon, icon), theme::CYAN);
-                c.sprite(sk.icons.chevron_right, Rect::new(vr.right(), iy, icon, icon), theme::CYAN);
+                c.sprite(
+                    sk.icons.chevron_left,
+                    Rect::new(vr.x, iy, icon, icon),
+                    theme::CYAN,
+                );
+                c.sprite(
+                    sk.icons.chevron_right,
+                    Rect::new(vr.right(), iy, icon, icon),
+                    theme::CYAN,
+                );
             }
             y += row_h;
         }
     }
     let hints = [("↑↓", "SELECT"), (LEFT_RIGHT, "CHANGE"), ("TAB", "CLOSE")];
     let w = hint_row(c, t, &sk, &hints, 0.0, 0.0, s, false);
-    hint_row(c, t, &sk, &hints, panel.x + (panel.w - w) / 2.0, panel.bottom() - 44.0 * s, s, true);
+    hint_row(
+        c,
+        t,
+        &sk,
+        &hints,
+        panel.x + (panel.w - w) / 2.0,
+        panel.bottom() - 44.0 * s,
+        s,
+        true,
+    );
 }
 
 /// "Quit Beetle?" confirmation over the song list.
@@ -609,8 +1053,23 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     let s = vp.scale;
     let panel = modal_panel(c, &sk, vp, 420.0 * s, 212.0 * s, s);
     let inner = panel.inset(28.0 * s);
-    t.draw(c, "QUIT BEETLE?", inner.x, inner.y + 26.0 * s, &TextStyle::new(24.0 * s).bold().tracking(2.0 * s).color(theme::TEXT));
-    t.draw(c, "Scores and settings are already saved.", inner.x, inner.y + 56.0 * s, &TextStyle::new(13.0 * s).color(theme::MUTED));
+    t.draw(
+        c,
+        "QUIT BEETLE?",
+        inner.x,
+        inner.y + 26.0 * s,
+        &TextStyle::new(24.0 * s)
+            .bold()
+            .tracking(2.0 * s)
+            .color(theme::TEXT),
+    );
+    t.draw(
+        c,
+        "Scores and settings are already saved.",
+        inner.x,
+        inner.y + 56.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
 
     let bw = (inner.w - 12.0 * s) / 2.0;
     let bh = 48.0 * s;
@@ -620,13 +1079,28 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     c.nine(&sk.cut_panel, cancel, theme::SURF2);
     c.nine(&sk.cut_outline, cancel, theme::LINE);
     c.nine(&sk.cut_panel, quit, theme::MAGENTA);
-    for (r, label, key, col) in [(cancel, "CANCEL", "ESC", theme::TEXT), (quit, "QUIT", "ENTER", theme::WHITE)] {
+    for (r, label, key, col) in [
+        (cancel, "CANCEL", "ESC", theme::TEXT),
+        (quit, "QUIT", "ENTER", theme::WHITE),
+    ] {
         let st = TextStyle::new(14.0 * s).bold().tracking(2.0 * s).color(col);
         let lw = t.measure(c, label, &st);
         let kw = keycap_width(c, t, key, s);
         let x = r.x + (r.w - lw - kw - 10.0 * s) / 2.0;
         t.draw_in(c, label, Rect::new(x, r.y, lw + 1.0, r.h), Align::Left, &st);
-        keycap(c, t, &sk, key, Rect::new(x + lw + 10.0 * s, r.y + (r.h - 20.0 * s) / 2.0, kw, 20.0 * s), s);
+        keycap(
+            c,
+            t,
+            &sk,
+            key,
+            Rect::new(
+                x + lw + 10.0 * s,
+                r.y + (r.h - 20.0 * s) / 2.0,
+                kw,
+                20.0 * s,
+            ),
+            s,
+        );
     }
 }
 
@@ -652,7 +1126,11 @@ mod tests {
             bpm_max: 150.0,
             play_level: (i % 13) as u32,
             notes_count: 1000 + i,
-            play_mode: if i % 3 == 0 { PlayMode::Keys14 } else { PlayMode::Keys7 },
+            play_mode: if i % 3 == 0 {
+                PlayMode::Keys14
+            } else {
+                PlayMode::Keys7
+            },
         }
     }
 
@@ -690,10 +1168,18 @@ mod tests {
             random_seed: None,
             played_at: 0,
         });
-        let chips = vec!["HI-SPEED 1100".to_string(), "REGULAR".into(), "GROOVE".into()];
+        let chips = vec![
+            "HI-SPEED 1100".to_string(),
+            "REGULAR".into(),
+            "GROOVE".into(),
+        ];
         let mut ui = Ui::new(vp.scale);
         for (selected, search) in [(5, ""), (30, "zzz"), (0, "")] {
-            let visible = if search.is_empty() { &visible[..] } else { &[][..] };
+            let visible = if search.is_empty() {
+                &visible[..]
+            } else {
+                &[][..]
+            };
             ui.begin(1280, 720, vp.scale);
             let frame = SelectFrame {
                 viewport: &vp,
@@ -715,9 +1201,18 @@ mod tests {
                 preview_secs: None,
             };
             draw_song_select(&mut ui, &frame);
-            draw_options_modal(&mut ui, &vp, &[("HI-SPEED", "1100".into()), ("GAUGE", "GROOVE".into())], 1);
+            draw_options_modal(
+                &mut ui,
+                &vp,
+                &[("HI-SPEED", "1100".into()), ("GAUGE", "GROOVE".into())],
+                1,
+            );
             draw_exit_modal(&mut ui, &vp);
-            assert_eq!(ui.canvas.debug_batches().len(), 1, "selected={selected} search={search:?}");
+            assert_eq!(
+                ui.canvas.debug_batches().len(),
+                1,
+                "selected={selected} search={search:?}"
+            );
         }
     }
 }

@@ -388,7 +388,12 @@ impl ScoreUpdate {
     }
 
     fn everything() -> Self {
-        Self { lamp: true, ex: true, combo: true, bp: true }
+        Self {
+            lamp: true,
+            ex: true,
+            combo: true,
+            bp: true,
+        }
     }
 }
 
@@ -458,14 +463,20 @@ impl ScoreStore {
         let old_keys: Vec<(ChartKey, Option<LnRule>)> = self
             .records
             .keys()
-            .filter(|(chart, _)| matches!(chart, ChartKey::Legacy(h) if ids_by_legacy.contains_key(h)))
+            .filter(
+                |(chart, _)| matches!(chart, ChartKey::Legacy(h) if ids_by_legacy.contains_key(h)),
+            )
             .copied()
             .collect();
 
         let mut moved = 0;
         for key in old_keys {
-            let ChartKey::Legacy(legacy) = key.0 else { continue };
-            let Some(record) = self.records.remove(&key) else { continue };
+            let ChartKey::Legacy(legacy) = key.0 else {
+                continue;
+            };
+            let Some(record) = self.records.remove(&key) else {
+                continue;
+            };
             moved += 1;
             for &id in &ids_by_legacy[&legacy] {
                 let mut copy = record.clone();
@@ -619,17 +630,40 @@ mod tests {
 
         // Higher lamp, but a lower EX score, combo and a worse BP.
         let update = store.update(play(1, ClearType::Hard, 120, 40, 9));
-        assert_eq!(update, ScoreUpdate { lamp: true, ex: false, combo: false, bp: false });
+        assert_eq!(
+            update,
+            ScoreUpdate {
+                lamp: true,
+                ex: false,
+                combo: false,
+                bp: false
+            }
+        );
         let record = store.get(ChartId::synthetic(1)).unwrap();
         assert_eq!(record.clear_type, ClearType::Hard);
-        assert_eq!(record.ex_score, 150, "a lamp-only play must not erase the best EX");
+        assert_eq!(
+            record.ex_score, 150,
+            "a lamp-only play must not erase the best EX"
+        );
         assert_eq!(record.max_combo, 60);
         assert_eq!(record.min_bp, 5);
-        assert_eq!(record.gauge, Some(GaugeType::Groove), "snapshot stays with the best EX play");
+        assert_eq!(
+            record.gauge,
+            Some(GaugeType::Groove),
+            "snapshot stays with the best EX play"
+        );
 
         // Lower lamp but a better combo and BP.
         let update = store.update(play(1, ClearType::Easy, 100, 90, 1));
-        assert_eq!(update, ScoreUpdate { lamp: false, ex: false, combo: true, bp: true });
+        assert_eq!(
+            update,
+            ScoreUpdate {
+                lamp: false,
+                ex: false,
+                combo: true,
+                bp: true
+            }
+        );
         let record = store.get(ChartId::synthetic(1)).unwrap();
         assert_eq!(record.clear_type, ClearType::Hard);
         assert_eq!((record.max_combo, record.min_bp), (90, 1));
@@ -700,12 +734,18 @@ mod tests {
             last_played: 1_791_500_000,
             engine: ENGINE_VERSION,
         };
-        assert_eq!(ScoreRecord::parse_line(&record.serialize_line()), Some(record));
+        assert_eq!(
+            ScoreRecord::parse_line(&record.serialize_line()),
+            Some(record)
+        );
     }
 
     #[test]
     fn unknown_optional_fields_stay_unknown() {
-        let record = ScoreRecord { chart: ChartKey::Legacy(5), ..ScoreRecord::default() };
+        let record = ScoreRecord {
+            chart: ChartKey::Legacy(5),
+            ..ScoreRecord::default()
+        };
         let line = record.serialize_line();
         assert!(!line.contains("mod=") && !line.contains("gauge=") && !line.contains("seed="));
         assert_eq!(ScoreRecord::parse_line(&line), Some(record));
@@ -715,7 +755,10 @@ mod tests {
     fn fields_from_a_newer_version_are_ignored() {
         let line = "chart=0000000000000001\tlamp=C\tex=10\tfuture=whatever\tcombo=4";
         let record = ScoreRecord::parse_line(line).unwrap();
-        assert_eq!((record.clear_type, record.ex_score, record.max_combo), (ClearType::Clear, 10, 4));
+        assert_eq!(
+            (record.clear_type, record.ex_score, record.max_combo),
+            (ClearType::Clear, 10, 4)
+        );
     }
 
     #[test]
@@ -727,9 +770,16 @@ mod tests {
         let text = store.save_to_string();
         assert!(text.starts_with("#BEETLE_SCORES_V2\n"));
         // Lines come out ordered by chart id, whatever order the plays came in.
-        let mut ids: Vec<ChartId> = [9u64, 3, 7, 1].into_iter().map(ChartId::synthetic).collect();
+        let mut ids: Vec<ChartId> = [9u64, 3, 7, 1]
+            .into_iter()
+            .map(ChartId::synthetic)
+            .collect();
         ids.sort();
-        let order: Vec<&str> = text.lines().skip(1).map(|l| l.split('\t').next().unwrap()).collect();
+        let order: Vec<&str> = text
+            .lines()
+            .skip(1)
+            .map(|l| l.split('\t').next().unwrap())
+            .collect();
         let expected: Vec<String> = ids.iter().map(|id| format!("chart={id}")).collect();
         assert_eq!(order, expected);
 
@@ -755,7 +805,10 @@ mod tests {
         assert_eq!(a.accuracy_rate(), 93.75);
         assert_eq!((a.modifier, a.gauge, a.random_seed), (None, None, None));
         assert_eq!((a.play_count, a.clear_count, a.engine), (1, 1, 0));
-        assert_eq!(store.get_key(ChartKey::Legacy(0xbb)).unwrap().clear_type, ClearType::Failed);
+        assert_eq!(
+            store.get_key(ChartKey::Legacy(0xbb)).unwrap().clear_type,
+            ClearType::Failed
+        );
 
         // Saving upgrades the file, and loading it back changes nothing.
         let upgraded = store.save_to_string();
@@ -775,7 +828,11 @@ mod tests {
         store.load_from_str(old);
         let record = store.get_key(ChartKey::Legacy(0xcc)).unwrap();
         assert_eq!((record.ex_score, record.total_notes), (0, 0));
-        assert_eq!(record.clear_type, ClearType::FullCombo, "the lamp is still believable");
+        assert_eq!(
+            record.clear_type,
+            ClearType::FullCombo,
+            "the lamp is still believable"
+        );
 
         // Once the chart is in the song list the record moves under its id, and
         // any real play then beats the discarded EX score.
@@ -783,7 +840,11 @@ mod tests {
         assert!(store.update(play(0xcc, ClearType::Clear, 900, 400, 4)).ex);
         let record = store.get(ChartId::synthetic(0xcc)).unwrap();
         assert_eq!(record.ex_score, 900);
-        assert_eq!(record.clear_type, ClearType::FullCombo, "the old lamp is kept");
+        assert_eq!(
+            record.clear_type,
+            ClearType::FullCombo,
+            "the old lamp is kept"
+        );
     }
 
     fn legacy_record(hash: u64, lamp: ClearType, ex: u32, combo: u32, bp: u32) -> ScoreRecord {
@@ -818,7 +879,10 @@ mod tests {
 
         assert_eq!(store.legacy_count(), 0);
         let record = store.get(id).unwrap();
-        assert_eq!((record.clear_type, record.ex_score, record.max_combo), (ClearType::Hard, 150, 60));
+        assert_eq!(
+            (record.clear_type, record.ex_score, record.max_combo),
+            (ClearType::Hard, 150, 60)
+        );
         assert_eq!(record.chart, ChartKey::Id(id));
         // Nothing left to move the second time.
         assert_eq!(store.migrate(&[(0xa1, id)]), 0);
@@ -829,7 +893,10 @@ mod tests {
         let mut store = store_with(&[legacy_record(0xb2, ClearType::Clear, 120, 50, 7)]);
         let (sjis, utf8) = (ChartId::synthetic(10), ChartId::synthetic(11));
         // Same pair listed twice must not double anything.
-        assert_eq!(store.migrate(&[(0xb2, sjis), (0xb2, utf8), (0xb2, sjis)]), 1);
+        assert_eq!(
+            store.migrate(&[(0xb2, sjis), (0xb2, utf8), (0xb2, sjis)]),
+            1
+        );
         assert_eq!(store.get(sjis).unwrap().ex_score, 120);
         assert_eq!(store.get(utf8).unwrap().ex_score, 120);
         assert_eq!(store.get(sjis).unwrap().play_count, 3);
@@ -879,30 +946,44 @@ mod tests {
         assert!(!text.contains("chart=00000000000000e5"));
         let mut reloaded = ScoreStore::new();
         reloaded.load_from_str(&text);
-        assert_eq!(reloaded.get(ChartId::synthetic(50)), store.get(ChartId::synthetic(50)));
+        assert_eq!(
+            reloaded.get(ChartId::synthetic(50)),
+            store.get(ChartId::synthetic(50))
+        );
     }
-
 
     // ---- long note rules ----
 
     fn ln_play(n: u64, rule: Option<LnRule>, lamp: ClearType, ex: u32) -> PlayResult {
-        PlayResult { ln: rule, ..play(n, lamp, ex, 50, 2) }
+        PlayResult {
+            ln: rule,
+            ..play(n, lamp, ex, 50, 2)
+        }
     }
 
     #[test]
     fn a_chart_has_a_separate_record_for_each_long_note_rule() {
         let mut store = ScoreStore::new();
         let id = ChartId::synthetic(1);
-        assert!(store.update(ln_play(1, Some(LnRule::Cn), ClearType::Clear, 400)).any());
+        assert!(store
+            .update(ln_play(1, Some(LnRule::Cn), ClearType::Clear, 400))
+            .any());
         // Another rule is a first play, not a comparison against the CN record.
-        assert_eq!(store.update(ln_play(1, Some(LnRule::Ln), ClearType::Easy, 200)), ScoreUpdate::everything());
+        assert_eq!(
+            store.update(ln_play(1, Some(LnRule::Ln), ClearType::Easy, 200)),
+            ScoreUpdate::everything()
+        );
 
         assert_eq!(store.get_for(id, Some(LnRule::Cn)).unwrap().ex_score, 400);
         assert_eq!(store.get_for(id, Some(LnRule::Ln)).unwrap().ex_score, 200);
         assert!(store.get_for(id, None).is_none());
 
         // Beating one leaves the other alone.
-        assert!(store.update(ln_play(1, Some(LnRule::Ln), ClearType::Hard, 260)).ex);
+        assert!(
+            store
+                .update(ln_play(1, Some(LnRule::Ln), ClearType::Hard, 260))
+                .ex
+        );
         assert_eq!(store.get_for(id, Some(LnRule::Cn)).unwrap().ex_score, 400);
         assert_eq!(store.get_for(id, Some(LnRule::Ln)).unwrap().ex_score, 260);
     }
@@ -913,9 +994,16 @@ mod tests {
         store.update(ln_play(2, None, ClearType::Clear, 300));
         let song = SongMetadata::from_bytes("plain.bms", b"#BPM 120\n#00111:01\n").unwrap();
         // Not the synthetic id used above: file the record under the song's own.
-        store.update(PlayResult { chart: song.id, ..ln_play(2, None, ClearType::Clear, 300) });
+        store.update(PlayResult {
+            chart: song.id,
+            ..ln_play(2, None, ClearType::Clear, 300)
+        });
         for option in [LnOption::Auto, LnOption::Ln, LnOption::Cn] {
-            assert_eq!(store.best(&song, option).unwrap().ex_score, 300, "{option:?}");
+            assert_eq!(
+                store.best(&song, option).unwrap().ex_score,
+                300,
+                "{option:?}"
+            );
         }
     }
 
@@ -927,16 +1015,27 @@ mod tests {
         )
         .unwrap();
         let mut store = ScoreStore::new();
-        store.update(PlayResult { chart: song.id, ..ln_play(3, Some(LnRule::Cn), ClearType::Clear, 111) });
-        store.update(PlayResult { chart: song.id, ..ln_play(3, Some(LnRule::Ln), ClearType::Clear, 222) });
+        store.update(PlayResult {
+            chart: song.id,
+            ..ln_play(3, Some(LnRule::Cn), ClearType::Clear, 111)
+        });
+        store.update(PlayResult {
+            chart: song.id,
+            ..ln_play(3, Some(LnRule::Ln), ClearType::Clear, 222)
+        });
 
         // The chart says CN, so AUTO shows the CN record; forcing LN shows the other.
         assert_eq!(store.best(&song, LnOption::Auto).unwrap().ex_score, 111);
         assert_eq!(store.best(&song, LnOption::Cn).unwrap().ex_score, 111);
         assert_eq!(store.best(&song, LnOption::Ln).unwrap().ex_score, 222);
 
-        let no_mode = SongMetadata::from_bytes("ln2.bms", b"#BPM 120\n#00111:01\n#00151:01000100\n").unwrap();
-        assert_eq!(no_mode.score_rule(LnOption::Auto), Some(LnRule::Ln), "LN is the default");
+        let no_mode =
+            SongMetadata::from_bytes("ln2.bms", b"#BPM 120\n#00111:01\n#00151:01000100\n").unwrap();
+        assert_eq!(
+            no_mode.score_rule(LnOption::Auto),
+            Some(LnRule::Ln),
+            "LN is the default"
+        );
     }
 
     #[test]
@@ -948,10 +1047,17 @@ mod tests {
         store.update(play(11, ClearType::Clear, 200, 60, 6));
         assert_eq!(store.migrate_ln_rules(&[with_ln]), 1);
 
-        assert!(store.get(with_ln).is_none(), "no rule-less record is left for a chart with long notes");
+        assert!(
+            store.get(with_ln).is_none(),
+            "no rule-less record is left for a chart with long notes"
+        );
         let moved = store.get_for(with_ln, Some(LnRule::Cn)).unwrap();
         assert_eq!((moved.clear_type, moved.ex_score), (ClearType::Hard, 300));
-        assert_eq!(store.get(without_ln).unwrap().ex_score, 200, "a chart without long notes is untouched");
+        assert_eq!(
+            store.get(without_ln).unwrap().ex_score,
+            200,
+            "a chart without long notes is untouched"
+        );
         // Nothing left to move the second time.
         assert_eq!(store.migrate_ln_rules(&[with_ln]), 0);
     }
@@ -979,12 +1085,22 @@ mod tests {
         store.update(ln_play(21, None, ClearType::Clear, 90));
         let text = store.save_to_string();
         assert!(text.contains("\tln=LN\t") && text.contains("\tln=CN\t"));
-        assert_eq!(text.lines().filter(|l| l.contains("\tln=")).count(), 2, "the rule-less record has no ln field");
+        assert_eq!(
+            text.lines().filter(|l| l.contains("\tln=")).count(),
+            2,
+            "the rule-less record has no ln field"
+        );
 
         let mut loaded = ScoreStore::new();
         loaded.load_from_str(&text);
         assert_eq!(loaded.save_to_string(), text);
-        assert_eq!(loaded.get_for(ChartId::synthetic(20), Some(LnRule::Cn)).unwrap().ex_score, 190);
+        assert_eq!(
+            loaded
+                .get_for(ChartId::synthetic(20), Some(LnRule::Cn))
+                .unwrap()
+                .ex_score,
+            190
+        );
 
         // A file from before rules existed has no ln fields, and reads as rule-less.
         let line = format!("chart={}\tlamp=C\tex=5\tcombo=1", ChartId::synthetic(30));
@@ -997,7 +1113,9 @@ mod tests {
     fn new_records_carry_the_new_engine_version() {
         let mut store = ScoreStore::new();
         store.update(ln_play(40, Some(LnRule::Ln), ClearType::Clear, 100));
-        let record = store.get_for(ChartId::synthetic(40), Some(LnRule::Ln)).unwrap();
+        let record = store
+            .get_for(ChartId::synthetic(40), Some(LnRule::Ln))
+            .unwrap();
         assert_eq!(record.engine, ENGINE_VERSION);
         assert_eq!(ENGINE_VERSION, 2);
     }

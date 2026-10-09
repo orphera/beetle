@@ -15,7 +15,15 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
     let vp = Viewport::new(W, H);
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.begin(W, H, vp.scale);
-    draw_boot(ui, &BootFrame { viewport: &vp, elapsed, title, status: "Reading song library" });
+    draw_boot(
+        ui,
+        &BootFrame {
+            viewport: &vp,
+            elapsed,
+            title,
+            status: "Reading song library",
+        },
+    );
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
     gpu.end_frame();
@@ -27,8 +35,12 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
 #[test]
 fn boot_layouts() {
     let window = HiddenWindow::with_size(W, H);
-    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP]).expect("WARP device");
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
     let mut ui = Ui::new(1.0);
     assert_eq!(render(&mut gpu, &mut ui, "STARTING UP", 0.12, "enter"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, "RESCANNING LIBRARY", 1.9, "rescan"), 1);
+    assert_eq!(
+        render(&mut gpu, &mut ui, "RESCANNING LIBRARY", 1.9, "rescan"),
+        1
+    );
 }

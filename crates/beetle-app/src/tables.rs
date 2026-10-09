@@ -49,7 +49,11 @@ mod tests {
         DifficultyTable {
             name: name.into(),
             symbol: "t".into(),
-            entries: vec![TableEntry { level: "1".into(), sha256: Some(ChartId::synthetic(1)), ..TableEntry::default() }],
+            entries: vec![TableEntry {
+                level: "1".into(),
+                sha256: Some(ChartId::synthetic(1)),
+                ..TableEntry::default()
+            }],
             ..DifficultyTable::default()
         }
     }

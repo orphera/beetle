@@ -56,8 +56,9 @@ pub fn build_serve_state(storage_dir: &Path, base_url: &str) -> Result<ServeStat
                 let size_bytes = fs::metadata(&bmsp_path)
                     .map(|m| m.len())
                     .unwrap_or_default();
-                let sha256 = compute_file_sha256(&bmsp_path)
-                    .map_err(|e| format!("Failed to compute hash for '{}': {e}", bmsp_path.display()))?;
+                let sha256 = compute_file_sha256(&bmsp_path).map_err(|e| {
+                    format!("Failed to compute hash for '{}': {e}", bmsp_path.display())
+                })?;
 
                 let filename = format!("{}.bmsp", record.id);
                 let download_url = format!("{base_url}/packages/{filename}");
@@ -301,7 +302,9 @@ fn handle_http_request(mut stream: TcpStream, state: Arc<ServeState>) -> std::io
 
         if let Some(target_path) = state.files.get(pkg_filename) {
             if let Ok(mut file) = File::open(target_path) {
-                let size = fs::metadata(target_path).map(|m| m.len()).unwrap_or_default();
+                let size = fs::metadata(target_path)
+                    .map(|m| m.len())
+                    .unwrap_or_default();
                 let headers = format!(
                     "HTTP/1.1 200 OK\r\n\
                     Content-Type: application/octet-stream\r\n\
@@ -420,14 +423,8 @@ mod tests {
             .unwrap();
 
         assert!(download_dest.exists());
-        assert_eq!(
-            fs::metadata(&download_dest).unwrap().len(),
-            expected_size
-        );
-        assert_eq!(
-            compute_file_sha256(&download_dest).unwrap(),
-            expected_sha
-        );
+        assert_eq!(fs::metadata(&download_dest).unwrap().len(), expected_size);
+        assert_eq!(compute_file_sha256(&download_dest).unwrap(), expected_sha);
 
         // 3. Test 404 on nonexistent route
         let invalid_url = format!("http://127.0.0.1:{port}/nonexistent");

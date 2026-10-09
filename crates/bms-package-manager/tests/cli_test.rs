@@ -180,10 +180,21 @@ fn test_cli_library_add_list_remove() {
     // Same folder again is a no-op, not an error or a duplicate line.
     assert!(run(&["add", bms_str]).status.success());
     let listed = String::from_utf8_lossy(&run(&["list"]).stdout).into_owned();
-    assert!(listed.contains("[ok]") && listed.contains("old_bms"), "{listed}");
-    assert_eq!(fs::read_to_string(&file).unwrap().matches("old_bms").count(), 1);
+    assert!(
+        listed.contains("[ok]") && listed.contains("old_bms"),
+        "{listed}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file)
+            .unwrap()
+            .matches("old_bms")
+            .count(),
+        1
+    );
 
-    assert!(!run(&["add", dir.join("nope").to_str().unwrap()]).status.success());
+    assert!(!run(&["add", dir.join("nope").to_str().unwrap()])
+        .status
+        .success());
 
     assert!(run(&["remove", bms_str]).status.success());
     assert!(!run(&["remove", bms_str]).status.success());

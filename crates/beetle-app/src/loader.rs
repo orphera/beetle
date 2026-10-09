@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
-use beetle_core::{parse_bms, parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel};
+use beetle_core::{
+    parse_bms, parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel,
+};
 use beetle_render::{is_video_path, ImageBuffer};
 
 use crate::demo;
@@ -574,7 +576,11 @@ pub fn load_chart_and_audio_with_seed(
                     let timing = TimingModel::from_chart(&chart);
                     // BGA OFF: nothing to decode, so no image or video work.
                     let no_bmps = HashMap::new();
-                    let bmp_table = if load_bga { &chart.header.bmp_table } else { &no_bmps };
+                    let bmp_table = if load_bga {
+                        &chart.header.bmp_table
+                    } else {
+                        &no_bmps
+                    };
                     let mut soundbank = SampleBank::new();
                     let mut bga_bank = HashMap::new();
                     let mut video_sources = HashMap::new();
@@ -836,7 +842,11 @@ pub fn load_chart_and_audio_with_seed(
             let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
             let mut bga_bank = HashMap::new();
             let no_bmps = HashMap::new();
-            let bmp_table = if load_bga { &chart.header.bmp_table } else { &no_bmps };
+            let bmp_table = if load_bga {
+                &chart.header.bmp_table
+            } else {
+                &no_bmps
+            };
 
             for (&bmp_id, filename) in bmp_table {
                 if let Some(img) = load_image_from_dir_or_case_insensitive(parent_dir, filename) {
@@ -844,7 +854,11 @@ pub fn load_chart_and_audio_with_seed(
                 }
             }
 
-            let mut video_sources = if load_bga { find_video_files_in_dir(parent_dir, &chart) } else { HashMap::new() };
+            let mut video_sources = if load_bga {
+                find_video_files_in_dir(parent_dir, &chart)
+            } else {
+                HashMap::new()
+            };
 
             // If folder has no videos, check for adjacent companion package
             if load_bga && video_sources.is_empty() {
@@ -899,12 +913,17 @@ pub fn load_chart_and_audio_with_seed(
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
-pub fn spawn_background_song_loader(song: &SongMetadata, seed: u64, load_bga: bool) -> SongLoadReceiver {
+pub fn spawn_background_song_loader(
+    song: &SongMetadata,
+    seed: u64,
+    load_bga: bool,
+) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_sources) = load_chart_and_audio_with_seed(&song_clone, seed, load_bga);
+        let (chart, timing, bank, bga_bank, video_sources) =
+            load_chart_and_audio_with_seed(&song_clone, seed, load_bga);
         let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_sources)));
     });
 

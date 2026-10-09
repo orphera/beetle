@@ -24,7 +24,8 @@ impl LibraryPaths {
     }
 
     pub fn serialize(&self) -> String {
-        let mut out = String::from("# BMS folders scanned by the player (bpm library add/remove)\n");
+        let mut out =
+            String::from("# BMS folders scanned by the player (bpm library add/remove)\n");
         for p in &self.paths {
             out.push_str(p);
             out.push('\n');
@@ -55,7 +56,11 @@ impl LibraryPaths {
 
 /// Windows paths ignore case and treat `/` like `\`.
 fn same_path(a: &str, b: &str) -> bool {
-    let norm = |s: &str| s.trim_end_matches(['/', '\\']).replace('/', "\\").to_lowercase();
+    let norm = |s: &str| {
+        s.trim_end_matches(['/', '\\'])
+            .replace('/', "\\")
+            .to_lowercase()
+    };
     norm(a) == norm(b)
 }
 
