@@ -5,7 +5,8 @@
 //! confirm, so the same code runs in a terminal and in the window.
 
 use crate::archive::extract_archive;
-use crate::collection::{self, Index};
+use crate::base_match::{self, EntryMeta, Verdict};
+use crate::collection::{self, Index, Location};
 use crate::manager::{InstalledPackage, PackageManager};
 use crate::table_fetch::{self, KeptPack};
 use crate::HttpClient;
@@ -100,6 +101,96 @@ pub fn find_matching_chart(entry: &TableEntry, folder: &Path) -> Option<PathBuf>
     table_fetch::chart_files(folder)
         .into_iter()
         .find(|file| fs::read(file).is_ok_and(|bytes| table_fetch::chart_matches(entry, &bytes)))
+}
+
+/// What `base_report` found for one table entry.
+#[derive(Debug, PartialEq)]
+pub struct BaseReport {
+    pub verdict: Verdict,
+    /// The difference chart, when the index has a copy of it.
+    pub diff_copy: Option<beetle_core::ChartId>,
+    /// Every place holding a copy of the difference. They are left out of the candidates.
+    pub diff_places: Vec<String>,
+    /// Sounds the original must supply (the difference's declared sounds minus those its folder has).
+    /// Empty when the difference is already complete where it sits.
+    pub required: std::collections::BTreeSet<String>,
+}
+
+/// Estimates the original of the entry at `number` (counted from 1). Without a
+/// local copy of the difference, only the title and artist are used.
+pub fn base_report(
+    table: &DifficultyTable,
+    number: usize,
+    index: &Index,
+) -> Result<BaseReport, String> {
+    let entry = number
+        .checked_sub(1)
+        .and_then(|i| table.entries.get(i))
+        .ok_or_else(|| {
+            format!(
+                "no entry #{number} in '{}' ({} entries)",
+                table.name,
+                table.entries.len()
+            )
+        })?;
+    let meta = EntryMeta {
+        title: &entry.title,
+        artist: &entry.artist,
+    };
+    let places = base_match::places_from_index(index);
+    let copies: Vec<&Location> = index
+        .locations
+        .iter()
+        .filter(|location| match (entry.sha256, entry.md5) {
+            (Some(sha), _) => location.chart == sha,
+            (None, Some(md5)) => location.md5 == md5,
+            (None, None) => false,
+        })
+        .collect();
+    // Several copies can exist (a folder and a package). The sounds come from an
+    // intact one when there is one, since a copy missing sounds declares more than it has.
+    let Some(copy) = copies
+        .iter()
+        .find(|location| location.is_intact())
+        .or(copies.first())
+    else {
+        return Ok(BaseReport {
+            verdict: base_match::estimate(meta, &Default::default(), &places),
+            diff_copy: None,
+            diff_places: Vec::new(),
+            required: Default::default(),
+        });
+    };
+
+    // Every place with a copy of the difference is left out, so a copy never
+    // matches itself. Sounds its folders already have came with the pack, so the
+    // original does not have to supply them; everything else is required.
+    let diff_places: std::collections::BTreeSet<String> = copies
+        .iter()
+        .map(|location| base_match::place_id(location))
+        .collect();
+    let folder_keys: std::collections::BTreeSet<String> = places
+        .iter()
+        .filter(|place| diff_places.contains(&place.id))
+        .flat_map(|place| place.keys.iter().cloned())
+        .collect();
+    let required: std::collections::BTreeSet<String> = copy
+        .key_stems
+        .iter()
+        .filter(|stem| !folder_keys.contains(*stem))
+        .cloned()
+        .collect();
+    let others: Vec<_> = places
+        .into_iter()
+        .filter(|place| !diff_places.contains(&place.id))
+        .collect();
+    let verdict = base_match::estimate(meta, &required, &others);
+    Ok(BaseReport {
+        verdict,
+        diff_copy: Some(copy.chart),
+        diff_places: diff_places.into_iter().collect(),
+        required,
+    })
 }
 
 /// Imports `folder` as one package, or each song folder under it when there are
@@ -269,6 +360,124 @@ mod tests {
             missing_keys,
             key_stems: Vec::new(),
         }
+    }
+
+    fn copy_with(
+        n: u8,
+        source: &str,
+        path: &str,
+        title: &str,
+        missing: u32,
+        keys: &[&str],
+    ) -> Location {
+        let (chart, md5) = chart_entry(n);
+        Location {
+            chart,
+            md5,
+            kind: LocationKind::Folder,
+            source: source.into(),
+            path: path.into(),
+            title: title.into(),
+            artist: String::new(),
+            play_level: 0,
+            mode: String::new(),
+            missing_keys: missing,
+            key_stems: keys.iter().map(|k| k.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn base_report_without_a_local_copy_uses_only_metadata() {
+        let table = table_with(vec![entry(1)]);
+        let report = base_report(&table, 1, &Index::default()).unwrap();
+        assert_eq!(report.diff_copy, None);
+        assert_eq!(report.verdict, Verdict::MetadataOnly(vec![]));
+    }
+
+    #[test]
+    fn base_report_leaves_the_difference_folder_out_and_finds_the_original() {
+        let table = table_with(vec![entry(1)]);
+        // The difference is not intact (its body is missing), so its folder keeps none of its sounds.
+        let index = Index {
+            locations: vec![
+                copy_with(
+                    1,
+                    "D:/x",
+                    "diff/d.bme",
+                    "Chart 1",
+                    3,
+                    &["kick", "snare", "hat", "bass", "lead"],
+                ),
+                copy_with(
+                    9,
+                    "D:/x",
+                    "orig/o.bme",
+                    "Chart 1",
+                    0,
+                    &["kick", "snare", "hat", "bass", "lead", "pad"],
+                ),
+            ],
+            ..Index::default()
+        };
+        let report = base_report(&table, 1, &index).unwrap();
+        assert_eq!(report.diff_places, vec!["folder:D:/x:diff".to_string()]);
+        assert_eq!(report.required.len(), 5);
+        match report.verdict {
+            Verdict::Confident(candidate) => assert_eq!(candidate.place, "folder:D:/x:orig"),
+            other => panic!("expected confident, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn base_report_leaves_out_every_copy_of_the_difference() {
+        let table = table_with(vec![entry(1)]);
+        // An incomplete copy in one folder and an intact copy in a package: the
+        // intact one supplies the sounds, and neither place may be a candidate.
+        let mut packaged = copy_with(
+            1,
+            "pkg@1",
+            "d.bme",
+            "Chart 1",
+            0,
+            &["kick", "snare", "hat", "bass", "lead"],
+        );
+        packaged.kind = LocationKind::Package;
+        let index = Index {
+            locations: vec![
+                copy_with(1, "D:/x", "diff/d.bme", "Chart 1", 3, &["kick", "snare"]),
+                packaged,
+                copy_with(
+                    9,
+                    "D:/x",
+                    "orig/o.bme",
+                    "Chart 1",
+                    0,
+                    &["kick", "snare", "hat", "bass", "lead", "pad"],
+                ),
+            ],
+            ..Index::default()
+        };
+        let report = base_report(&table, 1, &index).unwrap();
+        assert_eq!(
+            report.diff_places,
+            vec!["folder:D:/x:diff".to_string(), "package:pkg@1:".to_string()]
+        );
+        // The intact package copy already has every sound, so nothing is required from the original.
+        assert!(report.required.is_empty());
+        assert_eq!(
+            report.verdict,
+            Verdict::MetadataOnly(vec![base_match::MetadataCandidate {
+                place: "folder:D:/x:orig".to_string(),
+                evidence: base_match::Evidence::Weak,
+            }])
+        );
+    }
+
+    #[test]
+    fn base_report_rejects_an_entry_number_out_of_range() {
+        let table = table_with(vec![entry(1)]);
+        assert!(base_report(&table, 0, &Index::default()).is_err());
+        assert!(base_report(&table, 2, &Index::default()).is_err());
     }
 
     #[test]

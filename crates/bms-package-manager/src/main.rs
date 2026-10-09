@@ -1,4 +1,5 @@
 use beetle_core::{ChartId, TableIndex};
+use bms_package_manager::base_match;
 use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
 use bms_package_manager::table_fetch;
@@ -94,6 +95,7 @@ fn print_table_usage() {
     println!("  bpm table fetch <name> <#>... [--yes]  Download the difference packs of the chosen entries (direct links only)");
     println!("  bpm table fetch <name> <#>... --body   Open the body pages of the chosen entries in the browser");
     println!("  bpm table get <name> <#> [--body-file <file>] [--yes]  Get one entry: body file + difference, imported as a package");
+    println!("  bpm table base <name> <#>           Guess which owned folder is the original of an entry's difference (after `bpm scan`)");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -789,6 +791,123 @@ fn run_library_command(args: &[String]) {
     }
 }
 
+/// Prints `table base`. Nothing is linked here: a confident guess only suggests the command.
+fn print_base_report(
+    table: &beetle_core::DifficultyTable,
+    number: usize,
+    report: &table_ops::BaseReport,
+    index: &collection::Index,
+) {
+    let entry = &table.entries[number - 1];
+    println!("#{number} {} / {}", entry.title, entry.artist);
+    if !report.diff_places.is_empty() {
+        println!(
+            "  The difference is already in {}; those folders are not candidates.",
+            report.diff_places.join(", ")
+        );
+    }
+    if report.diff_copy.is_some() && report.required.is_empty() {
+        println!("  The difference already has all its key sounds where it sits, so the original is not needed for sound.");
+    }
+    let needed = report.required.len();
+    let stats = |c: &base_match::Candidate| {
+        format!(
+            "shares {} of {} sounds it needs ({:.0}% coverage, {:.0}% of the folder's sounds used)",
+            c.shared,
+            needed,
+            c.coverage * 100.0,
+            c.precision * 100.0
+        )
+    };
+    let label = |e: base_match::Evidence| match e {
+        base_match::Evidence::Strong => "strong",
+        base_match::Evidence::Weak => "weak",
+        base_match::Evidence::None => "none",
+    };
+    match &report.verdict {
+        base_match::Verdict::Confident(candidate) => {
+            println!("  Likely original (high confidence): {}", candidate.place);
+            println!("    {}", stats(candidate));
+            // The copy of the candidate that shares the most required sounds, so the
+            // title shown is the one most likely to be the same song.
+            let most_similar = index
+                .locations
+                .iter()
+                .filter(|l| l.is_intact() && base_match::place_id(l) == candidate.place)
+                .max_by_key(|l| {
+                    l.key_stems
+                        .iter()
+                        .filter(|stem| report.required.contains(*stem))
+                        .count()
+                });
+            if let Some(rep) = most_similar {
+                println!(
+                    "    most similar chart there: {} / {}",
+                    rep.title, rep.artist
+                );
+            }
+            let songs_now = songs::build(index, &load_manual());
+            let grouped = match (report.diff_copy, most_similar) {
+                (Some(diff), Some(rep)) => same_song(&songs_now, diff, rep.chart),
+                _ => false,
+            };
+            match (report.diff_copy, most_similar) {
+                (Some(diff), Some(rep)) if !grouped => {
+                    println!(
+                        "  If it is the same song: bpm song link {diff} {}",
+                        rep.chart
+                    );
+                }
+                (_, Some(_)) if grouped => {
+                    println!("  Already one song in the collection; no link needed.");
+                }
+                _ => {}
+            }
+        }
+        base_match::Verdict::Ranked(list) => {
+            println!("  No confident original. Candidates:");
+            for candidate in list {
+                println!("    {}: {}", candidate.place, stats(candidate));
+            }
+        }
+        base_match::Verdict::NoKeyMatch(list) => {
+            println!("  No folder shares enough key sounds with the difference.");
+            for item in list {
+                println!(
+                    "    skipped for serial sound names; title/artist {}: {}",
+                    label(item.evidence),
+                    item.place
+                );
+            }
+        }
+        base_match::Verdict::MetadataOnly(list) => {
+            if report.diff_copy.is_none() {
+                println!("  The difference is not in the collection yet, so only title and artist are used:");
+            } else {
+                println!("  Key sounds cannot decide here (none required, or mostly serial names). Title and artist only:");
+            }
+            if list.is_empty() {
+                println!("    no folder matches the title or artist");
+            }
+            for item in list {
+                println!("    {}: {}", item.place, label(item.evidence));
+            }
+        }
+    }
+}
+
+/// Whether two charts already belong to one song in the grouped collection.
+fn same_song(collection: &songs::Collection, a: ChartId, b: ChartId) -> bool {
+    collection.songs.iter().any(|song| {
+        let has = |id: ChartId| {
+            song.charts
+                .iter()
+                .any(|&i| collection.records[i].chart == id)
+        };
+        has(a) && has(b)
+    })
+}
+
 fn run_table_command(args: &[String]) {
     let dir = env::var("BEETLE_TABLES_DIR").unwrap_or_else(|_| "tables".to_string());
     let store = TableStore::new(dir);
@@ -979,6 +1098,24 @@ fn run_table_command(args: &[String]) {
             } else {
                 fetch_difference_packs(&client, &table, &numbers, yes, into.as_deref());
             }
+        }
+        Some("base") => {
+            let Some(name) = args.get(1) else {
+                eprintln!("Error: Missing table name.");
+                print_table_usage();
+                std::process::exit(1);
+            };
+            let number = args
+                .get(2)
+                .and_then(|a| a.trim_start_matches('#').parse::<usize>().ok())
+                .unwrap_or_else(|| fail(&"give one entry number, as `table missing` prints it"));
+            let (_, table) = store
+                .find(name)
+                .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
+            let index = load_index_or_exit();
+            let report =
+                table_ops::base_report(&table, number, &index).unwrap_or_else(|e| fail(&e));
+            print_base_report(&table, number, &report, &index);
         }
         Some("get") => {
             let Some(name) = args.get(1).filter(|a| !a.starts_with("--")) else {

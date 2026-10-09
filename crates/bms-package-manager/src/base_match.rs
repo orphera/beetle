@@ -10,7 +10,7 @@
 //! The functions take plain sets so they stay free of file system and index
 //! access. [`places_from_index`] is the one adapter from the collection index.
 
-use crate::collection::{normalize_stem, Index};
+use crate::collection::{normalize_stem, Index, Location};
 use crate::songs::{artist_key, mostly_serial_names, title_base};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -302,14 +302,19 @@ pub fn estimate(entry: EntryMeta, required: &BTreeSet<String>, places: &[Place])
     }
 }
 
+/// The place a copy belongs to: its kind, source, and the directory part of its path.
+pub fn place_id(location: &Location) -> String {
+    let dir = location.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    format!("{}:{}:{}", location.kind.as_str(), location.source, dir)
+}
+
 /// Builds the places from a collection index. A place is one directory inside a
 /// folder or a package, as `songs.rs` groups them (the part of the path before the
 /// last `/`). Its keys come from intact copies only; its titles come from all copies.
 pub fn places_from_index(index: &Index) -> Vec<Place> {
     let mut by_id: BTreeMap<String, Place> = BTreeMap::new();
     for location in &index.locations {
-        let dir = location.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-        let id = format!("{}:{}:{}", location.kind.as_str(), location.source, dir);
+        let id = place_id(location);
         let place = by_id.entry(id.clone()).or_insert_with(|| Place {
             id,
             ..Place::default()
