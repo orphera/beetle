@@ -447,8 +447,19 @@ pub fn decode_bms_text(bytes: &[u8]) -> String {
         return s.to_string();
     }
 
-    // 2. Shift-JIS (CP932)
+    // 2. Shift-JIS (CP932). Many CP949 Hangul pairs are also valid CP932
+    // half-width katakana, so a Korean chart can "succeed" here as garbage.
+    // Half-width kana in the CP932 reading plus Hangul in the CP949 reading
+    // means the text is Korean.
     if let Some(s) = win32_decode_cp(bytes, 932) {
+        if !has_halfwidth_kana(&s) {
+            return s;
+        }
+        if let Some(k) = win32_decode_cp(bytes, 949) {
+            if has_hangul(&k) {
+                return k;
+            }
+        }
         return s;
     }
 
@@ -473,6 +484,19 @@ pub fn decode_bms_text(bytes: &[u8]) -> String {
     } else {
         String::from_utf8_lossy(bytes).into_owned()
     }
+}
+
+/// Half-width katakana (U+FF61..U+FF9F): what CP932 makes of CP949 bytes.
+#[cfg(target_os = "windows")]
+fn has_halfwidth_kana(s: &str) -> bool {
+    s.chars().any(|c| ('\u{FF61}'..='\u{FF9F}').contains(&c))
+}
+
+/// Hangul syllables or compatibility jamo.
+#[cfg(target_os = "windows")]
+fn has_hangul(s: &str) -> bool {
+    s.chars()
+        .any(|c| ('\u{AC00}'..='\u{D7A3}').contains(&c) || ('\u{3131}'..='\u{318E}').contains(&c))
 }
 
 #[cfg(target_os = "windows")]
@@ -1979,5 +2003,14 @@ mod tests {
         assert_eq!(decoded, "五つ");
         #[cfg(not(target_os = "windows"))]
         assert!(!decoded.is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_decode_bms_text_korean_cp949_is_not_read_as_shift_jis() {
+        // "가나다" in CP949 (EUC-KR). Each byte pair is also valid CP932 (as
+        // half-width katakana), so a CP932-first decode would wrongly succeed.
+        let cp949: &[u8] = &[0xB0, 0xA1, 0xB3, 0xAA, 0xB4, 0xD9];
+        assert_eq!(decode_bms_text(cp949), "가나다");
     }
 }
