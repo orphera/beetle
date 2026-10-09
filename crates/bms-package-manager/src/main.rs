@@ -20,7 +20,7 @@ fn print_usage() {
     println!("  bpm dupes [--kind folder|mixed]        List charts that exist in more than one place, with the copy that loads");
     println!("  bpm songs [filters]                    List songs (charts grouped by title, artist and key sounds)");
     println!("  bpm song <id|title>                    Show one song: its charts, copies, the copy that loads, candidates");
-    println!("  bpm song link|unlink <chart>...        Group charts by hand, or take a chart out of its manual group");
+    println!("  bpm song link|unlink <chart>...        Group charts by hand, or split a chart from its song for good");
     println!("  bpm charts [filters]                   List charts with their song, mode, level and copies");
     println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
@@ -144,14 +144,14 @@ fn load_index_or_exit() -> collection::Index {
 
 fn run_scan(manager: &PackageManager) {
     let folders = load_library().paths().to_vec();
-    let installed = manager.list_all_installed();
+    let installed = manager.list_active_packages();
     let (index, counts) = collection::build_index(&folders, &installed);
     let path = collection::index_file();
     fs::write(&path, index.serialize()).unwrap_or_else(|e| exit_with(&e));
 
     let distinct = distinct_charts(&index);
     println!(
-        "Scanned {} folder(s) and {} installed package state(s).",
+        "Scanned {} folder(s) and {} active package state(s).",
         counts.folders, counts.package_states
     );
     println!(
@@ -198,7 +198,7 @@ fn run_status() {
         collection::KEY_VERSION
     );
     println!(
-        "Sources:    {folders} folder(s), {} installed package state(s)",
+        "Sources:    {folders} folder(s), {} active package state(s)",
         package_states.len()
     );
     println!(
@@ -218,7 +218,8 @@ fn run_status() {
         "Skipped:    {} unreadable chart(s) at last scan",
         index.skipped
     );
-    println!("Songs:      - (song grouping comes in a later step)");
+    let songs_count = songs::build(&index, &load_manual()).songs.len();
+    println!("Songs:      {songs_count}");
 }
 
 fn run_dupes(args: &[String]) {
@@ -300,7 +301,14 @@ fn parse_chart_filter(args: &[String]) -> ChartFilter {
         match arg.as_str() {
             "--mode" => {
                 let value = it.next().unwrap_or_else(|| exit_with(&USAGE));
-                filter.mode = Some(normalize_mode(value));
+                let mode = normalize_mode(value);
+                if !KNOWN_MODES.contains(&mode.as_str()) {
+                    exit_with(&format!(
+                        "unknown mode '{value}' (use one of {})",
+                        KNOWN_MODES.join(" ")
+                    ));
+                }
+                filter.mode = Some(mode);
             }
             "--level" => {
                 let value = it.next().unwrap_or_else(|| exit_with(&USAGE));
@@ -320,6 +328,9 @@ fn parse_chart_filter(args: &[String]) -> ChartFilter {
     }
     filter
 }
+
+/// Modes as `normalize_mode` writes them, in the order the game lists them.
+const KNOWN_MODES: &[&str] = &["4K", "5K", "6K", "7K", "8K", "9K", "10K", "14K"];
 
 /// `7k`, `7K` and `7KEYS` all name the same mode.
 fn normalize_mode(text: &str) -> String {
@@ -385,7 +396,8 @@ fn run_songs(args: &[String]) {
     let filter = parse_chart_filter(args);
     let index = load_index_or_exit();
     let tables = load_tables(&index);
-    let collection = songs::build(&index, &songs::Manual::load());
+    check_table_filter(&filter, &tables);
+    let collection = songs::build(&index, &load_manual());
 
     let rows: Vec<_> = collection
         .songs
@@ -432,7 +444,8 @@ fn run_charts(args: &[String]) {
     let filter = parse_chart_filter(args);
     let index = load_index_or_exit();
     let tables = load_tables(&index);
-    let collection = songs::build(&index, &songs::Manual::load());
+    check_table_filter(&filter, &tables);
+    let collection = songs::build(&index, &load_manual());
     let mut song_of = vec![String::new(); collection.records.len()];
     for song in &collection.songs {
         for &i in &song.charts {
@@ -481,9 +494,33 @@ fn truncate(text: &str, width: usize) -> String {
 }
 
 /// A chart named by its full id (with or without `sha256:`) or by a unique hex prefix of at least 8 characters.
+fn load_manual() -> songs::Manual {
+    songs::Manual::load().unwrap_or_else(|e| exit_with(&e))
+}
+
+/// Exits when a `--table` value names no installed table, so a typo does not look like an empty result.
+fn check_table_filter(filter: &ChartFilter, tables: &TableIndex) {
+    let Some(query) = &filter.table else {
+        return;
+    };
+    let known = tables.tables().iter().any(|t| {
+        t.name.eq_ignore_ascii_case(query)
+            || (!t.symbol.is_empty() && query.starts_with(&t.symbol.to_ascii_lowercase()))
+    });
+    if !known {
+        let dir = env::var("BEETLE_TABLES_DIR").unwrap_or_else(|_| "tables".to_string());
+        exit_with(&format!(
+            "no installed difficulty table matches '{query}' (tables dir: {dir})"
+        ));
+    }
+}
+
 fn resolve_chart(index: &collection::Index, text: &str) -> ChartId {
     if let Some(id) = ChartId::from_hex(text) {
-        return id;
+        if index.locations.iter().any(|l| l.chart == id) {
+            return id;
+        }
+        exit_with(&format!("no scanned chart has the id {}", id.short()));
     }
     let hex = text
         .strip_prefix("sha256:")
@@ -520,7 +557,7 @@ fn run_song(args: &[String]) {
     let query = args.join(" ");
     let index = load_index_or_exit();
     let tables = load_tables(&index);
-    let collection = songs::build(&index, &songs::Manual::load());
+    let collection = songs::build(&index, &load_manual());
 
     let lowered = query.to_ascii_lowercase();
     let found: Vec<&songs::Song> = collection
@@ -606,23 +643,66 @@ fn run_song_link(args: &[String]) {
     }
     let index = load_index_or_exit();
     let group: Vec<ChartId> = args.iter().map(|a| resolve_chart(&index, a)).collect();
-    let mut manual = songs::Manual::load();
-    // Linking is an explicit decision that overrides an earlier unlink between these charts.
+    let mut manual = load_manual();
+
+    // Charts that share a song with a group member right now. Linking must not
+    // silently push any of them out, so they are reported if it does.
+    let before = songs::build(&index, &manual);
+    let mates_before: BTreeSet<ChartId> = before
+        .songs
+        .iter()
+        .filter(|s| {
+            s.charts
+                .iter()
+                .any(|&i| group.contains(&before.records[i].chart))
+        })
+        .flat_map(|s| s.charts.iter().map(|&i| before.records[i].chart))
+        .collect();
+
+    // Linking overrides the unlinks between these charts. Splits to charts
+    // outside the group stay, so a chart the user separated stays separated.
     manual
         .splits
         .retain(|(a, b)| !(group.contains(a) && group.contains(b)));
     manual.links.push(group.clone());
     manual.save().unwrap_or_else(|e| exit_with(&e));
-    println!("Linked {} charts into one song.", group.len());
-}
 
+    let after = songs::build(&index, &manual);
+    let song_of = |id: &ChartId| {
+        after
+            .songs
+            .iter()
+            .position(|s| s.charts.iter().any(|&i| after.records[i].chart == *id))
+    };
+    let group_song = song_of(&group[0]);
+    let together = group.iter().map(song_of).all(|s| s == group_song);
+    if together {
+        println!("Linked {} charts into one song.", group.len());
+    } else {
+        println!(
+            "Saved the link, but the {} charts are not one song yet; check with bpm song <id>.",
+            group.len()
+        );
+    }
+    let left_out: Vec<String> = mates_before
+        .iter()
+        .filter(|id| !group.contains(id) && song_of(id) != group_song)
+        .map(ChartId::short)
+        .collect();
+    if !left_out.is_empty() {
+        println!(
+            "Left out of the song because of earlier unlinks: {}",
+            left_out.join(" ")
+        );
+    }
+}
 fn run_song_unlink(args: &[String]) {
     if args.len() != 1 {
         exit_with(&"usage: bpm song unlink <chart>");
     }
     let index = load_index_or_exit();
     let chart = resolve_chart(&index, &args[0]);
-    let mut manual = songs::Manual::load();
+    let mut manual = load_manual();
     let collection = songs::build(&index, &manual);
     // Everything else in the chart's current song must stop being its song-mate.
     let mates: Vec<ChartId> = collection

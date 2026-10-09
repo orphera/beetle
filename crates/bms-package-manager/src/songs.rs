@@ -37,27 +37,28 @@ const SPLITS_HEADER: &str =
 impl Manual {
     /// Reads `collection-links.txt` and `collection-splits.txt` (or the
     /// `$BEETLE_COLLECTION_LINKS` / `$BEETLE_COLLECTION_SPLITS` overrides).
-    /// Missing files mean no decisions yet.
-    pub fn load() -> Self {
-        let links_text = fs::read_to_string(links_file()).unwrap_or_default();
-        let links = links_text
-            .lines()
+    /// A missing file means no decisions yet. Any other read error, or a line
+    /// that is not a valid decision, is an error: saving after a silent skip
+    /// would erase the decisions in that file.
+    pub fn load() -> Result<Self, String> {
+        let links = read_decision_file(&links_file())?
+            .into_iter()
+            .map(|line| parse_ids(&line, &links_file()).and_then(non_empty_group))
+            .collect::<Result<Vec<_>, String>>()?;
+        let splits = read_decision_file(&splits_file())?
+            .into_iter()
             .map(|line| {
-                line.split_whitespace()
-                    .filter_map(ChartId::from_hex)
-                    .collect::<Vec<_>>()
+                let ids = parse_ids(&line, &splits_file())?;
+                match ids.as_slice() {
+                    [a, b] => Ok((*a, *b)),
+                    _ => Err(format!(
+                        "{}: a split line needs exactly two chart ids: '{line}'",
+                        splits_file().display()
+                    )),
+                }
             })
-            .filter(|group| group.len() > 1)
-            .collect();
-        let splits_text = fs::read_to_string(splits_file()).unwrap_or_default();
-        let splits = splits_text
-            .lines()
-            .filter_map(|line| {
-                let mut ids = line.split_whitespace().filter_map(ChartId::from_hex);
-                Some((ids.next()?, ids.next()?))
-            })
-            .collect();
-        Self { links, splits }
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(Self { links, splits })
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -67,14 +68,53 @@ impl Manual {
             links.push_str(&ids.join(" "));
             links.push('\n');
         }
-        fs::write(links_file(), links)?;
-
         let mut splits = String::from(SPLITS_HEADER);
         for (a, b) in &self.splits {
             splits.push_str(&format!("{} {}\n", a.to_hex(), b.to_hex()));
         }
-        fs::write(splits_file(), splits)
+        // Both files are replaced atomically; each one is either the old or the new text.
+        write_atomic(&splits_file(), &splits)?;
+        write_atomic(&links_file(), &links)
     }
+}
+
+/// Non-empty lines of a decision file. A missing file is empty; any other error is not.
+fn read_decision_file(path: &std::path::Path) -> Result<Vec<String>, String> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
+    };
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+
+fn parse_ids(line: &str, path: &std::path::Path) -> Result<Vec<ChartId>, String> {
+    line.split_whitespace()
+        .map(|token| {
+            ChartId::from_hex(token)
+                .ok_or_else(|| format!("{}: '{token}' is not a chart id", path.display()))
+        })
+        .collect()
+}
+
+fn non_empty_group(ids: Vec<ChartId>) -> Result<Vec<ChartId>, String> {
+    if ids.len() > 1 {
+        Ok(ids)
+    } else {
+        Err("a link line needs at least two chart ids".to_string())
+    }
+}
+
+/// Writes through a temporary file and a rename, so a failed write never leaves a half-written file.
+fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    let temp = path.with_extension("tmp");
+    fs::write(&temp, text)?;
+    fs::rename(&temp, path)
 }
 
 /// `collection-links.txt`, or `$BEETLE_COLLECTION_LINKS`.
@@ -115,7 +155,8 @@ impl ChartRecord<'_> {
 /// One song: the charts grouped under it.
 #[derive(Debug)]
 pub struct Song {
-    /// Short id: the first 8 hex characters of the smallest chart id in the song.
+    /// Short id: the first hex characters of the smallest chart id in the song. The
+    /// shortest length from 8 that keeps every song id unique is used for all songs.
     /// It changes when the song's members change.
     pub id: String,
     pub title: String,
@@ -193,12 +234,15 @@ pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
         }
         for copy in &record.copies {
             let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-            let first_of_title = by_place
+            // Each chart joins the previous chart with the same title in its place,
+            // so a refused join (a split) cannot strand the charts after it.
+            let previous = by_place
                 .entry((copy.kind, copy.source.as_str(), dir))
                 .or_default()
-                .entry(record.title_key.as_str())
-                .or_insert(i);
-            sets.try_union(*first_of_title, i, &forbidden);
+                .insert(record.title_key.as_str(), i);
+            if let Some(previous) = previous {
+                sets.try_union(previous, i, &forbidden);
+            }
         }
     }
 
@@ -262,7 +306,7 @@ fn assemble_songs(
             (
                 root,
                 Song {
-                    id: smallest.chars().take(8).collect(),
+                    id: smallest,
                     title,
                     artist,
                     charts,
@@ -290,6 +334,17 @@ fn assemble_songs(
         .map(|(song_index, (root, _))| (*root, song_index))
         .collect();
     let mut result: Vec<Song> = songs.into_iter().map(|(_, song)| song).collect();
+    let width = (8..=16)
+        .find(|&width| {
+            let mut seen = HashSet::new();
+            result
+                .iter()
+                .all(|song| seen.insert(song.id.chars().take(width).collect::<String>()))
+        })
+        .unwrap_or(16);
+    for song in &mut result {
+        song.id = song.id.chars().take(width).collect();
+    }
     for &(a, b) in unmatched_pairs {
         let (sa, sb) = (song_of_root[&sets.find(a)], song_of_root[&sets.find(b)]);
         if sa != sb {
