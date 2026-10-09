@@ -255,46 +255,54 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     let note_h = sk.note.region.h as f32;
     let visible_beats = (judge_y - field.y + 100.0 * s) as f64 / px_per_beat.max(1.0);
     let first = f.notes.partition_point(|n| n.end_target_time_seconds < f.audio_time - 2.0);
-    for note in &f.notes[first..] {
-        if f.timing.time_to_beat_position(note.target_time_seconds) > now_beat + visible_beats {
-            break;
-        }
-        let lane = note.note_event.lane;
-        let (x, w) = (l.lane_x(lane) + 2.0 * hair, l.lane_width(lane) - 4.0 * hair);
-        let col = l.lane_color(lane);
-        let head_y = y_at(note.target_time_seconds);
-        match note.note_event.note_type {
-            // A judged note is gone: it does not linger on the line while it scrolls past.
-            NoteType::Tap if !note.is_judged => draw_note(c, sk, x, head_y - note_h, w, note_h, col),
-            // A mine: a slim red bar with a dark core, gone once it has gone off.
-            NoteType::Landmine if !note.is_judged => {
-                let h = note_h * 0.7;
-                let y = head_y - (note_h + h) / 2.0;
-                draw_note(c, sk, x, y, w, h, theme::RED);
-                c.fill_rect(Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3), theme::BG.with_alpha(200));
+    // The 8K trigger form's side-track notes are wide bars over half the
+    // field: draw them first so a key note at the same time sits on top
+    // instead of being hidden under the bar.
+    for side_pass in [true, false] {
+        for note in &f.notes[first..] {
+            if f.timing.time_to_beat_position(note.target_time_seconds) > now_beat + visible_beats {
+                break;
             }
-            NoteType::LongNoteStart => {
-                let tail_y = y_at(note.end_target_time_seconds);
-                let held = note.is_holding;
-                // Head judged but not held and not yet at its end: missed or let go
-                // early. What is left of it keeps scrolling, dimmed, instead of
-                // sticking to the judge line like a held note.
-                let broken = note.is_judged && !held && f.audio_time < note.end_target_time_seconds - 0.15;
-                if note.is_judged && !held && !broken {
-                    continue;
-                }
-                let head_edge = if broken { head_y } else { head_y.min(judge_y) };
-                let (top, bottom) = (tail_y.max(field.y), head_edge.min(judge_y));
-                let body_col = if broken { col.with_alpha(40) } else { col.with_alpha(120) };
-                if bottom > top {
-                    c.nine(&sk.ln_body, Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom), body_col);
-                }
-                if !broken {
-                    draw_note(c, sk, x, head_edge - note_h, w, note_h, col);
-                }
-                draw_note(c, sk, x, tail_y - note_h, w, note_h, if broken { col.with_alpha(70) } else { col });
+            let lane = note.note_event.lane;
+            if (l.eight_k_triggers() && is_side_track(lane)) != side_pass {
+                continue;
             }
-            _ => {}
+            let (x, w) = (l.lane_x(lane) + 2.0 * hair, l.lane_width(lane) - 4.0 * hair);
+            let col = l.lane_color(lane);
+            let head_y = y_at(note.target_time_seconds);
+            match note.note_event.note_type {
+                // A judged note is gone: it does not linger on the line while it scrolls past.
+                NoteType::Tap if !note.is_judged => draw_note(c, sk, x, head_y - note_h, w, note_h, col),
+                // A mine: a slim red bar with a dark core, gone once it has gone off.
+                NoteType::Landmine if !note.is_judged => {
+                    let h = note_h * 0.7;
+                    let y = head_y - (note_h + h) / 2.0;
+                    draw_note(c, sk, x, y, w, h, theme::RED);
+                    c.fill_rect(Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3), theme::BG.with_alpha(200));
+                }
+                NoteType::LongNoteStart => {
+                    let tail_y = y_at(note.end_target_time_seconds);
+                    let held = note.is_holding;
+                    // Head judged but not held and not yet at its end: missed or let go
+                    // early. What is left of it keeps scrolling, dimmed, instead of
+                    // sticking to the judge line like a held note.
+                    let broken = note.is_judged && !held && f.audio_time < note.end_target_time_seconds - 0.15;
+                    if note.is_judged && !held && !broken {
+                        continue;
+                    }
+                    let head_edge = if broken { head_y } else { head_y.min(judge_y) };
+                    let (top, bottom) = (tail_y.max(field.y), head_edge.min(judge_y));
+                    let body_col = if broken { col.with_alpha(40) } else { col.with_alpha(120) };
+                    if bottom > top {
+                        c.nine(&sk.ln_body, Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom), body_col);
+                    }
+                    if !broken {
+                        draw_note(c, sk, x, head_edge - note_h, w, note_h, col);
+                    }
+                    draw_note(c, sk, x, tail_y - note_h, w, note_h, if broken { col.with_alpha(70) } else { col });
+                }
+                _ => {}
+            }
         }
     }
     c.pop_clip();
