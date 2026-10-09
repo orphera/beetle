@@ -10,7 +10,7 @@ use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::view::{lane_index, HitBurst, Viewport, LANE_COUNT};
-use crate::skin::{ColorRgba, FieldPosition, SkinConfig};
+use crate::skin::{is_side_track, ColorRgba, FieldPosition, SkinConfig};
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
@@ -309,9 +309,19 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     let key_top = judge_y + 8.0 * s;
     let key_h = (field.bottom() - key_top - 8.0 * s).max(6.0 * s);
     c.fill_rect_vgradient(Rect::from_ltrb(field.x, judge_y + 3.0 * hair, field.right(), field.bottom()), theme::SURF1, theme::BG);
+    // 8K side tracks: a wide strip under the six keys.
+    let side_h = if l.eight_k_triggers() { (key_h * 0.34).max(6.0 * s) } else { 0.0 };
     for &lane in l.active_lanes() {
         let pressed = f.key_pressed[lane_index(lane)];
-        let r = Rect::new(l.lane_x(lane) + 4.0 * s, key_top, l.lane_width(lane) - 8.0 * s, key_h);
+        let mut r = Rect::new(l.lane_x(lane) + 4.0 * s, key_top, l.lane_width(lane) - 8.0 * s, key_h);
+        if side_h > 0.0 {
+            if is_side_track(lane) {
+                r.y = key_top + key_h - side_h;
+                r.h = side_h;
+            } else {
+                r.h = key_h - side_h - 4.0 * s;
+            }
+        }
         let col = l.lane_color(lane);
         c.nine(&sk.panel_sm, r, if pressed { col } else { col.with_alpha(26) });
         if pressed {

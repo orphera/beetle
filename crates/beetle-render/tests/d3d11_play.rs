@@ -76,6 +76,9 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, at: Placement, pa
     layout.update_layout(&vp);
     layout.set_play_mode(mode);
     layout.set_field_layout(at.0, at.1);
+    if name.ends_with("triggers") {
+        layout.set_eight_k_form(beetle_render::EightKForm::Triggers);
+    }
     layout.hi_speed = 700.0;
     let chart = chart(mode);
     let timing = TimingModel::from_chart(&chart);
@@ -90,6 +93,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, mode: PlayMode, at: Placement, pa
     }
     let audio_time = 6.0;
     let mut keys = [false; 18];
+    keys[0] = name.ends_with("triggers");
     keys[2] = true;
     keys[5] = true;
     let bursts = [
@@ -146,4 +150,5 @@ fn gameplay_layouts() {
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys4, (FieldPosition::Center, ScratchSide::Left), None, "4k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys6, (FieldPosition::Center, ScratchSide::Left), None, "6k"), 1);
     assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys8, (FieldPosition::Center, ScratchSide::Left), None, "8k"), 1);
+    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys8, (FieldPosition::Center, ScratchSide::Left), None, "8k-triggers"), 1);
 }

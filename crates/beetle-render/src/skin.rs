@@ -117,8 +117,8 @@ pub enum EightKForm {
     /// Eight keys in a row; the scratch lane goes on either edge.
     #[default]
     Inline,
-    /// DJMAX style: six keys between a left and a right trigger lane
-    /// (Scratch = left trigger, Key7 = right trigger).
+    /// DJMAX 8B style: a six-key field; the side tracks are wide notes over
+    /// its left and right halves (Scratch = left side track, Key7 = right).
     Triggers,
 }
 
@@ -151,6 +151,11 @@ impl EightKForm {
             Self::Triggers => Self::Inline,
         }
     }
+}
+
+/// The wide side-track lanes of the 8K trigger form.
+pub fn is_side_track(lane: Lane) -> bool {
+    matches!(lane, Lane::Scratch | Lane::Key7)
 }
 
 /// Modes whose scratch lane can sit on either edge (5K / 7K / 8K).
@@ -253,6 +258,11 @@ fn playfield_width_for(mode: PlayMode, lane_width: f32, scratch_lane_width: f32)
     }
 }
 
+/// The trigger form of 8K: six key lanes (a little wider than 7K's, like 6K)
+/// with the two side tracks spanning three of them each.
+const TRIGGER_KEYS: usize = 6;
+const TRIGGER_KEY_SCALE: f32 = 1.2;
+
 /// 4K / 6K / 8K draw every lane (the 8K scratch too) at one width: this
 /// many times a key lane, so a narrow field still reads well.
 fn even_lane_scale(mode: PlayMode) -> Option<f32> {
@@ -286,7 +296,11 @@ impl SkinConfig {
     /// Sets `playfield_width` for the play mode and `playfield_x` for the
     /// field position (single play only; Double Play stays on the left).
     fn place_field(&mut self) {
-        self.playfield_width = playfield_width_for(self.play_mode, self.lane_width, self.scratch_lane_width);
+        self.playfield_width = if self.eight_k_triggers() {
+            TRIGGER_KEYS as f32 * TRIGGER_KEY_SCALE * self.lane_width
+        } else {
+            playfield_width_for(self.play_mode, self.lane_width, self.scratch_lane_width)
+        };
         let margin = 50.0 * self.area_scale;
         self.playfield_x = match self.effective_position() {
             FieldPosition::Left => self.area_x + margin,
@@ -324,8 +338,9 @@ impl SkinConfig {
         self.place_field();
     }
 
-    /// 8K in its trigger form: lanes 1-6 are keys, the outer two triggers.
-    fn eight_k_triggers(&self) -> bool {
+    /// 8K in its trigger form: Key1..Key6 are the lanes, the side tracks
+    /// (Scratch, Key7) are wide notes over the left / right half.
+    pub fn eight_k_triggers(&self) -> bool {
         self.play_mode == PlayMode::Keys8 && self.eight_k_form == EightKForm::Triggers
     }
 
@@ -449,6 +464,18 @@ impl SkinConfig {
 
     /// Returns the X-coordinate for a specific lane.
     pub fn lane_x(&self, lane: Lane) -> f32 {
+        if self.eight_k_triggers() {
+            let w = self.lane_width * TRIGGER_KEY_SCALE;
+            return self.playfield_x + w * match lane {
+                Lane::Key1 => 0.0,
+                Lane::Key2 => 1.0,
+                Lane::Key3 => 2.0,
+                Lane::Key4 | Lane::Key7 => 3.0,
+                Lane::Key5 => 4.0,
+                Lane::Key6 => 5.0,
+                _ => 0.0,
+            };
+        }
         if even_lane_scale(self.play_mode).is_some() {
             let index = self.screen_lanes().iter().position(|&l| l == lane).unwrap_or(0);
             return self.playfield_x + index as f32 * self.lane_width(lane);
@@ -490,6 +517,10 @@ impl SkinConfig {
 
     /// Returns the width in pixels for a specific lane.
     pub fn lane_width(&self, lane: Lane) -> f32 {
+        if self.eight_k_triggers() {
+            let w = self.lane_width * TRIGGER_KEY_SCALE;
+            return if is_side_track(lane) { w * (TRIGGER_KEYS / 2) as f32 } else { w };
+        }
         if let Some(scale) = even_lane_scale(self.play_mode) {
             return self.lane_width * scale;
         }
@@ -650,10 +681,17 @@ mod tests {
         skin.set_play_mode(PlayMode::Keys8);
         skin.set_scratch_side(PlayMode::Keys8, ScratchSide::Right);
         skin.set_eight_k_form(EightKForm::Triggers);
-        // The scratch side is moot: left trigger, six keys, right trigger.
+        let near = |a: f32, b: f32| assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+        // The scratch side is moot: the lane order stays, the field is six keys.
         assert_eq!(skin.screen_lanes(), skin.active_lanes());
-        assert_eq!(skin.lane_x(Lane::Scratch), skin.playfield_x);
-        assert_eq!(skin.lane_x(Lane::Key7), skin.playfield_x + 7.0 * 50.0);
+        let w = 50.0 * TRIGGER_KEY_SCALE;
+        near(skin.playfield_width, 6.0 * w);
+        near(skin.lane_x(Lane::Key6), skin.playfield_x + 5.0 * w);
+        // Side tracks cover the left / right three lanes.
+        near(skin.lane_x(Lane::Scratch), skin.playfield_x);
+        near(skin.lane_width(Lane::Scratch), 3.0 * w);
+        near(skin.lane_x(Lane::Key7), skin.playfield_x + 3.0 * w);
+        near(skin.lane_x(Lane::Key7) + skin.lane_width(Lane::Key7), skin.playfield_x + skin.playfield_width);
         assert_eq!(skin.lane_color(Lane::Scratch), skin.lane_color(Lane::Key7));
         assert_ne!(skin.lane_color(Lane::Key1), skin.lane_color(Lane::Key7));
         // The form only touches 8K.
