@@ -488,6 +488,25 @@ mod tests {
     }
 
     #[test]
+    fn entries_without_sha256_match_by_md5_and_duplicates_both_count() {
+        let (_, md5) = chart(1);
+        let md5_only = TableEntry {
+            level: "1".into(),
+            md5: Some(md5),
+            title: "Md5 only".into(),
+            ..TableEntry::default()
+        };
+        let mut index = TableIndex::new(vec![table(
+            "T",
+            "t",
+            vec![md5_only.clone(), md5_only, entry("2", 2)],
+        )]);
+        index.match_songs([chart(1)]);
+        assert_eq!(index.missing_entries(0), vec![2]);
+        assert_eq!(index.owned_count(0), 2);
+    }
+
+    #[test]
     fn songs_match_by_sha256() {
         let mut index =
             TableIndex::new(vec![table("Sat", "sl", vec![entry("3", 1), entry("4", 2)])]);

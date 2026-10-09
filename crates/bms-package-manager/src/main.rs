@@ -88,7 +88,7 @@ fn print_table_usage() {
     println!("  bpm table add <address>             Install a difficulty table from its page or header.json");
     println!("  bpm table update [name] [--force]   Fetch installed tables again (all, or one)");
     println!("  bpm table list                      List installed tables");
-    println!("  bpm table missing [name]            Charts in the tables that the collection does not have (run `bpm scan` first)");
+    println!("  bpm table missing [name]            Charts in the tables the collection lacks (after `bpm scan`)");
     println!("  bpm table remove <name>             Delete an installed table");
     println!();
     println!("Tables are kept in ./tables (or $BEETLE_TABLES_DIR), where the player reads them.");
@@ -899,7 +899,7 @@ fn run_table_command(args: &[String]) {
             println!("Removed '{removed}'.");
         }
         Some("missing") => {
-            let wanted = args.get(1).filter(|a| !a.starts_with("--"));
+            let wanted = args.iter().skip(1).find(|a| !a.starts_with("--"));
             let tables: Vec<_> = match wanted {
                 Some(name) => vec![
                     store
@@ -915,6 +915,9 @@ fn run_table_command(args: &[String]) {
             }
             // Charts in packages count as owned too, so both kinds of copy come from the index.
             let index = load_index_or_exit();
+            if index.locations.is_empty() {
+                eprintln!("Note: the collection index is empty. Run `bpm scan` first.");
+            }
             let mut matcher = TableIndex::new(tables);
             matcher.match_songs(index.locations.iter().map(|l| (l.chart, l.md5)));
             for (table_index, table) in matcher.tables().iter().enumerate() {
