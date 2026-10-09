@@ -977,11 +977,28 @@ fn run_table_command(args: &[String]) {
                 std::process::exit(1);
             };
             let yes = args.iter().any(|a| a == "--yes");
+            // `--into <folder>` takes the next argument as its value, not as an entry number.
+            let into_value = args
+                .iter()
+                .position(|a| a == "--into")
+                .and_then(|i| args.get(i + 1).map(|dir| (i + 1, dir.clone())));
+            let into = match &into_value {
+                Some((_, dir)) => {
+                    if !Path::new(dir).is_dir() {
+                        fail(&format!("--into '{dir}' is not an existing folder"));
+                    }
+                    Some(PathBuf::from(dir))
+                }
+                None => None,
+            };
             let numbers: Vec<usize> = args
                 .iter()
+                .enumerate()
                 .skip(2)
-                .filter(|a| !a.starts_with("--"))
-                .map(|a| a.trim_start_matches('#').parse::<usize>().ok())
+                .filter(|(i, a)| {
+                    !a.starts_with("--") && into_value.as_ref().is_none_or(|(v, _)| v != i)
+                })
+                .map(|(_, a)| a.trim_start_matches('#').parse::<usize>().ok())
                 .collect::<Option<_>>()
                 .unwrap_or_else(|| {
                     fail(&"entry numbers must be numbers, as `table missing` prints them")
@@ -992,7 +1009,7 @@ fn run_table_command(args: &[String]) {
             if args.iter().any(|a| a == "--body") {
                 open_body_pages(&table, &numbers);
             } else {
-                fetch_difference_packs(&client, &table, &numbers, yes);
+                fetch_difference_packs(&client, &table, &numbers, yes, into.as_deref());
             }
         }
         _ => print_table_usage(),
@@ -1026,6 +1043,7 @@ fn fetch_difference_packs(
     table: &beetle_core::DifficultyTable,
     numbers: &[usize],
     yes: bool,
+    into: Option<&Path>,
 ) {
     let mut planned = Vec::new();
     for &number in numbers {
@@ -1077,15 +1095,21 @@ fn fetch_difference_packs(
             .and_then(|bytes| {
                 let zip = scratch.join("pack.zip");
                 fs::write(&zip, bytes).map_err(|e| e.to_string())?;
-                let pack_dir = PathBuf::from("songs").join(&slug).join(number.to_string());
+                let pack_dir = match into {
+                    Some(dir) => dir.to_path_buf(),
+                    None => PathBuf::from("songs").join(&slug).join(number.to_string()),
+                };
                 table_fetch::keep_pack(&zip, entry, &scratch, &pack_dir)
-                    .map(|matched| (matched, pack_dir))
+                    .map(|kept| (kept, pack_dir))
             });
         let _ = fs::remove_dir_all(&scratch);
         match result {
-            Ok((matched, pack_dir)) if matched > 0 => println!(
-                "#{number}: kept {matched} matching chart(s) in {}. Run `bpm scan` to index them.\n         It counts as owned only once its key sounds are in the collection. Body page: {}",
+            Ok((kept, pack_dir)) if kept.matching > 0 => println!(
+                "#{number}: kept {} matching chart(s) in {}: {} file(s) copied, {} already there and left alone. Run `bpm scan` to index them.\n         It counts as owned only once its key sounds are in the collection. Body page: {}",
+                kept.matching,
                 pack_dir.display(),
+                kept.copied,
+                kept.skipped,
                 entry.url
             ),
             Ok(_) => {

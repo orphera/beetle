@@ -63,15 +63,27 @@ pub fn chart_matches(entry: &TableEntry, bytes: &[u8]) -> bool {
     }
 }
 
+/// What `keep_pack` did with a pack.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct KeptPack {
+    /// Charts in the pack whose hash is the entry's.
+    pub matching: usize,
+    /// Files copied into the target folder.
+    pub copied: usize,
+    /// Files left alone because the target already had a file of that name.
+    pub skipped: usize,
+}
+
 /// Unpacks the zip at `zip_path` into `scratch`, and, when one of its charts
-/// matches `entry`, copies the whole unpacked pack into `pack_dir`. Returns how
-/// many charts matched. Nothing is copied when none match.
+/// matches `entry`, copies the whole unpacked pack into `pack_dir`. Files that
+/// already exist in `pack_dir` are never overwritten. Nothing is copied when no
+/// chart matches.
 pub fn keep_pack(
     zip_path: &Path,
     entry: &TableEntry,
     scratch: &Path,
     pack_dir: &Path,
-) -> Result<usize, String> {
+) -> Result<KeptPack, String> {
     let unpacked = scratch.join("unpacked");
     let _ = fs::remove_dir_all(&unpacked);
     extract_zip_archive(zip_path, &unpacked).map_err(|e| format!("cannot unpack: {e}"))?;
@@ -84,10 +96,14 @@ pub fn keep_pack(
         }
     }
     if matching == 0 {
-        return Ok(0);
+        return Ok(KeptPack::default());
     }
-    copy_dir(&unpacked, pack_dir)?;
-    Ok(matching)
+    let mut kept = KeptPack {
+        matching,
+        ..KeptPack::default()
+    };
+    copy_new_files(&unpacked, pack_dir, &mut kept)?;
+    Ok(kept)
 }
 
 /// Every chart file under `dir`, in sorted order.
@@ -115,15 +131,20 @@ fn collect_charts(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+/// Copies every file under `from` into `to`, keeping its relative path, and
+/// skips any file whose target already exists.
+fn copy_new_files(from: &Path, to: &Path, kept: &mut KeptPack) -> Result<(), String> {
     fs::create_dir_all(to).map_err(|e| format!("cannot create {}: {e}", to.display()))?;
     let entries = fs::read_dir(from).map_err(|e| format!("cannot read {}: {e}", from.display()))?;
     for path in entries.flatten().map(|e| e.path()) {
         let target = to.join(path.file_name().unwrap_or_default());
         if path.is_dir() {
-            copy_dir(&path, &target)?;
+            copy_new_files(&path, &target, kept)?;
+        } else if target.exists() {
+            kept.skipped += 1;
         } else {
             fs::copy(&path, &target).map_err(|e| format!("cannot copy {}: {e}", path.display()))?;
+            kept.copied += 1;
         }
     }
     Ok(())
@@ -210,11 +231,28 @@ mod tests {
             ],
         );
         let pack_dir = root.join("out");
-        let matched =
-            keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &pack_dir).unwrap();
-        assert_eq!(matched, 1, "the escaping entry is skipped before matching");
+        let kept = keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &pack_dir).unwrap();
+        assert_eq!(
+            kept.matching, 1,
+            "the escaping entry is skipped before matching"
+        );
+        assert_eq!(kept.copied, 2);
         assert!(pack_dir.join("pack").join("kick.wav").is_file());
         assert!(!root.join("escape.bme").exists());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn existing_files_are_never_overwritten() {
+        let root = scratch("skip");
+        let zip_path = root.join("pack.zip");
+        write_zip(&zip_path, &[("diff.bme", CHART), ("kick.wav", b"new")]);
+        let target = root.join("body");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("kick.wav"), b"body's own").unwrap();
+        let kept = keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &target).unwrap();
+        assert_eq!((kept.copied, kept.skipped), (1, 1));
+        assert_eq!(fs::read(target.join("kick.wav")).unwrap(), b"body's own");
         fs::remove_dir_all(&root).ok();
     }
 
@@ -224,9 +262,8 @@ mod tests {
         let zip_path = root.join("pack.zip");
         write_zip(&zip_path, &[("other.bme", b"#TITLE Other\n")]);
         let pack_dir = root.join("out");
-        let matched =
-            keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &pack_dir).unwrap();
-        assert_eq!(matched, 0);
+        let kept = keep_pack(&zip_path, &entry_for(CHART), &root.join("work"), &pack_dir).unwrap();
+        assert_eq!(kept, KeptPack::default());
         assert!(!pack_dir.exists());
         fs::remove_dir_all(&root).ok();
     }
