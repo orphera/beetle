@@ -340,13 +340,15 @@ fn estimate_in(entry: EntryMeta, required: &BTreeSet<String>, places: &[&Place])
             .filter(|place| shared_if_passing(required, place).is_some() && is_serial_place(place));
         return Verdict::NoKeyMatch(metadata_list(entry, skipped_serial));
     };
-    // The top place must be at least as good as the runner-up on both coverage and
-    // precision, and strictly better on one, or the choice is a tie.
-    let unique = candidates.get(1).is_none_or(|second| {
-        top.coverage >= second.coverage
-            && top.precision >= second.precision
-            && (top.coverage > second.coverage || top.precision > second.precision)
-    });
+    // The top place must be at least as good as every other candidate on both
+    // coverage and precision, and strictly better than the runner-up on one of them.
+    // Otherwise the choice is a tie or a trade-off, and no confident verdict is given.
+    let unique = candidates
+        .get(1)
+        .is_none_or(|second| top.coverage > second.coverage || top.precision > second.precision)
+        && candidates
+            .iter()
+            .all(|other| top.coverage >= other.coverage && top.precision >= other.precision);
     if unique && meets_confident_bar(top) {
         Verdict::Confident(top.clone())
     } else {
@@ -547,6 +549,36 @@ mod tests {
             estimate(ENTRY, &required, &places),
             Verdict::NoKeyMatch(vec![])
         );
+    }
+
+    #[test]
+    fn confident_needs_the_best_precision_among_all_candidates_not_just_the_runner_up() {
+        let required = set(&["kick", "snare", "hat", "bass"]);
+        // Top covers all four but its folder is half other sounds (precision 0.5).
+        let top = place(
+            "top",
+            &["kick", "snare", "hat", "bass", "x1", "x2", "x3", "x4"],
+            &[("Song A", "Artist")],
+        );
+        // Runner-up covers four of four as well, with less folder noise, so it is not beaten by top on coverage.
+        let tight = place(
+            "tight",
+            &["kick", "snare", "hat", "bass"],
+            &[("Song A", "Artist")],
+        );
+        // A third candidate with the best precision (1.0) but less coverage: top must not stay confident.
+        let third = place(
+            "third",
+            &["kick", "snare", "hat", "bass"],
+            &[("Song A", "Artist")],
+        );
+        let third = Place {
+            id: "zz-third".into(),
+            ..third
+        };
+        let trio = [top, tight, third];
+        let verdict = estimate(ENTRY, &required, &trio);
+        assert!(!matches!(verdict, Verdict::Confident(_)), "{verdict:?}");
     }
 
     #[test]
