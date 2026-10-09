@@ -80,18 +80,7 @@ fn print_progress_bar(label: &str, current: u64, total: Option<u64>) {
 }
 
 fn get_default_packages_dir() -> PathBuf {
-    use std::path::Path;
-    env::var("BEETLE_PACKAGES_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            for candidate in &["packages", "target/release/packages", "../packages"] {
-                let p = Path::new(candidate);
-                if p.join("registry.json").exists() {
-                    return p.to_path_buf();
-                }
-            }
-            PathBuf::from("packages")
-        })
+    bms_package::installed::packages_root()
 }
 
 fn print_table_usage() {

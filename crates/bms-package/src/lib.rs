@@ -9,6 +9,7 @@ pub mod checksum;
 pub mod delta;
 pub mod entry;
 pub mod error;
+pub mod installed;
 pub mod manifest;
 pub mod path;
 pub mod reader;
