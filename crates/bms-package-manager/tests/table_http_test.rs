@@ -41,7 +41,7 @@ fn route(path: &str) -> Vec<u8> {
         ),
         "/old-place" => response("302 Found", &[("Location", "/score.json".into())], b""),
         "/missing" => response("404 Not Found", &[], b"nope"),
-        "/big" => response("200 OK", &[], &vec![b'x'; 100]),
+        "/big" => response("200 OK", &[], &[b'x'; 100]),
         // Says nothing about its size; the cap has to stop it anyway.
         "/stream" => {
             let mut out = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
