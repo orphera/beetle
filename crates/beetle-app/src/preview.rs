@@ -24,9 +24,6 @@ const SAMPLE: WavId = WavId(1);
 
 /// Decodes the preview audio of `song`, if it has one.
 pub fn load_preview_pcm(song: &SongMetadata) -> Option<PcmBuffer> {
-    if song.file_path == ":demo:" {
-        return None;
-    }
     let pcm = match song.file_path.split_once("::") {
         Some((pkg, entry)) => load_from_package(pkg, entry)?,
         None => load_from_dir(Path::new(&song.file_path))?,

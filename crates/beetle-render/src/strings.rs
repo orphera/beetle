@@ -188,7 +188,7 @@ table! {
     pub HELP_HELP = "도움말을 열고 닫습니다";
     pub HELP_DROP = "파일을 끌어다 놓으면 곡을 엽니다";
 
-    // First run: the library has no songs (only the demo). The guide lists three ways to add songs.
+    // First run: the library has no songs. The guide lists three ways to add songs.
     pub GUIDE_TITLE = "아직 곡이 없습니다";
     pub GUIDE_LEAD = "곡을 넣는 방법은 세 가지입니다.";
     pub GUIDE_MANAGER = "곡 관리자로 곡 패키지(.bmsp)를 설치합니다.";

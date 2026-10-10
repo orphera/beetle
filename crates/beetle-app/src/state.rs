@@ -6,15 +6,14 @@ use std::time::Instant;
 
 use beetle_audio::AudioEngine;
 use beetle_core::{
-    compute_chart_hash, sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule,
-    PlayMode, PlayOptions, ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata,
-    SortMode, TableIndex, TimingModel,
+    sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule, PlayMode, PlayOptions,
+    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex,
+    TimingModel,
 };
 use beetle_render::{strings, EightKForm, ImageBuffer, Rect, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
-use crate::demo;
 use crate::folders::{self, Folder, FolderPath, ListEntry};
 use crate::input::KeyPreset;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
@@ -798,31 +797,6 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     rx
 }
 
-/// The built-in demo track, always in the library.
-fn demo_song() -> SongMetadata {
-    let demo_chart = demo::create_demo_chart();
-    let (bpm_min, bpm_max) = demo_chart.bpm_range();
-    let (id, md5) = beetle_core::hash_chart_bytes(b"BEETLE_INTERNAL_DEMO_CHART_V1");
-    SongMetadata {
-        id,
-        md5,
-        ln_count: 0,
-        ln_mode: None,
-        legacy_hash: compute_chart_hash(b"BEETLE_INTERNAL_DEMO_CHART_V1"),
-        file_path: ":demo:".to_string(),
-        title: demo_chart.header.title,
-        subtitle: demo_chart.header.subtitle,
-        artist: demo_chart.header.artist,
-        genre: demo_chart.header.genre,
-        bpm: demo_chart.header.bpm,
-        bpm_min,
-        bpm_max,
-        play_level: demo_chart.header.play_level,
-        notes_count: demo_chart.notes.len(),
-        play_mode: beetle_core::PlayMode::Keys7,
-    }
-}
-
 pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
@@ -832,9 +806,6 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     }
 
     let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR);
-    if !songs.iter().any(|s| s.file_path == ":demo:") {
-        songs.insert(0, demo_song());
-    }
 
     migrate_chart_keys(&songs, &mut score_store);
     sort_songs(&mut songs, sort_mode, &score_store, LnOption::Cn);
@@ -844,11 +815,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
 
 /// Scans the song folders again, ignoring `songs.cache`; unsorted.
 fn rescan_songs() -> Vec<SongMetadata> {
-    let mut songs = crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR);
-    if !songs.iter().any(|s| s.file_path == ":demo:") {
-        songs.insert(0, demo_song());
-    }
-    songs
+    crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR)
 }
 
 #[cfg(test)]

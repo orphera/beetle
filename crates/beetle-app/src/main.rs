@@ -2,7 +2,6 @@
 
 mod calibration;
 mod config;
-mod demo;
 mod devtools;
 mod filters;
 mod folders;

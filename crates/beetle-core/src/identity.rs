@@ -74,7 +74,7 @@ impl FromStr for ChartId {
 }
 
 impl ChartId {
-    /// An id for a synthetic chart that has no file (the built-in demo, tests):
+    /// An id for a synthetic chart that has no file (tests):
     /// the SHA-256 of the number's bytes. Not derived from any real file.
     pub fn synthetic(n: u64) -> Self {
         Self::of_bytes(&n.to_le_bytes())

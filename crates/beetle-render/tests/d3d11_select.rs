@@ -246,7 +246,12 @@ fn render_ex(
     extra: Extra<'_>,
 ) -> usize {
     let vp = Viewport::new(W, H);
-    let songs = library();
+    // An empty library has no songs at all (the first-run guide case).
+    let songs = if extra.library_empty {
+        Vec::new()
+    } else {
+        library()
+    };
     // Two tables: song 6 (the highlighted one) is in both, a few others in the first.
     let entry = |n: u64, level: &str| beetle_core::TableEntry {
         level: level.into(),
@@ -760,7 +765,7 @@ fn song_select_u3d_views() {
         render(&mut gpu, &mut ui, 5, "", "", Overlay::Drop, "drop"),
         1
     );
-    // The first-run guide: the library holds only the demo track.
+    // The first-run guide: the library has no songs.
     let guide = render_ex(
         &mut gpu,
         &mut ui,
@@ -769,7 +774,7 @@ fn song_select_u3d_views() {
         "",
         Overlay::None,
         "guide",
-        Some((vec![SelectRow::Song(0)], crumbs.clone())),
+        None,
         Extra {
             library_empty: true,
             ..Default::default()

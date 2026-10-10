@@ -11,8 +11,6 @@ use beetle_core::{
 };
 use beetle_render::{is_video_path, ImageBuffer};
 
-use crate::demo;
-
 pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
 /// Unified video data source: either a filesystem path or in-memory byte buffer.
@@ -298,10 +296,6 @@ fn load_videos_from_package_archive(
 
 /// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    if song.file_path == ":demo:" {
-        return None;
-    }
-
     // 1. Check persistent on-disk artwork cache first (fastest)
     let cache_dir = Path::new(ARTWORKS_CACHE_DIR);
     let cache_file = cache_dir.join(format!("{}.bmp", song.id.short()));
@@ -554,14 +548,6 @@ pub fn load_chart_and_audio_with_seed(
     HashMap<BmpId, ImageBuffer>,
     HashMap<BmpId, VideoSource>,
 ) {
-    if song.file_path == ":demo:" {
-        let chart = demo::create_demo_chart();
-        let timing = TimingModel::from_chart(&chart);
-        let soundbank = demo::create_demo_sample_bank();
-        let bga_bank = HashMap::new();
-        return (chart, timing, soundbank, bga_bank, HashMap::new());
-    }
-
     // Check if song is inside a .bmsp package
     if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
         if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
@@ -905,11 +891,16 @@ pub fn load_chart_and_audio_with_seed(
         }
     }
 
-    // Fallback demo
-    let chart = demo::create_demo_chart();
+    // The chart could not be read: an empty chart, so the song plays no notes.
+    let chart = BmsChart::default();
     let timing = TimingModel::from_chart(&chart);
-    let soundbank = demo::create_demo_sample_bank();
-    (chart, timing, soundbank, HashMap::new(), HashMap::new())
+    (
+        chart,
+        timing,
+        SampleBank::new(),
+        HashMap::new(),
+        HashMap::new(),
+    )
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.

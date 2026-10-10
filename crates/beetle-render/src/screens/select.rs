@@ -86,7 +86,7 @@ pub struct SelectFrame<'a> {
     /// First visible row of the list. Clamped and moved only as far as needed
     /// to show `selected` (see `window_start`), so a click never moves the rows.
     pub scroll: usize,
-    /// The library has no songs but the demo: the list shows the first-run guide.
+    /// The library has no songs: the list shows the first-run guide.
     pub library_empty: bool,
     pub scores: &'a ScoreStore,
     /// The player's long note setting, which decides which record of a chart with long notes is shown.
@@ -144,15 +144,14 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     backdrop(c, &sk, f, selected, lite);
 
     let content = content_rect(vp);
-    if f.rows.is_empty() {
+    let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
+    if f.library_empty {
+        // No songs at all: the guide takes the list area and there is no detail.
+        first_run_guide(c, t, &sk, list, s, &mut hs);
+    } else if f.rows.is_empty() {
         empty_state(c, t, f, content, s, &mut hs);
     } else {
-        let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
-        if f.library_empty {
-            first_run_guide(c, t, &sk, list, s, &mut hs);
-        } else {
-            song_list(c, t, &sk, f, list, s, &mut hs);
-        }
+        song_list(c, t, &sk, f, list, s, &mut hs);
         let detail = Rect::from_ltrb(
             list.right() + PAD * s,
             content.y,
@@ -3103,17 +3102,16 @@ mod tests {
     fn help_guide_and_drop_overlays_are_one_batch() {
         use crate::hit::hit_at;
         let vp = Viewport::new(1280, 720);
-        let songs: Vec<_> = (0..4).map(song).collect();
         let tables = TableIndex::default();
         let scores = ScoreStore::default();
         let chips: Vec<String> = Vec::new();
         let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
         let mut ui = Ui::new(vp.scale);
-        // The first-run guide: an empty library (the demo row is the only one listed).
-        let rows: Vec<SelectRow> = vec![SelectRow::Song(0)];
+        // The first-run guide: an empty library (no songs, no rows).
+        let rows: Vec<SelectRow> = Vec::new();
         let guide = SelectFrame {
             viewport: &vp,
-            songs: &songs,
+            songs: &[],
             tables: &tables,
             ln_option: LnOption::Auto,
             rows: &rows,

@@ -379,7 +379,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             rows: &rows,
             selected: state.selected_entry,
             scroll: state.list_scroll,
-            library_empty: state.songs.iter().all(crate::folders::is_demo),
+            library_empty: crate::folders::is_first_run(&state.songs),
             scores: &state.score_store,
             tables: &state.tables,
             ln_option,

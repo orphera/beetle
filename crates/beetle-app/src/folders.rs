@@ -231,7 +231,7 @@ fn leaf(id: String, label: String, songs: Vec<usize>) -> Option<Folder> {
 }
 
 /// A folder of child folders. Its count is the number of distinct songs under
-/// it: a song can sit in two children (the demo track is in 5K and in 7K).
+/// it: a song can sit in two children (a song in two tables).
 fn branch(id: &str, label: &str, children: Vec<Folder>) -> Option<Folder> {
     if children.is_empty() {
         return None;
@@ -280,18 +280,14 @@ pub fn build_tree(
         (0..songs.len()).filter(|&i| pass[i]).collect(),
     ));
 
-    // Key modes. The demo track is listed under 5K and 7K as it always was.
+    // Key modes.
     let modes: Vec<Folder> = MODE_ORDER
         .iter()
         .filter_map(|&mode| {
             let idx = songs
                 .iter()
                 .enumerate()
-                .filter(|(i, s)| {
-                    pass[*i]
-                        && (s.play_mode == mode
-                            || (is_demo(s) && matches!(mode, PlayMode::Keys5 | PlayMode::Keys7)))
-                })
+                .filter(|(i, s)| pass[*i] && s.play_mode == mode)
                 .map(|(i, _)| i)
                 .collect();
             leaf(mode_id(mode).into(), theme::mode_label(mode).into(), idx)
@@ -384,8 +380,8 @@ fn lamp_counts(
 }
 
 /// Sets `lamps` of `folder` and of every folder under it. A branch counts its
-/// distinct songs, as `count` does: a song in two child folders (the demo track
-/// is in 5K and in 7K) counts once.
+/// distinct songs, as `count` does: a song in two child folders (a song in two
+/// tables) counts once.
 fn fill_lamps(folder: &mut Folder, lamp_of: &impl Fn(usize) -> Option<ClearType>) {
     folder.lamps = match &mut folder.body {
         Body::Leaf(songs) => lamp_counts(songs, lamp_of),
@@ -403,9 +399,10 @@ fn fill_lamps(folder: &mut Folder, lamp_of: &impl Fn(usize) -> Option<ClearType>
     };
 }
 
-/// The demo track (`:demo:`), which is listed but is not a song file.
-pub fn is_demo(song: &SongMetadata) -> bool {
-    song.file_path == ":demo:"
+/// Whether the library is empty, which is when the song list shows the
+/// first-run guide instead of songs.
+pub fn is_first_run(songs: &[SongMetadata]) -> bool {
+    songs.is_empty()
 }
 
 /// The folder at `path`. `None` for the root and for a path that does not exist.
@@ -513,12 +510,8 @@ pub fn matches_query(song: &SongMetadata, query: &str) -> bool {
 
 /// The folder a chart sits in: its directory, with `\` read as `/`. A chart
 /// inside a package (`pkg.bmsp::sub/chart.bms`) is in the package path plus its
-/// directory inside the package. `None` for the built-in demo and for a chart
-/// with no directory.
+/// directory inside the package. `None` for a chart with no directory.
 pub fn song_folder(file_path: &str) -> Option<String> {
-    if file_path == ":demo:" {
-        return None;
-    }
     let path = file_path.replace('\\', "/");
     let dir = |text: &str| text.rsplit_once('/').map_or("", |(d, _)| d).to_string();
     match path.split_once("::") {
@@ -546,7 +539,7 @@ pub fn base_title(title: &str) -> &str {
 }
 
 /// The key of a song's group: its folder and base title, FNV-1a 64. `None`
-/// when the song has no folder (the demo), so it always gets its own row.
+/// when the song has no folder (a loose chart file), so it always gets its own row.
 pub fn group_key(song: &SongMetadata) -> Option<u64> {
     let folder = song_folder(&song.file_path)?;
     let text = format!("{folder}\n{}", base_title(&song.title));
@@ -1098,6 +1091,29 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_library_builds_an_empty_tree_and_no_rows() {
+        let songs: Vec<SongMetadata> = Vec::new();
+        let tables = TableIndex::default();
+        let tree = build_tree(&songs, &ScoreStore::new(), &tables, LnOption::Cn, &[]);
+        assert!(tree.is_empty());
+        let root = FolderPath::default();
+        let choices = ChartChoices::new();
+        assert!(entries_for(&tree, &root, &songs, "", &choices, &[]).is_empty());
+        assert!(entries_for(&tree, &root, &songs, "air", &choices, &[]).is_empty());
+        assert!(node(&tree, &FolderPath::parse("level/12")).is_none());
+        assert_eq!(result_count(&tree, &root, &songs, "", &[]), 0);
+        assert_eq!(result_count(&tree, &root, &songs, "air", &[]), 0);
+        assert!(present_modes(&songs).is_empty());
+        assert_eq!(focus_index(&[], None), 0);
+    }
+
+    #[test]
+    fn the_first_run_guide_is_for_a_library_with_no_songs() {
+        assert!(is_first_run(&[]));
+        assert!(!is_first_run(&[song(1, "AIR", 5, PlayMode::Keys7)]));
+    }
+
+    #[test]
     fn sibling_moves_at_the_same_depth_and_wraps() {
         let songs = library();
         let tree = tree_of(&songs, &TableIndex::default());
@@ -1225,7 +1241,6 @@ mod tests {
             song_folder("packages/p.bmsp::chart.bms").as_deref(),
             Some("packages/p.bmsp::")
         );
-        assert_eq!(song_folder(":demo:"), None);
         assert_eq!(song_folder("loose.bms"), None);
     }
 
@@ -1238,7 +1253,7 @@ mod tests {
         assert_eq!(group_key(&a), group_key(&b));
         assert_ne!(group_key(&a), group_key(&other_folder));
         assert_ne!(group_key(&a), group_key(&other_song));
-        assert_eq!(group_key(&song(5, "Demo", 1, PlayMode::Keys7)), None);
+        assert_eq!(group_key(&chart(5, "loose.bms", "Loose", 1)), None);
     }
 
     #[test]
@@ -1266,13 +1281,11 @@ mod tests {
     }
 
     #[test]
-    fn a_remembered_chart_is_the_selected_one_and_the_demo_stays_alone() {
-        let mut demo = song(9, "Demo", 5, PlayMode::Keys7);
-        demo.file_path = ":demo:".into();
+    fn a_remembered_chart_is_the_selected_one_and_a_loose_chart_stays_alone() {
         let songs = vec![
             chart(1, "x/AIR/a.bms", "AIR [7key]", 11),
             chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
-            demo,
+            chart(9, "loose.bms", "Loose", 5),
         ];
         let key = group_key(&songs[0]).unwrap();
         let mut choices = ChartChoices::new();
