@@ -216,6 +216,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             sort: state.sort_mode.as_str(),
             search: &state.search_query,
             search_active: state.is_search_active,
+            preedit: &state.search_preedit,
             jacket,
             ambient,
             option_chips: &chips,
@@ -230,6 +231,8 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     if state.show_exit_modal {
         beetle_render::draw_exit_modal(ui, &vp);
     }
+    let caret = ui.ime_caret;
+    crate::ime::sync_caret(state, caret);
     finish(state);
 }
 

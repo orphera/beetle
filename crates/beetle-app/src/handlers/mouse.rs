@@ -19,6 +19,7 @@ use crate::handlers::song_select::{
     cycle_folder, cycle_sort, move_selection, open_exit_prompt, open_key_config, start_replay,
     start_selected, toggle_auto,
 };
+use crate::ime::set_search_active;
 use crate::state::{AppScreen, AppState};
 
 /// Precise (touchpad) scrolling reports pixels; this many make one notch.
@@ -41,7 +42,7 @@ pub fn handle_press(state: &mut AppState) {
                 && state.is_search_active
                 && id != Some(HitId::Search)
             {
-                state.is_search_active = false;
+                set_search_active(state, false);
             }
             if let Some(id) = id {
                 handle_click(state, id);
@@ -96,7 +97,7 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::FolderPrev => cycle_folder(state, false),
         HitId::FolderNext => cycle_folder(state, true),
         HitId::Sort => cycle_sort(state),
-        HitId::Search => state.is_search_active = true,
+        HitId::Search => set_search_active(state, true),
         HitId::Play => start_selected(state),
         HitId::Replay => start_replay(state),
         HitId::Settings => open_options(state),

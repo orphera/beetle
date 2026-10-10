@@ -6,6 +6,7 @@ use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
 use crate::handlers::options::{handle_option_modal_input, open_options};
+use crate::ime::{append_text, backspace, key_text_to_append, set_search_active};
 use crate::state::{replay_path, AppScreen, AppState};
 
 /// Handles keyboard input for the Song Select screen.
@@ -19,35 +20,41 @@ pub fn handle_song_select_input(
         return;
     }
 
-    // If live search is active, capture search text input
+    // If live search is active, capture search text input. While an IME
+    // composition is open (`search_preedit`), Enter, Escape and Backspace
+    // belong to the IME, so they do nothing here.
     if state.is_search_active {
+        let composing = !state.search_preedit.is_empty();
         match code {
             KeyCode::Escape => {
+                if composing {
+                    return;
+                }
                 if !state.search_query.is_empty() {
                     state.search_query.clear();
                     state.recompute_filtered_songs();
                     state.cursor_settle_time = std::time::Instant::now();
                 } else {
-                    state.is_search_active = false;
+                    set_search_active(state, false);
                 }
             }
             KeyCode::Enter => {
-                state.is_search_active = false;
+                if !composing {
+                    set_search_active(state, false);
+                }
             }
             KeyCode::Backspace => {
-                state.search_query.pop();
-                state.recompute_filtered_songs();
-                state.cursor_settle_time = std::time::Instant::now();
-            }
-            _ => {
-                if let Some(t) = text {
-                    for c in t.chars() {
-                        if !c.is_control() {
-                            state.search_query.push(c);
-                        }
-                    }
+                if backspace(&mut state.search_query, &state.search_preedit) {
                     state.recompute_filtered_songs();
                     state.cursor_settle_time = std::time::Instant::now();
+                }
+            }
+            _ => {
+                if let Some(t) = text.and_then(|t| key_text_to_append(t, !composing)) {
+                    if append_text(&mut state.search_query, t) {
+                        state.recompute_filtered_songs();
+                        state.cursor_settle_time = std::time::Instant::now();
+                    }
                 }
             }
         }
@@ -77,9 +84,7 @@ pub fn handle_song_select_input(
     // Normal SongSelect navigation & hotkeys
     match code {
         KeyCode::Escape => open_exit_prompt(state),
-        KeyCode::Slash => {
-            state.is_search_active = true;
-        }
+        KeyCode::Slash => set_search_active(state, true),
         KeyCode::F1 => cycle_folder(state, false),
         KeyCode::F3 => cycle_folder(state, true),
         KeyCode::Tab | KeyCode::KeyO => open_options(state),
@@ -117,7 +122,7 @@ pub fn handle_song_select_input(
         _ => {
             if let Some(t) = text {
                 if t == "/" {
-                    state.is_search_active = true;
+                    set_search_active(state, true);
                 }
             }
         }

@@ -6,6 +6,7 @@ mod devtools;
 mod gameplay;
 mod gpu_ui;
 mod handlers;
+mod ime;
 mod input;
 mod loader;
 mod present;
@@ -178,7 +179,9 @@ impl ApplicationHandler for BeetleApp {
             filtered_indices: Vec::new(),
             selected_song_idx: 0,
             search_query: String::new(),
+            search_preedit: String::new(),
             is_search_active: false,
+            ime_caret_sent: None,
             category_mode: SongCategory::All,
             tables: beetle_core::TableIndex::default(),
             sort_mode: saved_config.sort_mode,
@@ -320,6 +323,8 @@ impl ApplicationHandler for BeetleApp {
             event_loop.exit();
             return;
         }
+
+        ime::close_search_if_unavailable(state);
 
         // Menus present on vblank; gameplay follows the target FPS setting
         // (60 = vsync, otherwise paced by the event loop below).
@@ -601,6 +606,10 @@ impl ApplicationHandler for BeetleApp {
                     state.window.request_redraw();
                 }
             }
+            WindowEvent::Ime(ime_event) => {
+                ime::handle_ime(state, ime_event);
+                state.window.request_redraw();
+            }
             WindowEvent::KeyboardInput {
                 event:
                     ref key_event @ KeyEvent {
@@ -709,6 +718,8 @@ fn handle_keyboard_input(
         state.save_config();
         return;
     }
+
+    ime::close_search_if_unavailable(state);
 
     // Global Hotkeys (when key is pressed)
     if key_state == ElementState::Pressed && !state.is_search_active && state.rebinding.is_none() {

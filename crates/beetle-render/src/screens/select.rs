@@ -34,6 +34,8 @@ pub struct SelectFrame<'a> {
     pub sort: &'a str,
     pub search: &'a str,
     pub search_active: bool,
+    /// IME composition text shown after the query (underlined); empty when none.
+    pub preedit: &'a str,
     /// Stage image of the selected song, once loaded.
     pub jacket: Option<SizedTexture>,
     /// Dominant color of that image (tints the ambient light).
@@ -84,7 +86,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         None => empty_state(c, t, f, content, s),
     }
 
-    top_bar(c, t, &sk, f, s, &mut hs);
+    ui.ime_caret = top_bar(c, t, &sk, f, s, &mut hs);
     footer(c, t, &sk, f, s, &mut hs);
 }
 
@@ -105,7 +107,7 @@ fn top_bar(
     f: &SelectFrame,
     s: f32,
     hs: &mut HitSink,
-) {
+) -> Option<Rect> {
     let vp = f.viewport;
     let x0 = vp.x + PAD * s;
     let adv = widgets::top_bar(c, t, vp, "BEETLE", s);
@@ -236,7 +238,8 @@ fn top_bar(
         c.nine(&sk.panel_outline, search, theme::CYAN.with_alpha(200));
     }
     let inner = Rect::new(search.x + 16.0 * s, search.y, search.w - 52.0 * s, search.h);
-    if f.search.is_empty() && !f.search_active {
+    let mut caret = None;
+    if f.search.is_empty() && f.preedit.is_empty() && !f.search_active {
         t.draw_in(
             c,
             "Search title, artist",
@@ -246,19 +249,41 @@ fn top_bar(
         );
     } else {
         let st = TextStyle::new(13.0 * s).color(theme::TEXT);
-        // Keep the end of a long query (where the caret is) visible.
-        let mut q = f.search;
-        while !q.is_empty() && t.measure(c, q, &st) > inner.w - 8.0 * s {
-            let mut it = q.chars();
-            it.next();
-            q = it.as_str();
+        // The query and the composing text share one line. Trim from the front
+        // (on char boundaries) so the end, where the caret is, stays visible.
+        let full = format!("{}{}", f.search, f.preedit);
+        let qlen = f.search.len();
+        let mut start = 0;
+        while start < full.len() && t.measure(c, &full[start..], &st) > inner.w - 8.0 * s {
+            start += full[start..].chars().next().map_or(1, char::len_utf8);
         }
-        let w = t.draw_in(c, q, inner, Align::Left, &st);
-        if f.search_active {
+        let query = if start < qlen { &full[start..qlen] } else { "" };
+        let preedit = &full[qlen.max(start)..];
+        let qw = if query.is_empty() {
+            0.0
+        } else {
+            t.draw_in(c, query, inner, Align::Left, &st)
+        };
+        let mut pw = 0.0;
+        if !preedit.is_empty() {
+            let px = inner.x + qw;
+            let rest = Rect::from_ltrb(px, inner.y, inner.right(), inner.bottom());
+            pw = t.draw_in(c, preedit, rest, Align::Left, &st);
+            // Underline marks the text as still being composed.
             c.fill_rect(
-                Rect::new(inner.x + w + 2.0 * s, search.y + 8.0 * s, 2.0 * s, 16.0 * s),
+                Rect::new(px, search.y + 23.0 * s, pw, s.max(1.0)),
                 theme::CYAN,
             );
+        }
+        if f.search_active {
+            let caret_rect = Rect::new(
+                inner.x + qw + pw + 2.0 * s,
+                search.y + 8.0 * s,
+                2.0 * s,
+                16.0 * s,
+            );
+            c.fill_rect(caret_rect, theme::CYAN);
+            caret = Some(caret_rect);
         }
     }
     let key = Rect::new(
@@ -268,6 +293,7 @@ fn top_bar(
         20.0 * s,
     );
     keycap(c, t, sk, "/", key, s);
+    caret
 }
 
 // ---------------------------------------------------------------------------
@@ -1357,6 +1383,7 @@ mod tests {
             sort: "TITLE",
             search: "",
             search_active: false,
+            preedit: "",
             jacket: None,
             ambient: None,
             option_chips: &chips,
@@ -1504,6 +1531,7 @@ mod tests {
                 sort: "TITLE",
                 search,
                 search_active: !search.is_empty(),
+                preedit: "",
                 jacket: None,
                 ambient: None,
                 option_chips: &chips,
@@ -1525,5 +1553,62 @@ mod tests {
                 "selected={selected} search={search:?}"
             );
         }
+    }
+
+    #[test]
+    fn ime_caret_sits_in_the_search_box_after_the_preedit() {
+        use crate::hit::HitId;
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..4).map(song).collect();
+        let visible: Vec<_> = (0..4).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let mut ui = Ui::new(vp.scale);
+        let frame = |search: &'static str, preedit: &'static str, active: bool| SelectFrame {
+            viewport: &vp,
+            songs: &songs,
+            tables: &tables,
+            ln_option: LnOption::Auto,
+            visible: &visible,
+            selected: 0,
+            scores: &scores,
+            folder: "ALL SONGS",
+            sort: "TITLE",
+            search,
+            search_active: active,
+            preedit,
+            jacket: None,
+            ambient: None,
+            option_chips: &chips,
+            auto_play: false,
+            has_replay: false,
+            preview_secs: None,
+        };
+
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame("", "", false));
+        assert_eq!(ui.ime_caret, None, "no caret while the search is closed");
+
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame("가을", "밤", true));
+        let caret = ui.ime_caret.expect("caret while searching");
+        let boxed = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::Search)
+            .expect("search box")
+            .rect;
+        assert!(
+            caret.x > boxed.x && caret.x < boxed.right(),
+            "{caret:?} in {boxed:?}"
+        );
+        assert!(caret.y >= boxed.y && caret.bottom() <= boxed.bottom());
+
+        // The preedit moves the caret right of the committed query alone.
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame("가을", "", true));
+        let without = ui.ime_caret.expect("caret");
+        assert!(caret.x > without.x);
     }
 }

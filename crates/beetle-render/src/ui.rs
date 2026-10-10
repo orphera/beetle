@@ -21,6 +21,10 @@ pub struct Ui {
     /// Cursor position in physical pixels, set by the app before drawing;
     /// `None` when the cursor is outside the window.
     pub pointer: Option<(f32, f32)>,
+    /// Where the song select search caret was drawn this frame (set while the
+    /// search is open, cleared by `begin`). The app passes it to the OS as the
+    /// IME candidate position so the candidate list opens under the caret.
+    pub ime_caret: Option<Rect>,
 }
 
 impl Ui {
@@ -35,6 +39,7 @@ impl Ui {
             lite: false,
             hits: Vec::new(),
             pointer: None,
+            ime_caret: None,
         }
     }
 
@@ -48,6 +53,7 @@ impl Ui {
         }
         self.canvas.begin(width, height);
         self.hits.clear();
+        self.ime_caret = None;
     }
 
     /// Records a click region for this frame.

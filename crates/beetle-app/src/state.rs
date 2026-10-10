@@ -10,7 +10,7 @@ use beetle_core::{
     PlayMode, PlayOptions, ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata,
     SortMode, TableIndex, TimingModel,
 };
-use beetle_render::{EightKForm, ImageBuffer, ViewState};
+use beetle_render::{EightKForm, ImageBuffer, Rect, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
@@ -147,7 +147,13 @@ pub struct AppState {
     pub filtered_indices: Vec<usize>,
     pub selected_song_idx: usize,
     pub search_query: String,
+    /// IME composition text shown after the query; empty when none. Set only
+    /// while the search box is open (see `ime.rs`).
+    pub search_preedit: String,
+    /// Whether the search box is open. Change it only through `ime::set_search_active`.
     pub is_search_active: bool,
+    /// The caret rect last given to the OS as the IME candidate position.
+    pub ime_caret_sent: Option<Rect>,
     pub category_mode: SongCategory,
     /// Installed difficulty tables, matched to `songs`.
     pub tables: TableIndex,

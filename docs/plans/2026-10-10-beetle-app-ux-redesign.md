@@ -149,9 +149,34 @@ U1은 다섯 단계로 나눈다. 화면마다 커밋하고 실제 앱 전/후 �
       결과의 SONG SELECT 클릭 → 선곡. 캡처: `scratch/u1b/live-*.png`.
     - 한계: 합성 입력 경합으로 클릭이 버려져 재시도했다(U1a와 같은 이유). RETRY·SCREENSHOT 버튼과 키 설정
       휠은 실제 앱에서 누르지 않았고, 같은 함수를 호출하는 키 경로와 단위 테스트로만 확인했다.
-- **U1c — IME 검색**
-  - [ ] **IME**: `Window::set_ime_allowed` + `WindowEvent::Ime`(Preedit/Commit). 조합 중 글자는
+- **U1c — IME 검색** (완료)
+  - [x] **IME**: `Window::set_ime_allowed` + `WindowEvent::Ime`(Preedit/Commit). 조합 중 글자는
         검색창에 밑줄로 표시. 검색창이 열려 있을 때만 IME를 켠다(게임플레이 키 입력 방해 방지).
+  - 구현: `crates/beetle-app/src/ime.rs`. 검색창 열림·닫힘은 `set_search_active` 한 곳에서만 바꾸며
+    IME 켜짐을 함께 맞춘다. 선곡을 떠나거나 모달이 열리면 `close_search_if_unavailable`가 닫는다(키 입력 전·
+    매 프레임). `WindowEvent::Ime`: Preedit → `search_preedit`(검색 결과는 바뀌지 않음), Commit → 질의에
+    추가하고 목록 재계산, Disabled → 조합 비움. 검색창 캐럿 사각형은 `Ui::ime_caret`으로 기록하고, 바뀔 때만
+    `set_ime_cursor_area`로 넘겨 후보창이 캐럿 아래에 뜨게 한다. 그리기: 질의 뒤에 조합 글자를 밑줄과 함께 두고
+    캐럿은 그 뒤에 둔다(같은 줄, 앞쪽 잘라내기 유지).
+  - 이중 입력 방지: `KeyEvent::text`(WM_CHAR)와 `Ime::Commit`이 같은 글자를 함께 줄 수 있어, IME가 켜진
+    검색창에서는 비ASCII 키 텍스트를 버린다. 조합 중에는 키 텍스트·Backspace·Enter·Escape를 IME에 넘긴다(질의
+    불변). ASCII 키 텍스트는 영문 모드 입력이라 그대로 받는다. 근거: winit 0.30 Windows는 WM_IME_COMPOSITION에
+    DefWindowProc을 호출하지 않아 조합 결과가 WM_CHAR로 나오지 않는다(`platform_impl/windows/event_loop.rs`).
+    `WM_IME_CHAR`가 WM_CHAR로 바뀌는 경우는 소스로만 확인했다.
+  - 결과 (2026-10-10):
+    - 크기: `beetle-app.exe` 3,019,264 B → 3,023,360 B (+4 KB, +0.14%).
+    - 검증: `cargo test --workspace` 통과. 새 테스트: `ime.rs`(커밋 추가·제어문자 제외, 조합 중 질의 불변,
+      조합 중 Backspace, ASCII 키 텍스트 규칙, 닫힘 조건), `select.rs`의 `ime_caret_sits_in_the_search_box_after_the_preedit`.
+      렌더 캡처 `select-ime-preedit`(질의 "가을" + 조합 "밤", `target/select-ime-preedit.bmp`): 밑줄과 캐럿이
+      "밤" 뒤에 놓인다(`scratch/u1c/ime-preedit-top.png`).
+    - 실제 앱(격리 실행 폴더, `PostMessage`로만 입력, 실제 커서는 움직이지 않음): `/`로 검색 열기 → "tr" 입력 시
+      목록이 필터됨(`live-03-typed-tr.png`). 비ASCII WM_CHAR와 원시 WM_IME_CHAR(U+AC00)는 질의를 바꾸지 않음
+      (`live-04`, `live-04b`). Backspace는 한 글자 지움(`live-05`). Escape 두 번으로 지우고 닫음(`live-06`).
+      닫은 뒤 A는 AUTO PLAY를 토글(`live-07`). 캡처: `scratch/u1c/live-*.png`.
+    - 한계: 실제 한글·일본어 IME 조합은 구동하지 못했다. 합성 메시지에는 IME 컨텍스트가 없어 `Ime::Preedit`/
+      `Ime::Commit`이 나오지 않는다. 그래서 조합 밑줄과 Commit 경로는 단위 테스트와 캡처로만 확인했고, 후보창의
+      실제 표시 위치는 확인하지 못했다(`set_ime_cursor_area` 호출까지만 확인). 하네스는 `PostMessage`(ANSI)로
+      비ASCII WM_CHAR를 보내면 `?`로 바뀌어 `PostMessageW`로 바꿨다.
 - **U1d — 문자열 표(한국어)**
   - [ ] **문자열 표**: `strings.rs`(한국어 `&'static str` 표). 화면 코드의 리터럴을 옮긴다.
 - **U1e — 화면 전환 + 토스트**

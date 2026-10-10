@@ -176,6 +176,7 @@ fn render(
     ui: &mut Ui,
     selected: usize,
     search: &str,
+    preedit: &str,
     overlay: Overlay,
     name: &str,
 ) -> usize {
@@ -204,11 +205,9 @@ fn render(
         table("Stella", "st", vec![entry(6, "5")]),
     ]);
     tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
-    let visible: Vec<usize> = if search.is_empty() {
-        (0..songs.len()).collect()
-    } else {
-        Vec::new()
-    };
+    let visible: Vec<usize> = (0..songs.len())
+        .filter(|&i| search.is_empty() || songs[i].title.contains(search))
+        .collect();
     let scores = scores();
     let chips = vec![
         "HI-SPEED 1100".to_string(),
@@ -236,7 +235,8 @@ fn render(
             },
             sort: "TITLE",
             search,
-            search_active: !search.is_empty(),
+            search_active: !search.is_empty() || !preedit.is_empty(),
+            preedit,
             jacket: None,
             ambient: None,
             option_chips: &chips,
@@ -287,28 +287,50 @@ fn song_select_layouts() {
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::None, "list"), 1);
-    assert_eq!(render(&mut gpu, &mut ui, 9, "", Overlay::None, "noplay"), 1);
     assert_eq!(
-        render(&mut gpu, &mut ui, 0, "zzz", Overlay::None, "empty"),
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::None, "list"),
         1
     );
     assert_eq!(
-        render(&mut gpu, &mut ui, 13, "", Overlay::None, "ue-modes"),
+        render(&mut gpu, &mut ui, 9, "", "", Overlay::None, "noplay"),
         1
     );
     assert_eq!(
-        render(&mut gpu, &mut ui, 5, "", Overlay::Options, "options"),
+        render(&mut gpu, &mut ui, 0, "zzz", "", Overlay::None, "empty"),
         1
     );
-    assert_eq!(render(&mut gpu, &mut ui, 5, "", Overlay::Exit, "exit"), 1);
+    assert_eq!(
+        render(&mut gpu, &mut ui, 13, "", "", Overlay::None, "ue-modes"),
+        1
+    );
+    // Korean query with an IME composition in progress (underlined, caret after it).
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            0,
+            "가을",
+            "밤",
+            Overlay::None,
+            "ime-preedit"
+        ),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::Options, "options"),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::Exit, "exit"),
+        1
+    );
 
     // Frame cost on WARP (the low-end fallback), full and lite.
     for lite in [false, true] {
         ui.lite = lite;
         let t0 = std::time::Instant::now();
         for _ in 0..60 {
-            render(&mut gpu, &mut ui, 5, "", Overlay::None, "perf");
+            render(&mut gpu, &mut ui, 5, "", "", Overlay::None, "perf");
         }
         eprintln!(
             "WARP lite={lite}: {:.2} ms/frame (incl. readback)",
