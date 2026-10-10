@@ -34,8 +34,8 @@ pub use screens::{
     draw_screen_fade, draw_settings, draw_song_select, draw_toast, filter_items, scroll_by,
     visible_rows, window_start, BootFrame, CalibrateFrame, CalibratePhase, FilterBar, FilterItem,
     KeyBinding, KeyConfigFrame, LoadingFrame, OptionLine, OptionsFooter, PlayFrame, Rebind,
-    ResultFrame, SelectFrame, SelectRow, SettingsFrame, SizedTexture, SortMenu, ToastFrame,
-    ToastKind, KEY_MODES,
+    ResultFrame, SelectFrame, SelectRow, SettingsFrame, SizedTexture, SortMenu, ToastAnchor,
+    ToastFrame, ToastKind, KEY_MODES,
 };
 pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT};
 pub use skin::{

@@ -15,7 +15,7 @@ pub use boot::{draw_boot, BootFrame};
 pub use calibrate::{draw_calibrate, CalibrateFrame, CalibratePhase};
 pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODES};
 pub use loading::{draw_loading, LoadingFrame};
-pub use overlay::{draw_screen_fade, draw_toast, ToastFrame, ToastKind};
+pub use overlay::{draw_screen_fade, draw_toast, ToastAnchor, ToastFrame, ToastKind};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};
 pub use select::{
     centred_start, clamp_into_window, draw_drop_overlay, draw_exit_modal, draw_help_overlay,

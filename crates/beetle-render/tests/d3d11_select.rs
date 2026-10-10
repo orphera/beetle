@@ -13,7 +13,7 @@ use beetle_render::strings;
 use beetle_render::{
     draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_options_modal, draw_screen_fade,
     draw_song_select, draw_toast, D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame,
-    SelectRow, SortMenu, ToastFrame, ToastKind, Ui, Viewport,
+    SelectRow, SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -357,6 +357,7 @@ fn render_ex(
                     kind: ToastKind::Success,
                     alpha: 1.0,
                     slide: 1.0,
+                    anchor: ToastAnchor::Footer,
                 },
             )
         }

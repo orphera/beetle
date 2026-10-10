@@ -9,7 +9,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use beetle_core::{Ruleset, SongMetadata, SortMode};
-use beetle_render::{strings, GpuBackend, OptionLine, SettingsFrame, ToastFrame, ToastKind, Ui};
+use beetle_render::{
+    strings, GpuBackend, OptionLine, SettingsFrame, ToastAnchor, ToastFrame, ToastKind, Ui,
+};
 use winit::dpi::PhysicalSize;
 
 use crate::devtools;
@@ -17,7 +19,7 @@ use crate::gameplay::END_BANNER_SECONDS;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
 use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
-use crate::state::{replay_path, AppState, LibraryJob};
+use crate::state::{replay_path, AppScreen, AppState, LibraryJob};
 use crate::transition::show_toast;
 
 /// Starts a frame on the backbuffer and the UI.
@@ -72,6 +74,12 @@ fn overlays(state: &mut AppState, toasts: bool) {
         beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
     }
     if toasts {
+        // Key Config keeps the tabs clear; every other menu uses the footer strip.
+        let anchor = if state.screen == AppScreen::KeyConfig {
+            ToastAnchor::BelowTabs
+        } else {
+            ToastAnchor::Footer
+        };
         if let (Some(pose), Some(toast)) = (state.toast_pose_now(now), state.toast.as_ref()) {
             beetle_render::draw_toast(
                 &mut state.gpu_ui.ui,
@@ -81,6 +89,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
                     kind: toast.kind,
                     alpha: pose.alpha,
                     slide: pose.slide,
+                    anchor,
                 },
             );
         }
