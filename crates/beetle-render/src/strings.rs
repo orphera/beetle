@@ -122,6 +122,8 @@ table! {
     pub FOLDER_LEVEL = "레벨";
     pub FOLDER_LAMP = "클리어 램프";
     pub FOLDER_TABLE = "난이도표";
+    /// The first folder of 난이도표: every song in any table.
+    pub FOLDER_TABLE_ALL = "전곡";
     /// Detail panel and footer count of a folder: `{}` is the song count.
     pub FOLDER_SONGS = "{} 곡";
     /// Footer count while the list is folders only: `{}` is the folder count.

@@ -176,6 +176,9 @@ const LAMP_ORDER: [Option<ClearType>; LAMP_COUNT] = [
 /// How many clear lamps a folder counts: one per `LAMP_ORDER` entry.
 pub const LAMP_COUNT: usize = beetle_render::LAMP_COUNT;
 
+/// The id of the 전곡 folder at the top of 난이도표 (no table may take it).
+const TABLE_ALL_ID: &str = "all";
+
 /// The stable id of a key mode folder.
 pub fn mode_id(mode: PlayMode) -> &'static str {
     match mode {
@@ -330,23 +333,37 @@ pub fn build_tree(
     root.extend(branch("lamp", strings::FOLDER_LAMP, lamps));
 
     // Difficulty tables: a table holds its levels, in the table's own order.
+    // Each table starts with 전곡: every passing song of that table, in library order.
     let mut table_folders = Vec::new();
     let mut used_ids: HashMap<String, usize> = HashMap::new();
     for (ti, table) in tables.tables().iter().enumerate() {
         let mut by_level: HashMap<&str, Vec<usize>> = HashMap::new();
+        let order = table.levels();
+        let mut all_of_table = Vec::new();
         for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
             if let Some(entry) = tables.entry_for(ti, s.id) {
                 by_level.entry(entry.level.as_str()).or_default().push(i);
+                all_of_table.push(i);
             }
         }
-        let levels: Vec<Folder> = table
-            .levels()
-            .into_iter()
-            .filter_map(|level| {
-                let idx = by_level.remove(level)?;
-                leaf(id_piece(level), format!("{}{}", table.symbol, level), idx)
-            })
-            .collect();
+        // 전곡 runs in the table's level order; within one level the library order stays.
+        all_of_table.sort_by_key(|&i| {
+            let level = tables
+                .entry_for(ti, songs[i].id)
+                .map_or("", |e| e.level.as_str());
+            order.iter().position(|&l| l == level)
+        });
+        let mut levels: Vec<Folder> = leaf(
+            TABLE_ALL_ID.into(),
+            strings::FOLDER_TABLE_ALL.into(),
+            all_of_table,
+        )
+        .into_iter()
+        .collect();
+        levels.extend(order.iter().copied().filter_map(|level| {
+            let idx = by_level.remove(level)?;
+            leaf(id_piece(level), format!("{}{}", table.symbol, level), idx)
+        }));
         // Two tables with the same name get distinct ids (the second one by its position).
         let mut id = id_piece(&table.name);
         if used_ids.contains_key(&id) {
@@ -770,20 +787,34 @@ pub fn entries_for(
     pass: &[bool],
 ) -> Vec<ListEntry> {
     let q = search_key(query);
+    let flat = is_table_all_songs(path);
+    let rows = |indices: &[usize]| {
+        if flat {
+            indices.iter().map(|&i| ListEntry::Song(i)).collect()
+        } else {
+            group_entries(songs, indices, choices)
+        }
+    };
     if !q.is_empty() {
         let matched: Vec<usize> = search_pool(tree, path, songs, pass)
             .into_iter()
             .filter(|&i| matches_query(&songs[i], &q))
             .collect();
-        return group_entries(songs, &matched, choices);
+        return rows(&matched);
     }
     match children(tree, path) {
         Some(folders) => folders.iter().map(folder_entry).collect(),
         None => match node(tree, path).map(|f| &f.body) {
-            Some(Body::Leaf(idx)) => group_entries(songs, idx, choices),
+            Some(Body::Leaf(idx)) => rows(idx),
             _ => Vec::new(),
         },
     }
+}
+
+/// Whether `path` is the 전곡 folder of a table: its charts are listed one row each,
+/// never grouped by song (the other folders group the charts of one song).
+fn is_table_all_songs(path: &FolderPath) -> bool {
+    matches!(path.segments(), [table, _, all] if table == "table" && all == TABLE_ALL_ID)
 }
 
 fn folder_entry(folder: &Folder) -> ListEntry {
@@ -1006,9 +1037,10 @@ mod tests {
             panic!("a table is a branch of levels");
         };
         let labels: Vec<&str> = levels.iter().map(|f| f.label.as_str()).collect();
-        // The table's order, with its symbol in front. Levels with no charts are left out.
-        assert_eq!(labels, ["sl★12", "sl★5", "sl★1"]);
-        assert_eq!(levels[0].count, 2);
+        // 전곡 first, then the table's order, with its symbol in front. Levels with no charts are left out.
+        assert_eq!(labels, ["전곡", "sl★12", "sl★5", "sl★1"]);
+        assert_eq!(levels[0].count, 4);
+        assert_eq!(levels[1].count, 2);
     }
 
     #[test]
@@ -1035,6 +1067,118 @@ mod tests {
         };
         let ids: Vec<&str> = list.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["Dup", "Dup~1"]);
+    }
+
+    #[test]
+    fn each_table_starts_with_an_all_songs_folder_in_library_order() {
+        let songs = library();
+        // A holds Apple and Cherry; B holds Cherry and Banana.
+        let a = table("A", "a", &["1"], &[(1, "1"), (3, "1")]);
+        let b = table("B", "b", &["1"], &[(3, "1"), (2, "1")]);
+        let mut tables = TableIndex::new(vec![a, b]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+        let tree = tree_of(&songs, &tables);
+        let table_folder = tree.iter().find(|f| f.id == "table").unwrap();
+        let Body::Branch(list) = &table_folder.body else {
+            panic!("table is a branch");
+        };
+        let ids: Vec<&str> = list.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["A", "B"]);
+
+        for (table_id, expected) in [("A", vec![0, 2]), ("B", vec![1, 2])] {
+            let path = FolderPath::top("table").child(table_id).child(TABLE_ALL_ID);
+            let rows = entries_for(
+                &tree,
+                &path,
+                &songs,
+                "",
+                &ChartChoices::new(),
+                &pass_all(&songs),
+            );
+            assert_eq!(songs_of(&rows), expected, "table {table_id}");
+        }
+        let Body::Branch(levels) = &list[0].body else {
+            panic!("a table is a branch");
+        };
+        assert_eq!(levels[0].id, TABLE_ALL_ID);
+        assert_eq!(levels[0].label, strings::FOLDER_TABLE_ALL);
+        assert_eq!(levels[0].count, 2);
+    }
+
+    #[test]
+    fn the_all_songs_folder_follows_the_table_level_order() {
+        let songs = library();
+        // The table lists level "b" before "a". Apple (index 0) is "a", Banana (index 1) is "b".
+        let t = table("T", "t", &["b", "a"], &[(1, "a"), (2, "b")]);
+        let mut tables = TableIndex::new(vec![t]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+        let tree = tree_of(&songs, &tables);
+        let all = FolderPath::top("table").child("T").child(TABLE_ALL_ID);
+        let rows = entries_for(
+            &tree,
+            &all,
+            &songs,
+            "",
+            &ChartChoices::new(),
+            &pass_all(&songs),
+        );
+        assert_eq!(rows, [ListEntry::Song(1), ListEntry::Song(0)]);
+    }
+
+    #[test]
+    fn the_table_all_songs_folder_lists_each_chart_of_a_song_on_its_own_row() {
+        let songs = vec![
+            chart(1, "x/AIR/a.bms", "AIR [7key]", 11),
+            chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
+        ];
+        let t = table("T", "t", &["11", "12"], &[(1, "11"), (2, "12")]);
+        let mut tables = TableIndex::new(vec![t]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &tables,
+            LnOption::Cn,
+            &pass_all(&songs),
+        );
+        let pass = pass_all(&songs);
+        let all = FolderPath::top("table").child("T").child(TABLE_ALL_ID);
+        let rows = entries_for(&tree, &all, &songs, "", &ChartChoices::new(), &pass);
+        assert_eq!(rows, [ListEntry::Song(0), ListEntry::Song(1)]);
+        // The same charts in the top-level 전곡 folder stay one group row.
+        let top = entries_for(
+            &tree,
+            &FolderPath::top("all"),
+            &songs,
+            "",
+            &ChartChoices::new(),
+            &pass,
+        );
+        assert!(matches!(top[0], ListEntry::Group { .. }));
+        // Search inside the table's 전곡 folder is flat too.
+        let found = entries_for(&tree, &all, &songs, "air", &ChartChoices::new(), &pass);
+        assert_eq!(found, [ListEntry::Song(0), ListEntry::Song(1)]);
+    }
+
+    #[test]
+    fn the_all_songs_folder_follows_the_filter_and_a_table_named_all_is_unchanged() {
+        let songs = library();
+        let t = table("all", "x", &["1"], &[(1, "1"), (2, "1")]);
+        let mut tables = TableIndex::new(vec![t]);
+        tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
+        // Only the level-12 songs pass: Apple (in the table) passes, Banana does not.
+        let pass: Vec<bool> = songs.iter().map(|s| s.play_level == 12).collect();
+        let tree = build_tree(&songs, &ScoreStore::new(), &tables, LnOption::Cn, &pass);
+        let table_folder = tree.iter().find(|f| f.id == "table").unwrap();
+        let Body::Branch(list) = &table_folder.body else {
+            panic!("table is a branch");
+        };
+        assert_eq!(list[0].id, "all");
+        let Body::Branch(levels) = &list[0].body else {
+            panic!("a table is a branch");
+        };
+        assert_eq!(levels[0].id, TABLE_ALL_ID);
+        assert_eq!(levels[0].count, 1);
     }
 
     #[test]
