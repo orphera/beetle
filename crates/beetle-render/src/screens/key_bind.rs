@@ -175,6 +175,7 @@ fn layout_summary(f: &KeyConfigFrame) -> String {
         PlayMode::Keys8 => {
             format!("8 keys in a row, scratch on the {side} (F2: swap, F3: 6 keys + triggers)")
         }
+        PlayMode::Keys4 | PlayMode::Keys6 => "Keys in one straight row".to_string(),
         mode if scratch_side_applies(mode) => format!("Scratch on the {side} (F2: swap)"),
         _ => "Each key mode keeps its own layout".to_string(),
     }
@@ -294,8 +295,10 @@ fn controllers(
     layout.set_scratch_side(f.mode, f.scratch);
     layout.set_eight_k_form(f.form);
     let triggers = f.mode == PlayMode::Keys8 && f.form == EightKForm::Triggers;
-    // Straight 8K: all eight lanes are the same square buttons in one row.
-    let straight = f.mode == PlayMode::Keys8 && !triggers;
+    // Straight 4K/6K (no scratch lane) and 8K without the trigger form: every
+    // lane is the same square button, all in one row.
+    let straight = matches!(f.mode, PlayMode::Keys4 | PlayMode::Keys6)
+        || (f.mode == PlayMode::Keys8 && !triggers);
     let sides: Vec<Vec<(usize, &KeyBinding)>> = {
         let p1: Vec<_> = f
             .lanes

@@ -68,14 +68,14 @@
 게임플레이의 4K/6K는 일자 레인인데, 키 설정 화면은 7K처럼 위/아래 두 줄 지그재그로 그린다
 (`target/keys-6k.bmp`: Z·X·C·V 아래, S·F 위). 일자 배치는 지금 8K(트리거 형태가 아닐 때)에만
 적용된다.
-- [ ] `crates/beetle-render/src/screens/key_bind.rs`의 `controllers()`에서
+- [x] `crates/beetle-render/src/screens/key_bind.rs`의 `controllers()`에서
       `let straight = f.mode == PlayMode::Keys8 && !triggers;`를 4K·6K도 포함하도록 변경:
       `matches!(f.mode, PlayMode::Keys4 | PlayMode::Keys6) || (f.mode == PlayMode::Keys8 && !triggers)`.
       `side_width()`는 이미 `straight`를 받으므로 같은 값이 전달되면 폭 계산도 맞는다.
-- [ ] 4K·6K에 스크래치 레인이 없는지 확인(`SkinConfig::set_play_mode`의 레인 목록). 있다면
+- [x] 4K·6K에 스크래치 레인이 없는지 확인(`SkinConfig::set_play_mode`의 레인 목록). 있다면
       일자 배치에서 스크래치를 어떻게 둘지 먼저 묻는다.
-- [ ] `layout_summary()`의 4K·6K 안내 문구를 일자 배치에 맞게(예: "Keys in one straight row").
-- [ ] 테스트: 같은 파일의 `every_mode_is_one_batch`, `sides_fit_the_screen` 통과 확인.
+- [x] `layout_summary()`의 4K·6K 안내 문구를 일자 배치에 맞게(예: "Keys in one straight row").
+- [x] 테스트: 같은 파일의 `every_mode_is_one_batch`, `sides_fit_the_screen` 통과 확인.
       `crates/beetle-render/tests/d3d11_keys.rs`를 돌려 `target/keys-4k.bmp`, `target/keys-6k.bmp`가
       한 줄로 나오는지 눈으로 확인(`cargo test -p beetle-render --release --test d3d11_keys`).
 - [ ] `cargo fmt --all` 후 커밋: `fix(render): 4K/6K key config draws keys in one straight row`.
