@@ -99,23 +99,35 @@ fn library() -> Vec<SongMetadata> {
     entries
         .iter()
         .enumerate()
-        .map(|(i, (title, artist, genre, level, mode))| SongMetadata {
-            id: beetle_core::ChartId::synthetic(i as u64 + 1),
-            md5: [0; 16],
-            ln_count: 0,
-            ln_mode: None,
-            legacy_hash: i as u64 + 1,
-            file_path: format!("songs/{i}.bms"),
-            title: (*title).into(),
-            subtitle: String::new(),
-            artist: (*artist).into(),
-            genre: (*genre).into(),
-            bpm: 140.0 + i as f64 * 7.0,
-            bpm_min: 140.0 + i as f64 * 7.0,
-            bpm_max: 140.0 + i as f64 * 7.0,
-            play_level: *level,
-            notes_count: 900 + i * 137,
-            play_mode: *mode,
+        .map(|(i, (title, artist, genre, level, mode))| {
+            // Tempo ranges as the real library has them: an ordinary wide one (5)
+            // and the extreme one that a BPM-change command can produce (9).
+            let (lo, hi) = match i {
+                5 => (158.0, 246.0),
+                9 => (197.0, 19_700_197.0),
+                _ => {
+                    let bpm = 140.0 + i as f64 * 7.0;
+                    (bpm, bpm)
+                }
+            };
+            SongMetadata {
+                id: beetle_core::ChartId::synthetic(i as u64 + 1),
+                md5: [0; 16],
+                ln_count: 0,
+                ln_mode: None,
+                legacy_hash: i as u64 + 1,
+                file_path: format!("songs/{i}.bms"),
+                title: (*title).into(),
+                subtitle: String::new(),
+                artist: (*artist).into(),
+                genre: (*genre).into(),
+                bpm: lo,
+                bpm_min: lo,
+                bpm_max: hi,
+                play_level: *level,
+                notes_count: 900 + i * 137,
+                play_mode: *mode,
+            }
         })
         .collect()
 }

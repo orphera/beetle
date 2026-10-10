@@ -346,7 +346,7 @@ fn song_row(
         mode,
         tx,
         row.y + 42.0 * s,
-        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED2 }),
+        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
     );
     let mut ax = tx + mode_w + 8.0 * s;
     if let Some(chip) = table_chip {
@@ -384,7 +384,7 @@ fn song_row(
                 "NO PLAY",
                 Rect::new(rx, row.y, right_w, row.h),
                 Align::Right,
-                &caption(10.0, s),
+                &caption(10.0, s).color(theme::MUTED),
             );
         }
     }
@@ -552,33 +552,36 @@ fn detail_panel(
     let artist = t.fit(c, &song.artist, iw, &artist_st).into_owned();
     t.draw(c, &artist, ix, y, &artist_st);
     if !song.genre.is_empty() {
-        let st = TextStyle::new(12.0 * s).color(theme::MUTED2);
+        let st = TextStyle::new(12.0 * s).color(theme::MUTED);
         let genre = t.fit(c, &song.genre, iw, &st).into_owned();
         t.draw(c, &genre, ix, y + 18.0 * s, &st);
     }
 
-    // Chart stats, aligned to the jacket's bottom edge
-    let col_w = iw / 3.0;
+    // Chart stats along the jacket's bottom edge. MODE and NOTES hang off the
+    // right edge at their content width; BPM gets the room that is left, so a
+    // long tempo range shrinks rather than running into the next value.
+    let label_st = caption(10.0, s).color(theme::MUTED);
+    let value_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
+    let gap = 18.0 * s;
     let bpm = song.bpm_label();
     let notes = thousands(song.notes_for(f.ln_option) as u32);
-    for (i, (k, v)) in [
-        ("BPM", bpm.as_str()),
-        ("NOTES", notes.as_str()),
-        ("MODE", theme::mode_label(song.play_mode)),
-    ]
-    .iter()
-    .enumerate()
-    {
-        let sx = ix + i as f32 * col_w;
-        t.draw(c, k, sx, jacket.bottom() - 30.0 * s, &caption(10.0, s));
-        t.draw(
-            c,
-            v,
-            sx,
-            jacket.bottom() - 2.0 * s,
-            &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
-        );
-    }
+    let mode = theme::mode_label(song.play_mode);
+    let mode_col = t
+        .measure(c, mode, &value_st)
+        .max(t.measure(c, "MODE", &label_st));
+    let notes_col = t
+        .measure(c, &notes, &value_st)
+        .max(t.measure(c, "NOTES", &label_st));
+    let mode_x = inner.right() - mode_col;
+    let notes_x = mode_x - gap - notes_col;
+    let (bpm_text, bpm_st) = fit_stat(c, t, &bpm, (notes_x - gap - ix).max(0.0), value_st);
+    let (label_y, value_y) = (jacket.bottom() - 30.0 * s, jacket.bottom() - 2.0 * s);
+    t.draw(c, "BPM", ix, label_y, &label_st);
+    t.draw(c, &bpm_text, ix, value_y, &bpm_st);
+    t.draw(c, "NOTES", notes_x, label_y, &label_st);
+    t.draw(c, &notes, notes_x, value_y, &value_st);
+    t.draw(c, "MODE", mode_x, label_y, &label_st);
+    t.draw(c, mode, mode_x, value_y, &value_st);
 
     let rule_y = jacket.bottom() + 24.0 * s;
     c.fill_rect(Rect::new(inner.x, rule_y, inner.w, s.max(1.0)), theme::LINE);
@@ -688,6 +691,23 @@ fn detail_panel(
     );
 }
 
+/// A stat value that must fit `room`: steps the size down a pixel at a time
+/// to 60% of its size, and only then is cut short with an ellipsis.
+fn fit_stat<'a>(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    text: &'a str,
+    room: f32,
+    st: TextStyle,
+) -> (std::borrow::Cow<'a, str>, TextStyle) {
+    let floor = st.size * 0.6;
+    let mut shrunk = st;
+    while t.measure(c, text, &shrunk) > room && shrunk.size - 1.0 >= floor {
+        shrunk.size -= 1.0;
+    }
+    (t.fit(c, text, room, &shrunk), shrunk)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn personal_best(
     c: &mut Canvas,
@@ -709,7 +729,7 @@ fn personal_best(
                 rule,
                 area.x + header_w + 14.0 * s,
                 y + 32.0 * s,
-                &caption(9.0, s).color(theme::MUTED2),
+                &caption(9.0, s).color(theme::MUTED),
             );
         }
         t.draw(
@@ -748,7 +768,7 @@ fn personal_best(
         ));
     }
     if !notes.is_empty() {
-        let st = caption(9.0, s).color(theme::MUTED2);
+        let st = caption(9.0, s).color(theme::MUTED);
         t.draw(
             c,
             &notes.join("  ·  "),
