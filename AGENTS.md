@@ -31,8 +31,8 @@
 
 - **[INV-4] 3-스레드 분리 모델**
   - **오디오 스레드**: 믹싱 및 `AudioClock` 누적 전용.
-  - **로직/입력 스레드**: 키 입력 처리, 판정, 락프리 큐로 오디오 커맨드 전송.
-  - **렌더 스레드**: Direct3D 11 단일 렌더러(OS 시스템 DLL 직접 FFI) 기반 프레임 그리기. 하드웨어 어댑터가 없으면 WARP로 동일 파이프라인을 실행합니다. 소프트웨어 렌더러나 화면별 이중 구현을 다시 도입하지 않습니다 (ADR-026, Windows 전용).
+  - **로직/입력 스레드** (`raw_input.rs`, `lane_logic.rs`): Raw Input으로 키를 받아 도착 시각을 찍고, 수동 플레이를 판정하고, 키음을 오디오 엔진의 두 번째 큐로 바로 내고, 미스를 처리합니다. 판정 시각은 키가 도착한 순간의 오디오 클럭(`AudioClock::time_at`)입니다. 판정 호출은 락프리 큐로 렌더에 보내고, 렌더는 자기 엔진 사본에 같은 호출을 합니다 (ADR-028).
+  - **렌더 스레드** (메인, winit): 메뉴·IME·핫키 입력, 화면 전이, Direct3D 11 단일 렌더러(OS 시스템 DLL 직접 FFI) 기반 프레임 그리기. 수동 플레이 판정은 직접 하지 않고 로직 스레드의 호출만 재생합니다(오토플레이·리플레이와 입력 스레드가 없을 때만 프레임 틱에서 판정). 하드웨어 어댑터가 없으면 WARP로 동일 파이프라인을 실행합니다. 소프트웨어 렌더러나 화면별 이중 구현을 다시 도입하지 않습니다 (ADR-026, Windows 전용).
 
 - **[INV-5] 비동기 백그라운드 I/O & 논블로킹 UI**
   - 대용량 파일 복사, 압축 해제, 디렉터리 패킹, 다수 키음 디코딩은 메인 UI 스레드를 블로킹하지 않고 백그라운드 Worker 스레드로 위임합니다.
@@ -71,9 +71,9 @@
 
 - `crates/bms-hash`: SHA-256과 MD5만 담은 의존성 없는 작은 크레이트입니다. 차트 식별(`beetle-core`)과 패키지 체크섬(`bms-package`)이 함께 씁니다.
 - `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
-- `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
+- `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서(샘플 단위 예약 재생, 다른 스레드용 두 번째 큐 `SampleTrigger`) 및 콜백 사이를 보간하는 마스터 클럭을 다룹니다.
 - `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다. 화면은 `screens/`에 있고, 한국어 문자열은 `strings.rs` 표 한 곳에 모으며(모든 글자가 내장 폰트에 있는지 테스트), 클릭 영역은 `hit.rs`의 `HitId`로 기록합니다. 색은 `theme.rs` 토큰만 씁니다.
-- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`, `Settings`) 및 입력 통합을 담당합니다. 옵션 목록(플레이 옵션 패널, 설정 화면)은 `options_table.rs`의 표 한 곳에서 그리기와 입력을 함께 처리합니다. 선곡 폴더 트리·곡 묶음·필터는 `folders.rs`·`filters.rs`(순수 모델), 키와 마우스는 `handlers/`에서 같은 이름 있는 함수를 부릅니다. `ime.rs`는 검색창 IME, `calibration.rs`는 판정 오프셋 측정, `transition.rs`는 화면 전환과 토스트를 맡습니다.
+- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`, `Settings`) 및 입력 통합을 담당합니다. 옵션 목록(플레이 옵션 패널, 설정 화면)은 `options_table.rs`의 표 한 곳에서 그리기와 입력을 함께 처리합니다. 선곡 폴더 트리·곡 묶음·필터는 `folders.rs`·`filters.rs`(순수 모델), 키와 마우스는 `handlers/`에서 같은 이름 있는 함수를 부릅니다. `ime.rs`는 검색창 IME, `calibration.rs`는 판정 오프셋 측정, `transition.rs`는 화면 전환과 토스트를 맡습니다. `raw_input.rs`는 입력/로직 스레드(Raw Input, 도착 시각), `lane_logic.rs`는 그 스레드가 하는 수동 플레이 판정입니다(ADR-028).
 - `crates/bms-package`: 단일 패키지(`.bmsp`) 포맷, Manifest, 결정론적 패커 및 안전한 리더를 다룹니다.
 - `crates/bms-package-manager`: 로컬 저장소(`packages/`), `registry.json`, 원자적 설치, 다중 버전 관리 및 `bpm` CLI를 담당합니다.
 - `crates/bpm-gui`: 독립형 경량 데스크톱 패키지 관리 GUI 애플리케이션입니다.

@@ -1,6 +1,6 @@
 # 입력·판정과 그리기 분리 계획 (2026-10-11)
 
-상태: **진행 중** — D0 생략(2026-10-11 결정), D1–D4 완료(2026-10-11), D5 다음
+상태: **완료** (2026-10-11) — D0 생략, D1–D5 완료
 
 대상: `crates/beetle-app`, `crates/beetle-audio`, `crates/beetle-render/src/backend/d3d11`
 
@@ -187,7 +187,7 @@ INV-4의 세 스레드(오디오 / 로직·입력 / 렌더)를 그대로 실현�
     수동 플레이 캡처(키를 누르지 않아 미스 17개가 입력 스레드에서 와 화면에 쌓임, devtools 로그
     `lanes judged on the input thread`). **실제 키 입력과 키음 지연은 손으로 확인해야 한다.**
 
-### D5. 표시 지연 줄이기 + 문서
+### D5. 표시 지연 줄이기 + 문서 — **완료** (2026-10-11)
 
 - 스왑체인을 `DXGI_SWAP_EFFECT_FLIP_DISCARD`(버퍼 2)로 바꾸고
   `IDXGISwapChain2::SetMaximumFrameLatency(1)` + 프레임 지연 대기 객체로, 그리기 직전에 기다렸다가
@@ -196,6 +196,18 @@ INV-4의 세 스레드(오디오 / 로직·입력 / 렌더)를 그대로 실현�
 - (D0을 생략했으므로 전/후 측정은 하지 않는다.)
 - `docs/DECISIONS.md`에 ADR-028(입력 획득 시점 판정, Raw Input 입력/로직 스레드)을 쓰고,
   `AGENTS.md` INV-4의 설명을 실제 구조에 맞게 고친다.
+
+- 구현 메모:
+  - 스왑체인은 `D3D11CreateDeviceAndSwapChain`에 `FLIP_DISCARD` + `FRAME_LATENCY_WAITABLE_OBJECT`
+    (+ 지원 시 `ALLOW_TEARING`)로 만든다. 실패하면(Windows 10 이전) 예전 `DISCARD`로 되돌아간다.
+    `IDXGISwapChain2::SetMaximumFrameLatency(1)`, 대기 객체는 `begin_frame`에서 최대 50ms 기다린다
+    (숨은·가려진 창에서 멈추지 않게). tearing 지원은 `IDXGIFactory5::CheckFeatureSupport`로 확인한다.
+  - 게임플레이의 `ControlFlow` 분기는 이미 렌더 페이싱만 하고 있어 손대지 않았다.
+  - 검증: `d3d11_swap` 테스트(하드웨어·WARP 모두 플립 모델, 프레임 지연 1, vsync/무제한/리사이즈 프레임이
+    막히지 않음), 기존 렌더 테스트 시간 변화 없음, 실제 창에서 `present: flip, frame latency 1, tearing`과
+    60Hz 모니터에서 vsync 61fps. **체감 지연은 손으로 확인해야 한다.**
+  - `ADR-028`을 쓰고 `AGENTS.md` INV-4를 실제 구조에 맞게 고쳤다.
+  - 바이너리 크기(릴리스 `beetle-app.exe`): D1 직전 3,141,120 B → D5 후 3,158,528 B (+17 KB, D1–D5 합계).
 
 ## 위험과 대응
 
