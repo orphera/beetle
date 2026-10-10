@@ -62,7 +62,31 @@
 
 ### U0 — 방향 결정 + 기준 캡처
 - [x] 결정 1~4 확정 (아래 **결정**)
-- [ ] 실제 앱(격리 작업 폴더)에서 화면별 "전" 캡처 일괄 생성, `tests/d3d11_*.rs` 캡처와 대조
+- [x] 실제 앱(격리 작업 폴더)에서 화면별 "전" 캡처 일괄 생성, `tests/d3d11_*.rs` 캡처와 대조
+  - **기준 캡처 결과 (2026-10-10)**
+  - 위치: `scratch/ux-before/raw/`(실제 앱 1280x720 창 모드, PNG), `scratch/ux-before/tests/`(`target/`의 테스트 캡처 복사본). `scratch/`는 커밋하지 않는다. 실행 폴더는 `scratch/ux-before/run/`(곡·테이블은 정션, `config.dat`는 복사본).
+  - 캡처한 화면: boot, songselect, songselect + 옵션 모달(`select-options`), + 종료 모달(`select-exit`), loading, gameplay 7K 자동 플레이(`play-7k`, NO BGA 상자 포함), gameplay 7K 비자동(`play-7k-manual`), gameplay 8레인 7K 곡(`play-7k-nijinowasure`), result(자동 플레이), keyconfig 6K·7K(`keyconfig`, `keyconfig-7k`).
+  - 생략: 빈 서재 안내(곡 216개가 있어 빈 상태를 만들지 않음, 진단 9 미확인). AAA 클리어 결과는 자동 플레이 결과(`SCORE NOT SAVED`)로 대신하고 테스트 `result-clear`와 구조만 비교.
+  - FPS(release, Direct3D 11 하드웨어): 부팅·선곡·게임플레이·결과 모두 60~61 fps. 선곡 폴더 전환 3 s 구간에서 56 fps 1회. 로딩 0.0 s 로그(`1 frames`)는 측정값이 아님.
+  - 테스트 캡처와 차이(UI 로직 차이는 없음):
+    - 데이터: 실제 서재 216곡, 테스트 픽스처 15곡. 제목·표지·점수가 다르다.
+    - 플레이필드 위치: 실제는 `config.dat`의 `field_position=CENTER`(가운데), 테스트는 왼쪽 플레이필드와 오른쪽 상단 HUD. 설정 차이로 보이나 확인하지 않음.
+    - 비자동 플레이 키 안내: 실제도 `KEYS Custom layout 1/2 SPEED F10/F11 COVER ESC PAUSE`가 상주(테스트와 같음). 자동 플레이에서는 `ESC Return to song select`만 나온다.
+    - 로딩: 실제 0.0 s 첫 프레임에는 진행 막대와 "Decoding keysounds and preparing audio"만 있고 곡 카드(표지·제목·BPM·노트 수)가 없다. 테스트(0.1 s)는 카드가 있다. 카드가 몇 프레임 뒤 나타나는지는 확인하지 못함(0.1 s 캡처는 로딩이 먼저 끝나 실패).
+    - 7K 표기 곡 `Beetle Demo Track`은 플레이필드가 6레인(스크래치 + 5키)으로 그려졌다. 같은 7K 표기의 `虹のわすれもの`는 8레인(스크래치 + 7키)으로 정상. 곡 데이터 특성으로 보이나 확인하지 않음.
+  - 진단 항목 확인(화면에서 보이는 것):
+    - 5 단축키가 푸터 키캡 9개에 묻혀 있음(선곡 하단): 확인.
+    - 6 폴더가 `< ALL SONGS >` 한 줄 순환: 확인.
+    - 7 같은 곡 채보가 행마다 따로 줄 섬(`ADDicTiON 4500000` 6UE21/6UE22, `DEATH†TENGOQ` 3행): 확인.
+    - 8 정렬 `TITLE` 한 종류, 필터 칩 없음: 확인.
+    - 10 플레이 옵션 모달에 PLAY / DISPLAY·SYSTEM / INPUT·SESSION / LAYOUT이 한 모달에 섞임: 확인.
+    - 12 옵션 행 설명 없음: 확인.
+    - 13 HI-SPEED가 `1125 px/s`: 확인.
+    - 14 BGA 없음 시 "NO BGA" 빈 상자: 확인.
+    - 15 비자동 플레이에서 키 안내 상주: 확인(자동 플레이에서는 없음).
+    - 18 결과에 게이지 추이 그래프 없음, 다음 행동은 ENTER/R/P: 확인.
+    - 19 키 설정 구조는 정상. U0.5 일자 배치가 실제 앱 6K에 반영됨(`Keys in one straight row`): 확인.
+    - 판단 불가(정적 캡처 범위 밖): 1~4(입력·IME·언어), 9(빈 서재), 11(행 번호), 16(시작·종료 연출: 게임 시작 후 4 s 시점에는 준비 표시 없음, 구간 길이 미확인), 17(하이스피드 변경 표시).
 
 ### U0.5 — 키 설정: 4K/6K 일자 배치
 게임플레이의 4K/6K는 일자 레인인데, 키 설정 화면은 7K처럼 위/아래 두 줄 지그재그로 그린다
@@ -78,7 +102,7 @@
 - [x] 테스트: 같은 파일의 `every_mode_is_one_batch`, `sides_fit_the_screen` 통과 확인.
       `crates/beetle-render/tests/d3d11_keys.rs`를 돌려 `target/keys-4k.bmp`, `target/keys-6k.bmp`가
       한 줄로 나오는지 눈으로 확인(`cargo test -p beetle-render --release --test d3d11_keys`).
-- [ ] `cargo fmt --all` 후 커밋: `fix(render): 4K/6K key config draws keys in one straight row`.
+- [x] `cargo fmt --all` 후 커밋: `fix(render): 4K/6K key config draws keys in one straight row`.
 
 ### U1 — 공통 기반 (화면 변경 없음)
 - [ ] **메뉴 액션 계층**: `MenuAction { Up, Down, Left, Right, Confirm, Back, Tab, … }`로
