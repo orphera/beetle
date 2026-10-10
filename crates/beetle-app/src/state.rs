@@ -143,7 +143,7 @@ pub struct AppState {
     pub track_bga: crate::config::TrackBgaSetting,
     pub bga_enabled: bool,
     pub key_hint: crate::config::KeyHintSetting,
-    /// A value changed during play ("그린 500 ms"), with the audio time it
+    /// A value changed during play ("500 ms"), with the audio time it
     /// appeared at. Drawn over the lane for a second.
     pub gameplay_readout: Option<(String, f64)>,
     /// Set once the song is over: the end banner is showing and the play has

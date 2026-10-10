@@ -261,7 +261,7 @@ table! {
     /// `{}` is the green number in milliseconds.
     pub VALUE_MS = "{} ms";
     /// Option chip above PLAY; `{}` is the green number in milliseconds.
-    pub CHIP_GREEN = "그린 {}";
+    pub CHIP_GREEN = "{}";
     /// Modal footer hints.
     pub HINT_MOVE = "이동";
     pub HINT_CHANGE = "변경";
@@ -343,7 +343,7 @@ table! {
     pub READY = "READY";
     pub READY_HINT = "F3/F4 그린 넘버 / F10/F11 레인 커버";
     /// Readout over the lane after a green number change (`{}` = ms).
-    pub READOUT_GREEN = "그린 {} ms";
+    pub READOUT_GREEN = "{} ms";
     /// Readout over the lane after a lane cover change (`{}` = percent).
     pub READOUT_COVER = "커버 {}%";
     pub TIMELINE_TITLE = "판정 타임라인";

@@ -96,7 +96,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
     }
 }
 
-/// "그린 500", "REGULAR", "GROOVE", and for a chart with long notes
+/// "500", "REGULAR", "GROOVE", and for a chart with long notes
 /// "LN" / "CN" / "CN (HCN)": the options a play of `song` will use.
 fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
     let mut chips = vec![

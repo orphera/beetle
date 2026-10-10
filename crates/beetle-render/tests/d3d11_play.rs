@@ -428,7 +428,7 @@ fn gameplay_hud_variants() {
         LEFT,
         "7k-readout-green",
         Extra {
-            readout: Some(("그린 500 ms", 5.7)),
+            readout: Some(("500 ms", 5.7)),
             ..Default::default()
         },
     );
