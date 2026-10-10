@@ -41,6 +41,16 @@ pub enum SelectRow<'a> {
     },
 }
 
+/// Charts a row stands for: one for a song, the charts of a group, the songs
+/// of a folder.
+fn row_charts(row: &SelectRow) -> usize {
+    match row {
+        SelectRow::Song(_) => 1,
+        SelectRow::Group { charts, .. } => charts.len(),
+        SelectRow::Folder { count, .. } => *count,
+    }
+}
+
 /// The charts of the highlighted group, shown as tabs above the detail panel.
 #[derive(Clone, Copy)]
 struct ChartTabs<'a> {
@@ -1793,7 +1803,10 @@ fn footer(
         let text = strings::fill(strings::FOLDER_COUNT, &[&thousands(f.rows.len() as u32)]);
         x += t.draw(c, &text, x, base, &count_st);
     } else {
-        x += t.draw(c, &thousands(f.rows.len() as u32), x, base, &count_st);
+        // Both numbers count charts ("곡" = chart, as in "N곡 찾음"): a group row
+        // stands for its charts, and the total is the whole library.
+        let shown: usize = f.rows.iter().map(row_charts).sum();
+        x += t.draw(c, &thousands(shown as u32), x, base, &count_st);
         let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
         t.draw(c, &total, x, base, &caption(12.0, s));
     }
@@ -3166,6 +3179,29 @@ mod tests {
         ui.begin(1280, 720, vp.scale);
         draw_drop_overlay(&mut ui, &vp);
         assert_eq!(ui.canvas.debug_batches().len(), 1, "drop");
+    }
+
+    #[test]
+    fn footer_count_is_in_charts() {
+        let charts = [3usize, 4, 5];
+        assert_eq!(row_charts(&SelectRow::Song(0)), 1);
+        assert_eq!(
+            row_charts(&SelectRow::Group {
+                title: "Baby",
+                charts: &charts,
+                selected: 0,
+            }),
+            3
+        );
+        let lamps = [0; LAMP_COUNT];
+        assert_eq!(
+            row_charts(&SelectRow::Folder {
+                label: "7K",
+                count: 23,
+                lamps,
+            }),
+            23
+        );
     }
 
     #[test]
