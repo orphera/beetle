@@ -21,6 +21,27 @@ pub const IID_ID3D11TEXTURE2D: GUID = GUID {
     data4: [0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c],
 };
 
+pub const IID_IDXGISWAPCHAIN2: GUID = GUID {
+    data1: 0xa8be2ac4,
+    data2: 0x199f,
+    data3: 0x4946,
+    data4: [0xb3, 0x31, 0x79, 0x59, 0x9f, 0xb9, 0x8d, 0xe7],
+};
+
+pub const IID_IDXGIFACTORY1: GUID = GUID {
+    data1: 0x770aae78,
+    data2: 0xf26f,
+    data3: 0x4dba,
+    data4: [0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87],
+};
+
+pub const IID_IDXGIFACTORY5: GUID = GUID {
+    data1: 0x7632e1f5,
+    data2: 0xee65,
+    data3: 0x4dca,
+    data4: [0x87, 0xfd, 0x84, 0xcd, 0x75, 0xf8, 0x83, 0x8d],
+};
+
 // D3D11 enums and constants
 pub const D3D_DRIVER_TYPE_HARDWARE: u32 = 1;
 pub const D3D_DRIVER_TYPE_WARP: u32 = 5;
@@ -38,6 +59,10 @@ pub const DXGI_FORMAT_R32G32B32A32_FLOAT: u32 = 2;
 pub const DXGI_USAGE_RENDER_TARGET_OUTPUT: u32 = 0x20;
 pub const DXGI_SWAP_EFFECT_DISCARD: u32 = 0;
 pub const DXGI_SWAP_EFFECT_FLIP_DISCARD: u32 = 4;
+pub const DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT: u32 = 0x40;
+pub const DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING: u32 = 0x800;
+pub const DXGI_PRESENT_ALLOW_TEARING: u32 = 0x200;
+pub const DXGI_FEATURE_PRESENT_ALLOW_TEARING: u32 = 0;
 
 pub const D3D11_USAGE_DEFAULT: u32 = 0;
 pub const D3D11_USAGE_IMMUTABLE: u32 = 1;
@@ -70,12 +95,14 @@ pub const D3D11_COLOR_WRITE_ENABLE_ALL: u8 = 0xf;
 pub const D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST: u32 = 4;
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DXGI_RATIONAL {
     pub Numerator: u32,
     pub Denominator: u32,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DXGI_MODE_DESC {
     pub Width: u32,
     pub Height: u32,
@@ -86,12 +113,14 @@ pub struct DXGI_MODE_DESC {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DXGI_SAMPLE_DESC {
     pub Count: u32,
     pub Quality: u32,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct DXGI_SWAP_CHAIN_DESC {
     pub BufferDesc: DXGI_MODE_DESC,
     pub SampleDesc: DXGI_SAMPLE_DESC,
@@ -214,6 +243,24 @@ pub struct IDXGISwapChainVtbl {
         unsafe extern "system" fn(*mut c_void, u32, *const GUID, *mut *mut c_void) -> i32, // 9
     pub _unused2: [*const c_void; 3], // 10..12: SetFullscreenState, GetFullscreenState, GetDesc
     pub ResizeBuffers: unsafe extern "system" fn(*mut c_void, u32, u32, u32, u32, u32) -> i32, // 13
+}
+
+/// `IDXGISwapChain2`, the frame latency part only.
+#[repr(C)]
+pub struct IDXGISwapChain2Vtbl {
+    pub parent: IUnknownVtbl,         // 0..2
+    pub _unused: [*const c_void; 28], // 3..30: IDXGISwapChain, IDXGISwapChain1, Set/GetSourceSize
+    pub SetMaximumFrameLatency: unsafe extern "system" fn(*mut c_void, u32) -> i32, // 31
+    pub GetMaximumFrameLatency: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32, // 32
+    pub GetFrameLatencyWaitableObject: unsafe extern "system" fn(*mut c_void) -> *mut c_void, // 33
+}
+
+/// `IDXGIFactory5`, `CheckFeatureSupport` only.
+#[repr(C)]
+pub struct IDXGIFactory5Vtbl {
+    pub parent: IUnknownVtbl,         // 0..2
+    pub _unused: [*const c_void; 25], // 3..27: IDXGIObject .. IDXGIFactory4
+    pub CheckFeatureSupport: unsafe extern "system" fn(*mut c_void, u32, *mut c_void, u32) -> i32, // 28
 }
 
 #[repr(C)]
@@ -341,4 +388,15 @@ extern "system" {
         pFeatureLevel: *mut u32,
         ppImmediateContext: *mut *mut c_void,
     ) -> i32;
+}
+
+#[link(name = "dxgi")]
+extern "system" {
+    pub fn CreateDXGIFactory1(riid: *const GUID, ppFactory: *mut *mut c_void) -> i32;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    pub fn WaitForSingleObjectEx(handle: *mut c_void, millis: u32, alertable: i32) -> u32;
+    pub fn CloseHandle(handle: *mut c_void) -> i32;
 }

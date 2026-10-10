@@ -295,6 +295,9 @@ impl ApplicationHandler for BeetleApp {
         };
 
         app_state.apply_display_mode();
+        if app_state.capture.is_some() {
+            devtools::log(&format!("present: {}", app_state.d3d11.present_mode()));
+        }
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
 

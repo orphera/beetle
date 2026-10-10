@@ -20,6 +20,13 @@ struct D3d11Texture {
 ///
 /// Features zero-crate native OS bindings, low-latency FLIP swapchain,
 /// dynamic vertex/index buffer streaming, and hardware alpha/additive blending.
+///
+/// The swap chain is flip model with a frame latency of one: each frame
+/// waits for the previous one to reach the screen before it is drawn
+/// (`begin_frame`), so it shows the clock as of just before it is shown,
+/// not frames queued behind it. Without vsync it presents with tearing
+/// where the system allows it. Where flip model is not available (before
+/// Windows 10) it falls back to the old blt swap chain.
 pub struct D3d11Backend {
     _hwnd: *mut c_void,
     width: u32,
@@ -43,6 +50,10 @@ pub struct D3d11Backend {
     next_texture_id: u32,
     vsync: bool,
     is_warp: bool,
+    /// Flags the swap chain was made with (`ResizeBuffers` must repeat them).
+    swap_flags: u32,
+    /// Signalled when the swap chain can take a new frame (flip model only).
+    frame_waitable: *mut c_void,
 }
 
 unsafe impl Send for D3d11Backend {}
@@ -79,7 +90,8 @@ impl D3d11Backend {
         let w = width.max(1);
         let h = height.max(1);
 
-        let swap_desc = DXGI_SWAP_CHAIN_DESC {
+        let tearing = unsafe { tearing_supported() };
+        let legacy_desc = DXGI_SWAP_CHAIN_DESC {
             BufferDesc: DXGI_MODE_DESC {
                 Width: w,
                 Height: h,
@@ -102,6 +114,16 @@ impl D3d11Backend {
             SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
             Flags: 0,
         };
+        let flip_desc = DXGI_SWAP_CHAIN_DESC {
+            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+            Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT
+                | if tearing {
+                    DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+                } else {
+                    0
+                },
+            ..legacy_desc
+        };
 
         let mut device: *mut c_void = ptr::null_mut();
         let mut context: *mut c_void = ptr::null_mut();
@@ -120,32 +142,35 @@ impl D3d11Backend {
         ];
         let mut last_hr: i32 = 0;
         let mut is_warp = false;
-        for &driver_type in driver_types {
-            let hr = unsafe {
-                D3D11CreateDeviceAndSwapChain(
-                    ptr::null_mut(),
-                    driver_type,
-                    ptr::null_mut(),
-                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                    feature_levels.as_ptr(),
-                    feature_levels.len() as u32,
-                    7, // D3D11_SDK_VERSION
-                    &swap_desc,
-                    &mut swap_chain,
-                    &mut device,
-                    &mut feature_level,
-                    &mut context,
-                )
-            };
-            if hr >= 0 && !device.is_null() && !context.is_null() && !swap_chain.is_null() {
-                is_warp = driver_type == D3D_DRIVER_TYPE_WARP;
-                if is_warp {
-                    eprintln!("[D3D11] Using WARP software rasterizer");
-                }
+        let mut swap_flags = 0;
+        'drivers: for &driver_type in driver_types {
+            for swap_desc in [&flip_desc, &legacy_desc] {
+                let hr = unsafe {
+                    D3D11CreateDeviceAndSwapChain(
+                        ptr::null_mut(),
+                        driver_type,
+                        ptr::null_mut(),
+                        D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                        feature_levels.as_ptr(),
+                        feature_levels.len() as u32,
+                        7, // D3D11_SDK_VERSION
+                        swap_desc,
+                        &mut swap_chain,
+                        &mut device,
+                        &mut feature_level,
+                        &mut context,
+                    )
+                };
                 last_hr = hr;
-                break;
+                if hr >= 0 && !device.is_null() && !context.is_null() && !swap_chain.is_null() {
+                    is_warp = driver_type == D3D_DRIVER_TYPE_WARP;
+                    if is_warp {
+                        eprintln!("[D3D11] Using WARP software rasterizer");
+                    }
+                    swap_flags = swap_desc.Flags;
+                    break 'drivers;
+                }
             }
-            last_hr = hr;
         }
 
         if last_hr < 0 || device.is_null() || context.is_null() || swap_chain.is_null() {
@@ -154,6 +179,13 @@ impl D3d11Backend {
                 last_hr as u32
             ));
         }
+
+        let frame_waitable = if swap_flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT != 0
+        {
+            unsafe { frame_latency_waitable(swap_chain) }
+        } else {
+            ptr::null_mut()
+        };
 
         // 1. Create Render Target View for Backbuffer
         let mut render_target_view = ptr::null_mut();
@@ -375,6 +407,8 @@ impl D3d11Backend {
         Ok(Self {
             _hwnd: hwnd,
             is_warp,
+            swap_flags,
+            frame_waitable,
             width: w,
             height: h,
             device,
@@ -398,10 +432,67 @@ impl D3d11Backend {
         })
     }
 
+    /// How frames reach the screen: flip model with a frame latency of one
+    /// (and whether tearing is allowed without vsync), or the old blt model.
+    pub fn present_mode(&self) -> &'static str {
+        match (
+            self.frame_waitable.is_null(),
+            self.swap_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING != 0,
+        ) {
+            (false, true) => "flip, frame latency 1, tearing",
+            (false, false) => "flip, frame latency 1",
+            (true, _) => "blt",
+        }
+    }
+
     /// Sets whether Present synchronizes with display VBlank (VSync).
     pub fn set_vsync(&mut self, vsync: bool) {
         self.vsync = vsync;
     }
+}
+
+/// The longest `begin_frame` waits for the swap chain (a few frames at 60 Hz).
+const FRAME_WAIT_MILLIS: u32 = 50;
+
+/// Whether presenting with tearing is allowed here (DXGI 1.5, and the
+/// system says so: off on some hybrid-GPU and older setups).
+unsafe fn tearing_supported() -> bool {
+    let mut factory: *mut c_void = ptr::null_mut();
+    if CreateDXGIFactory1(&IID_IDXGIFACTORY1, &mut factory) < 0 || factory.is_null() {
+        return false;
+    }
+    let mut factory5: *mut c_void = ptr::null_mut();
+    let vtbl = *(factory as *mut *mut IUnknownVtbl);
+    let hr = ((*vtbl).QueryInterface)(factory, &IID_IDXGIFACTORY5, &mut factory5);
+    ((*vtbl).Release)(factory);
+    if hr < 0 || factory5.is_null() {
+        return false;
+    }
+    let mut allowed: i32 = 0;
+    let f5 = *(factory5 as *mut *mut IDXGIFactory5Vtbl);
+    let hr = ((*f5).CheckFeatureSupport)(
+        factory5,
+        DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+        (&mut allowed as *mut i32).cast(),
+        std::mem::size_of::<i32>() as u32,
+    );
+    ((*f5).parent.Release)(factory5);
+    hr >= 0 && allowed != 0
+}
+
+/// Limits a flip model swap chain to one queued frame and returns the
+/// handle signalled when it takes the next (null if that fails).
+unsafe fn frame_latency_waitable(swap_chain: *mut c_void) -> *mut c_void {
+    let mut sc2: *mut c_void = ptr::null_mut();
+    let vtbl = *(swap_chain as *mut *mut IUnknownVtbl);
+    if ((*vtbl).QueryInterface)(swap_chain, &IID_IDXGISWAPCHAIN2, &mut sc2) < 0 || sc2.is_null() {
+        return ptr::null_mut();
+    }
+    let sc2_vtbl = *(sc2 as *mut *mut IDXGISwapChain2Vtbl);
+    ((*sc2_vtbl).SetMaximumFrameLatency)(sc2, 1);
+    let handle = ((*sc2_vtbl).GetFrameLatencyWaitableObject)(sc2);
+    ((*sc2_vtbl).parent.Release)(sc2);
+    handle
 }
 
 impl Drop for D3d11Backend {
@@ -440,6 +531,9 @@ impl Drop for D3d11Backend {
             release_com!(self.pixel_shader_sprite);
             release_com!(self.vertex_shader);
             release_com!(self.render_target_view);
+            if !self.frame_waitable.is_null() {
+                CloseHandle(self.frame_waitable);
+            }
             release_com!(self.swap_chain);
             release_com!(self.context);
             release_com!(self.device);
@@ -451,6 +545,13 @@ impl GpuBackend for D3d11Backend {
     fn begin_frame(&mut self, width: u32, height: u32, clear_color: [f32; 4]) {
         if self.width != width || self.height != height {
             self.resize(width, height);
+        }
+        if !self.frame_waitable.is_null() {
+            // Until the last frame is on screen. Bounded, so a window the
+            // system does not compose (hidden, occluded) cannot stall the loop.
+            unsafe {
+                WaitForSingleObjectEx(self.frame_waitable, FRAME_WAIT_MILLIS, 1);
+            }
         }
 
         unsafe {
@@ -735,7 +836,13 @@ impl GpuBackend for D3d11Backend {
         unsafe {
             let sc_vtbl = *(self.swap_chain as *mut *mut IDXGISwapChainVtbl);
             let interval = if self.vsync { 1 } else { 0 };
-            let _ = ((*sc_vtbl).Present)(self.swap_chain, interval, 0);
+            let tearing = !self.vsync && self.swap_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING != 0;
+            let flags = if tearing {
+                DXGI_PRESENT_ALLOW_TEARING
+            } else {
+                0
+            };
+            let _ = ((*sc_vtbl).Present)(self.swap_chain, interval, flags);
         }
     }
 
@@ -758,8 +865,14 @@ impl GpuBackend for D3d11Backend {
 
             ((*ctx_vtbl).OMSetRenderTargets)(self.context, 0, ptr::null(), ptr::null_mut());
 
-            let _ =
-                ((*sc_vtbl).ResizeBuffers)(self.swap_chain, 0, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+            let _ = ((*sc_vtbl).ResizeBuffers)(
+                self.swap_chain,
+                0,
+                w,
+                h,
+                DXGI_FORMAT_R8G8B8A8_UNORM,
+                self.swap_flags,
+            );
 
             // Re-create RTV
             let mut backbuffer: *mut c_void = ptr::null_mut();
