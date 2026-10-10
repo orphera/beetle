@@ -76,24 +76,16 @@ pub fn handle_song_select_input(
 
     // Normal SongSelect navigation & hotkeys
     match code {
-        KeyCode::Escape => {
-            state.show_exit_modal = true;
-        }
+        KeyCode::Escape => open_exit_prompt(state),
         KeyCode::Slash => {
             state.is_search_active = true;
         }
         KeyCode::F1 => cycle_folder(state, false),
         KeyCode::F3 => cycle_folder(state, true),
         KeyCode::Tab | KeyCode::KeyO => open_options(state),
-        KeyCode::KeyA => {
-            state.is_auto_play = !state.is_auto_play;
-        }
+        KeyCode::KeyA => toggle_auto(state),
         KeyCode::KeyR => start_replay(state),
-        KeyCode::F12 | KeyCode::KeyC => {
-            state.screen = AppScreen::KeyConfig;
-            state.key_config_edit_mode = state.key_config_mode();
-            state.selected_key_idx = 0;
-        }
+        KeyCode::F12 | KeyCode::KeyC => open_key_config(state),
         KeyCode::F2 => cycle_sort(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
@@ -130,6 +122,23 @@ pub fn handle_song_select_input(
             }
         }
     }
+}
+
+/// Shows the quit prompt (ESC, or the footer button).
+pub fn open_exit_prompt(state: &mut AppState) {
+    state.show_exit_modal = true;
+}
+
+/// Turns auto play on or off (A, or the footer button).
+pub fn toggle_auto(state: &mut AppState) {
+    state.is_auto_play = !state.is_auto_play;
+}
+
+/// Opens the key configuration for the selected song's mode (F12 / C, or the footer button).
+pub fn open_key_config(state: &mut AppState) {
+    state.screen = AppScreen::KeyConfig;
+    state.key_config_edit_mode = state.key_config_mode();
+    state.selected_key_idx = 0;
 }
 
 /// Moves the highlight one row down or up, wrapping at the ends of the list.

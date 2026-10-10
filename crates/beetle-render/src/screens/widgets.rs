@@ -3,6 +3,7 @@
 
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
+use crate::hit::{HitId, HitSink};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
@@ -101,6 +102,55 @@ pub(crate) fn footer_hints(
         s,
         true,
     );
+}
+
+/// A footer key hint: key, label, and the action a click on it runs (`None`: not clickable).
+pub(crate) type Hint = (&'static str, &'static str, Option<HitId>);
+
+/// Width of a footer row of hints, laid out as `footer_buttons` draws them.
+pub(crate) fn hints_width(c: &mut Canvas, t: &mut TextEngine, hints: &[Hint], s: f32) -> f32 {
+    let label_st = caption(10.0, s).color(theme::MUTED);
+    let mut w = 0.0;
+    for (i, (key, label, _)) in hints.iter().enumerate() {
+        if i > 0 {
+            w += 20.0 * s;
+        }
+        w += keycap_width(c, t, key, s) + 6.0 * s + t.measure(c, label, &label_st);
+    }
+    w
+}
+
+/// Key hints right-aligned in the footer `bar`, each clickable hint recorded
+/// as a region (hover tints it).
+pub(crate) fn footer_buttons(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hints: &[Hint],
+    bar: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    let label_st = caption(10.0, s).color(theme::MUTED);
+    let y = bar.y + 10.0 * s;
+    let mut hx = bar.right() - PAD * s - hints_width(c, t, hints, s);
+    for (i, (key, label, action)) in hints.iter().enumerate() {
+        if i > 0 {
+            hx += 20.0 * s;
+        }
+        let kw = keycap_width(c, t, key, s);
+        let lw = t.measure(c, label, &label_st);
+        if let Some(id) = action {
+            let hit = Rect::new(hx - 6.0 * s, bar.y + 4.0 * s, kw + lw + 12.0 * s, 32.0 * s);
+            hs.add(hit, *id);
+            if hs.hovered(hit) {
+                c.nine(&sk.panel_sm, hit, theme::WHITE.with_alpha(16));
+            }
+        }
+        keycap(c, t, sk, key, Rect::new(hx, y, kw, 20.0 * s), s);
+        t.draw(c, label, hx + kw + 6.0 * s, y + 14.0 * s, &label_st);
+        hx += kw + 6.0 * s + lw;
+    }
 }
 
 /// Score-rate bar (0..1) with A / AA / AAA marks at the IIDX ninths.

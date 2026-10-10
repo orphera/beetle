@@ -20,6 +20,29 @@ pub enum HitId {
     Replay,
     /// Opens the play options modal.
     Settings,
+    /// Toggles auto play.
+    Auto,
+    /// Opens the key configuration screen.
+    KeyConfig,
+    /// Opens the quit prompt.
+    Quit,
+    /// Result screen footer: back to song select, play again, screenshot.
+    ResultSongSelect,
+    ResultRetry,
+    ResultScreenshot,
+    /// Key configuration: a mode tab (index into `KEY_MODES`).
+    KeyModeTab(usize),
+    /// Key configuration: a lane button (index into the screen lane order).
+    KeyLane(usize),
+    /// Key configuration footer actions.
+    KeySet,
+    KeyAdd,
+    KeyClear,
+    KeyPreset,
+    KeyScratch,
+    KeyForm,
+    KeyReset,
+    KeyBack,
     /// A play options row (select it).
     OptionRow(usize),
     /// The `<` / `>` value arrows of a play options row.

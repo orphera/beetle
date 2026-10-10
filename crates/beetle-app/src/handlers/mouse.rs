@@ -1,16 +1,23 @@
 //! Mouse input. Clicks and the wheel run the same actions as the keys. The
 //! hit regions come from the last presented frame (`Ui::hits`), so a click
-//! lands on what the player saw. Only the Song Select screen and its two
-//! modals take the mouse for now; other screens and gameplay ignore it.
+//! lands on what the player saw. Song select (with its modals), the result
+//! screen and key configuration take the mouse; gameplay, loading and boot
+//! ignore it.
 
 use std::time::Instant;
 
-use beetle_render::{hit_at, HitId};
+use beetle_render::{hit_at, HitId, Rebind, KEY_MODES};
 use winit::event::MouseScrollDelta;
 
+use crate::handlers::key_config::{
+    clear_lane_keys, cycle_key_preset, leave_key_config, reset_key_layout, set_key_mode,
+    step_key_mode, toggle_eight_k_form, toggle_scratch_side,
+};
 use crate::handlers::options::{change_option, close_options, move_option_row, open_options};
+use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::song_select::{
-    cycle_folder, cycle_sort, move_selection, start_replay, start_selected,
+    cycle_folder, cycle_sort, move_selection, open_exit_prompt, open_key_config, start_replay,
+    start_selected, toggle_auto,
 };
 use crate::state::{AppScreen, AppState};
 
@@ -21,27 +28,40 @@ const MAX_NOTCHES: i32 = 8;
 
 /// A left button press at the cursor position.
 pub fn handle_press(state: &mut AppState) {
-    if state.screen != AppScreen::SongSelect {
-        return;
-    }
-    let Some((x, y)) = state.cursor else {
-        return;
-    };
-    let id = hit_at(&state.gpu_ui.ui.hits, x, y);
-    // Clicking anywhere but the search box ends the search.
-    if state.is_search_active && id != Some(HitId::Search) {
-        state.is_search_active = false;
-    }
-    if let Some(id) = id {
-        handle_click(state, id);
+    match state.screen {
+        // A click anywhere cancels a pending key bind, as ESC does.
+        AppScreen::KeyConfig if state.rebinding.is_some() => state.rebinding = None,
+        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Result => {
+            let Some((x, y)) = state.cursor else {
+                return;
+            };
+            let id = hit_at(&state.gpu_ui.ui.hits, x, y);
+            // Clicking anywhere but the search box ends the search.
+            if state.screen == AppScreen::SongSelect
+                && state.is_search_active
+                && id != Some(HitId::Search)
+            {
+                state.is_search_active = false;
+            }
+            if let Some(id) = id {
+                handle_click(state, id);
+            }
+        }
+        _ => (),
     }
 }
 
-/// Runs the action of a clicked region.
+/// Runs the action of a clicked region on the current screen.
 pub fn handle_click(state: &mut AppState, id: HitId) {
-    if state.screen != AppScreen::SongSelect {
-        return;
+    match state.screen {
+        AppScreen::SongSelect => song_select_click(state, id),
+        AppScreen::Result => result_click(state, id),
+        AppScreen::KeyConfig => key_config_click(state, id),
+        _ => (),
     }
+}
+
+fn song_select_click(state: &mut AppState, id: HitId) {
     if state.show_exit_modal {
         match id {
             HitId::ExitQuit => state.should_exit_app = true,
@@ -80,16 +100,49 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
         HitId::Play => start_selected(state),
         HitId::Replay => start_replay(state),
         HitId::Settings => open_options(state),
+        HitId::Auto => toggle_auto(state),
+        HitId::KeyConfig => open_key_config(state),
+        HitId::Quit => open_exit_prompt(state),
+        _ => (),
+    }
+}
+
+fn result_click(state: &mut AppState, id: HitId) {
+    match id {
+        HitId::ResultSongSelect => to_song_select(state),
+        HitId::ResultRetry => retry_song(state),
+        HitId::ResultScreenshot => take_screenshot(state),
+        _ => (),
+    }
+}
+
+fn key_config_click(state: &mut AppState, id: HitId) {
+    match id {
+        HitId::KeyModeTab(i) => {
+            if let Some(&mode) = KEY_MODES.get(i) {
+                set_key_mode(state, mode);
+            }
+        }
+        // The first click selects a lane; a click on the selected lane binds
+        // a key, as ENTER does.
+        HitId::KeyLane(i) if i == state.selected_key_idx => state.rebinding = Some(Rebind::Replace),
+        HitId::KeyLane(i) => state.selected_key_idx = i,
+        HitId::KeySet => state.rebinding = Some(Rebind::Replace),
+        HitId::KeyAdd => state.rebinding = Some(Rebind::Add),
+        HitId::KeyClear => clear_lane_keys(state),
+        HitId::KeyPreset => cycle_key_preset(state),
+        HitId::KeyScratch => toggle_scratch_side(state),
+        HitId::KeyForm => toggle_eight_k_form(state),
+        HitId::KeyReset => reset_key_layout(state),
+        HitId::KeyBack => leave_key_config(state),
         _ => (),
     }
 }
 
 /// A wheel or touchpad scroll. Up moves the highlight up; in the options
-/// modal it moves the highlighted row instead.
+/// modal it moves the highlighted row; on key configuration it switches the
+/// key mode (up = previous).
 pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
-    if state.screen != AppScreen::SongSelect || state.show_exit_modal {
-        return;
-    }
     let lines = match delta {
         MouseScrollDelta::LineDelta(_, y) => y,
         MouseScrollDelta::PixelDelta(p) => p.y as f32 / PIXELS_PER_NOTCH,
@@ -98,12 +151,21 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
     let whole = state.wheel_carry.trunc() as i32;
     state.wheel_carry -= whole as f32;
     let notches = whole.clamp(-MAX_NOTCHES, MAX_NOTCHES);
-    let down = notches < 0;
+    if notches == 0 {
+        return;
+    }
+    let up = notches > 0;
     for _ in 0..notches.abs() {
-        if state.show_option_modal {
-            move_option_row(state, down);
-        } else {
-            move_selection(state, down);
+        match state.screen {
+            AppScreen::SongSelect if !state.show_exit_modal => {
+                if state.show_option_modal {
+                    move_option_row(state, !up);
+                } else {
+                    move_selection(state, !up);
+                }
+            }
+            AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),
+            _ => (),
         }
     }
 }

@@ -9,6 +9,7 @@
 use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
+use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_out_back, ease_out_cubic};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
@@ -39,15 +40,16 @@ pub struct ResultFrame<'a> {
     pub ln_label: Option<&'a str>,
 }
 
-const HINTS: [(&str, &str); 3] = [
-    ("ENTER", "SONG SELECT"),
-    ("R", "RETRY"),
-    ("P", "SCREENSHOT"),
+const HINTS: [widgets::Hint; 3] = [
+    ("ENTER", "SONG SELECT", Some(HitId::ResultSongSelect)),
+    ("R", "RETRY", Some(HitId::ResultRetry)),
+    ("P", "SCREENSHOT", Some(HitId::ResultScreenshot)),
 ];
 
 pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
     let s = vp.scale;
@@ -93,7 +95,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
             &caption(10.0, s).color(theme::MUTED),
         );
     }
-    widgets::footer_hints(c, t, &sk, &HINTS, bar, s);
+    widgets::footer_buttons(c, t, &sk, &HINTS, bar, s, &mut hs);
 }
 
 fn panel(c: &mut Canvas, sk: &Skin, r: Rect) {
@@ -662,6 +664,53 @@ mod tests {
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
         }
+    }
+
+    #[test]
+    fn footer_buttons_are_recorded_inside_the_footer() {
+        use crate::hit::{hit_at, HitId};
+        let vp = Viewport::new(1280, 720);
+        let chart = BmsChart::default();
+        let score = ScoreTracker::new(500, 260.0, GaugeType::Groove);
+        let mut ui = Ui::new(vp.scale);
+        ui.begin(1280, 720, vp.scale);
+        draw_result(
+            &mut ui,
+            &ResultFrame {
+                viewport: &vp,
+                chart: &chart,
+                score: &score,
+                previous_best: None,
+                update: ScoreUpdate::default(),
+                elapsed: 5.0,
+                jacket: None,
+                unsaved_reason: None,
+                ln_label: None,
+            },
+        );
+        let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;
+        for id in [
+            HitId::ResultSongSelect,
+            HitId::ResultRetry,
+            HitId::ResultScreenshot,
+        ] {
+            let r = ui
+                .hits
+                .iter()
+                .find(|h| h.id == id)
+                .expect("footer hit")
+                .rect;
+            assert!(
+                r.y >= footer_top && r.bottom() <= vp.y + vp.height,
+                "{id:?}"
+            );
+            assert_eq!(hit_at(&ui.hits, r.x + r.w / 2.0, r.y + r.h / 2.0), Some(id));
+        }
+        assert_eq!(
+            ui.hits.len(),
+            3,
+            "the result screen has only its footer buttons"
+        );
     }
 
     #[test]

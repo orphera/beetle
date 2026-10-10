@@ -9,9 +9,10 @@
 //! switch between the key modes, which each keep their own layout; a lane
 //! can have several keys.
 
-use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
+use super::widgets::{self, Hint, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
+use crate::hit::{HitId, HitSink};
 use crate::skin::{scratch_side_applies, EightKForm, ScratchSide, SkinConfig};
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
@@ -66,30 +67,31 @@ pub struct KeyConfigFrame<'a> {
 }
 
 /// Footer hints; F2 (scratch side) and F3 (8K form) only where they apply.
-fn hints_for(mode: PlayMode) -> Vec<(&'static str, &'static str)> {
-    let mut hints = vec![
-        (widgets::LEFT_RIGHT, "LANE"),
-        ("↑↓", "MODE"),
-        ("ENTER", "SET KEY"),
-        ("A", "ADD KEY"),
-        ("BKSP", "CLEAR"),
-        ("F1", "PRESET"),
+fn hints_for(mode: PlayMode) -> Vec<Hint> {
+    let mut hints: Vec<Hint> = vec![
+        (widgets::LEFT_RIGHT, "LANE", None),
+        ("↑↓", "MODE", None),
+        ("ENTER", "SET KEY", Some(HitId::KeySet)),
+        ("A", "ADD KEY", Some(HitId::KeyAdd)),
+        ("BKSP", "CLEAR", Some(HitId::KeyClear)),
+        ("F1", "PRESET", Some(HitId::KeyPreset)),
     ];
     if scratch_side_applies(mode) {
-        hints.push(("F2", "SCRATCH"));
+        hints.push(("F2", "SCRATCH", Some(HitId::KeyScratch)));
     }
     if mode == PlayMode::Keys8 {
-        hints.push(("F3", "8K FORM"));
+        hints.push(("F3", "8K FORM", Some(HitId::KeyForm)));
     }
-    hints.push(("DEL", "RESET"));
-    hints.push(("ESC", "BACK"));
+    hints.push(("DEL", "RESET", Some(HitId::KeyReset)));
+    hints.push(("ESC", "BACK", Some(HitId::KeyBack)));
     hints
 }
-const REBIND_HINTS: [(&str, &str); 2] = [("ANY KEY", "BIND"), ("ESC", "CANCEL")];
+const REBIND_HINTS: [Hint; 2] = [("ANY KEY", "BIND", None), ("ESC", "CANCEL", None)];
 
 pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
     let s = vp.scale;
@@ -109,6 +111,7 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
         f.mode,
         Rect::new(content.x, content.y, content.w, 36.0 * s),
         s,
+        &mut hs,
     );
     let sub = layout_summary(f);
     t.draw_in(
@@ -137,6 +140,7 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
             card.y - 16.0 * s,
         ),
         s,
+        &mut hs,
     );
     detail_card(c, t, &sk, f, card, s);
 
@@ -159,9 +163,9 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
 
     let bar = widgets::footer_bar(c, vp, s);
     if f.rebinding.is_some() {
-        widgets::footer_hints(c, t, &sk, &REBIND_HINTS, bar, s);
+        widgets::footer_buttons(c, t, &sk, &REBIND_HINTS, bar, s, &mut hs);
     } else {
-        widgets::footer_hints(c, t, &sk, &hints_for(f.mode), bar, s);
+        widgets::footer_buttons(c, t, &sk, &hints_for(f.mode), bar, s, &mut hs);
     }
 }
 
@@ -182,13 +186,23 @@ fn layout_summary(f: &KeyConfigFrame) -> String {
 }
 
 /// Tabs for the key modes, the current one highlighted.
-fn mode_tabs(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, mode: PlayMode, area: Rect, s: f32) {
+fn mode_tabs(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    mode: PlayMode,
+    area: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
     let (tab_w, gap) = (84.0 * s, 8.0 * s);
     let total = KEY_MODES.len() as f32 * (tab_w + gap) - gap;
     let mut x = area.x + (area.w - total) / 2.0;
-    for m in KEY_MODES {
+    for (i, m) in KEY_MODES.into_iter().enumerate() {
         let on = m == mode;
         let r = Rect::new(x, area.y, tab_w, area.h);
+        hs.add(r, HitId::KeyModeTab(i));
+        let hot = !on && hs.hovered(r);
         if on {
             c.set_additive(true);
             c.sprite_centered(
@@ -202,7 +216,11 @@ fn mode_tabs(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, mode: PlayMode, area
             c.set_additive(false);
             c.nine(&sk.panel_lg, r, theme::CYAN);
         } else {
-            c.nine(&sk.panel_lg, r, theme::SURF2);
+            c.nine(
+                &sk.panel_lg,
+                r,
+                if hot { theme::SURF3 } else { theme::SURF2 },
+            );
             c.nine(&sk.panel_outline, r, theme::LINE);
         }
         let label = format!("{} KEYS", theme::mode_label(m).trim_end_matches('K'));
@@ -289,6 +307,7 @@ fn controllers(
     f: &KeyConfigFrame,
     area: Rect,
     s: f32,
+    hs: &mut HitSink,
 ) {
     let mut layout = SkinConfig::default();
     layout.set_play_mode(f.mode);
@@ -371,6 +390,8 @@ fn controllers(
                         f.rebinding.is_some(),
                         false,
                         s,
+                        idx,
+                        hs,
                     );
                     kx += (TRIGGER_W + TRIGGER_GAP) * k;
                 } else {
@@ -385,6 +406,8 @@ fn controllers(
                         f.rebinding.is_some(),
                         false,
                         s,
+                        idx,
+                        hs,
                     );
                     kx += KEY_STEP * k;
                 }
@@ -400,6 +423,8 @@ fn controllers(
                     f.rebinding.is_some(),
                     false,
                     s,
+                    idx,
+                    hs,
                 );
                 kx += KEY_STEP * k;
             } else if is_scratch(b.lane) {
@@ -409,7 +434,20 @@ fn controllers(
                     TABLE * k,
                     TABLE * k,
                 );
-                button(c, t, sk, b, r, col, on, f.rebinding.is_some(), true, s);
+                button(
+                    c,
+                    t,
+                    sk,
+                    b,
+                    r,
+                    col,
+                    on,
+                    f.rebinding.is_some(),
+                    true,
+                    s,
+                    idx,
+                    hs,
+                );
                 kx += (TABLE + TABLE_GAP) * k;
             } else {
                 let y = if upper_row(b.lane) {
@@ -428,6 +466,8 @@ fn controllers(
                     f.rebinding.is_some(),
                     false,
                     s,
+                    idx,
+                    hs,
                 );
                 kx += KEY_STEP * k;
             }
@@ -448,7 +488,10 @@ fn button(
     rebinding: bool,
     scratch: bool,
     s: f32,
+    idx: usize,
+    hs: &mut HitSink,
 ) {
+    hs.add(r, HitId::KeyLane(idx));
     let accent = if on && rebinding {
         theme::MAGENTA
     } else {
@@ -471,6 +514,9 @@ fn button(
         r,
         if on { theme::SURF3 } else { theme::SURF2 },
     );
+    if !on && hs.hovered(r) {
+        c.nine(&sk.panel_outline, r, theme::CYAN.with_alpha(120));
+    }
     if scratch {
         // Turntable: lane-colored ring
         let d = r.w * 0.78;
@@ -712,6 +758,92 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn hit_regions_follow_the_drawn_layout() {
+        use crate::hit::{hit_at, HitId};
+        let vp = Viewport::new(1280, 720);
+        let mut ui = Ui::new(vp.scale);
+        let mut layout = SkinConfig::default();
+        layout.set_play_mode(PlayMode::Keys7);
+        layout.set_scratch_side(PlayMode::Keys7, ScratchSide::Right);
+        let keys = ["S", "LCtrl"];
+        let lanes: Vec<KeyBinding> = layout
+            .screen_lanes()
+            .into_iter()
+            .map(|lane| KeyBinding {
+                lane,
+                label: "KEY",
+                keys: &keys,
+            })
+            .collect();
+        let frame = KeyConfigFrame {
+            viewport: &vp,
+            mode: PlayMode::Keys7,
+            lanes: &lanes,
+            selected: 1,
+            rebinding: None,
+            layout: "HomeRow",
+            scratch: ScratchSide::Right,
+            form: EightKForm::Inline,
+        };
+        ui.begin(1280, 720, vp.scale);
+        draw_key_config(&mut ui, &frame);
+        let center = |hits: &[crate::hit::Hit], id: HitId| {
+            let r = hits.iter().find(|h| h.id == id).expect("recorded").rect;
+            (r.x + r.w / 2.0, r.y + r.h / 2.0)
+        };
+
+        // Every mode tab sits where it was drawn and maps to its own mode.
+        for i in 0..KEY_MODES.len() {
+            let (x, y) = center(&ui.hits, HitId::KeyModeTab(i));
+            assert_eq!(hit_at(&ui.hits, x, y), Some(HitId::KeyModeTab(i)));
+        }
+        // Each lane button is recorded once and found at its centre.
+        let lane_hits: Vec<_> = ui
+            .hits
+            .iter()
+            .filter(|h| matches!(h.id, HitId::KeyLane(_)))
+            .collect();
+        assert_eq!(lane_hits.len(), lanes.len());
+        for i in 0..lanes.len() {
+            let (x, y) = center(&ui.hits, HitId::KeyLane(i));
+            assert_eq!(hit_at(&ui.hits, x, y), Some(HitId::KeyLane(i)));
+        }
+
+        // Footer buttons of 7K (scratch side, no 8K form) lie in the footer.
+        let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;
+        for id in [
+            HitId::KeySet,
+            HitId::KeyAdd,
+            HitId::KeyClear,
+            HitId::KeyPreset,
+            HitId::KeyScratch,
+            HitId::KeyReset,
+            HitId::KeyBack,
+        ] {
+            let (x, y) = center(&ui.hits, id);
+            assert_eq!(hit_at(&ui.hits, x, y), Some(id));
+            let r = ui.hits.iter().find(|h| h.id == id).expect("footer").rect;
+            assert!(r.y >= footer_top, "{id:?} is outside the footer");
+        }
+        assert!(!ui.hits.iter().any(|h| h.id == HitId::KeyForm));
+
+        // While a key is awaited the footer shows only the rebind prompt.
+        ui.begin(1280, 720, vp.scale);
+        draw_key_config(
+            &mut ui,
+            &KeyConfigFrame {
+                rebinding: Some(Rebind::Replace),
+                ..frame
+            },
+        );
+        assert!(!ui
+            .hits
+            .iter()
+            .any(|h| matches!(h.id, HitId::KeyBack | HitId::KeySet)));
+        assert!(ui.hits.iter().any(|h| matches!(h.id, HitId::KeyLane(_))));
     }
 
     #[test]

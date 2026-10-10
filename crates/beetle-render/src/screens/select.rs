@@ -85,7 +85,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     }
 
     top_bar(c, t, &sk, f, s, &mut hs);
-    footer(c, t, &sk, f, s);
+    footer(c, t, &sk, f, s, &mut hs);
 }
 
 fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetadata>, lite: bool) {
@@ -974,19 +974,26 @@ fn personal_best(
 // Footer
 // ---------------------------------------------------------------------------
 
-const HINTS: [(&str, &str); 9] = [
-    ("↑↓", "SELECT"),
-    ("ENTER", "PLAY"),
-    ("/", "SEARCH"),
-    ("F1 F3", "FOLDER"),
-    ("F2", "SORT"),
-    ("TAB", "OPTIONS"),
-    ("A", "AUTO"),
-    ("F12", "KEYS"),
-    ("ESC", "QUIT"),
+const HINTS: [widgets::Hint; 9] = [
+    ("↑↓", "SELECT", None),
+    ("ENTER", "PLAY", Some(HitId::Play)),
+    ("/", "SEARCH", Some(HitId::Search)),
+    ("F1 F3", "FOLDER", Some(HitId::FolderNext)),
+    ("F2", "SORT", Some(HitId::Sort)),
+    ("TAB", "OPTIONS", Some(HitId::Settings)),
+    ("A", "AUTO", Some(HitId::Auto)),
+    ("F12", "KEYS", Some(HitId::KeyConfig)),
+    ("ESC", "QUIT", Some(HitId::Quit)),
 ];
 
-fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32) {
+fn footer(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    s: f32,
+    hs: &mut HitSink,
+) {
     let vp = f.viewport;
     let bar = widgets::footer_bar(c, vp, s);
     let base = bar.y + 25.0 * s;
@@ -1007,12 +1014,11 @@ fn footer(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32
     let right = vp.x + vp.width - PAD * s;
     let left_limit = x + 200.0 * s;
     let mut first = 0;
-    while first < HINTS.len()
-        && right - hint_row(c, t, sk, &HINTS[first..], 0.0, 0.0, s, false) < left_limit
+    while first < HINTS.len() && right - widgets::hints_width(c, t, &HINTS[first..], s) < left_limit
     {
         first += 1;
     }
-    widgets::footer_hints(c, t, sk, &HINTS[first..], bar, s);
+    widgets::footer_buttons(c, t, sk, &HINTS[first..], bar, s, hs);
 }
 
 // ---------------------------------------------------------------------------
@@ -1385,6 +1391,26 @@ mod tests {
         ] {
             let (x, y) = hit_center(&ui.hits, id);
             assert_eq!(hit_at(&ui.hits, x, y), Some(id));
+        }
+
+        // Footer key hints are buttons inside the footer.
+        let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;
+        for id in [
+            HitId::Play,
+            HitId::Search,
+            HitId::FolderNext,
+            HitId::Sort,
+            HitId::Settings,
+            HitId::Auto,
+            HitId::KeyConfig,
+            HitId::Quit,
+        ] {
+            let r = ui.hits.iter().rev().find(|h| h.id == id).expect("hit").rect;
+            if matches!(id, HitId::Auto | HitId::KeyConfig | HitId::Quit) {
+                assert!(r.y >= footer_top, "{id:?} is outside the footer");
+                let (x, y) = hit_center(&ui.hits, id);
+                assert_eq!(hit_at(&ui.hits, x, y), Some(id));
+            }
         }
 
         // An open options modal sits above the rows: a click on a row's
