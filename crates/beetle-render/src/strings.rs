@@ -225,6 +225,10 @@ table! {
     pub ROW_SCRATCH = "스크래치";
     pub ROW_BGA = "BGA";
     pub ROW_TRACK_BGA = "트랙 BGA";
+    pub ROW_KEY_HINT = "플레이 중 키 안내";
+    pub KEY_HINT_FIRST = "처음 3초만";
+    pub KEY_HINT_ALWAYS = "항상";
+    pub KEY_HINT_OFF = "끄기";
     pub ROW_DISPLAY_MODE = "화면 모드";
     pub ROW_RESOLUTION = "해상도";
     pub ROW_GRAPHICS = "그래픽";
@@ -283,6 +287,7 @@ table! {
     pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정합니다.";
     pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둡니다. 5K, 7K, 8K에서만 적용됩니다.";
     pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줍니다. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아낍니다.";
+    pub HELP_KEY_HINT = "플레이 화면 아래의 키 안내 줄을 정합니다. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라집니다.";
     pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정합니다. 꺼짐이면 보이지 않습니다.";
     pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 고릅니다. ENTER로 키 설정 화면을 엽니다.";
 
@@ -333,6 +338,17 @@ table! {
     /// Same, for layouts without cover keys (double play).
     pub HUD_KEYS_NO_COVER = "키  {}    1/2 그린 넘버    ESC 일시정지";
     pub KEYS_CUSTOM = "사용자 배치";
+    /// Shown from the song start until a second before the first note.
+    pub READY = "READY";
+    pub READY_HINT = "F3/F4 그린 넘버 / F10/F11 레인 커버";
+    /// Readout over the lane after a green number change (`{}` = ms).
+    pub READOUT_GREEN = "그린 {} ms";
+    /// Readout over the lane after a lane cover change (`{}` = percent).
+    pub READOUT_COVER = "커버 {}%";
+    pub TIMELINE_TITLE = "판정 타임라인";
+    pub TIMELINE_RANGE = "최근 8초";
+    pub TIMING_FAST = "FAST";
+    pub TIMING_SLOW = "SLOW";
 
     // ---- Result -------------------------------------------------------
     pub RESULT = "결과";

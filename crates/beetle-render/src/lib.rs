@@ -44,7 +44,7 @@ pub use skin::{
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::Ui;
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
-pub use view::{HitBurst, ViewState, Viewport};
+pub use view::{HitBurst, JudgeMark, ViewState, Viewport, JUDGE_TIMELINE_SECONDS};
 
 /// Result screen rank-letter pop-in duration (ease_out_back settle).
 pub const RANK_POP_SECONDS: f64 = 0.35;

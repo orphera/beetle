@@ -13,6 +13,7 @@ use beetle_render::{strings, GpuBackend, OptionLine, SettingsFrame, ToastFrame, 
 use winit::dpi::PhysicalSize;
 
 use crate::devtools;
+use crate::gameplay::END_BANNER_SECONDS;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
 use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
@@ -139,6 +140,13 @@ pub fn gameplay(
             )
         });
     state.view.clean_expired_hit_bursts(audio_time);
+    // A song without BGA events or videos has no BGA box: the HUD uses the room.
+    let has_bga = state.bga_enabled
+        && (state
+            .active_chart
+            .as_ref()
+            .is_some_and(|c| !c.bga_events.is_empty())
+            || !state.video_players.is_empty());
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
         state.is_auto_play,
@@ -179,6 +187,17 @@ pub fn gameplay(
                 pause: state
                     .is_gameplay_paused
                     .then_some(state.pause_selected_option),
+                has_bga,
+                key_hint_alpha: state.key_hint.alpha(audio_time),
+                readout: state
+                    .gameplay_readout
+                    .as_ref()
+                    .map(|(text, at)| (text.as_str(), *at)),
+                banner: state.gameplay_end.map(|end| {
+                    let progress = end.started.elapsed().as_secs_f64() / END_BANNER_SECONDS;
+                    (end.lamp, progress.min(1.0) as f32)
+                }),
+                judge_marks: state.view.judge_marks(),
             },
         );
     }

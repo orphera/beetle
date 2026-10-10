@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, JudgeEngine, JudgeGrade, PlayResult, ReplayData, ScoreUpdate,
-    SongMetadata, TimingModel,
+    apply_lane_modifier, BmsChart, ClearType, JudgeEngine, JudgeGrade, PlayResult, ReplayData,
+    ScoreUpdate, SongMetadata, TimingModel,
 };
 
 use crate::calibration::judged_time;
@@ -243,6 +243,8 @@ pub fn finalize_start_gameplay(
     state.playback_cursor = 0;
     state.is_gameplay_paused = false;
     state.pause_selected_option = 0;
+    state.gameplay_end = None;
+    state.gameplay_readout = None;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
     state.view.reset_feedback();
@@ -251,55 +253,105 @@ pub fn finalize_start_gameplay(
     state.window.request_redraw();
 }
 
+/// How long the end banner stays before the result screen (wall clock, see
+/// `GameplayEnd`).
+pub const END_BANNER_SECONDS: f64 = 1.5;
+
+/// The end banner after a song: the clear lamp of the play, and when the
+/// banner started. The timer is `Instant`, not the audio clock, on purpose:
+/// nothing is judged any more and the audio may already be stopped (a failed
+/// stage stops it), so INV-1 has nothing to protect here.
+#[derive(Debug, Clone, Copy)]
+pub struct GameplayEnd {
+    pub lamp: ClearType,
+    pub started: Instant,
+}
+
+/// The audio clock's time in the current song (0 when there is no audio).
+pub fn audio_time_now(state: &AppState) -> f64 {
+    state
+        .audio_engine
+        .as_ref()
+        .map(|a| a.clock().current_time_seconds())
+        .unwrap_or(0.0)
+}
+
+/// The song is over (played out, or the stage failed). Saves the play once
+/// and starts the end banner; the result screen follows in `leave_gameplay`.
+/// Calling it again during the banner does nothing.
 pub fn finish_gameplay(state: &mut AppState) {
-    if let Some(judge) = &state.active_judge {
-        let score = judge.score();
-        let (ex_score, max_combo) = (score.ex_score, score.max_combo);
-
-        let play = PlayResult::from_tracker(
-            state.active_chart_id,
-            score,
-            state.play_options.lane_modifier,
-            state.active_chart.as_ref().and_then(|c| c.random_seed),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
-            state.active_ln,
-        );
-
-        // Only save score records and replays for actual manual playthroughs from start
-        state.previous_best = state
-            .score_store
-            .get_for(state.active_chart_id, state.active_ln)
-            .cloned();
-        if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
-            let update = state.score_store.update(play);
-            state.score_update = update;
-            save_scores(&state.score_store);
-
-            // The replay on disk is the one that set the best EX score; a play
-            // that only raised the lamp or combo must not replace it.
-            let rep_path = replay_path(state.active_chart_id, state.active_ln);
-            if update.ex || !Path::new(&rep_path).exists() {
-                if let Some(mut rep) = state.current_replay.take() {
-                    rep.set_score(ex_score, max_combo);
-                    rep.ln = state.active_ln;
-                    let _ = fs::create_dir_all(REPLAYS_DIR);
-                    let _ = fs::write(&rep_path, rep.serialize_to_string());
-                }
-            }
-        } else {
-            state.score_update = ScoreUpdate::default();
-        }
+    if state.gameplay_end.is_some() {
+        return;
     }
+    let lamp = match &state.active_judge {
+        Some(judge) => {
+            let lamp = judge.score().clear_type();
+            record_play(state);
+            lamp
+        }
+        None => ClearType::Failed,
+    };
+    state.gameplay_end = Some(GameplayEnd {
+        lamp,
+        started: Instant::now(),
+    });
+    state.window.request_redraw();
+}
 
+/// Leaves the end banner for the result screen (its time is up, or ENTER / ESC).
+pub fn leave_gameplay(state: &mut AppState) {
+    state.gameplay_end = None;
     state.video_players.clear();
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
-    state.result_entered_at = std::time::Instant::now();
-
+    state.result_entered_at = Instant::now();
     state.window.request_redraw();
+}
+
+/// Writes the play's score (and replay) for a manual play from the start.
+fn record_play(state: &mut AppState) {
+    let Some(judge) = &state.active_judge else {
+        return;
+    };
+    let score = judge.score();
+    let (ex_score, max_combo) = (score.ex_score, score.max_combo);
+
+    let play = PlayResult::from_tracker(
+        state.active_chart_id,
+        score,
+        state.play_options.lane_modifier,
+        state.active_chart.as_ref().and_then(|c| c.random_seed),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        state.active_ln,
+    );
+
+    // Only save score records and replays for actual manual playthroughs from start
+    state.previous_best = state
+        .score_store
+        .get_for(state.active_chart_id, state.active_ln)
+        .cloned();
+    if !state.is_auto_play && !state.is_replay_playback && state.start_measure == 0 {
+        let update = state.score_store.update(play);
+        state.score_update = update;
+        save_scores(&state.score_store);
+
+        // The replay on disk is the one that set the best EX score; a play
+        // that only raised the lamp or combo must not replace it.
+        let rep_path = replay_path(state.active_chart_id, state.active_ln);
+        if update.ex || !Path::new(&rep_path).exists() {
+            if let Some(mut rep) = state.current_replay.take() {
+                rep.set_score(ex_score, max_combo);
+                rep.ln = state.active_ln;
+                let _ = fs::create_dir_all(REPLAYS_DIR);
+                let _ = fs::write(&rep_path, rep.serialize_to_string());
+            }
+        }
+    } else {
+        state.score_update = ScoreUpdate::default();
+    }
 }
 
 /// Result of an in-game simulation tick.

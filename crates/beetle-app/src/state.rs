@@ -142,6 +142,13 @@ pub struct AppState {
     pub target_fps: u32,
     pub track_bga: crate::config::TrackBgaSetting,
     pub bga_enabled: bool,
+    pub key_hint: crate::config::KeyHintSetting,
+    /// A value changed during play ("그린 500 ms"), with the audio time it
+    /// appeared at. Drawn over the lane for a second.
+    pub gameplay_readout: Option<(String, f64)>,
+    /// Set once the song is over: the end banner is showing and the play has
+    /// been saved (see `gameplay::finish_gameplay`).
+    pub gameplay_end: Option<crate::gameplay::GameplayEnd>,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     /// The song library being read on a worker thread (`AppScreen::Boot`).
@@ -333,6 +340,7 @@ impl AppState {
             target_fps: self.target_fps,
             track_bga: self.track_bga,
             bga_enabled: self.bga_enabled,
+            key_hint: self.key_hint,
         };
         app_config.save();
     }

@@ -86,6 +86,17 @@ pub const LANE_COUNT: usize = 18;
 
 /// How long a hit burst stays alive (the screen's own animation is shorter).
 const BURST_LIFETIME_SECONDS: f64 = 0.3;
+/// How far back the judge timeline reaches (audio seconds).
+pub const JUDGE_TIMELINE_SECONDS: f64 = 8.0;
+
+/// One judgement on the judge timeline: when it happened on the audio clock,
+/// its grade, and its timing (negative = early, positive = late).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JudgeMark {
+    pub time: f64,
+    pub grade: JudgeGrade,
+    pub delta_ms: f64,
+}
 
 /// Viewport + lane layout + gameplay feedback, owned by the app.
 pub struct ViewState {
@@ -95,6 +106,8 @@ pub struct ViewState {
     /// (grade, time in seconds, delta in ms)
     last_judge: Option<(JudgeGrade, f64, f64)>,
     hit_bursts: Vec<HitBurst>,
+    /// The judgements of the last `JUDGE_TIMELINE_SECONDS`, oldest first.
+    judge_marks: Vec<JudgeMark>,
 }
 
 impl ViewState {
@@ -107,6 +120,7 @@ impl ViewState {
             key_pressed: [false; LANE_COUNT],
             last_judge: None,
             hit_bursts: Vec::with_capacity(32),
+            judge_marks: Vec::with_capacity(256),
         }
     }
 
@@ -135,6 +149,15 @@ impl ViewState {
             let elapsed = audio_time_seconds - b.spawn_time;
             (0.0..BURST_LIFETIME_SECONDS).contains(&elapsed)
         });
+        self.judge_marks.retain(|m| {
+            let elapsed = audio_time_seconds - m.time;
+            (0.0..JUDGE_TIMELINE_SECONDS).contains(&elapsed)
+        });
+    }
+
+    /// The judgements shown on the judge timeline, oldest first.
+    pub fn judge_marks(&self) -> &[JudgeMark] {
+        &self.judge_marks
     }
 
     pub fn last_judge(&self) -> Option<(JudgeGrade, f64, f64)> {
@@ -144,6 +167,15 @@ impl ViewState {
     /// Records a judgement that has no lane to burst on (e.g. a miss).
     pub fn trigger_judge(&mut self, grade: JudgeGrade, time_seconds: f64, delta_ms: f64) {
         self.last_judge = Some((grade, time_seconds, delta_ms));
+        self.push_judge_mark(grade, time_seconds, delta_ms);
+    }
+
+    fn push_judge_mark(&mut self, grade: JudgeGrade, time: f64, delta_ms: f64) {
+        self.judge_marks.push(JudgeMark {
+            time,
+            grade,
+            delta_ms,
+        });
     }
 
     /// Records a judgement; hits (not POOR / MISS) also spawn a burst on `lane`.
@@ -155,6 +187,7 @@ impl ViewState {
         delta_ms: f64,
     ) {
         self.last_judge = Some((grade, time_seconds, delta_ms));
+        self.push_judge_mark(grade, time_seconds, delta_ms);
         if grade != JudgeGrade::Miss && grade != JudgeGrade::Poor {
             self.hit_bursts.push(HitBurst {
                 lane,
@@ -169,6 +202,7 @@ impl ViewState {
         self.key_pressed = [false; LANE_COUNT];
         self.last_judge = None;
         self.hit_bursts.clear();
+        self.judge_marks.clear();
     }
 }
 

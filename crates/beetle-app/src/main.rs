@@ -33,8 +33,8 @@ use beetle_core::{GaugeType, LaneModifier, ScoreUpdate, SongMetadata};
 use beetle_render::{SkinConfig, ViewState};
 use config::{AppConfig, DisplayMode};
 use gameplay::{
-    finalize_start_gameplay, finish_gameplay, queue_start_gameplay, tick_gameplay,
-    GameplayTickResult,
+    finalize_start_gameplay, finish_gameplay, leave_gameplay, queue_start_gameplay, tick_gameplay,
+    GameplayTickResult, END_BANNER_SECONDS,
 };
 
 use beetle_render::{strings, GpuBackend, ToastKind};
@@ -251,6 +251,9 @@ impl ApplicationHandler for BeetleApp {
             target_fps: saved_config.target_fps,
             track_bga: saved_config.track_bga,
             bga_enabled: saved_config.bga_enabled,
+            key_hint: saved_config.key_hint,
+            gameplay_readout: None,
+            gameplay_end: None,
             is_alt_pressed: false,
             bgm_cursor: 0,
             library_receiver: Some(library_receiver),
@@ -655,25 +658,34 @@ impl ApplicationHandler for BeetleApp {
                             .as_ref()
                             .map(|a| a.clock().current_time_seconds())
                             .unwrap_or(0.0);
-                        match tick_gameplay(state, audio_time) {
-                            GameplayTickResult::StageFailed => {
-                                if let Some(audio) = &mut state.audio_engine {
-                                    let _ = audio.stop_all();
+                        // The end banner: the play is saved and judged; wait
+                        // for its time (or ENTER / ESC) and then show the result.
+                        if let Some(end) = state.gameplay_end {
+                            if end.started.elapsed().as_secs_f64() >= END_BANNER_SECONDS {
+                                leave_gameplay(state);
+                                return;
+                            }
+                        } else {
+                            match tick_gameplay(state, audio_time) {
+                                GameplayTickResult::StageFailed => {
+                                    if let Some(audio) = &mut state.audio_engine {
+                                        let _ = audio.stop_all();
+                                    }
+                                    finish_gameplay(state);
                                 }
-                                finish_gameplay(state);
-                                return;
+                                GameplayTickResult::SongFinished => finish_gameplay(state),
+                                GameplayTickResult::Continue => {}
                             }
-                            GameplayTickResult::SongFinished => {
-                                finish_gameplay(state);
-                                return;
-                            }
-                            GameplayTickResult::Continue => {}
                         }
                         let mut visual_levels = [0.0; 16];
                         if let Some(audio) = &state.audio_engine {
                             audio.get_visual_levels(&mut visual_levels);
                         }
                         present::gameplay(state, size, audio_time, &visual_levels);
+                        if state.gameplay_end.is_some() {
+                            // The banner animates and times out on its own.
+                            state.window.request_redraw();
+                        }
                     }
                     AppScreen::Boot => present::boot(state, size),
                     AppScreen::SongSelect => present::song_select(state, size),

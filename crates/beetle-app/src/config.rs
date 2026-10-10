@@ -151,6 +151,68 @@ impl TrackBgaSetting {
     }
 }
 
+/// When the key hint line under the gameplay HUD is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KeyHintSetting {
+    /// The first few seconds of a song, then it fades out.
+    #[default]
+    FirstSeconds,
+    Always,
+    Off,
+}
+
+/// The key hint shows in full for this long (audio seconds) ...
+const KEY_HINT_SECONDS: f64 = 3.0;
+/// ... and fades out over this long after it.
+const KEY_HINT_FADE_SECONDS: f64 = 0.5;
+
+impl KeyHintSetting {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FirstSeconds => "first",
+            Self::Always => "always",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "always" => Self::Always,
+            "off" => Self::Off,
+            _ => Self::FirstSeconds,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::FirstSeconds => Self::Always,
+            Self::Always => Self::Off,
+            Self::Off => Self::FirstSeconds,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::FirstSeconds => Self::Off,
+            Self::Always => Self::FirstSeconds,
+            Self::Off => Self::Always,
+        }
+    }
+
+    /// Opacity of the hint `audio_time` seconds into the song. It runs on the
+    /// audio clock (INV-1), never on a frame timer.
+    pub fn alpha(self, audio_time: f64) -> f32 {
+        match self {
+            Self::Always => 1.0,
+            Self::Off => 0.0,
+            Self::FirstSeconds => {
+                let fade = (audio_time - KEY_HINT_SECONDS) / KEY_HINT_FADE_SECONDS;
+                (1.0 - fade).clamp(0.0, 1.0) as f32
+            }
+        }
+    }
+}
+
 /// Green number range in ms (the Settings and play panel steps stay inside it).
 pub const GREEN_MS_MIN: u32 = 100;
 pub const GREEN_MS_MAX: u32 = 2000;
@@ -195,6 +257,7 @@ pub struct AppConfig {
     pub track_bga: TrackBgaSetting,
     /// BGA images and videos: when off they are neither decoded nor drawn.
     pub bga_enabled: bool,
+    pub key_hint: KeyHintSetting,
 }
 
 impl Default for AppConfig {
@@ -219,6 +282,7 @@ impl Default for AppConfig {
             target_fps: 240,
             track_bga: TrackBgaSetting::Off,
             bga_enabled: true,
+            key_hint: KeyHintSetting::FirstSeconds,
         }
     }
 }
@@ -395,6 +459,7 @@ impl AppConfig {
                 "track_bga" => {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
+                "play_key_hint" => config.key_hint = KeyHintSetting::from_name(val),
                 _ => {
                     for (i, &mode) in MODE_SLOTS.iter().enumerate() {
                         let slot = mode_slot_name(mode);
@@ -427,7 +492,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -449,6 +514,7 @@ impl AppConfig {
             self.scratch_sides[1].as_str(),
             self.scratch_sides[2].as_str(),
             self.eight_k_form.id(),
+            self.key_hint.as_str(),
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -494,6 +560,23 @@ mod tests {
     use beetle_core::PlayMode;
 
     #[test]
+    fn key_hint_shows_three_seconds_then_fades_on_the_audio_clock() {
+        let first = KeyHintSetting::FirstSeconds;
+        assert_eq!(first.alpha(0.0), 1.0);
+        assert_eq!(first.alpha(3.0), 1.0);
+        assert!((first.alpha(3.25) - 0.5).abs() < 1e-6);
+        assert_eq!(first.alpha(3.5), 0.0);
+        assert_eq!(first.alpha(60.0), 0.0);
+        assert_eq!(KeyHintSetting::Always.alpha(60.0), 1.0);
+        assert_eq!(KeyHintSetting::Off.alpha(0.0), 0.0);
+        // Missing or unknown values read as the default.
+        assert_eq!(KeyHintSetting::from_name("nonsense"), first);
+        assert_eq!(KeyHintSetting::from_name("off"), KeyHintSetting::Off);
+        assert_eq!(first.next().next().next(), first);
+        assert_eq!(first.prev(), KeyHintSetting::Off);
+    }
+
+    #[test]
     fn test_config_serialization_roundtrip() {
         let config = AppConfig {
             play_options: PlayOptions {
@@ -536,6 +619,7 @@ mod tests {
             target_fps: 360,
             track_bga: TrackBgaSetting::Medium,
             bga_enabled: false,
+            key_hint: KeyHintSetting::Off,
         };
 
         let serialized = config.serialize_str();
@@ -567,6 +651,7 @@ mod tests {
         assert_eq!(config.window_height, parsed.window_height);
         assert_eq!(config.target_fps, parsed.target_fps);
         assert_eq!(config.track_bga, parsed.track_bga);
+        assert_eq!(config.key_hint, parsed.key_hint);
         assert_eq!(config.bga_enabled, parsed.bga_enabled);
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);

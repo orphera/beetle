@@ -15,9 +15,10 @@ use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
-use crate::view::{lane_index, HitBurst, Viewport, LANE_COUNT};
+use crate::view::{lane_index, HitBurst, JudgeMark, Viewport, JUDGE_TIMELINE_SECONDS, LANE_COUNT};
 use beetle_core::{
-    BmsChart, GaugeType, JudgeGrade, Lane, NoteType, PlayMode, PlayNote, ScoreTracker, TimingModel,
+    BmsChart, ClearType, GaugeType, JudgeGrade, Lane, NoteType, PlayMode, PlayNote, ScoreTracker,
+    TimingModel,
 };
 
 /// A GPU texture with its pixel size (for aspect-correct fitting).
@@ -53,10 +54,31 @@ pub struct PlayFrame<'a> {
     pub badge: Option<&'a str>,
     /// `Some(selected option)` while the pause menu is open.
     pub pause: Option<usize>,
+    /// The chart has BGA events or a video, so the BGA box is part of the
+    /// layout. Without it the box is replaced by the judge timeline.
+    pub has_bga: bool,
+    /// Opacity of the key hint line (0 = hidden).
+    pub key_hint_alpha: f32,
+    /// Readout over the lane top (for example "그린 500 ms") and the audio
+    /// time it appeared at. Shown for `READOUT_SECONDS`.
+    pub readout: Option<(&'a str, f64)>,
+    /// End banner: the clear lamp of the finished play, and its progress
+    /// through the banner (0 = started, 1 = done).
+    pub banner: Option<(ClearType, f32)>,
+    /// Judgements of the last few seconds, oldest first.
+    pub judge_marks: &'a [JudgeMark],
 }
 
 const BURST_SECONDS: f64 = 0.28;
 const JUDGE_SECONDS: f64 = 0.5;
+/// READY ends this long before the first note (audio seconds).
+const READY_LEAD: f64 = 1.0;
+/// READY fades out over this long, ending at `READY_LEAD` before the first note.
+const READY_FADE: f64 = 0.5;
+/// A first note sooner than this gets no READY label at all.
+const READY_MIN_FIRST_NOTE: f64 = 1.5;
+/// The readout stays this long; its last 0.3 s fade out.
+pub const READOUT_SECONDS: f64 = 1.0;
 
 pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     let sk = ui.skin;
@@ -77,11 +99,43 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     backdrop(c, &sk, f, lite);
     playfield(c, &sk, f, field, danger, s);
     gauge(c, t, &sk, f, sides.gauge, danger, s);
-    combo_and_judge(c, t, &sk, f, field, s);
+    ready(c, t, &sk, f, field, s);
+    // The end banner replaces the combo and the last judgement.
+    if f.banner.is_none() {
+        combo_and_judge(c, t, &sk, f, field, s);
+    }
+    readout(c, t, &sk, f, field, s);
     hud(c, t, &sk, f, &sides, s);
+    end_banner(c, t, &sk, f, field, s);
     if let Some(selected) = f.pause {
         pause_menu(c, t, &sk, f, selected, s);
     }
+}
+
+/// Opacity of READY at `audio_time` before a first note at `first_note`
+/// (both audio seconds). Full from the song start, fading out over the
+/// half second that ends `READY_LEAD` before the note. A first note sooner
+/// than `READY_MIN_FIRST_NOTE` gets no READY.
+pub(crate) fn ready_alpha(audio_time: f64, first_note: f64) -> f32 {
+    if first_note < READY_MIN_FIRST_NOTE || audio_time < 0.0 {
+        return 0.0;
+    }
+    ((first_note - READY_LEAD - audio_time) / READY_FADE).clamp(0.0, 1.0) as f32
+}
+
+/// The earliest note the player has to hit (landmines and long-note ends
+/// do not count).
+pub(crate) fn first_note_seconds(notes: &[PlayNote]) -> Option<f64> {
+    notes
+        .iter()
+        .filter(|n| {
+            !matches!(
+                n.note_event.note_type,
+                NoteType::Landmine | NoteType::LongNoteEnd
+            )
+        })
+        .map(|n| n.target_time_seconds)
+        .fold(None, |best, t| Some(best.map_or(t, |b: f64| b.min(t))))
 }
 
 /// Close to failing mid-song. Only survival gauges (Hard / Hazard) can end
@@ -122,10 +176,17 @@ fn sides(f: &PlayFrame, field: Rect, s: f32) -> Sides {
             info: column(left, field.x - 56.0 * s),
             media: None,
         },
-        FieldPosition::Center => Sides {
+        // Without a BGA the info column takes the whole left side (header,
+        // score panel, timeline) and the right side keeps only the gauge.
+        FieldPosition::Center if f.has_bga => Sides {
             gauge: gauge_right,
             info: column(left, field.x - 56.0 * s),
             media: Some(column(field.right() + 56.0 * s, right)),
+        },
+        FieldPosition::Center => Sides {
+            gauge: gauge_right,
+            info: column(left, field.x - 56.0 * s),
+            media: None,
         },
     }
 }
@@ -757,14 +818,18 @@ fn info_column(
     );
     // Alone in its column (centered playfield) the score panel sits at the
     // bottom, level with the judge line; otherwise it follows the header.
+    // Without a BGA the panel is taller and the judge legend more spread out:
+    // the timeline below takes the room the BGA box would have had.
+    let roomy = !f.has_bga;
+    let panel_h = if roomy { 236.0 * s } else { 196.0 * s };
     y = if score_at_bottom {
-        col.bottom() - 196.0 * s
+        col.bottom() - panel_h
     } else {
         y + 104.0 * s
     };
 
     // Score panel
-    let panel = Rect::new(x, y, w, 196.0 * s);
+    let panel = Rect::new(x, y, w, panel_h);
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(170));
     c.nine(&sk.cut_panel, panel, theme::SURF1.with_alpha(240));
     c.nine(&sk.cut_outline, panel, theme::LINE);
@@ -777,7 +842,9 @@ fn info_column(
         &caption(10.0, s),
     );
     let ex = thousands(score.ex_score);
-    let ex_st = TextStyle::new(44.0 * s).bold().color(theme::TEXT);
+    let ex_st = TextStyle::new(if roomy { 52.0 } else { 44.0 } * s)
+        .bold()
+        .color(theme::TEXT);
     let ex_w = t.draw(c, &ex, inner.x, inner.y + 56.0 * s, &ex_st);
     let max = format!("/ {}", thousands(score.max_ex_score()));
     t.draw(
@@ -858,9 +925,10 @@ fn info_column(
     }
     let cols = if inner.w > 360.0 * s { 3 } else { 2 };
     let col_w = inner.w / cols as f32;
+    let (legend_gap, row_gap) = if roomy { (34.0, 30.0) } else { (24.0, 22.0) };
     for (i, (g, n)) in counts.iter().enumerate() {
         let lx = inner.x + (i % cols) as f32 * col_w;
-        let ly = bar.bottom() + 24.0 * s + (i / cols) as f32 * 22.0 * s;
+        let ly = bar.bottom() + legend_gap * s + (i / cols) as f32 * row_gap * s;
         let dot = 12.0 * s;
         c.sprite(
             sk.icons.dot,
@@ -885,40 +953,50 @@ fn info_column(
     panel.bottom() + 20.0 * s
 }
 
-/// BGA + visualizer filling `col`, with the key hint along its bottom.
+/// BGA + visualizer filling `col`, with the key hint along its bottom. With
+/// no BGA the judge timeline takes the place of the BGA box.
 fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, col: Rect, s: f32) {
     let (x, w) = (col.x, col.w);
     let mut y = col.y;
-    let hint_h = 26.0 * s;
+    // Room for the key hint on two lines (a narrow column wraps it).
+    let hint_h = 36.0 * s;
     let vis_h = 40.0 * s;
     let avail_h = (col.bottom() - hint_h - vis_h - 12.0 * s - y).max(0.0);
-    let bga_h = (w * 9.0 / 16.0).min(avail_h);
-    let bga_w = bga_h * 16.0 / 9.0;
-    if bga_h > 40.0 * s {
-        let frame = Rect::new(x + (w - bga_w) / 2.0, y, bga_w, bga_h);
-        c.nine(&sk.panel, frame.inset(-s), theme::LINE);
-        c.fill_rect(frame, theme::BG);
-        match f.bga {
-            Some(tex) => c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE),
-            None => {
-                t.draw_in(
-                    c,
-                    strings::NO_BGA,
-                    frame,
-                    Align::Center,
-                    &caption(11.0, s).color(theme::MUTED2),
-                );
+    let frame = if f.has_bga {
+        let bga_h = (w * 9.0 / 16.0).min(avail_h);
+        let bga_w = bga_h * 16.0 / 9.0;
+        Rect::new(x + (w - bga_w) / 2.0, y, bga_w, bga_h)
+    } else {
+        Rect::new(x, y, w, avail_h)
+    };
+    if frame.h > 40.0 * s {
+        if f.has_bga {
+            c.nine(&sk.panel, frame.inset(-s), theme::LINE);
+            c.fill_rect(frame, theme::BG);
+            match f.bga {
+                Some(tex) => c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE),
+                None => {
+                    t.draw_in(
+                        c,
+                        strings::NO_BGA,
+                        frame,
+                        Align::Center,
+                        &caption(11.0, s).color(theme::MUTED2),
+                    );
+                }
             }
-        }
-        if let Some(tex) = f.layer {
-            c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE);
+            if let Some(tex) = f.layer {
+                c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE);
+            }
+        } else {
+            judge_timeline(c, t, sk, f, frame, s);
         }
         y = frame.bottom() + 12.0 * s;
 
         // Spectrum
         let n = f.visual_levels.len() as f32;
         let gap = 3.0 * s;
-        let bw = (bga_w - gap * (n - 1.0)) / n;
+        let bw = (frame.w - gap * (n - 1.0)) / n;
         c.set_additive(true);
         for (i, &lvl) in f.visual_levels.iter().enumerate() {
             let lvl = lvl.clamp(0.0, 1.0);
@@ -938,7 +1016,12 @@ fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, co
         c.set_additive(false);
     }
 
-    let hint_st = TextStyle::new(11.0 * s).color(theme::MUTED2);
+    // The key hint fades out on its own schedule (see `key_hint_alpha`).
+    if f.key_hint_alpha <= 0.0 {
+        return;
+    }
+    let hint_st = TextStyle::new(11.0 * s)
+        .color(theme::MUTED2.with_alpha((f.key_hint_alpha.min(1.0) * 255.0) as u8));
     // Too long for a narrow column: break between the hint's groups (they
     // are four spaces apart) rather than inside one.
     let group_break = (t.measure(c, f.hint, &hint_st) > w)
@@ -966,6 +1049,196 @@ fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, co
             t.draw(c, &second, x, col.bottom() - 6.0 * s, &hint_st);
         }
     }
+}
+
+/// The judgements of the last `JUDGE_TIMELINE_SECONDS` inside `frame`. Time
+/// runs right to left; the vertical position is the timing (early above the
+/// line, late below it, at the edges for 150 ms). A stage image, when there
+/// is one, sits dimmed behind the plot.
+fn judge_timeline(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &PlayFrame,
+    frame: Rect,
+    s: f32,
+) {
+    c.nine(&sk.panel, frame.inset(-s), theme::LINE);
+    c.fill_rect(frame, theme::BG);
+    if let Some(tex) = f.bga {
+        c.image(
+            tex.id,
+            frame,
+            cover_uv(tex, frame),
+            theme::WHITE.with_alpha(110),
+        );
+        c.fill_rect(frame, theme::BG.with_alpha(170));
+    }
+    t.draw(
+        c,
+        strings::TIMELINE_TITLE,
+        frame.x + 12.0 * s,
+        frame.y + 10.0 * s,
+        &caption(11.0, s).color(theme::MUTED),
+    );
+    t.draw_in(
+        c,
+        strings::TIMELINE_RANGE,
+        Rect::new(
+            frame.x + 12.0 * s,
+            frame.y + 10.0 * s,
+            frame.w - 24.0 * s,
+            16.0 * s,
+        ),
+        Align::Right,
+        &caption(11.0, s).color(theme::MUTED2),
+    );
+    let plot = Rect::from_ltrb(
+        frame.x + 12.0 * s,
+        frame.y + 34.0 * s,
+        frame.right() - 12.0 * s,
+        frame.bottom() - 12.0 * s,
+    );
+    if plot.h < 24.0 * s || plot.w < 40.0 * s {
+        return;
+    }
+    let mid = plot.y + plot.h / 2.0;
+    let half = plot.h / 2.0 - 8.0 * s;
+    c.fill_rect(Rect::new(plot.x, mid, plot.w, s.max(1.0)), theme::LINE);
+    t.draw(
+        c,
+        strings::TIMING_FAST,
+        plot.x,
+        plot.y,
+        &caption(10.0, s).color(theme::FAST),
+    );
+    t.draw(
+        c,
+        strings::TIMING_SLOW,
+        plot.x,
+        plot.bottom() - 12.0 * s,
+        &caption(10.0, s).color(theme::SLOW),
+    );
+
+    let sq = 6.0 * s;
+    for m in f.judge_marks {
+        let e = f.audio_time - m.time;
+        if !(0.0..JUDGE_TIMELINE_SECONDS).contains(&e) {
+            continue;
+        }
+        let x = plot.x + plot.w * (1.0 - e / JUDGE_TIMELINE_SECONDS) as f32;
+        let offset = (m.delta_ms / 150.0).clamp(-1.0, 1.0) as f32;
+        let y = mid + offset * half;
+        c.fill_rect(
+            Rect::new(x - sq / 2.0, y - sq / 2.0, sq, sq),
+            theme::judge_color(m.grade),
+        );
+    }
+}
+
+/// READY over the lane before the first note (see `ready_alpha`).
+fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
+    let Some(first) = first_note_seconds(f.notes) else {
+        return;
+    };
+    let a = ready_alpha(f.audio_time, first);
+    if a <= 0.0 {
+        return;
+    }
+    let cx = field.x + field.w / 2.0;
+    // Upper third of the lane: the notes and the combo are below it.
+    let y = field.y + field.h * 0.22;
+    let alpha = (a * 255.0) as u8;
+    c.sprite_centered(
+        sk.glow,
+        cx,
+        y + 30.0 * s,
+        field.w * 0.9,
+        150.0 * s,
+        theme::BLACK.with_alpha((a * 150.0) as u8),
+    );
+    let st = TextStyle::new(40.0 * s)
+        .bold()
+        .tracking(4.0 * s)
+        .color(theme::TEXT.with_alpha(alpha));
+    let w = t.measure(c, strings::READY, &st);
+    t.draw(c, strings::READY, cx - w / 2.0, y, &st);
+    let hint = caption(13.0, s).color(theme::MUTED.with_alpha(alpha));
+    let hw = t.measure(c, strings::READY_HINT, &hint);
+    t.draw(c, strings::READY_HINT, cx - hw / 2.0, y + 52.0 * s, &hint);
+}
+
+/// The value the player just changed, near the top of the lane.
+fn readout(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
+    let Some((text, at)) = f.readout else {
+        return;
+    };
+    let e = f.audio_time - at;
+    if !(0.0..READOUT_SECONDS).contains(&e) {
+        return;
+    }
+    let fade_from = READOUT_SECONDS - 0.3;
+    let alpha = if e > fade_from {
+        1.0 - ease_in_cubic(((e - fade_from) / 0.3) as f32)
+    } else {
+        1.0
+    };
+    let cx = field.x + field.w / 2.0;
+    let y = field.y + 22.0 * s;
+    let st = TextStyle::new(20.0 * s)
+        .bold()
+        .color(theme::CYAN.with_alpha((alpha * 255.0) as u8));
+    let w = t.measure(c, text, &st);
+    c.sprite_centered(
+        sk.glow,
+        cx,
+        y + 12.0 * s,
+        w + 60.0 * s,
+        44.0 * s,
+        theme::BLACK.with_alpha((alpha * 150.0) as u8),
+    );
+    t.draw(c, text, cx - w / 2.0, y, &st);
+}
+
+/// The end banner over the middle of the playfield: the clear lamp of the
+/// finished play (`ClearType::as_str`). It pops in over the first fifth,
+/// holds, and fades over the last quarter.
+fn end_banner(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
+    let Some((lamp, progress)) = f.banner else {
+        return;
+    };
+    let p = progress.clamp(0.0, 1.0);
+    let alpha = if p < 0.2 {
+        p / 0.2
+    } else if p > 0.75 {
+        1.0 - (p - 0.75) / 0.25
+    } else {
+        1.0
+    };
+    let pop = 1.0 + 0.3 * (1.0 - ease_out_back((p / 0.2).min(1.0)));
+    let color = match lamp {
+        ClearType::Failed => theme::MAGENTA,
+        ClearType::Perfect | ClearType::FullCombo => theme::GOLD,
+        _ => theme::CYAN,
+    };
+    let a = (alpha * 255.0) as u8;
+    let cx = field.x + field.w / 2.0;
+    let cy = field.y + field.h * 0.5;
+    c.sprite_centered(
+        sk.glow,
+        cx,
+        cy,
+        field.w * 0.95,
+        160.0 * s,
+        theme::BLACK.with_alpha((alpha * 170.0) as u8),
+    );
+    let text = lamp.as_str();
+    let st = TextStyle::new(44.0 * s)
+        .bold()
+        .tracking(4.0 * s)
+        .color(color.with_alpha(a));
+    let w = t.measure(c, text, &st) * pop;
+    t.draw_scaled(c, text, cx - w / 2.0, cy - 30.0 * s, &st, pop);
 }
 
 fn pause_menu(
@@ -1134,8 +1407,25 @@ mod tests {
             spawn_time: 1.0,
             grade: JudgeGrade::PerfectGreat,
         }];
+        let marks = [JudgeMark {
+            time: 0.9,
+            grade: JudgeGrade::Good,
+            delta_ms: 40.0,
+        }];
         let mut ui = Ui::new(fx.vp.scale);
-        for pause in [None, Some(1)] {
+        // Plain frames, then a frame with every HUD piece on at once
+        // (READY, readout, judge marks, key hint, end banner).
+        let cases = [
+            (None, false, None, None),
+            (Some(1), false, None, None),
+            (
+                None,
+                true,
+                Some(("그린 500 ms", 1.0)),
+                Some((ClearType::FullCombo, 0.4)),
+            ),
+        ];
+        for (pause, busy, readout, banner) in cases {
             ui.begin(1280, 720, fx.vp.scale);
             draw_gameplay(
                 &mut ui,
@@ -1158,10 +1448,37 @@ mod tests {
                     hint: "ESC 일시정지",
                     badge: Some(strings::AUTO_PLAY),
                     pause,
+                    has_bga: false,
+                    key_hint_alpha: if busy { 0.5 } else { 1.0 },
+                    readout,
+                    banner,
+                    judge_marks: if busy { &marks } else { &[] },
                 },
             );
-            assert_eq!(ui.canvas.debug_batches().len(), 1, "pause={pause:?}");
+            assert_eq!(
+                ui.canvas.debug_batches().len(),
+                1,
+                "pause={pause:?} busy={busy}"
+            );
         }
+    }
+
+    #[test]
+    fn ready_waits_for_a_second_before_the_first_note() {
+        // Full from the start, gone one second before the note.
+        assert_eq!(ready_alpha(0.0, 5.0), 1.0);
+        assert_eq!(ready_alpha(3.5, 5.0), 1.0);
+        assert!(ready_alpha(3.75, 5.0) > 0.0 && ready_alpha(3.75, 5.0) < 1.0);
+        assert_eq!(ready_alpha(4.0, 5.0), 0.0);
+        assert_eq!(ready_alpha(4.5, 5.0), 0.0);
+        // A first note sooner than 1.5 s gets no READY at all.
+        assert_eq!(ready_alpha(0.0, 1.4), 0.0);
+        assert_eq!(ready_alpha(-0.5, 5.0), 0.0);
+    }
+
+    #[test]
+    fn first_note_ignores_landmines_and_long_note_ends() {
+        assert_eq!(first_note_seconds(&[]), None);
     }
 
     #[test]

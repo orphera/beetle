@@ -6,20 +6,22 @@
 mod common;
 
 use beetle_core::{
-    BmsChart, BmsHeader, GaugeType, JudgeEngine, JudgeGrade, Lane, NoteEvent, NoteType, PlayMode,
-    ScoreTracker, TimingModel,
+    BmsChart, BmsHeader, ClearType, GaugeType, JudgeEngine, JudgeGrade, Lane, NoteEvent, NoteType,
+    PlayMode, ScoreTracker, TimingModel,
 };
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{
-    draw_gameplay, D3d11Backend, FieldPosition, GpuBackend, HitBurst, PlayFrame, ScratchSide,
-    SkinConfig, Ui, Viewport,
+    draw_gameplay, D3d11Backend, FieldPosition, GpuBackend, HitBurst, JudgeMark, PlayFrame,
+    ScratchSide, SkinConfig, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
 
-fn chart(mode: PlayMode) -> BmsChart {
+/// The same chart with its first `delay` measures empty (about 1.26 s each
+/// at 190 BPM), so READY has time to show before the first note.
+fn chart_delayed(mode: PlayMode, delay: u32) -> BmsChart {
     let lanes: &[Lane] = match mode {
         PlayMode::Keys14 => &[
             Lane::Scratch,
@@ -57,7 +59,7 @@ fn chart(mode: PlayMode) -> BmsChart {
         ],
     };
     let mut notes = Vec::new();
-    for m in 0..40u32 {
+    for m in delay..delay + 40 {
         for k in 0..8u32 {
             let lane = lanes[((m * 3 + k * 5) as usize) % lanes.len()];
             let note_type = if k == 3 && m % 4 == 1 {
@@ -104,7 +106,7 @@ fn chart(mode: PlayMode) -> BmsChart {
         },
         total_notes_count: notes.len(),
         notes,
-        max_measure: 40,
+        max_measure: 40 + delay,
         has_scratch: true,
         ..Default::default()
     }
@@ -113,6 +115,18 @@ fn chart(mode: PlayMode) -> BmsChart {
 type Placement = (FieldPosition, ScratchSide);
 const LEFT: Placement = (FieldPosition::Left, ScratchSide::Left);
 
+/// HUD pieces beyond the plain frame: a delayed first note (READY), a
+/// readout, an end banner, judge marks, and the key hint's opacity.
+#[derive(Default)]
+struct Extra {
+    delay: u32,
+    audio_time: Option<f64>,
+    readout: Option<(&'static str, f64)>,
+    banner: Option<(ClearType, f32)>,
+    marks: bool,
+    hint_alpha: Option<f32>,
+}
+
 fn render(
     gpu: &mut D3d11Backend,
     ui: &mut Ui,
@@ -120,6 +134,18 @@ fn render(
     at: Placement,
     pause: Option<usize>,
     name: &str,
+) -> usize {
+    render_with(gpu, ui, mode, at, pause, name, &Extra::default())
+}
+
+fn render_with(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    mode: PlayMode,
+    at: Placement,
+    pause: Option<usize>,
+    name: &str,
+    extra: &Extra,
 ) -> usize {
     let vp = Viewport::new(W, H);
     let mut layout = SkinConfig::default();
@@ -130,7 +156,7 @@ fn render(
         layout.set_eight_k_form(beetle_render::EightKForm::Triggers);
     }
     layout.hi_speed = 700.0;
-    let chart = chart(mode);
+    let chart = chart_delayed(mode, extra.delay);
     let timing = TimingModel::from_chart(&chart);
     let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove, beetle_core::Ruleset::CN);
     let mut score = ScoreTracker::new(chart.total_notes_count as u32, 260.0, GaugeType::Groove);
@@ -141,7 +167,39 @@ fn render(
             _ => JudgeGrade::PerfectGreat,
         });
     }
-    let audio_time = 6.0;
+    let audio_time = extra.audio_time.unwrap_or(6.0);
+    let marks = [
+        JudgeMark {
+            time: audio_time - 0.4,
+            grade: JudgeGrade::PerfectGreat,
+            delta_ms: -4.0,
+        },
+        JudgeMark {
+            time: audio_time - 1.1,
+            grade: JudgeGrade::Good,
+            delta_ms: 55.0,
+        },
+        JudgeMark {
+            time: audio_time - 2.3,
+            grade: JudgeGrade::Bad,
+            delta_ms: -120.0,
+        },
+        JudgeMark {
+            time: audio_time - 3.0,
+            grade: JudgeGrade::Miss,
+            delta_ms: 0.0,
+        },
+        JudgeMark {
+            time: audio_time - 4.6,
+            grade: JudgeGrade::Great,
+            delta_ms: 22.0,
+        },
+        JudgeMark {
+            time: audio_time - 6.2,
+            grade: JudgeGrade::PerfectGreat,
+            delta_ms: 3.0,
+        },
+    ];
     let mut keys = [false; 18];
     keys[0] = name.ends_with("triggers");
     keys[2] = true;
@@ -184,6 +242,11 @@ fn render(
             hint: "키  Shift+S D F Space J K L    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
             badge: None,
             pause,
+            has_bga: false,
+            key_hint_alpha: extra.hint_alpha.unwrap_or(1.0),
+            readout: extra.readout,
+            banner: extra.banner,
+            judge_marks: if extra.marks { &marks } else { &[] },
         },
     );
     let calls = ui.end(gpu);
@@ -306,5 +369,109 @@ fn gameplay_layouts() {
             "8k-triggers"
         ),
         1
+    );
+}
+
+#[test]
+fn gameplay_hud_variants() {
+    let window = HiddenWindow::with_size(W, H);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let mut ui = Ui::new(1.0);
+    let center = (FieldPosition::Center, ScratchSide::Left);
+    let mut draw =
+        |gpu: &mut D3d11Backend, ui: &mut Ui, at: Placement, name: &str, extra: Extra| {
+            assert_eq!(
+                render_with(gpu, ui, PlayMode::Keys7, at, None, name, &extra),
+                1,
+                "{name}"
+            );
+        };
+    // No BGA in the chart: the left column becomes the timeline and the
+    // score panel, and the centered layout keeps everything on one side.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-nobga-left-timeline",
+        Extra {
+            marks: true,
+            ..Default::default()
+        },
+    );
+    draw(
+        &mut gpu,
+        &mut ui,
+        center,
+        "7k-nobga-center",
+        Extra {
+            marks: true,
+            ..Default::default()
+        },
+    );
+    // READY: first note at about 5 s, two seconds in.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-ready",
+        Extra {
+            delay: 4,
+            audio_time: Some(2.0),
+            ..Default::default()
+        },
+    );
+    // Readout a third of a second after a green change.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-readout-green",
+        Extra {
+            readout: Some(("그린 500 ms", 5.7)),
+            ..Default::default()
+        },
+    );
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-readout-cover",
+        Extra {
+            readout: Some(("커버 25%", 5.7)),
+            ..Default::default()
+        },
+    );
+    // End banners.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-banner-fullcombo",
+        Extra {
+            banner: Some((ClearType::FullCombo, 0.35)),
+            ..Default::default()
+        },
+    );
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-banner-failed",
+        Extra {
+            banner: Some((ClearType::Failed, 0.6)),
+            ..Default::default()
+        },
+    );
+    // Key hint gone.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-hint-off",
+        Extra {
+            hint_alpha: Some(0.0),
+            ..Default::default()
+        },
     );
 }

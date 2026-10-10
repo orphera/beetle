@@ -7,7 +7,9 @@
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
 use beetle_render::{scratch_side_applies, strings, FieldPosition, ScratchSide};
 
-use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting, GREEN_MS_MAX, GREEN_MS_MIN};
+use crate::config::{
+    DisplayMode, GpuBackendSetting, KeyHintSetting, TrackBgaSetting, GREEN_MS_MAX, GREEN_MS_MIN,
+};
 use crate::state::AppState;
 
 /// Frame rates the target FPS row cycles through; 0 is unlimited.
@@ -49,6 +51,7 @@ pub enum OptionId {
     Scratch,
     Bga,
     TrackBga,
+    KeyHint,
     KeyLayout,
 }
 
@@ -189,6 +192,13 @@ pub const SETTINGS: &[OptionDesc] = &[
         column: 1,
         label: strings::ROW_TRACK_BGA,
         help: strings::HELP_TRACK_BGA,
+    },
+    OptionDesc {
+        id: OptionId::KeyHint,
+        group: strings::GROUP_LAYOUT,
+        column: 1,
+        label: strings::ROW_KEY_HINT,
+        help: strings::HELP_KEY_HINT,
     },
     OptionDesc {
         id: OptionId::KeyLayout,
@@ -341,6 +351,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         }
         OptionId::Bga => on_off(state.bga_enabled).to_string(),
         OptionId::TrackBga => track_bga_label(state.track_bga).to_string(),
+        OptionId::KeyHint => key_hint_label(state.key_hint).to_string(),
         OptionId::KeyLayout => {
             // Layouts are per key mode; this row shows the selected song's.
             let mode = state.key_config_mode();
@@ -427,6 +438,13 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
                 state.track_bga.prev()
             };
         }
+        OptionId::KeyHint => {
+            state.key_hint = if forward {
+                state.key_hint.next()
+            } else {
+                state.key_hint.prev()
+            };
+        }
         OptionId::KeyLayout => {
             // The preset cycles in either direction.
             let mode = state.key_config_mode();
@@ -468,6 +486,14 @@ fn track_bga_label(bga: TrackBgaSetting) -> &'static str {
         TrackBgaSetting::Low => strings::TRACK_BGA_LOW,
         TrackBgaSetting::Medium => strings::TRACK_BGA_MEDIUM,
         TrackBgaSetting::High => strings::TRACK_BGA_HIGH,
+    }
+}
+
+fn key_hint_label(hint: KeyHintSetting) -> &'static str {
+    match hint {
+        KeyHintSetting::FirstSeconds => strings::KEY_HINT_FIRST,
+        KeyHintSetting::Always => strings::KEY_HINT_ALWAYS,
+        KeyHintSetting::Off => strings::KEY_HINT_OFF,
     }
 }
 

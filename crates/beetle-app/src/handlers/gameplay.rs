@@ -1,11 +1,27 @@
 use beetle_audio::AudioCommand;
+use beetle_render::strings;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::calibration::judged_time;
-use crate::gameplay::queue_start_gameplay;
+use crate::gameplay::{audio_time_now, leave_gameplay, queue_start_gameplay};
 use crate::options_table::green_ms_next;
 use crate::state::{AppScreen, AppState};
+
+/// Shows the green number just changed, over the lane for a second.
+fn show_green_readout(state: &mut AppState) {
+    let at = audio_time_now(state);
+    let ms = state.play_options.green_ms.to_string();
+    state.gameplay_readout = Some((strings::fill(strings::READOUT_GREEN, &[&ms]), at));
+}
+
+/// Shows the lane cover just changed, over the lane for a second.
+fn show_cover_readout(state: &mut AppState) {
+    let at = audio_time_now(state);
+    let percent = (state.view.skin.lane_cover_ratio * 100.0).round() as u32;
+    let text = strings::fill(strings::READOUT_COVER, &[&percent.to_string()]);
+    state.gameplay_readout = Some((text, at));
+}
 
 /// Handles keyboard input during gameplay, pause modal, and live hotkeys.
 pub fn handle_gameplay_input(
@@ -14,6 +30,14 @@ pub fn handle_gameplay_input(
     code: KeyCode,
     physical_key: PhysicalKey,
 ) {
+    // The end banner: ENTER or ESC goes straight to the result screen, and
+    // nothing else reaches the play.
+    if state.gameplay_end.is_some() {
+        if key_state == ElementState::Pressed && matches!(code, KeyCode::Enter | KeyCode::Escape) {
+            leave_gameplay(state);
+        }
+        return;
+    }
     if key_state == ElementState::Pressed {
         // If paused, handle pause modal interactions
         if state.is_gameplay_paused {
@@ -43,12 +67,14 @@ pub fn handle_gameplay_input(
                 state.play_options.green_ms = green_ms_next(state.play_options.green_ms, false);
                 state.sync_hi_speed();
                 state.save_config();
+                show_green_readout(state);
                 return;
             }
             KeyCode::F4 | KeyCode::PageDown | KeyCode::Digit2 => {
                 state.play_options.green_ms = green_ms_next(state.play_options.green_ms, true);
                 state.sync_hi_speed();
                 state.save_config();
+                show_green_readout(state);
                 return;
             }
             KeyCode::F10 => {
@@ -56,6 +82,7 @@ pub fn handle_gameplay_input(
                     (state.view.skin.lane_cover_ratio + 0.05).min(0.80);
                 state.sync_hi_speed();
                 state.save_config();
+                show_cover_readout(state);
                 return;
             }
             KeyCode::F11 => {
@@ -63,6 +90,7 @@ pub fn handle_gameplay_input(
                     (state.view.skin.lane_cover_ratio - 0.05).max(0.0);
                 state.sync_hi_speed();
                 state.save_config();
+                show_cover_readout(state);
                 return;
             }
             _ => (),
