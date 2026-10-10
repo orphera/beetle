@@ -1,3 +1,4 @@
+pub mod gauge_trend;
 pub mod score_tracker;
 
 use crate::bms::{BmsChart, Lane, NoteEvent, NoteType, WavId};
@@ -5,6 +6,7 @@ use crate::rules::{LnRule, Ruleset};
 use crate::timing::TimingModel;
 use std::collections::{HashMap, HashSet};
 
+pub use gauge_trend::{GaugePoint, GaugeTrend, GAUGE_TREND_MAX_POINTS};
 pub use score_tracker::{GaugeType, ScoreTracker};
 
 /// Judgment ratings for note hits.

@@ -27,7 +27,8 @@ pub use bms::{
 };
 pub use identity::{hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId, ChartKey};
 pub use judge::{
-    GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote, ScoreTracker,
+    GaugePoint, GaugeTrend, GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote,
+    ScoreTracker, GAUGE_TREND_MAX_POINTS,
 };
 pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
