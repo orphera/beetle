@@ -93,6 +93,9 @@ pub struct AppState {
     pub modal_row: usize,
     /// Highlighted row of the Settings screen.
     pub settings_row: usize,
+    /// Keys from the raw input thread, stamped on arrival. `None` when it
+    /// could not start; lane keys then come from winit's key events.
+    pub raw_keys: Option<crate::raw_input::RawKeyboard>,
     /// The judge offset calibration (a sub-screen of Settings), while open.
     pub calibration: Option<crate::calibration::Session>,
     /// The screen Key Configuration returns to (song select or Settings).

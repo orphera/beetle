@@ -6,20 +6,22 @@
 //! 20 ms late gets -20 ms, which moves the judged press back onto the click.
 //!
 //! Click times are nominal, `start + k * BEAT_SECONDS`, on the audio clock.
-//! A click is started through the same command queue gameplay uses for
-//! keysounds, on the first frame whose audio time has reached it. The sound
-//! therefore comes out a little after its nominal time (trigger and buffer
-//! latency). Gameplay keysounds have the same latency, so the offset that
-//! this measures is the one that lines up presses with what the player hears.
+//! Each click is handed to the mixer ahead and starts on its exact frame,
+//! the way gameplay starts its BGM notes, so the offset this measures is the
+//! one that lines up presses with the music the player hears. Presses are
+//! timed when the key arrived (`raw_input`), as in gameplay.
 //!
 //! The pure parts (schedule, matching, outlier rejection, statistics, the
 //! suggestion) take times as plain numbers and do not need audio. `Session`
 //! is the thin part that owns the engine.
 
-use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
+use std::time::Instant;
+
+use beetle_audio::{AudioEngine, PcmBuffer, SampleBank};
 use beetle_core::WavId;
 
 use crate::options_table::{JUDGE_OFFSET_MAX_MS, JUDGE_OFFSET_STEP_MS};
+use crate::state::SCHEDULE_AHEAD_SECONDS;
 
 /// Tempo of the metronome.
 pub const TEMPO_BPM: f64 = 120.0;
@@ -292,25 +294,36 @@ impl Session {
         self.test = Calibration::new(self.now() + LEAD_IN_SECONDS);
     }
 
-    /// Queues a click for every click that is due. Called once per frame
-    /// while the test runs, the same way gameplay starts its BGM notes.
+    /// Hands the mixer every click due within `SCHEDULE_AHEAD_SECONDS`, to
+    /// start on its exact frame. Called once per frame while the test runs,
+    /// the same way gameplay schedules its BGM notes.
     pub fn tick(&mut self) {
-        let now = self.now();
-        while self.test.next_click(now).is_some() {
+        let until = self.now() + SCHEDULE_AHEAD_SECONDS;
+        while let Some(k) = self.test.next_click(until) {
             if let Some(audio) = &mut self.engine {
-                let _ = audio.send_command(AudioCommand::PlaySample {
-                    sample_id: CLICK_SAMPLE,
-                    volume: 1.0,
-                    pan: 0.0,
-                });
+                let _ = audio.play_at(CLICK_SAMPLE, click_time(self.test.start, k));
             }
         }
     }
 
-    /// A key press, timed on the audio clock. Stops the clicks when the
+    /// A key press, timed on the audio clock now. Stops the clicks when the
     /// test completes.
     pub fn press(&mut self) -> Option<f64> {
         let now = self.now();
+        self.press_on_clock(now)
+    }
+
+    /// A key press that arrived at `at` (see `raw_input`).
+    pub fn press_at(&mut self, at: Instant) -> Option<f64> {
+        let t = self
+            .engine
+            .as_ref()
+            .map(|a| a.clock().time_at(at))
+            .unwrap_or(0.0);
+        self.press_on_clock(t)
+    }
+
+    fn press_on_clock(&mut self, now: f64) -> Option<f64> {
         let counted = self.test.press(now);
         if self.test.is_done() {
             self.stop_voices();

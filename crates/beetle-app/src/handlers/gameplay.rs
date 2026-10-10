@@ -97,135 +97,158 @@ pub fn handle_gameplay_input(
         }
     }
 
+    // Lane keys come from the raw input thread when it runs, stamped when
+    // they arrived (`main::drain_raw_keys`); winit's are judged only without it.
+    if state.raw_keys.is_none() {
+        if let PhysicalKey::Code(code) = physical_key {
+            let audio_time = audio_time_now(state);
+            handle_lane_key(state, code, key_state == ElementState::Pressed, audio_time);
+        }
+    }
+}
+
+/// Keys that act on the play (pause, green number, lane cover, the global
+/// F6–F9 options) rather than hit a lane, even when bound to one.
+pub fn is_gameplay_hotkey(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Escape
+            | KeyCode::F3
+            | KeyCode::F4
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Digit1
+            | KeyCode::Digit2
+            | KeyCode::F6
+            | KeyCode::F7
+            | KeyCode::F8
+            | KeyCode::F9
+            | KeyCode::F10
+            | KeyCode::F11
+    )
+}
+
+/// A lane key going down or up at `audio_time` on the audio clock (the
+/// moment it arrived, not when it is handled).
+pub fn handle_lane_key(state: &mut AppState, code: KeyCode, pressed: bool, audio_time: f64) {
+    if state.gameplay_end.is_some() {
+        return;
+    }
     // Block lane keys if paused or during replay/auto-play (but still notice
     // releases, so a key let go while paused is not considered held later).
     if state.is_gameplay_paused || state.is_auto_play || state.is_replay_playback {
-        if let (ElementState::Released, PhysicalKey::Code(code)) = (key_state, physical_key) {
+        if !pressed {
             state.held_keys.retain(|&(k, _)| k != code);
         }
         return;
     }
 
-    // Handle lane key presses and releases
     // The layout of the chart's key mode (set when the song starts).
     let mode = state.view.skin.play_mode;
-    let PhysicalKey::Code(code) = physical_key else {
+    let Some(lane) = state
+        .key_bindings
+        .get(mode)
+        .map_key(PhysicalKey::Code(code))
+    else {
         return;
     };
-    if let Some(lane) = state.key_bindings.get(mode).map_key(physical_key) {
-        let pressed = key_state == ElementState::Pressed;
-        if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
-            return;
+    if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
+        return;
+    }
+    let effective_judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
+
+    if pressed {
+        if let Some(rep) = &mut state.current_replay {
+            rep.record(audio_time, lane, true);
         }
-        let audio_time = state
-            .audio_engine
-            .as_ref()
-            .map(|a| a.clock().current_time_seconds())
-            .unwrap_or(0.0);
 
-        let effective_judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
-
-        match key_state {
-            ElementState::Pressed => {
-                if let Some(rep) = &mut state.current_replay {
-                    rep.record(audio_time, lane, true);
+        state.view.set_key_state(lane, true);
+        if let Some(judge) = &mut state.active_judge {
+            if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time)
+            {
+                if judge_result.grade == beetle_core::JudgeGrade::Miss
+                    || judge_result.grade == beetle_core::JudgeGrade::Poor
+                {
+                    state.poor_until_time = audio_time + 0.4;
                 }
+                state.view.trigger_judge_with_lane(
+                    lane,
+                    judge_result.grade,
+                    audio_time,
+                    judge_result.delta_ms,
+                );
 
-                state.view.set_key_state(lane, true);
-                if let Some(judge) = &mut state.active_judge {
-                    if let Some((judge_result, wav_id)) =
-                        judge.handle_key_down(lane, effective_judge_time)
-                    {
-                        if judge_result.grade == beetle_core::JudgeGrade::Miss
-                            || judge_result.grade == beetle_core::JudgeGrade::Poor
-                        {
-                            state.poor_until_time = audio_time + 0.4;
+                if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                    let _ = audio.send_command(AudioCommand::PlaySample {
+                        sample_id: id,
+                        volume: 1.0,
+                        pan: 0.0,
+                    });
+                }
+            } else {
+                // No visible note was judged on this lane. Implement transparent-note
+                // fallback: if there are no visible unjudged notes near the judgment
+                // line, play the nearest BGM/freezone sample (3x/4x) if available.
+                let mut visible_near = false;
+                if let (Some(chart), Some(timing)) = (&state.active_chart, &state.active_timing) {
+                    // Use judge window poor threshold based on chart rank
+                    let window = beetle_core::JudgeWindow::from_rank(chart.header.rank);
+                    let poor_ms = window.poor_ms;
+
+                    if let Some(j) = &state.active_judge {
+                        for pn in j.notes() {
+                            if pn.is_judged
+                                || pn.note_event.note_type == beetle_core::NoteType::Landmine
+                            {
+                                continue;
+                            }
+                            let delta_ms =
+                                (effective_judge_time - pn.target_time_seconds).abs() * 1000.0;
+                            if delta_ms <= poor_ms {
+                                visible_near = true;
+                                break;
+                            }
                         }
-                        state.view.trigger_judge_with_lane(
-                            lane,
-                            judge_result.grade,
-                            audio_time,
-                            judge_result.delta_ms,
-                        );
+                    }
 
-                        if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
+                    if !visible_near {
+                        // Find nearest freezone (transparent) sample by absolute time distance
+                        let mut best: Option<(f64, beetle_core::WavId)> = None;
+                        for (m, f, wav_id) in &chart.freezone_notes {
+                            let t = timing.beat_to_time_seconds(*m, *f);
+                            let dms = (effective_judge_time - t).abs() * 1000.0;
+                            if best.is_none() || dms < best.unwrap().0 {
+                                best = Some((dms, *wav_id));
+                            }
+                        }
+
+                        if let (Some(wav_id), Some(audio)) =
+                            (best.map(|b| b.1), &mut state.audio_engine)
+                        {
                             let _ = audio.send_command(AudioCommand::PlaySample {
-                                sample_id: id,
+                                sample_id: wav_id,
                                 volume: 1.0,
                                 pan: 0.0,
                             });
                         }
-                    } else {
-                        // No visible note was judged on this lane. Implement transparent-note
-                        // fallback: if there are no visible unjudged notes near the judgment
-                        // line, play the nearest BGM/freezone sample (3x/4x) if available.
-                        let mut visible_near = false;
-                        if let (Some(chart), Some(timing)) =
-                            (&state.active_chart, &state.active_timing)
-                        {
-                            // Use judge window poor threshold based on chart rank
-                            let window = beetle_core::JudgeWindow::from_rank(chart.header.rank);
-                            let poor_ms = window.poor_ms;
-
-                            if let Some(j) = &state.active_judge {
-                                for pn in j.notes() {
-                                    if pn.is_judged
-                                        || pn.note_event.note_type
-                                            == beetle_core::NoteType::Landmine
-                                    {
-                                        continue;
-                                    }
-                                    let delta_ms = (effective_judge_time - pn.target_time_seconds)
-                                        .abs()
-                                        * 1000.0;
-                                    if delta_ms <= poor_ms {
-                                        visible_near = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if !visible_near {
-                                // Find nearest freezone (transparent) sample by absolute time distance
-                                let mut best: Option<(f64, beetle_core::WavId)> = None;
-                                for (m, f, wav_id) in &chart.freezone_notes {
-                                    let t = timing.beat_to_time_seconds(*m, *f);
-                                    let dms = (effective_judge_time - t).abs() * 1000.0;
-                                    if best.is_none() || dms < best.unwrap().0 {
-                                        best = Some((dms, *wav_id));
-                                    }
-                                }
-
-                                if let (Some(wav_id), Some(audio)) =
-                                    (best.map(|b| b.1), &mut state.audio_engine)
-                                {
-                                    let _ = audio.send_command(AudioCommand::PlaySample {
-                                        sample_id: wav_id,
-                                        volume: 1.0,
-                                        pan: 0.0,
-                                    });
-                                }
-                            }
-                        }
                     }
                 }
             }
-            ElementState::Released => {
-                if let Some(rep) = &mut state.current_replay {
-                    rep.record(audio_time, lane, false);
-                }
+        }
+    } else {
+        if let Some(rep) = &mut state.current_replay {
+            rep.record(audio_time, lane, false);
+        }
 
-                state.view.set_key_state(lane, false);
-                if let Some(judge) = &mut state.active_judge {
-                    if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                        state.view.trigger_judge_with_lane(
-                            lane,
-                            judge_result.grade,
-                            audio_time,
-                            judge_result.delta_ms,
-                        );
-                    }
-                }
+        state.view.set_key_state(lane, false);
+        if let Some(judge) = &mut state.active_judge {
+            if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
+                state.view.trigger_judge_with_lane(
+                    lane,
+                    judge_result.grade,
+                    audio_time,
+                    judge_result.delta_ms,
+                );
             }
         }
     }

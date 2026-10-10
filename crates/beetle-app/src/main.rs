@@ -14,6 +14,7 @@ mod loader;
 mod options_table;
 mod present;
 mod preview;
+mod raw_input;
 mod scanner;
 mod state;
 mod tables;
@@ -47,7 +48,7 @@ use state::{spawn_library_load, AppScreen, AppState, LibraryJob};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
@@ -174,9 +175,15 @@ impl ApplicationHandler for BeetleApp {
         };
         let gpu_ui = gpu_ui::GpuUi::new(view.viewport.scale);
 
+        // Lane keys are read on their own thread (see `raw_input`). Raw
+        // input has one target per process, so winit's is switched off first.
+        event_loop.listen_device_events(DeviceEvents::Never);
+        let raw_keys = raw_input::RawKeyboard::spawn_for(&window);
+
         let mut app_state = AppState {
             window,
             view,
+            raw_keys,
             audio_engine: None,
             screen: AppScreen::Boot,
             songs: Vec::new(),
@@ -351,6 +358,7 @@ impl ApplicationHandler for BeetleApp {
             return;
         }
 
+        drain_raw_keys(state);
         ime::close_search_if_unavailable(state);
         state.sync_screen_entry();
 
@@ -637,6 +645,8 @@ impl ApplicationHandler for BeetleApp {
                     },
                 ..
             } => {
+                // Lane keys that came in before this one go first.
+                drain_raw_keys(state);
                 handle_keyboard_input(
                     state,
                     physical_key,
@@ -653,6 +663,9 @@ impl ApplicationHandler for BeetleApp {
                 }
                 match state.screen {
                     AppScreen::Gameplay => {
+                        // Every key that arrived so far is judged before the
+                        // tick below can count its note as missed.
+                        drain_raw_keys(state);
                         let audio_time = state
                             .audio_engine
                             .as_ref()
@@ -788,6 +801,25 @@ fn start_dropped_package(state: &mut AppState, path: &Path) -> bool {
         }
     }
     false
+}
+
+/// Hands the keys queued by the raw input thread to the play (or the judge
+/// offset calibration), each timed on the audio clock at the moment it
+/// arrived, however late this runs. Elsewhere they are dropped: the menus
+/// read winit's key events.
+fn drain_raw_keys(state: &mut AppState) {
+    while let Some(key) = state.raw_keys.as_mut().and_then(|r| r.pop()) {
+        match state.screen {
+            AppScreen::Gameplay if !handlers::gameplay::is_gameplay_hotkey(key.code) => {
+                let audio_time = gameplay::audio_time_at(state, key.at);
+                handlers::gameplay::handle_lane_key(state, key.code, key.down, audio_time);
+            }
+            AppScreen::Settings if key.down && state.calibration.is_some() => {
+                handlers::settings::calibration_tap(state, key.code, key.at);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Screens that draw a menu and take the mouse (gameplay and loading do not).

@@ -107,15 +107,37 @@ pub fn handle_calibration_input(
         KeyCode::Enter | KeyCode::NumpadEnter if done => {
             calibration_action(state, HitId::CalibrateApply)
         }
-        _ if repeat => (),
-        _ => {
-            let mode = state.key_config_mode();
-            let is_lane = state.key_bindings.get(mode).map_key(physical_key).is_some();
-            let is_tap =
-                is_lane || matches!(code, KeyCode::Space | KeyCode::Enter | KeyCode::NumpadEnter);
-            if let (true, Some(cal)) = (is_tap, state.calibration.as_mut()) {
+        // Taps come from the raw input thread when it runs (`calibration_tap`).
+        _ if repeat || state.raw_keys.is_some() => (),
+        _ if is_calibration_tap(state, physical_key) => {
+            if let Some(cal) = state.calibration.as_mut() {
                 cal.press();
             }
+        }
+        _ => (),
+    }
+}
+
+/// A lane key of the layout being calibrated, Space or Enter.
+fn is_calibration_tap(state: &AppState, physical_key: PhysicalKey) -> bool {
+    let mode = state.key_config_mode();
+    state.key_bindings.get(mode).map_key(physical_key).is_some()
+        || matches!(
+            physical_key,
+            PhysicalKey::Code(KeyCode::Space | KeyCode::Enter | KeyCode::NumpadEnter)
+        )
+}
+
+/// A key from the raw input thread during the calibration, pressed at `at`.
+/// ESC, R and Enter on a finished test stay with winit's key events.
+pub fn calibration_tap(state: &mut AppState, code: KeyCode, at: std::time::Instant) {
+    let done = state.calibration.as_ref().is_some_and(|c| c.is_done());
+    if done || matches!(code, KeyCode::Escape | KeyCode::KeyR) {
+        return;
+    }
+    if is_calibration_tap(state, PhysicalKey::Code(code)) {
+        if let Some(cal) = state.calibration.as_mut() {
+            cal.press_at(at);
         }
     }
 }

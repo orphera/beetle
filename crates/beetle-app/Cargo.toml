@@ -10,6 +10,7 @@ beetle-audio = { workspace = true }
 beetle-render = { workspace = true }
 bms-package = { workspace = true }
 winit = { workspace = true }
+rtrb = { workspace = true }
 
 [features]
 default = ["bga-enhanced"]

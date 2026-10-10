@@ -268,6 +268,16 @@ pub fn audio_time_now(state: &AppState) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// The audio clock's time in the current song at `at`, a moment shortly in
+/// the past such as when a key arrived (0 when there is no audio).
+pub fn audio_time_at(state: &AppState, at: Instant) -> f64 {
+    state
+        .audio_engine
+        .as_ref()
+        .map(|a| a.clock().time_at(at))
+        .unwrap_or(0.0)
+}
+
 /// Whether a play's end has been taken yet. A play ends once: the end
 /// saves the play, and every later end event of the same play (a second
 /// tick during the banner, or one after ENTER skipped the banner) is ignored.
