@@ -531,8 +531,17 @@ impl GpuBackend for D3d11Backend {
             MiscFlags: 0,
         };
 
+        // A short buffer is zero-filled: a texture created without initial
+        // data has undefined contents, and a frame would then depend on them.
+        let zeroed;
+        let data: &[u8] = if pixels.len() >= expected_bytes {
+            pixels
+        } else {
+            zeroed = vec![0u8; expected_bytes];
+            &zeroed
+        };
         let init_data = D3D11_SUBRESOURCE_DATA {
-            pSysMem: pixels.as_ptr() as *const c_void,
+            pSysMem: data.as_ptr() as *const c_void,
             SysMemPitch: w * 4,
             SysMemSlicePitch: 0,
         };
@@ -542,16 +551,7 @@ impl GpuBackend for D3d11Backend {
 
         unsafe {
             let dev_vtbl = *(self.device as *mut *mut ID3D11DeviceVtbl);
-            let hr = ((*dev_vtbl).CreateTexture2D)(
-                self.device,
-                &desc,
-                if pixels.len() >= expected_bytes {
-                    &init_data
-                } else {
-                    ptr::null()
-                },
-                &mut texture,
-            );
+            let hr = ((*dev_vtbl).CreateTexture2D)(self.device, &desc, &init_data, &mut texture);
             if hr < 0 || texture.is_null() {
                 return None;
             }
