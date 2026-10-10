@@ -33,6 +33,9 @@ pub enum TaskKind {
     TableScan,
     /// Installed a difficulty table.
     TableAdded,
+    /// Read a chart's IR page for its download links. Finishing opens the
+    /// download dialog with them.
+    IrLookup,
 }
 
 /// A task running now.

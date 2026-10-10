@@ -242,6 +242,24 @@ fn snapshot_screens() {
     scene.drop = true;
     render(&mut r, &mut tables, scene, &shot("12-drop"));
 
+    render(
+        &mut r,
+        &mut tables,
+        with_dialog(DialogKind::TableFetchIr {
+            title: "Qualia [Quantia]".into(),
+            folder: "songs/Satellite/1475".into(),
+            links: vec![
+                (
+                    "body",
+                    "https://web.archive.org/web/20161001063700/https://dl.dropboxusercontent.com/u/93651732/bms/junk_qualia.zip".into(),
+                ),
+                ("diff", "https://bms.hexlataia.xyz/mirror/gnqg-upload/02646.zip".into()),
+            ],
+            others: 1,
+        }),
+        &shot("14-dialog-ir-fetch"),
+    );
+
     let mut scene = Scene::new(ActiveTab::Installed, &packages, &remotes);
     scene.status = ("'FREEDOM DiVE'을(를) 삭제했어요", StatusKind::Success);
     scene.dialog = Some(Dialog::new(DialogKind::Advanced));

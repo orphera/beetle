@@ -22,7 +22,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tasks::{BgTask, TaskKind, TaskMessage};
 use ui::{ActiveTab, StatusKind};
@@ -61,6 +61,8 @@ struct AppState {
     /// Which package state the preview image belongs to.
     preview_key: Option<(String, String)>,
     task: Option<BgTask>,
+    /// The IR lookup that is running, and where its links go when it ends.
+    ir_pending: Option<IrPending>,
     picker: Option<(PickTarget, Receiver<Option<PathBuf>>)>,
     modifiers: ModifiersState,
     anim_frame: usize,
@@ -393,6 +395,7 @@ impl ApplicationHandler for BpmGuiApp {
             preview_image: None,
             preview_key: None,
             task: None,
+            ir_pending: None,
             picker: None,
             modifiers: ModifiersState::default(),
             anim_frame: 0,
@@ -647,6 +650,11 @@ fn poll_task(state: &mut AppState) {
         Err(msg) => state.err(msg),
     }
     state.refresh_packages();
+    if kind == TaskKind::IrLookup {
+        if let (true, Some(pending)) = (success, state.ir_pending.take()) {
+            table_ir_ready(state, pending);
+        }
+    }
     if success {
         match kind {
             TaskKind::Adds => state.tables.stale = state.tables.index.is_some(),
@@ -668,7 +676,7 @@ fn poll_task(state: &mut AppState) {
                     state.tables.show_table(&name);
                 }
             }
-            TaskKind::Other => {}
+            TaskKind::Other | TaskKind::IrLookup => {}
         }
     }
     state.window.request_redraw();
@@ -832,6 +840,7 @@ fn dispatch(state: &mut AppState, action: UiAction) {
         UiAction::OpenSongPage => table_open_link(state, false),
         UiAction::OpenChartPage => table_open_link(state, true),
         UiAction::AskDownloadChart => table_ask_diff(state),
+        UiAction::AskIrChart => table_ask_ir(state),
         UiAction::AskAddFromArchive => {
             if let Some(row) = state.tables.selected_row() {
                 let title = row.title.clone();
@@ -978,6 +987,15 @@ fn confirm_dialog(state: &mut AppState) {
         DialogKind::TableFetchDiff { .. } => {
             state.dialog = None;
             table_start_diff(state);
+        }
+        DialogKind::TableFetchIr {
+            title,
+            folder,
+            links,
+            ..
+        } => {
+            state.dialog = None;
+            table_start_ir(state, title, folder, links);
         }
         DialogKind::TableGetBody { .. } => {
             if first.is_empty() {
@@ -1327,6 +1345,131 @@ fn table_start_diff(state: &mut AppState) {
             Ok(format!(
                 "채보 {}개를 {}에 저장했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요.",
                 kept.matching,
+                folder.display()
+            ))
+        },
+    );
+}
+
+/// A chart page lookup that is running: the chart it is for, the folder its
+/// download goes to, and the slot the lookup fills with the page's links.
+struct IrPending {
+    title: String,
+    folder: PathBuf,
+    found: Arc<Mutex<Option<bms_package_manager::ir::IrLinks>>>,
+}
+
+/// Reads the selected entry's IR chart page for its download links, in the background.
+fn table_ask_ir(state: &mut AppState) {
+    let (Some(row), Some(entry), Some(table)) = (
+        state.tables.selected_row().cloned(),
+        state.tables.selected_entry().cloned(),
+        state.tables.table().map(|t| t.name.clone()),
+    ) else {
+        return;
+    };
+    let Some(md5) = entry.md5 else {
+        state.err("이 곡은 난이도표에 MD5가 없어서 IR에서 찾을 수 없어요");
+        return;
+    };
+    if state.busy() {
+        return;
+    }
+    let found = Arc::new(Mutex::new(None));
+    let slot = found.clone();
+    let title = row.title.clone();
+    state.ir_pending = Some(IrPending {
+        title: row.title.clone(),
+        folder: table_chart_folder(&table, row.number),
+        found,
+    });
+    state.start_task(
+        format!("'{title}' IR 페이지 읽는 중"),
+        "IR 페이지를 읽는 중...",
+        TaskKind::IrLookup,
+        move |_| {
+            let client = bms_package_manager::HttpClient::new();
+            let links = bms_package_manager::ir::fetch_chart_links(&client, &md5)?;
+            *slot
+                .lock()
+                .map_err(|_| "IR 결과를 전하지 못했어요".to_string())? = Some(links);
+            Ok("IR 페이지를 읽었어요".to_string())
+        },
+    );
+}
+
+/// Opens the download dialog for the zip links of a finished IR lookup.
+fn table_ir_ready(state: &mut AppState, pending: IrPending) {
+    let links = pending.found.lock().ok().and_then(|mut slot| slot.take());
+    let Some(links) = links else {
+        state.err("IR 페이지의 링크를 받지 못했어요");
+        return;
+    };
+    let (zips, others) = bms_package_manager::ir::split_zip_links(links);
+    if zips.is_empty() {
+        state.err(format!(
+            "'{}'의 IR 페이지에 받을 수 있는 zip 파일이 없어요",
+            pending.title
+        ));
+        return;
+    }
+    state.open_dialog(DialogKind::TableFetchIr {
+        title: pending.title,
+        folder: pending.folder,
+        links: zips,
+        others: others.len(),
+    });
+}
+
+/// Downloads the chosen zip links of an IR chart page into the chart's folder.
+/// Each pack is kept only when one of its charts has the entry's hash.
+fn table_start_ir(
+    state: &mut AppState,
+    title: String,
+    folder: PathBuf,
+    links: Vec<(&'static str, String)>,
+) {
+    let Some(entry) = state.tables.selected_entry().cloned() else {
+        return;
+    };
+    let total = links.len();
+    state.start_task(
+        format!("'{title}' IR에서 받는 중"),
+        "내려받아 확인하는 중...",
+        TaskKind::Adds,
+        move |r| {
+            let client = bms_package_manager::HttpClient::new();
+            let mut kept_total = 0;
+            let mut failures = Vec::new();
+            for (i, (label, url)) in links.iter().enumerate() {
+                if r.cancelled() {
+                    return Err("취소했어요".to_string());
+                }
+                r.progress("내려받는 중", i + 1, total, url);
+                let scratch =
+                    std::env::temp_dir().join(format!("bpm-gui-ir-{}-{i}", std::process::id()));
+                let _ = fs::remove_dir_all(&scratch);
+                let result = bms_package_manager::table_ops::fetch_pack(
+                    &client, url, &entry, &scratch, &folder,
+                );
+                let _ = fs::remove_dir_all(&scratch);
+                match result {
+                    Ok(kept) => kept_total += kept.matching,
+                    Err(e) => failures.push(format!("{label}: {e}")),
+                }
+            }
+            let skipped = if failures.is_empty() {
+                String::new()
+            } else {
+                format!(" 받지 못한 링크 {}개: {}", failures.len(), failures.join("; "))
+            };
+            if kept_total == 0 {
+                return Err(format!(
+                    "받은 파일에 이 곡의 채보가 없어요 (버전이 다를 수 있어요). 아무것도 저장하지 않았어요.{skipped}"
+                ));
+            }
+            Ok(format!(
+                "채보 {kept_total}개를 {}에 저장했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요.{skipped}",
                 folder.display()
             ))
         },

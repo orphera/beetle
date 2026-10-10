@@ -37,6 +37,14 @@ pub enum DialogKind {
         title: String,
         folder: PathBuf,
     },
+    /// Download the zip links that an IR chart page lists for the selected entry
+    /// into `folder`. `others` counts the links that are not zip files.
+    TableFetchIr {
+        title: String,
+        folder: PathBuf,
+        links: Vec<(&'static str, String)>,
+        others: usize,
+    },
     /// Add the selected table entry from a downloaded song archive.
     TableGetBody {
         title: String,
@@ -312,6 +320,36 @@ impl Dialog {
                     format!("저장 위치: {}", folder.display()),
                 ];
                 v.footnote = "곡 파일(본체)이 아직 없다면 소리가 나지 않을 수 있어요. 그럴 땐 곡 파일을 먼저 추가해 주세요.".into();
+                v.buttons = cancel_ok("받기");
+            }
+            DialogKind::TableFetchIr {
+                title,
+                folder,
+                links,
+                others,
+            } => {
+                v.title = "IR에서 찾은 채보를 받을까요?".into();
+                v.wide = true;
+                let mut body = vec![format!(
+                    "'{title}'의 압축 파일 {}개를 내려받아요.",
+                    links.len()
+                )];
+                for (label, url) in links {
+                    let what = if *label == "body" {
+                        "곡 파일(본체)"
+                    } else {
+                        "채보(차분)"
+                    };
+                    body.push(format!("{what}: {url}"));
+                }
+                if *others > 0 {
+                    body.push(format!(
+                        "zip이 아니라서 받지 않는 링크 {others}개는 브라우저로 열 수 있어요."
+                    ));
+                }
+                body.push(format!("저장 위치: {}", folder.display()));
+                v.body = body;
+                v.footnote = "받은 파일에 이 곡의 채보가 있을 때만 저장해요. 없으면 아무것도 저장하지 않아요.".into();
                 v.buttons = cancel_ok("받기");
             }
             DialogKind::TableGetBody { title } => {

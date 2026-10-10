@@ -71,6 +71,7 @@ pub enum UiAction {
     OpenSongPage,
     OpenChartPage,
     AskDownloadChart,
+    AskIrChart,
     AskAddFromArchive,
     ScanCollection,
     AskAddTable,

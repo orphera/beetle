@@ -1105,10 +1105,17 @@ impl GuiRenderer {
             Btn::Secondary,
             UiAction::AskAddFromArchive,
         ));
+        // The IR lookup needs only the MD5, so it is offered whenever the table has one.
+        let has_md5 = t.selected_entry().is_some_and(|e| e.md5.is_some());
         if direct {
             steps.push(("채보 받기", Btn::Primary, UiAction::AskDownloadChart));
-        } else if !row.url_diff.is_empty() {
-            steps.push(("채보 페이지 열기", Btn::Secondary, UiAction::OpenChartPage));
+        } else {
+            if has_md5 {
+                steps.push(("IR에서 채보 찾기", Btn::Primary, UiAction::AskIrChart));
+            }
+            if !row.url_diff.is_empty() {
+                steps.push(("채보 페이지 열기", Btn::Secondary, UiAction::OpenChartPage));
+            }
         }
         // Number the buttons when they are steps to follow in order.
         let labels: Vec<String> = if steps.len() > 1 {
