@@ -1,0 +1,17 @@
+# Line endings: the repository stores LF, and checkouts get LF on every
+# platform, whatever core.autocrlf says on the machine.
+* text=auto eol=lf
+
+# Binary assets: never converted, never shown as text diffs.
+# (crates/beetle-render/shaders/.gitattributes already covers *.cso.)
+*.ttf binary
+*.otf binary
+*.png binary
+*.bmp binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.ogg binary
+*.zip binary
+*.bmsp binary
