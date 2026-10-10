@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use std::time::Instant;
 
@@ -224,8 +223,8 @@ pub fn open_song_manager(state: &mut AppState) {
         .ok()
         .map(|exe| manager_beside(&exe))
         .filter(|path| path.is_file());
-    let started = manager.and_then(|path| Command::new(path).spawn().ok());
-    if started.is_none() {
+    let started = manager.is_some_and(|path| shell_open("open", &path));
+    if !started {
         transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING);
     }
 }
@@ -236,13 +235,52 @@ pub fn open_songs_folder(state: &mut AppState) {
     let opened = std::env::current_dir()
         .ok()
         .map(|cwd| cwd.join(DEFAULT_SONGS_DIR))
-        .and_then(|dir| {
-            fs::create_dir_all(&dir).ok()?;
-            Command::new("explorer.exe").arg(dir).spawn().ok()
-        });
-    if opened.is_none() {
+        .is_some_and(|dir| fs::create_dir_all(&dir).is_ok() && shell_open("explore", &dir));
+    if !opened {
         transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED);
     }
+}
+
+/// Starts `target` through the shell (`ShellExecuteW`) with the given verb:
+/// "open" for the song manager, "explore" for a folder. Returns false when
+/// the shell refuses (ShellExecuteW reports success as a value above 32).
+/// Going through the shell avoids pulling `std::process` into the app binary.
+#[cfg(windows)]
+fn shell_open(verb: &str, target: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> isize;
+    }
+    const SW_SHOWNORMAL: i32 = 1;
+    let wide = |s: &std::ffi::OsStr| -> Vec<u16> { s.encode_wide().chain(Some(0)).collect() };
+    let verb = wide(std::ffi::OsStr::new(verb));
+    let file = wide(target.as_os_str());
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    result > 32
+}
+
+/// Non-Windows builds have no shell to hand the path to.
+#[cfg(not(windows))]
+fn shell_open(_verb: &str, _target: &Path) -> bool {
+    false
 }
 
 /// Turns auto play on or off (A, or the footer button).
