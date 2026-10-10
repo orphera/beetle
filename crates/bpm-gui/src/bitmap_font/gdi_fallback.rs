@@ -12,15 +12,25 @@ use std::os::raw::c_int;
 use std::ptr;
 use tiny_skia::PixmapMut;
 
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type HDC = *mut c_void;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type HFONT = *mut c_void;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type HGDIOBJ = *mut c_void;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type LPVOID = *mut c_void;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type LPCWSTR = *const u16;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type UINT = u32;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type DWORD = u32;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type BOOL = c_int;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type LONG = i32;
+#[allow(clippy::upper_case_acronyms)] // Win32 type name; kept to match the GDI headers.
 type WORD = u16;
 
 const GDI_ERROR: DWORD = 0xFFFFFFFF;
@@ -35,6 +45,7 @@ const FF_DONTCARE: DWORD = 0;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(clippy::upper_case_acronyms)] // Win32 struct name; kept to match the GDI headers.
 pub struct POINT {
     pub x: LONG,
     pub y: LONG,
@@ -42,6 +53,7 @@ pub struct POINT {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(clippy::upper_case_acronyms)] // Win32 struct name; kept to match the GDI headers.
 pub struct GLYPHMETRICS {
     pub gmBlackBoxX: UINT,
     pub gmBlackBoxY: UINT,
@@ -52,6 +64,7 @@ pub struct GLYPHMETRICS {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(clippy::upper_case_acronyms)] // Win32 struct name; kept to match the GDI headers.
 pub struct FIXED {
     pub fract: WORD,
     pub value: i16,
@@ -229,7 +242,7 @@ impl GdiFontFallback {
             return None;
         }
 
-        let pitch = ((gm.gmBlackBoxX + 3) / 4) * 4;
+        let pitch = gm.gmBlackBoxX.div_ceil(4) * 4;
         let w = gm.gmBlackBoxX as usize;
         let h = gm.gmBlackBoxY as usize;
 
@@ -291,7 +304,7 @@ impl Drop for GdiFontFallback {
 }
 
 thread_local! {
-    static LOCAL_FALLBACK: RefCell<Option<GdiFontFallback>> = RefCell::new(None);
+    static LOCAL_FALLBACK: RefCell<Option<GdiFontFallback>> = const { RefCell::new(None) };
 }
 
 /// Fallback draw function called from `BitmapFont::draw_char`.
@@ -424,6 +437,8 @@ pub fn blit_glyph_aa(
 }
 
 #[inline(always)]
+// Hot-path pixel blit: its arguments are passed flat.
+#[allow(clippy::too_many_arguments)]
 fn fill_pixel_block_aa(
     u32_slice: &mut [u32],
     pw: i32,

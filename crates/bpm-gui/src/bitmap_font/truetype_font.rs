@@ -119,7 +119,7 @@ impl GlyphCache {
 }
 
 thread_local! {
-    static LOCAL_CACHE: RefCell<Option<GlyphCache>> = RefCell::new(None);
+    static LOCAL_CACHE: RefCell<Option<GlyphCache>> = const { RefCell::new(None) };
 }
 
 /// Runs `f` with this thread's glyph cache, creating it on first use.

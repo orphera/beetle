@@ -124,13 +124,13 @@ impl BitmapFont {
         // 1. ASCII 5x7 character (synthetic-bold dilated)
         if let Some(glyph) = get_ascii_glyph(c) {
             let mut prev_bits = 0u8;
-            for col in 0..5 {
-                let col_bits = glyph[col] | prev_bits;
-                prev_bits = glyph[col];
+            for (col, &glyph_col) in glyph.iter().enumerate() {
+                let col_bits = glyph_col | prev_bits;
+                prev_bits = glyph_col;
                 for row in 0..7 {
                     if (col_bits & (1 << row)) != 0 {
                         let px = x + (col as i32 * scale as i32);
-                        let py = y + (row as i32 * scale as i32);
+                        let py = y + (row * scale as i32);
                         fill_pixel_block(pixmap, px, py, scale, color);
                     }
                 }
@@ -319,12 +319,11 @@ fn draw_10x8_glyph(
     scale: u32,
     color: ColorRgba,
 ) {
-    for row in 0..8 {
-        let row_bits = glyph[row];
+    for (row, &row_bits) in glyph.iter().enumerate() {
         for col in 0..10 {
             // MSB 9 down to 0
             if (row_bits & (1 << (9 - col))) != 0 {
-                let px = x + (col as i32 * scale as i32);
+                let px = x + (col * scale as i32);
                 let py = y + (row as i32 * scale as i32);
                 fill_pixel_block(pixmap, px, py, scale, color);
             }
