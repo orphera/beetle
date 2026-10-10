@@ -502,12 +502,18 @@ pub fn crumbs(tree: &[Folder], path: &FolderPath) -> Vec<String> {
     out
 }
 
+/// The form a search compares in: lower case with every whitespace character
+/// removed, so a title spelled `A D D i c` still finds `addic`.
+pub fn search_key(text: &str) -> String {
+    text.split_whitespace().collect::<String>().to_lowercase()
+}
+
 /// Whether a song matches a search (title, artist or genre contains the query).
-/// `query` must already be lower case and trimmed.
+/// `query` must already be a `search_key`.
 pub fn matches_query(song: &SongMetadata, query: &str) -> bool {
-    song.title.to_lowercase().contains(query)
-        || song.artist.to_lowercase().contains(query)
-        || song.genre.to_lowercase().contains(query)
+    search_key(&song.title).contains(query)
+        || search_key(&song.artist).contains(query)
+        || search_key(&song.genre).contains(query)
 }
 
 /// The folder a chart sits in: its directory, with `\` read as `/`. A chart
@@ -735,7 +741,7 @@ pub fn result_count(
     query: &str,
     pass: &[bool],
 ) -> usize {
-    let q = query.trim().to_lowercase();
+    let q = search_key(query);
     if q.is_empty() {
         return match node(tree, path) {
             Some(folder) => folder.count,
@@ -763,7 +769,7 @@ pub fn entries_for(
     choices: &ChartChoices,
     pass: &[bool],
 ) -> Vec<ListEntry> {
-    let q = query.trim().to_lowercase();
+    let q = search_key(query);
     if !q.is_empty() {
         let matched: Vec<usize> = search_pool(tree, path, songs, pass)
             .into_iter()
@@ -1098,6 +1104,35 @@ mod tests {
             .len(),
             4
         );
+    }
+
+    #[test]
+    fn a_search_ignores_spaces_in_titles_and_queries() {
+        let spaced = song(1, "A D D i c T i O N 4 5 0 0 0 0 0", 1, PlayMode::Keys5);
+        let plain = song(2, "ADDicTiON", 1, PlayMode::Keys5);
+        // Spaced title, unspaced query.
+        assert!(matches_query(&spaced, &search_key("addiction")));
+        // Spaced title, query with its own spaces.
+        assert!(matches_query(&spaced, &search_key("add ic")));
+        // Unspaced title, spaced query.
+        assert!(matches_query(&plain, &search_key("add ic")));
+        // Case is still ignored.
+        assert!(matches_query(&plain, &search_key("ADDICTION")));
+        assert!(!matches_query(&plain, &search_key("banana")));
+        // A blank query becomes empty, which callers treat as "no search".
+        assert!(search_key("   ").is_empty());
+    }
+
+    #[test]
+    fn a_search_in_korean_or_japanese_matches_with_or_without_spaces() {
+        let korean = song(1, "사랑 노래", 1, PlayMode::Keys5);
+        let japanese = song(2, "ハロー ワールド", 1, PlayMode::Keys5);
+        assert!(matches_query(&korean, &search_key("사랑 노래")));
+        assert!(matches_query(&korean, &search_key("사랑노래")));
+        assert!(!matches_query(&korean, &search_key("노래 사랑")));
+        assert!(matches_query(&japanese, &search_key("ハロー ワールド")));
+        assert!(matches_query(&japanese, &search_key("ハローワールド")));
+        assert!(!matches_query(&japanese, &search_key("ワールド ハロー")));
     }
 
     #[test]
