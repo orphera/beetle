@@ -104,6 +104,8 @@ pub struct Folder {
     /// Songs under this folder.
     pub count: usize,
     pub body: Body,
+    /// Songs under this folder per clear lamp, in `LAMP_ORDER` order (filled by `build_tree`).
+    pub lamps: [usize; LAMP_COUNT],
 }
 
 /// One row of the visible list. Song rows hold an index into the library.
@@ -114,6 +116,8 @@ pub enum ListEntry {
         id: String,
         label: String,
         count: usize,
+        /// The folder's songs per clear lamp (see `Folder::lamps`).
+        lamps: [usize; LAMP_COUNT],
     },
     /// The charts of one song (same folder and base title), shown as one row.
     Group {
@@ -155,7 +159,9 @@ const MODE_ORDER: [PlayMode; 8] = [
 ];
 
 /// Clear lamps in the order the lamp folder lists them; `None` is 기록 없음.
-const LAMP_ORDER: [Option<ClearType>; 7] = [
+/// The breakdown rows of the folder detail panel use the same order
+/// (`beetle_render::LAMP_COUNT` rows, see `screens/select.rs`).
+const LAMP_ORDER: [Option<ClearType>; LAMP_COUNT] = [
     Some(ClearType::Perfect),
     Some(ClearType::FullCombo),
     Some(ClearType::Hard),
@@ -164,6 +170,9 @@ const LAMP_ORDER: [Option<ClearType>; 7] = [
     Some(ClearType::Failed),
     None,
 ];
+
+/// How many clear lamps a folder counts: one per `LAMP_ORDER` entry.
+pub const LAMP_COUNT: usize = beetle_render::LAMP_COUNT;
 
 /// The stable id of a key mode folder.
 pub fn mode_id(mode: PlayMode) -> &'static str {
@@ -217,6 +226,7 @@ fn leaf(id: String, label: String, songs: Vec<usize>) -> Option<Folder> {
         label,
         count: songs.len(),
         body: Body::Leaf(songs),
+        lamps: [0; LAMP_COUNT],
     })
 }
 
@@ -235,6 +245,7 @@ fn branch(id: &str, label: &str, children: Vec<Folder>) -> Option<Folder> {
         label: label.to_string(),
         count: songs.len(),
         body: Body::Branch(children),
+        lamps: [0; LAMP_COUNT],
     })
 }
 
@@ -348,10 +359,52 @@ pub fn build_tree(
     }
     root.extend(branch("table", strings::FOLDER_TABLE, table_folders));
 
+    // Clear lamp breakdown per folder, from the same passing songs and records.
+    let lamp_of = |i: usize| score_store.best(&songs[i], ln_option).map(|r| r.clear_type);
+    for folder in root.iter_mut() {
+        fill_lamps(folder, &lamp_of);
+    }
+
     root
 }
 
-fn is_demo(song: &SongMetadata) -> bool {
+/// Songs per clear lamp (`LAMP_ORDER`) among the songs `indices` of the library.
+fn lamp_counts(
+    indices: &[usize],
+    lamp_of: &impl Fn(usize) -> Option<ClearType>,
+) -> [usize; LAMP_COUNT] {
+    let mut counts = [0; LAMP_COUNT];
+    for &i in indices {
+        let lamp = lamp_of(i);
+        if let Some(k) = LAMP_ORDER.iter().position(|&l| l == lamp) {
+            counts[k] += 1;
+        }
+    }
+    counts
+}
+
+/// Sets `lamps` of `folder` and of every folder under it. A branch counts its
+/// distinct songs, as `count` does: a song in two child folders (the demo track
+/// is in 5K and in 7K) counts once.
+fn fill_lamps(folder: &mut Folder, lamp_of: &impl Fn(usize) -> Option<ClearType>) {
+    folder.lamps = match &mut folder.body {
+        Body::Leaf(songs) => lamp_counts(songs, lamp_of),
+        Body::Branch(children) => {
+            for child in children.iter_mut() {
+                fill_lamps(child, lamp_of);
+            }
+            let mut distinct = HashSet::new();
+            for child in children.iter() {
+                collect_songs(child, &mut distinct);
+            }
+            let songs: Vec<usize> = distinct.into_iter().collect();
+            lamp_counts(&songs, lamp_of)
+        }
+    };
+}
+
+/// The demo track (`:demo:`), which is listed but is not a song file.
+pub fn is_demo(song: &SongMetadata) -> bool {
     song.file_path == ":demo:"
 }
 
@@ -642,6 +695,7 @@ fn folder_entry(folder: &Folder) -> ListEntry {
         id: folder.id.clone(),
         label: folder.label.clone(),
         count: folder.count,
+        lamps: folder.lamps,
     }
 }
 
@@ -733,6 +787,54 @@ mod tests {
 
     fn ids(tree: &[Folder]) -> Vec<&str> {
         tree.iter().map(|f| f.id.as_str()).collect()
+    }
+
+    #[test]
+    fn lamp_breakdown_counts_each_lamp_and_sums_branches() {
+        // Songs 0..=4: 0 and 2 PERFECT, 1 no record, 3 FAILED, 4 CLEAR.
+        let lamp = |i: usize| match i {
+            0 | 2 => Some(ClearType::Perfect),
+            1 => None,
+            3 => Some(ClearType::Failed),
+            _ => Some(ClearType::Clear),
+        };
+        // LAMP_ORDER: PERFECT, FULL COMBO, HARD, CLEAR, EASY, FAILED, no record.
+        assert_eq!(lamp_counts(&[0, 1, 2, 3, 4], &lamp), [2, 0, 0, 1, 0, 1, 1]);
+        assert_eq!(lamp_counts(&[], &lamp), [0; LAMP_COUNT]);
+
+        let leaf = |id: &str, songs: Vec<usize>| Folder {
+            id: id.into(),
+            label: id.into(),
+            count: songs.len(),
+            body: Body::Leaf(songs),
+            lamps: [0; LAMP_COUNT],
+        };
+        let mut tree = Folder {
+            id: "root".into(),
+            label: "root".into(),
+            count: 4,
+            body: Body::Branch(vec![leaf("a", vec![0, 1]), leaf("b", vec![2, 3])]),
+            lamps: [0; LAMP_COUNT],
+        };
+        fill_lamps(&mut tree, &lamp);
+        assert_eq!(tree.lamps, [2, 0, 0, 0, 0, 1, 1]);
+        let Body::Branch(children) = &tree.body else {
+            panic!("a branch")
+        };
+        assert_eq!(children[0].lamps, [1, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(children[1].lamps, [1, 0, 0, 0, 0, 1, 0]);
+
+        // A song in two children counts once in the branch, as its `count` does.
+        let mut shared = Folder {
+            id: "root".into(),
+            label: "root".into(),
+            count: 3,
+            body: Body::Branch(vec![leaf("a", vec![0, 1]), leaf("b", vec![1, 2])]),
+            lamps: [0; LAMP_COUNT],
+        };
+        fill_lamps(&mut shared, &lamp);
+        assert_eq!(shared.lamps, [2, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(shared.lamps.iter().sum::<usize>(), 3);
     }
 
     fn songs_of(entries: &[ListEntry]) -> Vec<usize> {
@@ -857,22 +959,26 @@ mod tests {
                 ListEntry::Folder {
                     id: "all".into(),
                     label: strings::FOLDER_ALL.into(),
-                    count: 5
+                    count: 5,
+                    lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "mode".into(),
                     label: strings::FOLDER_MODE.into(),
-                    count: 5
+                    count: 5,
+                    lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "level".into(),
                     label: strings::FOLDER_LEVEL.into(),
-                    count: 5
+                    count: 5,
+                    lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "lamp".into(),
                     label: strings::FOLDER_LAMP.into(),
-                    count: 5
+                    count: 5,
+                    lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
             ]
         );

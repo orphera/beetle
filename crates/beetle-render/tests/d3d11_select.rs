@@ -11,9 +11,9 @@ use beetle_core::{
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
-    draw_exit_modal, draw_options_modal, draw_screen_fade, draw_song_select, draw_toast,
-    D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame, SelectRow, SortMenu, ToastFrame,
-    ToastKind, Ui, Viewport,
+    draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_options_modal, draw_screen_fade,
+    draw_song_select, draw_toast, D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame,
+    SelectRow, SortMenu, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -175,6 +175,10 @@ enum Overlay {
     Toast,
     /// The fade-in halfway through: the background covers half of the frame.
     Fade,
+    /// The help overlay (?) over the list.
+    Help,
+    /// The drag overlay: a file is held over the window.
+    Drop,
 }
 
 fn render(
@@ -195,6 +199,8 @@ struct Extra<'a> {
     filter: FilterBar<'a>,
     result_count: Option<usize>,
     sort_menu: Option<SortMenu<'a>>,
+    /// The library has no songs of its own: the first-run guide shows.
+    library_empty: bool,
 }
 
 /// `folder` replaces the flat song list with a folder view: the rows and the
@@ -307,6 +313,7 @@ fn render_ex(
             filter: extra.filter,
             result_count: extra.result_count,
             sort_menu: extra.sort_menu,
+            library_empty: extra.library_empty,
         },
     );
     match overlay {
@@ -354,6 +361,8 @@ fn render_ex(
             )
         }
         Overlay::Fade => draw_screen_fade(ui, 0.5),
+        Overlay::Help => draw_help_overlay(ui, &vp),
+        Overlay::Drop => draw_drop_overlay(ui, &vp),
     }
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
@@ -371,7 +380,11 @@ fn song_select_folder_views() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     let total = library().len();
-    let folder = |label: &'static str, count: usize| SelectRow::Folder { label, count };
+    let folder = |label: &'static str, count: usize| SelectRow::Folder {
+        label,
+        count,
+        lamps: [0; beetle_render::LAMP_COUNT],
+    };
 
     // Root: the top-level folders (난이도표 is listed last). The highlight is on 레벨.
     let root = vec![
@@ -671,6 +684,76 @@ fn song_select_filter_and_sort_views() {
                 result_count: Some(0),
                 ..Default::default()
             },
+        ),
+        1
+    );
+}
+
+/// U3d: the slim footer with the ? key, the help overlay, the drag overlay, the
+/// first-run guide of an empty library, and a folder's clear lamp breakdown.
+#[test]
+fn song_select_u3d_views() {
+    let window = HiddenWindow::with_size(W, H);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let mut ui = Ui::new(1.0);
+    let crumbs = vec![
+        strings::FOLDER_ROOT.to_string(),
+        strings::FOLDER_ALL.to_string(),
+    ];
+
+    // The help overlay (? over the list). Over a full list its text passes the
+    // backend's per-batch vertex limit, so the frame takes two draw calls.
+    let help = render(&mut gpu, &mut ui, 5, "", "", Overlay::Help, "help");
+    assert!((1..=2).contains(&help), "help: {help} draw calls");
+    // A file dragged over the window.
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::Drop, "drop"),
+        1
+    );
+    // The first-run guide: the library holds only the demo track.
+    let guide = render_ex(
+        &mut gpu,
+        &mut ui,
+        0,
+        "",
+        "",
+        Overlay::None,
+        "guide",
+        Some((vec![SelectRow::Song(0)], crumbs.clone())),
+        Extra {
+            library_empty: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(guide, 1);
+    // A folder's detail with the clear lamp breakdown. The lamps add up to the
+    // folder's 216 songs: PERFECT, FULL COMBO, HARD, CLEAR, EASY, FAILED, no record.
+    let lamps = [12, 3, 20, 58, 41, 17, 65];
+    assert_eq!(lamps.iter().sum::<usize>(), 216);
+    let folders = vec![
+        SelectRow::Folder {
+            label: strings::FOLDER_ALL,
+            count: 216,
+            lamps,
+        },
+        SelectRow::Folder {
+            label: strings::FOLDER_MODE,
+            count: 216,
+            lamps,
+        },
+    ];
+    assert_eq!(
+        render_ex(
+            &mut gpu,
+            &mut ui,
+            0,
+            "",
+            "",
+            Overlay::None,
+            "folder-lamps",
+            Some((folders, crumbs)),
+            Extra::default(),
         ),
         1
     );

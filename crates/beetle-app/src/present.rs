@@ -319,12 +319,16 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         .iter()
         .map(|e| match e {
             crate::folders::ListEntry::Song(i) => beetle_render::SelectRow::Song(*i),
-            crate::folders::ListEntry::Folder { label, count, .. } => {
-                beetle_render::SelectRow::Folder {
-                    label,
-                    count: *count,
-                }
-            }
+            crate::folders::ListEntry::Folder {
+                label,
+                count,
+                lamps,
+                ..
+            } => beetle_render::SelectRow::Folder {
+                label,
+                count: *count,
+                lamps: *lamps,
+            },
             crate::folders::ListEntry::Group {
                 title,
                 charts,
@@ -347,6 +351,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             rows: &rows,
             selected: state.selected_entry,
             scroll: state.list_scroll,
+            library_empty: state.songs.iter().all(crate::folders::is_demo),
             scores: &state.score_store,
             tables: &state.tables,
             ln_option,
@@ -372,6 +377,12 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     if state.show_exit_modal {
         beetle_render::draw_exit_modal(ui, &vp);
+    }
+    if state.show_help {
+        beetle_render::draw_help_overlay(ui, &vp);
+    }
+    if state.drop_hover {
+        beetle_render::draw_drop_overlay(ui, &vp);
     }
     let caret = ui.ime_caret;
     crate::ime::sync_caret(state, caret);

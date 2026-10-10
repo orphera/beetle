@@ -19,8 +19,9 @@ use crate::handlers::options::{
 use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
-    activate_filter, activate_selected, choose_chart, clear_filter, close_sort_menu, cycle_folder,
-    go_to_crumb, go_up, open_exit_prompt, open_key_config, pick_sort, scroll_list, start_replay,
+    activate_filter, activate_selected, choose_chart, clear_filter, close_help, close_sort_menu,
+    cycle_folder, go_to_crumb, go_up, open_exit_prompt, open_help, open_key_config,
+    open_song_manager, open_songs_folder, pick_sort, rescan, scroll_list, start_replay,
     step_filter_level, toggle_auto, toggle_sort_menu,
 };
 use crate::ime::set_search_active;
@@ -69,6 +70,13 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
 }
 
 fn song_select_click(state: &mut AppState, id: HitId) {
+    // The help overlay: a click outside its panel closes it.
+    if state.show_help {
+        if id == HitId::Blocker {
+            close_help(state);
+        }
+        return;
+    }
     if state.show_exit_modal {
         match id {
             HitId::ExitQuit => state.should_exit_app = true,
@@ -126,6 +134,10 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::Auto => toggle_auto(state),
         HitId::KeyConfig => open_key_config(state),
         HitId::Quit => open_exit_prompt(state),
+        HitId::Help => open_help(state),
+        HitId::OpenManager => open_song_manager(state),
+        HitId::OpenSongsFolder => open_songs_folder(state),
+        HitId::Rescan => rescan(state),
         _ => (),
     }
 }
@@ -180,13 +192,18 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
     }
     let up = notches > 0;
     // The song list scrolls its window by the whole amount (see `scroll_list`).
-    if state.screen == AppScreen::SongSelect && !state.show_exit_modal && !state.show_option_modal {
+    // Modals (help, exit, play options) take the wheel themselves or ignore it.
+    if state.screen == AppScreen::SongSelect
+        && !state.show_exit_modal
+        && !state.show_help
+        && !state.show_option_modal
+    {
         scroll_list(state, -(notches as isize));
         return;
     }
     for _ in 0..notches.abs() {
         match state.screen {
-            AppScreen::SongSelect if !state.show_exit_modal => {
+            AppScreen::SongSelect if state.show_option_modal && !state.show_exit_modal => {
                 move_option_row(state, !up);
             }
             AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),

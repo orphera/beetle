@@ -81,6 +81,10 @@ pub struct AppState {
     /// The play options panel (per play) is open over song select.
     pub show_option_modal: bool,
     pub show_exit_modal: bool,
+    /// The help overlay (?) over song select.
+    pub show_help: bool,
+    /// A file is dragged over the window (winit HoveredFile until it is dropped or cancelled).
+    pub drop_hover: bool,
     pub should_exit_app: bool,
     /// Highlighted row of the play options panel.
     pub modal_row: usize,

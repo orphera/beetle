@@ -51,6 +51,12 @@ pub enum HitId {
     Auto,
     /// Opens the key configuration screen.
     KeyConfig,
+    /// Opens (or the overlay's own close) the help overlay (the footer `?`).
+    Help,
+    /// The first-run guide: open the song manager, open the songs folder, rescan.
+    OpenManager,
+    OpenSongsFolder,
+    Rescan,
     /// Opens the quit prompt.
     Quit,
     /// Result screen footer: back to song select, play again, screenshot.

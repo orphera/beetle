@@ -16,7 +16,9 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::Viewport;
-use beetle_core::{LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
+use beetle_core::{
+    ClearType, LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex,
+};
 
 /// Everything the song select screen shows for one frame.
 /// One row of the list: a song (an index into `SelectFrame::songs`), a folder
@@ -27,6 +29,8 @@ pub enum SelectRow<'a> {
     Folder {
         label: &'a str,
         count: usize,
+        /// Songs of the folder per clear lamp, in `LAMP_ROWS` order.
+        lamps: [usize; LAMP_COUNT],
     },
     /// The charts of one song: `charts` are indices into `SelectFrame::songs`
     /// (by level), `selected` the position in `charts` the row shows.
@@ -46,6 +50,21 @@ struct ChartTabs<'a> {
     selected: usize,
 }
 
+/// Clear lamps a folder's breakdown counts: the lamp rows, in the order the
+/// folder tree counts them (`folders::LAMP_ORDER`).
+pub const LAMP_COUNT: usize = 7;
+
+/// The lamp of each breakdown row. `None` is the chart with no record.
+const LAMP_ROWS: [Option<ClearType>; LAMP_COUNT] = [
+    Some(ClearType::Perfect),
+    Some(ClearType::FullCombo),
+    Some(ClearType::Hard),
+    Some(ClearType::Clear),
+    Some(ClearType::Easy),
+    Some(ClearType::Failed),
+    None,
+];
+
 pub struct SelectFrame<'a> {
     pub viewport: &'a Viewport,
     /// The whole library; `Song` rows index into it.
@@ -57,6 +76,8 @@ pub struct SelectFrame<'a> {
     /// First visible row of the list. Clamped and moved only as far as needed
     /// to show `selected` (see `window_start`), so a click never moves the rows.
     pub scroll: usize,
+    /// The library has no songs but the demo: the list shows the first-run guide.
+    pub library_empty: bool,
     pub scores: &'a ScoreStore,
     /// The player's long note setting, which decides which record of a chart with long notes is shown.
     pub ln_option: LnOption,
@@ -117,7 +138,11 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         empty_state(c, t, f, content, s, &mut hs);
     } else {
         let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
-        song_list(c, t, &sk, f, list, s, &mut hs);
+        if f.library_empty {
+            first_run_guide(c, t, &sk, list, s, &mut hs);
+        } else {
+            song_list(c, t, &sk, f, list, s, &mut hs);
+        }
         let detail = Rect::from_ltrb(
             list.right() + PAD * s,
             content.y,
@@ -140,9 +165,14 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             (Some(SelectRow::Song(_) | SelectRow::Group { .. }), Some(song)) => {
                 detail_panel(c, t, &sk, f, song, detail, tabs, s, &mut hs)
             }
-            (Some(&SelectRow::Folder { label, count }), _) => {
-                folder_panel(c, t, &sk, label, count, detail, s)
-            }
+            (
+                Some(&SelectRow::Folder {
+                    label,
+                    count,
+                    lamps,
+                }),
+                _,
+            ) => folder_panel(c, t, &sk, label, count, &lamps, detail, s),
             _ => {}
         }
     }
@@ -564,7 +594,7 @@ fn song_list(
                     s,
                 );
             }
-            SelectRow::Folder { label, count } => {
+            SelectRow::Folder { label, count, .. } => {
                 hs.add(row, HitId::ListRow(slot));
                 folder_row(c, t, sk, label, count, row, on, hot, s);
             }
@@ -751,7 +781,8 @@ fn row_title(
     t.draw(c, &shown, tx, row.y + 24.0 * s, &title_st);
 }
 
-/// The right column of a row: the personal best's rank and rate bar, or "NO PLAY".
+/// The right column of a row: the personal best's rank and rate bar. A row
+/// without a record draws nothing here.
 fn row_record(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -782,15 +813,9 @@ fn row_record(
                 rank_col,
             );
         }
-        None => {
-            t.draw_in(
-                c,
-                strings::NO_PLAY,
-                Rect::new(rx, row.y, right_w, row.h),
-                Align::Right,
-                &caption(10.0, s).color(theme::MUTED),
-            );
-        }
+        // An unplayed row stays quiet: its lamp strip is already dim, and the
+        // right side stays empty so the played rows stand out.
+        None => {}
     }
 }
 
@@ -980,13 +1005,16 @@ fn folder_row(
     );
 }
 
-/// The detail panel of a highlighted folder: its name, song count and how to open it.
+/// The detail panel of a highlighted folder: its name, song count, how to open
+/// it, and the clear lamp breakdown of its songs.
+#[allow(clippy::too_many_arguments)]
 fn folder_panel(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
     label: &str,
     count: usize,
+    lamps: &[usize; LAMP_COUNT],
     panel: Rect,
     s: f32,
 ) {
@@ -1010,6 +1038,85 @@ fn folder_panel(
         Align::Left,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
     );
+    lamp_breakdown(
+        c,
+        t,
+        sk,
+        lamps,
+        Rect::new(inner.x, inner.y + 164.0 * s, inner.w, inner.h - 164.0 * s),
+        s,
+    );
+}
+
+/// The clear lamp breakdown: a stacked bar of the songs per lamp, then one
+/// row per lamp with its count. Lamp colours are the theme's lamp colours.
+fn lamp_breakdown(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    lamps: &[usize; LAMP_COUNT],
+    area: Rect,
+    s: f32,
+) {
+    let total: usize = lamps.iter().sum();
+    if total == 0 {
+        return;
+    }
+    t.draw(
+        c,
+        strings::FOLDER_LAMP,
+        area.x,
+        area.y + 12.0 * s,
+        &caption(11.0, s).color(theme::MUTED),
+    );
+    let bar = Rect::new(area.x, area.y + 22.0 * s, area.w, 10.0 * s);
+    c.nine(&sk.panel_sm, bar, theme::SURF2);
+    let mut x = bar.x;
+    for (&n, lamp) in lamps.iter().zip(LAMP_ROWS) {
+        if n == 0 || total == 0 {
+            continue;
+        }
+        let w = bar.w * n as f32 / total as f32;
+        c.fill_rect(Rect::new(x, bar.y, w, bar.h), lamp_colour(lamp));
+        x += w;
+    }
+    for (i, (&n, lamp)) in lamps.iter().zip(LAMP_ROWS).enumerate() {
+        let y = bar.bottom() + 14.0 * s + i as f32 * 20.0 * s;
+        let col = lamp_colour(lamp);
+        c.fill_rect(Rect::new(area.x, y + 3.0 * s, 4.0 * s, 12.0 * s), col);
+        let name = match lamp {
+            Some(_) => theme::clear_lamp(lamp).0,
+            None => strings::NO_PLAY,
+        };
+        let name_col = if n == 0 {
+            theme::MUTED2
+        } else {
+            theme::TEXT.with_alpha(215)
+        };
+        t.draw(
+            c,
+            name,
+            area.x + 14.0 * s,
+            y + 14.0 * s,
+            &TextStyle::new(13.0 * s).color(name_col),
+        );
+        t.draw_in(
+            c,
+            &thousands(n as u32),
+            Rect::new(area.x, y, area.w, 18.0 * s),
+            Align::Right,
+            &TextStyle::new(13.0 * s).bold().color(if n == 0 {
+                theme::MUTED2
+            } else {
+                theme::TEXT
+            }),
+        );
+    }
+}
+
+/// The colour of a lamp row (the theme's clear lamp colour; no record is dim).
+fn lamp_colour(lamp: Option<ClearType>) -> ColorRgba {
+    theme::clear_lamp(lamp).1
 }
 
 fn empty_state(
@@ -1071,6 +1178,128 @@ fn empty_state(
 // ---------------------------------------------------------------------------
 // Detail panel
 // ---------------------------------------------------------------------------
+
+/// The first-run guide, in the list area of an empty library: the three ways to
+/// add songs (the second one is a drop, so it has no button), and the rescan.
+fn first_run_guide(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    area: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    c.nine(&sk.panel_lg, area, theme::SURF1.with_alpha(235));
+    let inner = area.inset(24.0 * s);
+    t.draw(
+        c,
+        strings::GUIDE_TITLE,
+        inner.x,
+        inner.y + 30.0 * s,
+        &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
+    );
+    t.draw(
+        c,
+        strings::GUIDE_LEAD,
+        inner.x,
+        inner.y + 60.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
+    // (step text, button label and the action it records, keycap of the button)
+    let steps: [(&str, Option<(&str, HitId, Option<&str>)>); 4] = [
+        (
+            strings::GUIDE_MANAGER,
+            Some((strings::GUIDE_BTN_MANAGER, HitId::OpenManager, None)),
+        ),
+        (strings::GUIDE_DROP, None),
+        (
+            strings::GUIDE_FOLDER,
+            Some((strings::GUIDE_BTN_FOLDER, HitId::OpenSongsFolder, None)),
+        ),
+        (
+            strings::GUIDE_RESCAN,
+            Some((strings::GUIDE_BTN_RESCAN, HitId::Rescan, Some("F5"))),
+        ),
+    ];
+    let mut y = inner.y + 96.0 * s;
+    for (i, (text, button)) in steps.into_iter().enumerate() {
+        let badge = Rect::new(inner.x, y, 26.0 * s, 26.0 * s);
+        c.nine(&sk.panel_sm, badge, theme::CYAN.with_alpha(40));
+        t.draw_in(
+            c,
+            &(i + 1).to_string(),
+            badge,
+            Align::Center,
+            &TextStyle::new(14.0 * s).bold().color(theme::CYAN),
+        );
+        t.draw(
+            c,
+            text,
+            inner.x + 38.0 * s,
+            y + 18.0 * s,
+            &TextStyle::new(14.0 * s).color(theme::TEXT.with_alpha(215)),
+        );
+        if let Some((label, id, key)) = button {
+            guide_button(
+                c,
+                t,
+                sk,
+                hs,
+                Rect::new(inner.x + 38.0 * s, y + 32.0 * s, 210.0 * s, 32.0 * s),
+                label,
+                id,
+                key,
+                s,
+            );
+        }
+        y += 84.0 * s;
+    }
+}
+
+/// A button of the first-run guide: records `id`, and shows its keycap when it has one.
+#[allow(clippy::too_many_arguments)]
+fn guide_button(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hs: &mut HitSink,
+    r: Rect,
+    label: &str,
+    id: HitId,
+    key: Option<&str>,
+    s: f32,
+) {
+    hs.add(r, id);
+    let hot = hs.hovered(r);
+    chip_frame(c, r, false, hot, false, s);
+    let st = TextStyle::new(12.0 * s)
+        .bold()
+        .color(if hot { theme::TEXT } else { theme::MUTED });
+    match key {
+        None => {
+            t.draw_in(c, label, r, Align::Center, &st);
+        }
+        Some(key) => {
+            let lw = t.measure(c, label, &st);
+            let kw = keycap_width(c, t, key, s);
+            let x = r.x + (r.w - lw - kw - 10.0 * s) / 2.0;
+            t.draw_in(c, label, Rect::new(x, r.y, lw + 1.0, r.h), Align::Left, &st);
+            keycap(
+                c,
+                t,
+                sk,
+                key,
+                Rect::new(
+                    x + lw + 10.0 * s,
+                    r.y + (r.h - 20.0 * s) / 2.0,
+                    kw,
+                    20.0 * s,
+                ),
+                s,
+            );
+        }
+    }
+}
 
 /// "PREVIEW" pill with a small level meter in the jacket's lower-left corner.
 fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s: f32) {
@@ -1543,18 +1772,6 @@ fn personal_best(
 // Footer
 // ---------------------------------------------------------------------------
 
-const HINTS: [widgets::Hint; 10] = [
-    ("↑↓", strings::FOOTER_MOVE, None),
-    ("ENTER", strings::FOOTER_PLAY, Some(HitId::Play)),
-    ("/", strings::FOOTER_SEARCH, Some(HitId::Search)),
-    ("F1 F3", strings::FOOTER_FOLDER, Some(HitId::FolderNext)),
-    ("F2", strings::FOOTER_SORT, Some(HitId::Sort)),
-    ("TAB", strings::OPTIONS, Some(HitId::PlayOptions)),
-    ("F4", strings::FOOTER_SETTINGS, Some(HitId::OpenSettings)),
-    ("A", strings::FOOTER_AUTO, Some(HitId::Auto)),
-    ("F12", strings::FOOTER_KEYS, Some(HitId::KeyConfig)),
-    ("ESC", strings::FOOTER_QUIT, Some(HitId::Quit)),
-];
 fn footer(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -1581,10 +1798,11 @@ fn footer(
         t.draw(c, &total, x, base, &caption(10.0, s));
     }
 
+    // Only the keys a player needs here; the rest are in the help overlay (?).
     // ENTER opens a folder row and plays a song row; BKSP goes up when not at the root.
     let on_folder = matches!(f.rows.get(f.selected), Some(SelectRow::Folder { .. }));
-    let mut hints: Vec<widgets::Hint> = HINTS.to_vec();
-    hints[1] = (
+    let mut hints: Vec<widgets::Hint> = vec![("↑↓", strings::FOOTER_MOVE, None)];
+    hints.push((
         "ENTER",
         if on_folder {
             strings::FOOTER_OPEN
@@ -1592,10 +1810,12 @@ fn footer(
             strings::FOOTER_PLAY
         },
         Some(HitId::Play),
-    );
+    ));
     if f.crumbs.len() > 1 {
-        hints.insert(1, ("BKSP", strings::BACK, Some(HitId::FolderUp)));
+        hints.push(("BKSP", strings::BACK, Some(HitId::FolderUp)));
     }
+    hints.push(("TAB", strings::OPTIONS, Some(HitId::PlayOptions)));
+    hints.push(("?", strings::FOOTER_HELP, Some(HitId::Help)));
 
     // Key hints, right-aligned; drop from the left if they do not fit.
     let right = vp.x + vp.width - PAD * s;
@@ -2174,6 +2394,305 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Help overlay (?) and the drag overlay
+// ---------------------------------------------------------------------------
+
+/// One row of the help overlay: its keycaps, then what it does. A row without
+/// keycaps shows `caption` (a mouse action, or dropping a file) in their place.
+pub struct HelpRow {
+    pub keys: &'static [&'static str],
+    pub caption: &'static str,
+    pub text: &'static str,
+}
+
+/// One group of the help overlay.
+pub struct HelpGroup {
+    pub title: &'static str,
+    pub rows: &'static [HelpRow],
+}
+
+/// Every song select key and mouse action, grouped. The keys are the ones the
+/// song select handler reads; the mouse rows are the regions the screen records.
+pub const HELP_GROUPS: [HelpGroup; 6] = [
+    HelpGroup {
+        title: strings::HELP_GROUP_MOVE,
+        rows: &[
+            HelpRow {
+                keys: &["↑↓"],
+                caption: "",
+                text: strings::HELP_MOVE_ONE,
+            },
+            HelpRow {
+                keys: &["PgUp", "PgDn"],
+                caption: "",
+                text: strings::HELP_MOVE_PAGE,
+            },
+            HelpRow {
+                keys: &["Home", "End"],
+                caption: "",
+                text: strings::HELP_MOVE_ENDS,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_WHEEL,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_ROW,
+            },
+        ],
+    },
+    HelpGroup {
+        title: strings::HELP_GROUP_FOLDER,
+        rows: &[
+            HelpRow {
+                keys: &["BKSP"],
+                caption: "",
+                text: strings::HELP_FOLDER_UP,
+            },
+            HelpRow {
+                keys: &["ENTER"],
+                caption: "",
+                text: strings::HELP_FOLDER_OPEN,
+            },
+            HelpRow {
+                keys: &["F1", "F3"],
+                caption: "",
+                text: strings::HELP_FOLDER_SIDE,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_SIDE,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_CRUMB,
+            },
+        ],
+    },
+    HelpGroup {
+        title: strings::HELP_GROUP_SONG,
+        rows: &[
+            HelpRow {
+                keys: &["ENTER"],
+                caption: "",
+                text: strings::HELP_SONG_PLAY,
+            },
+            HelpRow {
+                keys: &["A"],
+                caption: "",
+                text: strings::HELP_SONG_AUTO,
+            },
+            HelpRow {
+                keys: &["R"],
+                caption: "",
+                text: strings::HELP_SONG_REPLAY,
+            },
+            HelpRow {
+                keys: &["LEFT", "RIGHT"],
+                caption: "",
+                text: strings::HELP_SONG_CHART,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_AGAIN,
+            },
+        ],
+    },
+    HelpGroup {
+        title: strings::HELP_GROUP_OPTIONS,
+        rows: &[
+            HelpRow {
+                keys: &["TAB", "O"],
+                caption: "",
+                text: strings::HELP_OPTIONS,
+            },
+            HelpRow {
+                keys: &["F4"],
+                caption: "",
+                text: strings::HELP_SETTINGS,
+            },
+            HelpRow {
+                keys: &["F12", "C"],
+                caption: "",
+                text: strings::HELP_KEYS,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_BUTTONS,
+            },
+        ],
+    },
+    HelpGroup {
+        title: strings::HELP_GROUP_FILTER,
+        rows: &[
+            HelpRow {
+                keys: &["/"],
+                caption: "",
+                text: strings::HELP_SEARCH,
+            },
+            HelpRow {
+                keys: &["F2"],
+                caption: "",
+                text: strings::HELP_SORT,
+            },
+            HelpRow {
+                keys: &["F10"],
+                caption: "",
+                text: strings::HELP_FILTER,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_MOUSE,
+                text: strings::HELP_MOUSE_FILTER,
+            },
+        ],
+    },
+    HelpGroup {
+        title: strings::HELP_GROUP_MISC,
+        rows: &[
+            HelpRow {
+                keys: &["ESC"],
+                caption: "",
+                text: strings::HELP_BACK_QUIT,
+            },
+            HelpRow {
+                keys: &["F5"],
+                caption: "",
+                text: strings::HELP_RESCAN,
+            },
+            HelpRow {
+                keys: &["?"],
+                caption: "",
+                text: strings::HELP_HELP,
+            },
+            HelpRow {
+                keys: &[],
+                caption: strings::HELP_CAP_DROP,
+                text: strings::HELP_DROP,
+            },
+        ],
+    },
+];
+
+/// The help overlay over song select: every key and mouse action, in two
+/// columns of three groups. A click outside the panel, `?` or ESC closes it.
+pub fn draw_help_overlay(ui: &mut Ui, vp: &Viewport) {
+    let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let s = vp.scale;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 1040.0 * s, 580.0 * s, s);
+    let inner = panel.inset(28.0 * s);
+    t.draw(
+        c,
+        strings::HELP_TITLE,
+        inner.x,
+        inner.y + 24.0 * s,
+        &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
+    );
+    t.draw_in(
+        c,
+        strings::HELP_CLOSE,
+        Rect::new(inner.x, inner.y + 4.0 * s, inner.w, 24.0 * s),
+        Align::Right,
+        &TextStyle::new(12.0 * s).color(theme::MUTED),
+    );
+
+    let col_gap = 32.0 * s;
+    let col_w = (inner.w - col_gap) / 2.0;
+    let key_w = 150.0 * s;
+    for (i, group) in HELP_GROUPS.iter().enumerate() {
+        let gx = inner.x + (i % 2) as f32 * (col_w + col_gap);
+        let gy = inner.y + 52.0 * s + (i / 2) as f32 * 160.0 * s;
+        t.draw(
+            c,
+            group.title,
+            gx,
+            gy + 16.0 * s,
+            &TextStyle::new(14.0 * s).bold().color(theme::CYAN),
+        );
+        c.fill_rect(Rect::new(gx, gy + 24.0 * s, col_w, s.max(1.0)), theme::LINE);
+        for (j, row) in group.rows.iter().enumerate() {
+            let ry = gy + 36.0 * s + j as f32 * 24.0 * s;
+            let mut kx = gx;
+            if row.keys.is_empty() {
+                t.draw(
+                    c,
+                    row.caption,
+                    kx,
+                    ry + 16.0 * s,
+                    &caption(10.0, s).color(theme::MUTED2),
+                );
+            }
+            for key in row.keys {
+                let kw = keycap_width(c, t, key, s);
+                keycap(c, t, &sk, key, Rect::new(kx, ry + 2.0 * s, kw, 20.0 * s), s);
+                kx += kw + 6.0 * s;
+            }
+            let text = t
+                .fit(
+                    c,
+                    row.text,
+                    col_w - key_w,
+                    &TextStyle::new(13.0 * s).color(theme::TEXT.with_alpha(215)),
+                )
+                .into_owned();
+            t.draw(
+                c,
+                &text,
+                gx + key_w,
+                ry + 16.0 * s,
+                &TextStyle::new(13.0 * s).color(theme::TEXT.with_alpha(215)),
+            );
+        }
+    }
+}
+
+/// The overlay over the whole window while a file is dragged over it. It
+/// records no click regions: the drop is handled by the window event.
+pub fn draw_drop_overlay(ui: &mut Ui, vp: &Viewport) {
+    let sk = ui.skin;
+    let s = vp.scale;
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    c.fill_rect(
+        Rect::new(vp.x, vp.y, vp.width, vp.height),
+        theme::BLACK.with_alpha(150),
+    );
+    let w = 560.0 * s;
+    let h = 130.0 * s;
+    let panel = Rect::new(
+        vp.x + (vp.width - w) / 2.0,
+        vp.y + (vp.height - h) / 2.0,
+        w,
+        h,
+    );
+    c.halo(&sk.shadow, panel, theme::CYAN.with_alpha(160));
+    c.nine(&sk.panel_lg, panel, theme::SURF1);
+    c.stroke_rect(panel, s.max(1.0), theme::CYAN.with_alpha(200));
+    t.draw_in(
+        c,
+        strings::DROP_TITLE,
+        Rect::new(panel.x, panel.y + 30.0 * s, panel.w, 30.0 * s),
+        Align::Center,
+        &TextStyle::new(22.0 * s).bold().color(theme::CYAN),
+    );
+    t.draw_in(
+        c,
+        strings::DROP_NOTE,
+        Rect::new(panel.x, panel.y + 74.0 * s, panel.w, 20.0 * s),
+        Align::Center,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2268,6 +2787,7 @@ mod tests {
             rows: &rows,
             selected,
             scroll,
+            library_empty: false,
             scores: &scores,
             crumbs: &crumbs,
             sort: "TITLE",
@@ -2323,6 +2843,7 @@ mod tests {
             rows: &rows,
             selected: 5,
             scroll: 0,
+            library_empty: false,
             scores: &scores,
             crumbs: &["전체".to_string(), "전체 곡".to_string()],
             sort: "TITLE",
@@ -2369,25 +2890,18 @@ mod tests {
             assert_eq!(hit_at(&ui.hits, x, y), Some(id));
         }
 
-        // Footer key hints are buttons inside the footer.
+        // Footer key hints are buttons inside the footer (the crumbs make BKSP show).
         let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;
         for id in [
             HitId::Play,
-            HitId::Search,
-            HitId::FolderNext,
-            HitId::Sort,
+            HitId::FolderUp,
             HitId::PlayOptions,
-            HitId::OpenSettings,
-            HitId::Auto,
-            HitId::KeyConfig,
-            HitId::Quit,
+            HitId::Help,
         ] {
             let r = ui.hits.iter().rev().find(|h| h.id == id).expect("hit").rect;
-            if matches!(id, HitId::Auto | HitId::KeyConfig | HitId::Quit) {
-                assert!(r.y >= footer_top, "{id:?} is outside the footer");
-                let (x, y) = hit_center(&ui.hits, id);
-                assert_eq!(hit_at(&ui.hits, x, y), Some(id));
-            }
+            assert!(r.y >= footer_top, "{id:?} is outside the footer");
+            let (x, y) = hit_center(&ui.hits, id);
+            assert_eq!(hit_at(&ui.hits, x, y), Some(id));
         }
 
         // An open options modal sits above the rows: a click on a row's
@@ -2489,6 +3003,7 @@ mod tests {
                 rows: &rows,
                 selected,
                 scroll: 0,
+                library_empty: false,
                 scores: &scores,
                 crumbs: &["전체".to_string(), "전체 곡".to_string()],
                 sort: "TITLE",
@@ -2517,6 +3032,104 @@ mod tests {
     }
 
     #[test]
+    fn help_guide_and_drop_overlays_are_one_batch() {
+        use crate::hit::hit_at;
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..4).map(song).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
+        let mut ui = Ui::new(vp.scale);
+        // The first-run guide: an empty library (the demo row is the only one listed).
+        let rows: Vec<SelectRow> = vec![SelectRow::Song(0)];
+        let guide = SelectFrame {
+            viewport: &vp,
+            songs: &songs,
+            tables: &tables,
+            ln_option: LnOption::Auto,
+            rows: &rows,
+            selected: 0,
+            scroll: 0,
+            library_empty: true,
+            scores: &scores,
+            crumbs: &crumbs,
+            sort: "TITLE",
+            search: "",
+            search_active: false,
+            preedit: "",
+            jacket: None,
+            ambient: None,
+            option_chips: &chips,
+            auto_play: false,
+            has_replay: false,
+            preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
+        };
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &guide);
+        assert_eq!(ui.canvas.debug_batches().len(), 1, "guide");
+        let ids: Vec<HitId> = ui.hits.iter().map(|h| h.id).collect();
+        assert!(ids.contains(&HitId::OpenManager));
+        assert!(ids.contains(&HitId::OpenSongsFolder));
+        assert!(ids.contains(&HitId::Rescan));
+        assert!(
+            !ids.contains(&HitId::ListRow(0)),
+            "the guide replaces the list"
+        );
+
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &guide);
+        draw_help_overlay(&mut ui, &vp);
+        assert_eq!(ui.canvas.debug_batches().len(), 1, "help");
+        // The overlay blocks the footer and the list; its panel swallows clicks.
+        let blocker = ui.hits.iter().rev().find(|h| h.id == HitId::Blocker);
+        assert!(blocker.is_some());
+        let footer_help = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::Help)
+            .expect("footer ?");
+        let (hx, hy) = (
+            footer_help.rect.x + footer_help.rect.w / 2.0,
+            footer_help.rect.y + footer_help.rect.h / 2.0,
+        );
+        assert_eq!(hit_at(&ui.hits, hx, hy), Some(HitId::Blocker));
+        let panel = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::ModalPanel)
+            .expect("panel")
+            .rect;
+        assert_eq!(
+            hit_at(&ui.hits, panel.x + 2.0, panel.y + 2.0),
+            Some(HitId::ModalPanel)
+        );
+
+        ui.begin(1280, 720, vp.scale);
+        draw_drop_overlay(&mut ui, &vp);
+        assert_eq!(ui.canvas.debug_batches().len(), 1, "drop");
+    }
+
+    #[test]
+    fn help_lists_every_row_with_a_key_or_a_caption() {
+        assert_eq!(HELP_GROUPS.len(), 6);
+        for group in &HELP_GROUPS {
+            assert!(!group.rows.is_empty(), "{}", group.title);
+            for row in group.rows {
+                assert!(
+                    !row.keys.is_empty() || !row.caption.is_empty(),
+                    "{}: {}",
+                    group.title,
+                    row.text
+                );
+            }
+        }
+    }
+
+    #[test]
     fn ime_caret_sits_in_the_search_box_after_the_preedit() {
         use crate::hit::HitId;
         let vp = Viewport::new(1280, 720);
@@ -2535,6 +3148,7 @@ mod tests {
             rows: &rows,
             selected: 0,
             scroll: 0,
+            library_empty: false,
             scores: &scores,
             crumbs: &crumbs,
             sort: "TITLE",

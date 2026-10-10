@@ -36,6 +36,7 @@ pub use screens::{
     KeyConfigFrame, LoadingFrame, OptionLine, PlayFrame, Rebind, ResultFrame, SelectFrame,
     SelectRow, SettingsFrame, SizedTexture, SortMenu, ToastFrame, ToastKind, KEY_MODES,
 };
+pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT};
 pub use skin::{
     green_ms_to_px_per_sec, px_per_sec_to_green_ms, scratch_side_applies, ColorRgba, EightKForm,
     FieldPosition, ScratchSide, SkinConfig,

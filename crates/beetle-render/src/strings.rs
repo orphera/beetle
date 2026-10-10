@@ -106,13 +106,7 @@ table! {
     // Footer key captions (keycaps keep their English key names).
     pub FOOTER_MOVE = "이동";
     pub FOOTER_PLAY = "플레이";
-    pub FOOTER_SEARCH = "검색";
-    pub FOOTER_FOLDER = "폴더";
-    pub FOOTER_SORT = "정렬";
-    pub FOOTER_AUTO = "자동";
-    pub FOOTER_KEYS = "키 설정";
-    pub FOOTER_SETTINGS = "설정";
-    pub FOOTER_QUIT = "종료";
+    pub FOOTER_HELP = "도움말";
 
     // Folder tree (song select). Mode tags (7K) and lamp names (PERFECT) stay in English.
     /// The root of the breadcrumb, above the top-level folders.
@@ -150,6 +144,64 @@ table! {
     pub FILTER_EMPTY_HINT = "필터를 바꾸거나 초기화하세요.";
     /// `{}` is the number of songs found.
     pub RESULT_COUNT = "{}곡 찾음";
+
+    // Help overlay (song select, ? key). Keys stay English keycaps.
+    pub HELP_TITLE = "도움말";
+    pub HELP_CLOSE = "? 또는 ESC로 닫습니다";
+    pub HELP_GROUP_MOVE = "이동";
+    pub HELP_GROUP_FOLDER = "폴더";
+    pub HELP_GROUP_SONG = "곡";
+    pub HELP_GROUP_OPTIONS = "옵션과 설정";
+    pub HELP_GROUP_FILTER = "필터와 정렬";
+    pub HELP_GROUP_MISC = "기타";
+    pub HELP_CAP_MOUSE = "마우스";
+    pub HELP_CAP_DROP = "끌어다 놓기";
+    pub HELP_MOVE_ONE = "한 줄씩 움직입니다";
+    pub HELP_MOVE_PAGE = "10줄씩 움직입니다";
+    pub HELP_MOVE_ENDS = "처음과 끝으로 갑니다";
+    pub HELP_MOUSE_WHEEL = "휠로 목록을 굴립니다";
+    pub HELP_MOUSE_ROW = "줄을 누르면 고릅니다";
+    pub HELP_FOLDER_UP = "한 단계 위 폴더로 갑니다";
+    pub HELP_FOLDER_OPEN = "폴더는 열고 곡은 재생합니다";
+    pub HELP_FOLDER_SIDE = "같은 단계의 이전과 다음 폴더";
+    pub HELP_MOUSE_SIDE = "상단 < > 버튼으로 옆 폴더";
+    pub HELP_MOUSE_CRUMB = "빵부스러기를 누르면 그 폴더";
+    pub HELP_SONG_PLAY = "선택한 곡을 플레이합니다";
+    pub HELP_SONG_AUTO = "자동 플레이를 켜고 끕니다";
+    pub HELP_SONG_REPLAY = "저장된 리플레이를 재생합니다";
+    pub HELP_SONG_CHART = "묶음 행의 채보를 바꿉니다";
+    pub HELP_MOUSE_AGAIN = "고른 줄을 다시 누르면 재생";
+    pub HELP_OPTIONS = "플레이 옵션을 엽니다";
+    pub HELP_SETTINGS = "설정 화면을 엽니다";
+    pub HELP_KEYS = "키 설정을 엽니다";
+    pub HELP_MOUSE_BUTTONS = "상단의 옵션, 설정 버튼";
+    pub HELP_SEARCH = "검색창을 엽니다";
+    pub HELP_SORT = "정렬 기준을 바꿉니다";
+    pub HELP_FILTER = "필터 줄에 초점을 줍니다";
+    pub HELP_MOUSE_FILTER = "정렬, 필터 칩, 검색창 누르기";
+    pub HELP_BACK_QUIT = "한 단계 위, 루트에서는 종료";
+    pub HELP_RESCAN = "곡 목록을 다시 읽습니다";
+    pub HELP_HELP = "도움말을 열고 닫습니다";
+    pub HELP_DROP = "파일을 끌어다 놓으면 곡을 엽니다";
+
+    // First run: the library has no songs (only the demo). The guide lists three ways to add songs.
+    pub GUIDE_TITLE = "아직 곡이 없습니다";
+    pub GUIDE_LEAD = "곡을 넣는 방법은 세 가지입니다.";
+    pub GUIDE_MANAGER = "곡 관리자로 곡 패키지(.bmsp)를 설치합니다.";
+    pub GUIDE_DROP = "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓습니다.";
+    pub GUIDE_FOLDER = "곡 파일을 songs 폴더에 넣습니다.";
+    pub GUIDE_RESCAN = "곡을 넣은 뒤 다시 읽습니다.";
+    pub GUIDE_BTN_MANAGER = "곡 관리자 열기";
+    pub GUIDE_BTN_FOLDER = "songs 폴더 열기";
+    pub GUIDE_BTN_RESCAN = "다시 읽기";
+
+    // Drag overlay: a file is dragged over the window (song select).
+    pub DROP_TITLE = "여기에 놓으면 곡을 엽니다";
+    pub DROP_NOTE = ".bmsp 패키지나 .bms 채보를 놓으면 바로 엽니다.";
+
+    // Opening the song manager or the songs folder failed.
+    pub TOAST_MANAGER_MISSING = "곡 관리자(bpm-gui.exe)를 찾지 못했습니다";
+    pub TOAST_FOLDER_FAILED = "songs 폴더를 열지 못했습니다";
 
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS = "플레이 옵션";

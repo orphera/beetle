@@ -201,6 +201,8 @@ impl ApplicationHandler for BeetleApp {
             sort_mode: saved_config.sort_mode,
             show_option_modal: false,
             show_exit_modal: false,
+            show_help: false,
+            drop_hover: false,
             should_exit_app: false,
             modal_row: 0,
             settings_row: 0,
@@ -575,7 +577,19 @@ impl ApplicationHandler for BeetleApp {
                     state.window.request_redraw();
                 }
             }
-            WindowEvent::DroppedFile(path) => open_dropped_file(state, &path),
+            // The drag overlay shows on song select only (see `present::song_select`).
+            WindowEvent::HoveredFile(_) => {
+                state.drop_hover = true;
+                state.window.request_redraw();
+            }
+            WindowEvent::HoveredFileCancelled => {
+                state.drop_hover = false;
+                state.window.request_redraw();
+            }
+            WindowEvent::DroppedFile(path) => {
+                state.drop_hover = false;
+                open_dropped_file(state, &path);
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor = Some((position.x as f32, position.y as f32));
                 if is_menu_screen(state.screen) {

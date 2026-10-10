@@ -1,9 +1,11 @@
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use std::time::Instant;
 
 use beetle_core::{sort_songs, ReplayData, SortMode};
-use beetle_render::{filter_items, FilterItem};
+use beetle_render::{filter_items, strings, FilterItem, ToastKind};
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
@@ -13,7 +15,9 @@ use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::options::{handle_option_modal_input, open_options};
 use crate::handlers::settings::open_settings;
 use crate::ime::{append_text, backspace, key_text_to_append, set_search_active};
+use crate::scanner::DEFAULT_SONGS_DIR;
 use crate::state::{replay_path, AppScreen, AppState};
+use crate::transition;
 
 /// Handles keyboard input for the Song Select screen.
 pub fn handle_song_select_input(
@@ -87,9 +91,22 @@ pub fn handle_song_select_input(
         return;
     }
 
+    // The help overlay: ? or ESC closes it, other keys wait.
+    if state.show_help {
+        if code == KeyCode::Escape || is_help_key(code, text) {
+            close_help(state);
+        }
+        return;
+    }
+
     // The sort menu and the filter row take their keys first. Any other key
     // closes the menu or leaves the row, and then acts as usual.
     if sort_menu_key(state, code) || filter_key(state, code) {
+        return;
+    }
+
+    if is_help_key(code, text) {
+        open_help(state);
         return;
     }
 
@@ -154,7 +171,7 @@ pub fn handle_song_select_input(
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Enter | KeyCode::Space => activate_selected(state),
-        KeyCode::F5 => state.start_rescan(),
+        KeyCode::F5 => rescan(state),
         _ => {
             if let Some(t) = text {
                 if t == "/" {
@@ -168,6 +185,64 @@ pub fn handle_song_select_input(
 /// Shows the quit prompt (ESC, or the footer button).
 pub fn open_exit_prompt(state: &mut AppState) {
     state.show_exit_modal = true;
+}
+
+/// The keys that open the help overlay: `?` (Shift+Slash) and H. F1 and F3 are
+/// folder keys and `/` opens the search, so neither is used.
+fn is_help_key(code: KeyCode, text: Option<&str>) -> bool {
+    text == Some("?") || code == KeyCode::KeyH
+}
+
+/// Shows the help overlay (?, or the footer button).
+pub fn open_help(state: &mut AppState) {
+    state.show_help = true;
+}
+
+/// Closes the help overlay (?, ESC, or a click outside it).
+pub fn close_help(state: &mut AppState) {
+    state.show_help = false;
+}
+
+/// Reads the song folders again (F5, or the first-run guide's button).
+pub fn rescan(state: &mut AppState) {
+    state.start_rescan();
+}
+
+/// The song manager (`bpm-gui.exe`) that ships next to the running app.
+pub fn manager_beside(exe: &Path) -> PathBuf {
+    exe.with_file_name(SONG_MANAGER_EXE)
+}
+
+/// The song manager's file name, next to the app's own executable.
+const SONG_MANAGER_EXE: &str = "bpm-gui.exe";
+
+/// Opens the song manager in its own process (the first-run guide's button).
+/// The process is not waited for, so the UI keeps running. A toast says so
+/// when the file is not there or cannot start.
+pub fn open_song_manager(state: &mut AppState) {
+    let manager = std::env::current_exe()
+        .ok()
+        .map(|exe| manager_beside(&exe))
+        .filter(|path| path.is_file());
+    let started = manager.and_then(|path| Command::new(path).spawn().ok());
+    if started.is_none() {
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING);
+    }
+}
+
+/// Opens the songs folder in Explorer, creating it first when it is missing.
+/// Explorer runs in its own process and is not waited for.
+pub fn open_songs_folder(state: &mut AppState) {
+    let opened = std::env::current_dir()
+        .ok()
+        .map(|cwd| cwd.join(DEFAULT_SONGS_DIR))
+        .and_then(|dir| {
+            fs::create_dir_all(&dir).ok()?;
+            Command::new("explorer.exe").arg(dir).spawn().ok()
+        });
+    if opened.is_none() {
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED);
+    }
 }
 
 /// Turns auto play on or off (A, or the footer button).
@@ -517,5 +592,28 @@ pub fn start_replay(state: &mut AppState) {
                 queue_start_gameplay(state, &song);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn song_manager_is_the_file_next_to_the_app() {
+        assert_eq!(
+            manager_beside(Path::new("dir/beetle-app.exe")),
+            Path::new("dir/bpm-gui.exe")
+        );
+    }
+
+    #[test]
+    fn help_opens_on_question_mark_and_h_only() {
+        assert!(is_help_key(KeyCode::Slash, Some("?")));
+        assert!(is_help_key(KeyCode::KeyH, None));
+        // "/" is search and F1 / F3 are folder keys.
+        assert!(!is_help_key(KeyCode::Slash, Some("/")));
+        assert!(!is_help_key(KeyCode::F1, None));
+        assert!(!is_help_key(KeyCode::F3, None));
     }
 }
