@@ -1,5 +1,7 @@
 # beetle-app UI/UX 개편 계획 (2026-10-10)
 
+상태: **완료** (U0–U6, 2026-10-10). 남은 일은 맨 아래 U6 절의 「남은 일」.
+
 대상: `crates/beetle-app`, `crates/beetle-render/src/screens/`
 
 ## 배경
@@ -673,10 +675,94 @@ U4는 두 커밋이다. 먼저 크기 원인을 줄이고(커밋 `22a66af`), 그
   HUD 변경이 원인은 아니다. 30%를 넘는 회귀로 보지 않아 고치지 않았다.
 - 판정 타임라인(U4)은 BGA 없는 곡에서 그려지는데, 그 곡들의 값이 HEAD와 같아 그쪽 비용도 두드러지지 않는다.
 
-### U6 — 마무리
-- [ ] UI 배율 옵션(고DPI·큰 화면에서 메뉴 글자 크기), 판정색 대체 팔레트 검토
-- [ ] 화면별 하드웨어·WARP fps 측정, 릴리스 `beetle-app.exe` 크기 측정·기록
-- [ ] AGENTS.md 모듈 설명(`AppScreen`에 Settings 추가) 갱신
+### U6 — 마무리 (완료, 2026-10-10)
+- [x] **UI 배율 옵션: 뺀다** (감독 결정). 메뉴는 창 높이로 이미 배율이 바뀌고(`viewport.scale` = 높이/720) 레이아웃이
+      1280×720 단위로 짜여 있다. 배율을 더 키우면 720p에서 넘친다. 실제 문제는 글자가 작은 것이므로 아래 1번으로 해결했다.
+- [x] **1. 최소 글자 크기** (`80fb825`, `fix(render): raise the minimum text size on every screen`): 캡션·라벨 12 px 이상,
+      태그·칩·키캡 11 px 이상(720 단위, `* s` 전). 9·10 px `caption(…)`은 12 px로, 9 px 태그는 `TextStyle::new(11.0 * s)`로 바꿨다.
+      `screens/mod.rs`의 `no_screen_draws_text_below_the_floor`가 리터럴 크기를 검사한다(계산된 `size * s`는 값이 적힌 곳에서 본다).
+      바뀐 뒤 생긴 겹침 두 곳을 고쳤다: 결과의 `신기록` 태그가 `최대 콤보` 캡션을 가려서 라벨 옆으로 옮겼고, 게임플레이 판정
+      타임라인 제목이 패널 테두리에 붙어서 베이스라인을 4 px 내렸다. 선곡·키 설정·설정·도움말·로딩 캡처를 확인했다.
+- [x] **2. 토스트 자리** (`9f9089c`, `fix(app,render): toasts no longer cover controls`): `ToastAnchor`.
+      선곡·결과·설정은 **푸터 왼쪽**(x 140 단위, 푸터 높이만큼 채움: 푸터 왼쪽은 선곡의 곡 수 말고는 비어 있다).
+      키 설정은 **모드 탭 아래 띠**(y 152 단위, 탭과 안내 줄 아래, 건반 위). 이전에는 선곡 필터 줄과 키 설정 모드 탭을 덮었다.
+      실제 앱 확인: 키 설정 F1 프리셋 토스트가 탭 아래에 뜨고 건반을 가리지 않음(`scratch/u6/live/keys-toast.png`),
+      선곡 F5 재스캔 토스트가 푸터 왼쪽에 뜸(`scratch/u6/captures/select-toast.png`).
+- [x] **3. 곡 수** (`04b54f8`, `fix(render): song select footer counts charts like the search result`): **단위는 채보(곡)다.**
+      푸터 `N / M 곡`: N = 보이는 목록의 채보 수(묶음 행은 묶인 채보 수, 폴더 행은 폴더 안 곡 수), M = 라이브러리 전체 채보.
+      이미 "N곡 찾음"이 채보 수였으므로 같은 단위다. 폴더만 있는 목록은 `N 폴더`를 그대로 둔다.
+      전체 곡 216 / 필터 7K·미플레이만 23(`N / 216 곡`), 검색 결과 0은 `0 / 216 곡`. 단위 테스트 `footer_count_is_in_charts`.
+      "전체 M곡 + 행 N" 방식은 쓰지 않았다(행 기준 전체 수는 라이브러리 전체를 다시 묶어야 해서 계산이 두 벌이 된다).
+- [x] **4. 판정 색 (색각)**: **옵션을 넣지 않았다**(결론: 이미 구별된다). 방법: `theme.rs`의 토큰 값을 Viénot·Brettel 계열
+      선형 RGB 행렬(protan·deutan)로 바꾸고 CIE76 ΔE를 쟀다(`scratch/u6/cvd.py`, 근사치). 인접 판정 최소 ΔE:
+      | 쌍 | 정상 | 적색색약 | 녹색색약 |
+      |---|---|---|---|
+      | PGREAT–GREAT | 42 | 29 | 23 |
+      | GREAT–GOOD | 98 | 19 | 31 |
+      | GOOD–BAD | 159 | 114 | 94 |
+      | BAD–POOR | 82 | 66 | 87 |
+      | POOR–MISS | 82 | 19 | 39 |
+      | FAST–SLOW | 106 | 75 | 91 |
+      가장 가까운 쌍도 ΔE 19 이상이고, 판정은 색 옆에 **항상 이름이 함께** 나온다(플레이 점수 패널의 범례, 판정 텍스트,
+      결과의 판정 행). 색만 있는 곳은 타임라인 점뿐이고 같은 화면 범례로 읽힌다. 색각 사용자가 직접 보고 확인하지는 않았다.
+- [x] **추가 요청: 그린 넘버 값 표기** (`a1bd74c`, `fix(app,render): show the green number without the 그린 word`):
+      옵션 칩은 `1470`, 게임플레이 readout은 `1470 ms`. 라벨(`그린 넘버`, 키 안내 `1/2 그린 넘버`, `READY` 안내)은 그대로다.
+      `CHIP_GREEN`·`READOUT_GREEN`만 바꿨고, 테스트 픽스처와 주석도 맞췄다. 선곡 칩은 라벨 없이 숫자만 남아, 옆의 `REGULAR`·`HARD`와
+      섞여 읽힌다는 점을 확인해 달라(캡처 `scratch/ux-after/songselect.png`).
+- [x] **5. 측정** (`scratch/u6/fps/results.txt`, 1280×720 창, 프레임 제한 해제(`target_fps=0`), 릴리스, 10 s 창).
+      | 화면 | 하드웨어 | WARP | 비고 |
+      |---|---|---|---|
+      | 부팅 | 60 | 측정 안 함 | 캐시 없는 전체 스캔 0.5 s, 부팅 화면은 60 Hz로 돈다 |
+      | 선곡 | 60 | 60 | 메뉴는 vsync 60 상한(`about_to_wait`: 게임플레이 외 vsync) |
+      | 설정 | 60 | 60 | 위와 같음 |
+      | 키 설정 (7K) | 60 | 60 | 위와 같음 |
+      | 로딩 | 85 | 74 | 창이 0.1 s뿐이라(9·8 프레임) 값이 의미 없음 |
+      | 게임플레이, BGA 있음 (`Love & Justice`, 자동) | 2,081 | 143 | 영상 BGA |
+      | 게임플레이, BGA 없음 (`Beetle Demo Track`, 자동) | 2,829 | 181 | 판정 타임라인 |
+      | 결과 | 60 | 60 | vsync 상한 |
+      - 메뉴 60 fps는 렌더 비용이 아니라 vsync 상한이다. 메뉴 렌더 비용은 이 방법으로 재지 못한다.
+      - U5의 BGA 곡(`虹のわすれもの`)과 이번 BGA 곡은 다르다(한글·일본어 검색은 IME가 켜진 검색창에서 키 입력으로 들어가지 않아
+        `Love`로 찾았다). 값을 U5와 직접 비교하지 말 것.
+      - 측정 빌드는 `a1bd74c` 이전(문자열만 다른 차이)이다.
+      - 크기(릴리스, HEAD `48b560d`): `beetle-app.exe` 3,012,096 B(U0) → **3,132,416 B** (+120,320 B, +4.0%).
+        `bpm-gui.exe` 4,832,256 B, `bpm.exe` 2,974,208 B(U6에서 처음 기록; 이전 기준 없음).
+        `beetle-app.exe`는 AGENTS.md의 목표(개별 실행 파일당 < 1 MB)를 이미 넘겼다. 이 차이는 U1–U5 기능 추가 몫이다.
+- [x] **6. AGENTS.md §4** (`48b560d`, `docs(agents): module notes for the render and app UI pieces`): `beetle-render`에 `screens/`·문자열 표·
+      `hit.rs`·`theme.rs` 토큰 규칙을, `beetle-app`에 폴더 트리·필터·곡 묶음, `handlers/`(키·마우스 공용 함수), `ime.rs`,
+      `calibration.rs`, `transition.rs`를 한 줄씩 추가했다. 불변식·의존성 정책은 바꾸지 않았다.
+- [x] **7. 전후 캡처** (`scratch/ux-after/`, 나란히 놓은 PNG는 `scratch/ux-compare/`, 합성은 `scratch/ux-compare/compose.ps1` (System.Drawing)).
+      실행 폴더는 `scratch/ux-before/run/`이고 `config.dat`는 매번 같은 복사본으로 되돌렸다. 짝 목록(왼쪽 전, 오른쪽 후):
+      `boot`, `songselect`, `select-options`, `select-exit`, `loading`, `play-7k`(자동, `Beetle Demo Track`), `result`(자동), `keyconfig`.
+      새 화면: `settings`, `folder-root`(왼쪽은 검은 칸, 전 버전에 없음). 주의: `folder-root`는 ESC로 만든 루트 목록이고,
+      `songselect`는 저장된 `folder_path=all` 상태다.
+      캡처 중 발견: `songselect` 캡처를 `folder-root` 실행 뒤에 찍으면 저장된 폴더가 루트로 남는다. 실행마다 설정을 되돌렸다.
+- [x] **8. 마무리**: 플랜 상태를 완료로 표시하고 아래 **남은 일**을 적었다.
+
+#### U6 검증
+- `cargo test --workspace` 전부 통과, `cargo test -p beetle-render --release --tests` 통과, `cargo fmt --all -- --check` 통과.
+- 새 테스트: `no_screen_draws_text_below_the_floor`, `footer_count_is_in_charts`. 기존 글자 범위 테스트 통과.
+- 렌더 캡처(`scratch/u6/captures/`, 전부 PNG로 확인): 결과 신기록 태그 위치, 게임플레이 타임라인 제목 위치, 선곡·키 설정·설정·도움말·로딩.
+- 실행 뒤 `beetle-app.exe` 프로세스 없음. 워크트리 없음. 실제 커서 불변(PostMessageW·PrintWindow만 사용).
+
+#### 남은 일 (U6 이후)
+- **검증하지 못한 것**
+  - 실제 한글·일본어 IME 조합과 후보창 위치(합성 메시지에는 IME 문맥이 없다).
+  - 캘리브레이션 정확도(사람이 누른 입력으로 측정한 값은 아직 없다).
+  - 실제 파일 끌어다 놓기(오버레이·오류 토스트), `songs 폴더 열기`와 `곡 관리자` 창 안의 동작.
+  - FULL COMBO·FAILED 배너를 실제 앱에서 본 적이 없다(캡처와 단위 테스트뿐).
+  - 선곡 정렬 메뉴의 ↑↓ENTER, 필터 줄의 ←↑↓, 빈 목록의 `초기화` 클릭, 빵부스러기 클릭, 묶음 행의 BKSP·ESC.
+  - 판정 색의 실제 색각 확인(시뮬레이션은 근사치).
+  - 로딩 화면 FPS(창이 0.1 s라 측정 불가). 메뉴 렌더 비용(vsync 상한 때문에 재지 못함).
+  - 그린 넘버 칩의 가독성(라벨 없는 숫자, 위 결정 참고).
+- **미룬 것**
+  - 메뉴 액션 계층과 게임패드(U1b 보류): 컨트롤러 입력을 붙일 때 기준을 다시 정한다.
+  - 도움말이 열린 채 전체 목록을 그리면 드로우콜이 2개(U3d 한계, 화면 한 드로우콜 원칙의 예외).
+  - 푸터에서 빠진 `A`·`F12`·`ESC` 키캡(도움말에만 있음).
+  - 렌더 텍스트 크기: 태그·칩은 `TextStyle::new(11.0 * s)` 리터럴로 남아 있다(테스트가 리터럴 값을 본다).
+  - `beetle-app.exe`가 1 MB 목표를 넘은 상태(3.13 MB). 줄일 방법은 따로 측정해서 정한다.
+- **범위 밖 문제(U3b에서 발견)**
+  - 라이브러리 검색에 `AIRSHAVER`가 나오지 않는다(`songs/AIRSHAVER.bmsp`가 있는데도 0건). 원인은 아직 확인하지 않았다.
+  - 노트 수 1,412 vs 1,440: 상세 패널은 LN 규칙별 `notes_for`, 로딩 카드는 CN 기준 `notes_count`를 쓴다. 한쪽으로 맞춰야 한다.
 
 순서 근거: U1이 없으면 U2~U5에서 마우스·IME·문자열을 화면마다 따로 붙이게 된다.
 U2(옵션 분리)가 U3보다 먼저인 이유는 선곡 화면 레이아웃이 옵션 패널 위치에 달려 있어서다.
