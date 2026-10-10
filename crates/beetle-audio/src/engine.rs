@@ -5,7 +5,7 @@ use crate::sample::SampleBank;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Producer, RingBuffer};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub const COMMAND_QUEUE_CAPACITY: usize = 512;
@@ -57,19 +57,12 @@ impl AudioEngine {
         let sample_rate = supported_config.sample_rate().0;
         let config: StreamConfig = supported_config.into();
 
-        let samples_played = Arc::new(AtomicU64::new(0));
-        let clock = AudioClock::new(Arc::clone(&samples_played), sample_rate);
+        let clock = AudioClock::new(sample_rate);
 
         let visual_levels: Arc<[AtomicU32; 16]> =
             Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
         let (producer, consumer) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
-        let mut mixer = Mixer::new(
-            sample_bank,
-            consumer,
-            samples_played,
-            Arc::clone(&visual_levels),
-            sample_rate,
-        );
+        let mut mixer = Mixer::new(sample_bank, consumer, &clock, Arc::clone(&visual_levels));
 
         let err_fn = |err| eprintln!("Audio stream error: {err}");
 

@@ -1,9 +1,11 @@
+use crate::clock::AudioClock;
 use crate::command::AudioCommand;
 use crate::sample::SampleBank;
 use beetle_core::WavId;
 use rtrb::Consumer;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 pub const MAX_VOICES: usize = 128;
 
@@ -35,7 +37,7 @@ pub struct Mixer {
     voices: [ActiveVoice; MAX_VOICES],
     sample_bank: SampleBank,
     command_rx: Consumer<AudioCommand>,
-    samples_played: Arc<AtomicU64>,
+    clock: AudioClock,
     visual_levels: Arc<[AtomicU32; 16]>,
     output_sample_rate: u32,
     master_volume: f32,
@@ -46,17 +48,16 @@ impl Mixer {
     pub fn new(
         sample_bank: SampleBank,
         command_rx: Consumer<AudioCommand>,
-        samples_played: Arc<AtomicU64>,
+        clock: &AudioClock,
         visual_levels: Arc<[AtomicU32; 16]>,
-        output_sample_rate: u32,
     ) -> Self {
         Self {
             voices: [ActiveVoice::default(); MAX_VOICES],
             sample_bank,
             command_rx,
-            samples_played,
+            clock: clock.clone(),
             visual_levels,
-            output_sample_rate: output_sample_rate.max(1),
+            output_sample_rate: clock.sample_rate().max(1),
             master_volume: 1.0,
             is_paused: false,
         }
@@ -64,6 +65,9 @@ impl Mixer {
 
     /// Process incoming commands and mix audio samples into the interleaved stereo output buffer.
     pub fn process_buffer(&mut self, output: &mut [f32]) {
+        // The clock runs on from when the device asked for this buffer.
+        let now = Instant::now();
+
         // 1. Drain lock-free commands
         while let Ok(cmd) = self.command_rx.pop() {
             match cmd {
@@ -92,7 +96,7 @@ impl Mixer {
                     self.master_volume = vol.clamp(0.0, 2.0);
                 }
                 AudioCommand::ResetClock => {
-                    self.samples_played.store(0, Ordering::Relaxed);
+                    self.clock.reset(now);
                 }
             }
         }
@@ -104,6 +108,7 @@ impl Mixer {
             for slot in self.visual_levels.iter() {
                 slot.store(0, Ordering::Relaxed);
             }
+            self.clock.advance(0, now);
             return;
         }
 
@@ -192,8 +197,7 @@ impl Mixer {
         }
 
         // 6. Update master audio clock
-        self.samples_played
-            .fetch_add(frame_count as u64, Ordering::Relaxed);
+        self.clock.advance(frame_count as u64, now);
     }
 
     fn spawn_voice(&mut self, sample_id: WavId, volume: f32, pan: f32) {
@@ -270,15 +274,9 @@ mod tests {
         sample_bank.insert(WavId(1), pcm);
 
         let (mut producer, consumer) = RingBuffer::new(32);
-        let samples_played = Arc::new(AtomicU64::new(0));
+        let clock = AudioClock::new(44100);
         let visual_levels = make_visual_levels();
-        let mut mixer = Mixer::new(
-            sample_bank,
-            consumer,
-            Arc::clone(&samples_played),
-            visual_levels,
-            44100,
-        );
+        let mut mixer = Mixer::new(sample_bank, consumer, &clock, visual_levels);
 
         // Pan center
         producer
@@ -292,7 +290,7 @@ mod tests {
         let mut output = [0.0f32; 4]; // 2 stereo frames
         mixer.process_buffer(&mut output);
 
-        assert_eq!(samples_played.load(Ordering::Relaxed), 2);
+        assert_eq!(clock.rendered_samples(), 2);
         assert!((output[0] - 0.5).abs() < 0.001);
         assert!((output[1] - 0.5).abs() < 0.001);
         assert!((output[2] - 0.5).abs() < 0.001);
@@ -301,7 +299,7 @@ mod tests {
         // Next buffer: voice ends after remaining 2 frames
         let mut output2 = [0.0f32; 4];
         mixer.process_buffer(&mut output2);
-        assert_eq!(samples_played.load(Ordering::Relaxed), 4);
+        assert_eq!(clock.rendered_samples(), 4);
         assert_eq!(mixer.active_voice_count(), 0);
     }
 
@@ -312,9 +310,9 @@ mod tests {
         sample_bank.insert(WavId(1), pcm);
 
         let (mut producer, consumer) = RingBuffer::new(32);
-        let samples_played = Arc::new(AtomicU64::new(0));
+        let clock = AudioClock::new(44100);
         let visual_levels = make_visual_levels();
-        let mut mixer = Mixer::new(sample_bank, consumer, samples_played, visual_levels, 44100);
+        let mut mixer = Mixer::new(sample_bank, consumer, &clock, visual_levels);
 
         producer
             .push(AudioCommand::PlaySample {
@@ -345,15 +343,9 @@ mod tests {
         sample_bank.insert(WavId(1), pcm);
 
         let (mut producer, consumer) = RingBuffer::new(32);
-        let samples_played = Arc::new(AtomicU64::new(0));
+        let clock = AudioClock::new(44100);
         let visual_levels = make_visual_levels();
-        let mut mixer = Mixer::new(
-            sample_bank,
-            consumer,
-            Arc::clone(&samples_played),
-            visual_levels,
-            44100,
-        );
+        let mut mixer = Mixer::new(sample_bank, consumer, &clock, visual_levels);
 
         producer
             .push(AudioCommand::PlaySample {
@@ -365,7 +357,7 @@ mod tests {
 
         let mut output = [0.0f32; 10];
         mixer.process_buffer(&mut output);
-        assert_eq!(samples_played.load(Ordering::Relaxed), 5);
+        assert_eq!(clock.rendered_samples(), 5);
 
         // Pause
         producer.push(AudioCommand::Pause).unwrap();
@@ -373,12 +365,12 @@ mod tests {
         mixer.process_buffer(&mut pause_out);
 
         // While paused: output is 0.0 and clock does not advance
-        assert_eq!(samples_played.load(Ordering::Relaxed), 5);
+        assert_eq!(clock.rendered_samples(), 5);
         assert!(pause_out.iter().all(|&s| s == 0.0));
 
         // Resume
         producer.push(AudioCommand::Resume).unwrap();
         mixer.process_buffer(&mut output);
-        assert_eq!(samples_played.load(Ordering::Relaxed), 10);
+        assert_eq!(clock.rendered_samples(), 10);
     }
 }
