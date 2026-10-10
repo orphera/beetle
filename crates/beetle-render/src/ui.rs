@@ -3,7 +3,8 @@
 
 use crate::art::Skin;
 use crate::backend::GpuBackend;
-use crate::canvas::Canvas;
+use crate::canvas::{Canvas, Rect};
+use crate::hit::{self, Hit, HitId};
 use crate::text::TextEngine;
 
 pub struct Ui {
@@ -14,6 +15,12 @@ pub struct Ui {
     /// (ambient glow, grain, vignette). Set when running on WARP, where every
     /// full-screen layer is CPU-rasterized.
     pub lite: bool,
+    /// Click regions of the frame being drawn (cleared by `begin`). Hit-tested
+    /// by the app against the last presented frame.
+    pub hits: Vec<Hit>,
+    /// Cursor position in physical pixels, set by the app before drawing;
+    /// `None` when the cursor is outside the window.
+    pub pointer: Option<(f32, f32)>,
 }
 
 impl Ui {
@@ -26,6 +33,8 @@ impl Ui {
             text: TextEngine::new(),
             skin,
             lite: false,
+            hits: Vec::new(),
+            pointer: None,
         }
     }
 
@@ -38,6 +47,17 @@ impl Ui {
             self.skin = Skin::generate(self.canvas.atlas_mut(), scale);
         }
         self.canvas.begin(width, height);
+        self.hits.clear();
+    }
+
+    /// Records a click region for this frame.
+    pub fn hit(&mut self, rect: Rect, id: HitId) {
+        self.hits.push(Hit { rect, id });
+    }
+
+    /// Whether the cursor is over `rect` in this frame.
+    pub fn hovered(&self, rect: Rect) -> bool {
+        hit::hovered(self.pointer, rect)
     }
 
     /// Submits the frame; returns the number of draw calls.

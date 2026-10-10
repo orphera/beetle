@@ -9,6 +9,7 @@
 pub mod art;
 pub mod backend;
 pub mod canvas;
+pub mod hit;
 pub mod image;
 pub mod motion;
 pub mod screens;
@@ -24,6 +25,7 @@ pub use art::{Halo, NineSlice, Skin};
 pub use backend::D3d11Backend;
 pub use backend::{BlendMode, GpuBackend, TextureId, Vertex2D};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
+pub use hit::{hit_at, Hit, HitId};
 pub use image::{BgaAtlasBuilder, ImageBuffer};
 pub use screens::{
     draw_boot, draw_exit_modal, draw_gameplay, draw_key_config, draw_loading, draw_options_modal,

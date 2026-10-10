@@ -5,7 +5,7 @@ use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
-use crate::handlers::options::handle_option_modal_input;
+use crate::handlers::options::{handle_option_modal_input, open_options};
 use crate::state::{replay_path, AppScreen, AppState};
 
 /// Handles keyboard input for the Song Select screen.
@@ -82,71 +82,21 @@ pub fn handle_song_select_input(
         KeyCode::Slash => {
             state.is_search_active = true;
         }
-        KeyCode::F1 => {
-            state.category_mode = state.category_mode.prev(state.tables.tables().len());
-            state.recompute_filtered_songs();
-            state.cursor_settle_time = std::time::Instant::now();
-        }
-        KeyCode::F3 => {
-            state.category_mode = state.category_mode.next(state.tables.tables().len());
-            state.recompute_filtered_songs();
-            state.cursor_settle_time = std::time::Instant::now();
-        }
-        KeyCode::Tab | KeyCode::KeyO => {
-            state.show_option_modal = true;
-            state.modal_row = 0;
-        }
+        KeyCode::F1 => cycle_folder(state, false),
+        KeyCode::F3 => cycle_folder(state, true),
+        KeyCode::Tab | KeyCode::KeyO => open_options(state),
         KeyCode::KeyA => {
             state.is_auto_play = !state.is_auto_play;
         }
-        KeyCode::KeyR => {
-            // Launch replay playback if replay file exists
-            if let Some(song) = state.current_selected_song().cloned() {
-                let path_str = replay_path(song.id, song.score_rule(state.ln_option()));
-                if let Ok(rep_str) = fs::read_to_string(&path_str) {
-                    if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
-                        state.is_replay_playback = true;
-                        state.playback_replay = Some(replay);
-                        state.playback_cursor = 0;
-                        queue_start_gameplay(state, &song);
-                    }
-                }
-            }
-        }
+        KeyCode::KeyR => start_replay(state),
         KeyCode::F12 | KeyCode::KeyC => {
             state.screen = AppScreen::KeyConfig;
             state.key_config_edit_mode = state.key_config_mode();
             state.selected_key_idx = 0;
         }
-        KeyCode::F2 => {
-            // Cycle Sort Mode
-            state.sort_mode = state.sort_mode.next();
-            let ln_option = state.ln_option();
-            sort_songs(
-                &mut state.songs,
-                state.sort_mode,
-                &state.score_store,
-                ln_option,
-            );
-            state.recompute_filtered_songs();
-            state.cursor_settle_time = std::time::Instant::now();
-            state.save_config();
-        }
-        KeyCode::ArrowUp | KeyCode::KeyK => {
-            if state.selected_song_idx > 0 {
-                state.selected_song_idx -= 1;
-            } else if !state.filtered_indices.is_empty() {
-                state.selected_song_idx = state.filtered_indices.len() - 1;
-            }
-            state.cursor_settle_time = std::time::Instant::now();
-        }
-        KeyCode::ArrowDown | KeyCode::KeyJ => {
-            if !state.filtered_indices.is_empty() {
-                state.selected_song_idx =
-                    (state.selected_song_idx + 1) % state.filtered_indices.len();
-            }
-            state.cursor_settle_time = std::time::Instant::now();
-        }
+        KeyCode::F2 => cycle_sort(state),
+        KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
+        KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
         KeyCode::PageUp => {
             if !state.filtered_indices.is_empty() {
                 state.selected_song_idx = state.selected_song_idx.saturating_sub(10);
@@ -170,18 +120,79 @@ pub fn handle_song_select_input(
             }
             state.cursor_settle_time = std::time::Instant::now();
         }
-        KeyCode::Enter | KeyCode::Space => {
-            if let Some(song) = state.current_selected_song().cloned() {
-                state.is_replay_playback = false;
-                queue_start_gameplay(state, &song);
-            }
-        }
+        KeyCode::Enter | KeyCode::Space => start_selected(state),
         KeyCode::F5 => state.start_rescan(),
         _ => {
             if let Some(t) = text {
                 if t == "/" {
                     state.is_search_active = true;
                 }
+            }
+        }
+    }
+}
+
+/// Moves the highlight one row down or up, wrapping at the ends of the list.
+/// Keeps the cursor still for the preview / jacket loader while it moves.
+pub fn move_selection(state: &mut AppState, down: bool) {
+    let len = state.filtered_indices.len();
+    if len > 0 {
+        state.selected_song_idx = if down {
+            (state.selected_song_idx + 1) % len
+        } else if state.selected_song_idx > 0 {
+            state.selected_song_idx - 1
+        } else {
+            len - 1
+        };
+    }
+    state.cursor_settle_time = std::time::Instant::now();
+}
+
+/// Moves the folder selector to the next (or previous) folder.
+pub fn cycle_folder(state: &mut AppState, forward: bool) {
+    let tables = state.tables.tables().len();
+    state.category_mode = if forward {
+        state.category_mode.next(tables)
+    } else {
+        state.category_mode.prev(tables)
+    };
+    state.recompute_filtered_songs();
+    state.cursor_settle_time = std::time::Instant::now();
+}
+
+/// Cycles the sort mode, re-sorts the library and saves the choice.
+pub fn cycle_sort(state: &mut AppState) {
+    state.sort_mode = state.sort_mode.next();
+    let ln_option = state.ln_option();
+    sort_songs(
+        &mut state.songs,
+        state.sort_mode,
+        &state.score_store,
+        ln_option,
+    );
+    state.recompute_filtered_songs();
+    state.cursor_settle_time = std::time::Instant::now();
+    state.save_config();
+}
+
+/// Plays the highlighted song (ENTER, or a click on the selected row).
+pub fn start_selected(state: &mut AppState) {
+    if let Some(song) = state.current_selected_song().cloned() {
+        state.is_replay_playback = false;
+        queue_start_gameplay(state, &song);
+    }
+}
+
+/// Plays the highlighted song's saved replay (R), if it has one.
+pub fn start_replay(state: &mut AppState) {
+    if let Some(song) = state.current_selected_song().cloned() {
+        let path_str = replay_path(song.id, song.score_rule(state.ln_option()));
+        if let Ok(rep_str) = fs::read_to_string(&path_str) {
+            if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
+                state.is_replay_playback = true;
+                state.playback_replay = Some(replay);
+                state.playback_cursor = 0;
+                queue_start_gameplay(state, &song);
             }
         }
     }

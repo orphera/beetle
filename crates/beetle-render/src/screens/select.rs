@@ -8,6 +8,7 @@
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
+use crate::hit::{HitId, HitSink};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextEngine, TextStyle};
@@ -54,6 +55,7 @@ const ROW_GAP: f32 = 6.0;
 pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
     let s = vp.scale;
@@ -70,19 +72,19 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     match selected {
         Some(song) => {
             let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
-            song_list(c, t, &sk, f, list, s);
+            song_list(c, t, &sk, f, list, s, &mut hs);
             let detail = Rect::from_ltrb(
                 list.right() + PAD * s,
                 content.y,
                 content.right(),
                 content.bottom(),
             );
-            detail_panel(c, t, &sk, f, song, detail, s);
+            detail_panel(c, t, &sk, f, song, detail, s, &mut hs);
         }
         None => empty_state(c, t, f, content, s),
     }
 
-    top_bar(c, t, &sk, f, s);
+    top_bar(c, t, &sk, f, s, &mut hs);
     footer(c, t, &sk, f, s);
 }
 
@@ -96,24 +98,38 @@ fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetada
 // Top bar: wordmark, folder / sort selectors, search box
 // ---------------------------------------------------------------------------
 
-fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f32) {
+fn top_bar(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    s: f32,
+    hs: &mut HitSink,
+) {
     let vp = f.viewport;
     let x0 = vp.x + PAD * s;
     let adv = widgets::top_bar(c, t, vp, "BEETLE", s);
+    let bar_top = vp.y + 16.0 * s;
+    let bar_h = 32.0 * s;
 
     // Folder and sort read as "LABEL  ‹ value ›" selectors.
     let mut x = x0 + adv + 48.0 * s;
     for (label, value, arrows) in [("FOLDER", f.folder, true), ("SORT", f.sort, false)] {
         let cap = caption(10.0, s);
+        let start = x;
         x += t.draw(c, label, x, vp.y + 37.0 * s, &cap) + 12.0 * s;
         let icon = 16.0 * s;
         let iy = vp.y + 32.0 * s - icon / 2.0;
         if arrows {
-            c.sprite(
-                sk.icons.chevron_left,
-                Rect::new(x - 4.0 * s, iy, icon, icon),
-                theme::MUTED,
-            );
+            let arrow = Rect::new(x - 4.0 * s, iy, icon, icon);
+            let hit = Rect::new(arrow.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
+            hs.add(hit, HitId::FolderPrev);
+            let col = if hs.hovered(hit) {
+                theme::TEXT
+            } else {
+                theme::MUTED
+            };
+            c.sprite(sk.icons.chevron_left, arrow, col);
             x += icon;
         }
         let st = TextStyle::new(13.0 * s)
@@ -122,23 +138,88 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
             .color(theme::TEXT);
         x += t.draw(c, value, x, vp.y + 37.0 * s, &st);
         if arrows {
-            c.sprite(
-                sk.icons.chevron_right,
-                Rect::new(x + 4.0 * s, iy, icon, icon),
-                theme::MUTED,
-            );
+            let arrow = Rect::new(x + 4.0 * s, iy, icon, icon);
+            let hit = Rect::new(arrow.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
+            hs.add(hit, HitId::FolderNext);
+            let col = if hs.hovered(hit) {
+                theme::TEXT
+            } else {
+                theme::MUTED
+            };
+            c.sprite(sk.icons.chevron_right, arrow, col);
             x += icon + 4.0 * s;
+        } else {
+            let hit = Rect::new(start - 8.0 * s, bar_top, x - start + 16.0 * s, bar_h);
+            hs.add(hit, HitId::Sort);
+            if hs.hovered(hit) {
+                c.stroke_rect(hit, s.max(1.0), theme::CYAN.with_alpha(90));
+            }
         }
         x += 32.0 * s;
     }
 
-    // Search box
-    let search = Rect::new(
-        vp.x + vp.width - (PAD + 280.0) * s,
-        vp.y + 16.0 * s,
-        280.0 * s,
-        32.0 * s,
+    // Settings button at the right edge; the search box sits to its left.
+    let settings = Rect::new(
+        vp.x + vp.width - (PAD + 136.0) * s,
+        bar_top,
+        136.0 * s,
+        bar_h,
     );
+    let settings_hot = hs.hovered(settings);
+    hs.add(settings, HitId::Settings);
+    c.nine(
+        &sk.cut_panel,
+        settings,
+        if settings_hot {
+            theme::SURF3
+        } else {
+            theme::SURF2
+        },
+    );
+    c.nine(
+        &sk.cut_outline,
+        settings,
+        if settings_hot {
+            theme::CYAN.with_alpha(200)
+        } else {
+            theme::LINE
+        },
+    );
+    let label_st = TextStyle::new(12.0 * s)
+        .bold()
+        .tracking(2.0 * s)
+        .color(if settings_hot {
+            theme::TEXT
+        } else {
+            theme::MUTED
+        });
+    let lw = t.measure(c, "OPTIONS", &label_st);
+    let kw = keycap_width(c, t, "TAB", s);
+    let bx = settings.x + (settings.w - lw - kw - 10.0 * s) / 2.0;
+    t.draw_in(
+        c,
+        "OPTIONS",
+        Rect::new(bx, settings.y, lw + 1.0, settings.h),
+        Align::Left,
+        &label_st,
+    );
+    keycap(
+        c,
+        t,
+        sk,
+        "TAB",
+        Rect::new(
+            bx + lw + 10.0 * s,
+            settings.y + (settings.h - 20.0 * s) / 2.0,
+            kw,
+            20.0 * s,
+        ),
+        s,
+    );
+
+    // Search box
+    let search = Rect::new(settings.x - (12.0 + 280.0) * s, bar_top, 280.0 * s, bar_h);
+    hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,
         search,
@@ -148,6 +229,9 @@ fn top_bar(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, s: f3
             theme::SURF2
         },
     );
+    if !f.search_active && hs.hovered(search) {
+        c.nine(&sk.panel_lg, search, theme::WHITE.with_alpha(10));
+    }
     if f.search_active {
         c.nine(&sk.panel_outline, search, theme::CYAN.with_alpha(200));
     }
@@ -197,7 +281,15 @@ fn scroll_start(selected: usize, total: usize, rows: usize) -> usize {
         .min(total.saturating_sub(rows))
 }
 
-fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, list: Rect, s: f32) {
+fn song_list(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    list: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
     let step = (ROW_H + ROW_GAP) * s;
     let rows = (((list.h + ROW_GAP * s) / step).floor() as usize).max(1);
     let total = f.visible.len();
@@ -214,6 +306,7 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
             row_w,
             ROW_H * s,
         );
+        hs.add(row, HitId::SongRow(slot));
         let chip = f.tables.chip(song.id);
         song_row(
             c,
@@ -224,6 +317,7 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
             chip.as_deref(),
             row,
             slot == f.selected,
+            slot != f.selected && hs.hovered(row),
             s,
         );
     }
@@ -247,7 +341,6 @@ fn song_list(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &SelectFrame, lis
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Small pill with a difficulty table level (`sl3`); returns its width.
 fn level_chip(
     c: &mut Canvas,
@@ -266,6 +359,7 @@ fn level_chip(
     w
 }
 
+#[allow(clippy::too_many_arguments)]
 fn song_row(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -275,6 +369,7 @@ fn song_row(
     table_chip: Option<&str>,
     row: Rect,
     on: bool,
+    hot: bool,
     s: f32,
 ) {
     if on {
@@ -299,7 +394,8 @@ fn song_row(
         );
         c.set_additive(false);
     } else {
-        c.nine(&sk.panel, row, theme::SURF1.with_alpha(220));
+        let bg = if hot { theme::SURF2 } else { theme::SURF1 };
+        c.nine(&sk.panel, row, bg.with_alpha(220));
     }
 
     // Clear lamp: a strip on the left edge (IIDX convention).
@@ -458,6 +554,7 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn detail_panel(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -466,6 +563,7 @@ fn detail_panel(
     song: &SongMetadata,
     panel: Rect,
     s: f32,
+    hs: &mut HitSink,
 ) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
@@ -627,8 +725,26 @@ fn detail_panel(
         let rw = 132.0 * s;
         let replay = Rect::new(cta.right() - rw, cta.y, rw, cta.h);
         cta.w -= rw + 12.0 * s;
-        c.nine(&sk.cut_panel, replay, theme::SURF2);
-        c.nine(&sk.cut_outline, replay, theme::LINE);
+        let replay_hot = hs.hovered(replay);
+        hs.add(replay, HitId::Replay);
+        c.nine(
+            &sk.cut_panel,
+            replay,
+            if replay_hot {
+                theme::SURF3
+            } else {
+                theme::SURF2
+            },
+        );
+        c.nine(
+            &sk.cut_outline,
+            replay,
+            if replay_hot {
+                theme::CYAN.with_alpha(200)
+            } else {
+                theme::LINE
+            },
+        );
         let st = TextStyle::new(13.0 * s)
             .bold()
             .tracking(2.0 * s)
@@ -663,6 +779,10 @@ fn detail_panel(
     );
     c.set_additive(false);
     c.nine_hgradient(&sk.cut_panel, cta, theme::CYAN, theme::BLUE);
+    hs.add(cta, HitId::Play);
+    if hs.hovered(cta) {
+        c.fill_rect(cta, theme::WHITE.with_alpha(28));
+    }
     c.sprite(
         sk.icons.play,
         Rect::new(cta.x + 22.0 * s, cta.y + 12.0 * s, 28.0 * s, 28.0 * s),
@@ -911,17 +1031,27 @@ pub const OPTION_SECTIONS: [(usize, &str); 5] = [
 /// First row of the modal's right column (when there are more rows than this).
 pub const OPTION_COLUMN_BREAK: usize = 9;
 
-fn modal_panel(c: &mut Canvas, sk: &Skin, vp: &Viewport, w: f32, h: f32, s: f32) -> Rect {
-    c.fill_rect(
-        Rect::new(vp.x, vp.y, vp.width, vp.height),
-        theme::BLACK.with_alpha(180),
-    );
+fn modal_panel(
+    c: &mut Canvas,
+    sk: &Skin,
+    vp: &Viewport,
+    hs: &mut HitSink,
+    w: f32,
+    h: f32,
+    s: f32,
+) -> Rect {
+    let screen = Rect::new(vp.x, vp.y, vp.width, vp.height);
+    c.fill_rect(screen, theme::BLACK.with_alpha(180));
+    // Clicks outside the panel close the modal; inside it they do nothing
+    // unless they land on a control recorded after these two.
+    hs.add(screen, HitId::Blocker);
     let panel = Rect::new(
         vp.x + (vp.width - w) / 2.0,
         vp.y + (vp.height - h) / 2.0,
         w,
         h,
     );
+    hs.add(panel, HitId::ModalPanel);
     c.halo(&sk.shadow, panel, theme::WHITE);
     c.nine(&sk.panel_lg, panel, theme::SURF1);
     c.fill_rect_hgradient(
@@ -935,6 +1065,7 @@ fn modal_panel(c: &mut Canvas, sk: &Skin, vp: &Viewport, w: f32, h: f32, s: f32)
 /// Play options modal over the song list. `rows` are (label, value).
 pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], selected: usize) {
     let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = vp.scale;
     let row_h = 30.0 * s;
@@ -957,6 +1088,7 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
         c,
         &sk,
         vp,
+        &mut hs,
         if n_cols > 1 { 960.0 * s } else { 560.0 * s },
         h,
         s,
@@ -999,9 +1131,13 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
             }
             let row = Rect::new(col.x - 8.0 * s, y, col.w + 16.0 * s, row_h - 2.0 * s);
             let on = i == selected;
+            let hot = !on && hs.hovered(row);
+            hs.add(row, HitId::OptionRow(i));
             if on {
                 c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
                 c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
+            } else if hot {
+                c.nine(&sk.panel, row, theme::SURF2);
             }
             let label_st = TextStyle::new(13.0 * s)
                 .bold()
@@ -1036,7 +1172,13 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
                 Align::Center,
                 &value_st,
             );
-            if on {
+            // Value arrows: click targets on every row, drawn on the
+            // selected and hovered rows.
+            let prev = Rect::new(vr.x - 4.0 * s, row.y, icon + 8.0 * s, row.h);
+            let next = Rect::new(vr.right() - 4.0 * s, row.y, icon + 8.0 * s, row.h);
+            hs.add(prev, HitId::OptionPrev(i));
+            hs.add(next, HitId::OptionNext(i));
+            if on || hot {
                 let iy = row.y + (row.h - icon) / 2.0;
                 c.sprite(
                     sk.icons.chevron_left,
@@ -1069,9 +1211,10 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
 /// "Quit Beetle?" confirmation over the song list.
 pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = vp.scale;
-    let panel = modal_panel(c, &sk, vp, 420.0 * s, 212.0 * s, s);
+    let panel = modal_panel(c, &sk, vp, &mut hs, 420.0 * s, 212.0 * s, s);
     let inner = panel.inset(28.0 * s);
     t.draw(
         c,
@@ -1096,9 +1239,32 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     let by = inner.bottom() - bh;
     let cancel = Rect::new(inner.x, by, bw, bh);
     let quit = Rect::new(cancel.right() + 12.0 * s, by, bw, bh);
-    c.nine(&sk.cut_panel, cancel, theme::SURF2);
-    c.nine(&sk.cut_outline, cancel, theme::LINE);
+    hs.add(cancel, HitId::ExitCancel);
+    hs.add(quit, HitId::ExitQuit);
+    let cancel_hot = hs.hovered(cancel);
+    let quit_hot = hs.hovered(quit);
+    c.nine(
+        &sk.cut_panel,
+        cancel,
+        if cancel_hot {
+            theme::SURF3
+        } else {
+            theme::SURF2
+        },
+    );
+    c.nine(
+        &sk.cut_outline,
+        cancel,
+        if cancel_hot {
+            theme::CYAN.with_alpha(200)
+        } else {
+            theme::LINE
+        },
+    );
     c.nine(&sk.cut_panel, quit, theme::MAGENTA);
+    if quit_hot {
+        c.fill_rect(quit, theme::WHITE.with_alpha(28));
+    }
     for (r, label, key, col) in [
         (cancel, "CANCEL", "ESC", theme::TEXT),
         (quit, "QUIT", "ENTER", theme::WHITE),
@@ -1161,6 +1327,105 @@ mod tests {
         assert_eq!(scroll_start(10, 100, 9), 6);
         assert_eq!(scroll_start(99, 100, 9), 91);
         assert_eq!(scroll_start(3, 5, 9), 0);
+    }
+
+    #[test]
+    fn hit_regions_follow_the_drawn_layout() {
+        use crate::hit::{hit_at, HitId};
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..40).map(song).collect();
+        let visible: Vec<_> = (0..40).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let mut ui = Ui::new(vp.scale);
+        let frame = SelectFrame {
+            viewport: &vp,
+            songs: &songs,
+            tables: &tables,
+            ln_option: LnOption::Auto,
+            visible: &visible,
+            selected: 5,
+            scores: &scores,
+            folder: "ALL SONGS",
+            sort: "TITLE",
+            search: "",
+            search_active: false,
+            jacket: None,
+            ambient: None,
+            option_chips: &chips,
+            auto_play: false,
+            has_replay: true,
+            preview_secs: None,
+        };
+
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame);
+        let rows: Vec<_> = ui
+            .hits
+            .iter()
+            .filter_map(|h| match h.id {
+                HitId::SongRow(i) => Some((i, h.rect)),
+                _ => None,
+            })
+            .collect();
+        assert!(!rows.is_empty());
+        for (i, r) in &rows {
+            let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+            assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::SongRow(*i)));
+        }
+        for id in [
+            HitId::Settings,
+            HitId::Search,
+            HitId::Sort,
+            HitId::FolderPrev,
+            HitId::FolderNext,
+            HitId::Play,
+            HitId::Replay,
+        ] {
+            let (x, y) = hit_center(&ui.hits, id);
+            assert_eq!(hit_at(&ui.hits, x, y), Some(id));
+        }
+
+        // An open options modal sits above the rows: a click on a row's
+        // position outside the panel reaches the blocker, not the row.
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame);
+        let rows_text = [("HI-SPEED", "1100".to_string()), ("GAUGE", "GROOVE".into())];
+        draw_options_modal(&mut ui, &vp, &rows_text, 1);
+        let (rx, ry) = (rows[0].1.x + 10.0, rows[0].1.y + 10.0);
+        assert_eq!(hit_at(&ui.hits, rx, ry), Some(HitId::Blocker));
+        assert_eq!(hit_at(&ui.hits, 2.0, 2.0), Some(HitId::Blocker));
+        // Empty panel space (above the first row) is the panel, not the blocker.
+        let panel = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::ModalPanel)
+            .expect("panel")
+            .rect;
+        assert_eq!(
+            hit_at(&ui.hits, panel.x + 4.0, panel.y + 4.0),
+            Some(HitId::ModalPanel)
+        );
+        let (ox, oy) = hit_center(&ui.hits, HitId::OptionNext(1));
+        assert_eq!(hit_at(&ui.hits, ox, oy), Some(HitId::OptionNext(1)));
+        let (ax, ay) = hit_center(&ui.hits, HitId::OptionRow(0));
+        assert_eq!(hit_at(&ui.hits, ax, ay), Some(HitId::OptionRow(0)));
+
+        // The exit prompt: its buttons sit above its own blocker and panel.
+        ui.begin(1280, 720, vp.scale);
+        draw_exit_modal(&mut ui, &vp);
+        let (qx, qy) = hit_center(&ui.hits, HitId::ExitQuit);
+        assert_eq!(hit_at(&ui.hits, qx, qy), Some(HitId::ExitQuit));
+        let (cx, cy) = hit_center(&ui.hits, HitId::ExitCancel);
+        assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::ExitCancel));
+        assert_eq!(hit_at(&ui.hits, 2.0, 2.0), Some(HitId::Blocker));
+    }
+
+    /// Center of the first region recorded as `id`.
+    fn hit_center(hits: &[crate::hit::Hit], id: crate::hit::HitId) -> (f32, f32) {
+        let r = hits.iter().find(|h| h.id == id).expect("recorded").rect;
+        (r.x + r.w / 2.0, r.y + r.h / 2.0)
     }
 
     #[test]

@@ -1,5 +1,6 @@
 pub mod gameplay;
 pub mod key_config;
+pub mod mouse;
 pub mod options;
 pub mod result;
 pub mod song_select;

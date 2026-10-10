@@ -40,7 +40,7 @@ use loader::spawn_background_stage_image_loader;
 use state::{spawn_library_load, AppScreen, AppState, LibraryJob, SongCategory};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -250,6 +250,8 @@ impl ApplicationHandler for BeetleApp {
             pending_screenshot: None,
             d3d11,
             gpu_backend_at_start: saved_config.gpu_backend,
+            cursor: None,
+            wheel_carry: 0.0,
         };
 
         app_state.apply_display_mode();
@@ -569,6 +571,36 @@ impl ApplicationHandler for BeetleApp {
                     }
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                state.cursor = Some((position.x as f32, position.y as f32));
+                if is_menu_screen(state.screen) {
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                state.cursor = None;
+                if is_menu_screen(state.screen) {
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: button_state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if button_state == ElementState::Pressed {
+                    handlers::mouse::handle_press(state);
+                }
+                if is_menu_screen(state.screen) {
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                handlers::mouse::handle_wheel(state, delta);
+                if is_menu_screen(state.screen) {
+                    state.window.request_redraw();
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     ref key_event @ KeyEvent {
@@ -638,6 +670,14 @@ impl ApplicationHandler for BeetleApp {
             _ => (),
         }
     }
+}
+
+/// Screens that draw a menu and take the mouse (gameplay and loading do not).
+fn is_menu_screen(screen: AppScreen) -> bool {
+    matches!(
+        screen,
+        AppScreen::SongSelect | AppScreen::Result | AppScreen::KeyConfig
+    )
 }
 
 fn handle_keyboard_input(

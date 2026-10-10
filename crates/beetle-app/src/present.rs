@@ -23,6 +23,7 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
         .d3d11
         .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
     state.gpu_ui.ui.lite = state.d3d11.is_warp();
+    state.gpu_ui.ui.pointer = state.cursor;
     state.gpu_ui.ui.begin(size.width, size.height, scale);
 }
 

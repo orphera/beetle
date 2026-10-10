@@ -9,28 +9,57 @@ const FPS_PRESETS: [u32; 6] = [60, 120, 144, 240, 360, 0];
 /// lists them (`state.modal_row` indexes this).
 pub const OPTION_ROWS: usize = 16;
 
+/// The key layout row: Enter or Space opens the key config screen for it.
+const KEY_LAYOUT_ROW: usize = 13;
+
+/// Opens the play options modal (TAB, O, or the Settings button).
+pub fn open_options(state: &mut AppState) {
+    state.show_option_modal = true;
+    state.modal_row = 0;
+}
+
+/// Closes the play options modal and saves the options.
+pub fn close_options(state: &mut AppState) {
+    state.show_option_modal = false;
+    state.save_config();
+}
+
+/// Moves the highlighted row one step down or up (no wrapping).
+pub fn move_option_row(state: &mut AppState, down: bool) {
+    state.modal_row = if down {
+        (state.modal_row + 1).min(OPTION_ROWS - 1)
+    } else {
+        state.modal_row.saturating_sub(1)
+    };
+}
+
 /// Handles keyboard input when the play options modal is open.
 pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
-    let forward = match code {
-        KeyCode::Tab | KeyCode::Escape => {
+    let row = state.modal_row;
+    match code {
+        KeyCode::Tab | KeyCode::Escape => close_options(state),
+        KeyCode::ArrowUp | KeyCode::KeyK => move_option_row(state, false),
+        KeyCode::ArrowDown | KeyCode::KeyJ => move_option_row(state, true),
+        KeyCode::ArrowLeft => change_option(state, row, false),
+        KeyCode::ArrowRight => change_option(state, row, true),
+        KeyCode::Enter | KeyCode::Space if row == KEY_LAYOUT_ROW => {
+            state.screen = AppScreen::KeyConfig;
+            state.key_config_edit_mode = state.key_config_mode();
+            state.selected_key_idx = 0;
             state.show_option_modal = false;
             state.save_config();
-            return;
         }
-        KeyCode::ArrowUp | KeyCode::KeyK => {
-            state.modal_row = state.modal_row.saturating_sub(1);
-            return;
-        }
-        KeyCode::ArrowDown | KeyCode::KeyJ => {
-            state.modal_row = (state.modal_row + 1).min(OPTION_ROWS - 1);
-            return;
-        }
-        KeyCode::ArrowLeft => false,
-        KeyCode::ArrowRight | KeyCode::Enter | KeyCode::Space => true,
-        _ => return,
-    };
+        KeyCode::Enter | KeyCode::Space => change_option(state, row, true),
+        _ => (),
+    }
+}
+
+/// Changes the value of option `row` one step (`forward`: the right arrow,
+/// or a larger / next value). The key layout row cycles its preset in
+/// either direction. Saves the options.
+pub fn change_option(state: &mut AppState, row: usize, forward: bool) {
     let step = |back: f32, fwd: f32| if forward { fwd } else { back };
-    match state.modal_row {
+    match row {
         0 => {
             // Hi-Speed
             let o = &mut state.play_options;
@@ -125,18 +154,11 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
             // Target FPS
             state.target_fps = cycle(&FPS_PRESETS, state.target_fps, forward);
         }
-        13 => {
-            // Key Layout (of the selected song's key mode); Enter edits it.
-            if code == KeyCode::Enter || code == KeyCode::Space {
-                state.screen = AppScreen::KeyConfig;
-                state.key_config_edit_mode = state.key_config_mode();
-                state.selected_key_idx = 0;
-                state.show_option_modal = false;
-            } else {
-                let mode = state.key_config_mode();
-                state.key_bindings.get_mut(mode).cycle_preset(mode);
-                state.sync_eight_k_form();
-            }
+        KEY_LAYOUT_ROW => {
+            // Key layout of the selected song's mode: cycle its preset.
+            let mode = state.key_config_mode();
+            state.key_bindings.get_mut(mode).cycle_preset(mode);
+            state.sync_eight_k_form();
         }
         14 => {
             // Auto Play

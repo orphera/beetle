@@ -233,6 +233,10 @@ pub struct AppState {
     pub d3d11: beetle_render::D3d11Backend,
     /// `gpu_backend` as it was when `d3d11` was created.
     pub gpu_backend_at_start: GpuBackendSetting,
+    /// Cursor position in physical pixels; `None` outside the window.
+    pub cursor: Option<(f32, f32)>,
+    /// Wheel notches not yet applied (precise wheels report fractions).
+    pub wheel_carry: f32,
 }
 
 impl AppState {
