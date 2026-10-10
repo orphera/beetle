@@ -15,6 +15,6 @@ pub use atlas::{
 };
 pub use clock::AudioClock;
 pub use command::AudioCommand;
-pub use engine::{AudioEngine, AudioEngineError};
+pub use engine::{AudioEngine, AudioEngineError, SampleTrigger};
 pub use mixer::Mixer;
 pub use sample::{AudioDecodeError, PcmBuffer, SampleBank};

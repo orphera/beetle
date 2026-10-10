@@ -25,6 +25,14 @@ pub const REPLAYS_DIR: &str = "replays";
 /// the lowest frame rate, so the tick never has to catch up.
 pub const SCHEDULE_AHEAD_SECONDS: f64 = 0.1;
 
+/// A play the input thread judges, and what it was last told.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LaneSessionSync {
+    pub id: u32,
+    pub paused: bool,
+    pub offset_ms: f64,
+}
+
 /// Application screens for boot, song select, loading, gameplay, results, key configuration, and settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppScreen {
@@ -96,6 +104,10 @@ pub struct AppState {
     /// Keys from the raw input thread, stamped on arrival. `None` when it
     /// could not start; lane keys then come from winit's key events.
     pub raw_keys: Option<crate::raw_input::RawKeyboard>,
+    /// The play the input thread is judging (`lane_logic`), if any.
+    pub lane_session: Option<LaneSessionSync>,
+    /// Numbers the plays handed to the input thread.
+    pub lane_session_seq: u32,
     /// The judge offset calibration (a sub-screen of Settings), while open.
     pub calibration: Option<crate::calibration::Session>,
     /// The screen Key Configuration returns to (song select or Settings).

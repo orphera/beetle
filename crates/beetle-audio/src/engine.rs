@@ -35,10 +35,28 @@ impl std::fmt::Display for AudioEngineError {
 
 impl std::error::Error for AudioEngineError {}
 
+/// Starts samples from a thread other than the one holding the
+/// `AudioEngine`, on its own lock-free queue into the mixer.
+pub struct SampleTrigger {
+    tx: Producer<AudioCommand>,
+}
+
+impl SampleTrigger {
+    /// Starts a sample in the next buffer (wait-free).
+    pub fn play(&mut self, sample_id: WavId) {
+        let _ = self.tx.push(AudioCommand::PlaySample {
+            sample_id,
+            volume: 1.0,
+            pan: 0.0,
+        });
+    }
+}
+
 /// Main audio engine holding the playback stream, command producer, and visual levels.
 pub struct AudioEngine {
     _stream: Stream,
     command_tx: Producer<AudioCommand>,
+    trigger: Option<SampleTrigger>,
     clock: AudioClock,
     visual_levels: Arc<[AtomicU32; 16]>,
 }
@@ -63,7 +81,9 @@ impl AudioEngine {
         let visual_levels: Arc<[AtomicU32; 16]> =
             Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
         let (producer, consumer) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
-        let mut mixer = Mixer::new(sample_bank, consumer, &clock, Arc::clone(&visual_levels));
+        let (trigger_tx, trigger_rx) = RingBuffer::new(COMMAND_QUEUE_CAPACITY);
+        let mut mixer = Mixer::new(sample_bank, consumer, &clock, Arc::clone(&visual_levels))
+            .with_trigger_queue(trigger_rx);
 
         let err_fn = |err| eprintln!("Audio stream error: {err}");
 
@@ -85,9 +105,15 @@ impl AudioEngine {
         Ok(Self {
             _stream: stream,
             command_tx: producer,
+            trigger: Some(SampleTrigger { tx: trigger_tx }),
             clock,
             visual_levels,
         })
+    }
+
+    /// The engine's second sample queue, for another thread (once).
+    pub fn take_trigger(&mut self) -> Option<SampleTrigger> {
+        self.trigger.take()
     }
 
     /// Access the lock-free audio clock.

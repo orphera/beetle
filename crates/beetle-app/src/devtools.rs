@@ -43,7 +43,7 @@ fn parse_screen(s: &str) -> Option<AppScreen> {
 
 /// Appends to `devtools.log` in the working directory (the app is a GUI
 /// subsystem binary, so stderr is not visible).
-fn log(msg: &str) {
+pub fn log(msg: &str) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)

@@ -130,6 +130,11 @@ pub struct PlayNote {
 }
 
 /// The runtime judgment engine managing live notes, hit detection, and misses.
+///
+/// Deterministic: the same calls in the same order leave the same state, so a
+/// copy fed the same calls (a replay, or the game's mirror of the input
+/// thread's engine) judges the same.
+#[derive(Debug, Clone)]
 pub struct JudgeEngine {
     notes: Vec<PlayNote>,
     window: JudgeWindow,
@@ -668,6 +673,48 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, Lane::Key2);
         assert_eq!(engine.score().pgreat_count, 2);
+    }
+
+    #[test]
+    fn a_copy_fed_the_same_calls_judges_the_same() {
+        // Taps, a long note and mines a held key runs over.
+        let chart = parse_bms(
+            "#BPM 120\n#LNTYPE 1\n#00111:01010101\n#00112:00010001\n#00151:01000100\n#00213:01010101\n#002D4:00010001\n",
+        )
+        .unwrap();
+        let timing = TimingModel::from_chart(&chart);
+        let mut a = JudgeEngine::new(&chart, &timing, GaugeType::Groove, Ruleset::CN);
+        let mut b = a.clone();
+        let calls = |e: &mut JudgeEngine| {
+            let mut out = Vec::new();
+            out.push(format!("{:?}", e.handle_key_down(Lane::Key1, 2.01)));
+            out.push(format!("{:?}", e.update_misses(2.3)));
+            out.push(format!("{:?}", e.handle_key_down(Lane::Key2, 2.52)));
+            out.push(format!("{:?}", e.handle_key_up(Lane::Key2, 2.6)));
+            out.push(format!("{:?}", e.update_misses(3.2)));
+            // Key 4 held over its mines (4.5 s and 5.5 s): only the miss checks
+            // set them off.
+            out.push(format!("{:?}", e.handle_key_down(Lane::Key4, 4.2)));
+            out.push(format!("{:?}", e.update_misses(4.5)));
+            out.push(format!("{:?}", e.update_misses(5.5)));
+            out.push(format!("{:?}", e.handle_key_up(Lane::Key4, 5.7)));
+            out.push(format!("{:?}", e.update_misses(9.0)));
+            out
+        };
+        assert_eq!(calls(&mut a), calls(&mut b));
+        assert_eq!(format!("{:?}", a.notes()), format!("{:?}", b.notes()));
+        assert_eq!(format!("{:?}", a.score()), format!("{:?}", b.score()));
+        // The held key did run over the mines (the same play without the
+        // hold sets none off).
+        let mut c = JudgeEngine::new(&chart, &timing, GaugeType::Groove, Ruleset::CN);
+        c.handle_key_down(Lane::Key1, 2.01);
+        c.update_misses(2.3);
+        c.handle_key_down(Lane::Key2, 2.52);
+        c.handle_key_up(Lane::Key2, 2.6);
+        for t in [3.2, 4.5, 5.5, 9.0] {
+            c.update_misses(t);
+        }
+        assert_eq!((a.score().mine_hit_count, c.score().mine_hit_count), (2, 0));
     }
 
     #[test]

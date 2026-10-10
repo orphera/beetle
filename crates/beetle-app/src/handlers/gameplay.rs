@@ -1,10 +1,12 @@
 use beetle_audio::AudioCommand;
+use beetle_core::{BmsChart, JudgeGrade, JudgeWindow, Lane, TimingModel, WavId};
 use beetle_render::strings;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::calibration::judged_time;
 use crate::gameplay::{audio_time_now, leave_gameplay, queue_start_gameplay};
+use crate::lane_logic::transparent_sound;
 use crate::options_table::green_ms_next;
 use crate::state::{AppScreen, AppState};
 
@@ -155,103 +157,72 @@ pub fn handle_lane_key(state: &mut AppState, code: KeyCode, pressed: bool, audio
     if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
         return;
     }
-    let effective_judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
-
-    if pressed {
-        if let Some(rep) = &mut state.current_replay {
-            rep.record(audio_time, lane, true);
-        }
-
-        state.view.set_key_state(lane, true);
-        if let Some(judge) = &mut state.active_judge {
-            if let Some((judge_result, wav_id)) = judge.handle_key_down(lane, effective_judge_time)
-            {
-                if judge_result.grade == beetle_core::JudgeGrade::Miss
-                    || judge_result.grade == beetle_core::JudgeGrade::Poor
-                {
-                    state.poor_until_time = audio_time + 0.4;
-                }
-                state.view.trigger_judge_with_lane(
-                    lane,
-                    judge_result.grade,
-                    audio_time,
-                    judge_result.delta_ms,
-                );
-
-                if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                    let _ = audio.send_command(AudioCommand::PlaySample {
-                        sample_id: id,
-                        volume: 1.0,
-                        pan: 0.0,
-                    });
-                }
-            } else {
-                // No visible note was judged on this lane. Implement transparent-note
-                // fallback: if there are no visible unjudged notes near the judgment
-                // line, play the nearest BGM/freezone sample (3x/4x) if available.
-                let mut visible_near = false;
-                if let (Some(chart), Some(timing)) = (&state.active_chart, &state.active_timing) {
-                    // Use judge window poor threshold based on chart rank
-                    let window = beetle_core::JudgeWindow::from_rank(chart.header.rank);
-                    let poor_ms = window.poor_ms;
-
-                    if let Some(j) = &state.active_judge {
-                        for pn in j.notes() {
-                            if pn.is_judged
-                                || pn.note_event.note_type == beetle_core::NoteType::Landmine
-                            {
-                                continue;
-                            }
-                            let delta_ms =
-                                (effective_judge_time - pn.target_time_seconds).abs() * 1000.0;
-                            if delta_ms <= poor_ms {
-                                visible_near = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if !visible_near {
-                        // Find nearest freezone (transparent) sample by absolute time distance
-                        let mut best: Option<(f64, beetle_core::WavId)> = None;
-                        for (m, f, wav_id) in &chart.freezone_notes {
-                            let t = timing.beat_to_time_seconds(*m, *f);
-                            let dms = (effective_judge_time - t).abs() * 1000.0;
-                            if best.is_none() || dms < best.unwrap().0 {
-                                best = Some((dms, *wav_id));
-                            }
-                        }
-
-                        if let (Some(wav_id), Some(audio)) =
-                            (best.map(|b| b.1), &mut state.audio_engine)
-                        {
-                            let _ = audio.send_command(AudioCommand::PlaySample {
-                                sample_id: wav_id,
-                                volume: 1.0,
-                                pan: 0.0,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        if let Some(rep) = &mut state.current_replay {
-            rep.record(audio_time, lane, false);
-        }
-
-        state.view.set_key_state(lane, false);
-        if let Some(judge) = &mut state.active_judge {
-            if let Some(judge_result) = judge.handle_key_up(lane, effective_judge_time) {
-                state.view.trigger_judge_with_lane(
-                    lane,
-                    judge_result.grade,
-                    audio_time,
-                    judge_result.delta_ms,
-                );
-            }
-        }
+    let judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
+    let sound = judge_lane(state, lane, pressed, audio_time, judge_time);
+    // A press that judged no note may still sound a hidden sample.
+    let sound = match (pressed, sound) {
+        (true, None) => match (
+            &state.active_judge,
+            &state.active_chart,
+            &state.active_timing,
+        ) {
+            (Some(judge), Some(chart), Some(timing)) => transparent_sound(
+                judge,
+                &freezone_sounds(chart, timing),
+                JudgeWindow::from_rank(chart.header.rank).poor_ms,
+                judge_time,
+            ),
+            _ => None,
+        },
+        (_, sound) => sound,
+    };
+    if let (Some(id), Some(audio)) = (sound, &mut state.audio_engine) {
+        let _ = audio.send_command(AudioCommand::PlaySample {
+            sample_id: id,
+            volume: 1.0,
+            pan: 0.0,
+        });
     }
+}
+
+/// Judges a lane going down or up at `judge_time` (the key arrived at
+/// `audio_time`) and shows it: the replay, the key beam, the judgment. The
+/// note's sound when a press hit one, for the caller to start. The input
+/// thread's calls come here too (`main::drain_lane_events`), already sounded.
+pub fn judge_lane(
+    state: &mut AppState,
+    lane: Lane,
+    pressed: bool,
+    audio_time: f64,
+    judge_time: f64,
+) -> Option<WavId> {
+    if let Some(rep) = &mut state.current_replay {
+        rep.record(audio_time, lane, pressed);
+    }
+    state.view.set_key_state(lane, pressed);
+    let judge = state.active_judge.as_mut()?;
+    let (result, sound) = if pressed {
+        let (result, sound) = judge.handle_key_down(lane, judge_time)?;
+        if matches!(result.grade, JudgeGrade::Miss | JudgeGrade::Poor) {
+            state.poor_until_time = audio_time + 0.4;
+        }
+        (result, sound)
+    } else {
+        (judge.handle_key_up(lane, judge_time)?, None)
+    };
+    state
+        .view
+        .trigger_judge_with_lane(lane, result.grade, audio_time, result.delta_ms);
+    sound
+}
+
+/// The chart's hidden (freezone) samples by time.
+pub fn freezone_sounds(chart: &BmsChart, timing: &TimingModel) -> Vec<(f64, WavId)> {
+    chart
+        .freezone_notes
+        .iter()
+        .map(|&(m, f, id)| (timing.beat_to_time_seconds(m, f), id))
+        .collect()
 }
 
 /// Handles keyboard input inside the pause modal overlay.

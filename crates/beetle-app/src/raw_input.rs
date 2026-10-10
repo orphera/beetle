@@ -1,13 +1,15 @@
-//! Keyboard input read on its own thread, stamped the moment it arrives.
+//! Keyboard input read on its own thread, stamped the moment it arrives,
+//! and the judge of a play (`lane_logic`), run on the same thread.
 //!
 //! winit hands key events to the main thread, which also presents frames:
 //! a key pressed while `Present` waits for vblank sits in the queue until
-//! the frame is out. Judging it on the audio clock when it is *handled*
-//! would put it up to a frame late. This thread takes the keyboard's raw
-//! input (`WM_INPUT`) on a message-only window, stamps each key with
-//! `Instant::now()` as it arrives, and queues it lock-free; the game reads
-//! the audio clock at that instant (`AudioClock::time_at`), however late it
-//! gets to the event.
+//! the frame is out. This thread takes the keyboard's raw input
+//! (`WM_INPUT`) on a message-only window and stamps each key with
+//! `Instant::now()` as it arrives. During a play it judges the key at once
+//! on the audio clock at that instant (`AudioClock::time_at`) and starts its
+//! key sound, and checks for misses every `TICK_MILLIS`; the game replays
+//! the judge calls (`LaneEvent`) on its copy of the engine. Otherwise keys
+//! are queued for the game as they are (`RawKey`).
 //!
 //! Raw input is registered once per process, so winit's own registration is
 //! switched off first (`DeviceEvents::Never`); winit's ordinary key events
@@ -16,7 +18,7 @@
 use std::ffi::c_void;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rtrb::{Consumer, Producer, RingBuffer};
 use winit::keyboard::{KeyCode, PhysicalKey};
@@ -24,8 +26,18 @@ use winit::platform::scancode::PhysicalKeyExtScancode;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
+use crate::lane_logic::{LaneEvent, LaneSession, LogicCommand, TICK_MILLIS};
+
 /// Key changes held for the game; far more than come in between two frames.
 const QUEUE_CAPACITY: usize = 1024;
+/// Judge calls held for the game: a frame's worth even at a few frames a second.
+const EVENT_CAPACITY: usize = 4096;
+const COMMAND_CAPACITY: usize = 64;
+/// Room kept for keys: with less free, the miss check waits. Every call the
+/// session makes must reach the game (it makes them all again on its copy),
+/// so a stalled game must not fill the queue with checks; a later check
+/// counts the same misses.
+const TICK_HEADROOM: usize = 256;
 
 /// One key going down or up, at the moment it reached the process.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,10 +47,13 @@ pub struct RawKey {
     pub at: Instant,
 }
 
-/// The game's end of the queue. The reading thread lives as long as the
-/// process.
+/// The game's end of the queues. The thread lives as long as the process.
 pub struct RawKeyboard {
     rx: Consumer<RawKey>,
+    events: Consumer<LaneEvent>,
+    commands: Producer<LogicCommand>,
+    /// The thread's window, posted to so it takes a command at once.
+    target: isize,
 }
 
 impl RawKeyboard {
@@ -48,13 +63,31 @@ impl RawKeyboard {
     /// (the game then judges winit's key events as before).
     pub fn spawn(hwnd: *mut c_void) -> Option<Self> {
         let (tx, rx) = RingBuffer::new(QUEUE_CAPACITY);
+        let (events_tx, events) = RingBuffer::new(EVENT_CAPACITY);
+        let (commands, commands_rx) = RingBuffer::new(COMMAND_CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel();
         let game = hwnd as isize;
         thread::Builder::new()
             .name("raw-input".into())
-            .spawn(move || run(game as *mut c_void, tx, ready_tx))
+            .spawn(move || {
+                let thread = Thread {
+                    game: game as *mut c_void,
+                    keys: tx,
+                    events: events_tx,
+                    commands: commands_rx,
+                    session: None,
+                    held: Held::default(),
+                };
+                thread.run(ready_tx)
+            })
             .ok()?;
-        ready_rx.recv().ok()?.then_some(Self { rx })
+        let target = ready_rx.recv().ok()??;
+        Some(Self {
+            rx,
+            events,
+            commands,
+            target,
+        })
     }
 
     /// [`Self::spawn`] for a winit window.
@@ -66,9 +99,25 @@ impl RawKeyboard {
         Self::spawn(win32.hwnd.get() as *mut c_void)
     }
 
-    /// The next key change, oldest first.
+    /// The next key change outside a play, oldest first.
     pub fn pop(&mut self) -> Option<RawKey> {
         self.rx.pop().ok()
+    }
+
+    /// The next judge call of a play, oldest first.
+    pub fn pop_event(&mut self) -> Option<LaneEvent> {
+        self.events.pop().ok()
+    }
+
+    /// Hands the thread a command and wakes it. `false` when the queue is full.
+    pub fn send(&mut self, command: LogicCommand) -> bool {
+        if self.commands.push(command).is_err() {
+            return false;
+        }
+        unsafe {
+            PostMessageW(self.target as *mut c_void, WM_APP, 0, 0);
+        }
+        true
     }
 }
 
@@ -95,31 +144,103 @@ impl Held {
     }
 }
 
-fn run(game: *mut c_void, mut tx: Producer<RawKey>, ready: mpsc::Sender<bool>) {
-    let Some(target) = (unsafe { open_target() }) else {
-        let _ = ready.send(false);
-        return;
-    };
-    let _ = ready.send(true);
-    unsafe {
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
-    }
+struct Thread {
+    game: *mut c_void,
+    keys: Producer<RawKey>,
+    events: Producer<LaneEvent>,
+    commands: Consumer<LogicCommand>,
+    session: Option<Box<LaneSession>>,
+    held: Held,
+}
 
-    let mut held = Held::default();
-    let mut msg = Msg::default();
-    // GetMessageW returns 0 on WM_QUIT and -1 on error.
-    while unsafe { GetMessageW(&mut msg, target, 0, 0) } > 0 {
-        if msg.message == WM_INPUT {
-            let at = Instant::now();
-            if let Some((code, down)) = unsafe { read_key(msg.l_param) } {
-                let in_front = unsafe { GetForegroundWindow() } == game;
-                if (in_front || !down) && held.change(code, down) {
-                    let _ = tx.push(RawKey { code, down, at });
+impl Thread {
+    fn run(mut self, ready: mpsc::Sender<Option<isize>>) {
+        let Some(target) = (unsafe { open_target() }) else {
+            let _ = ready.send(None);
+            return;
+        };
+        let _ = ready.send(Some(target as isize));
+        unsafe {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        }
+
+        let tick = Duration::from_millis(u64::from(TICK_MILLIS));
+        let mut msg = Msg::default();
+        let mut next_tick = Instant::now();
+        loop {
+            // Asleep until input or a command, except for the miss checks of a play.
+            let wait = if self.session.is_some() {
+                let left = next_tick.saturating_duration_since(Instant::now());
+                left.as_millis().min(u128::from(TICK_MILLIS)) as u32
+            } else {
+                INFINITE
+            };
+            unsafe {
+                MsgWaitForMultipleObjects(0, std::ptr::null(), 0, wait, QS_ALLINPUT);
+            }
+            while unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
+                if msg.message == WM_QUIT {
+                    return;
+                }
+                if msg.message == WM_INPUT {
+                    let at = Instant::now();
+                    if let Some((code, down)) = unsafe { read_key(msg.l_param) } {
+                        self.key(code, down, at);
+                    }
+                }
+                // Raw input needs DefWindowProc to release its buffers.
+                unsafe { DispatchMessageW(&msg) };
+            }
+            while let Ok(command) = self.commands.pop() {
+                self.command(command);
+            }
+            let now = Instant::now();
+            if now >= next_tick {
+                next_tick = now + tick;
+                let room = self.events.slots() > TICK_HEADROOM;
+                if let (Some(session), true) = (&mut self.session, room) {
+                    let audio_time = session.clock().current_time_seconds();
+                    if let Some(event) = session.tick(audio_time) {
+                        let _ = self.events.push(event);
+                    }
                 }
             }
         }
-        // Raw input needs DefWindowProc to release its buffers.
-        unsafe { DispatchMessageW(&msg) };
+    }
+
+    fn key(&mut self, code: KeyCode, down: bool, at: Instant) {
+        let in_front = unsafe { GetForegroundWindow() } == self.game;
+        if (down && !in_front) || !self.held.change(code, down) {
+            return;
+        }
+        match &mut self.session {
+            Some(session) => {
+                let audio_time = session.clock().time_at(at);
+                if let Some(event) = session.key(code, down, audio_time) {
+                    let _ = self.events.push(event);
+                }
+            }
+            None => {
+                let _ = self.keys.push(RawKey { code, down, at });
+            }
+        }
+    }
+
+    fn command(&mut self, command: LogicCommand) {
+        match command {
+            LogicCommand::Start(session) => self.session = Some(session),
+            LogicCommand::End => self.session = None,
+            LogicCommand::Pause(paused) => {
+                if let Some(s) = &mut self.session {
+                    s.set_paused(paused);
+                }
+            }
+            LogicCommand::Offset(ms) => {
+                if let Some(s) = &mut self.session {
+                    s.set_offset(ms);
+                }
+            }
+        }
     }
 }
 
@@ -249,6 +370,11 @@ const RIM_TYPEKEYBOARD: u32 = 1;
 const RI_KEY_E0: u16 = 0x02;
 const RI_KEY_E1: u16 = 0x04;
 const WM_INPUT: u32 = 0x00FF;
+const WM_QUIT: u32 = 0x0012;
+const WM_APP: u32 = 0x8000;
+const PM_REMOVE: u32 = 0x0001;
+const QS_ALLINPUT: u32 = 0x04FF;
+const INFINITE: u32 = u32::MAX;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_KEYUP: u32 = 0x0101;
 const WM_SYSKEYDOWN: u32 = 0x0104;
@@ -335,7 +461,15 @@ extern "system" {
         size: *mut u32,
         header_size: u32,
     ) -> u32;
-    fn GetMessageW(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32) -> i32;
+    fn PeekMessageW(msg: *mut Msg, hwnd: *mut c_void, min: u32, max: u32, remove: u32) -> i32;
+    fn MsgWaitForMultipleObjects(
+        count: u32,
+        handles: *const *mut c_void,
+        wait_all: i32,
+        millis: u32,
+        wake_mask: u32,
+    ) -> u32;
+    fn PostMessageW(hwnd: *mut c_void, msg: u32, w_param: usize, l_param: isize) -> i32;
     fn DispatchMessageW(msg: *const Msg) -> isize;
     fn GetForegroundWindow() -> *mut c_void;
     fn MapVirtualKeyW(code: u32, map_type: u32) -> u32;
@@ -397,6 +531,43 @@ mod tests {
         // Registration needs no window in front; an empty queue to start.
         let mut keys = RawKeyboard::spawn(std::ptr::null_mut()).expect("raw input");
         assert_eq!(keys.pop(), None);
+    }
+
+    /// The next judge call within a second, skipping none.
+    fn next_event(keys: &mut RawKeyboard) -> Option<LaneEvent> {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            if let Some(e) = keys.pop_event() {
+                return Some(e);
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        None
+    }
+
+    #[test]
+    fn a_session_checks_for_misses_until_paused_or_ended() {
+        let mut keys = RawKeyboard::spawn(std::ptr::null_mut()).expect("raw input");
+        assert!(keys.send(LogicCommand::Start(Box::new(LaneSession::for_test(3)))));
+        let event = next_event(&mut keys).expect("a miss check");
+        assert_eq!(event.session, 3);
+        assert!(matches!(
+            event.call,
+            crate::lane_logic::JudgeCall::Misses { .. }
+        ));
+
+        for (stop, label) in [
+            (LogicCommand::Pause(true), "paused"),
+            (LogicCommand::End, "ended"),
+        ] {
+            assert!(keys.send(stop));
+            // Checks made before the command was taken may still be queued.
+            thread::sleep(Duration::from_millis(30));
+            while keys.pop_event().is_some() {}
+            thread::sleep(Duration::from_millis(30));
+            assert_eq!(keys.pop_event(), None, "checks while {label}");
+            assert!(keys.send(LogicCommand::Pause(false)));
+        }
     }
 
     #[test]

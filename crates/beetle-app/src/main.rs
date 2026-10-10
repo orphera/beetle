@@ -10,6 +10,7 @@ mod gpu_ui;
 mod handlers;
 mod ime;
 mod input;
+mod lane_logic;
 mod loader;
 mod options_table;
 mod present;
@@ -184,6 +185,8 @@ impl ApplicationHandler for BeetleApp {
             window,
             view,
             raw_keys,
+            lane_session: None,
+            lane_session_seq: 0,
             audio_engine: None,
             screen: AppScreen::Boot,
             songs: Vec::new(),
@@ -358,6 +361,8 @@ impl ApplicationHandler for BeetleApp {
             return;
         }
 
+        drain_lane_events(state);
+        sync_lane_session(state);
         drain_raw_keys(state);
         ime::close_search_if_unavailable(state);
         state.sync_screen_entry();
@@ -665,6 +670,7 @@ impl ApplicationHandler for BeetleApp {
                     AppScreen::Gameplay => {
                         // Every key that arrived so far is judged before the
                         // tick below can count its note as missed.
+                        drain_lane_events(state);
                         drain_raw_keys(state);
                         let audio_time = state
                             .audio_engine
@@ -820,6 +826,60 @@ fn drain_raw_keys(state: &mut AppState) {
             _ => {}
         }
     }
+}
+
+/// Makes the judge calls of the input thread's play on the game's engine,
+/// which is what is drawn and scored (`lane_logic`). Their sounds have
+/// already started. Calls of an earlier play, or after this one ended, are
+/// dropped.
+fn drain_lane_events(state: &mut AppState) {
+    while let Some(event) = state.raw_keys.as_mut().and_then(|r| r.pop_event()) {
+        let current = state.lane_session.is_some_and(|s| s.id == event.session);
+        if !current || state.gameplay_end.is_some() {
+            continue;
+        }
+        match event.call {
+            lane_logic::JudgeCall::Key {
+                lane,
+                down,
+                audio_time,
+                judge_time,
+            } => {
+                handlers::gameplay::judge_lane(state, lane, down, audio_time, judge_time);
+            }
+            lane_logic::JudgeCall::Misses {
+                audio_time,
+                judge_time,
+            } => gameplay::apply_misses(state, audio_time, judge_time),
+        }
+    }
+}
+
+/// Tells the input thread when its play pauses, resumes, changes its judge
+/// offset or ends (leaving gameplay, or the end banner).
+fn sync_lane_session(state: &mut AppState) {
+    let Some(sync) = state.lane_session else {
+        return;
+    };
+    let Some(keys) = &mut state.raw_keys else {
+        return;
+    };
+    if state.screen != AppScreen::Gameplay || state.gameplay_end.is_some() {
+        keys.send(lane_logic::LogicCommand::End);
+        state.lane_session = None;
+        return;
+    }
+    let mut next = sync;
+    if sync.paused != state.is_gameplay_paused
+        && keys.send(lane_logic::LogicCommand::Pause(state.is_gameplay_paused))
+    {
+        next.paused = state.is_gameplay_paused;
+    }
+    let offset = state.play_options.judge_offset_ms;
+    if sync.offset_ms != offset && keys.send(lane_logic::LogicCommand::Offset(offset)) {
+        next.offset_ms = offset;
+    }
+    state.lane_session = Some(next);
 }
 
 /// Screens that draw a menu and take the mouse (gameplay and loading do not).

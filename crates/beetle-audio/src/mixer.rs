@@ -66,6 +66,8 @@ pub struct Mixer {
     scheduled: [ScheduledStart; MAX_SCHEDULED],
     sample_bank: SampleBank,
     command_rx: Consumer<AudioCommand>,
+    /// A second queue for one other thread (see `SampleTrigger`).
+    trigger_rx: Option<Consumer<AudioCommand>>,
     clock: AudioClock,
     visual_levels: Arc<[AtomicU32; 16]>,
     output_sample_rate: u32,
@@ -85,6 +87,7 @@ impl Mixer {
             scheduled: [ScheduledStart::default(); MAX_SCHEDULED],
             sample_bank,
             command_rx,
+            trigger_rx: None,
             clock: clock.clone(),
             visual_levels,
             output_sample_rate: clock.sample_rate().max(1),
@@ -93,13 +96,26 @@ impl Mixer {
         }
     }
 
+    /// Also drains `rx`, after the main queue, each buffer.
+    pub fn with_trigger_queue(mut self, rx: Consumer<AudioCommand>) -> Self {
+        self.trigger_rx = Some(rx);
+        self
+    }
+
     /// Process incoming commands and mix audio samples into the interleaved stereo output buffer.
     pub fn process_buffer(&mut self, output: &mut [f32]) {
         // The clock runs on from when the device asked for this buffer.
         let now = Instant::now();
 
         // 1. Drain lock-free commands
-        while let Ok(cmd) = self.command_rx.pop() {
+        loop {
+            let cmd = match self.command_rx.pop() {
+                Ok(cmd) => cmd,
+                Err(_) => match self.trigger_rx.as_mut().map(|rx| rx.pop()) {
+                    Some(Ok(cmd)) => cmd,
+                    _ => break,
+                },
+            };
             match cmd {
                 AudioCommand::PlaySample {
                     sample_id,
@@ -556,6 +572,38 @@ mod tests {
         }
         play_at(&mut producer, 1_000_000);
         assert_eq!(mix(&mut mixer, 2), [1.0, 1.0]);
+        assert_eq!(mixer.active_voice_count(), 1);
+    }
+
+    #[test]
+    fn the_trigger_queue_plays_after_the_main_queue() {
+        let mut sample_bank = SampleBank::new();
+        sample_bank.insert(WavId(1), PcmBuffer::new(44100, vec![1.0; 200]));
+        let (mut main_tx, main_rx) = RingBuffer::new(8);
+        let (mut trigger_tx, trigger_rx) = RingBuffer::new(8);
+        let clock = AudioClock::new(44100);
+        let mut mixer = Mixer::new(sample_bank, main_rx, &clock, make_visual_levels())
+            .with_trigger_queue(trigger_rx);
+
+        trigger_tx
+            .push(AudioCommand::PlaySample {
+                sample_id: WavId(1),
+                volume: 1.0,
+                pan: 0.0,
+            })
+            .unwrap();
+        assert_eq!(mix(&mut mixer, 2), [1.0, 1.0]);
+
+        // A stop on the main queue comes first; a start queued after it plays.
+        main_tx.push(AudioCommand::StopAll).unwrap();
+        trigger_tx
+            .push(AudioCommand::PlaySample {
+                sample_id: WavId(1),
+                volume: 1.0,
+                pan: 0.0,
+            })
+            .unwrap();
+        mix(&mut mixer, 2);
         assert_eq!(mixer.active_voice_count(), 1);
     }
 }

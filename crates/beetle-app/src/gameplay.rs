@@ -4,14 +4,17 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, ClearType, GaugeTrend, JudgeEngine, JudgeGrade, PlayResult,
-    ReplayData, ScoreUpdate, SongMetadata, TimingModel,
+    apply_lane_modifier, BmsChart, ClearType, GaugeTrend, JudgeEngine, JudgeGrade, JudgeWindow,
+    PlayResult, ReplayData, ScoreUpdate, SongMetadata, TimingModel,
 };
 
 use crate::calibration::judged_time;
+use crate::handlers::gameplay::freezone_sounds;
+use crate::lane_logic::{LaneSession, LogicCommand};
 use crate::loader::{load_stage_image, spawn_background_song_loader};
 use crate::state::{
-    replay_path, save_scores, AppScreen, AppState, REPLAYS_DIR, SCHEDULE_AHEAD_SECONDS,
+    replay_path, save_scores, AppScreen, AppState, LaneSessionSync, REPLAYS_DIR,
+    SCHEDULE_AHEAD_SECONDS,
 };
 
 fn fresh_seed() -> u64 {
@@ -241,6 +244,7 @@ pub fn finalize_start_gameplay(
     state.screen = AppScreen::Gameplay;
     state.view.reset_feedback();
     state.held_keys.clear();
+    start_lane_session(state);
     state.gpu_ui.release_song_textures(&mut state.d3d11);
     state.window.request_redraw();
 }
@@ -386,6 +390,69 @@ pub enum GameplayTickResult {
     SongFinished,
 }
 
+/// Counts the notes gone past by `judge_time` as missed and shows them.
+pub fn apply_misses(state: &mut AppState, audio_time: f64, judge_time: f64) {
+    let Some(judge) = &mut state.active_judge else {
+        return;
+    };
+    for (lane, miss) in judge.update_misses(judge_time) {
+        state.poor_until_time = audio_time + 0.4;
+        state
+            .view
+            .trigger_judge_with_lane(lane, miss.grade, audio_time, 0.0);
+    }
+}
+
+/// Hands a play to the input thread to judge (`lane_logic`): a manual play,
+/// when the thread runs. It gets a copy of the engine as the play starts and
+/// the engine's second sample queue for its key sounds.
+fn start_lane_session(state: &mut AppState) {
+    hand_lane_session(state);
+    if state.capture.is_some() {
+        let judge = match state.lane_session {
+            Some(s) => format!("input thread (play {})", s.id),
+            None => "frame tick".to_string(),
+        };
+        crate::devtools::log(&format!("lanes judged on the {judge}"));
+    }
+}
+
+fn hand_lane_session(state: &mut AppState) {
+    state.lane_session = None;
+    if state.is_auto_play || state.is_replay_playback {
+        return;
+    }
+    let (Some(judge), Some(chart), Some(timing), Some(audio), Some(keys)) = (
+        &state.active_judge,
+        &state.active_chart,
+        &state.active_timing,
+        &mut state.audio_engine,
+        &mut state.raw_keys,
+    ) else {
+        return;
+    };
+    state.lane_session_seq = state.lane_session_seq.wrapping_add(1);
+    let id = state.lane_session_seq;
+    let offset_ms = state.play_options.judge_offset_ms;
+    let session = LaneSession::new(
+        id,
+        judge.clone(),
+        state.key_bindings.get(state.view.skin.play_mode).clone(),
+        audio.clock().clone(),
+        audio.take_trigger(),
+        offset_ms,
+        freezone_sounds(chart, timing),
+        JudgeWindow::from_rank(chart.header.rank).poor_ms,
+    );
+    if keys.send(LogicCommand::Start(Box::new(session))) {
+        state.lane_session = Some(LaneSessionSync {
+            id,
+            paused: false,
+            offset_ms,
+        });
+    }
+}
+
 /// Advances gameplay timelines, processes replay/autoplay drivers, updates judge misses,
 /// and checks for stage failure / completion.
 pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResult {
@@ -478,14 +545,10 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
                     );
                 }
             }
-        } else if let Some(judge) = &mut state.active_judge {
-            let misses = judge.update_misses(effective_judge_time);
-            for (lane, miss_res) in misses {
-                state.poor_until_time = audio_time + 0.4;
-                state
-                    .view
-                    .trigger_judge_with_lane(lane, miss_res.grade, audio_time, 0.0);
-            }
+        } else if state.lane_session.is_none() {
+            // A play the input thread judges gets its miss checks from there
+            // (`main::drain_lane_events`).
+            apply_misses(state, audio_time, effective_judge_time);
         }
     }
 
