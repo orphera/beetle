@@ -9,5 +9,5 @@ pub mod song_select;
 pub use gameplay::handle_gameplay_input;
 pub use key_config::handle_key_config_input;
 pub use result::handle_result_input;
-pub use settings::handle_settings_input;
+pub use settings::{handle_calibration_input, handle_settings_input};
 pub use song_select::handle_song_select_input;

@@ -209,12 +209,35 @@ table! {
     pub HELP_GRAPHICS = "그림을 그리는 장치입니다. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그립니다. 바꾸면 재시작 후 적용됩니다.";
     pub HELP_TARGET_FPS = "플레이 화면의 최대 프레임입니다. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춥니다.";
     pub HELP_MASTER_VOLUME = "키음과 배경음을 포함한 전체 소리 크기입니다. 최대 200%까지 올릴 수 있습니다.";
-    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮깁니다. 범위는 -100에서 +100 ms입니다. 판정이 한쪽으로 치우칠 때 조정합니다.";
+    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮깁니다. 범위는 -100에서 +100 ms입니다. ENTER로 박자에 맞춰 측정할 수 있습니다.";
     pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정합니다.";
     pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둡니다. 5K, 7K, 8K에서만 적용됩니다.";
     pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줍니다. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아낍니다.";
     pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정합니다. 꺼짐이면 보이지 않습니다.";
     pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 고릅니다. ENTER로 키 설정 화면을 엽니다.";
+
+    // Judge offset calibration (a Settings sub-screen).
+    pub CALIBRATE_TITLE = "판정 오프셋 측정";
+    pub CALIBRATE_INSTRUCTION = "소리에 맞춰 스페이스를 누르세요";
+    pub CALIBRATE_DONE_TITLE = "측정이 끝났습니다";
+    pub CALIBRATE_NO_AUDIO = "오디오 출력 장치를 열지 못해 측정할 수 없습니다";
+    pub CALIBRATE_COUNT_IN = "준비";
+    pub CALIBRATE_MEASURING = "측정 중";
+    pub CALIBRATE_PROGRESS = "진행";
+    pub CALIBRATE_MEAN = "평균";
+    pub CALIBRATE_SPREAD = "편차";
+    pub CALIBRATE_SUGGEST = "제안값";
+    pub CALIBRATE_EARLY = "빠름";
+    pub CALIBRATE_LATE = "늦음";
+    pub CALIBRATE_EXCLUDED = "제외된 입력은 흐리게 표시합니다";
+    pub CALIBRATE_HELP = "준비 박 네 개 뒤부터 입력을 16번 셉니다. 한 박에 한 번만 세고, 150 ms보다 멀리 떨어진 입력은 무시합니다.";
+    pub CALIBRATE_HELP_DONE = "제안값은 평균 차이의 반대 값입니다. 적용하면 판정 오프셋이 이 값이 됩니다.";
+    pub CALIBRATE_HELP_NO_AUDIO = "설정은 바뀌지 않았습니다. ESC로 설정 화면에 돌아가세요.";
+    pub CALIBRATE_APPLY = "적용";
+    pub CALIBRATE_RETRY = "다시";
+    pub CALIBRATE_CANCEL = "취소";
+    pub CALIBRATE_HINT_TAP = "누르기";
+    pub TOAST_CALIBRATE_APPLIED = "판정 오프셋을 {} ms로 맞췄습니다";
 
     // Quit confirmation.
     pub QUIT_TITLE = "BEETLE을 종료할까요?";

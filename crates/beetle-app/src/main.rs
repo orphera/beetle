@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod calibration;
 mod config;
 mod demo;
 mod devtools;
@@ -36,8 +37,8 @@ use gameplay::{
 
 use beetle_render::{strings, GpuBackend, ToastKind};
 use handlers::{
-    handle_gameplay_input, handle_key_config_input, handle_result_input, handle_settings_input,
-    handle_song_select_input,
+    handle_calibration_input, handle_gameplay_input, handle_key_config_input, handle_result_input,
+    handle_settings_input, handle_song_select_input,
 };
 use input::KeyBindings;
 use loader::spawn_background_stage_image_loader;
@@ -192,6 +193,7 @@ impl ApplicationHandler for BeetleApp {
             should_exit_app: false,
             modal_row: 0,
             settings_row: 0,
+            calibration: None,
             key_config_return: AppScreen::SongSelect,
             selected_key_idx: 0,
             score_store: beetle_core::ScoreStore::new(),
@@ -342,6 +344,13 @@ impl ApplicationHandler for BeetleApp {
         if state.screen != AppScreen::SongSelect {
             state.preview.stop();
         }
+        // The calibration lives on the Settings screen only.
+        if state.screen != AppScreen::Settings {
+            state.calibration = None;
+        }
+        if let Some(cal) = &mut state.calibration {
+            cal.tick();
+        }
 
         state.poll_library();
 
@@ -488,7 +497,8 @@ impl ApplicationHandler for BeetleApp {
                 let result_animating = state.screen == AppScreen::Result
                     && state.result_entered_at.elapsed().as_secs_f64()
                         < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
-                if result_animating {
+                let calibrating = state.calibration.as_ref().is_some_and(|c| c.is_running());
+                if calibrating || result_animating {
                     state.window.request_redraw();
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + Duration::from_millis(16),
@@ -741,7 +751,7 @@ fn handle_keyboard_input(
     state: &mut AppState,
     physical_key: PhysicalKey,
     key_state: ElementState,
-    _repeat: bool,
+    repeat: bool,
     text: Option<&str>,
 ) {
     let PhysicalKey::Code(code) = physical_key else {
@@ -770,7 +780,13 @@ fn handle_keyboard_input(
     ime::close_search_if_unavailable(state);
 
     // Global Hotkeys (when key is pressed)
-    if key_state == ElementState::Pressed && !state.is_search_active && state.rebinding.is_none() {
+    // Not during the judge offset calibration: its cancel must leave the
+    // play options as they were.
+    if key_state == ElementState::Pressed
+        && !state.is_search_active
+        && state.rebinding.is_none()
+        && state.calibration.is_none()
+    {
         if code == KeyCode::F6 {
             state.play_options.gauge_type = match state.play_options.gauge_type {
                 GaugeType::Easy => GaugeType::Groove,
@@ -817,6 +833,9 @@ fn handle_keyboard_input(
         AppScreen::Gameplay => handle_gameplay_input(state, key_state, code, physical_key),
         AppScreen::Result => handle_result_input(state, key_state, code),
         AppScreen::KeyConfig => handle_key_config_input(state, key_state, code),
+        AppScreen::Settings if state.calibration.is_some() => {
+            handle_calibration_input(state, key_state, code, physical_key, repeat)
+        }
         AppScreen::Settings => handle_settings_input(state, key_state, code),
     }
 }

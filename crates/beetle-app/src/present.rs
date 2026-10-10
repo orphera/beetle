@@ -319,8 +319,13 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     finish(state);
 }
 
-/// The Settings screen: the values that are set once.
+/// The Settings screen: the values that are set once. While the judge offset
+/// calibration is open, its test screen instead.
 pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
+    if state.calibration.is_some() {
+        calibrate(state, size);
+        return;
+    }
     let lines = option_lines(state, SETTINGS);
     let row = state.settings_row.min(SETTINGS.len() - 1);
     begin(state, size);
@@ -331,6 +336,57 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
             lines: &lines,
             selected: row,
             help: SETTINGS[row].help,
+        },
+    );
+    overlays(state, true);
+    finish(state);
+}
+
+/// The judge offset calibration screen. What it shows is read from the
+/// session first, so the borrow ends before the frame is drawn.
+fn calibrate(state: &mut AppState, size: PhysicalSize<u32>) {
+    let Some(session) = &state.calibration else {
+        return;
+    };
+    let test = session.test();
+    let now = session.now();
+    let phase = if !session.has_audio() {
+        beetle_render::CalibratePhase::Unavailable
+    } else if test.is_done() {
+        beetle_render::CalibratePhase::Done
+    } else if test.counting_in(now) {
+        beetle_render::CalibratePhase::CountIn
+    } else {
+        beetle_render::CalibratePhase::Measuring
+    };
+    let summary = test.summary();
+    let kept: Vec<bool> = summary
+        .as_ref()
+        .map_or_else(|| vec![true; test.presses().len()], |s| s.kept.clone());
+    let marks: Vec<(f64, bool)> = test
+        .presses()
+        .iter()
+        .zip(kept)
+        .map(|(&ms, counted)| (ms, counted))
+        .collect();
+    let (pulse, collected) = (test.pulse(now), test.presses().len());
+    let (mean_ms, std_ms) = summary.map_or((None, None), |s| (Some(s.mean_ms), Some(s.std_ms)));
+    let suggestion_ms = test.suggestion();
+
+    begin(state, size);
+    beetle_render::draw_calibrate(
+        &mut state.gpu_ui.ui,
+        &beetle_render::CalibrateFrame {
+            viewport: &state.view.viewport,
+            phase,
+            pulse,
+            required: crate::calibration::REQUIRED_PRESSES,
+            collected,
+            window_ms: crate::calibration::MATCH_WINDOW_MS,
+            marks: &marks,
+            mean_ms,
+            std_ms,
+            suggestion_ms,
         },
     );
     overlays(state, true);

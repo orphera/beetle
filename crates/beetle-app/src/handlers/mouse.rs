@@ -172,7 +172,9 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
                 }
             }
             AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),
-            AppScreen::Settings => move_row(&mut state.settings_row, SETTINGS.len(), !up),
+            AppScreen::Settings if state.calibration.is_none() => {
+                move_row(&mut state.settings_row, SETTINGS.len(), !up)
+            }
             _ => (),
         }
     }

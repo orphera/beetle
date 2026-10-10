@@ -2,6 +2,7 @@ use beetle_audio::AudioCommand;
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
+use crate::calibration::judged_time;
 use crate::gameplay::queue_start_gameplay;
 use crate::options_table::green_ms_next;
 use crate::state::{AppScreen, AppState};
@@ -94,7 +95,7 @@ pub fn handle_gameplay_input(
             .map(|a| a.clock().current_time_seconds())
             .unwrap_or(0.0);
 
-        let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
+        let effective_judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
 
         match key_state {
             ElementState::Pressed => {

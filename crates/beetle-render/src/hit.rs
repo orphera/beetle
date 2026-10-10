@@ -53,6 +53,11 @@ pub enum HitId {
     OptionNext(usize),
     /// Settings footer: back to song select (saves the settings).
     SettingsBack,
+    /// Judge offset calibration: apply the suggestion, measure again, or
+    /// leave without changing the offset.
+    CalibrateApply,
+    CalibrateRetry,
+    CalibrateCancel,
     ExitQuit,
     ExitCancel,
     /// Full-screen region a modal records before its own parts: a click that

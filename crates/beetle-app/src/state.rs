@@ -168,6 +168,8 @@ pub struct AppState {
     pub modal_row: usize,
     /// Highlighted row of the Settings screen.
     pub settings_row: usize,
+    /// The judge offset calibration (a sub-screen of Settings), while open.
+    pub calibration: Option<crate::calibration::Session>,
     /// The screen Key Configuration returns to (song select or Settings).
     pub key_config_return: AppScreen,
     pub selected_key_idx: usize,

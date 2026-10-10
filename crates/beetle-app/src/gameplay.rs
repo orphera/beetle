@@ -8,6 +8,7 @@ use beetle_core::{
     SongMetadata, TimingModel,
 };
 
+use crate::calibration::judged_time;
 use crate::loader::{load_stage_image, spawn_background_song_loader};
 use crate::state::{replay_path, save_scores, AppScreen, AppState, REPLAYS_DIR};
 
@@ -315,7 +316,7 @@ pub enum GameplayTickResult {
 /// Advances gameplay timelines, processes replay/autoplay drivers, updates judge misses,
 /// and checks for stage failure / completion.
 pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResult {
-    let effective_judge_time = audio_time + (state.play_options.judge_offset_ms / 1000.0);
+    let effective_judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);
 
     if !state.is_gameplay_paused {
         // 1. Advance BGM notes and BGA timeline events

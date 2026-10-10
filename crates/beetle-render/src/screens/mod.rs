@@ -1,6 +1,7 @@
 //! Screens drawn with `Ui` (Canvas + TextEngine + generated Skin).
 
 pub mod boot;
+pub mod calibrate;
 pub mod key_bind;
 pub mod loading;
 mod overlay;
@@ -11,6 +12,7 @@ pub mod stage_result;
 mod widgets;
 
 pub use boot::{draw_boot, BootFrame};
+pub use calibrate::{draw_calibrate, CalibrateFrame, CalibratePhase};
 pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODES};
 pub use loading::{draw_loading, LoadingFrame};
 pub use overlay::{draw_screen_fade, draw_toast, ToastFrame, ToastKind};
@@ -36,6 +38,7 @@ mod tests {
             ("boot.rs", include_str!("boot.rs")),
             ("overlay.rs", include_str!("overlay.rs")),
             ("settings.rs", include_str!("settings.rs")),
+            ("calibrate.rs", include_str!("calibrate.rs")),
         ] {
             assert!(
                 !src.contains(concat!("ColorRgba", "::new")),

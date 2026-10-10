@@ -1,6 +1,7 @@
 use winit::keyboard::KeyCode;
 
 use crate::handlers::key_config::open_key_config_from;
+use crate::handlers::settings::open_calibration;
 use crate::options_table::{self, OptionDesc, PLAY_OPTIONS};
 use crate::state::{AppScreen, AppState};
 
@@ -68,6 +69,10 @@ pub fn enter_row(
         Some(options_table::Activation::KeyConfig) => {
             state.save_config();
             open_key_config_from(state, screen);
+            true
+        }
+        Some(options_table::Activation::Calibrate) => {
+            open_calibration(state);
             true
         }
         None => {

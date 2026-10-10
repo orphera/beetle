@@ -199,11 +199,18 @@ pub const SETTINGS: &[OptionDesc] = &[
     },
 ];
 
+/// Judge offset range in ms (the Settings row and the calibration suggestion).
+pub const JUDGE_OFFSET_MAX_MS: f64 = 100.0;
+/// Judge offset step in ms (the arrows and the calibration suggestion).
+pub const JUDGE_OFFSET_STEP_MS: f64 = 1.0;
+
 /// What ENTER does on a row that opens something instead of changing a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activation {
     /// Opens the key configuration for the selected song's mode.
     KeyConfig,
+    /// Opens the judge offset calibration (a metronome test).
+    Calibrate,
 }
 
 /// The activation of `id`, if the row has one. Other rows change their value
@@ -211,6 +218,7 @@ pub enum Activation {
 pub fn activation(id: OptionId) -> Option<Activation> {
     match id {
         OptionId::KeyLayout => Some(Activation::KeyConfig),
+        OptionId::JudgeOffset => Some(Activation::Calibrate),
         _ => None,
     }
 }
@@ -241,9 +249,14 @@ pub fn volume_next(v: f32, forward: bool) -> f32 {
     (v + if forward { 0.05 } else { -0.05 }).clamp(0.0, 2.0)
 }
 
-/// Judge offset in ms: 1 ms steps between -100 and +100.
+/// Judge offset in ms: steps of `JUDGE_OFFSET_STEP_MS` within the range.
 pub fn judge_offset_next(v: f64, forward: bool) -> f64 {
-    (v + if forward { 1.0 } else { -1.0 }).clamp(-100.0, 100.0)
+    let step = if forward {
+        JUDGE_OFFSET_STEP_MS
+    } else {
+        -JUDGE_OFFSET_STEP_MS
+    };
+    (v + step).clamp(-JUDGE_OFFSET_MAX_MS, JUDGE_OFFSET_MAX_MS)
 }
 
 /// Start measure: 1 step up to 200, down to 0.
@@ -535,9 +548,13 @@ mod tests {
     }
 
     #[test]
-    fn only_key_layout_has_an_activation() {
+    fn only_key_layout_and_judge_offset_have_an_activation() {
         for d in all() {
-            let expected = (d.id == OptionId::KeyLayout).then_some(Activation::KeyConfig);
+            let expected = match d.id {
+                OptionId::KeyLayout => Some(Activation::KeyConfig),
+                OptionId::JudgeOffset => Some(Activation::Calibrate),
+                _ => None,
+            };
             assert_eq!(activation(d.id), expected, "{:?}", d.id);
         }
     }
