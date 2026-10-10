@@ -223,7 +223,7 @@ fn id_piece(text: &str) -> String {
 }
 
 fn leaf(id: String, label: String, songs: Vec<usize>) -> Option<Folder> {
-    (!songs.is_empty()).then(|| Folder {
+    (!songs.is_empty()).then_some(Folder {
         id,
         label,
         count: songs.len(),
@@ -872,7 +872,7 @@ mod tests {
             &ScoreStore::new(),
             tables,
             LnOption::Cn,
-            &pass_all(&songs),
+            &pass_all(songs),
         )
     }
 

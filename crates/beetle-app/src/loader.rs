@@ -1121,7 +1121,7 @@ mod tests {
             "BGA bank should load 1 frame from BGA Atlas"
         );
         assert!(
-            bga_bank.get(&beetle_core::BmpId(1)).is_some(),
+            bga_bank.contains_key(&beetle_core::BmpId(1)),
             "BMP01 should be loaded"
         );
         assert!(video_sources.is_empty());

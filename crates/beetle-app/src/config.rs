@@ -481,8 +481,8 @@ impl AppConfig {
         }
         config.legacy_key_layout = legacy_preset.map(|p| (p, legacy_bindings));
         if let Some(side) = legacy_side {
-            for i in 0..2 {
-                if !side_set[i] {
+            for (i, &set) in side_set.iter().enumerate().take(2) {
+                if !set {
                     config.scratch_sides[i] = side;
                 }
             }

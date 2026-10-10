@@ -243,7 +243,7 @@ pub fn green_ms_next(v: u32, forward: bool) -> u32 {
     let next = if forward {
         (v / 10 + 1) * 10
     } else {
-        ((v + 9) / 10).saturating_sub(1) * 10
+        v.div_ceil(10).saturating_sub(1) * 10
     };
     next.clamp(GREEN_MS_MIN, GREEN_MS_MAX)
 }
