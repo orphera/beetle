@@ -8,6 +8,7 @@ pub mod collection;
 pub mod error;
 pub mod export;
 pub mod flac;
+pub mod ir;
 pub mod library;
 pub mod manager;
 pub mod net;
