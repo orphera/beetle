@@ -69,9 +69,18 @@ fn selected_lane(state: &AppState) -> Option<Lane> {
         .copied()
 }
 
-/// Back to the song list (ESC, or the footer button).
+/// Opens the key configuration for the selected song's mode. `from` is the
+/// screen Back returns to (song select, or the Settings screen).
+pub fn open_key_config_from(state: &mut AppState, from: AppScreen) {
+    state.key_config_return = from;
+    state.screen = AppScreen::KeyConfig;
+    state.key_config_edit_mode = state.key_config_mode();
+    state.selected_key_idx = 0;
+}
+
+/// Back to the screen Key Configuration was opened from (ESC, or the footer button).
 pub fn leave_key_config(state: &mut AppState) {
-    state.screen = AppScreen::SongSelect;
+    state.screen = state.key_config_return;
     state.save_config();
 }
 

@@ -18,8 +18,10 @@ pub enum HitId {
     Search,
     Play,
     Replay,
-    /// Opens the play options modal.
-    Settings,
+    /// Opens the play options panel (the top bar OPTIONS button, TAB).
+    PlayOptions,
+    /// Opens the Settings screen (the top bar SETTINGS button, F4).
+    OpenSettings,
     /// Toggles auto play.
     Auto,
     /// Opens the key configuration screen.
@@ -43,11 +45,14 @@ pub enum HitId {
     KeyForm,
     KeyReset,
     KeyBack,
-    /// A play options row (select it).
+    /// An option row of the open panel or the Settings screen (its index in
+    /// that screen's table): select it.
     OptionRow(usize),
-    /// The `<` / `>` value arrows of a play options row.
+    /// The `<` / `>` value arrows of an option row.
     OptionPrev(usize),
     OptionNext(usize),
+    /// Settings footer: back to song select (saves the settings).
+    SettingsBack,
     ExitQuit,
     ExitCancel,
     /// Full-screen region a modal records before its own parts: a click that

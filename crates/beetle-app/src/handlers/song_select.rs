@@ -5,7 +5,9 @@ use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
+use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::options::{handle_option_modal_input, open_options};
+use crate::handlers::settings::open_settings;
 use crate::ime::{append_text, backspace, key_text_to_append, set_search_active};
 use crate::state::{replay_path, AppScreen, AppState};
 
@@ -91,6 +93,7 @@ pub fn handle_song_select_input(
         KeyCode::KeyA => toggle_auto(state),
         KeyCode::KeyR => start_replay(state),
         KeyCode::F12 | KeyCode::KeyC => open_key_config(state),
+        KeyCode::F4 => open_settings(state),
         KeyCode::F2 => cycle_sort(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
@@ -141,9 +144,7 @@ pub fn toggle_auto(state: &mut AppState) {
 
 /// Opens the key configuration for the selected song's mode (F12 / C, or the footer button).
 pub fn open_key_config(state: &mut AppState) {
-    state.screen = AppScreen::KeyConfig;
-    state.key_config_edit_mode = state.key_config_mode();
-    state.selected_key_idx = 0;
+    open_key_config_from(state, AppScreen::SongSelect);
 }
 
 /// Moves the highlight one row down or up, wrapping at the ends of the list.

@@ -24,7 +24,11 @@ pub const FRAME: Duration = Duration::from_millis(16);
 pub fn fades_in(screen: AppScreen) -> bool {
     matches!(
         screen,
-        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Loading | AppScreen::Result
+        AppScreen::SongSelect
+            | AppScreen::KeyConfig
+            | AppScreen::Settings
+            | AppScreen::Loading
+            | AppScreen::Result
     )
 }
 
@@ -32,7 +36,7 @@ pub fn fades_in(screen: AppScreen) -> bool {
 pub fn shows_toasts(screen: AppScreen) -> bool {
     matches!(
         screen,
-        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Result
+        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Settings | AppScreen::Result
     )
 }
 
@@ -197,6 +201,7 @@ mod tests {
         for screen in [
             AppScreen::SongSelect,
             AppScreen::KeyConfig,
+            AppScreen::Settings,
             AppScreen::Loading,
             AppScreen::Result,
         ] {
@@ -278,6 +283,7 @@ mod tests {
     fn toasts_show_only_on_menus() {
         assert!(shows_toasts(AppScreen::SongSelect));
         assert!(shows_toasts(AppScreen::KeyConfig));
+        assert!(shows_toasts(AppScreen::Settings));
         assert!(shows_toasts(AppScreen::Result));
         assert!(!shows_toasts(AppScreen::Gameplay));
         assert!(!shows_toasts(AppScreen::Loading));

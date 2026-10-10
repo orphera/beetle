@@ -9,6 +9,7 @@ mod handlers;
 mod ime;
 mod input;
 mod loader;
+mod options_table;
 mod present;
 mod preview;
 mod scanner;
@@ -35,7 +36,8 @@ use gameplay::{
 
 use beetle_render::{strings, GpuBackend, ToastKind};
 use handlers::{
-    handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
+    handle_gameplay_input, handle_key_config_input, handle_result_input, handle_settings_input,
+    handle_song_select_input,
 };
 use input::KeyBindings;
 use loader::spawn_background_stage_image_loader;
@@ -186,6 +188,8 @@ impl ApplicationHandler for BeetleApp {
             show_exit_modal: false,
             should_exit_app: false,
             modal_row: 0,
+            settings_row: 0,
+            key_config_return: AppScreen::SongSelect,
             selected_key_idx: 0,
             score_store: beetle_core::ScoreStore::new(),
             play_options: saved_config.play_options,
@@ -646,6 +650,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::KeyConfig => present::key_config(state, size),
+                    AppScreen::Settings => present::settings(state, size),
                 }
             }
             _ => (),
@@ -725,7 +730,7 @@ fn start_dropped_package(state: &mut AppState, path: &Path) -> bool {
 fn is_menu_screen(screen: AppScreen) -> bool {
     matches!(
         screen,
-        AppScreen::SongSelect | AppScreen::Result | AppScreen::KeyConfig
+        AppScreen::SongSelect | AppScreen::Result | AppScreen::KeyConfig | AppScreen::Settings
     )
 }
 
@@ -809,6 +814,7 @@ fn handle_keyboard_input(
         AppScreen::Gameplay => handle_gameplay_input(state, key_state, code, physical_key),
         AppScreen::Result => handle_result_input(state, key_state, code),
         AppScreen::KeyConfig => handle_key_config_input(state, key_state, code),
+        AppScreen::Settings => handle_settings_input(state, key_state, code),
     }
 }
 

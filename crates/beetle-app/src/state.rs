@@ -21,7 +21,7 @@ use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 pub const SCORES_FILE: &str = "scores.dat";
 pub const REPLAYS_DIR: &str = "replays";
 
-/// Application screens for boot, song select, loading, gameplay, results, and key configuration.
+/// Application screens for boot, song select, loading, gameplay, results, key configuration, and settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppScreen {
     /// Reading the song library in the background (startup and F5 rescan).
@@ -31,6 +31,8 @@ pub enum AppScreen {
     Gameplay,
     Result,
     KeyConfig,
+    /// The settings screen (F4): values that are set once.
+    Settings,
 }
 
 /// Category grouping mode for songs library.
@@ -158,10 +160,16 @@ pub struct AppState {
     /// Installed difficulty tables, matched to `songs`.
     pub tables: TableIndex,
     pub sort_mode: SortMode,
+    /// The play options panel (per play) is open over song select.
     pub show_option_modal: bool,
     pub show_exit_modal: bool,
     pub should_exit_app: bool,
+    /// Highlighted row of the play options panel.
     pub modal_row: usize,
+    /// Highlighted row of the Settings screen.
+    pub settings_row: usize,
+    /// The screen Key Configuration returns to (song select or Settings).
+    pub key_config_return: AppScreen,
     pub selected_key_idx: usize,
     pub score_store: ScoreStore,
     pub play_options: PlayOptions,

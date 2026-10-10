@@ -30,9 +30,9 @@ pub use hit::{hit_at, Hit, HitId};
 pub use image::{BgaAtlasBuilder, ImageBuffer};
 pub use screens::{
     draw_boot, draw_exit_modal, draw_gameplay, draw_key_config, draw_loading, draw_options_modal,
-    draw_result, draw_screen_fade, draw_song_select, draw_toast, BootFrame, KeyBinding,
-    KeyConfigFrame, LoadingFrame, PlayFrame, Rebind, ResultFrame, SelectFrame, SizedTexture,
-    ToastFrame, ToastKind, KEY_MODES,
+    draw_result, draw_screen_fade, draw_settings, draw_song_select, draw_toast, BootFrame,
+    KeyBinding, KeyConfigFrame, LoadingFrame, OptionLine, PlayFrame, Rebind, ResultFrame,
+    SelectFrame, SettingsFrame, SizedTexture, ToastFrame, ToastKind, KEY_MODES,
 };
 pub use skin::{
     scratch_side_applies, ColorRgba, EightKForm, FieldPosition, ScratchSide, SkinConfig,

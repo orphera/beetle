@@ -5,7 +5,7 @@
 //! Layout is designed at 1280×720 and multiplied by the viewport scale.
 //! Visual reference: the menu composition in `tests/d3d11_skin.rs`.
 
-use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, LEFT_RIGHT};
+use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, OptionLine, LEFT_RIGHT};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
@@ -101,6 +101,64 @@ fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetada
 // Top bar: wordmark, folder / sort selectors, search box
 // ---------------------------------------------------------------------------
 
+/// A labeled top bar button with a keycap for its key; records `id`.
+#[allow(clippy::too_many_arguments)]
+fn bar_button(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hs: &mut HitSink,
+    r: Rect,
+    label: &str,
+    key: &str,
+    id: HitId,
+    s: f32,
+) {
+    let hot = hs.hovered(r);
+    hs.add(r, id);
+    c.nine(
+        &sk.cut_panel,
+        r,
+        if hot { theme::SURF3 } else { theme::SURF2 },
+    );
+    c.nine(
+        &sk.cut_outline,
+        r,
+        if hot {
+            theme::CYAN.with_alpha(200)
+        } else {
+            theme::LINE
+        },
+    );
+    let label_st =
+        TextStyle::new(12.0 * s)
+            .bold()
+            .color(if hot { theme::TEXT } else { theme::MUTED });
+    let lw = t.measure(c, label, &label_st);
+    let kw = keycap_width(c, t, key, s);
+    let bx = r.x + (r.w - lw - kw - 10.0 * s) / 2.0;
+    t.draw_in(
+        c,
+        label,
+        Rect::new(bx, r.y, lw + 1.0, r.h),
+        Align::Left,
+        &label_st,
+    );
+    keycap(
+        c,
+        t,
+        sk,
+        key,
+        Rect::new(
+            bx + lw + 10.0 * s,
+            r.y + (r.h - 20.0 * s) / 2.0,
+            kw,
+            20.0 * s,
+        ),
+        s,
+    );
+}
+
 fn top_bar(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -161,64 +219,39 @@ fn top_bar(
         x += 32.0 * s;
     }
 
-    // Settings button at the right edge; the search box sits to its left.
+    // Right edge: SETTINGS (F4), then OPTIONS (TAB); the search box sits to their left.
     let settings = Rect::new(
-        vp.x + vp.width - (PAD + 136.0) * s,
+        vp.x + vp.width - (PAD + 112.0) * s,
         bar_top,
-        136.0 * s,
+        112.0 * s,
         bar_h,
     );
-    let settings_hot = hs.hovered(settings);
-    hs.add(settings, HitId::Settings);
-    c.nine(
-        &sk.cut_panel,
-        settings,
-        if settings_hot {
-            theme::SURF3
-        } else {
-            theme::SURF2
-        },
-    );
-    c.nine(
-        &sk.cut_outline,
-        settings,
-        if settings_hot {
-            theme::CYAN.with_alpha(200)
-        } else {
-            theme::LINE
-        },
-    );
-    let label_st = TextStyle::new(12.0 * s).bold().color(if settings_hot {
-        theme::TEXT
-    } else {
-        theme::MUTED
-    });
-    let lw = t.measure(c, strings::OPTIONS, &label_st);
-    let kw = keycap_width(c, t, "TAB", s);
-    let bx = settings.x + (settings.w - lw - kw - 10.0 * s) / 2.0;
-    t.draw_in(
-        c,
-        strings::OPTIONS,
-        Rect::new(bx, settings.y, lw + 1.0, settings.h),
-        Align::Left,
-        &label_st,
-    );
-    keycap(
+    bar_button(
         c,
         t,
         sk,
+        hs,
+        settings,
+        strings::SETTINGS,
+        "F4",
+        HitId::OpenSettings,
+        s,
+    );
+    let options = Rect::new(settings.x - (8.0 + 136.0) * s, bar_top, 136.0 * s, bar_h);
+    bar_button(
+        c,
+        t,
+        sk,
+        hs,
+        options,
+        strings::OPTIONS,
         "TAB",
-        Rect::new(
-            bx + lw + 10.0 * s,
-            settings.y + (settings.h - 20.0 * s) / 2.0,
-            kw,
-            20.0 * s,
-        ),
+        HitId::PlayOptions,
         s,
     );
 
     // Search box
-    let search = Rect::new(settings.x - (12.0 + 280.0) * s, bar_top, 280.0 * s, bar_h);
+    let search = Rect::new(options.x - (12.0 + 280.0) * s, bar_top, 280.0 * s, bar_h);
     hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,
@@ -997,18 +1030,18 @@ fn personal_best(
 // Footer
 // ---------------------------------------------------------------------------
 
-const HINTS: [widgets::Hint; 9] = [
+const HINTS: [widgets::Hint; 10] = [
     ("↑↓", strings::FOOTER_MOVE, None),
     ("ENTER", strings::FOOTER_PLAY, Some(HitId::Play)),
     ("/", strings::FOOTER_SEARCH, Some(HitId::Search)),
     ("F1 F3", strings::FOOTER_FOLDER, Some(HitId::FolderNext)),
     ("F2", strings::FOOTER_SORT, Some(HitId::Sort)),
-    ("TAB", strings::OPTIONS, Some(HitId::Settings)),
+    ("TAB", strings::OPTIONS, Some(HitId::PlayOptions)),
+    ("F4", strings::FOOTER_SETTINGS, Some(HitId::OpenSettings)),
     ("A", strings::FOOTER_AUTO, Some(HitId::Auto)),
     ("F12", strings::FOOTER_KEYS, Some(HitId::KeyConfig)),
     ("ESC", strings::FOOTER_QUIT, Some(HitId::Quit)),
 ];
-
 fn footer(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -1048,18 +1081,6 @@ fn footer(
 // Modals
 // ---------------------------------------------------------------------------
 
-/// Section headers of the play options modal: (first row index, label).
-/// Row order is defined by the app's option handler.
-pub const OPTION_SECTIONS: [(usize, &str); 5] = [
-    (0, strings::GROUP_PLAY),
-    (5, strings::GROUP_AUDIO),
-    (6, strings::GROUP_LAYOUT),
-    (9, strings::GROUP_DISPLAY_SYSTEM),
-    (13, strings::GROUP_INPUT_SESSION),
-];
-/// First row of the modal's right column (when there are more rows than this).
-pub const OPTION_COLUMN_BREAK: usize = 9;
-
 fn modal_panel(
     c: &mut Canvas,
     sk: &Skin,
@@ -1091,39 +1112,30 @@ fn modal_panel(
     panel
 }
 
-/// Play options modal over the song list. `rows` are (label, value).
-pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], selected: usize) {
+/// Play options panel over the song list: one column of per-play values,
+/// with the highlighted option's name and help at the bottom. `help` is
+/// (name, sentence) of the highlighted row.
+pub fn draw_options_modal(
+    ui: &mut Ui,
+    vp: &Viewport,
+    lines: &[OptionLine],
+    selected: usize,
+    help: (&str, &str),
+) {
     let sk = ui.skin;
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = vp.scale;
-    let row_h = 30.0 * s;
+    let row_h = 34.0 * s;
     let section_h = 30.0 * s;
-    // Rows split into two side-by-side columns when there are many of them.
-    let split = OPTION_COLUMN_BREAK.min(rows.len());
-    let columns = [0..split, split..rows.len()];
-    let n_cols = if split < rows.len() { 2 } else { 1 };
-    let column_h = |range: &std::ops::Range<usize>| {
-        let sections = OPTION_SECTIONS
-            .iter()
-            .filter(|(i, _)| range.contains(i))
-            .count() as f32;
-        range.len() as f32 * row_h + sections * section_h
-    };
-    let body_h = columns.iter().map(column_h).fold(0.0, f32::max);
-    let h = (84.0 * s + body_h + 56.0 * s).min(vp.height - 32.0 * s);
-    let col_gap = 40.0 * s;
-    let panel = modal_panel(
-        c,
-        &sk,
-        vp,
-        &mut hs,
-        if n_cols > 1 { 960.0 * s } else { 560.0 * s },
-        h,
-        s,
-    );
+    // Rows, section headers, then the help card and the hint line below them.
+    let body: f32 = lines
+        .iter()
+        .map(|l| row_h + if l.section.is_some() { section_h } else { 0.0 })
+        .sum();
+    let h = (body + (widgets::HELP_CARD_H + 136.0) * s).min(vp.height - 32.0 * s);
+    let panel = modal_panel(c, &sk, vp, &mut hs, 500.0 * s, h, s);
     let inner = panel.inset(28.0 * s);
-    let col_w = (inner.w - col_gap * (n_cols - 1) as f32) / n_cols as f32;
 
     t.draw(
         c,
@@ -1132,94 +1144,30 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
         inner.y + 22.0 * s,
         &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
     );
-    for (ci, range) in columns.iter().take(n_cols).enumerate() {
-        let col = Rect::new(
-            inner.x + ci as f32 * (col_w + col_gap),
-            inner.y,
-            col_w,
-            inner.h,
-        );
-        let mut y = col.y + 40.0 * s;
-        for (i, (label, value)) in rows.iter().enumerate().take(range.end).skip(range.start) {
-            if let Some((_, section)) = OPTION_SECTIONS.iter().find(|(at, _)| *at == i) {
-                let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
-                let w = t.draw(c, section, col.x, y + 20.0 * s, &cap);
-                c.fill_rect(
-                    Rect::new(
-                        col.x + w + 12.0 * s,
-                        y + 16.0 * s,
-                        col.w - w - 12.0 * s,
-                        s.max(1.0),
-                    ),
-                    theme::LINE,
-                );
-                y += section_h;
-            }
-            let row = Rect::new(col.x - 8.0 * s, y, col.w + 16.0 * s, row_h - 2.0 * s);
-            let on = i == selected;
-            let hot = !on && hs.hovered(row);
-            hs.add(row, HitId::OptionRow(i));
-            if on {
-                c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
-                c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
-            } else if hot {
-                c.nine(&sk.panel, row, theme::SURF2);
-            }
-            let label_st =
-                TextStyle::new(13.0 * s)
-                    .bold()
-                    .color(if on { theme::TEXT } else { theme::MUTED });
-            t.draw_in(
-                c,
-                label,
-                Rect::new(row.x + 14.0 * s, row.y, 150.0 * s, row.h),
-                Align::Left,
-                &label_st,
-            );
-            let value_st =
-                TextStyle::new(13.0 * s)
-                    .bold()
-                    .color(if on { theme::TEXT } else { theme::MUTED });
-            let icon = 16.0 * s;
-            let value_w = (row.w - 170.0 * s).min(300.0 * s);
-            let vr = Rect::new(
-                row.right() - value_w,
-                row.y,
-                value_w - 12.0 * s - icon,
-                row.h,
-            );
-            let value = t
-                .fit(c, value, vr.w - icon - 4.0 * s, &value_st)
-                .into_owned();
-            t.draw_in(
-                c,
-                &value,
-                Rect::new(vr.x + icon, vr.y, vr.w - icon - 4.0 * s, vr.h),
-                Align::Center,
-                &value_st,
-            );
-            // Value arrows: click targets on every row, drawn on the
-            // selected and hovered rows.
-            let prev = Rect::new(vr.x - 4.0 * s, row.y, icon + 8.0 * s, row.h);
-            let next = Rect::new(vr.right() - 4.0 * s, row.y, icon + 8.0 * s, row.h);
-            hs.add(prev, HitId::OptionPrev(i));
-            hs.add(next, HitId::OptionNext(i));
-            if on || hot {
-                let iy = row.y + (row.h - icon) / 2.0;
-                c.sprite(
-                    sk.icons.chevron_left,
-                    Rect::new(vr.x, iy, icon, icon),
-                    theme::CYAN,
-                );
-                c.sprite(
-                    sk.icons.chevron_right,
-                    Rect::new(vr.right(), iy, icon, icon),
-                    theme::CYAN,
-                );
-            }
-            y += row_h;
+    let mut y = inner.y + 40.0 * s;
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(section) = line.section {
+            widgets::section_header(c, t, section, inner.x, y, inner.w, s);
+            y += section_h;
         }
+        let row = Rect::new(inner.x - 8.0 * s, y, inner.w + 16.0 * s, row_h - 2.0 * s);
+        widgets::option_row(
+            c,
+            t,
+            &sk,
+            &mut hs,
+            row,
+            i,
+            line,
+            i == selected,
+            150.0 * s,
+            s,
+        );
+        y += row_h;
     }
+    let card = Rect::new(inner.x, y + 12.0 * s, inner.w, widgets::HELP_CARD_H * s);
+    widgets::help_card(c, t, &sk, card, help.0, help.1, s);
+
     let hints = [
         ("↑↓", strings::HINT_MOVE),
         (LEFT_RIGHT, strings::HINT_CHANGE),
@@ -1403,7 +1351,8 @@ mod tests {
             assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::SongRow(*i)));
         }
         for id in [
-            HitId::Settings,
+            HitId::PlayOptions,
+            HitId::OpenSettings,
             HitId::Search,
             HitId::Sort,
             HitId::FolderPrev,
@@ -1422,7 +1371,8 @@ mod tests {
             HitId::Search,
             HitId::FolderNext,
             HitId::Sort,
-            HitId::Settings,
+            HitId::PlayOptions,
+            HitId::OpenSettings,
             HitId::Auto,
             HitId::KeyConfig,
             HitId::Quit,
@@ -1439,8 +1389,7 @@ mod tests {
         // position outside the panel reaches the blocker, not the row.
         ui.begin(1280, 720, vp.scale);
         draw_song_select(&mut ui, &frame);
-        let rows_text = [("HI-SPEED", "1100".to_string()), ("GAUGE", "GROOVE".into())];
-        draw_options_modal(&mut ui, &vp, &rows_text, 1);
+        draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
         let (rx, ry) = (rows[0].1.x + 10.0, rows[0].1.y + 10.0);
         assert_eq!(hit_at(&ui.hits, rx, ry), Some(HitId::Blocker));
         assert_eq!(hit_at(&ui.hits, 2.0, 2.0), Some(HitId::Blocker));
@@ -1468,6 +1417,24 @@ mod tests {
         let (cx, cy) = hit_center(&ui.hits, HitId::ExitCancel);
         assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::ExitCancel));
         assert_eq!(hit_at(&ui.hits, 2.0, 2.0), Some(HitId::Blocker));
+    }
+
+    /// Two rows of the play options panel, the first under a section header.
+    fn panel_lines() -> Vec<OptionLine<'static>> {
+        vec![
+            OptionLine {
+                column: 0,
+                section: Some("플레이"),
+                label: "HI-SPEED",
+                value: "1100 px/s".into(),
+            },
+            OptionLine {
+                column: 0,
+                section: None,
+                label: "GAUGE",
+                value: "GROOVE".into(),
+            },
+        ]
     }
 
     /// Center of the first region recorded as `id`.
@@ -1535,12 +1502,7 @@ mod tests {
                 preview_secs: None,
             };
             draw_song_select(&mut ui, &frame);
-            draw_options_modal(
-                &mut ui,
-                &vp,
-                &[("HI-SPEED", "1100".into()), ("GAUGE", "GROOVE".into())],
-                1,
-            );
+            draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
             draw_exit_modal(&mut ui, &vp);
             assert_eq!(
                 ui.canvas.debug_batches().len(),

@@ -157,6 +157,134 @@ pub(crate) fn footer_buttons(
     }
 }
 
+/// Height of the help card under an option list (1280×720 units).
+pub(crate) const HELP_CARD_H: f32 = 88.0;
+
+/// One line of an option list. A list is drawn in `column`s; `section`, when
+/// set, is a header drawn above this line.
+pub struct OptionLine<'a> {
+    pub column: usize,
+    pub section: Option<&'a str>,
+    pub label: &'a str,
+    /// The value as shown ("1100 px/s", "GROOVE", "<" arrows added by the drawing).
+    pub value: String,
+}
+
+/// A section header: caption and a hairline to its right, top at `y`.
+pub(crate) fn section_header(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    label: &str,
+    x: f32,
+    y: f32,
+    w: f32,
+    s: f32,
+) {
+    let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
+    let lw = t.draw(c, label, x, y + 20.0 * s, &cap);
+    c.fill_rect(
+        Rect::new(
+            x + lw + 12.0 * s,
+            y + 16.0 * s,
+            w - lw - 12.0 * s,
+            s.max(1.0),
+        ),
+        theme::LINE,
+    );
+}
+
+/// One option row: label on the left, value in the middle, `<` `>` arrows
+/// around the value. The row and both arrows record hits (`OptionRow`,
+/// `OptionPrev`, `OptionNext`) with `index`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn option_row(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hs: &mut HitSink,
+    row: Rect,
+    index: usize,
+    line: &OptionLine,
+    on: bool,
+    label_w: f32,
+    s: f32,
+) {
+    let hot = !on && hs.hovered(row);
+    if on {
+        c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
+        c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
+    } else if hot {
+        c.nine(&sk.panel, row, theme::SURF2);
+    }
+    let fg = if on { theme::TEXT } else { theme::MUTED };
+    t.draw_in(
+        c,
+        line.label,
+        Rect::new(row.x + 14.0 * s, row.y, label_w, row.h),
+        Align::Left,
+        &TextStyle::new(13.0 * s).bold().color(fg),
+    );
+
+    let icon = 16.0 * s;
+    let step = icon + 8.0 * s;
+    // The value sits in the right part of the row, so the middle of the row
+    // (where a click selects it) stays outside the arrows.
+    let value_w = (row.w * 0.4).min(260.0 * s);
+    let area = Rect::new(row.right() - value_w - 12.0 * s, row.y, value_w, row.h);
+    let prev = Rect::new(area.x, row.y, step, row.h);
+    let next = Rect::new(area.right() - step, row.y, step, row.h);
+    hs.add(row, HitId::OptionRow(index));
+    hs.add(prev, HitId::OptionPrev(index));
+    hs.add(next, HitId::OptionNext(index));
+
+    let text = Rect::new(area.x + step, row.y, area.w - 2.0 * step, row.h);
+    let st = TextStyle::new(13.0 * s).bold().color(fg);
+    let value = t.fit(c, &line.value, text.w - 4.0 * s, &st).into_owned();
+    t.draw_in(c, &value, text, Align::Center, &st);
+    if on || hot {
+        let iy = row.y + (row.h - icon) / 2.0;
+        c.sprite(
+            sk.icons.chevron_left,
+            Rect::new(area.x + 4.0 * s, iy, icon, icon),
+            theme::CYAN,
+        );
+        c.sprite(
+            sk.icons.chevron_right,
+            Rect::new(area.right() - icon - 4.0 * s, iy, icon, icon),
+            theme::CYAN,
+        );
+    }
+}
+
+/// The card that explains the highlighted option: its name, then up to two
+/// lines of help.
+pub(crate) fn help_card(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    r: Rect,
+    title: &str,
+    body: &str,
+    s: f32,
+) {
+    c.halo(&sk.shadow, r, theme::WHITE.with_alpha(120));
+    c.nine(&sk.panel_lg, r, theme::SURF1.with_alpha(235));
+    let inner = r.inset(16.0 * s);
+    t.draw(
+        c,
+        title,
+        inner.x,
+        inner.y + 12.0 * s,
+        &TextStyle::new(14.0 * s).bold().color(theme::TEXT),
+    );
+    let st = TextStyle::new(13.0 * s).color(theme::MUTED);
+    let (first, rest) = wrap2(c, t, body, inner.w, &st);
+    t.draw(c, &first, inner.x, inner.y + 34.0 * s, &st);
+    if let Some(rest) = rest {
+        t.draw(c, &rest, inner.x, inner.y + 52.0 * s, &st);
+    }
+}
+
 /// Score-rate bar (0..1) with A / AA / AAA marks at the IIDX ninths.
 pub(crate) fn rate_bar(
     c: &mut Canvas,

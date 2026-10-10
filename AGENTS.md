@@ -73,7 +73,7 @@
 - `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
 - `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
 - `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다.
-- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`) 및 입력 통합을 담당합니다.
+- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`, `Settings`) 및 입력 통합을 담당합니다. 옵션 목록(플레이 옵션 패널, 설정 화면)은 `options_table.rs`의 표 한 곳에서 그리기와 입력을 함께 처리합니다.
 - `crates/bms-package`: 단일 패키지(`.bmsp`) 포맷, Manifest, 결정론적 패커 및 안전한 리더를 다룹니다.
 - `crates/bms-package-manager`: 로컬 저장소(`packages/`), `registry.json`, 원자적 설치, 다중 버전 관리 및 `bpm` CLI를 담당합니다.
 - `crates/bpm-gui`: 독립형 경량 데스크톱 패키지 관리 GUI 애플리케이션입니다.

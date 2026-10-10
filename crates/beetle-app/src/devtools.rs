@@ -36,6 +36,7 @@ fn parse_screen(s: &str) -> Option<AppScreen> {
         "gameplay" => AppScreen::Gameplay,
         "result" => AppScreen::Result,
         "keyconfig" => AppScreen::KeyConfig,
+        "settings" => AppScreen::Settings,
         _ => return None,
     })
 }

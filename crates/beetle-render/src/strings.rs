@@ -53,6 +53,8 @@ table! {
     pub TOAST_SCREENSHOT_SAVED = "스크린샷을 저장했습니다: {}";
     /// `{}` is the error.
     pub TOAST_SCREENSHOT_FAILED = "스크린샷을 저장하지 못했습니다: {}";
+    /// Shown when leaving Settings with a value that only applies after a restart.
+    pub TOAST_RESTART_NEEDED = "재시작 후 적용됩니다";
     pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일입니다 (.bmsp, .bms, .bme, .bml, .pms)";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
@@ -71,6 +73,8 @@ table! {
     pub FOLDER = "폴더";
     pub SORT = "정렬";
     pub OPTIONS = "옵션";
+    /// Top bar button for the Settings screen (F4).
+    pub SETTINGS = "설정";
     pub SEARCH_PLACEHOLDER = "제목, 아티스트 검색";
     pub PREVIEW = "미리듣기";
     /// Row tag for a chart with no score yet.
@@ -107,6 +111,7 @@ table! {
     pub FOOTER_SORT = "정렬";
     pub FOOTER_AUTO = "자동";
     pub FOOTER_KEYS = "키 설정";
+    pub FOOTER_SETTINGS = "설정";
     pub FOOTER_QUIT = "종료";
 
     // Folder names (the selector's `<` `>` cycle through these).
@@ -128,20 +133,26 @@ table! {
     pub SORT_SCORE_RATE = "정확도";
     pub SORT_BPM = "BPM";
 
-    // Play options modal.
+    // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS = "플레이 옵션";
     pub GROUP_PLAY = "플레이";
+    pub GROUP_SESSION = "세션";
+    pub GROUP_DISPLAY = "화면";
     pub GROUP_AUDIO = "소리";
+    pub GROUP_JUDGE = "판정";
     pub GROUP_LAYOUT = "레이아웃";
-    pub GROUP_DISPLAY_SYSTEM = "화면 / 시스템";
-    pub GROUP_INPUT_SESSION = "입력 / 세션";
+    pub GROUP_INPUT = "입력";
     pub ROW_HI_SPEED = "하이스피드";
+    pub ROW_LANE_COVER = "레인 커버";
     pub ROW_MODIFIER = "모디파이어";
     pub ROW_GAUGE = "게이지";
     pub ROW_LN_MODE = "LN 모드";
+    pub ROW_AUTO_PLAY = "자동 플레이";
+    pub ROW_START_MEASURE = "시작 마디";
     pub ROW_JUDGE_OFFSET = "판정 오프셋";
     pub ROW_MASTER_VOLUME = "전체 볼륨";
     pub ROW_PLAYFIELD = "플레이필드";
+    pub ROW_SCRATCH = "스크래치";
     pub ROW_BGA = "BGA";
     pub ROW_TRACK_BGA = "트랙 BGA";
     pub ROW_DISPLAY_MODE = "화면 모드";
@@ -149,12 +160,12 @@ table! {
     pub ROW_GRAPHICS = "그래픽";
     pub ROW_TARGET_FPS = "목표 FPS";
     pub ROW_KEY_LAYOUT = "키 배치";
-    pub ROW_AUTO_PLAY = "자동 플레이";
-    pub ROW_START_MEASURE = "시작 마디";
     pub VALUE_ON = "켜짐";
     pub VALUE_OFF = "꺼짐";
     pub VALUE_UNLIMITED = "무제한";
     pub VALUE_CENTER = "가운데";
+    /// A row that does not apply to the selected song's key mode.
+    pub VALUE_NOT_APPLICABLE = "해당 없음";
     /// Resolution label when the window size matches no preset.
     pub RESOLUTION_CUSTOM = "사용자 지정";
     pub DISPLAY_WINDOWED = "창 모드";
@@ -173,10 +184,35 @@ table! {
     pub VALUE_FPS = "{} FPS";
     /// `{}` is the LN rule AUTO resolves to for the highlighted song.
     pub VALUE_AUTO_RESOLVED = "자동 ({})";
+    /// `{}` is the scroll speed in pixels per second.
+    pub VALUE_PX_PER_SEC = "{} px/s";
     /// Modal footer hints.
     pub HINT_MOVE = "이동";
     pub HINT_CHANGE = "변경";
     pub HINT_CLOSE = "닫기";
+    pub HINT_SELECT = "선택";
+
+    // Help sentences: one line under the highlighted row (plain Korean).
+    pub HELP_HI_SPEED = "노트가 떨어지는 속도입니다. 값이 클수록 노트가 빨리 떨어집니다. 단위는 초당 픽셀입니다.";
+    pub HELP_LANE_COVER = "레인 위쪽을 가려 노트가 보이는 구간을 줄입니다. 0%는 가리지 않습니다. 플레이 중 F10, F11로도 바꿀 수 있습니다.";
+    pub HELP_MODIFIER = "노트 배치를 바꿉니다. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞습니다.";
+    pub HELP_GAUGE = "점수 게이지의 방식입니다. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격합니다.";
+    pub HELP_LN_MODE = "롱노트 판정 방식입니다. AUTO는 곡 데이터에 맞추고, LN과 CN은 어떤 곡이든 그 방식으로 고정합니다.";
+    pub HELP_AUTO_PLAY = "켜면 키를 누르지 않아도 곡이 끝까지 연주됩니다. 자동 플레이 결과는 기록으로 저장되지 않습니다.";
+    pub HELP_START_MEASURE = "이 마디부터 곡을 시작합니다. 0이면 처음부터입니다. 0이 아니면 연습으로 기록되지 않습니다.";
+
+    // Settings screen (its title is SETTINGS above).
+    pub HELP_DISPLAY_MODE = "창 모드, 테두리 없는 창, 전체 화면 중에서 고릅니다. 바로 적용됩니다.";
+    pub HELP_RESOLUTION = "창 크기나 전체 화면 해상도를 고릅니다. 창 모드는 16:9 크기만 고를 수 있습니다.";
+    pub HELP_GRAPHICS = "그림을 그리는 장치입니다. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그립니다. 바꾸면 재시작 후 적용됩니다.";
+    pub HELP_TARGET_FPS = "플레이 화면의 최대 프레임입니다. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춥니다.";
+    pub HELP_MASTER_VOLUME = "키음과 배경음을 포함한 전체 소리 크기입니다. 최대 200%까지 올릴 수 있습니다.";
+    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮깁니다. 범위는 -100에서 +100 ms입니다. 판정이 한쪽으로 치우칠 때 조정합니다.";
+    pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정합니다.";
+    pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둡니다. 5K, 7K, 8K에서만 적용됩니다.";
+    pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줍니다. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아낍니다.";
+    pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정합니다. 꺼짐이면 보이지 않습니다.";
+    pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 고릅니다. ENTER로 키 설정 화면을 엽니다.";
 
     // Quit confirmation.
     pub QUIT_TITLE = "BEETLE을 종료할까요?";

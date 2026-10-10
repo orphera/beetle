@@ -8,14 +8,14 @@
 use std::path::Path;
 use std::time::Instant;
 
-use beetle_core::{LnOption, Ruleset, SongMetadata, SortMode};
-use beetle_render::{strings, FieldPosition, GpuBackend, ToastFrame, ToastKind, Ui};
+use beetle_core::{Ruleset, SongMetadata, SortMode};
+use beetle_render::{strings, GpuBackend, OptionLine, SettingsFrame, ToastFrame, ToastKind, Ui};
 use winit::dpi::PhysicalSize;
 
-use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting};
 use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
+use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
 use crate::state::{replay_path, AppState, LibraryJob};
 use crate::transition::show_toast;
 
@@ -232,36 +232,23 @@ fn sort_label(mode: SortMode) -> &'static str {
     }
 }
 
-fn display_mode_label(mode: DisplayMode) -> &'static str {
-    match mode {
-        DisplayMode::Windowed => strings::DISPLAY_WINDOWED,
-        DisplayMode::Borderless => strings::DISPLAY_BORDERLESS,
-        DisplayMode::ExclusiveFullscreen => strings::DISPLAY_FULLSCREEN,
-    }
-}
-
-fn gpu_label(backend: GpuBackendSetting) -> &'static str {
-    match backend {
-        GpuBackendSetting::Auto => strings::GPU_AUTO,
-        GpuBackendSetting::Warp => strings::GPU_WARP,
-    }
-}
-
-fn track_bga_label(bga: TrackBgaSetting) -> &'static str {
-    match bga {
-        TrackBgaSetting::Off => strings::TRACK_BGA_OFF,
-        TrackBgaSetting::Low => strings::TRACK_BGA_LOW,
-        TrackBgaSetting::Medium => strings::TRACK_BGA_MEDIUM,
-        TrackBgaSetting::High => strings::TRACK_BGA_HIGH,
-    }
-}
-
-fn field_label(position: FieldPosition) -> &'static str {
-    match position {
-        FieldPosition::Left => strings::SIDE_LEFT,
-        FieldPosition::Center => strings::VALUE_CENTER,
-        FieldPosition::Right => strings::SIDE_RIGHT,
-    }
+/// The rows of an option table as the screens draw them: a section header
+/// where the group changes.
+fn option_lines(state: &AppState, table: &'static [OptionDesc]) -> Vec<OptionLine<'static>> {
+    let mut last: Option<&'static str> = None;
+    table
+        .iter()
+        .map(|d| {
+            let section = (last != Some(d.group)).then_some(d.group);
+            last = Some(d.group);
+            OptionLine {
+                column: d.column,
+                section,
+                label: d.label,
+                value: options_table::value(state, d.id),
+            }
+        })
+        .collect()
 }
 
 /// Song select plus its option / quit modals.
@@ -272,7 +259,9 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         .current_selected_song()
         .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
     let chips = option_chips(state, state.current_selected_song());
-    let option_rows = state.show_option_modal.then(|| option_modal_rows(state));
+    let option_panel = state
+        .show_option_modal
+        .then(|| option_lines(state, PLAY_OPTIONS));
 
     let stage_img = selected_id
         .and_then(|id| state.stage_image_cache.get(&id))
@@ -318,8 +307,9 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             preview_secs: state.preview.playing_for(),
         },
     );
-    if let Some(rows) = &option_rows {
-        beetle_render::draw_options_modal(ui, &vp, rows, state.modal_row);
+    if let Some(lines) = &option_panel {
+        let d = &PLAY_OPTIONS[state.modal_row.min(PLAY_OPTIONS.len() - 1)];
+        beetle_render::draw_options_modal(ui, &vp, lines, state.modal_row, (d.label, d.help));
     }
     if state.show_exit_modal {
         beetle_render::draw_exit_modal(ui, &vp);
@@ -330,94 +320,22 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     finish(state);
 }
 
-/// (label, value) rows of the play options modal, in the order the option
-/// handler indexes them (`state.modal_row`).
-fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
-    let o = &state.play_options;
-    let on_off = |on: bool| {
-        if on {
-            strings::VALUE_ON
-        } else {
-            strings::VALUE_OFF
-        }
-    };
-    vec![
-        (strings::ROW_HI_SPEED, format!("{:.0} px/s", o.hi_speed)),
-        (strings::ROW_MODIFIER, o.lane_modifier.as_str().to_string()),
-        (strings::ROW_GAUGE, o.gauge_type.as_str().to_string()),
-        (
-            strings::ROW_LN_MODE,
-            match state.current_selected_song().filter(|s| s.ln_count > 0) {
-                // AUTO says what it comes to for the highlighted song.
-                Some(song) if o.ln == LnOption::Auto => strings::fill(
-                    strings::VALUE_AUTO_RESOLVED,
-                    &[&Ruleset::resolve(song.ln_mode, o.ln).label()],
-                ),
-                _ => o.ln.as_str().to_string(),
-            },
-        ),
-        (
-            strings::ROW_JUDGE_OFFSET,
-            format!("{:+.0} ms", o.judge_offset_ms),
-        ),
-        (
-            strings::ROW_MASTER_VOLUME,
-            format!("{:.0}%", state.master_volume * 100.0),
-        ),
-        (
-            strings::ROW_PLAYFIELD,
-            field_label(state.view.skin.field_position).to_string(),
-        ),
-        (strings::ROW_BGA, on_off(state.bga_enabled).to_string()),
-        (
-            strings::ROW_TRACK_BGA,
-            track_bga_label(state.track_bga).to_string(),
-        ),
-        (
-            strings::ROW_DISPLAY_MODE,
-            display_mode_label(state.display_mode).to_string(),
-        ),
-        (
-            strings::ROW_RESOLUTION,
-            state.current_resolution_label().to_string(),
-        ),
-        (
-            strings::ROW_GRAPHICS,
-            if state.gpu_backend == state.gpu_backend_at_start {
-                gpu_label(state.gpu_backend).to_string()
-            } else {
-                strings::fill(
-                    strings::VALUE_AFTER_RESTART,
-                    &[gpu_label(state.gpu_backend)],
-                )
-            },
-        ),
-        (
-            strings::ROW_TARGET_FPS,
-            if state.target_fps == 0 {
-                strings::VALUE_UNLIMITED.to_string()
-            } else {
-                strings::fill(strings::VALUE_FPS, &[&state.target_fps.to_string()])
-            },
-        ),
-        (strings::ROW_KEY_LAYOUT, {
-            // Layouts are per key mode; this row edits the selected song's.
-            let mode = state.key_config_mode();
-            format!(
-                "{}  {}",
-                beetle_render::theme::mode_label(mode),
-                state.key_bindings.get(mode).preset.as_str()
-            )
-        }),
-        (
-            strings::ROW_AUTO_PLAY,
-            on_off(state.is_auto_play).to_string(),
-        ),
-        (
-            strings::ROW_START_MEASURE,
-            format!("M.{}", state.start_measure),
-        ),
-    ]
+/// The Settings screen: the values that are set once.
+pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
+    let lines = option_lines(state, SETTINGS);
+    let row = state.settings_row.min(SETTINGS.len() - 1);
+    begin(state, size);
+    beetle_render::draw_settings(
+        &mut state.gpu_ui.ui,
+        &SettingsFrame {
+            viewport: &state.view.viewport,
+            lines: &lines,
+            selected: row,
+            help: SETTINGS[row].help,
+        },
+    );
+    overlays(state, true);
+    finish(state);
 }
 
 pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {

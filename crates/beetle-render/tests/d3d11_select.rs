@@ -12,7 +12,7 @@ use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_screen_fade, draw_song_select, draw_toast,
-    D3d11Backend, GpuBackend, SelectFrame, ToastFrame, ToastKind, Ui, Viewport,
+    D3d11Backend, GpuBackend, OptionLine, SelectFrame, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -253,28 +253,36 @@ fn render(
     match overlay {
         Overlay::None => {}
         Overlay::Options => {
-            let rows: Vec<(&str, String)> = [
-                (strings::ROW_HI_SPEED, "1100 px/s"),
-                (strings::ROW_MODIFIER, "REGULAR"),
-                (strings::ROW_GAUGE, "GROOVE"),
-                (strings::ROW_LN_MODE, "AUTO (LN)"),
-                (strings::ROW_JUDGE_OFFSET, "+0 ms"),
-                (strings::ROW_MASTER_VOLUME, "80%"),
-                (strings::ROW_PLAYFIELD, strings::VALUE_CENTER),
-                (strings::SCRATCH, strings::SIDE_RIGHT),
-                (strings::ROW_TRACK_BGA, strings::TRACK_BGA_OFF),
-                (strings::ROW_DISPLAY_MODE, strings::DISPLAY_WINDOWED),
-                (strings::ROW_RESOLUTION, "1280 x 720"),
-                (strings::ROW_GRAPHICS, "WARP (CPU) (재시작 후 적용)"),
-                (strings::ROW_TARGET_FPS, strings::VALUE_UNLIMITED),
-                (strings::ROW_KEY_LAYOUT, "7K  HOME ROW"),
-                (strings::ROW_AUTO_PLAY, strings::VALUE_OFF),
-                (strings::ROW_START_MEASURE, "M.0"),
-            ]
-            .iter()
-            .map(|(k, v)| (*k, v.to_string()))
-            .collect();
-            draw_options_modal(ui, &vp, &rows, 2);
+            let line = |section, label, value: &str| OptionLine {
+                column: 0,
+                section,
+                label,
+                value: value.to_string(),
+            };
+            let lines = [
+                line(
+                    Some(strings::GROUP_PLAY),
+                    strings::ROW_HI_SPEED,
+                    "1100 px/s",
+                ),
+                line(None, strings::ROW_LANE_COVER, "25%"),
+                line(None, strings::ROW_MODIFIER, "REGULAR"),
+                line(None, strings::ROW_GAUGE, "GROOVE"),
+                line(None, strings::ROW_LN_MODE, "자동 (LN)"),
+                line(
+                    Some(strings::GROUP_SESSION),
+                    strings::ROW_AUTO_PLAY,
+                    strings::VALUE_OFF,
+                ),
+                line(None, strings::ROW_START_MEASURE, "M.0"),
+            ];
+            draw_options_modal(
+                ui,
+                &vp,
+                &lines,
+                2,
+                (strings::ROW_GAUGE, strings::HELP_GAUGE),
+            );
         }
         Overlay::Exit => draw_exit_modal(ui, &vp),
         Overlay::Toast => {

@@ -1,8 +1,8 @@
 //! Mouse input. Clicks and the wheel run the same actions as the keys. The
 //! hit regions come from the last presented frame (`Ui::hits`), so a click
 //! lands on what the player saw. Song select (with its modals), the result
-//! screen and key configuration take the mouse; gameplay, loading and boot
-//! ignore it.
+//! screen, key configuration and settings take the mouse; gameplay, loading
+//! and boot ignore it.
 
 use std::time::Instant;
 
@@ -13,13 +13,17 @@ use crate::handlers::key_config::{
     clear_lane_keys, cycle_key_preset, leave_key_config, reset_key_layout, set_key_mode,
     step_key_mode, toggle_eight_k_form, toggle_scratch_side,
 };
-use crate::handlers::options::{change_option, close_options, move_option_row, open_options};
+use crate::handlers::options::{
+    change_option, close_options, move_option_row, move_row, open_options,
+};
 use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
+use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
     cycle_folder, cycle_sort, move_selection, open_exit_prompt, open_key_config, start_replay,
     start_selected, toggle_auto,
 };
 use crate::ime::set_search_active;
+use crate::options_table::SETTINGS;
 use crate::state::{AppScreen, AppState};
 
 /// Precise (touchpad) scrolling reports pixels; this many make one notch.
@@ -32,7 +36,7 @@ pub fn handle_press(state: &mut AppState) {
     match state.screen {
         // A click anywhere cancels a pending key bind, as ESC does.
         AppScreen::KeyConfig if state.rebinding.is_some() => state.rebinding = None,
-        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Result => {
+        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Result | AppScreen::Settings => {
             let Some((x, y)) = state.cursor else {
                 return;
             };
@@ -58,6 +62,7 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
         AppScreen::SongSelect => song_select_click(state, id),
         AppScreen::Result => result_click(state, id),
         AppScreen::KeyConfig => key_config_click(state, id),
+        AppScreen::Settings => settings_click(state, id),
         _ => (),
     }
 }
@@ -100,7 +105,8 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::Search => set_search_active(state, true),
         HitId::Play => start_selected(state),
         HitId::Replay => start_replay(state),
-        HitId::Settings => open_options(state),
+        HitId::PlayOptions => open_options(state),
+        HitId::OpenSettings => open_settings(state),
         HitId::Auto => toggle_auto(state),
         HitId::KeyConfig => open_key_config(state),
         HitId::Quit => open_exit_prompt(state),
@@ -141,8 +147,8 @@ fn key_config_click(state: &mut AppState, id: HitId) {
 }
 
 /// A wheel or touchpad scroll. Up moves the highlight up; in the options
-/// modal it moves the highlighted row; on key configuration it switches the
-/// key mode (up = previous).
+/// panel and on the Settings screen it moves the highlighted row; on key
+/// configuration it switches the key mode (up = previous).
 pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
     let lines = match delta {
         MouseScrollDelta::LineDelta(_, y) => y,
@@ -166,6 +172,7 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
                 }
             }
             AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),
+            AppScreen::Settings => move_row(&mut state.settings_row, SETTINGS.len(), !up),
             _ => (),
         }
     }

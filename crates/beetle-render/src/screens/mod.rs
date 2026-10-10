@@ -6,6 +6,7 @@ pub mod loading;
 mod overlay;
 pub mod play;
 pub mod select;
+pub mod settings;
 pub mod stage_result;
 mod widgets;
 
@@ -14,11 +15,10 @@ pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODE
 pub use loading::{draw_loading, LoadingFrame};
 pub use overlay::{draw_screen_fade, draw_toast, ToastFrame, ToastKind};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};
-pub use select::{
-    draw_exit_modal, draw_options_modal, draw_song_select, SelectFrame, OPTION_COLUMN_BREAK,
-    OPTION_SECTIONS,
-};
+pub use select::{draw_exit_modal, draw_options_modal, draw_song_select, SelectFrame};
+pub use settings::{draw_settings, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
+pub use widgets::OptionLine;
 
 #[cfg(test)]
 mod tests {
@@ -35,6 +35,7 @@ mod tests {
             ("loading.rs", include_str!("loading.rs")),
             ("boot.rs", include_str!("boot.rs")),
             ("overlay.rs", include_str!("overlay.rs")),
+            ("settings.rs", include_str!("settings.rs")),
         ] {
             assert!(
                 !src.contains(concat!("ColorRgba", "::new")),
