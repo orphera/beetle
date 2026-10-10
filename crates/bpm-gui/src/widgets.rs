@@ -58,7 +58,6 @@ pub enum UiAction {
     AskUninstallVersion(usize),
     AskUninstall,
     AskRemoveBga,
-    // Get songs
     // Difficulty tables
     PrevTable,
     NextTable,
