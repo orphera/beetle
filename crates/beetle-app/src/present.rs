@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use beetle_core::{Ruleset, SongMetadata, SortMode};
+use beetle_core::{SongMetadata, SortMode};
 use beetle_render::{
     strings, GpuBackend, OptionLine, SettingsFrame, ToastAnchor, ToastFrame, ToastKind, Ui,
 };
@@ -108,7 +108,7 @@ fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
         state.play_options.gauge_type.as_str().to_string(),
     ];
     if let Some(song) = song.filter(|s| s.ln_count > 0) {
-        chips.push(Ruleset::resolve(song.ln_mode, state.ln_option()).label());
+        chips.push(state.play_ruleset(song).label());
     }
     chips
 }
@@ -537,6 +537,10 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         None => (None, None),
     };
 
+    let notes = state
+        .loading_song
+        .as_ref()
+        .map_or(0, |song| song.notes_count_for(state.play_ruleset(song).ln));
     begin(state, size);
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
@@ -544,6 +548,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
             &beetle_render::LoadingFrame {
                 viewport: &state.view.viewport,
                 song,
+                notes,
                 jacket,
                 ambient,
                 elapsed,

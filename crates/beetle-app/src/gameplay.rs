@@ -69,20 +69,7 @@ pub fn finalize_start_gameplay(
         .notes
         .iter()
         .any(|n| n.note_type == beetle_core::NoteType::LongNoteStart);
-    // A replay is judged under the rule it was played with; a replay from before
-    // rules existed carries none, and was played under CN. Otherwise the
-    // chart's `#LNMODE` and the player's LN MODE give the rule.
-    let ruleset = match state
-        .playback_replay
-        .as_ref()
-        .filter(|_| state.is_replay_playback)
-    {
-        Some(replay) => match replay.ln {
-            Some(beetle_core::LnRule::Ln) => beetle_core::Ruleset::LN,
-            _ => beetle_core::Ruleset::CN,
-        },
-        None => beetle_core::Ruleset::resolve(song.ln_mode, state.ln_option()),
-    };
+    let ruleset = state.play_ruleset(song);
     state.active_hcn = play_chart_has_long_notes && ruleset.hcn_requested;
     let mut judge_engine =
         JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type, ruleset);

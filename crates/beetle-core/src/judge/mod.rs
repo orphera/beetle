@@ -911,6 +911,75 @@ mod tests {
     }
 
     #[test]
+    fn every_screen_count_matches_the_judge_under_each_ln_option() {
+        use crate::library::SongMetadata;
+        use crate::rules::LnOption;
+        // Plain LN, LNMODE 2 (CN), LNMODE 3 (HCN, played as CN), and an LNOBJ
+        // chart whose lone `02` on lane 2 is a tail with no head.
+        let charts: [(&str, &str); 4] = [
+            (
+                "#BPM 120
+#00111:01
+#00251:01000100
+",
+                "tap + long note",
+            ),
+            (
+                "#BPM 120
+#LNMODE 2
+#00111:01
+#00251:01000100
+",
+                "LNMODE 2",
+            ),
+            (
+                "#BPM 120
+#LNMODE 3
+#00111:01
+#00251:01000100
+",
+                "LNMODE 3",
+            ),
+            (
+                "#BPM 120
+#LNOBJ 02
+#00111:0102
+#00112:02
+",
+                "LNOBJ with orphan tail",
+            ),
+        ];
+        for (text, name) in charts {
+            let song = SongMetadata::from_bytes("t.bms", text.as_bytes()).unwrap();
+            let chart = parse_bms(text).unwrap();
+            let timing = TimingModel::from_chart(&chart);
+            for option in [LnOption::Auto, LnOption::Ln, LnOption::Cn] {
+                // The play that would start now: its rule, judged by the judge.
+                let ruleset = Ruleset::resolve(song.ln_mode, option);
+                let judged = JudgeEngine::new(&chart, &timing, GaugeType::Groove, ruleset)
+                    .score()
+                    .total_notes as usize;
+                // Select detail (`notes_for`) and loading card (`notes_count_for` of the play's rule).
+                assert_eq!(song.notes_for(option), judged, "{name}, {option:?}: detail");
+                assert_eq!(
+                    song.notes_count_for(ruleset.ln),
+                    judged,
+                    "{name}, {option:?}: loading"
+                );
+            }
+        }
+        // Spot values: AUTO on a chart with no #LNMODE is LN, which drops the tail.
+        let plain = SongMetadata::from_bytes("t.bms", charts[0].0.as_bytes()).unwrap();
+        assert_eq!(
+            (
+                plain.notes_for(LnOption::Auto),
+                plain.notes_for(LnOption::Cn)
+            ),
+            (2, 3)
+        );
+    }
+
+    #[test]
     fn auto_play_holds_a_long_note_from_head_to_tail() {
         let mut engine = ln_engine();
         engine.auto_play_update(2.0);

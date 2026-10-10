@@ -21,6 +21,8 @@ use beetle_core::SongMetadata;
 pub struct LoadingFrame<'a> {
     pub viewport: &'a Viewport,
     pub song: &'a SongMetadata,
+    /// Notes under the rule the play is judged under (what the HUD and result count).
+    pub notes: usize,
     pub jacket: Option<SizedTexture>,
     /// Dominant color of the jacket (ambient light).
     pub ambient: Option<ColorRgba>,
@@ -165,7 +167,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
 
     // Chart stats, aligned to the jacket's bottom
     let bpm = song.bpm_label();
-    let notes = thousands(song.notes_count as u32);
+    let notes = thousands(f.notes as u32);
     for (i, (k, v)) in [
         (strings::BPM, bpm.as_str()),
         (strings::NOTES, notes.as_str()),
@@ -278,6 +280,7 @@ mod tests {
                 &LoadingFrame {
                     viewport: &vp,
                     song: &song,
+                    notes: 1500,
                     jacket: None,
                     ambient: None,
                     elapsed,

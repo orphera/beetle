@@ -79,9 +79,11 @@ pub struct SongMetadata {
     pub bpm_min: f64,
     pub bpm_max: f64,
     pub play_level: u32,
-    /// Notes as the CN rule counts them: a long note's head and tail each count.
+    /// Notes as the CN rule judges them: a long note's head and tail each count.
+    /// The same count `JudgeEngine` totals under CN.
     pub notes_count: usize,
-    /// How many long notes the chart has.
+    /// How many long notes the chart has, counted by their tails (the notes the
+    /// LN rule does not judge). Each pair has one of each.
     pub ln_count: u32,
     /// The chart's own `#LNMODE` (1 LN, 2 CN, 3 HCN), if it has one.
     pub ln_mode: Option<u32>,
@@ -96,14 +98,17 @@ impl SongMetadata {
         let chart = parse_bms(&content).ok()?;
         let legacy_hash = compute_chart_hash(content.as_bytes());
         let (id, md5) = hash_chart_bytes(bytes);
-        let notes_count = chart.total_notes_count.max(chart.playable_notes_len());
+        // Every non-landmine note is judged under CN (the judge's own total).
+        // `total_notes_count` is not used: it also counts notes the judge drops
+        // (a note on a lane the mode does not have).
+        let notes_count = chart.playable_notes_len();
         let (bpm_min, bpm_max) = chart.bpm_range();
         let is_pms = file_path.to_lowercase().ends_with(".pms");
         let play_mode = chart.detect_play_mode_with_hint(is_pms);
         let ln_count = chart
             .notes
             .iter()
-            .filter(|n| n.note_type == NoteType::LongNoteStart)
+            .filter(|n| n.note_type == NoteType::LongNoteEnd)
             .count() as u32;
         let ln_mode = chart.header.ln_mode;
 
@@ -133,8 +138,10 @@ impl SongMetadata {
         })
     }
 
-    /// How many notes the chart has under a long note rule: the same as
-    /// `notes_count` for CN, and without the tails for LN.
+    /// How many notes the song has under a long note rule: the same as
+    /// `notes_count` for CN, and without the tails for LN. This is the total
+    /// `JudgeEngine` reports under that rule, so it is the note count every
+    /// screen shows for a play judged under it.
     pub fn notes_count_for(&self, rule: LnRule) -> usize {
         match rule {
             LnRule::Cn => self.notes_count,
@@ -145,8 +152,7 @@ impl SongMetadata {
     /// How many notes the song has under the rule the player's setting gives it
     /// (the maximum combo, and half the maximum EX score).
     pub fn notes_for(&self, option: crate::rules::LnOption) -> usize {
-        self.score_rule(option)
-            .map_or(self.notes_count, |rule| self.notes_count_for(rule))
+        self.notes_count_for(crate::rules::Ruleset::resolve(self.ln_mode, option).ln)
     }
 
     /// The long note rule this song's score record is filed under with the
@@ -322,7 +328,7 @@ pub fn sort_songs(
 pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
 /// First line of a song list cache.
-const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V6";
+const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V7";
 
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
@@ -502,11 +508,11 @@ mod tests {
             .unwrap(),
         ];
         let text = serialize_song_cache(&songs);
-        assert!(text.starts_with("#BEETLE_SONGS_V6\n"));
+        assert!(text.starts_with("#BEETLE_SONGS_V7\n"));
         assert_eq!(deserialize_song_cache(&text), songs);
 
         // Earlier caches have no long note fields: not trusted, so the app rescans.
-        let v2 = text.replacen("#BEETLE_SONGS_V6", "#BEETLE_SONGS_V4", 1);
+        let v2 = text.replacen("#BEETLE_SONGS_V7", "#BEETLE_SONGS_V4", 1);
         assert!(deserialize_song_cache(&v2).is_empty());
         let old = "0000000000000001\ta.bms\tT\t\tA\tG\t140.00\t5\t100\t7KEYS\n";
         assert!(deserialize_song_cache(old).is_empty());

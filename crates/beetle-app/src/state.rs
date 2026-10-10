@@ -414,6 +414,24 @@ impl AppState {
         self.play_options.ln
     }
 
+    /// The rules a play of `song` is judged under, and so the note count and
+    /// the max EX every screen shows for it: a replay keeps the rule it was
+    /// played with, anything else gets the chart's `#LNMODE` and the setting.
+    pub fn play_ruleset(&self, song: &SongMetadata) -> beetle_core::Ruleset {
+        use beetle_core::{LnRule, Ruleset};
+        match self
+            .playback_replay
+            .as_ref()
+            .filter(|_| self.is_replay_playback)
+        {
+            Some(replay) => match replay.ln {
+                Some(LnRule::Ln) => Ruleset::LN,
+                _ => Ruleset::CN,
+            },
+            None => Ruleset::resolve(song.ln_mode, self.ln_option()),
+        }
+    }
+
     /// Sorts and filters the song list again (the records it orders by depend on
     /// the long note setting), keeping the highlighted song highlighted.
     pub fn resort_songs(&mut self) {

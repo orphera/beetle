@@ -45,6 +45,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         &LoadingFrame {
             viewport: &vp,
             song: &song,
+            notes: 1873,
             jacket: None,
             ambient: None,
             elapsed,
