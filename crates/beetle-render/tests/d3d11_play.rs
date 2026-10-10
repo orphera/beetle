@@ -379,14 +379,13 @@ fn gameplay_hud_variants() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     let center = (FieldPosition::Center, ScratchSide::Left);
-    let mut draw =
-        |gpu: &mut D3d11Backend, ui: &mut Ui, at: Placement, name: &str, extra: Extra| {
-            assert_eq!(
-                render_with(gpu, ui, PlayMode::Keys7, at, None, name, &extra),
-                1,
-                "{name}"
-            );
-        };
+    let draw = |gpu: &mut D3d11Backend, ui: &mut Ui, at: Placement, name: &str, extra: Extra| {
+        assert_eq!(
+            render_with(gpu, ui, PlayMode::Keys7, at, None, name, &extra),
+            1,
+            "{name}"
+        );
+    };
     // No BGA in the chart: the left column becomes the timeline and the
     // score panel, and the centered layout keeps everything on one side.
     draw(

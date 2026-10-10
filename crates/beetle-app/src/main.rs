@@ -915,8 +915,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beetle_core::SortMode;
-    use state::init_songs_and_scores;
 
     #[test]
     fn replays_are_named_by_chart_and_long_note_rule() {
