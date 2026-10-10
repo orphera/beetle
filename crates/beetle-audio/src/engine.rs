@@ -2,6 +2,7 @@ use crate::clock::AudioClock;
 use crate::command::AudioCommand;
 use crate::mixer::Mixer;
 use crate::sample::SampleBank;
+use beetle_core::WavId;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Producer, RingBuffer};
@@ -105,6 +106,18 @@ impl AudioEngine {
     pub fn send_command(&mut self, cmd: AudioCommand) -> Result<(), AudioCommand> {
         self.command_tx.push(cmd).map_err(|e| match e {
             rtrb::PushError::Full(val) => val,
+        })
+    }
+
+    /// Starts a sample at `time_seconds` on the audio clock, to the frame.
+    /// A time already past plays at once.
+    pub fn play_at(&mut self, sample_id: WavId, time_seconds: f64) -> Result<(), AudioCommand> {
+        let rate = self.clock.sample_rate() as f64;
+        self.send_command(AudioCommand::PlaySampleAt {
+            sample_id,
+            start_sample: (time_seconds.max(0.0) * rate).round() as u64,
+            volume: 1.0,
+            pan: 0.0,
         })
     }
 

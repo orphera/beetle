@@ -20,6 +20,10 @@ use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 
 pub const SCORES_FILE: &str = "scores.dat";
 pub const REPLAYS_DIR: &str = "replays";
+/// How far ahead of the audio clock BGM and auto-play key sounds are handed
+/// to the mixer, which starts each on its exact frame. Longer than a frame at
+/// the lowest frame rate, so the tick never has to catch up.
+pub const SCHEDULE_AHEAD_SECONDS: f64 = 0.1;
 
 /// Application screens for boot, song select, loading, gameplay, results, key configuration, and settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +159,8 @@ pub struct AppState {
     pub gauge_trend: beetle_core::GaugeTrend,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
+    /// Auto-play key sounds due up to this time are already scheduled.
+    pub autoplay_sound_until: f64,
     /// The song library being read on a worker thread (`AppScreen::Boot`).
     pub library_receiver: Option<Receiver<LibraryLoad>>,
     pub library_job: LibraryJob,
@@ -528,23 +534,20 @@ impl AppState {
         }
     }
 
-    /// Advances BGM notes and BGA timeline events up to `audio_time`.
+    /// Schedules BGM notes up to `SCHEDULE_AHEAD_SECONDS` past `audio_time`
+    /// and advances BGA timeline events up to `audio_time`.
     pub fn advance_gameplay_timelines(&mut self, audio_time: f64) {
         let (Some(chart), Some(timing)) = (&self.active_chart, &self.active_timing) else {
             return;
         };
 
-        // 1. Advance BGM notes
+        // 1. Schedule BGM notes on their frames
         while self.bgm_cursor < chart.bgm_notes.len() {
             let (m, f, wav_id) = chart.bgm_notes[self.bgm_cursor];
             let target_t = timing.beat_to_time_seconds(m, f);
-            if audio_time >= target_t {
+            if audio_time + SCHEDULE_AHEAD_SECONDS >= target_t {
                 if let Some(audio) = &mut self.audio_engine {
-                    let _ = audio.send_command(beetle_audio::AudioCommand::PlaySample {
-                        sample_id: wav_id,
-                        volume: 1.0,
-                        pan: 0.0,
-                    });
+                    let _ = audio.play_at(wav_id, target_t);
                 }
                 self.bgm_cursor += 1;
             } else {

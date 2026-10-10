@@ -464,6 +464,24 @@ impl JudgeEngine {
         hits
     }
 
+    /// The key sounds [`Self::auto_play_update`] will hit for notes due in
+    /// `(after, until]`, as `(time, sample)`, so they can be started ahead
+    /// on the audio clock. Notes already judged are left out.
+    pub fn auto_play_sounds(&self, after: f64, until: f64) -> Vec<(f64, WavId)> {
+        let ln_rule = self.ruleset.ln == LnRule::Ln;
+        self.notes
+            .iter()
+            .filter(|n| !n.is_judged && n.target_time_seconds > after)
+            .filter(|n| n.target_time_seconds <= until)
+            .filter(|n| match n.note_event.note_type {
+                NoteType::Landmine => false,
+                NoteType::LongNoteEnd => !ln_rule,
+                _ => true,
+            })
+            .filter_map(|n| n.note_event.wav_id.map(|w| (n.target_time_seconds, w)))
+            .collect()
+    }
+
     /// Fast-forwards note states when jumping to a practice measure.
     pub fn advance_to_time(&mut self, start_time_seconds: f64) {
         for i in 0..self.notes.len() {
@@ -650,6 +668,53 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, Lane::Key2);
         assert_eq!(engine.score().pgreat_count, 2);
+    }
+
+    #[test]
+    fn auto_play_sounds_list_the_notes_due_in_the_window() {
+        let tap = |measure, lane, wav| NoteEvent {
+            measure,
+            fraction: 0.0,
+            lane,
+            wav_id: Some(WavId(wav)),
+            note_type: NoteType::Tap,
+        };
+        let chart = BmsChart {
+            header: BmsHeader {
+                bpm: 120.0,
+                ..Default::default()
+            },
+            // 2 s a measure: due at 2 s, 4 s and 6 s, and a mine at 4 s.
+            notes: vec![
+                tap(1, Lane::Key1, 1),
+                tap(2, Lane::Key2, 2),
+                NoteEvent {
+                    note_type: NoteType::Landmine,
+                    ..tap(2, Lane::Key3, 9)
+                },
+                tap(3, Lane::Key1, 3),
+            ],
+            ..Default::default()
+        };
+        let timing = TimingModel::from_chart(&chart);
+        let mut engine = JudgeEngine::new(&chart, &timing, GaugeType::Groove, Ruleset::CN);
+
+        let sounds = |e: &JudgeEngine, a, b| -> Vec<WavId> {
+            e.auto_play_sounds(a, b)
+                .into_iter()
+                .map(|(_, w)| w)
+                .collect()
+        };
+        assert_eq!(sounds(&engine, f64::NEG_INFINITY, 1.9), []);
+        // The window is open at its start and closed at its end.
+        assert_eq!(sounds(&engine, 1.9, 4.0), [WavId(1), WavId(2)]);
+        assert_eq!(sounds(&engine, 4.0, 6.0), [WavId(3)]);
+        // Each sound comes with its note's time.
+        assert_eq!(engine.auto_play_sounds(5.0, 7.0), [(6.0, WavId(3))]);
+
+        // Hit notes are not listed again.
+        engine.auto_play_update(4.0);
+        assert_eq!(sounds(&engine, f64::NEG_INFINITY, 10.0), [WavId(3)]);
     }
 
     #[test]

@@ -10,7 +10,9 @@ use beetle_core::{
 
 use crate::calibration::judged_time;
 use crate::loader::{load_stage_image, spawn_background_song_loader};
-use crate::state::{replay_path, save_scores, AppScreen, AppState, REPLAYS_DIR};
+use crate::state::{
+    replay_path, save_scores, AppScreen, AppState, REPLAYS_DIR, SCHEDULE_AHEAD_SECONDS,
+};
 
 fn fresh_seed() -> u64 {
     std::time::SystemTime::now()
@@ -217,6 +219,7 @@ pub fn finalize_start_gameplay(
         .map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
     state.bgm_cursor = bgm_cursor;
+    state.autoplay_sound_until = f64::NEG_INFINITY;
     state.score_update = ScoreUpdate::default();
     state.current_replay = if !state.is_replay_playback && !state.is_auto_play {
         let mut replay = ReplayData::new(song.id);
@@ -444,21 +447,25 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
             }
         } else if state.is_auto_play {
             if let Some(judge) = &mut state.active_judge {
+                // The key sounds go to the mixer ahead, on their notes'
+                // frames, before the hits are judged (a hit note is no
+                // longer listed).
+                let until = audio_time + SCHEDULE_AHEAD_SECONDS;
+                let sounds = judge.auto_play_sounds(state.autoplay_sound_until, until);
+                state.autoplay_sound_until = until;
+                if let Some(audio) = &mut state.audio_engine {
+                    for (t, wav_id) in sounds {
+                        let _ = audio.play_at(wav_id, t);
+                    }
+                }
                 let hits = judge.auto_play_update(audio_time);
-                for (lane, hit_res, wav_id) in hits {
+                for (lane, hit_res, _) in hits {
                     state.view.trigger_judge_with_lane(
                         lane,
                         hit_res.grade,
                         audio_time,
                         hit_res.delta_ms,
                     );
-                    if let (Some(id), Some(audio)) = (wav_id, &mut state.audio_engine) {
-                        let _ = audio.send_command(AudioCommand::PlaySample {
-                            sample_id: id,
-                            volume: 1.0,
-                            pan: 0.0,
-                        });
-                    }
                 }
             }
         } else if let Some(judge) = &mut state.active_judge {

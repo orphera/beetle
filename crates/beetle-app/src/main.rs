@@ -257,6 +257,7 @@ impl ApplicationHandler for BeetleApp {
             gauge_trend: beetle_core::GaugeTrend::default(),
             is_alt_pressed: false,
             bgm_cursor: 0,
+            autoplay_sound_until: f64::NEG_INFINITY,
             library_receiver: Some(library_receiver),
             library_job: LibraryJob::Startup,
             library_started_at: Instant::now(),

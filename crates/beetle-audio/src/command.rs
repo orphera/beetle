@@ -9,9 +9,17 @@ pub enum AudioCommand {
         volume: f32,
         pan: f32,
     },
-    /// Stop all active voices for a specific sample.
+    /// Start a preloaded sample at an exact frame of the audio clock
+    /// (`AudioClock::current_samples`). A frame already past plays at once.
+    PlaySampleAt {
+        sample_id: WavId,
+        start_sample: u64,
+        volume: f32,
+        pan: f32,
+    },
+    /// Stop all active voices (and pending starts) for a specific sample.
     StopSample { sample_id: WavId },
-    /// Stop all currently playing voices.
+    /// Stop all currently playing voices and drop pending starts.
     StopAll,
     /// Pause audio playback and clock advancement.
     Pause,
