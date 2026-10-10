@@ -6,6 +6,7 @@ mod common;
 
 use beetle_core::{PlayMode, SongMetadata};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
+use beetle_render::strings;
 use beetle_render::{draw_loading, D3d11Backend, GpuBackend, LoadingFrame, Ui, Viewport};
 use common::{write_bmp, HiddenWindow};
 
@@ -33,7 +34,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         play_mode: PlayMode::Keys7,
     };
     let chips = vec![
-        "HI-SPEED 1100".to_string(),
+        format!("{} 1100", strings::ROW_HI_SPEED),
         "REGULAR".into(),
         "GROOVE".into(),
     ];
@@ -47,7 +48,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
             jacket: None,
             ambient: None,
             elapsed,
-            status: "Decoding keysounds",
+            status: strings::LOADING_STATUS,
             option_chips: &chips,
             badge: None,
         },

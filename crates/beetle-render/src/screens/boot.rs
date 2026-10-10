@@ -7,6 +7,7 @@
 use super::widgets;
 use crate::canvas::Rect;
 use crate::motion::ease_out_cubic;
+use crate::strings;
 use crate::text::{Align, TextStyle};
 use crate::theme::{self, caption};
 use crate::ui::Ui;
@@ -16,9 +17,9 @@ pub struct BootFrame<'a> {
     pub viewport: &'a Viewport,
     /// Seconds since the library load started.
     pub elapsed: f64,
-    /// "STARTING UP" / "RESCANNING LIBRARY".
+    /// Title: "시작하는 중" / "서재를 다시 읽는 중" (see `strings`).
     pub title: &'a str,
-    /// What is happening ("Reading song library").
+    /// What is happening ("곡 목록을 읽는 중").
     pub status: &'a str,
 }
 
@@ -39,15 +40,14 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
 
     let x = vp.x + 160.0 * s - slide;
     let y = vp.y + 270.0 * s;
-    let label = caption(11.0, s)
-        .tracking(4.0 * s)
-        .color(theme::CYAN.with_alpha(a(255)));
+    // Korean caption: no letter-spacing (tracking splits the syllables).
+    let label = caption(11.0, s).color(theme::CYAN.with_alpha(a(255)));
     t.draw(c, f.title, x, y, &label);
     let mark = TextStyle::new(72.0 * s)
         .bold()
         .tracking(6.0 * s)
         .color(theme::TEXT.with_alpha(a(255)));
-    let adv = t.draw(c, "BEETLE", x, y + 92.0 * s, &mark);
+    let adv = t.draw(c, strings::WORDMARK, x, y + 92.0 * s, &mark);
     c.fill_rect_hgradient(
         Rect::new(x, y + 108.0 * s, adv, 3.0 * s),
         theme::CYAN.with_alpha(a(255)),
@@ -95,8 +95,8 @@ mod tests {
                 &BootFrame {
                     viewport: &vp,
                     elapsed,
-                    title: "STARTING UP",
-                    status: "Reading song library",
+                    title: strings::BOOT_TITLE_STARTUP,
+                    status: strings::BOOT_STATUS_STARTUP,
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");

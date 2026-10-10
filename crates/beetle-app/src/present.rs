@@ -7,10 +7,11 @@
 
 use std::path::Path;
 
-use beetle_core::{LnOption, Ruleset, SongMetadata};
-use beetle_render::{GpuBackend, Ui};
+use beetle_core::{LnOption, Ruleset, SongMetadata, SortMode};
+use beetle_render::{strings, FieldPosition, GpuBackend, Ui};
 use winit::dpi::PhysicalSize;
 
+use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting};
 use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
@@ -42,11 +43,15 @@ fn finish(state: &mut AppState) {
     state.d3d11.end_frame();
 }
 
-/// "HI-SPEED 1100", "REGULAR", "GROOVE", and for a chart with long notes
+/// "하이스피드 1100", "REGULAR", "GROOVE", and for a chart with long notes
 /// "LN" / "CN" / "CN (HCN)": the options a play of `song` will use.
 fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
     let mut chips = vec![
-        format!("HI-SPEED {:.0}", state.play_options.hi_speed),
+        format!(
+            "{} {:.0}",
+            strings::ROW_HI_SPEED,
+            state.play_options.hi_speed
+        ),
         state.play_options.lane_modifier.as_str().to_string(),
         state.play_options.gauge_type.as_str().to_string(),
     ];
@@ -126,7 +131,7 @@ pub fn gameplay(
                 key_pressed: state.view.key_pressed(),
                 hit_bursts: state.view.hit_bursts(),
                 last_judge: state.view.last_judge(),
-                hint,
+                hint: &hint,
                 badge,
                 pause: state
                     .is_gameplay_paused
@@ -137,38 +142,83 @@ pub fn gameplay(
     finish(state);
 }
 
-/// Mode badge and key-hint line for the gameplay HUD.
+/// Mode badge and key-hint line for the gameplay HUD. The key names stay
+/// English (they are what the player presses).
 fn gameplay_badge_and_hint(
     is_replay: bool,
     is_auto: bool,
     preset: KeyPreset,
-) -> (Option<&'static str>, &'static str) {
+) -> (Option<&'static str>, String) {
     if is_replay {
-        return (Some("REPLAY"), "ESC  Return to song select");
+        return (
+            Some(strings::REPLAY),
+            strings::HUD_BACK_TO_SELECT.to_string(),
+        );
     }
     if is_auto {
-        return (Some("AUTO PLAY"), "ESC  Return to song select");
+        return (
+            Some(strings::AUTO_PLAY),
+            strings::HUD_BACK_TO_SELECT.to_string(),
+        );
     }
-    let hint = match preset {
-        KeyPreset::HomeRow => {
-            "KEYS  Shift+S D F Space J K L    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
+    let keys = match preset {
+        KeyPreset::HomeRow => "Shift+S D F Space J K L",
+        KeyPreset::ArcadeZx => "Shift+Z S X D C F V",
+        KeyPreset::Pms9K => "S D F Space J K L ; '",
+        KeyPreset::Ue4K => "S D L ;",
+        KeyPreset::Ue6K => "A S D L ; '",
+        KeyPreset::Ue8K => "A S D F K L ; '",
+        KeyPreset::Ue8KTriggers => "LShift + S D F J K L + RShift",
+        KeyPreset::DoublePlay => {
+            let keys = "Shift+ZSXDCFV / RShift+UIOP[]\\";
+            return (None, strings::fill(strings::HUD_KEYS_NO_COVER, &[keys]));
         }
-        KeyPreset::ArcadeZx => {
-            "KEYS  Shift+Z S X D C F V    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
-        }
-        KeyPreset::Pms9K => {
-            "KEYS  S D F Space J K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
-        }
-        KeyPreset::Ue4K => "KEYS  S D L ;    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Ue6K => "KEYS  A S D L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Ue8K => "KEYS  A S D F K L ; '    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
-        KeyPreset::Ue8KTriggers => {
-            "KEYS  LShift + S D F J K L + RShift    1/2 SPEED    F10/F11 COVER    ESC PAUSE"
-        }
-        KeyPreset::DoublePlay => "KEYS  Shift+ZSXDCFV / RShift+UIOP[]\\    1/2 SPEED    ESC PAUSE",
-        KeyPreset::Custom => "KEYS  Custom layout    1/2 SPEED    F10/F11 COVER    ESC PAUSE",
+        KeyPreset::Custom => strings::KEYS_CUSTOM,
     };
-    (None, hint)
+    (None, strings::fill(strings::HUD_KEYS, &[keys]))
+}
+
+/// Display names of the options that are stored under English enum names.
+fn sort_label(mode: SortMode) -> &'static str {
+    match mode {
+        SortMode::Title => strings::SORT_TITLE,
+        SortMode::Level => strings::SORT_LEVEL,
+        SortMode::ClearLamp => strings::SORT_CLEAR_LAMP,
+        SortMode::ScoreRate => strings::SORT_SCORE_RATE,
+        SortMode::Bpm => strings::SORT_BPM,
+    }
+}
+
+fn display_mode_label(mode: DisplayMode) -> &'static str {
+    match mode {
+        DisplayMode::Windowed => strings::DISPLAY_WINDOWED,
+        DisplayMode::Borderless => strings::DISPLAY_BORDERLESS,
+        DisplayMode::ExclusiveFullscreen => strings::DISPLAY_FULLSCREEN,
+    }
+}
+
+fn gpu_label(backend: GpuBackendSetting) -> &'static str {
+    match backend {
+        GpuBackendSetting::Auto => strings::GPU_AUTO,
+        GpuBackendSetting::Warp => strings::GPU_WARP,
+    }
+}
+
+fn track_bga_label(bga: TrackBgaSetting) -> &'static str {
+    match bga {
+        TrackBgaSetting::Off => strings::TRACK_BGA_OFF,
+        TrackBgaSetting::Low => strings::TRACK_BGA_LOW,
+        TrackBgaSetting::Medium => strings::TRACK_BGA_MEDIUM,
+        TrackBgaSetting::High => strings::TRACK_BGA_HIGH,
+    }
+}
+
+fn field_label(position: FieldPosition) -> &'static str {
+    match position {
+        FieldPosition::Left => strings::SIDE_LEFT,
+        FieldPosition::Center => strings::VALUE_CENTER,
+        FieldPosition::Right => strings::SIDE_RIGHT,
+    }
 }
 
 /// Song select plus its option / quit modals.
@@ -213,7 +263,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             tables: &state.tables,
             ln_option,
             folder: &folder,
-            sort: state.sort_mode.as_str(),
+            sort: sort_label(state.sort_mode),
             search: &state.search_query,
             search_active: state.is_search_active,
             preedit: &state.search_preedit,
@@ -240,53 +290,73 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
 /// handler indexes them (`state.modal_row`).
 fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
     let o = &state.play_options;
+    let on_off = |on: bool| {
+        if on {
+            strings::VALUE_ON
+        } else {
+            strings::VALUE_OFF
+        }
+    };
     vec![
-        ("HI-SPEED", format!("{:.0} px/s", o.hi_speed)),
-        ("MODIFIER", o.lane_modifier.as_str().to_string()),
-        ("GAUGE", o.gauge_type.as_str().to_string()),
+        (strings::ROW_HI_SPEED, format!("{:.0} px/s", o.hi_speed)),
+        (strings::ROW_MODIFIER, o.lane_modifier.as_str().to_string()),
+        (strings::ROW_GAUGE, o.gauge_type.as_str().to_string()),
         (
-            "LN MODE",
+            strings::ROW_LN_MODE,
             match state.current_selected_song().filter(|s| s.ln_count > 0) {
                 // AUTO says what it comes to for the highlighted song.
-                Some(song) if o.ln == LnOption::Auto => {
-                    format!("AUTO ({})", Ruleset::resolve(song.ln_mode, o.ln).label())
-                }
+                Some(song) if o.ln == LnOption::Auto => strings::fill(
+                    strings::VALUE_AUTO_RESOLVED,
+                    &[&Ruleset::resolve(song.ln_mode, o.ln).label()],
+                ),
                 _ => o.ln.as_str().to_string(),
             },
         ),
-        ("JUDGE OFFSET", format!("{:+.0} ms", o.judge_offset_ms)),
         (
-            "MASTER VOLUME",
+            strings::ROW_JUDGE_OFFSET,
+            format!("{:+.0} ms", o.judge_offset_ms),
+        ),
+        (
+            strings::ROW_MASTER_VOLUME,
             format!("{:.0}%", state.master_volume * 100.0),
         ),
         (
-            "PLAYFIELD",
-            state.view.skin.field_position.as_str().to_string(),
+            strings::ROW_PLAYFIELD,
+            field_label(state.view.skin.field_position).to_string(),
+        ),
+        (strings::ROW_BGA, on_off(state.bga_enabled).to_string()),
+        (
+            strings::ROW_TRACK_BGA,
+            track_bga_label(state.track_bga).to_string(),
         ),
         (
-            "BGA",
-            if state.bga_enabled { "ON" } else { "OFF" }.to_string(),
+            strings::ROW_DISPLAY_MODE,
+            display_mode_label(state.display_mode).to_string(),
         ),
-        ("TRACK BGA", state.track_bga.as_str().to_string()),
-        ("DISPLAY MODE", state.display_mode.as_str().to_string()),
-        ("RESOLUTION", state.current_resolution_label().to_string()),
         (
-            "GRAPHICS",
+            strings::ROW_RESOLUTION,
+            state.current_resolution_label().to_string(),
+        ),
+        (
+            strings::ROW_GRAPHICS,
             if state.gpu_backend == state.gpu_backend_at_start {
-                state.gpu_backend.as_str().to_string()
+                gpu_label(state.gpu_backend).to_string()
             } else {
-                format!("{} (AFTER RESTART)", state.gpu_backend.as_str())
+                strings::fill(
+                    strings::VALUE_AFTER_RESTART,
+                    &[gpu_label(state.gpu_backend)],
+                )
             },
         ),
         (
-            "TARGET FPS",
+            strings::ROW_TARGET_FPS,
             if state.target_fps == 0 {
-                "UNLIMITED".to_string()
+                strings::VALUE_UNLIMITED.to_string()
             } else {
-                format!("{} FPS", state.target_fps)
+                strings::fill(strings::VALUE_FPS, &[&state.target_fps.to_string()])
             },
         ),
-        ("KEY LAYOUT", {
+        (strings::ROW_KEY_LAYOUT, {
             // Layouts are per key mode; this row edits the selected song's.
             let mode = state.key_config_mode();
             format!(
@@ -296,17 +366,20 @@ fn option_modal_rows(state: &AppState) -> Vec<(&'static str, String)> {
             )
         }),
         (
-            "AUTO PLAY",
-            if state.is_auto_play { "ON" } else { "OFF" }.to_string(),
+            strings::ROW_AUTO_PLAY,
+            on_off(state.is_auto_play).to_string(),
         ),
-        ("START MEASURE", format!("M.{}", state.start_measure)),
+        (
+            strings::ROW_START_MEASURE,
+            format!("M.{}", state.start_measure),
+        ),
     ]
 }
 
 pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
     let (title, status) = match state.library_job {
-        LibraryJob::Startup => ("STARTING UP", "Reading song library"),
-        LibraryJob::Rescan => ("RESCANNING LIBRARY", "Scanning song folders"),
+        LibraryJob::Startup => (strings::BOOT_TITLE_STARTUP, strings::BOOT_STATUS_STARTUP),
+        LibraryJob::Rescan => (strings::BOOT_TITLE_RESCAN, strings::BOOT_STATUS_RESCAN),
     };
     begin(state, size);
     beetle_render::draw_boot(
@@ -324,9 +397,9 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
 pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     let chips = option_chips(state, state.loading_song.as_ref());
     let badge = if state.is_replay_playback {
-        Some("REPLAY")
+        Some(strings::REPLAY)
     } else if state.is_auto_play {
-        Some("AUTO PLAY")
+        Some(strings::AUTO_PLAY)
     } else {
         None
     };
@@ -358,7 +431,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
                 jacket,
                 ambient,
                 elapsed,
-                status: "Decoding keysounds and preparing audio",
+                status: strings::LOADING_STATUS,
                 option_chips: &chips,
                 badge,
             },
@@ -370,11 +443,11 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
 pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     let elapsed = state.result_entered_at.elapsed().as_secs_f64();
     let unsaved = if state.is_replay_playback {
-        Some("REPLAY")
+        Some(strings::REPLAY)
     } else if state.is_auto_play {
-        Some("AUTO PLAY")
+        Some(strings::AUTO_PLAY)
     } else if state.start_measure > 0 {
-        Some("PRACTICE")
+        Some(strings::PRACTICE)
     } else {
         None
     };

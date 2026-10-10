@@ -10,7 +10,7 @@ use beetle_core::{
     PlayMode, PlayOptions, ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata,
     SortMode, TableIndex, TimingModel,
 };
-use beetle_render::{EightKForm, ImageBuffer, Rect, ViewState};
+use beetle_render::{strings, EightKForm, ImageBuffer, Rect, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
@@ -85,15 +85,15 @@ impl SongCategory {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            SongCategory::All => "ALL SONGS",
-            SongCategory::Keys5 => "5 KEYS",
-            SongCategory::Keys7 => "7 KEYS",
-            SongCategory::Keys9 => "9 KEYS",
-            SongCategory::Keys10 => "10 KEYS",
-            SongCategory::Keys14 => "14 KEYS",
-            SongCategory::Level => "BY LEVEL",
-            SongCategory::ClearStatus => "BY CLEAR STATUS",
-            SongCategory::Table(_) => "TABLE",
+            SongCategory::All => strings::FOLDER_ALL,
+            SongCategory::Keys5 => strings::FOLDER_5K,
+            SongCategory::Keys7 => strings::FOLDER_7K,
+            SongCategory::Keys9 => strings::FOLDER_9K,
+            SongCategory::Keys10 => strings::FOLDER_10K,
+            SongCategory::Keys14 => strings::FOLDER_14K,
+            SongCategory::Level => strings::FOLDER_LEVEL,
+            SongCategory::ClearStatus => strings::FOLDER_CLEAR_STATUS,
+            SongCategory::Table(_) => strings::FOLDER_TABLE,
         }
     }
 
@@ -327,7 +327,7 @@ impl AppState {
                 return label;
             }
         }
-        "CUSTOM"
+        strings::RESOLUTION_CUSTOM
     }
 
     pub fn cycle_resolution(&mut self, forward: bool) {

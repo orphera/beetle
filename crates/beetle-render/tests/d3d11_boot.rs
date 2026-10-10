@@ -5,6 +5,7 @@
 mod common;
 
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
+use beetle_render::strings;
 use beetle_render::{draw_boot, BootFrame, D3d11Backend, GpuBackend, Ui, Viewport};
 use common::{write_bmp, HiddenWindow};
 
@@ -21,7 +22,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
             viewport: &vp,
             elapsed,
             title,
-            status: "Reading song library",
+            status: strings::BOOT_STATUS_STARTUP,
         },
     );
     let calls = ui.end(gpu);
@@ -38,9 +39,18 @@ fn boot_layouts() {
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, "STARTING UP", 0.12, "enter"), 1);
     assert_eq!(
-        render(&mut gpu, &mut ui, "RESCANNING LIBRARY", 1.9, "rescan"),
+        render(
+            &mut gpu,
+            &mut ui,
+            strings::BOOT_TITLE_STARTUP,
+            0.12,
+            "enter"
+        ),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, strings::BOOT_TITLE_RESCAN, 1.9, "rescan"),
         1
     );
 }

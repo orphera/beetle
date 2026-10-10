@@ -11,6 +11,7 @@ use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{is_side_track, ColorRgba, FieldPosition, SkinConfig};
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
@@ -621,9 +622,9 @@ fn combo_and_judge(
         let st = TextStyle::new(52.0 * s).bold().color(theme::TEXT);
         let w = t.measure(c, &txt, &st) * pulse;
         t.draw_scaled(c, &txt, cx - w / 2.0, anchor, &st, pulse);
-        let cap = caption(11.0, s).tracking(3.0 * s).color(theme::MUTED);
-        let cw = t.measure(c, "COMBO", &cap);
-        t.draw(c, "COMBO", cx - cw / 2.0, anchor + 18.0 * s, &cap);
+        let cap = caption(11.0, s).color(theme::MUTED);
+        let cw = t.measure(c, strings::COMBO, &cap);
+        t.draw(c, strings::COMBO, cx - cw / 2.0, anchor + 18.0 * s, &cap);
     }
 
     let Some((grade, at, delta_ms)) = f.last_judge else {
@@ -737,7 +738,7 @@ fn info_column(
     let title_st = TextStyle::new(24.0 * s).bold().color(theme::TEXT);
     let title = t.fit(c, &header.title, w, &title_st).into_owned();
     t.draw(c, &title, x, y + 44.0 * s, &title_st);
-    let sub = format!("{}  ·  BPM {}", header.artist, header.bpm.round());
+    let sub = format!("{}  /  BPM {}", header.artist, header.bpm.round());
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
     let sub = t.fit(c, &sub, w, &sub_st).into_owned();
     t.draw(c, &sub, x, y + 66.0 * s, &sub_st);
@@ -902,7 +903,7 @@ fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, co
             None => {
                 t.draw_in(
                     c,
-                    "NO BGA",
+                    strings::NO_BGA,
                     frame,
                     Align::Center,
                     &caption(11.0, s).color(theme::MUTED2),
@@ -998,13 +999,10 @@ fn pause_menu(
 
     t.draw(
         c,
-        "PAUSED",
+        strings::PAUSED,
         inner.x,
         inner.y + 26.0 * s,
-        &TextStyle::new(28.0 * s)
-            .bold()
-            .tracking(4.0 * s)
-            .color(theme::TEXT),
+        &TextStyle::new(28.0 * s).bold().color(theme::TEXT),
     );
     let title_st = TextStyle::new(14.0 * s).bold().color(theme::TEXT);
     let title = t
@@ -1042,7 +1040,11 @@ fn pause_menu(
         &TextStyle::new(11.0 * s).color(theme::MUTED),
     );
 
-    let options = ["RESUME", "RESTART", "QUIT TO SONG SELECT"];
+    let options = [
+        strings::PAUSE_RESUME,
+        strings::PAUSE_RESTART,
+        strings::PAUSE_QUIT,
+    ];
     let mut y = bar.bottom() + 36.0 * s;
     for (i, label) in options.iter().enumerate() {
         let row = Rect::new(inner.x, y, inner.w, 40.0 * s);
@@ -1063,14 +1065,13 @@ fn pause_menu(
             Align::Left,
             &TextStyle::new(14.0 * s)
                 .bold()
-                .tracking(2.0 * s)
                 .color(if on { theme::TEXT } else { theme::MUTED }),
         );
         y += 46.0 * s;
     }
     t.draw_in(
         c,
-        "↑↓ SELECT   ENTER CONFIRM   R RESTART",
+        strings::PAUSE_HINT,
         Rect::new(inner.x, panel.bottom() - 34.0 * s, inner.w, 20.0 * s),
         Align::Center,
         &caption(10.0, s),
@@ -1154,8 +1155,8 @@ mod tests {
                     key_pressed: &keys,
                     hit_bursts: &bursts,
                     last_judge: Some((JudgeGrade::PerfectGreat, 1.0, -6.0)),
-                    hint: "ESC pause",
-                    badge: Some("AUTO PLAY"),
+                    hint: "ESC 일시정지",
+                    badge: Some(strings::AUTO_PLAY),
                     pause,
                 },
             );

@@ -177,8 +177,53 @@ U1은 다섯 단계로 나눈다. 화면마다 커밋하고 실제 앱 전/후 �
       `Ime::Commit`이 나오지 않는다. 그래서 조합 밑줄과 Commit 경로는 단위 테스트와 캡처로만 확인했고, 후보창의
       실제 표시 위치는 확인하지 못했다(`set_ime_cursor_area` 호출까지만 확인). 하네스는 `PostMessage`(ANSI)로
       비ASCII WM_CHAR를 보내면 `?`로 바뀌어 `PostMessageW`로 바꿨다.
-- **U1d — 문자열 표(한국어)**
-  - [ ] **문자열 표**: `strings.rs`(한국어 `&'static str` 표). 화면 코드의 리터럴을 옮긴다.
+- **U1d — 문자열 표(한국어)** (완료)
+  - [x] **문자열 표**: `crates/beetle-render/src/strings.rs`(한국어 `&'static str` 표, 화면별 묶음 `pub const`).
+        값이 들어가는 문구는 `{}` 템플릿과 `strings::fill`로 채운다. 화면(`screens/`), `present.rs`, `state.rs`(폴더 이름),
+        `main.rs`(창 제목·오류 대화상자)의 문구를 옮겼다. 설정 파일 값(`as_str`)과 키 이름은 바꾸지 않았다.
+  - [x] **글자 범위 테스트**: 표의 모든 글자가 내장 KR 폰트(`text::KR_BYTES`)에 있는지 검사한다
+        (`every_character_is_in_the_embedded_kr_font`). 없는 글자 `—`, `·`, `↑↓`는 `-`, `/`, 한글 또는 키캡 글자로 바꿨다.
+  - [x] **자간**: `theme::caption`의 기본 자간 1 px를 없앴다. 상단 바 제목은 BEETLE 워드마크만 자간을 준다.
+        한국어 캡션과 버튼 라벨의 `.tracking`을 제거했다. 남은 자간은 영문 캡(FAST·SLOW, 판정명, STAGE CLEAR, `7K` 탭)에만 있다.
+  - 결과 (2026-10-10):
+    - 크기: `beetle-app.exe` 3,023,360 B → 3,023,872 B (+512 B, +0.02%).
+    - 검증: `cargo test --workspace` 통과. `cargo test -p beetle-render --release --tests` 후 캡처 17장을
+      PNG로 바꿔 `scratch/u1d/`에 두고 전부 확인했다(글자 잘림·겹침·두부 글자 없음, 1280x720 푸터 힌트 모두 들어감).
+      적용 범위는 `boot-enter`, `select-list`, `select-options`, `select-exit`, `select-empty`, `select-noplay`,
+      `loading-enter`, `loading-long`, `play-7k`, `play-paused`, `play-14k`, `result-clear`, `result-failed`,
+      `result-auto`, `keys-7k`, `keys-14k`, `keys-9k-rebind`.
+    - `keys-9k-rebind.bmp`는 예전 세션에서 만든 파일이 남아 있었고 어떤 테스트도 다시 만들지 않았다.
+      `d3d11_keys.rs`에 `Rebind::Replace` 캡처(`9k-rebind`)를 추가해 다시 만들었다.
+    - 테스트 픽스처(`tests/d3d11_*.rs`, 화면 단위 테스트)의 라벨·칩·상태 문구를 표 상수로 바꿨다.
+      그래야 캡처가 실제 앱 문구를 보여 준다. 테스트 데이터(곡 제목·아티스트)는 그대로다.
+    - 새 테스트: `every_character_is_in_the_embedded_kr_font`, `fill_substitutes_placeholders_in_order`.
+    - 용어 결정(목록 밖):
+      - 라벨: MODIFIER → 모디파이어, GAUGE → 게이지, LN MODE → LN 모드, NOTES → 노트, MODE → 모드,
+        PLAYFIELD → 플레이필드, TRACK BGA → 트랙 BGA, BGA는 그대로, START MEASURE → 시작 마디, SCRATCH → 스크래치.
+        그룹: 플레이 / 소리 / 레이아웃 / 화면 / 시스템 / 입력 / 세션.
+      - 값: ON/OFF → 켜짐/꺼짐, WINDOWED/BORDERLESS/FULLSCREEN → 창 모드/테두리 없는 창/전체 화면,
+        판정 위치 CENTER/LEFT/RIGHT → 가운데/왼쪽/오른쪽, 트랙 BGA 값 → 꺼짐 (0%)/낮음 (25%)/보통 (50%)/높음 (75%),
+        그래픽 AUTO → 자동(WARP (CPU)는 그대로), UNLIMITED → 무제한, AUTO (LN) → 자동 (LN).
+      - 폴더: ALL SONGS → 전체 곡, 5 KEYS … 14 KEYS → 5키 … 14키, BY LEVEL → 레벨별,
+        BY CLEAR STATUS → 클리어 상태별, TABLE → 난이도표. 정렬: 제목 / 레벨 / 클리어 / 정확도 / BPM.
+        (`SortMode`에 아티스트 정렬이 없어 목록에 넣지 않았다.)
+      - 키 설정 탭: `5 KEYS` → `5K`(`theme::mode_label`과 같은 형식). 레이아웃 요약·시작 안내는 한글.
+      - 선곡·결과: 미리듣기, 최고 기록, 아직 플레이하지 않음, 회 플레이(`1회 플레이`), 신기록(NEW 태그도 같은 말),
+        첫 플레이, 최고 {점수}, 판정·타이밍·오프셋, 기록이 저장되지 않음.
+      - 플레이: 콤보, BGA 없음, 일시정지 메뉴(계속하기 / 처음부터 / 곡 선택으로), 힌트 줄 `키 … 1/2 하이스피드 F10/F11 커버 ESC 일시정지`.
+      - 종료 대화상자: "BEETLE을 종료할까요?" / "기록과 설정은 이미 저장되어 있습니다." 창 제목 "Beetle - BMS 리듬 엔진"(em dash 대체).
+    - 영문으로 남긴 것(이유):
+      - 판정명 PGREAT·GREAT·GOOD·BAD·POOR·MISS, FAST / SLOW, EX SCORE, 랭크(AAA…F, MAX), 클리어 램프(PERFECT, FULL COMBO, CLEAR, FAILED 등),
+        배너 STAGE CLEAR / STAGE FAILED(램프와 같은 계열로 묶음), 게이지·모디파이어 이름(GROOVE, RANDOM …), LN / CN / HCN, BPM, MIN BP,
+        모드 라벨(7K …), 난이도 이름, 키 이름·키캡, 프리셋 식별자(HomeRow …), WARP (CPU), BEETLE 워드마크,
+        `M.{}`(마디 표기), 판정 목표 `AAA +38`.
+      - 1P / 2P, `+0 ms` 같은 숫자·단위는 그대로.
+    - 남은 문제(캡처에서 확인):
+      - 결과 화면의 `신기록` 태그는 8 px이라 작다. U5 결과 개편 때 크기를 다시 본다.
+      - 10 px 한국어 캡션(선곡의 폴더·정렬 라벨, 로딩의 BPM·노트·모드)이 작게 보인다. U2에서 캡션 크기를 함께 정한다.
+      - 선곡 상단 `<` `>` 폴더 라벨과 `TITLE` 값은 캡처 픽스처가 바뀐 뒤 `전체 곡` / `제목`으로 보인다.
+      - 자동 플레이 배지 등 실제 앱에서만 보이는 문구는 실제 앱 캡처로 다시 확인해야 한다(이번 작업은 라이브 실행 없이 캡처만 확인).
+    - AGENTS.md 4절은 바꾸지 않았다(`beetle-render`의 책임은 그대로, `strings.rs`는 그 안의 데이터 모듈).
 - **U1e — 화면 전환 + 토스트**
   - [ ] **화면 전환**: 공용 페이드/슬라이드(150~250 ms, `motion.rs` 이징). 판정 타이밍과 무관한
         메뉴 화면 사이에만 적용, Loading→Gameplay는 오디오 시작 전에 끝나게.

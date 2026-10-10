@@ -14,6 +14,7 @@ pub mod image;
 pub mod motion;
 pub mod screens;
 pub mod skin;
+pub mod strings;
 pub mod text;
 pub mod theme;
 pub mod ui;

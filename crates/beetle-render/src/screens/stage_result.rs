@@ -13,6 +13,7 @@ use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_out_back, ease_out_cubic};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
@@ -41,9 +42,17 @@ pub struct ResultFrame<'a> {
 }
 
 const HINTS: [widgets::Hint; 3] = [
-    ("ENTER", "SONG SELECT", Some(HitId::ResultSongSelect)),
-    ("R", "RETRY", Some(HitId::ResultRetry)),
-    ("P", "SCREENSHOT", Some(HitId::ResultScreenshot)),
+    (
+        "ENTER",
+        strings::RESULT_SONG_SELECT,
+        Some(HitId::ResultSongSelect),
+    ),
+    ("R", strings::RESULT_RETRY, Some(HitId::ResultRetry)),
+    (
+        "P",
+        strings::RESULT_SCREENSHOT,
+        Some(HitId::ResultScreenshot),
+    ),
 ];
 
 pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
@@ -79,7 +88,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     score_panel_draw(c, t, &sk, f, score_panel, reveal, s);
     timing_panel(c, t, &sk, f, timing, reveal, s);
 
-    widgets::top_bar(c, t, vp, "RESULT", s);
+    widgets::top_bar(c, t, vp, strings::RESULT, s);
     let bar = widgets::footer_bar(c, vp, s);
     if let Some(reason) = f.unsaved_reason {
         let st = caption(10.0, s).color(theme::ON_ACCENT);
@@ -89,7 +98,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
         t.draw_in(c, reason, chip, Align::Center, &st);
         t.draw(
             c,
-            "SCORE NOT SAVED",
+            strings::SCORE_NOT_SAVED,
             chip.right() + 10.0 * s,
             bar.y + 25.0 * s,
             &caption(10.0, s).color(theme::MUTED),
@@ -114,10 +123,10 @@ fn result_rank(score: &ScoreTracker) -> (&'static str, ColorRgba) {
 
 fn clear_title(clear: ClearType) -> &'static str {
     match clear {
-        ClearType::Perfect => "PERFECT",
-        ClearType::FullCombo => "FULL COMBO",
-        ClearType::Easy | ClearType::Clear | ClearType::Hard => "STAGE CLEAR",
-        ClearType::Failed => "STAGE FAILED",
+        ClearType::Perfect => strings::PERFECT,
+        ClearType::FullCombo => strings::FULL_COMBO,
+        ClearType::Easy | ClearType::Clear | ClearType::Hard => strings::STAGE_CLEAR,
+        ClearType::Failed => strings::STAGE_FAILED,
     }
 }
 
@@ -218,8 +227,8 @@ fn outcome_panel(
         new_tag(c, t, cx + sw / 2.0 + 10.0 * s, baseline + 44.0 * s, s);
     }
     if f.update.any() {
-        let st = caption(11.0, s).tracking(3.0 * s).color(theme::WHITE);
-        let w = t.measure(c, "NEW RECORD", &st) + 40.0 * s;
+        let st = caption(11.0, s).color(theme::WHITE);
+        let w = t.measure(c, strings::NEW_RECORD, &st) + 40.0 * s;
         let chip = Rect::new(cx - w / 2.0, baseline + 64.0 * s, w, 28.0 * s);
         c.set_additive(true);
         c.sprite_centered(
@@ -232,7 +241,7 @@ fn outcome_panel(
         );
         c.set_additive(false);
         c.nine(&sk.cut_panel, chip, theme::MAGENTA);
-        t.draw_in(c, "NEW RECORD", chip, Align::Center, &st);
+        t.draw_in(c, strings::NEW_RECORD, chip, Align::Center, &st);
     }
 
     // Final gauge
@@ -240,8 +249,8 @@ fn outcome_panel(
     let gcol = gauge_color(score);
     let bar = Rect::new(inner.x, inner.bottom() - 18.0 * s, inner.w, 18.0 * s);
     let gauge_caption = match f.ln_label {
-        Some(rule) => format!("{} GAUGE  ·  {rule}", score.gauge_type.as_str()),
-        None => format!("{} GAUGE", score.gauge_type.as_str()),
+        Some(rule) => strings::fill(strings::GAUGE_NAME_RULE, &[score.gauge_type.as_str(), rule]),
+        None => strings::fill(strings::GAUGE_NAME, &[score.gauge_type.as_str()]),
     };
     t.draw(
         c,
@@ -291,10 +300,10 @@ fn outcome_panel(
 /// Small "NEW" tag marking a best this play beat; `baseline` is the label's baseline.
 fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, s: f32) {
     let st = caption(8.0, s).color(theme::WHITE);
-    let w = t.measure(c, "NEW", &st) + 10.0 * s;
+    let w = t.measure(c, strings::NEW_RECORD, &st) + 10.0 * s;
     let tag = Rect::new(x, baseline - 11.0 * s, w, 14.0 * s);
     c.fill_rect(tag, theme::MAGENTA);
-    t.draw_in(c, "NEW", tag, Align::Center, &st);
+    t.draw_in(c, strings::NEW_RECORD, tag, Align::Center, &st);
 }
 
 fn score_panel_draw(
@@ -349,7 +358,7 @@ fn score_panel_draw(
                 Align::Right,
                 &TextStyle::new(22.0 * s).bold().color(col),
             );
-            let cap = format!("BEST {}", thousands(best.ex_score));
+            let cap = strings::fill(strings::BEST_EX, &[&thousands(best.ex_score)]);
             t.draw_in(
                 c,
                 &cap,
@@ -361,7 +370,7 @@ fn score_panel_draw(
         None => {
             t.draw_in(
                 c,
-                "FIRST PLAY",
+                strings::FIRST_PLAY,
                 Rect::new(right.x, y + 36.0 * s, right.w, 24.0 * s),
                 Align::Right,
                 &caption(11.0, s).color(theme::CYAN),
@@ -384,13 +393,17 @@ fn score_panel_draw(
     let breaks = score.bad_count + score.poor_count + score.miss_count;
     // (label, value, "/ total" suffix)
     let stats = [
-        ("ACCURACY", format!("{:.2}%", score.accuracy_rate()), None),
         (
-            "MAX COMBO",
+            strings::ACCURACY,
+            format!("{:.2}%", score.accuracy_rate()),
+            None,
+        ),
+        (
+            strings::MAX_COMBO,
             thousands(score.max_combo),
             Some(format!("/ {}", thousands(score.total_notes))),
         ),
-        ("MISS COUNT", thousands(breaks), None),
+        (strings::MISS_COUNT, thousands(breaks), None),
     ];
     let col_w = inner.w / 3.0;
     for (i, (k, v, suffix)) in stats.iter().enumerate() {
@@ -437,7 +450,7 @@ fn score_panel_draw(
         (JudgeGrade::Miss, score.miss_count),
     ];
     let total = counts.iter().map(|c| c.1).sum::<u32>().max(1);
-    t.draw(c, "JUDGE", inner.x, y + 232.0 * s, &caption(10.0, s));
+    t.draw(c, strings::JUDGE, inner.x, y + 232.0 * s, &caption(10.0, s));
     let row_h = (inner.bottom() - (y + 248.0 * s)) / counts.len() as f32;
     for (i, (g, n)) in counts.iter().enumerate() {
         let ry = y + 248.0 * s + i as f32 * row_h;
@@ -499,7 +512,7 @@ fn timing_panel(
     let score = f.score;
     let y = inner.y;
 
-    t.draw(c, "TIMING", inner.x, y + 14.0 * s, &caption(10.0, s));
+    t.draw(c, strings::TIMING, inner.x, y + 14.0 * s, &caption(10.0, s));
     let half = Rect::new(inner.x, y + 28.0 * s, inner.w / 2.0, 52.0 * s);
     t.draw(
         c,
@@ -554,7 +567,13 @@ fn timing_panel(
     }
 
     // Offset histogram: 17 buckets, -40 ms (early) .. +40 ms (late).
-    t.draw(c, "OFFSET", inner.x, y + 140.0 * s, &caption(10.0, s));
+    t.draw(
+        c,
+        strings::OFFSET,
+        inner.x,
+        y + 140.0 * s,
+        &caption(10.0, s),
+    );
     let hist = Rect::from_ltrb(
         inner.x,
         y + 156.0 * s,

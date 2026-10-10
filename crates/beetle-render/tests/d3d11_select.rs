@@ -9,6 +9,7 @@ use beetle_core::{
     ClearType, GaugeType, LaneModifier, PlayMode, PlayResult, ScoreStore, SongMetadata,
 };
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
+use beetle_render::strings;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_song_select, D3d11Backend, GpuBackend, SelectFrame,
     Ui, Viewport,
@@ -210,7 +211,7 @@ fn render(
         .collect();
     let scores = scores();
     let chips = vec![
-        "HI-SPEED 1100".to_string(),
+        format!("{} 1100", strings::ROW_HI_SPEED),
         "REGULAR".into(),
         "GROOVE".into(),
     ];
@@ -231,9 +232,9 @@ fn render(
             folder: if name == "noplay" {
                 "A TABLE WITH A VERY…  1,234 / 12,345"
             } else {
-                "ALL SONGS"
+                strings::FOLDER_ALL
             },
-            sort: "TITLE",
+            sort: strings::SORT_TITLE,
             search,
             search_active: !search.is_empty() || !preedit.is_empty(),
             preedit,
@@ -249,22 +250,22 @@ fn render(
         Overlay::None => {}
         Overlay::Options => {
             let rows: Vec<(&str, String)> = [
-                ("HI-SPEED", "1100 px/s"),
-                ("MODIFIER", "REGULAR"),
-                ("GAUGE", "GROOVE"),
-                ("LN MODE", "AUTO (LN)"),
-                ("JUDGE OFFSET", "+0 ms"),
-                ("MASTER VOLUME", "80%"),
-                ("PLAYFIELD", "CENTER"),
-                ("SCRATCH", "RIGHT"),
-                ("TRACK BGA", "OFF (0%)"),
-                ("DISPLAY MODE", "WINDOWED"),
-                ("RESOLUTION", "1280 x 720"),
-                ("GRAPHICS", "WARP (CPU) (AFTER RESTART)"),
-                ("TARGET FPS", "UNLIMITED"),
-                ("KEY LAYOUT", "7K  HOME ROW"),
-                ("AUTO PLAY", "OFF"),
-                ("START MEASURE", "M.0"),
+                (strings::ROW_HI_SPEED, "1100 px/s"),
+                (strings::ROW_MODIFIER, "REGULAR"),
+                (strings::ROW_GAUGE, "GROOVE"),
+                (strings::ROW_LN_MODE, "AUTO (LN)"),
+                (strings::ROW_JUDGE_OFFSET, "+0 ms"),
+                (strings::ROW_MASTER_VOLUME, "80%"),
+                (strings::ROW_PLAYFIELD, strings::VALUE_CENTER),
+                (strings::SCRATCH, strings::SIDE_RIGHT),
+                (strings::ROW_TRACK_BGA, strings::TRACK_BGA_OFF),
+                (strings::ROW_DISPLAY_MODE, strings::DISPLAY_WINDOWED),
+                (strings::ROW_RESOLUTION, "1280 x 720"),
+                (strings::ROW_GRAPHICS, "WARP (CPU) (재시작 후 적용)"),
+                (strings::ROW_TARGET_FPS, strings::VALUE_UNLIMITED),
+                (strings::ROW_KEY_LAYOUT, "7K  HOME ROW"),
+                (strings::ROW_AUTO_PLAY, strings::VALUE_OFF),
+                (strings::ROW_START_MEASURE, "M.0"),
             ]
             .iter()
             .map(|(k, v)| (*k, v.to_string()))

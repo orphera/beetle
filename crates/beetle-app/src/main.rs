@@ -32,7 +32,7 @@ use gameplay::{
     GameplayTickResult,
 };
 
-use beetle_render::GpuBackend;
+use beetle_render::{strings, GpuBackend};
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
@@ -89,7 +89,7 @@ extern "system" {
 fn fatal_error(msg: &str) {
     const MB_ICONERROR: u32 = 0x10;
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
-    let (text, caption) = (wide(msg), wide("Beetle"));
+    let (text, caption) = (wide(msg), wide(strings::APP_NAME));
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -126,7 +126,7 @@ impl ApplicationHandler for BeetleApp {
         let library_receiver = spawn_library_load(saved_config.sort_mode);
 
         let window_attributes = Window::default_attributes()
-            .with_title("Beetle — BMS Rhythm Engine")
+            .with_title(strings::WINDOW_TITLE)
             .with_inner_size(LogicalSize::new(
                 saved_config.window_width,
                 saved_config.window_height,
@@ -159,11 +159,7 @@ impl ApplicationHandler for BeetleApp {
         let d3d11 = match gpu_ui::create_backend(&window, saved_config.gpu_backend) {
             Ok(d3d) => d3d,
             Err(e) => {
-                fatal_error(&format!(
-                    "Beetle could not start Direct3D 11 (hardware or WARP).
-
-{e}"
-                ));
+                fatal_error(&strings::fill(strings::FATAL_D3D11, &[&e.to_string()]));
                 event_loop.exit();
                 return;
             }
@@ -998,10 +994,13 @@ mod tests {
             SongCategory::Table(1).title(&tables),
             "A TABLE WITH A VERY…  1 / 1"
         );
-        assert_eq!(SongCategory::Keys7.title(&tables), "7 KEYS");
+        assert_eq!(
+            SongCategory::Keys7.title(&tables),
+            beetle_render::strings::FOLDER_7K
+        );
         assert_eq!(
             SongCategory::Table(9).title(&tables),
-            "ALL SONGS",
+            beetle_render::strings::FOLDER_ALL,
             "a table that is gone"
         );
     }

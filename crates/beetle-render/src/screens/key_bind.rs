@@ -14,6 +14,7 @@ use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::skin::{scratch_side_applies, EightKForm, ScratchSide, SkinConfig};
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
 use crate::ui::Ui;
@@ -69,24 +70,27 @@ pub struct KeyConfigFrame<'a> {
 /// Footer hints; F2 (scratch side) and F3 (8K form) only where they apply.
 fn hints_for(mode: PlayMode) -> Vec<Hint> {
     let mut hints: Vec<Hint> = vec![
-        (widgets::LEFT_RIGHT, "LANE", None),
-        ("↑↓", "MODE", None),
-        ("ENTER", "SET KEY", Some(HitId::KeySet)),
-        ("A", "ADD KEY", Some(HitId::KeyAdd)),
-        ("BKSP", "CLEAR", Some(HitId::KeyClear)),
-        ("F1", "PRESET", Some(HitId::KeyPreset)),
+        (widgets::LEFT_RIGHT, strings::KEY_LANE, None),
+        ("↑↓", strings::MODE, None),
+        ("ENTER", strings::SET_KEY, Some(HitId::KeySet)),
+        ("A", strings::ADD_KEY, Some(HitId::KeyAdd)),
+        ("BKSP", strings::CLEAR_LANE, Some(HitId::KeyClear)),
+        ("F1", strings::PRESET, Some(HitId::KeyPreset)),
     ];
     if scratch_side_applies(mode) {
-        hints.push(("F2", "SCRATCH", Some(HitId::KeyScratch)));
+        hints.push(("F2", strings::SCRATCH, Some(HitId::KeyScratch)));
     }
     if mode == PlayMode::Keys8 {
-        hints.push(("F3", "8K FORM", Some(HitId::KeyForm)));
+        hints.push(("F3", strings::FORM_8K, Some(HitId::KeyForm)));
     }
-    hints.push(("DEL", "RESET", Some(HitId::KeyReset)));
-    hints.push(("ESC", "BACK", Some(HitId::KeyBack)));
+    hints.push(("DEL", strings::RESET, Some(HitId::KeyReset)));
+    hints.push(("ESC", strings::BACK, Some(HitId::KeyBack)));
     hints
 }
-const REBIND_HINTS: [Hint; 2] = [("ANY KEY", "BIND", None), ("ESC", "CANCEL", None)];
+const REBIND_HINTS: [Hint; 2] = [
+    (strings::ANY_KEY, strings::BIND, None),
+    ("ESC", strings::CANCEL, None),
+];
 
 pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     let sk = ui.skin;
@@ -145,17 +149,17 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     detail_card(c, t, &sk, f, card, s);
 
     // Top bar: layout chip on the right
-    widgets::top_bar(c, t, vp, "KEY CONFIG", s);
+    widgets::top_bar(c, t, vp, strings::KEY_CONFIG, s);
     let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
     let cap = caption(10.0, s);
     let right = vp.x + vp.width - PAD * s;
     let name_w = t.measure(c, f.layout, &st).min(460.0 * s);
     let name = t.fit(c, f.layout, name_w, &st).into_owned();
     t.draw(c, &name, right - name_w, vp.y + 37.0 * s, &st);
-    let cw = t.measure(c, "PRESET", &cap);
+    let cw = t.measure(c, strings::PRESET, &cap);
     t.draw(
         c,
-        "PRESET",
+        strings::PRESET,
         right - name_w - 12.0 * s - cw,
         vp.y + 37.0 * s,
         &cap,
@@ -171,17 +175,16 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
 
 /// The line under the tabs: what is special about the mode's layout.
 fn layout_summary(f: &KeyConfigFrame) -> String {
-    let side = f.scratch.as_str().to_lowercase();
+    let side = match f.scratch {
+        ScratchSide::Left => strings::SIDE_LEFT,
+        ScratchSide::Right => strings::SIDE_RIGHT,
+    };
     match f.mode {
-        PlayMode::Keys8 if f.form == EightKForm::Triggers => {
-            "6 keys between a left and a right trigger (F3: straight row)".to_string()
-        }
-        PlayMode::Keys8 => {
-            format!("8 keys in a row, scratch on the {side} (F2: swap, F3: 6 keys + triggers)")
-        }
-        PlayMode::Keys4 | PlayMode::Keys6 => "Keys in one straight row".to_string(),
-        mode if scratch_side_applies(mode) => format!("Scratch on the {side} (F2: swap)"),
-        _ => "Each key mode keeps its own layout".to_string(),
+        PlayMode::Keys8 if f.form == EightKForm::Triggers => strings::LAYOUT_TRIGGERS.to_string(),
+        PlayMode::Keys8 => strings::fill(strings::LAYOUT_8K, &[side]),
+        PlayMode::Keys4 | PlayMode::Keys6 => strings::LAYOUT_STRAIGHT.to_string(),
+        mode if scratch_side_applies(mode) => strings::fill(strings::LAYOUT_SCRATCH, &[side]),
+        _ => strings::LAYOUT_PER_MODE.to_string(),
     }
 }
 
@@ -223,12 +226,11 @@ fn mode_tabs(
             );
             c.nine(&sk.panel_outline, r, theme::LINE);
         }
-        let label = format!("{} KEYS", theme::mode_label(m).trim_end_matches('K'));
         let st = TextStyle::new(13.0 * s)
             .bold()
             .tracking(1.5 * s)
             .color(if on { theme::ON_ACCENT } else { theme::MUTED });
-        t.draw_in(c, &label, r, Align::Center, &st);
+        t.draw_in(c, theme::mode_label(m), r, Align::Center, &st);
         x += tab_w + gap;
     }
 }
@@ -615,9 +617,9 @@ fn detail_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
     };
 
     let (title, msg) = match f.rebinding {
-        Some(Rebind::Replace) => ("SET KEY", "Press the key for this lane. It replaces the lane's keys; a key used elsewhere moves here."),
-        Some(Rebind::Add) => ("ADD KEY", "Press another key for this lane. A key used by another lane moves here."),
-        None => ("SELECTED LANE", "Enter sets a key, A adds one more, Backspace clears the lane."),
+        Some(Rebind::Replace) => (strings::SET_KEY, strings::REBIND_REPLACE),
+        Some(Rebind::Add) => (strings::ADD_KEY, strings::REBIND_ADD),
+        None => (strings::SELECTED_LANE, strings::REBIND_SELECTED),
     };
     let accent = if f.rebinding.is_some() {
         theme::MAGENTA
@@ -658,7 +660,7 @@ fn detail_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
     let first = caps.len() - caps.len().min(5);
     t.draw_in(
         c,
-        "KEYS",
+        strings::KEYS_CAPTION,
         Rect::new(x.max(min_x) - 60.0 * s, inner.y, 48.0 * s, 44.0 * s),
         Align::Right,
         &caption(10.0, s),

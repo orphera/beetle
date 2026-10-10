@@ -141,10 +141,10 @@ pub fn vivid(c: ColorRgba, fallback: ColorRgba) -> ColorRgba {
 
 /// Small all-caps caption ("EX SCORE", "BPM") above a value. Regular weight:
 /// bold plus wide tracking made these the blobbiest text on screen.
+/// Small caption. No letter-spacing: most captions are Korean now (the
+/// spacing splits syllables); the few English caps that want it set it.
 pub fn caption(size: f32, scale: f32) -> TextStyle {
-    TextStyle::new(size * scale)
-        .tracking(1.0 * scale)
-        .color(MUTED2)
+    TextStyle::new(size * scale).color(MUTED2)
 }
 
 /// `1234567` → `"1,234,567"`.

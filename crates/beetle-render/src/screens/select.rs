@@ -11,6 +11,7 @@ use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
@@ -110,13 +111,16 @@ fn top_bar(
 ) -> Option<Rect> {
     let vp = f.viewport;
     let x0 = vp.x + PAD * s;
-    let adv = widgets::top_bar(c, t, vp, "BEETLE", s);
+    let adv = widgets::top_bar(c, t, vp, strings::WORDMARK, s);
     let bar_top = vp.y + 16.0 * s;
     let bar_h = 32.0 * s;
 
     // Folder and sort read as "LABEL  ‹ value ›" selectors.
     let mut x = x0 + adv + 48.0 * s;
-    for (label, value, arrows) in [("FOLDER", f.folder, true), ("SORT", f.sort, false)] {
+    for (label, value, arrows) in [
+        (strings::FOLDER, f.folder, true),
+        (strings::SORT, f.sort, false),
+    ] {
         let cap = caption(10.0, s);
         let start = x;
         x += t.draw(c, label, x, vp.y + 37.0 * s, &cap) + 12.0 * s;
@@ -134,10 +138,7 @@ fn top_bar(
             c.sprite(sk.icons.chevron_left, arrow, col);
             x += icon;
         }
-        let st = TextStyle::new(13.0 * s)
-            .bold()
-            .tracking(1.0 * s)
-            .color(theme::TEXT);
+        let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
         x += t.draw(c, value, x, vp.y + 37.0 * s, &st);
         if arrows {
             let arrow = Rect::new(x + 4.0 * s, iy, icon, icon);
@@ -187,20 +188,17 @@ fn top_bar(
             theme::LINE
         },
     );
-    let label_st = TextStyle::new(12.0 * s)
-        .bold()
-        .tracking(2.0 * s)
-        .color(if settings_hot {
-            theme::TEXT
-        } else {
-            theme::MUTED
-        });
-    let lw = t.measure(c, "OPTIONS", &label_st);
+    let label_st = TextStyle::new(12.0 * s).bold().color(if settings_hot {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    });
+    let lw = t.measure(c, strings::OPTIONS, &label_st);
     let kw = keycap_width(c, t, "TAB", s);
     let bx = settings.x + (settings.w - lw - kw - 10.0 * s) / 2.0;
     t.draw_in(
         c,
-        "OPTIONS",
+        strings::OPTIONS,
         Rect::new(bx, settings.y, lw + 1.0, settings.h),
         Align::Left,
         &label_st,
@@ -242,7 +240,7 @@ fn top_bar(
     if f.search.is_empty() && f.preedit.is_empty() && !f.search_active {
         t.draw_in(
             c,
-            "Search title, artist",
+            strings::SEARCH_PLACEHOLDER,
             inner,
             Align::Left,
             &TextStyle::new(13.0 * s).color(theme::MUTED2),
@@ -503,7 +501,7 @@ fn song_row(
         None => {
             t.draw_in(
                 c,
-                "NO PLAY",
+                strings::NO_PLAY,
                 Rect::new(rx, row.y, right_w, row.h),
                 Align::Right,
                 &caption(10.0, s).color(theme::MUTED),
@@ -514,14 +512,11 @@ fn song_row(
 
 fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, s: f32) {
     let (head, hint) = if f.search.is_empty() {
-        (
-            "No songs in this folder".to_string(),
-            "Put .bms / .bme / .bmsp files into the songs folder, then press F5 to rescan.",
-        )
+        (strings::EMPTY_FOLDER.to_string(), strings::EMPTY_HINT)
     } else {
         (
-            format!("No songs match \"{}\"", f.search),
-            "Press / to edit the search, Esc to clear it.",
+            strings::fill(strings::NO_MATCH, &[&f.search]),
+            strings::SEARCH_HINT,
         )
     };
     let cy = area.y + area.h * 0.42;
@@ -573,7 +568,7 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
     }
     t.draw(
         c,
-        "PREVIEW",
+        strings::PREVIEW,
         pill.x + 30.0 * s,
         pill.bottom() - 6.0 * s,
         &caption(9.0, s).color(theme::CYAN),
@@ -692,19 +687,19 @@ fn detail_panel(
     let mode = theme::mode_label(song.play_mode);
     let mode_col = t
         .measure(c, mode, &value_st)
-        .max(t.measure(c, "MODE", &label_st));
+        .max(t.measure(c, strings::MODE, &label_st));
     let notes_col = t
         .measure(c, &notes, &value_st)
-        .max(t.measure(c, "NOTES", &label_st));
+        .max(t.measure(c, strings::NOTES, &label_st));
     let mode_x = inner.right() - mode_col;
     let notes_x = mode_x - gap - notes_col;
     let (bpm_text, bpm_st) = fit_stat(c, t, &bpm, (notes_x - gap - ix).max(0.0), value_st);
     let (label_y, value_y) = (jacket.bottom() - 30.0 * s, jacket.bottom() - 2.0 * s);
-    t.draw(c, "BPM", ix, label_y, &label_st);
+    t.draw(c, strings::BPM, ix, label_y, &label_st);
     t.draw(c, &bpm_text, ix, value_y, &bpm_st);
-    t.draw(c, "NOTES", notes_x, label_y, &label_st);
+    t.draw(c, strings::NOTES, notes_x, label_y, &label_st);
     t.draw(c, &notes, notes_x, value_y, &value_st);
-    t.draw(c, "MODE", mode_x, label_y, &label_st);
+    t.draw(c, strings::MODE, mode_x, label_y, &label_st);
     t.draw(c, mode, mode_x, value_y, &value_st);
 
     let rule_y = jacket.bottom() + 24.0 * s;
@@ -741,10 +736,10 @@ fn detail_panel(
     }
     if f.auto_play {
         let st = caption(10.0, s).color(theme::ON_ACCENT);
-        let w = t.measure(c, "AUTO PLAY", &st) + 20.0 * s;
+        let w = t.measure(c, strings::AUTO_PLAY, &st) + 20.0 * s;
         let r = Rect::new(inner.right() - w, chips_y, w, 24.0 * s);
         c.nine(&sk.panel_lg, r, theme::CYAN);
-        t.draw_in(c, "AUTO PLAY", r, Align::Center, &st);
+        t.draw_in(c, strings::AUTO_PLAY, r, Align::Center, &st);
     }
 
     if f.has_replay {
@@ -771,16 +766,13 @@ fn detail_panel(
                 theme::LINE
             },
         );
-        let st = TextStyle::new(13.0 * s)
-            .bold()
-            .tracking(2.0 * s)
-            .color(theme::TEXT);
-        let lw = t.measure(c, "REPLAY", &st);
+        let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+        let lw = t.measure(c, strings::REPLAY, &st);
         let kw = 20.0 * s;
         let x = replay.x + (replay.w - lw - kw - 10.0 * s) / 2.0;
         t.draw_in(
             c,
-            "REPLAY",
+            strings::REPLAY,
             Rect::new(x, replay.y, lw, replay.h),
             Align::Left,
             &st,
@@ -814,16 +806,17 @@ fn detail_panel(
         Rect::new(cta.x + 22.0 * s, cta.y + 12.0 * s, 28.0 * s, 28.0 * s),
         theme::ON_ACCENT,
     );
-    let label = if f.auto_play { "AUTO PLAY" } else { "PLAY" };
+    let label = if f.auto_play {
+        strings::AUTO_PLAY
+    } else {
+        strings::PLAY
+    };
     t.draw_in(
         c,
         label,
         Rect::new(cta.x + 60.0 * s, cta.y, cta.w - 160.0 * s, cta.h),
         Align::Left,
-        &TextStyle::new(20.0 * s)
-            .bold()
-            .tracking(4.0 * s)
-            .color(theme::ON_ACCENT),
+        &TextStyle::new(20.0 * s).bold().color(theme::ON_ACCENT),
     );
     t.draw_in(
         c,
@@ -832,7 +825,6 @@ fn detail_panel(
         Align::Right,
         &TextStyle::new(12.0 * s)
             .bold()
-            .tracking(2.0 * s)
             .color(theme::ON_ACCENT.with_alpha(150)),
     );
 }
@@ -867,7 +859,13 @@ fn personal_best(
     s: f32,
 ) {
     let y = area.y;
-    let header_w = t.draw(c, "PERSONAL BEST", area.x, y + 32.0 * s, &caption(10.0, s));
+    let header_w = t.draw(
+        c,
+        strings::PERSONAL_BEST,
+        area.x,
+        y + 32.0 * s,
+        &caption(10.0, s),
+    );
     let Some(b) = best else {
         if let Some(rule) = rule {
             t.draw(
@@ -880,14 +878,14 @@ fn personal_best(
         }
         t.draw(
             c,
-            "Not played yet",
+            strings::NOT_PLAYED,
             area.x,
             y + 70.0 * s,
             &TextStyle::new(18.0 * s).bold().color(theme::MUTED),
         );
         t.draw(
             c,
-            "Clear this chart to record a score.",
+            strings::CLEAR_TO_RECORD,
             area.x,
             y + 92.0 * s,
             &TextStyle::new(13.0 * s).color(theme::MUTED2),
@@ -904,20 +902,19 @@ fn personal_best(
         notes.push(modifier.as_str().to_string());
     }
     if let Some(gauge) = b.gauge {
-        notes.push(format!("{} GAUGE", gauge.as_str()));
+        notes.push(strings::fill(strings::GAUGE_NAME, &[gauge.as_str()]));
     }
     if b.play_count > 0 {
-        notes.push(format!(
-            "{} {}",
-            b.play_count,
-            if b.play_count == 1 { "PLAY" } else { "PLAYS" }
+        notes.push(strings::fill(
+            strings::PLAY_COUNT,
+            &[&b.play_count.to_string()],
         ));
     }
     if !notes.is_empty() {
         let st = caption(9.0, s).color(theme::MUTED);
         t.draw(
             c,
-            &notes.join("  ·  "),
+            &notes.join("  /  "),
             area.x + header_w + 14.0 * s,
             y + 32.0 * s,
             &st,
@@ -971,16 +968,16 @@ fn personal_best(
 
     // Accuracy, combo, miss count
     let stats = [
-        ("ACCURACY", format!("{:.2}%", b.accuracy_rate())),
+        (strings::ACCURACY, format!("{:.2}%", b.accuracy_rate())),
         (
-            "MAX COMBO",
+            strings::MAX_COMBO,
             format!(
                 "{} / {}",
                 thousands(b.max_combo),
                 thousands(song.notes_for(ln_option) as u32)
             ),
         ),
-        ("MIN BP", thousands(b.min_bp)),
+        (strings::MIN_BP, thousands(b.min_bp)),
     ];
     let col_w = area.w / 3.0;
     for (i, (k, v)) in stats.iter().enumerate() {
@@ -1001,15 +998,15 @@ fn personal_best(
 // ---------------------------------------------------------------------------
 
 const HINTS: [widgets::Hint; 9] = [
-    ("↑↓", "SELECT", None),
-    ("ENTER", "PLAY", Some(HitId::Play)),
-    ("/", "SEARCH", Some(HitId::Search)),
-    ("F1 F3", "FOLDER", Some(HitId::FolderNext)),
-    ("F2", "SORT", Some(HitId::Sort)),
-    ("TAB", "OPTIONS", Some(HitId::Settings)),
-    ("A", "AUTO", Some(HitId::Auto)),
-    ("F12", "KEYS", Some(HitId::KeyConfig)),
-    ("ESC", "QUIT", Some(HitId::Quit)),
+    ("↑↓", strings::FOOTER_MOVE, None),
+    ("ENTER", strings::FOOTER_PLAY, Some(HitId::Play)),
+    ("/", strings::FOOTER_SEARCH, Some(HitId::Search)),
+    ("F1 F3", strings::FOOTER_FOLDER, Some(HitId::FolderNext)),
+    ("F2", strings::FOOTER_SORT, Some(HitId::Sort)),
+    ("TAB", strings::OPTIONS, Some(HitId::Settings)),
+    ("A", strings::FOOTER_AUTO, Some(HitId::Auto)),
+    ("F12", strings::FOOTER_KEYS, Some(HitId::KeyConfig)),
+    ("ESC", strings::FOOTER_QUIT, Some(HitId::Quit)),
 ];
 
 fn footer(
@@ -1033,7 +1030,7 @@ fn footer(
         base,
         &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
     );
-    let total = format!(" / {} SONGS", thousands(f.songs.len() as u32));
+    let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
     t.draw(c, &total, x, base, &caption(10.0, s));
 
     // Key hints, right-aligned; drop from the left if they do not fit.
@@ -1054,11 +1051,11 @@ fn footer(
 /// Section headers of the play options modal: (first row index, label).
 /// Row order is defined by the app's option handler.
 pub const OPTION_SECTIONS: [(usize, &str); 5] = [
-    (0, "PLAY"),
-    (5, "AUDIO"),
-    (6, "LAYOUT"),
-    (9, "DISPLAY / SYSTEM"),
-    (13, "INPUT & SESSION"),
+    (0, strings::GROUP_PLAY),
+    (5, strings::GROUP_AUDIO),
+    (6, strings::GROUP_LAYOUT),
+    (9, strings::GROUP_DISPLAY_SYSTEM),
+    (13, strings::GROUP_INPUT_SESSION),
 ];
 /// First row of the modal's right column (when there are more rows than this).
 pub const OPTION_COLUMN_BREAK: usize = 9;
@@ -1130,13 +1127,10 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
 
     t.draw(
         c,
-        "PLAY OPTIONS",
+        strings::MODAL_PLAY_OPTIONS,
         inner.x,
         inner.y + 22.0 * s,
-        &TextStyle::new(22.0 * s)
-            .bold()
-            .tracking(3.0 * s)
-            .color(theme::TEXT),
+        &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
     );
     for (ci, range) in columns.iter().take(n_cols).enumerate() {
         let col = Rect::new(
@@ -1171,10 +1165,10 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
             } else if hot {
                 c.nine(&sk.panel, row, theme::SURF2);
             }
-            let label_st = TextStyle::new(13.0 * s)
-                .bold()
-                .tracking(1.0 * s)
-                .color(if on { theme::TEXT } else { theme::MUTED });
+            let label_st =
+                TextStyle::new(13.0 * s)
+                    .bold()
+                    .color(if on { theme::TEXT } else { theme::MUTED });
             t.draw_in(
                 c,
                 label,
@@ -1226,7 +1220,11 @@ pub fn draw_options_modal(ui: &mut Ui, vp: &Viewport, rows: &[(&str, String)], s
             y += row_h;
         }
     }
-    let hints = [("↑↓", "SELECT"), (LEFT_RIGHT, "CHANGE"), ("TAB", "CLOSE")];
+    let hints = [
+        ("↑↓", strings::HINT_MOVE),
+        (LEFT_RIGHT, strings::HINT_CHANGE),
+        ("TAB", strings::HINT_CLOSE),
+    ];
     let w = hint_row(c, t, &sk, &hints, 0.0, 0.0, s, false);
     hint_row(
         c,
@@ -1250,17 +1248,14 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     let inner = panel.inset(28.0 * s);
     t.draw(
         c,
-        "QUIT BEETLE?",
+        strings::QUIT_TITLE,
         inner.x,
         inner.y + 26.0 * s,
-        &TextStyle::new(24.0 * s)
-            .bold()
-            .tracking(2.0 * s)
-            .color(theme::TEXT),
+        &TextStyle::new(24.0 * s).bold().color(theme::TEXT),
     );
     t.draw(
         c,
-        "Scores and settings are already saved.",
+        strings::QUIT_NOTE,
         inner.x,
         inner.y + 56.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
@@ -1298,10 +1293,10 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
         c.fill_rect(quit, theme::WHITE.with_alpha(28));
     }
     for (r, label, key, col) in [
-        (cancel, "CANCEL", "ESC", theme::TEXT),
-        (quit, "QUIT", "ENTER", theme::WHITE),
+        (cancel, strings::CANCEL, "ESC", theme::TEXT),
+        (quit, strings::QUIT, "ENTER", theme::WHITE),
     ] {
-        let st = TextStyle::new(14.0 * s).bold().tracking(2.0 * s).color(col);
+        let st = TextStyle::new(14.0 * s).bold().color(col);
         let lw = t.measure(c, label, &st);
         let kw = keycap_width(c, t, key, s);
         let x = r.x + (r.w - lw - kw - 10.0 * s) / 2.0;

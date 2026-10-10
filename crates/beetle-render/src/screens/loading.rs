@@ -11,6 +11,7 @@ use crate::canvas::{Canvas, Rect};
 use crate::motion::ease_out_cubic;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
@@ -111,10 +112,8 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let x = jacket.right() + 48.0 * s + slide * 2.0;
     let w = vp.x + vp.width - 160.0 * s - (jacket.right() + 48.0 * s);
     let mut y = jacket.y + 18.0 * s;
-    let now = caption(11.0, s)
-        .tracking(4.0 * s)
-        .color(theme::CYAN.with_alpha(a(255)));
-    let nw = t.draw(c, "NOW LOADING", x, y, &now);
+    let now = caption(11.0, s).color(theme::CYAN.with_alpha(a(255)));
+    let nw = t.draw(c, strings::LOADING, x, y, &now);
     if let Some(badge) = f.badge {
         let st = caption(10.0, s).color(theme::ON_ACCENT);
         let bw = t.measure(c, badge, &st) + 20.0 * s;
@@ -168,9 +167,9 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let bpm = song.bpm_label();
     let notes = thousands(song.notes_count as u32);
     for (i, (k, v)) in [
-        ("BPM", bpm.as_str()),
-        ("NOTES", notes.as_str()),
-        ("MODE", theme::mode_label(song.play_mode)),
+        (strings::BPM, bpm.as_str()),
+        (strings::NOTES, notes.as_str()),
+        (strings::MODE, theme::mode_label(song.play_mode)),
     ]
     .iter()
     .enumerate()
@@ -241,7 +240,7 @@ fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: 
     );
 
     let bar = widgets::footer_bar(c, vp, s);
-    widgets::footer_hints(c, t, sk, &[("ESC", "CANCEL")], bar, s);
+    widgets::footer_hints(c, t, sk, &[("ESC", strings::CANCEL)], bar, s);
 }
 
 #[cfg(test)]
@@ -270,7 +269,7 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
         };
-        let chips = vec!["HI-SPEED 1100".to_string()];
+        let chips = vec![format!("{} 1100", strings::ROW_HI_SPEED)];
         let mut ui = Ui::new(vp.scale);
         for elapsed in [0.0, 0.1, 0.7, 3.3] {
             ui.begin(1280, 720, vp.scale);
@@ -282,9 +281,9 @@ mod tests {
                     jacket: None,
                     ambient: None,
                     elapsed,
-                    status: "Loading",
+                    status: strings::LOADING,
                     option_chips: &chips,
-                    badge: Some("AUTO PLAY"),
+                    badge: Some(strings::AUTO_PLAY),
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");

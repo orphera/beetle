@@ -5,6 +5,7 @@ use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::skin::ColorRgba;
+use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption};
 use crate::view::Viewport;
@@ -56,10 +57,13 @@ pub(crate) fn top_bar(
     c.fill_rect(bar, theme::BG.with_alpha(200));
     c.fill_rect(Rect::new(bar.x, bar.bottom() - s, bar.w, s), theme::LINE);
     let x0 = vp.x + PAD * s;
-    let logo = TextStyle::new(22.0 * s)
-        .bold()
-        .tracking(3.0 * s)
-        .color(theme::TEXT);
+    // Only the English wordmark is letter-spaced; screen titles are Korean.
+    let logo = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
+    let logo = if title == strings::WORDMARK {
+        logo.tracking(3.0 * s)
+    } else {
+        logo
+    };
     let adv = t.draw(c, title, x0, vp.y + 41.0 * s, &logo);
     c.fill_rect_hgradient(
         Rect::new(x0, bar.bottom() - 2.0 * s, adv, 2.0 * s),

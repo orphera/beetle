@@ -9,6 +9,7 @@ use beetle_core::{
     BmsChart, BmsHeader, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
 };
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
+use beetle_render::strings;
 use beetle_render::{draw_result, D3d11Backend, GpuBackend, ResultFrame, Ui, Viewport};
 use common::{write_bmp, HiddenWindow};
 
@@ -158,7 +159,7 @@ fn result_layouts() {
             None,
             false,
             3.0,
-            Some("AUTO PLAY"),
+            Some(strings::AUTO_PLAY),
             "auto"
         ),
         1
