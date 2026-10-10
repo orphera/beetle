@@ -2,13 +2,13 @@ use beetle_core::{ChartId, TableIndex};
 use bms_package_manager::base_match;
 use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
-use bms_package_manager::table_fetch;
 use bms_package_manager::table_ops;
 use bms_package_manager::{
     absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
     RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
+use bms_package_manager::{ir, table_fetch};
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
@@ -94,6 +94,7 @@ fn print_table_usage() {
     println!("  bpm table missing [name]            Charts in the tables the collection lacks (after `bpm scan`)");
     println!("  bpm table fetch <name> <#>... [--yes]  Download the difference packs of the chosen entries (direct links only)");
     println!("  bpm table fetch <name> <#>... --body   Open the body pages of the chosen entries in the browser");
+    println!("  bpm table fetch <name> <#>... --ir     Download the body and diff links that the Stella IR chart page lists");
     println!("  bpm table get <name> <#> [--body-file <file>] [--yes]  Get one entry: body file + difference, imported as a package");
     println!("  bpm table base <name> <#>           Guess which owned folder is the original of an entry's difference (after `bpm scan`)");
     println!("  bpm table remove <name>             Delete an installed table");
@@ -1095,6 +1096,8 @@ fn run_table_command(args: &[String]) {
                 .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
             if args.iter().any(|a| a == "--body") {
                 open_body_pages(&table, &numbers);
+            } else if args.iter().any(|a| a == "--ir") {
+                fetch_ir_packs(&client, &table, &numbers, yes, into.as_deref());
             } else {
                 fetch_difference_packs(&client, &table, &numbers, yes, into.as_deref());
             }
@@ -1301,7 +1304,7 @@ fn fetch_difference_packs(
             continue;
         };
         if table_fetch::is_direct_pack(&entry.url_diff) {
-            planned.push((number, entry));
+            planned.push((number, entry, vec![entry.url_diff.clone()]));
         } else if entry.url_diff.is_empty() {
             println!("#{number}: no difference link in the table");
         } else {
@@ -1320,10 +1323,10 @@ fn fetch_difference_packs(
         planned.len(),
         table.name
     );
-    for (number, entry) in &planned {
+    for (number, entry, urls) in &planned {
         println!(
             "  #{number} {} / {}  {}",
-            entry.title, entry.artist, entry.url_diff
+            entry.title, entry.artist, urls[0]
         );
     }
     if !yes && !confirm("Download these packs? [y/N] ") {
@@ -1332,41 +1335,152 @@ fn fetch_difference_packs(
     }
 
     let slug = TableStore::slug(&table.name);
-    for (number, entry) in planned {
-        let scratch = env::temp_dir().join(format!("bpm-fetch-{}-{number}", std::process::id()));
-        let _ = fs::remove_dir_all(&scratch);
-        if let Err(e) = fs::create_dir_all(&scratch) {
-            eprintln!("#{number}: {e}");
-            continue;
-        }
-        let result = client
-            .get_bytes(&entry.url_diff, table_fetch::MAX_PACK_BYTES)
-            .and_then(|bytes| {
-                let zip = scratch.join("pack.zip");
-                fs::write(&zip, bytes).map_err(|e| e.to_string())?;
-                let pack_dir = match into {
-                    Some(dir) => dir.to_path_buf(),
-                    None => PathBuf::from("songs").join(&slug).join(number.to_string()),
-                };
-                table_fetch::keep_pack(&zip, entry, &scratch, &pack_dir)
-                    .map(|kept| (kept, pack_dir))
-            });
-        let _ = fs::remove_dir_all(&scratch);
-        match result {
-            Ok((kept, pack_dir)) if kept.matching > 0 => println!(
-                "#{number}: kept {} matching chart(s) in {}: {} file(s) copied, {} already there and left alone. Run `bpm scan` to index them.\n         It counts as owned only once its key sounds are in the collection. Body page: {}",
-                kept.matching,
-                pack_dir.display(),
-                kept.copied,
-                kept.skipped,
-                entry.url
-            ),
-            Ok(_) => {
-                eprintln!("#{number}: no chart in the pack matches the table entry; nothing kept")
-            }
-            Err(e) => eprintln!("#{number}: {e}"),
+    for (number, entry, urls) in planned {
+        for url in urls {
+            report_download(client, number, entry, &url, &slug, into);
         }
     }
+}
+
+/// One link that a Stella IR chart page lists for a table entry: `body` or `diff`
+/// (the row it came from), and its address.
+struct IrLink {
+    label: &'static str,
+    url: String,
+}
+
+/// Looks up the chosen table entries on the Stella IR chart page of their MD5 and
+/// lists the body and diff links that page gives. After the user confirms, each
+/// link is downloaded. A pack is kept only when one of its charts has the
+/// entry's hash, the same rule as for the direct packs. Nothing is guessed from
+/// the host: every link comes from the page and is shown before it is fetched.
+fn fetch_ir_packs(
+    client: &HttpClient,
+    table: &beetle_core::DifficultyTable,
+    numbers: &[usize],
+    yes: bool,
+    into: Option<&Path>,
+) {
+    let mut planned: Vec<(usize, &beetle_core::TableEntry, Vec<IrLink>)> = Vec::new();
+    for &number in numbers {
+        let Some(entry) = number.checked_sub(1).and_then(|i| table.entries.get(i)) else {
+            eprintln!("#{number}: no such entry in '{}'", table.name);
+            continue;
+        };
+        let Some(md5) = entry.md5 else {
+            println!("#{number}: the table gives no MD5, so the IR page cannot be looked up");
+            continue;
+        };
+        let links = match ir::fetch_chart_links(client, &md5) {
+            Ok(links) => links,
+            Err(e) => {
+                eprintln!("#{number}: {e}");
+                continue;
+            }
+        };
+        let mut urls = Vec::new();
+        for (label, found) in [("body", links.body), ("diff", links.diff)] {
+            for url in found {
+                if table_fetch::pack_extension(&url).is_some() {
+                    urls.push(IrLink { label, url });
+                } else {
+                    println!("#{number}: not an archive link. Open it in a browser: {url}");
+                }
+            }
+        }
+        if urls.is_empty() {
+            println!("#{number}: the IR page lists no archive link");
+        } else {
+            planned.push((number, entry, urls));
+        }
+    }
+    if planned.is_empty() {
+        return;
+    }
+
+    println!(
+        "About to download {} link(s) for '{}' from the IR pages:",
+        planned.iter().map(|(_, _, urls)| urls.len()).sum::<usize>(),
+        table.name
+    );
+    for (number, entry, urls) in &planned {
+        for link in urls {
+            println!(
+                "  #{number} {} / {}  {}: {}",
+                entry.title, entry.artist, link.label, link.url
+            );
+        }
+    }
+    if !yes && !confirm("Download these links? [y/N] ") {
+        println!("Nothing downloaded.");
+        return;
+    }
+
+    let slug = TableStore::slug(&table.name);
+    for (number, entry, urls) in planned {
+        for link in urls {
+            println!("#{number} {}:", link.label);
+            report_download(client, number, entry, &link.url, &slug, into);
+        }
+    }
+}
+
+/// Downloads one pack, keeps its matching charts, and prints the result.
+fn report_download(
+    client: &HttpClient,
+    number: usize,
+    entry: &beetle_core::TableEntry,
+    url: &str,
+    slug: &str,
+    into: Option<&Path>,
+) {
+    let scratch = env::temp_dir().join(format!("bpm-fetch-{}-{number}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    if let Err(e) = fs::create_dir_all(&scratch) {
+        eprintln!("#{number}: {e}");
+        return;
+    }
+    let result = download_pack(client, url, entry, number, &scratch, slug, into);
+    let _ = fs::remove_dir_all(&scratch);
+    match result {
+        Ok((kept, pack_dir)) if kept.matching > 0 => println!(
+            "#{number}: kept {} matching chart(s) in {}: {} file(s) copied, {} already there and left alone. Run `bpm scan` to index them.\n         It counts as owned only once its key sounds are in the collection. Body page: {}",
+            kept.matching,
+            pack_dir.display(),
+            kept.copied,
+            kept.skipped,
+            entry.url
+        ),
+        Ok(_) => {
+            eprintln!("#{number}: no chart in the pack matches the table entry; nothing kept")
+        }
+        Err(e) => eprintln!("#{number}: {e}"),
+    }
+}
+
+/// Downloads `url` into `scratch` and keeps the pack when one of its charts has
+/// the entry's hash. The archive type comes from the link, and is zip when the
+/// link names none (the Satellite upload links have no extension).
+fn download_pack(
+    client: &HttpClient,
+    url: &str,
+    entry: &beetle_core::TableEntry,
+    number: usize,
+    scratch: &Path,
+    slug: &str,
+    into: Option<&Path>,
+) -> Result<(table_fetch::KeptPack, PathBuf), String> {
+    let ext = table_fetch::pack_extension(url).unwrap_or("zip");
+    let bytes = client
+        .get_bytes(url, table_fetch::MAX_PACK_BYTES)
+        .map_err(|e| format!("cannot download {url}: {e}"))?;
+    let archive = scratch.join(format!("pack.{ext}"));
+    fs::write(&archive, bytes).map_err(|e| e.to_string())?;
+    let pack_dir = match into {
+        Some(dir) => dir.to_path_buf(),
+        None => PathBuf::from("songs").join(slug).join(number.to_string()),
+    };
+    table_fetch::keep_pack(&archive, entry, scratch, &pack_dir).map(|kept| (kept, pack_dir))
 }
 
 /// Asks a yes/no question on stdin. Anything but `y` or `yes` is no.
