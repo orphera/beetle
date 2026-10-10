@@ -535,14 +535,74 @@ U3는 네 단계로 나눈다. U3a에서 폴더 구조를 바꾸고, U3b는 곡 
   - 크기: `beetle-app.exe` 3,109,376 B(U3c 기록, `84ed892`를 다시 빌드해 확인) → 3,109,888 B(커밋 1) → 3,179,008 B(U3d 완료).
     U3d로 +69,632 B(+2.2%). 도움말 표와 오버레이, 안내 문자열, 램프 분포 그림이 들어갔다. 크기 원인은 따로 나누어 재지 않았다.
 
-### U4 — 게임플레이 HUD
-- [ ] **BGA 없을 때 레이아웃**: 빈 상자 대신 점수 패널을 키우거나(판정 그래프·게이지 추이)
-      재킷/배경 아트로 채움. BGA OFF 옵션과 같은 경로.
-- [ ] 플레이 중 키 안내는 첫 3초만 표시 후 페이드(설정으로 끌 수 있게).
-- [ ] **시작 준비 구간**: 첫 노트까지 "READY" + 레인 커버·하이스피드 조정 안내.
-      (오디오 클럭 기준, INV-1 영향 없음 — 표시만.)
-- [ ] **종료 연출**: FULL COMBO / CLEAR / FAILED 배너 후 결과로 전환.
-- [ ] **하이스피드·커버 변경 표시**: 바꾼 값과 그린 넘버를 레인 위에 1초간.
+### U4 — 게임플레이 HUD (완료)
+U4는 두 커밋이다. 먼저 크기 원인을 줄이고(커밋 `22a66af`), 그다음 HUD를 바꾼다.
+
+- **크기 정리 (커밋 `22a66af`, `perf(app): open bpm-gui and the songs folder with ShellExecuteW instead of std::process`)**
+  - U3d 뒤 `beetle-app.exe`가 +69 KB 늘었는데, 원인은 `std::process::Command`였다. 선곡의 `bpm-gui.exe` 실행과
+    `explorer.exe <songs>` 실행을 `handlers/song_select.rs`의 `shell_open`(`ShellExecuteW`, shell32 직접 FFI,
+    동사 `open` / `explore`)으로 바꿨다. 성공 판정은 반환값 32 초과, 오류 토스트는 그대로다.
+  - 결과: `beetle-app.exe` 3,179,008 B → 3,122,176 B (−56,832 B). 20 KB 기준을 넘어 추가 조사는 하지 않았다.
+    U3d의 나머지 약 12 KB(도움말 표·오버레이·안내 문자열·램프 분포)는 그대로 둔다.
+- [x] **BGA 없을 때 레이아웃** (진단 14): 곡에 BGA 이벤트도 영상도 없으면(`has_bga`, 옵션이 꺼져 있어도 같다) 빈 BGA
+      상자 대신 **판정 타임라인**을 그린다. 왼쪽·오른쪽 플레이필드는 점수 패널을 키우고(236 px, EX 점수 52 pt,
+      판정 범례 간격 넓힘) 그 아래 타임라인과 스펙트럼을 둔다. 가운데 플레이필드는 BGA 상자가 없으면 정보 열이
+      왼쪽 전체(곡 정보·점수·타임라인)를 맡고 오른쪽에는 게이지만 남긴다. 스테이지 이미지가 있으면 어둡게(`BG` 170)
+      타임라인 뒤에 깐다. 타임라인은 최근 8 s(오디오 시계 기준)의 판정을 점으로 찍는다. 시간은 오른쪽에서 왼쪽으로
+      흐르고, 세로 위치는 판정 차이(위 = FAST, 아래 = SLOW, ±150 ms가 가장자리)다.
+      주의: 키 안내 줄을 두 줄로 감쌀 때 스펙트럼과 겹쳐 예약 높이를 26 → 36 px로 늘렸다(BGA 상자가 조금 작아짐).
+- [x] **플레이 중 키 안내** (진단 15): 설정 · 레이아웃의 **플레이 중 키 안내** 행(`KeyHintSetting`,
+      `config.dat`의 `play_key_hint=first|always|off`, 기본 `first`). "처음 3초만"은 오디오 시계로 3 s까지 완전히 보이고
+      0.5 s에 걸쳐 사라진다(`KeyHintSetting::alpha`, 단위 테스트). "항상"·"끄기"는 그대로다. 리플레이·자동 플레이에서는
+      같은 줄(`ESC 곡 선택으로`)이 같은 규칙을 따른다.
+- [x] **READY** (진단 16 일부): 곡 시작부터 첫 노트 1 s 전까지 레인 위쪽 1/5 자리에 `READY`와
+      `F3/F4 그린 넘버 / F10/F11 레인 커버`를 띄운다. 첫 노트 1.5 s 전 페이드는 0.5 s에 걸쳐 끝나며(`ready_alpha`),
+      첫 노트가 1.5 s보다 빠르면 READY를 그리지 않는다. 첫 노트는 지뢰·롱노트 끝을 뺀 노트 중 가장 이른 시각이다.
+      표시만 바꾸고 판정 시각은 건드리지 않는다.
+- [x] **종료 배너** (진단 16 일부): 곡이 끝나면(또는 게이지 실패) 기록은 한 번 저장하고(`finish_gameplay`, 이미 끝난
+      상태면 아무것도 하지 않음), 플레이필드 가운데에 **클리어 램프 이름**(`ClearType::as_str`: `FULL COMBO`, `PERFECT`,
+      `HARD CLEAR`, `CLEAR`, `EASY CLEAR`, `FAILED`)을 1.5 s 띄운 뒤 결과로 간다. 배너 동안 콤보·판정 글자는 숨긴다.
+      ENTER·ESC는 결과로 바로 넘어간다(`leave_gameplay`). 자동 플레이·리플레이도 같은 배너를 띄운다.
+      **예외(INV-1)**: 배너 타이머만 `Instant`(벽시계)를 쓴다. 배너 동안에는 판정도 노트 이동도 없고, 실패한 곡은 오디오가
+      이미 멈춰 있어서 오디오 클럭이 의미 없다. 판정과 노트 위치는 여전히 `AudioClock`만 쓴다.
+      저장은 `finish_gameplay`에서만 하며 배너 중에 다시 하지 않는다. ESC가 일시정지가 아니라 결과 건너뛰기가 되는 것도
+      배너 동안뿐이다.
+- [x] **그린·커버 변경 표시** (진단 17): F3/F4/PageUp/PageDown/1/2로 그린이 바뀌면 `그린 1470 ms`, F10/F11로 커버가
+      바뀌면 `커버 35%`를 레인 위쪽에 1 s 보인다(마지막 0.3 s 페이드, 오디오 시계 기준, `gameplay_readout`).
+- 문자열: `strings.rs`에 `READY`, `READY_HINT`, `READOUT_GREEN`, `READOUT_COVER`, `TIMELINE_TITLE`,
+  `TIMELINE_RANGE`, `TIMING_FAST`, `TIMING_SLOW`, 설정 행 `ROW_KEY_HINT`, `HELP_KEY_HINT`, `KEY_HINT_FIRST/ALWAYS/OFF`.
+  `READY`는 영문 그대로 두었다(화면에 떠야 하는 게임 용어, 요청 문구). 글자 범위 테스트 통과.
+- 구조: `JudgeMark`(`view.rs`, 최근 8 s 판정 기록, 메인 스레드에서만 쓴다), `PlayFrame`에 `has_bga`,
+  `key_hint_alpha`, `readout`, `banner`, `judge_marks` 추가. 게임플레이 프레임은 여전히 한 드로우콜이다
+  (`whole_frame_is_one_batch_without_bga`에 배너·readout·타임라인을 함께 켠 프레임 추가).
+- 결과 (2026-10-10):
+  - 크기: `beetle-app.exe` 3,122,176 B(커밋 1) → 3,128,320 B (+6,144 B, +0.20%).
+  - 검증: `cargo test --workspace` 통과, `cargo test -p beetle-render --release --tests` 통과, `cargo fmt --all -- --check` 통과.
+    새 테스트: `play.rs`(`ready_alpha` 구간과 1.5 s 규칙, 첫 노트 계산, 한 드로우콜), `config.rs`(키 안내 알파와 순환,
+    설정 왕복), 캡처 `d3d11_play.rs::gameplay_hud_variants`(왼쪽·가운데 BGA 없음, READY, 그린·커버 readout, FULL COMBO·FAILED
+    배너, 키 안내 끔). 모든 캡처 프레임은 드로우콜 1개다.
+  - 렌더 캡처(`scratch/u4/`, 1280x720, PNG 전부 확인): `play-7k-nobga-left-timeline`, `play-7k-nobga-center`,
+    `play-7k-ready`, `play-7k-readout-green`, `play-7k-readout-cover`, `play-7k-banner-fullcombo`,
+    `play-7k-banner-failed`, `play-14k`(키 안내가 스펙트럼과 겹치던 문제를 고친 뒤). 기존 `play-7k`, `play-paused`도 다시 확인.
+  - 실제 앱(격리 `scratch/ux-before/run`, `PostMessageW` 키·클릭, `PrintWindow` 캡처, 실제 커서 불변. `scratch/u4/live/`):
+    - 자동 플레이 `Beetle Demo Track`(7K, 36 노트, 150 BPM): 시작 0 s에 키 안내 줄이 보이고(`seq/f000`), 1.8 s에도 보이며,
+      2.8 s 무렵에는 사라졌다(`seq/f005`, `seq/f008`).
+    - F3 → `그린 1470 ms`(`seq/f028`, 9.8 s). F10 → `커버 35%`(`seq/f032`, 11.1 s).
+    - 끝 배너 `PERFECT`(72/72 전부 PGREAT, `seq/f044`), 약 1.5 s 뒤 결과 화면(`seq/f048`, 자동 플레이라 `기록이 저장되지 않음`).
+    - 배너 중 ENTER: 결과가 바로 나왔다(`seq3/f046`, 15.2 s). 같은 실행에서 배너 없이 두면 약 16 s에 나온다.
+    - 설정: F4 → 플레이 중 키 안내 행 → `항상`(`key-hint-always.png`). `config.dat`에 `play_key_hint=always`가 저장됐고,
+      다시 `처음만`으로 되돌려 `play_key_hint=first`로 저장됐다.
+    - 종료 후 `beetle-app.exe` 프로세스 없음.
+  - FPS: **측정하지 못했다.** devtools의 fps 줄은 캡처 모드(`BEETLE_CAPTURE`)에서만 찍히는데, 이번 세션의 게임플레이 캡처
+    실행이 게임플레이에 들어가지 않았다(곡 선택 상태 문제로 추정, 확인하지 않음). WARP도 같은 이유로 재지 못했다.
+  - 확인하지 못한 것:
+    - READY의 실제 화면: 데모 곡의 첫 노트가 1.5 s보다 빨라서 READY가 나오지 않는다. 화면은 캡처(`play-7k-ready`)와 단위 테스트로만 확인.
+    - 키 안내의 부분 페이드(2.5–3.5 s 사이 프레임)는 실제 앱 프레임으로 잡지 못했다(알파 계산은 단위 테스트).
+    - FULL COMBO·FAILED 배너는 실제 앱에서 보지 못했다(캡처만). 실제 앱에서는 PERFECT만 확인.
+    - 일반 수동 플레이의 기록 저장 1회(배너 중 ESC·ENTER 포함): 자동 플레이로만 확인했다. 저장 경로는 `finish_gameplay`의
+      가드로 한 번만 가도록 했고 단위 테스트는 없다.
+    - 설정 행 클릭은 실제 앱에서 누르지 않았다(키로만 확인).
+    - 배너 중 ESC는 실제 앱에서 누르지 않았다(ENTER와 같은 경로).
 
 ### U5 — 결과
 - [ ] 게이지 추이 그래프(플레이 중 게이지 값을 일정 간격으로 기록 — `ScoreTracker` 또는 앱 쪽).
