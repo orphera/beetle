@@ -1094,6 +1094,9 @@ fn run_table_command(args: &[String]) {
             let (_, table) = store
                 .find(name)
                 .unwrap_or_else(|| fail(&format!("no installed table named '{name}'")));
+            if args.iter().any(|a| a == "--ir") && args.iter().any(|a| a == "--body") {
+                fail(&"--ir and --body cannot be used together");
+            }
             if args.iter().any(|a| a == "--body") {
                 open_body_pages(&table, &numbers);
             } else if args.iter().any(|a| a == "--ir") {
@@ -1381,10 +1384,14 @@ fn fetch_ir_packs(
         let mut urls = Vec::new();
         for (label, found) in [("body", links.body), ("diff", links.diff)] {
             for url in found {
-                if table_fetch::pack_extension(&url).is_some() {
+                // Only zip links are fetched here: rar and 7z need 7-Zip, and the
+                // size limit is checked for zip only (see `check_zip_size`).
+                if table_fetch::pack_extension(&url) == Some("zip") {
                     urls.push(IrLink { label, url });
                 } else {
-                    println!("#{number}: not an archive link. Open it in a browser: {url}");
+                    println!(
+                        "#{number}: not a zip link, so not fetched. Open it in a browser: {url}"
+                    );
                 }
             }
         }
