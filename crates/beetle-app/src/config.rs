@@ -1,3 +1,4 @@
+use crate::folders::FolderPath;
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
 use beetle_render::{px_per_sec_to_green_ms, EightKForm, FieldPosition, ScratchSide};
@@ -171,6 +172,8 @@ pub struct AppConfig {
     pub scratch_sides: [ScratchSide; 3],
     pub eight_k_form: EightKForm,
     pub sort_mode: SortMode,
+    /// The folder song select opens in (ids from `folders.rs`, `folder_path=mode/7k`).
+    pub folder_path: FolderPath,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
     pub key_layouts: [Option<SavedLayout>; 8],
@@ -197,6 +200,7 @@ impl Default for AppConfig {
             scratch_sides: [ScratchSide::Left; 3],
             eight_k_form: EightKForm::Inline,
             sort_mode: SortMode::Title,
+            folder_path: FolderPath::top("all"),
             key_layouts: Default::default(),
             legacy_key_layout: None,
             master_volume: 1.0,
@@ -299,6 +303,7 @@ impl AppConfig {
                         config.play_options.judge_offset_ms = v.clamp(-100.0, 100.0);
                     }
                 }
+                "folder_path" => config.folder_path = FolderPath::parse(val),
                 "sort_mode" => {
                     config.sort_mode = match val {
                         "LEVEL" => SortMode::Level,
@@ -388,7 +393,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -396,6 +401,7 @@ impl AppConfig {
             self.play_options.ln.as_str(),
             self.play_options.judge_offset_ms,
             self.sort_mode.as_str(),
+            self.folder_path.to_config_string(),
             self.master_volume,
             self.display_mode.as_str(),
             self.gpu_backend.as_str(),
@@ -442,6 +448,7 @@ mod tests {
             scratch_sides: [ScratchSide::Right, ScratchSide::Left, ScratchSide::Right],
             eight_k_form: EightKForm::Triggers,
             sort_mode: SortMode::Level,
+            folder_path: FolderPath::parse("mode/7k"),
             key_layouts: [
                 Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
                 Some((KeyPreset::ArcadeZx, String::new())),
@@ -482,6 +489,7 @@ mod tests {
         );
         assert_eq!(config.lane_cover_ratio, parsed.lane_cover_ratio);
         assert_eq!(config.sort_mode, parsed.sort_mode);
+        assert_eq!(config.folder_path, parsed.folder_path);
         assert_eq!(config.key_layouts, parsed.key_layouts);
         assert_eq!(parsed.legacy_key_layout, None);
         assert_eq!(config.master_volume, parsed.master_volume);
@@ -495,6 +503,19 @@ mod tests {
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);
         assert_eq!(config.eight_k_form, parsed.eight_k_form);
+    }
+
+    #[test]
+    fn the_folder_defaults_to_all_songs_and_is_read_back() {
+        // A file from before the folder tree has no `folder_path`: it opens in 전체 곡.
+        assert_eq!(
+            AppConfig::parse_str("sort_mode=TITLE\n").folder_path,
+            FolderPath::top("all")
+        );
+        assert_eq!(
+            AppConfig::parse_str("folder_path=level/12\n").folder_path,
+            FolderPath::parse("level/12")
+        );
     }
 
     #[test]

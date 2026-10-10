@@ -19,19 +19,29 @@ use crate::view::Viewport;
 use beetle_core::{LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
+/// One row of the list: a song (an index into `SelectFrame::songs`) or a folder
+/// (its name and how many songs it holds). U3b adds a row for a group of charts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectRow<'a> {
+    Song(usize),
+    Folder { label: &'a str, count: usize },
+}
+
 pub struct SelectFrame<'a> {
     pub viewport: &'a Viewport,
-    /// The whole library; `visible` indexes into it (filter + sort order).
+    /// The whole library; `Song` rows index into it.
     pub songs: &'a [SongMetadata],
-    pub visible: &'a [usize],
-    /// Cursor position within `visible`.
+    /// The rows of the current folder, in order.
+    pub rows: &'a [SelectRow<'a>],
+    /// Cursor position within `rows`.
     pub selected: usize,
     pub scores: &'a ScoreStore,
     /// The player's long note setting, which decides which record of a chart with long notes is shown.
     pub ln_option: LnOption,
     /// Installed difficulty tables, matched to the song list (level chips).
     pub tables: &'a TableIndex,
-    pub folder: &'a str,
+    /// The breadcrumb: the root label, then each folder on the way down (index = depth).
+    pub crumbs: &'a [String],
     pub sort: &'a str,
     pub search: &'a str,
     pub search_active: bool,
@@ -62,7 +72,10 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
     let s = vp.scale;
-    let selected = f.visible.get(f.selected).and_then(|&i| f.songs.get(i));
+    let selected = match f.rows.get(f.selected) {
+        Some(SelectRow::Song(i)) => f.songs.get(*i),
+        _ => None,
+    };
 
     backdrop(c, &sk, f, selected, lite);
 
@@ -72,19 +85,26 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         vp.x + vp.width - PAD * s,
         vp.y + vp.height - (FOOTER_H + 24.0) * s,
     );
-    match selected {
-        Some(song) => {
-            let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
-            song_list(c, t, &sk, f, list, s, &mut hs);
-            let detail = Rect::from_ltrb(
-                list.right() + PAD * s,
-                content.y,
-                content.right(),
-                content.bottom(),
-            );
-            detail_panel(c, t, &sk, f, song, detail, s, &mut hs);
+    if f.rows.is_empty() {
+        empty_state(c, t, f, content, s);
+    } else {
+        let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
+        song_list(c, t, &sk, f, list, s, &mut hs);
+        let detail = Rect::from_ltrb(
+            list.right() + PAD * s,
+            content.y,
+            content.right(),
+            content.bottom(),
+        );
+        match (f.rows.get(f.selected), selected) {
+            (Some(SelectRow::Song(_)), Some(song)) => {
+                detail_panel(c, t, &sk, f, song, detail, s, &mut hs)
+            }
+            (Some(&SelectRow::Folder { label, count }), _) => {
+                folder_panel(c, t, &sk, label, count, detail, s)
+            }
+            _ => {}
         }
-        None => empty_state(c, t, f, content, s),
     }
 
     ui.ime_caret = top_bar(c, t, &sk, f, s, &mut hs);
@@ -159,6 +179,9 @@ fn bar_button(
     );
 }
 
+/// Between two breadcrumb segments.
+const CRUMB_SEP: &str = " > ";
+
 fn top_bar(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -173,50 +196,110 @@ fn top_bar(
     let bar_top = vp.y + 16.0 * s;
     let bar_h = 32.0 * s;
 
-    // Folder and sort read as "LABEL  ‹ value ›" selectors.
+    // Left group: FOLDER ‹ breadcrumb ›, then SORT. The right group (SETTINGS,
+    // OPTIONS, search) is laid out below; its left edge bounds this group.
+    let right_limit = vp.x + vp.width - (PAD + 112.0) * s - 144.0 * s - 292.0 * s - 16.0 * s;
+    let icon = 16.0 * s;
+    let iy = vp.y + 32.0 * s - icon / 2.0;
+    let base = vp.y + 37.0 * s;
+    let cap = caption(10.0, s);
+    let sort_value_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+    let sort_label_w = t.measure(c, strings::SORT, &cap);
+    let sort_value_w = t.measure(c, f.sort, &sort_value_st);
+    let sort_x = right_limit - (sort_label_w + 12.0 * s + sort_value_w + 32.0 * s);
+
     let mut x = x0 + adv + 48.0 * s;
-    for (label, value, arrows) in [
-        (strings::FOLDER, f.folder, true),
-        (strings::SORT, f.sort, false),
-    ] {
-        let cap = caption(10.0, s);
-        let start = x;
-        x += t.draw(c, label, x, vp.y + 37.0 * s, &cap) + 12.0 * s;
-        let icon = 16.0 * s;
-        let iy = vp.y + 32.0 * s - icon / 2.0;
-        if arrows {
-            let arrow = Rect::new(x - 4.0 * s, iy, icon, icon);
-            let hit = Rect::new(arrow.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
-            hs.add(hit, HitId::FolderPrev);
-            let col = if hs.hovered(hit) {
-                theme::TEXT
-            } else {
-                theme::MUTED
-            };
-            c.sprite(sk.icons.chevron_left, arrow, col);
-            x += icon;
-        }
-        let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
-        x += t.draw(c, value, x, vp.y + 37.0 * s, &st);
-        if arrows {
-            let arrow = Rect::new(x + 4.0 * s, iy, icon, icon);
-            let hit = Rect::new(arrow.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
-            hs.add(hit, HitId::FolderNext);
-            let col = if hs.hovered(hit) {
-                theme::TEXT
-            } else {
-                theme::MUTED
-            };
-            c.sprite(sk.icons.chevron_right, arrow, col);
-            x += icon + 4.0 * s;
+    x += t.draw(c, strings::FOLDER, x, base, &cap) + 12.0 * s;
+    let prev = Rect::new(x - 4.0 * s, iy, icon, icon);
+    let prev_hit = Rect::new(prev.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
+    hs.add(prev_hit, HitId::FolderPrev);
+    let prev_col = if hs.hovered(prev_hit) {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    c.sprite(sk.icons.chevron_left, prev, prev_col);
+    x += icon + 4.0 * s;
+
+    // Breadcrumb: keeps its last segments when the bar is too narrow (the
+    // dropped ones become "…"). Each segment is a click target.
+    let crumb_avail = (sort_x - 24.0 * s) - x - icon - 8.0 * s;
+    let sep_st = TextStyle::new(12.0 * s).color(theme::MUTED2);
+    let seg_st = |hot: bool, current: bool| {
+        TextStyle::new(13.0 * s).bold().color(if current || hot {
+            theme::TEXT
         } else {
-            let hit = Rect::new(start - 8.0 * s, bar_top, x - start + 16.0 * s, bar_h);
-            hs.add(hit, HitId::Sort);
-            if hs.hovered(hit) {
-                c.stroke_rect(hit, s.max(1.0), theme::CYAN.with_alpha(90));
-            }
+            theme::MUTED
+        })
+    };
+    let sep_w = t.measure(c, CRUMB_SEP, &sep_st);
+    let mut shown: Vec<(usize, &str)> = f
+        .crumbs
+        .iter()
+        .enumerate()
+        .map(|(d, label)| (d, label.as_str()))
+        .collect();
+    let width = |t: &mut TextEngine, c: &mut Canvas, shown: &[(usize, &str)]| -> f32 {
+        let names: f32 = shown
+            .iter()
+            .map(|(_, label)| t.measure(c, label, &seg_st(false, true)))
+            .sum();
+        names + sep_w * shown.len().saturating_sub(1) as f32
+    };
+    let mut dropped = false;
+    while shown.len() > 1 && width(t, c, &shown) > crumb_avail {
+        shown.remove(0);
+        dropped = true;
+    }
+    let fitted = if shown.len() == 1 && width(t, c, &shown) > crumb_avail {
+        Some(
+            t.fit(c, shown[0].1, crumb_avail, &seg_st(false, true))
+                .into_owned(),
+        )
+    } else {
+        None
+    };
+    if let Some(text) = &fitted {
+        shown[0].1 = text.as_str();
+    }
+    if dropped {
+        x += t.draw(c, "…", x, base, &sep_st) + 4.0 * s;
+    }
+    let last = shown.len().saturating_sub(1);
+    for (i, &(depth, label)) in shown.iter().enumerate() {
+        if i > 0 {
+            x += t.draw(c, CRUMB_SEP, x, base, &sep_st);
         }
-        x += 32.0 * s;
+        let w = t.measure(c, label, &seg_st(false, true));
+        let hit = Rect::new(x - 3.0 * s, bar_top, w + 6.0 * s, bar_h);
+        hs.add(hit, HitId::Crumb(depth));
+        let hot = hs.hovered(hit);
+        x += t.draw(c, label, x, base, &seg_st(hot, i == last));
+    }
+
+    let next = Rect::new(x + 4.0 * s, iy, icon, icon);
+    let next_hit = Rect::new(next.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
+    hs.add(next_hit, HitId::FolderNext);
+    let next_col = if hs.hovered(next_hit) {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    c.sprite(sk.icons.chevron_right, next, next_col);
+
+    // Sort: "LABEL  value", a click cycles it.
+    let mut sx = sort_x;
+    sx += t.draw(c, strings::SORT, sx, base, &cap) + 12.0 * s;
+    t.draw(c, f.sort, sx, base, &sort_value_st);
+    let sort_hit = Rect::new(
+        sort_x - 8.0 * s,
+        bar_top,
+        sort_label_w + sort_value_w + 28.0 * s + 12.0 * s,
+        bar_h,
+    );
+    hs.add(sort_hit, HitId::Sort);
+    if hs.hovered(sort_hit) {
+        c.stroke_rect(sort_hit, s.max(1.0), theme::CYAN.with_alpha(90));
     }
 
     // Right edge: SETTINGS (F4), then OPTIONS (TAB); the search box sits to their left.
@@ -349,34 +432,44 @@ fn song_list(
 ) {
     let step = (ROW_H + ROW_GAP) * s;
     let rows = (((list.h + ROW_GAP * s) / step).floor() as usize).max(1);
-    let total = f.visible.len();
+    let total = f.rows.len();
     let start = scroll_start(f.selected, total, rows);
     let row_w = list.w - 16.0 * s;
 
-    for (slot, &idx) in f.visible.iter().enumerate().skip(start).take(rows) {
-        let Some(song) = f.songs.get(idx) else {
-            continue;
-        };
+    for (slot, entry) in f.rows.iter().enumerate().skip(start).take(rows) {
         let row = Rect::new(
             list.x,
             list.y + (slot - start) as f32 * step,
             row_w,
             ROW_H * s,
         );
-        hs.add(row, HitId::SongRow(slot));
-        let chip = f.tables.chip(song.id);
-        song_row(
-            c,
-            t,
-            sk,
-            song,
-            f.scores.best(song, f.ln_option),
-            chip.as_deref(),
-            row,
-            slot == f.selected,
-            slot != f.selected && hs.hovered(row),
-            s,
-        );
+        let on = slot == f.selected;
+        let hot = !on && hs.hovered(row);
+        match *entry {
+            SelectRow::Song(idx) => {
+                let Some(song) = f.songs.get(idx) else {
+                    continue;
+                };
+                hs.add(row, HitId::ListRow(slot));
+                let chip = f.tables.chip(song.id);
+                song_row(
+                    c,
+                    t,
+                    sk,
+                    song,
+                    f.scores.best(song, f.ln_option),
+                    chip.as_deref(),
+                    row,
+                    on,
+                    hot,
+                    s,
+                );
+            }
+            SelectRow::Folder { label, count } => {
+                hs.add(row, HitId::ListRow(slot));
+                folder_row(c, t, sk, label, count, row, on, hot, s);
+            }
+        }
     }
 
     // Scrollbar
@@ -541,6 +634,100 @@ fn song_row(
             );
         }
     }
+}
+
+/// A folder row: the same height as a song row, with an accent strip, the
+/// name, the song count and a chevron that says it opens.
+#[allow(clippy::too_many_arguments)]
+fn folder_row(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    label: &str,
+    count: usize,
+    row: Rect,
+    on: bool,
+    hot: bool,
+    s: f32,
+) {
+    if on {
+        c.halo(&sk.shadow, row, theme::WHITE.with_alpha(200));
+        c.nine(&sk.panel, row, theme::SURF3);
+        c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));
+    } else {
+        let bg = if hot { theme::SURF2 } else { theme::SURF1 };
+        c.nine(&sk.panel, row, bg.with_alpha(220));
+    }
+    // Folder accent: a strip on the left, in the folder color (not the level tier colors).
+    c.nine(
+        &sk.panel_sm,
+        Rect::new(row.x + 6.0 * s, row.y + 10.0 * s, 4.0 * s, row.h - 20.0 * s),
+        theme::BLUE,
+    );
+
+    let chevron = 14.0 * s;
+    let count_text = strings::fill(strings::FOLDER_SONGS, &[&thousands(count as u32)]);
+    let count_w = t.measure(c, &count_text, &caption(11.0, s));
+    let name_x = row.x + 24.0 * s;
+    let name_w = row.w - (name_x - row.x) - count_w - chevron - 32.0 * s;
+    let name_st = TextStyle::new(16.0 * s).bold().color(if on {
+        theme::TEXT
+    } else {
+        theme::TEXT.with_alpha(215)
+    });
+    let name = t.fit(c, label, name_w.max(0.0), &name_st).into_owned();
+    t.draw(c, &name, name_x, row.y + row.h / 2.0 + 6.0 * s, &name_st);
+
+    let count_x = row.right() - chevron - 12.0 * s - count_w;
+    t.draw(
+        c,
+        &count_text,
+        count_x,
+        row.y + row.h / 2.0 + 5.0 * s,
+        &caption(11.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
+    );
+    c.sprite(
+        sk.icons.chevron_right,
+        Rect::new(
+            row.right() - chevron - 8.0 * s,
+            row.y + (row.h - chevron) / 2.0,
+            chevron,
+            chevron,
+        ),
+        if on { theme::CYAN } else { theme::MUTED },
+    );
+}
+
+/// The detail panel of a highlighted folder: its name, song count and how to open it.
+fn folder_panel(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    label: &str,
+    count: usize,
+    panel: Rect,
+    s: f32,
+) {
+    c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
+    c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
+    let inner = panel.inset(24.0 * s);
+    let name_st = TextStyle::new(30.0 * s).bold().color(theme::TEXT);
+    let name = t.fit(c, label, inner.w, &name_st).into_owned();
+    t.draw(c, &name, inner.x, inner.y + 40.0 * s, &name_st);
+    t.draw(
+        c,
+        &strings::fill(strings::FOLDER_SONGS, &[&thousands(count as u32)]),
+        inner.x,
+        inner.y + 80.0 * s,
+        &TextStyle::new(16.0 * s).bold().color(theme::CYAN),
+    );
+    t.draw_in(
+        c,
+        strings::FOLDER_OPEN_HINT,
+        Rect::new(inner.x, inner.y + 120.0 * s, inner.w, 20.0 * s),
+        Align::Left,
+        &TextStyle::new(13.0 * s).color(theme::MUTED),
+    );
 }
 
 fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, s: f32) {
@@ -1053,28 +1240,46 @@ fn footer(
     let vp = f.viewport;
     let bar = widgets::footer_bar(c, vp, s);
     let base = bar.y + 25.0 * s;
+    let count_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
 
-    // Song count (filtered / library)
+    // Count: songs of the list (with the library total), or the folders of a folder list.
     let mut x = vp.x + PAD * s;
-    x += t.draw(
-        c,
-        &thousands(f.visible.len() as u32),
-        x,
-        base,
-        &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
+    let folders_only =
+        !f.rows.is_empty() && f.rows.iter().all(|r| matches!(r, SelectRow::Folder { .. }));
+    if folders_only {
+        let text = strings::fill(strings::FOLDER_COUNT, &[&thousands(f.rows.len() as u32)]);
+        x += t.draw(c, &text, x, base, &count_st);
+    } else {
+        x += t.draw(c, &thousands(f.rows.len() as u32), x, base, &count_st);
+        let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
+        t.draw(c, &total, x, base, &caption(10.0, s));
+    }
+
+    // ENTER opens a folder row and plays a song row; BKSP goes up when not at the root.
+    let on_folder = matches!(f.rows.get(f.selected), Some(SelectRow::Folder { .. }));
+    let mut hints: Vec<widgets::Hint> = HINTS.to_vec();
+    hints[1] = (
+        "ENTER",
+        if on_folder {
+            strings::FOOTER_OPEN
+        } else {
+            strings::FOOTER_PLAY
+        },
+        Some(HitId::Play),
     );
-    let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
-    t.draw(c, &total, x, base, &caption(10.0, s));
+    if f.crumbs.len() > 1 {
+        hints.insert(1, ("BKSP", strings::BACK, Some(HitId::FolderUp)));
+    }
 
     // Key hints, right-aligned; drop from the left if they do not fit.
     let right = vp.x + vp.width - PAD * s;
     let left_limit = x + 200.0 * s;
     let mut first = 0;
-    while first < HINTS.len() && right - widgets::hints_width(c, t, &HINTS[first..], s) < left_limit
+    while first < hints.len() && right - widgets::hints_width(c, t, &hints[first..], s) < left_limit
     {
         first += 1;
     }
-    widgets::footer_buttons(c, t, sk, &HINTS[first..], bar, s, hs);
+    widgets::footer_buttons(c, t, sk, &hints[first..], bar, s, hs);
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,7 +1514,7 @@ mod tests {
         use crate::hit::{hit_at, HitId};
         let vp = Viewport::new(1280, 720);
         let songs: Vec<_> = (0..40).map(song).collect();
-        let visible: Vec<_> = (0..40).collect();
+        let rows: Vec<SelectRow> = (0..40).map(SelectRow::Song).collect();
         let tables = TableIndex::default();
         let scores = ScoreStore::default();
         let chips: Vec<String> = Vec::new();
@@ -1319,10 +1524,10 @@ mod tests {
             songs: &songs,
             tables: &tables,
             ln_option: LnOption::Auto,
-            visible: &visible,
+            rows: &rows,
             selected: 5,
             scores: &scores,
-            folder: "ALL SONGS",
+            crumbs: &["전체".to_string(), "전체 곡".to_string()],
             sort: "TITLE",
             search: "",
             search_active: false,
@@ -1341,14 +1546,14 @@ mod tests {
             .hits
             .iter()
             .filter_map(|h| match h.id {
-                HitId::SongRow(i) => Some((i, h.rect)),
+                HitId::ListRow(i) => Some((i, h.rect)),
                 _ => None,
             })
             .collect();
         assert!(!rows.is_empty());
         for (i, r) in &rows {
             let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
-            assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::SongRow(*i)));
+            assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::ListRow(*i)));
         }
         for id in [
             HitId::PlayOptions,
@@ -1447,7 +1652,6 @@ mod tests {
     fn screen_and_modals_are_one_batch() {
         let vp = Viewport::new(1280, 720);
         let songs: Vec<_> = (0..40).map(song).collect();
-        let visible: Vec<_> = (0..40).collect();
         let tables = TableIndex::default();
         let mut scores = ScoreStore::default();
         scores.update(PlayResult {
@@ -1471,10 +1675,10 @@ mod tests {
         let chips = vec!["그린 500".to_string(), "REGULAR".into(), "GROOVE".into()];
         let mut ui = Ui::new(vp.scale);
         for (selected, search) in [(5, ""), (30, "zzz"), (0, "")] {
-            let visible = if search.is_empty() {
-                &visible[..]
+            let rows: Vec<SelectRow> = if search.is_empty() {
+                (0..40).map(SelectRow::Song).collect()
             } else {
-                &[][..]
+                Vec::new()
             };
             ui.begin(1280, 720, vp.scale);
             let frame = SelectFrame {
@@ -1482,10 +1686,10 @@ mod tests {
                 songs: &songs,
                 tables: &tables,
                 ln_option: LnOption::Auto,
-                visible,
+                rows: &rows,
                 selected,
                 scores: &scores,
-                folder: "ALL SONGS",
+                crumbs: &["전체".to_string(), "전체 곡".to_string()],
                 sort: "TITLE",
                 search,
                 search_active: !search.is_empty(),
@@ -1513,7 +1717,8 @@ mod tests {
         use crate::hit::HitId;
         let vp = Viewport::new(1280, 720);
         let songs: Vec<_> = (0..4).map(song).collect();
-        let visible: Vec<_> = (0..4).collect();
+        let rows: Vec<SelectRow> = (0..4).map(SelectRow::Song).collect();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
         let tables = TableIndex::default();
         let scores = ScoreStore::default();
         let chips: Vec<String> = Vec::new();
@@ -1523,10 +1728,10 @@ mod tests {
             songs: &songs,
             tables: &tables,
             ln_option: LnOption::Auto,
-            visible: &visible,
+            rows: &rows,
             selected: 0,
             scores: &scores,
-            folder: "ALL SONGS",
+            crumbs: &crumbs,
             sort: "TITLE",
             search,
             search_active: active,

@@ -146,6 +146,7 @@ pub fn gameplay(
     );
 
     begin(state, size);
+
     if let (Some(chart), Some(judge), Some(timing)) = (
         &state.active_chart,
         &state.active_judge,
@@ -278,9 +279,21 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         _ => (None, None),
     };
 
-    let folder = state.category_mode.title(&state.tables);
-
     begin(state, size);
+    let crumbs = crate::folders::crumbs(&state.folder_tree, &state.folder_path);
+    let rows: Vec<beetle_render::SelectRow> = state
+        .entries
+        .iter()
+        .map(|e| match e {
+            crate::folders::ListEntry::Song(i) => beetle_render::SelectRow::Song(*i),
+            crate::folders::ListEntry::Folder { label, count, .. } => {
+                beetle_render::SelectRow::Folder {
+                    label,
+                    count: *count,
+                }
+            }
+        })
+        .collect();
     let vp = state.view.viewport;
     let ui: &mut Ui = &mut state.gpu_ui.ui;
     beetle_render::draw_song_select(
@@ -288,12 +301,12 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         &beetle_render::SelectFrame {
             viewport: &vp,
             songs: &state.songs,
-            visible: &state.filtered_indices,
-            selected: state.selected_song_idx,
+            rows: &rows,
+            selected: state.selected_entry,
             scores: &state.score_store,
             tables: &state.tables,
             ln_option,
-            folder: &folder,
+            crumbs: &crumbs,
             sort: sort_label(state.sort_mode),
             search: &state.search_query,
             search_active: state.is_search_active,

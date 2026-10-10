@@ -90,7 +90,7 @@ pub fn handle_ime(state: &mut AppState, event: Ime) {
         Ime::Commit(text) => {
             state.search_preedit.clear();
             append_text(&mut state.search_query, &text);
-            state.recompute_filtered_songs();
+            state.recompute_entries();
             state.cursor_settle_time = Instant::now();
         }
         Ime::Disabled => state.search_preedit.clear(),

@@ -15,6 +15,7 @@ use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
 use crate::demo;
+use crate::folders::{self, Folder, FolderPath, ListEntry};
 use crate::input::KeyPreset;
 use crate::scanner::{load_or_scan_songs, DEFAULT_SONGS_DIR};
 
@@ -35,110 +36,6 @@ pub enum AppScreen {
     Settings,
 }
 
-/// Category grouping mode for songs library.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SongCategory {
-    #[default]
-    All,
-    Keys5,
-    Keys7,
-    Keys9,
-    Keys10,
-    Keys14,
-    Level,
-    ClearStatus,
-    /// A difficulty table folder: the index into the installed tables.
-    Table(usize),
-}
-
-impl SongCategory {
-    /// The next folder; the installed difficulty tables come after the built-in ones.
-    pub fn next(self, tables: usize) -> Self {
-        match self {
-            SongCategory::ClearStatus if tables > 0 => SongCategory::Table(0),
-            SongCategory::Table(i) if i + 1 < tables => SongCategory::Table(i + 1),
-            SongCategory::Table(_) => SongCategory::All,
-            SongCategory::All => SongCategory::Keys5,
-            SongCategory::Keys5 => SongCategory::Keys7,
-            SongCategory::Keys7 => SongCategory::Keys9,
-            SongCategory::Keys9 => SongCategory::Keys10,
-            SongCategory::Keys10 => SongCategory::Keys14,
-            SongCategory::Keys14 => SongCategory::Level,
-            SongCategory::Level => SongCategory::ClearStatus,
-            SongCategory::ClearStatus => SongCategory::All,
-        }
-    }
-
-    pub fn prev(self, tables: usize) -> Self {
-        match self {
-            SongCategory::All if tables > 0 => SongCategory::Table(tables - 1),
-            SongCategory::Table(0) => SongCategory::ClearStatus,
-            SongCategory::Table(i) => SongCategory::Table(i - 1),
-            SongCategory::All => SongCategory::ClearStatus,
-            SongCategory::Keys5 => SongCategory::All,
-            SongCategory::Keys7 => SongCategory::Keys5,
-            SongCategory::Keys9 => SongCategory::Keys7,
-            SongCategory::Keys10 => SongCategory::Keys9,
-            SongCategory::Keys14 => SongCategory::Keys10,
-            SongCategory::Level => SongCategory::Keys14,
-            SongCategory::ClearStatus => SongCategory::Level,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SongCategory::All => strings::FOLDER_ALL,
-            SongCategory::Keys5 => strings::FOLDER_5K,
-            SongCategory::Keys7 => strings::FOLDER_7K,
-            SongCategory::Keys9 => strings::FOLDER_9K,
-            SongCategory::Keys10 => strings::FOLDER_10K,
-            SongCategory::Keys14 => strings::FOLDER_14K,
-            SongCategory::Level => strings::FOLDER_LEVEL,
-            SongCategory::ClearStatus => strings::FOLDER_CLEAR_STATUS,
-            SongCategory::Table(_) => strings::FOLDER_TABLE,
-        }
-    }
-
-    /// What the folder selector shows: the name, and for a table also how many
-    /// of its charts are in the song list (`SATELLITE  15 / 2,467`).
-    pub fn title(self, tables: &TableIndex) -> String {
-        let SongCategory::Table(i) = self else {
-            return self.as_str().to_string();
-        };
-        let Some(table) = tables.tables().get(i) else {
-            return SongCategory::All.as_str().to_string();
-        };
-        const LONGEST_NAME: usize = 20;
-        let mut name: String = table
-            .name
-            .to_uppercase()
-            .chars()
-            .take(LONGEST_NAME)
-            .collect();
-        if table.name.chars().count() > LONGEST_NAME {
-            name.truncate(name.trim_end().len());
-            name.push('…');
-        }
-        format!(
-            "{name}  {} / {}",
-            thousands(tables.owned_count(i)),
-            thousands(table.entries.len())
-        )
-    }
-}
-
-fn thousands(n: usize) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 pub struct AppState {
     pub window: Arc<Window>,
     /// Viewport, gameplay lane layout and judgement feedback.
@@ -146,8 +43,14 @@ pub struct AppState {
     pub audio_engine: Option<AudioEngine>,
     pub screen: AppScreen,
     pub songs: Vec<SongMetadata>,
-    pub filtered_indices: Vec<usize>,
-    pub selected_song_idx: usize,
+    /// The folder the list shows (see `folders.rs`).
+    pub folder_path: FolderPath,
+    /// The whole folder tree of the library, rebuilt with the list.
+    pub folder_tree: Vec<Folder>,
+    /// The rows of the current folder (folders or songs), rebuilt with the list.
+    pub entries: Vec<ListEntry>,
+    /// Highlighted row of `entries`.
+    pub selected_entry: usize,
     pub search_query: String,
     /// IME composition text shown after the query; empty when none. Set only
     /// while the search box is open (see `ime.rs`).
@@ -156,7 +59,6 @@ pub struct AppState {
     pub is_search_active: bool,
     /// The caret rect last given to the OS as the IME candidate position.
     pub ime_caret_sent: Option<Rect>,
-    pub category_mode: SongCategory,
     /// Installed difficulty tables, matched to `songs`.
     pub tables: TableIndex,
     pub sort_mode: SortMode,
@@ -398,6 +300,7 @@ impl AppState {
             scratch_sides: self.view.skin.scratch_sides,
             eight_k_form: self.view.skin.eight_k_form,
             sort_mode: self.sort_mode,
+            folder_path: self.folder_path.clone(),
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,
             master_volume: self.master_volume,
@@ -441,7 +344,7 @@ impl AppState {
                 );
             }
         }
-        self.recompute_filtered_songs();
+        self.recompute_entries();
         if self.library_job == LibraryJob::Rescan {
             let count = self.songs.len().to_string();
             crate::transition::show_toast(
@@ -487,42 +390,45 @@ impl AppState {
             &self.score_store,
             ln_option,
         );
-        self.recompute_filtered_songs();
+        self.recompute_entries();
         if let Some(id) = keep {
             if let Some(pos) = self
-                .filtered_indices
+                .entries
                 .iter()
-                .position(|&i| self.songs[i].id == id)
+                .position(|e| matches!(e, ListEntry::Song(i) if self.songs[*i].id == id))
             {
-                self.selected_song_idx = pos;
+                self.selected_entry = pos;
             }
         }
     }
 
-    pub fn recompute_filtered_songs(&mut self) {
-        // A table folder whose table is gone (removed, or the list changed) falls back to all songs.
-        if matches!(self.category_mode, SongCategory::Table(i) if i >= self.tables.tables().len()) {
-            self.category_mode = SongCategory::All;
-        }
-        self.filtered_indices = filter_song_indices(
+    /// Rebuilds the folder tree and the rows of the current folder. A saved
+    /// folder that no longer exists falls back to its nearest existing parent.
+    pub fn recompute_entries(&mut self) {
+        let ln_option = self.ln_option();
+        self.folder_tree =
+            folders::build_tree(&self.songs, &self.score_store, &self.tables, ln_option);
+        self.folder_path = folders::normalize(&self.folder_tree, &self.folder_path);
+        self.entries = folders::entries_for(
+            &self.folder_tree,
+            &self.folder_path,
             &self.songs,
             &self.search_query,
-            self.category_mode,
-            &self.score_store,
-            &self.tables,
-            self.ln_option(),
         );
 
-        if self.filtered_indices.is_empty() {
-            self.selected_song_idx = 0;
-        } else if self.selected_song_idx >= self.filtered_indices.len() {
-            self.selected_song_idx = self.filtered_indices.len() - 1;
+        if self.entries.is_empty() {
+            self.selected_entry = 0;
+        } else if self.selected_entry >= self.entries.len() {
+            self.selected_entry = self.entries.len() - 1;
         }
     }
 
+    /// The song under the highlight. `None` when a folder row is highlighted.
     pub fn current_selected_song(&self) -> Option<&SongMetadata> {
-        let real_idx = *self.filtered_indices.get(self.selected_song_idx)?;
-        self.songs.get(real_idx)
+        match self.entries.get(self.selected_entry)? {
+            ListEntry::Song(i) => self.songs.get(*i),
+            ListEntry::Folder { .. } => None,
+        }
     }
 
     /// Keeps the 8K arrangement in step with the 8K key preset: the trigger
@@ -640,96 +546,6 @@ pub fn resolve_bga_id(
     poor.into_iter()
         .chain(current_bga_bmp)
         .find(|&id| available(id))
-}
-
-pub fn filter_song_indices(
-    songs: &[SongMetadata],
-    search_query: &str,
-    category: SongCategory,
-    score_store: &ScoreStore,
-    tables: &TableIndex,
-    ln_option: LnOption,
-) -> Vec<usize> {
-    let q = search_query.to_lowercase().trim().to_string();
-    let mut indices: Vec<usize> = songs
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, s)| {
-            // 1. Search filter
-            if !q.is_empty() {
-                let matches_title = s.title.to_lowercase().contains(&q);
-                let matches_artist = s.artist.to_lowercase().contains(&q);
-                let matches_genre = s.genre.to_lowercase().contains(&q);
-                if !matches_title && !matches_artist && !matches_genre {
-                    return None;
-                }
-            }
-
-            // 2. Category filter
-            match category {
-                SongCategory::All => Some(idx),
-                SongCategory::Keys5 => {
-                    if s.play_mode == beetle_core::PlayMode::Keys5 || s.file_path == ":demo:" {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Keys7 => {
-                    if s.play_mode == beetle_core::PlayMode::Keys7 || s.file_path == ":demo:" {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Keys9 => {
-                    if s.play_mode == beetle_core::PlayMode::Keys9 {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Keys10 => {
-                    if s.play_mode == beetle_core::PlayMode::Keys10 {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Keys14 => {
-                    if s.play_mode == beetle_core::PlayMode::Keys14 {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Level => Some(idx),
-                SongCategory::ClearStatus => {
-                    let best = score_store.best(s, ln_option);
-                    if best.is_some() || s.file_path == ":demo:" {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                }
-                SongCategory::Table(i) => tables.entry_for(i, s.id).map(|_| idx),
-            }
-        })
-        .collect();
-
-    // A table folder lists its charts in the table's level order; within a
-    // level the songs stay in the current sort order (the sort is stable).
-    if let SongCategory::Table(i) = category {
-        if let Some(table) = tables.tables().get(i) {
-            let level_of = |idx: usize| {
-                tables
-                    .entry_for(i, songs[idx].id)
-                    .map_or("", |e| e.level.as_str())
-            };
-            indices.sort_by(|&a, &b| table.compare_levels(level_of(a), level_of(b)));
-        }
-    }
-    indices
 }
 
 /// Where a chart's replay is kept.

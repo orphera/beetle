@@ -114,17 +114,20 @@ table! {
     pub FOOTER_SETTINGS = "설정";
     pub FOOTER_QUIT = "종료";
 
-    // Folder names (the selector's `<` `>` cycle through these).
+    // Folder tree (song select). Mode tags (7K) and lamp names (PERFECT) stay in English.
+    /// The root of the breadcrumb, above the top-level folders.
+    pub FOLDER_ROOT = "전체";
     pub FOLDER_ALL = "전체 곡";
-    pub FOLDER_5K = "5키";
-    pub FOLDER_7K = "7키";
-    pub FOLDER_9K = "9키";
-    pub FOLDER_10K = "10키";
-    pub FOLDER_14K = "14키";
-    pub FOLDER_LEVEL = "레벨별";
-    pub FOLDER_CLEAR_STATUS = "클리어 상태별";
-    /// Folder name for a difficulty table with no name.
+    pub FOLDER_MODE = "키 모드";
+    pub FOLDER_LEVEL = "레벨";
+    pub FOLDER_LAMP = "클리어 램프";
     pub FOLDER_TABLE = "난이도표";
+    /// Detail panel and footer count of a folder: `{}` is the song count.
+    pub FOLDER_SONGS = "{} 곡";
+    /// Footer count while the list is folders only: `{}` is the folder count.
+    pub FOLDER_COUNT = "{} 폴더";
+    pub FOLDER_OPEN_HINT = "ENTER로 열고, BKSP로 위 폴더로 나갑니다.";
+    pub FOOTER_OPEN = "열기";
 
     // Sort names.
     pub SORT_TITLE = "제목";

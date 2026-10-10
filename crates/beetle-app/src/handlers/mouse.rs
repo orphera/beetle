@@ -19,8 +19,8 @@ use crate::handlers::options::{
 use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
-    cycle_folder, cycle_sort, move_selection, open_exit_prompt, open_key_config, start_replay,
-    start_selected, toggle_auto,
+    activate_selected, cycle_folder, cycle_sort, go_to_crumb, go_up, move_selection,
+    open_exit_prompt, open_key_config, start_replay, toggle_auto,
 };
 use crate::ime::set_search_active;
 use crate::options_table::SETTINGS;
@@ -94,16 +94,18 @@ fn song_select_click(state: &mut AppState, id: HitId) {
     }
     match id {
         // The first click selects a row; a click on the selected row plays it.
-        HitId::SongRow(i) if i == state.selected_song_idx => start_selected(state),
-        HitId::SongRow(i) => {
-            state.selected_song_idx = i;
+        HitId::ListRow(i) if i == state.selected_entry => activate_selected(state),
+        HitId::ListRow(i) => {
+            state.selected_entry = i;
             state.cursor_settle_time = Instant::now();
         }
         HitId::FolderPrev => cycle_folder(state, false),
         HitId::FolderNext => cycle_folder(state, true),
+        HitId::FolderUp => go_up(state),
+        HitId::Crumb(depth) => go_to_crumb(state, depth),
         HitId::Sort => cycle_sort(state),
         HitId::Search => set_search_active(state, true),
-        HitId::Play => start_selected(state),
+        HitId::Play => activate_selected(state),
         HitId::Replay => start_replay(state),
         HitId::PlayOptions => open_options(state),
         HitId::OpenSettings => open_settings(state),

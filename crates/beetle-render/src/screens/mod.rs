@@ -17,7 +17,7 @@ pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODE
 pub use loading::{draw_loading, LoadingFrame};
 pub use overlay::{draw_screen_fade, draw_toast, ToastFrame, ToastKind};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};
-pub use select::{draw_exit_modal, draw_options_modal, draw_song_select, SelectFrame};
+pub use select::{draw_exit_modal, draw_options_modal, draw_song_select, SelectFrame, SelectRow};
 pub use settings::{draw_settings, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
 pub use widgets::OptionLine;

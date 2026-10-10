@@ -12,7 +12,8 @@ use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_screen_fade, draw_song_select, draw_toast,
-    D3d11Backend, GpuBackend, OptionLine, SelectFrame, ToastFrame, ToastKind, Ui, Viewport,
+    D3d11Backend, GpuBackend, OptionLine, SelectFrame, SelectRow, ToastFrame, ToastKind, Ui,
+    Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -185,6 +186,22 @@ fn render(
     overlay: Overlay,
     name: &str,
 ) -> usize {
+    render_with(gpu, ui, selected, search, preedit, overlay, name, None)
+}
+
+/// `folder` replaces the flat song list with a folder view: the rows and the
+/// breadcrumb the app would build for it (the tree itself lives in beetle-app).
+#[allow(clippy::too_many_arguments)]
+fn render_with(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    selected: usize,
+    search: &str,
+    preedit: &str,
+    overlay: Overlay,
+    name: &str,
+    folder: Option<(Vec<SelectRow<'static>>, Vec<String>)>,
+) -> usize {
     let vp = Viewport::new(W, H);
     let songs = library();
     // Two tables: song 6 (the highlighted one) is in both, a few others in the first.
@@ -210,9 +227,19 @@ fn render(
         table("Stella", "st", vec![entry(6, "5")]),
     ]);
     tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
-    let visible: Vec<usize> = (0..songs.len())
-        .filter(|&i| search.is_empty() || songs[i].title.contains(search))
-        .collect();
+    let (rows, crumbs): (Vec<SelectRow>, Vec<String>) = match folder {
+        Some((rows, crumbs)) => (rows, crumbs),
+        None => {
+            let rows = (0..songs.len())
+                .filter(|&i| search.is_empty() || songs[i].title.contains(search))
+                .map(SelectRow::Song)
+                .collect();
+            (
+                rows,
+                vec![strings::FOLDER_ROOT.into(), strings::FOLDER_ALL.into()],
+            )
+        }
+    };
     let scores = scores();
     let chips = vec![
         strings::fill(strings::CHIP_GREEN, &["500"]),
@@ -227,17 +254,12 @@ fn render(
         &SelectFrame {
             viewport: &vp,
             songs: &songs,
-            visible: &visible,
+            rows: &rows,
             selected,
             scores: &scores,
             tables: &tables,
             ln_option: beetle_core::LnOption::Auto,
-            // The longest kind of folder title: a difficulty table with its owned count.
-            folder: if name == "noplay" {
-                "A TABLE WITH A VERY…  1,234 / 12,345"
-            } else {
-                strings::FOLDER_ALL
-            },
+            crumbs: &crumbs,
             sort: strings::SORT_TITLE,
             search,
             search_active: !search.is_empty() || !preedit.is_empty(),
@@ -302,6 +324,86 @@ fn render(
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     write_bmp(&target.join(format!("select-{name}.bmp")), w, h, &px);
     calls
+}
+
+/// The folder views: the root, a branch with a breadcrumb, and a leaf of songs with one.
+#[test]
+fn song_select_folder_views() {
+    let window = HiddenWindow::with_size(W, H);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let mut ui = Ui::new(1.0);
+    let total = library().len();
+    let folder = |label: &'static str, count: usize| SelectRow::Folder { label, count };
+
+    // Root: the top-level folders (난이도표 is listed last). The highlight is on 레벨.
+    let root = vec![
+        folder(strings::FOLDER_ALL, total),
+        folder(strings::FOLDER_MODE, total),
+        folder(strings::FOLDER_LEVEL, total),
+        folder(strings::FOLDER_LAMP, total),
+        folder(strings::FOLDER_TABLE, 4),
+    ];
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            2,
+            "",
+            "",
+            Overlay::None,
+            "folder-root",
+            Some((root, vec![strings::FOLDER_ROOT.into()])),
+        ),
+        1
+    );
+
+    // A branch under 레벨 with a breadcrumb; the highlight is on 12.
+    let levels = vec![
+        folder("5", 1),
+        folder("9", 1),
+        folder("12", 4),
+        folder("13", 2),
+    ];
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            2,
+            "",
+            "",
+            Overlay::None,
+            "folder-level",
+            Some((
+                levels,
+                vec![strings::FOLDER_ROOT.into(), strings::FOLDER_LEVEL.into()],
+            )),
+        ),
+        1
+    );
+
+    // A leaf: its songs under a three-part breadcrumb (전체 > 레벨 > 12).
+    let songs: Vec<SelectRow<'static>> = (0..total).map(SelectRow::Song).collect();
+    assert_eq!(
+        render_with(
+            &mut gpu,
+            &mut ui,
+            5,
+            "",
+            "",
+            Overlay::None,
+            "folder-leaf",
+            Some((
+                songs,
+                vec![
+                    strings::FOLDER_ROOT.into(),
+                    strings::FOLDER_LEVEL.into(),
+                    "12".into(),
+                ],
+            )),
+        ),
+        1
+    );
 }
 
 #[test]

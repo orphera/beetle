@@ -8,10 +8,16 @@ use crate::canvas::Rect;
 /// ids it can act on; the app maps them to the same actions as the keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitId {
-    /// A song row; the index is into the visible (filtered, sorted) list.
-    SongRow(usize),
+    /// A row of the song list (a song or a folder); the index is into the
+    /// visible rows of the current folder.
+    ListRow(usize),
+    /// The `<` `>` arrows beside the folder breadcrumb: the previous / next folder at this depth.
     FolderPrev,
     FolderNext,
+    /// Goes up one folder (BKSP in the footer).
+    FolderUp,
+    /// A breadcrumb segment: go to the folder at this depth (0 = the root).
+    Crumb(usize),
     /// The sort selector (cycles the sort mode).
     Sort,
     /// The search box (starts a search).
