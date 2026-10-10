@@ -139,11 +139,11 @@ pub fn vivid(c: ColorRgba, fallback: ColorRgba) -> ColorRgba {
     ColorRgba::new(ch(c.r), ch(c.g), ch(c.b), 255)
 }
 
-/// Small all-caps caption ("EX SCORE", "BPM") above a value.
+/// Small all-caps caption ("EX SCORE", "BPM") above a value. Regular weight:
+/// bold plus wide tracking made these the blobbiest text on screen.
 pub fn caption(size: f32, scale: f32) -> TextStyle {
     TextStyle::new(size * scale)
-        .bold()
-        .tracking(1.5 * scale)
+        .tracking(1.0 * scale)
         .color(MUTED2)
 }
 

@@ -33,6 +33,18 @@ const MAX_PX: f32 = 256.0;
 /// Synthetic bold stroke growth, as a fraction of the em size.
 const BOLD_STRENGTH: f32 = 0.04;
 
+/// Coverage gamma. The UI target is not sRGB and blends coverage linearly in
+/// gamma space, so partially covered edge pixels come out too dark on the
+/// dark theme and light strokes look thin; lifting them restores the weight.
+const COVERAGE_GAMMA: f32 = 1.4;
+
+fn apply_coverage_gamma(coverage: &mut [u8]) {
+    let exp = 1.0 / COVERAGE_GAMMA;
+    for a in coverage.iter_mut() {
+        *a = (255.0 * (*a as f32 / 255.0).powf(exp) + 0.5) as u8;
+    }
+}
+
 const ELLIPSIS: &str = "...";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -260,6 +272,12 @@ impl TextEngine {
     }
 
     fn rasterize(&mut self, c: char, px: u16, weight: Weight) -> (Source, RasterGlyph) {
+        let (source, mut g) = self.rasterize_coverage(c, px, weight);
+        apply_coverage_gamma(&mut g.coverage);
+        (source, g)
+    }
+
+    fn rasterize_coverage(&mut self, c: char, px: u16, weight: Weight) -> (Source, RasterGlyph) {
         let pxf = px as f32;
         for source in Self::source_order(c) {
             let font = self.font(source).unwrap();
