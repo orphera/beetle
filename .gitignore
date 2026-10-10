@@ -22,3 +22,6 @@ scratch/
 /songs/
 *.bmsp
 *.bmdp
+
+# Collection index written by `bpm scan`
+/collection.idx
