@@ -1,11 +1,12 @@
 //! Fetching the difference (差分) packs that a difficulty table links directly.
 //!
 //! Only links that answer with a zip file are fetched (see `is_direct_pack`).
+//! The Stella IR page (`ir.rs`) also lists archives, which may be rar or 7z.
 //! Every other link is a page, and is left to the user. A pack is unpacked in a
 //! scratch folder, and it is kept only when one of its charts has the hash that
 //! the table entry names. The whole pack is kept, so its key sounds come with it.
 
-use crate::archive::extract_zip_archive;
+use crate::archive::extract_archive;
 use beetle_core::{md5_of_bytes, ChartId, TableEntry};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,18 @@ pub fn is_direct_pack(url: &str) -> bool {
     DIRECT_PACK_PREFIXES
         .iter()
         .any(|prefix| url.starts_with(prefix))
+}
+
+/// The archive type a link names by the extension of its last path segment: `zip`,
+/// `rar` or `7z`, in lower case. The query string is ignored. `None` for any other name.
+pub fn pack_extension(url: &str) -> Option<&'static str> {
+    let (_, after_scheme) = url.split_once("://")?;
+    let (_, path) = after_scheme.split_once('/')?;
+    let path = path.split(['?', '#']).next()?;
+    let name = path.rsplit('/').next()?;
+    let (_, ext) = name.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    ["zip", "rar", "7z"].into_iter().find(|known| *known == ext)
 }
 
 /// True for `http://` and `https://` addresses. Only these are opened in a browser.
@@ -74,19 +87,19 @@ pub struct KeptPack {
     pub skipped: usize,
 }
 
-/// Unpacks the zip at `zip_path` into `scratch`, and, when one of its charts
+/// Unpacks the archive at `archive_path` into `scratch`, and, when one of its charts
 /// matches `entry`, copies the whole unpacked pack into `pack_dir`. Files that
 /// already exist in `pack_dir` are never overwritten. Nothing is copied when no
 /// chart matches.
 pub fn keep_pack(
-    zip_path: &Path,
+    archive_path: &Path,
     entry: &TableEntry,
     scratch: &Path,
     pack_dir: &Path,
 ) -> Result<KeptPack, String> {
     let unpacked = scratch.join("unpacked");
     let _ = fs::remove_dir_all(&unpacked);
-    extract_zip_archive(zip_path, &unpacked).map_err(|e| format!("cannot unpack: {e}"))?;
+    extract_archive(archive_path, &unpacked).map_err(|e| format!("cannot unpack: {e}"))?;
 
     let mut matching = 0;
     for file in chart_files(&unpacked) {
@@ -206,6 +219,19 @@ mod tests {
         assert!(!is_direct_pack(
             "https://evil.example/stellabms.xyz/upload/1"
         ));
+    }
+
+    #[test]
+    fn a_link_names_its_archive_type_by_the_last_path_segment() {
+        assert_eq!(
+            pack_extension("https://web.archive.org/web/2016/junk_qualia.rar"),
+            Some("rar")
+        );
+        assert_eq!(pack_extension("https://a.test/x.ZIP?dl=1"), Some("zip"));
+        assert_eq!(pack_extension("https://a.test/x.7z#top"), Some("7z"));
+        assert_eq!(pack_extension("https://a.test/page"), None);
+        assert_eq!(pack_extension("https://a.zip"), None);
+        assert_eq!(pack_extension("https://a.test/x.exe"), None);
     }
 
     #[test]
