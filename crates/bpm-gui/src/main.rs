@@ -63,6 +63,8 @@ struct AppState {
     task: Option<BgTask>,
     /// The IR lookup that is running, and where its links go when it ends.
     ir_pending: Option<IrPending>,
+    /// The entry the open IR download dialog is for.
+    ir_entry: Option<beetle_core::TableEntry>,
     picker: Option<(PickTarget, Receiver<Option<PathBuf>>)>,
     modifiers: ModifiersState,
     anim_frame: usize,
@@ -396,6 +398,7 @@ impl ApplicationHandler for BpmGuiApp {
             preview_key: None,
             task: None,
             ir_pending: None,
+            ir_entry: None,
             picker: None,
             modifiers: ModifiersState::default(),
             anim_frame: 0,
@@ -1356,6 +1359,9 @@ fn table_start_diff(state: &mut AppState) {
 struct IrPending {
     title: String,
     folder: PathBuf,
+    /// The entry that was looked up. Its hash decides what is kept, so it is
+    /// not read again from the selection, which may have moved.
+    entry: beetle_core::TableEntry,
     found: Arc<Mutex<Option<bms_package_manager::ir::IrLinks>>>,
 }
 
@@ -1381,6 +1387,7 @@ fn table_ask_ir(state: &mut AppState) {
     state.ir_pending = Some(IrPending {
         title: row.title.clone(),
         folder: table_chart_folder(&table, row.number),
+        entry,
         found,
     });
     state.start_task(
@@ -1400,6 +1407,11 @@ fn table_ask_ir(state: &mut AppState) {
 
 /// Opens the download dialog for the zip links of a finished IR lookup.
 fn table_ir_ready(state: &mut AppState, pending: IrPending) {
+    // Opening the dialog now would replace whatever the user has open.
+    if state.dialog.is_some() {
+        state.err("다른 창을 닫은 뒤 'IR에서 채보 찾기'를 다시 눌러 주세요");
+        return;
+    }
     let links = pending.found.lock().ok().and_then(|mut slot| slot.take());
     let Some(links) = links else {
         state.err("IR 페이지의 링크를 받지 못했어요");
@@ -1413,6 +1425,7 @@ fn table_ir_ready(state: &mut AppState, pending: IrPending) {
         ));
         return;
     }
+    state.ir_entry = Some(pending.entry);
     state.open_dialog(DialogKind::TableFetchIr {
         title: pending.title,
         folder: pending.folder,
@@ -1429,7 +1442,8 @@ fn table_start_ir(
     folder: PathBuf,
     links: Vec<(&'static str, String)>,
 ) {
-    let Some(entry) = state.tables.selected_entry().cloned() else {
+    let Some(entry) = state.ir_entry.take() else {
+        state.err("채보를 받을 곡을 다시 찾아 주세요");
         return;
     };
     let total = links.len();
@@ -1440,6 +1454,8 @@ fn table_start_ir(
         move |r| {
             let client = bms_package_manager::HttpClient::new();
             let mut kept_total = 0;
+            let mut copied_total = 0;
+            let mut skipped_total = 0;
             let mut failures = Vec::new();
             for (i, (label, url)) in links.iter().enumerate() {
                 if r.cancelled() {
@@ -1454,7 +1470,11 @@ fn table_start_ir(
                 );
                 let _ = fs::remove_dir_all(&scratch);
                 match result {
-                    Ok(kept) => kept_total += kept.matching,
+                    Ok(kept) => {
+                        kept_total += kept.matching;
+                        copied_total += kept.copied;
+                        skipped_total += kept.skipped;
+                    }
                     Err(e) => failures.push(format!("{label}: {e}")),
                 }
             }
@@ -1469,7 +1489,7 @@ fn table_start_ir(
                 ));
             }
             Ok(format!(
-                "채보 {kept_total}개를 {}에 저장했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요.{skipped}",
+                "채보 {kept_total}개가 {}에 있어요 (새로 저장 {copied_total}개, 이미 있어 그대로 둔 파일 {skipped_total}개). '내 곡 다시 확인'을 누르면 목록이 맞춰져요.{skipped}",
                 folder.display()
             ))
         },
