@@ -138,6 +138,20 @@ pub(crate) fn first_note_seconds(notes: &[PlayNote]) -> Option<f64> {
         .fold(None, |best, t| Some(best.map_or(t, |b: f64| b.min(t))))
 }
 
+/// Index of the first note that can still be on screen: the first one whose
+/// end (a long note's tail, or the note itself) is not before `cutoff`.
+///
+/// The notes are sorted by head, not by end, so the ends are not monotonic:
+/// a long note that is still running can sit before notes that already ended.
+/// A binary search over the ends would skip it, so this scans instead. It stops
+/// at the first visible note, so the cost is the number of notes already gone.
+pub(crate) fn first_visible_note(notes: &[PlayNote], cutoff: f64) -> usize {
+    notes
+        .iter()
+        .position(|n| n.end_target_time_seconds >= cutoff)
+        .unwrap_or(notes.len())
+}
+
 /// Close to failing mid-song. Only survival gauges (Hard / Hazard) can end
 /// the stage early; Easy / Groove are judged at the end, so a low value there
 /// is not a danger worth flashing red.
@@ -354,9 +368,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     // Notes.
     let note_h = sk.note.region.h as f32;
     let visible_beats = (judge_y - field.y + 100.0 * s) as f64 / px_per_beat.max(1.0);
-    let first = f
-        .notes
-        .partition_point(|n| n.end_target_time_seconds < f.audio_time - 2.0);
+    let first = first_visible_note(f.notes, f.audio_time - 2.0);
     // The 8K trigger form's side-track notes are wide bars over half the
     // field: draw them first so a key note at the same time sits on top
     // instead of being hidden under the bar.
@@ -1479,6 +1491,39 @@ mod tests {
     #[test]
     fn first_note_ignores_landmines_and_long_note_ends() {
         assert_eq!(first_note_seconds(&[]), None);
+    }
+
+    /// A note at `head` seconds that ends at `end` (a tap when they are equal).
+    fn play_note(head: f64, end: f64) -> PlayNote {
+        PlayNote {
+            note_event: beetle_core::NoteEvent {
+                measure: 0,
+                fraction: 0.0,
+                lane: Lane::Key1,
+                wav_id: None,
+                note_type: NoteType::Tap,
+            },
+            target_time_seconds: head,
+            end_target_time_seconds: end,
+            is_judged: false,
+            is_holding: false,
+            tail_index: None,
+            head_index: None,
+        }
+    }
+
+    #[test]
+    fn a_long_note_still_running_is_on_screen_past_the_taps_after_it() {
+        // Sorted by head: a long note from 2 s to 30 s, then taps that already ended.
+        let mut notes = vec![play_note(2.0, 30.0)];
+        notes.extend((3..=10).map(|t| play_note(t as f64, t as f64)));
+        // At 8 s the long note is still on screen, so nothing before it may be cut.
+        assert_eq!(first_visible_note(&notes, 6.0), 0);
+        // Once the long note is past the window, the ended taps are skipped.
+        assert_eq!(first_visible_note(&notes, 29.0), 0);
+        assert_eq!(first_visible_note(&notes, 31.0), notes.len());
+        // Taps that ended before the cutoff come off the front.
+        assert_eq!(first_visible_note(&notes[1..], 6.0), 3);
     }
 
     #[test]
