@@ -46,6 +46,21 @@ table! {
     pub BACK = "뒤로";
     pub LOADING = "불러오는 중";
 
+    // ---- Toasts (short notices over the menus) ------------------------
+    /// `{}` is the number of songs read.
+    pub TOAST_RESCAN_DONE = "곡 {}개를 읽었습니다";
+    /// `{}` is the file name of the saved screenshot.
+    pub TOAST_SCREENSHOT_SAVED = "스크린샷을 저장했습니다: {}";
+    /// `{}` is the error.
+    pub TOAST_SCREENSHOT_FAILED = "스크린샷을 저장하지 못했습니다: {}";
+    pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일입니다 (.bmsp, .bms, .bme, .bml, .pms)";
+    /// `{}` is the file name.
+    pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
+    /// `{}` are the key mode (7K) and the preset name.
+    pub TOAST_PRESET = "{} 키 배치: {} 프리셋";
+    /// `{}` are the key mode (7K) and the preset name.
+    pub TOAST_LAYOUT_RESET = "{} 키 배치를 {} 프리셋으로 되돌렸습니다";
+
     // ---- Boot ---------------------------------------------------------
     pub BOOT_TITLE_STARTUP = "시작하는 중";
     pub BOOT_TITLE_RESCAN = "서재를 다시 읽는 중";

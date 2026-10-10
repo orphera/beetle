@@ -235,6 +235,13 @@ pub struct AppState {
     pub capture: Option<crate::devtools::Capture>,
     /// Screenshot path to write from the next presented Canvas-UI frame.
     pub pending_screenshot: Option<String>,
+    /// The current screen and when it was entered (fade-in, see `transition.rs`).
+    pub screen_entry: crate::transition::ScreenEntry,
+    /// The toast showing over the menus, if any.
+    pub toast: Option<crate::transition::Toast>,
+    /// An animation ended since the last frame: draw one final frame so the
+    /// overlays clear, then go back to sleeping.
+    pub anim_tail: bool,
     /// The renderer (ADR-026). `gpu_backend` changes apply on restart.
     pub d3d11: beetle_render::D3d11Backend,
     /// `gpu_backend` as it was when `d3d11` was created.
@@ -415,6 +422,14 @@ impl AppState {
             }
         }
         self.recompute_filtered_songs();
+        if self.library_job == LibraryJob::Rescan {
+            let count = self.songs.len().to_string();
+            crate::transition::show_toast(
+                self,
+                beetle_render::ToastKind::Success,
+                strings::fill(strings::TOAST_RESCAN_DONE, &[&count]),
+            );
+        }
         self.cursor_settle_time = Instant::now();
         if self.screen == AppScreen::Boot {
             self.screen = crate::devtools::start_screen().unwrap_or(AppScreen::SongSelect);

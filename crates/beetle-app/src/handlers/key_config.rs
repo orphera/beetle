@@ -5,6 +5,8 @@ use winit::keyboard::KeyCode;
 
 use crate::input::{lanes_for, screen_lanes_for, KeyPreset};
 use crate::state::{AppScreen, AppState};
+use crate::transition::show_toast;
+use beetle_render::{strings, theme, ToastKind};
 
 /// Handles keyboard input on the Key Configuration screen.
 ///
@@ -109,6 +111,12 @@ pub fn cycle_key_preset(state: &mut AppState) {
         follow_lane(state, mode, lane);
     }
     state.save_config();
+    let preset = state.key_bindings.get(mode).preset.as_str();
+    show_toast(
+        state,
+        ToastKind::Info,
+        strings::fill(strings::TOAST_PRESET, &[theme::mode_label(mode), preset]),
+    );
 }
 
 /// Puts the scratch lane on the other edge (F2, modes with a scratch only).
@@ -148,11 +156,17 @@ pub fn toggle_eight_k_form(state: &mut AppState) {
 /// Resets the edited mode to its default layout (DEL, or the footer button).
 pub fn reset_key_layout(state: &mut AppState) {
     let mode = state.key_config_edit_mode;
-    state
-        .key_bindings
-        .get_mut(mode)
-        .reset_to_preset(KeyPreset::default_for(mode));
+    let preset = KeyPreset::default_for(mode);
+    state.key_bindings.get_mut(mode).reset_to_preset(preset);
     state.save_config();
+    show_toast(
+        state,
+        ToastKind::Info,
+        strings::fill(
+            strings::TOAST_LAYOUT_RESET,
+            &[theme::mode_label(mode), preset.as_str()],
+        ),
+    );
 }
 
 /// After the lanes were rearranged, keeps the selection on the same lane.

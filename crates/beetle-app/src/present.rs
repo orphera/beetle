@@ -6,9 +6,10 @@
 //! `RedrawRequested`; the event loop decides how often that is.
 
 use std::path::Path;
+use std::time::Instant;
 
 use beetle_core::{LnOption, Ruleset, SongMetadata, SortMode};
-use beetle_render::{strings, FieldPosition, GpuBackend, Ui};
+use beetle_render::{strings, FieldPosition, GpuBackend, ToastFrame, ToastKind, Ui};
 use winit::dpi::PhysicalSize;
 
 use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting};
@@ -16,9 +17,11 @@ use crate::devtools;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
 use crate::state::{replay_path, AppState, LibraryJob};
+use crate::transition::show_toast;
 
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
+    state.sync_screen_entry();
     let scale = state.view.viewport.scale;
     state
         .d3d11
@@ -33,7 +36,24 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
 fn finish(state: &mut AppState) {
     state.gpu_ui.ui.end(&mut state.d3d11);
     if let Some(path) = state.pending_screenshot.take() {
-        let _ = devtools::save_backbuffer(&mut state.d3d11, &path);
+        match devtools::save_backbuffer(&mut state.d3d11, &path) {
+            Ok(_) => {
+                let name = Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                show_toast(
+                    state,
+                    ToastKind::Success,
+                    strings::fill(strings::TOAST_SCREENSHOT_SAVED, &[&name]),
+                );
+            }
+            Err(e) => show_toast(
+                state,
+                ToastKind::Error,
+                strings::fill(strings::TOAST_SCREENSHOT_FAILED, &[&e.to_string()]),
+            ),
+        }
     }
     if let Some(cap) = &mut state.capture {
         if cap.on_frame(state.screen, &mut state.d3d11) {
@@ -41,6 +61,29 @@ fn finish(state: &mut AppState) {
         }
     }
     state.d3d11.end_frame();
+}
+
+/// The layers above a menu frame, drawn last: the fade-in after a screen
+/// change, then the toast (`toasts` is false on Loading). Never on Gameplay.
+fn overlays(state: &mut AppState, toasts: bool) {
+    let now = Instant::now();
+    if let Some(alpha) = state.screen_entry.fade_alpha(now) {
+        beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
+    }
+    if toasts {
+        if let (Some(pose), Some(toast)) = (state.toast_pose_now(now), state.toast.as_ref()) {
+            beetle_render::draw_toast(
+                &mut state.gpu_ui.ui,
+                &state.view.viewport,
+                &ToastFrame {
+                    text: &toast.text,
+                    kind: toast.kind,
+                    alpha: pose.alpha,
+                    slide: pose.slide,
+                },
+            );
+        }
+    }
 }
 
 /// "하이스피드 1100", "REGULAR", "GROOVE", and for a chart with long notes
@@ -283,6 +326,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     let caret = ui.ime_caret;
     crate::ime::sync_caret(state, caret);
+    overlays(state, true);
     finish(state);
 }
 
@@ -437,6 +481,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
             },
         );
     }
+    overlays(state, false);
     finish(state);
 }
 
@@ -480,6 +525,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
             },
         );
     }
+    overlays(state, true);
     finish(state);
 }
 
@@ -519,5 +565,6 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
             form,
         },
     );
+    overlays(state, true);
     finish(state);
 }

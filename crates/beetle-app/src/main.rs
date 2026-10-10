@@ -14,6 +14,7 @@ mod preview;
 mod scanner;
 mod state;
 mod tables;
+mod transition;
 
 #[cfg(not(target_os = "windows"))]
 compile_error!("beetle-app is Windows-only: it renders with Direct3D 11 (ADR-026).");
@@ -32,7 +33,7 @@ use gameplay::{
     GameplayTickResult,
 };
 
-use beetle_render::{strings, GpuBackend};
+use beetle_render::{strings, GpuBackend, ToastKind};
 use handlers::{
     handle_gameplay_input, handle_key_config_input, handle_result_input, handle_song_select_input,
 };
@@ -247,6 +248,9 @@ impl ApplicationHandler for BeetleApp {
             gpu_ui,
             capture: devtools::Capture::from_env(),
             pending_screenshot: None,
+            screen_entry: transition::ScreenEntry::new(AppScreen::Boot, Instant::now()),
+            toast: None,
+            anim_tail: false,
             d3d11,
             gpu_backend_at_start: saved_config.gpu_backend,
             cursor: None,
@@ -321,6 +325,7 @@ impl ApplicationHandler for BeetleApp {
         }
 
         ime::close_search_if_unavailable(state);
+        state.sync_screen_entry();
 
         // Menus present on vblank; gameplay follows the target FPS setting
         // (60 = vsync, otherwise paced by the event loop below).
@@ -487,6 +492,23 @@ impl ApplicationHandler for BeetleApp {
             }
         }
 
+        // Fade-ins and toasts animate on the menus; once they end, one more
+        // frame draws the cleared state before the loop sleeps again.
+        let now = Instant::now();
+        // The screen may have changed in the match above (library poll).
+        state.sync_screen_entry();
+        if state.presentation_animating(now) {
+            state.anim_tail = true;
+            state.window.request_redraw();
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
+        } else if state.anim_tail {
+            state.anim_tail = false;
+            if state.screen != AppScreen::Gameplay {
+                state.window.request_redraw();
+                event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
+            }
+        }
+
         // devtools: keep frames coming until a pending capture is taken,
         // even on screens that otherwise sleep until the next input event.
         if state.capture.as_ref().is_some_and(|c| c.pending()) {
@@ -525,53 +547,7 @@ impl ApplicationHandler for BeetleApp {
                     state.window.request_redraw();
                 }
             }
-            WindowEvent::DroppedFile(path) => {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if ext.eq_ignore_ascii_case("bmsp") {
-                    if let Ok(mut pkg) = bms_package::PackageReader::open_file(&path) {
-                        let path_str = path.to_string_lossy();
-                        let chart_entries: Vec<String> = pkg
-                            .entries()
-                            .iter()
-                            .filter_map(|e| {
-                                let e_ext = e.path.rsplit('.').next().unwrap_or("");
-                                if e_ext.eq_ignore_ascii_case("bms")
-                                    || e_ext.eq_ignore_ascii_case("bme")
-                                    || e_ext.eq_ignore_ascii_case("bml")
-                                    || e_ext.eq_ignore_ascii_case("pms")
-                                {
-                                    Some(e.path.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        for entry_path in chart_entries {
-                            if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                                let virtual_path = format!("{}::{}", path_str, entry_path);
-                                if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes)
-                                {
-                                    queue_start_gameplay(state, &meta);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else if ext.eq_ignore_ascii_case("bms")
-                    || ext.eq_ignore_ascii_case("bme")
-                    || ext.eq_ignore_ascii_case("bml")
-                    || ext.eq_ignore_ascii_case("pms")
-                {
-                    if let Ok(bytes) = fs::read(&path) {
-                        if let Some(meta) =
-                            SongMetadata::from_bytes(&path.to_string_lossy(), &bytes)
-                        {
-                            queue_start_gameplay(state, &meta);
-                        }
-                    }
-                }
-            }
+            WindowEvent::DroppedFile(path) => open_dropped_file(state, &path),
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor = Some((position.x as f32, position.y as f32));
                 if is_menu_screen(state.screen) {
@@ -675,6 +651,74 @@ impl ApplicationHandler for BeetleApp {
             _ => (),
         }
     }
+}
+
+/// Starts a play from a dropped `.bmsp` package or chart file. Anything else,
+/// or a file that does not open or has no playable chart, gets an error toast.
+fn open_dropped_file(state: &mut AppState, path: &Path) {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let is_chart = ["bms", "bme", "bml", "pms"]
+        .iter()
+        .any(|x| ext.eq_ignore_ascii_case(x));
+    let started = if ext.eq_ignore_ascii_case("bmsp") {
+        start_dropped_package(state, path)
+    } else if is_chart {
+        fs::read(path)
+            .ok()
+            .and_then(|bytes| SongMetadata::from_bytes(&path.to_string_lossy(), &bytes))
+            .map(|meta| queue_start_gameplay(state, &meta))
+            .is_some()
+    } else {
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_UNSUPPORTED_FILE);
+        return;
+    };
+    if !started {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        transition::show_toast(
+            state,
+            ToastKind::Error,
+            strings::fill(strings::TOAST_OPEN_FAILED, &[&name]),
+        );
+    }
+}
+
+/// Queues the first chart of a dropped package. `false` when it does not open
+/// or holds no chart that parses.
+fn start_dropped_package(state: &mut AppState, path: &Path) -> bool {
+    let Ok(mut pkg) = bms_package::PackageReader::open_file(path) else {
+        return false;
+    };
+    let path_str = path.to_string_lossy();
+    let chart_entries: Vec<String> = pkg
+        .entries()
+        .iter()
+        .filter_map(|e| {
+            let e_ext = e.path.rsplit('.').next().unwrap_or("");
+            if e_ext.eq_ignore_ascii_case("bms")
+                || e_ext.eq_ignore_ascii_case("bme")
+                || e_ext.eq_ignore_ascii_case("bml")
+                || e_ext.eq_ignore_ascii_case("pms")
+            {
+                Some(e.path.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for entry_path in chart_entries {
+        if let Ok(bytes) = pkg.read_entry(&entry_path) {
+            let virtual_path = format!("{}::{}", path_str, entry_path);
+            if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
+                queue_start_gameplay(state, &meta);
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Screens that draw a menu and take the mouse (gameplay and loading do not).

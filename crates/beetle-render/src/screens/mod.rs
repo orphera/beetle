@@ -3,6 +3,7 @@
 pub mod boot;
 pub mod key_bind;
 pub mod loading;
+mod overlay;
 pub mod play;
 pub mod select;
 pub mod stage_result;
@@ -11,6 +12,7 @@ mod widgets;
 pub use boot::{draw_boot, BootFrame};
 pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODES};
 pub use loading::{draw_loading, LoadingFrame};
+pub use overlay::{draw_screen_fade, draw_toast, ToastFrame, ToastKind};
 pub use play::{draw_gameplay, PlayFrame, SizedTexture};
 pub use select::{
     draw_exit_modal, draw_options_modal, draw_song_select, SelectFrame, OPTION_COLUMN_BREAK,
@@ -32,6 +34,7 @@ mod tests {
             ("key_bind.rs", include_str!("key_bind.rs")),
             ("loading.rs", include_str!("loading.rs")),
             ("boot.rs", include_str!("boot.rs")),
+            ("overlay.rs", include_str!("overlay.rs")),
         ] {
             assert!(
                 !src.contains(concat!("ColorRgba", "::new")),

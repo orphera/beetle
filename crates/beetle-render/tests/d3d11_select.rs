@@ -11,8 +11,8 @@ use beetle_core::{
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
-    draw_exit_modal, draw_options_modal, draw_song_select, D3d11Backend, GpuBackend, SelectFrame,
-    Ui, Viewport,
+    draw_exit_modal, draw_options_modal, draw_screen_fade, draw_song_select, draw_toast,
+    D3d11Backend, GpuBackend, SelectFrame, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -170,6 +170,10 @@ enum Overlay {
     None,
     Options,
     Exit,
+    /// A success toast, fully shown.
+    Toast,
+    /// The fade-in halfway through: the background covers half of the frame.
+    Fade,
 }
 
 fn render(
@@ -273,6 +277,20 @@ fn render(
             draw_options_modal(ui, &vp, &rows, 2);
         }
         Overlay::Exit => draw_exit_modal(ui, &vp),
+        Overlay::Toast => {
+            let text = strings::fill(strings::TOAST_RESCAN_DONE, &["412"]);
+            draw_toast(
+                ui,
+                &vp,
+                &ToastFrame {
+                    text: &text,
+                    kind: ToastKind::Success,
+                    alpha: 1.0,
+                    slide: 1.0,
+                },
+            )
+        }
+        Overlay::Fade => draw_screen_fade(ui, 0.5),
     }
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
@@ -323,6 +341,16 @@ fn song_select_layouts() {
     );
     assert_eq!(
         render(&mut gpu, &mut ui, 5, "", "", Overlay::Exit, "exit"),
+        1
+    );
+
+    // Toast over the list (success), and the fade-in halfway through.
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::Toast, "toast"),
+        1
+    );
+    assert_eq!(
+        render(&mut gpu, &mut ui, 5, "", "", Overlay::Fade, "fade-mid"),
         1
     );
 
