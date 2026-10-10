@@ -62,6 +62,8 @@ table! {
     pub TOAST_UNINSTALLED_MANY = "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
+    /// `{}` is the chart file name. Shown when a chart cannot be read or parsed; nothing plays.
+    pub TOAST_CHART_LOAD_FAILED = "채보를 불러오지 못했습니다: {}";
     /// `{}` is the layout name (key mode and preset, e.g. "7K HomeRow (...)").
     pub TOAST_PRESET = "키 배치: {} 프리셋";
     /// `{}` is the layout name (key mode and preset).

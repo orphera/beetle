@@ -398,17 +398,15 @@ impl ApplicationHandler for BeetleApp {
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to load song: {e}");
-                                    state.screen = AppScreen::SongSelect;
-                                    state.window.request_redraw();
+                                    eprintln!("Failed to load chart: {e:?}");
+                                    fail_song_load(state);
                                 }
                             }
                         }
                         Err(std::sync::mpsc::TryRecvError::Empty) => {}
                         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                             state.loading_receiver = None;
-                            state.screen = AppScreen::SongSelect;
-                            state.window.request_redraw();
+                            fail_song_load(state);
                         }
                     }
                 }
@@ -711,6 +709,20 @@ impl ApplicationHandler for BeetleApp {
 
 /// Starts a play from a dropped `.bmsp` package or chart file. Anything else,
 /// or a file that does not open or has no playable chart, gets an error toast.
+/// Back to Song Select after the chart of the song being loaded failed to load.
+/// Nothing was played or scored; the Error toast names the file.
+fn fail_song_load(state: &mut AppState) {
+    if let Some(song) = state.loading_song.take() {
+        transition::show_toast(
+            state,
+            ToastKind::Error,
+            loader::chart_load_failure_message(&song),
+        );
+    }
+    state.screen = AppScreen::SongSelect;
+    state.window.request_redraw();
+}
+
 fn open_dropped_file(state: &mut AppState, path: &Path) {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let is_chart = ["bms", "bme", "bml", "pms"]

@@ -9,7 +9,7 @@ use beetle_audio::SampleBank;
 use beetle_core::{
     parse_bms, parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel,
 };
-use beetle_render::{is_video_path, ImageBuffer};
+use beetle_render::{is_video_path, strings, ImageBuffer};
 
 pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
@@ -32,7 +32,18 @@ pub type LoadedSongData = (
     HashMap<BmpId, VideoSource>,
 );
 
-pub type SongLoadResult = Result<LoadedSongData, String>;
+/// Why a chart could not be loaded. Such a song is never played.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartLoadError {
+    /// The chart file, or its entry in a package, does not exist.
+    NotFound,
+    /// The file exists but could not be read.
+    Unreadable,
+    /// The file was read but is not a playable BMS chart.
+    NotAChart,
+}
+
+pub type SongLoadResult = Result<LoadedSongData, ChartLoadError>;
 pub type SongLoadReceiver = Receiver<SongLoadResult>;
 
 const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
@@ -522,32 +533,20 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 
 /// `load_chart_and_audio_with_seed` with the library's fixed `#RANDOM` seed.
 #[cfg(test)]
-pub fn load_chart_and_audio(
-    song: &SongMetadata,
-) -> (
-    BmsChart,
-    TimingModel,
-    SampleBank,
-    HashMap<BmpId, ImageBuffer>,
-    HashMap<BmpId, VideoSource>,
-) {
+pub fn load_chart_and_audio(song: &SongMetadata) -> LoadedSongData {
     load_chart_and_audio_with_seed(song, beetle_core::bms::DEFAULT_RANDOM_SEED, true)
+        .expect("test chart should load")
 }
 
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
 /// `seed` decides the rolls of any `#RANDOM` sections in the chart.
+/// A chart that cannot be read or parsed is an error: nothing is played for it.
 #[allow(clippy::map_entry)]
 pub fn load_chart_and_audio_with_seed(
     song: &SongMetadata,
     seed: u64,
     load_bga: bool,
-) -> (
-    BmsChart,
-    TimingModel,
-    SampleBank,
-    HashMap<BmpId, ImageBuffer>,
-    HashMap<BmpId, VideoSource>,
-) {
+) -> Result<LoadedSongData, ChartLoadError> {
     // Check if song is inside a .bmsp package
     if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
         if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
@@ -558,7 +557,7 @@ pub fn load_chart_and_audio_with_seed(
 
             if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
                 let content = beetle_core::decode_bms_text(&bms_bytes);
-                if let Ok(chart) = parse_bms_with_seed(&content, seed) {
+                if let Ok(chart) = parse_playable_chart(&content, seed) {
                     let timing = TimingModel::from_chart(&chart);
                     // BGA OFF: nothing to decode, so no image or video work.
                     let no_bmps = HashMap::new();
@@ -813,94 +812,110 @@ pub fn load_chart_and_audio_with_seed(
                         chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len(),
                         loaded_sound_from_atlas, loaded_bga
                     );
-                    return (chart, timing, soundbank, bga_bank, video_sources);
+                    return Ok((chart, timing, soundbank, bga_bank, video_sources));
                 }
+                return Err(ChartLoadError::NotAChart);
             }
         }
     }
 
     let path = Path::new(&song.file_path);
-    if let Ok(bytes) = fs::read(path) {
-        let content = beetle_core::decode_bms_text(&bytes);
-        if let Ok(chart) = parse_bms_with_seed(&content, seed) {
-            let timing = TimingModel::from_chart(&chart);
-            let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
-            let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
-            let mut bga_bank = HashMap::new();
-            let no_bmps = HashMap::new();
-            let bmp_table = if load_bga {
-                &chart.header.bmp_table
-            } else {
-                &no_bmps
-            };
+    let bytes = fs::read(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => ChartLoadError::NotFound,
+        _ => ChartLoadError::Unreadable,
+    })?;
+    let content = beetle_core::decode_bms_text(&bytes);
+    let chart = parse_playable_chart(&content, seed)?;
+    let timing = TimingModel::from_chart(&chart);
+    let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
+    let mut bga_bank = HashMap::new();
+    let no_bmps = HashMap::new();
+    let bmp_table = if load_bga {
+        &chart.header.bmp_table
+    } else {
+        &no_bmps
+    };
 
-            for (&bmp_id, filename) in bmp_table {
-                if let Some(img) = load_image_from_dir_or_case_insensitive(parent_dir, filename) {
-                    bga_bank.insert(bmp_id, img);
-                }
-            }
-
-            let mut video_sources = if load_bga {
-                find_video_files_in_dir(parent_dir, &chart)
-            } else {
-                HashMap::new()
-            };
-
-            // If folder has no videos, check for adjacent companion package
-            if load_bga && video_sources.is_empty() {
-                let dir_name = parent_dir
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                let candidates = [
-                    parent_dir.join(format!("{}.bga.bmsp", dir_name)),
-                    parent_dir.join("bga.bmsp"),
-                ];
-                for cand in candidates {
-                    if cand.is_file() {
-                        if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
-                            load_videos_from_package_archive(
-                                &mut bga_pkg,
-                                "",
-                                &chart,
-                                &mut video_sources,
-                            );
-                            if !video_sources.is_empty() {
-                                println!("[Loader] Successfully loaded BGA companion package for folder: '{}'", cand.display());
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            for vs in video_sources.values() {
-                if let VideoSource::File(p) = vs {
-                    println!("Detected BGA Video: '{}'", p.display());
-                }
-            }
-
-            println!(
-                "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
-                chart.header.title,
-                loaded,
-                bga_bank.len(),
-                video_sources.len()
-            );
-            return (chart, timing, soundbank, bga_bank, video_sources);
+    for (&bmp_id, filename) in bmp_table {
+        if let Some(img) = load_image_from_dir_or_case_insensitive(parent_dir, filename) {
+            bga_bank.insert(bmp_id, img);
         }
     }
 
-    // The chart could not be read: an empty chart, so the song plays no notes.
-    let chart = BmsChart::default();
-    let timing = TimingModel::from_chart(&chart);
-    (
-        chart,
-        timing,
-        SampleBank::new(),
-        HashMap::new(),
-        HashMap::new(),
-    )
+    let mut video_sources = if load_bga {
+        find_video_files_in_dir(parent_dir, &chart)
+    } else {
+        HashMap::new()
+    };
+
+    // If folder has no videos, check for adjacent companion package
+    if load_bga && video_sources.is_empty() {
+        let dir_name = parent_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let candidates = [
+            parent_dir.join(format!("{}.bga.bmsp", dir_name)),
+            parent_dir.join("bga.bmsp"),
+        ];
+        for cand in candidates {
+            if cand.is_file() {
+                if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
+                    load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
+                    if !video_sources.is_empty() {
+                        println!(
+                            "[Loader] Successfully loaded BGA companion package for folder: '{}'",
+                            cand.display()
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    for vs in video_sources.values() {
+        if let VideoSource::File(p) = vs {
+            println!("Detected BGA Video: '{}'", p.display());
+        }
+    }
+
+    println!(
+        "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
+        chart.header.title,
+        loaded,
+        bga_bank.len(),
+        video_sources.len()
+    );
+    Ok((chart, timing, soundbank, bga_bank, video_sources))
+}
+
+/// Parses chart text. Text that is not a BMS chart, and a chart with no notes at
+/// all, have nothing to play, so both count as not a chart.
+fn parse_playable_chart(content: &str, seed: u64) -> Result<BmsChart, ChartLoadError> {
+    match parse_bms_with_seed(content, seed) {
+        Ok(chart) if !chart.notes.is_empty() => Ok(chart),
+        _ => Err(ChartLoadError::NotAChart),
+    }
+}
+
+/// The name a song is shown by in messages: the chart file name, or the entry
+/// name for a song inside a `.bmsp` package.
+pub fn song_file_label(song: &SongMetadata) -> String {
+    let entry = match song.file_path.split_once("::") {
+        Some((_, entry)) => entry,
+        None => song.file_path.as_str(),
+    };
+    Path::new(entry)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| entry.to_string())
+}
+
+/// The Error toast shown when a song's chart fails to load.
+pub fn chart_load_failure_message(song: &SongMetadata) -> String {
+    strings::fill(strings::TOAST_CHART_LOAD_FAILED, &[&song_file_label(song)])
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.
@@ -913,9 +928,7 @@ pub fn spawn_background_song_loader(
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let (chart, timing, bank, bga_bank, video_sources) =
-            load_chart_and_audio_with_seed(&song_clone, seed, load_bga);
-        let _ = tx.send(Ok((chart, timing, bank, bga_bank, video_sources)));
+        let _ = tx.send(load_chart_and_audio_with_seed(&song_clone, seed, load_bga));
     });
 
     rx
@@ -1799,5 +1812,97 @@ mod tests {
             soundbank.contains_key(beetle_core::decode_base36(b'0', b'W').unwrap()),
             "WavId 0W (bass-01.wav) must be loaded"
         );
+    }
+
+    fn valid_chart_text() -> &'static [u8] {
+        b"#TITLE t
+#BPM 120
+#WAV01 a.wav
+#00111:01
+"
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("beetle-loader-{}-{}", tag, std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn meta_at(file_path: &str) -> SongMetadata {
+        let mut meta =
+            SongMetadata::from_bytes(file_path, valid_chart_text()).expect("valid chart");
+        meta.file_path = file_path.to_string();
+        meta
+    }
+
+    #[test]
+    fn missing_chart_is_an_error_not_an_empty_play() {
+        let path = scratch_dir("missing").join("gone.bms");
+        let meta = meta_at(&path.to_string_lossy());
+        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        assert_eq!(result.err(), Some(ChartLoadError::NotFound));
+    }
+
+    #[test]
+    fn text_that_is_not_a_chart_is_an_error() {
+        let path = scratch_dir("garbage").join("junk.bms");
+        fs::write(
+            &path,
+            b"hello, this is not a chart
+",
+        )
+        .unwrap();
+        let meta = meta_at(&path.to_string_lossy());
+        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
+    }
+
+    #[test]
+    fn truncated_empty_chart_is_an_error() {
+        let path = scratch_dir("empty").join("empty.bms");
+        fs::write(&path, b"").unwrap();
+        let meta = meta_at(&path.to_string_lossy());
+        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
+    }
+
+    #[test]
+    fn chart_without_notes_is_an_error() {
+        let path = scratch_dir("nonotes").join("nonotes.bms");
+        fs::write(
+            &path,
+            b"#TITLE t
+#BPM 120
+",
+        )
+        .unwrap();
+        let meta = meta_at(&path.to_string_lossy());
+        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
+    }
+
+    #[test]
+    fn readable_chart_still_loads() {
+        let path = scratch_dir("ok").join("ok.bms");
+        fs::write(&path, valid_chart_text()).unwrap();
+        let meta = meta_at(&path.to_string_lossy());
+        let loaded = load_chart_and_audio_with_seed(&meta, 1, false);
+        assert!(loaded.is_ok());
+    }
+
+    #[test]
+    fn failure_message_names_the_chart_file() {
+        let meta = meta_at("songs/a/broken.bms");
+        assert_eq!(
+            chart_load_failure_message(&meta),
+            "채보를 불러오지 못했습니다: broken.bms"
+        );
+    }
+
+    #[test]
+    fn package_song_is_labelled_by_its_entry_name() {
+        let meta = meta_at("pack.bmsp::dir/01.bms");
+        assert_eq!(song_file_label(&meta), "01.bms");
     }
 }
