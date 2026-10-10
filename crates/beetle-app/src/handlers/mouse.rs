@@ -20,7 +20,7 @@ use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
     activate_filter, activate_selected, choose_chart, clear_filter, close_sort_menu, cycle_folder,
-    go_to_crumb, go_up, move_selection, open_exit_prompt, open_key_config, pick_sort, start_replay,
+    go_to_crumb, go_up, open_exit_prompt, open_key_config, pick_sort, scroll_list, start_replay,
     step_filter_level, toggle_auto, toggle_sort_menu,
 };
 use crate::ime::set_search_active;
@@ -162,9 +162,10 @@ fn key_config_click(state: &mut AppState, id: HitId) {
     }
 }
 
-/// A wheel or touchpad scroll. Up moves the highlight up; in the options
-/// panel and on the Settings screen it moves the highlighted row; on key
-/// configuration it switches the key mode (up = previous).
+/// A wheel or touchpad scroll. On the song list it scrolls the window up
+/// without moving the rows under the pointer. In the options panel and on the
+/// Settings screen it moves the highlighted row; on key configuration it
+/// switches the key mode (up = previous).
 pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
     let lines = match delta {
         MouseScrollDelta::LineDelta(_, y) => y,
@@ -178,14 +179,15 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
         return;
     }
     let up = notches > 0;
+    // The song list scrolls its window by the whole amount (see `scroll_list`).
+    if state.screen == AppScreen::SongSelect && !state.show_exit_modal && !state.show_option_modal {
+        scroll_list(state, -(notches as isize));
+        return;
+    }
     for _ in 0..notches.abs() {
         match state.screen {
             AppScreen::SongSelect if !state.show_exit_modal => {
-                if state.show_option_modal {
-                    move_option_row(state, !up);
-                } else {
-                    move_selection(state, !up);
-                }
+                move_option_row(state, !up);
             }
             AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),
             AppScreen::Settings if state.calibration.is_none() => {

@@ -289,6 +289,7 @@ fn render_ex(
             songs: &songs,
             rows: &rows,
             selected,
+            scroll: 0,
             scores: &scores,
             tables: &tables,
             ln_option: beetle_core::LnOption::Auto,

@@ -51,6 +51,8 @@ pub struct AppState {
     pub entries: Vec<ListEntry>,
     /// Highlighted row of `entries`.
     pub selected_entry: usize,
+    /// First visible row of the song list (see `beetle_render::window_start`). Keys re-centre it; clicks and the wheel do not.
+    pub list_scroll: usize,
     /// The chart each group shows when it is not the first one (saved in `config.dat`).
     pub chart_choice: crate::folders::ChartChoices,
     /// The song list filter (see `filters.rs`), saved in `config.dat`.

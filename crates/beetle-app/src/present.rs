@@ -346,6 +346,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             songs: &state.songs,
             rows: &rows,
             selected: state.selected_entry,
+            scroll: state.list_scroll,
             scores: &state.score_store,
             tables: &state.tables,
             ln_option,

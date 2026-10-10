@@ -131,22 +131,26 @@ pub fn handle_song_select_input(
             if !state.entries.is_empty() {
                 state.selected_entry = state.selected_entry.saturating_sub(10);
             }
+            centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::PageDown => {
             if !state.entries.is_empty() {
                 state.selected_entry = (state.selected_entry + 10).min(state.entries.len() - 1);
             }
+            centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Home => {
             state.selected_entry = 0;
+            centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::End => {
             if !state.entries.is_empty() {
                 state.selected_entry = state.entries.len() - 1;
             }
+            centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Enter | KeyCode::Space => activate_selected(state),
@@ -189,7 +193,35 @@ pub fn move_selection(state: &mut AppState, down: bool) {
             len - 1
         };
     }
+    centre_list(state);
     state.cursor_settle_time = std::time::Instant::now();
+}
+
+/// Centres the list on the cursor. Keyboard moves call it, so the cursor stays
+/// in the middle as before. A click or the wheel never does (see `scroll_list`).
+pub fn centre_list(state: &mut AppState) {
+    let rows = beetle_render::visible_rows(&state.view.viewport);
+    state.list_scroll =
+        beetle_render::centred_start(state.selected_entry, state.entries.len(), rows);
+}
+
+/// Scrolls the list `delta` rows (wheel: negative = up). The offset moves
+/// without re-centring; the cursor moves only when it would leave the view, so
+/// the rows never jump under the pointer.
+pub fn scroll_list(state: &mut AppState, delta: isize) {
+    let rows = beetle_render::visible_rows(&state.view.viewport);
+    let total = state.entries.len();
+    if total == 0 {
+        return;
+    }
+    let base = beetle_render::window_start(state.list_scroll, state.selected_entry, total, rows);
+    let start = beetle_render::scroll_by(base, delta, total, rows);
+    let selected = beetle_render::clamp_into_window(state.selected_entry, start, total, rows);
+    if selected != state.selected_entry {
+        state.selected_entry = selected;
+        state.cursor_settle_time = Instant::now();
+    }
+    state.list_scroll = start;
 }
 
 /// Shows `path` and saves it as the folder to open in next time. The cursor
@@ -198,6 +230,7 @@ pub fn set_folder(state: &mut AppState, path: FolderPath, focus: Option<&str>) {
     state.folder_path = path;
     state.recompute_entries();
     state.selected_entry = folders::focus_index(&state.entries, focus);
+    centre_list(state);
     state.cursor_settle_time = std::time::Instant::now();
     state.save_config();
 }

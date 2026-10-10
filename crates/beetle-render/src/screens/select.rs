@@ -54,6 +54,9 @@ pub struct SelectFrame<'a> {
     pub rows: &'a [SelectRow<'a>],
     /// Cursor position within `rows`.
     pub selected: usize,
+    /// First visible row of the list. Clamped and moved only as far as needed
+    /// to show `selected` (see `window_start`), so a click never moves the rows.
+    pub scroll: usize,
     pub scores: &'a ScoreStore,
     /// The player's long note setting, which decides which record of a chart with long notes is shown.
     pub ln_option: LnOption,
@@ -109,12 +112,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
 
     backdrop(c, &sk, f, selected, lite);
 
-    let content = Rect::from_ltrb(
-        vp.x + PAD * s,
-        vp.y + (TOPBAR_H + 36.0) * s,
-        vp.x + vp.width - PAD * s,
-        vp.y + vp.height - (FOOTER_H + 24.0) * s,
-    );
+    let content = content_rect(vp);
     if f.rows.is_empty() {
         empty_state(c, t, f, content, s, &mut hs);
     } else {
@@ -463,11 +461,63 @@ fn top_bar(
 // Song list
 // ---------------------------------------------------------------------------
 
-/// First visible row so the cursor sits near the middle of the window.
-fn scroll_start(selected: usize, total: usize, rows: usize) -> usize {
+/// The area under the top bar and the filter row, above the footer.
+fn content_rect(vp: &Viewport) -> Rect {
+    let s = vp.scale;
+    Rect::from_ltrb(
+        vp.x + PAD * s,
+        vp.y + (TOPBAR_H + 36.0) * s,
+        vp.x + vp.width - PAD * s,
+        vp.y + vp.height - (FOOTER_H + 24.0) * s,
+    )
+}
+
+/// How many song rows fit in the list at this viewport (at least one).
+pub fn visible_rows(vp: &Viewport) -> usize {
+    let s = vp.scale;
+    let list_h = content_rect(vp).h;
+    let step = (ROW_H + ROW_GAP) * s;
+    (((list_h + ROW_GAP * s) / step).floor() as usize).max(1)
+}
+
+/// First visible row that puts `selected` in the middle of the window. Keyboard
+/// moves use it, so the cursor stays centred as before.
+pub fn centred_start(selected: usize, total: usize, rows: usize) -> usize {
     selected
         .saturating_sub(rows / 2)
         .min(total.saturating_sub(rows))
+}
+
+/// The first visible row for a list scrolled to `scroll`: the offset is
+/// clamped to the list, then moved only as far as needed to show `selected`.
+/// A click does not change `scroll`, so the rows stay under the pointer.
+pub fn window_start(scroll: usize, selected: usize, total: usize, rows: usize) -> usize {
+    let rows = rows.max(1);
+    let max_start = total.saturating_sub(rows);
+    let mut start = scroll.min(max_start);
+    if selected < start {
+        start = selected;
+    } else if selected >= start + rows {
+        start = selected + 1 - rows;
+    }
+    start.min(max_start)
+}
+
+/// The offset after a wheel scroll of `delta` rows (negative = up), clamped to the list.
+pub fn scroll_by(scroll: usize, delta: isize, total: usize, rows: usize) -> usize {
+    let max_start = total.saturating_sub(rows.max(1));
+    let moved = scroll as isize + delta;
+    (moved.max(0) as usize).min(max_start)
+}
+
+/// `selected` moved into the visible window `start..start + rows`. The wheel
+/// moves the cursor only when it would leave the view.
+pub fn clamp_into_window(selected: usize, start: usize, total: usize, rows: usize) -> usize {
+    if total == 0 {
+        return 0;
+    }
+    let last = (start + rows.max(1)).min(total) - 1;
+    selected.clamp(start.min(last), last)
 }
 
 fn song_list(
@@ -480,9 +530,9 @@ fn song_list(
     hs: &mut HitSink,
 ) {
     let step = (ROW_H + ROW_GAP) * s;
-    let rows = (((list.h + ROW_GAP * s) / step).floor() as usize).max(1);
+    let rows = visible_rows(f.viewport);
     let total = f.rows.len();
-    let start = scroll_start(f.selected, total, rows);
+    let start = window_start(f.scroll, f.selected, total, rows);
     let row_w = list.w - 16.0 * s;
 
     for (slot, entry) in f.rows.iter().enumerate().skip(start).take(rows) {
@@ -2156,11 +2206,103 @@ mod tests {
 
     #[test]
     fn scroll_keeps_cursor_in_window() {
-        assert_eq!(scroll_start(0, 100, 9), 0);
-        assert_eq!(scroll_start(4, 100, 9), 0);
-        assert_eq!(scroll_start(10, 100, 9), 6);
-        assert_eq!(scroll_start(99, 100, 9), 91);
-        assert_eq!(scroll_start(3, 5, 9), 0);
+        assert_eq!(centred_start(0, 100, 9), 0);
+        assert_eq!(centred_start(4, 100, 9), 0);
+        assert_eq!(centred_start(10, 100, 9), 6);
+        assert_eq!(centred_start(99, 100, 9), 91);
+        assert_eq!(centred_start(3, 5, 9), 0);
+    }
+
+    #[test]
+    fn window_only_moves_to_show_the_cursor() {
+        // The offset stays put while the cursor is inside the window.
+        assert_eq!(window_start(20, 22, 100, 9), 20);
+        assert_eq!(window_start(20, 28, 100, 9), 20);
+        // Leaving the window at either edge moves it the least needed.
+        assert_eq!(window_start(20, 29, 100, 9), 21);
+        assert_eq!(window_start(20, 19, 100, 9), 19);
+        // A stale offset past the end is clamped.
+        assert_eq!(window_start(500, 99, 100, 9), 91);
+        assert_eq!(window_start(50, 0, 5, 9), 0);
+    }
+
+    #[test]
+    fn wheel_scrolls_the_offset_and_clamps_it() {
+        assert_eq!(scroll_by(0, -1, 100, 9), 0);
+        assert_eq!(scroll_by(0, 3, 100, 9), 3);
+        assert_eq!(scroll_by(90, 5, 100, 9), 91);
+        assert_eq!(scroll_by(3, -10, 100, 9), 0);
+        assert_eq!(
+            scroll_by(0, 5, 4, 9),
+            0,
+            "a list shorter than the window stays put"
+        );
+    }
+
+    #[test]
+    fn wheel_moves_the_cursor_only_when_it_leaves_the_view() {
+        // Window rows 20..29: a cursor inside stays where it is.
+        assert_eq!(clamp_into_window(24, 20, 100, 9), 24);
+        assert_eq!(clamp_into_window(10, 20, 100, 9), 20);
+        assert_eq!(clamp_into_window(40, 20, 100, 9), 28);
+        assert_eq!(clamp_into_window(0, 0, 0, 9), 0);
+    }
+
+    #[test]
+    fn clicking_a_row_in_a_long_list_keeps_it_under_the_pointer() {
+        use crate::hit::{hit_at, HitId};
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..60).map(song).collect();
+        let rows: Vec<SelectRow> = (0..60).map(SelectRow::Song).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
+        let visible = visible_rows(&vp);
+        assert!(visible < 60, "the list must be longer than the window");
+        let frame = |selected: usize, scroll: usize| SelectFrame {
+            viewport: &vp,
+            songs: &songs,
+            tables: &tables,
+            ln_option: LnOption::Auto,
+            rows: &rows,
+            selected,
+            scroll,
+            scores: &scores,
+            crumbs: &crumbs,
+            sort: "TITLE",
+            search: "",
+            search_active: false,
+            preedit: "",
+            jacket: None,
+            ambient: None,
+            option_chips: &chips,
+            auto_play: false,
+            has_replay: false,
+            preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
+        };
+        let mut ui = Ui::new(vp.scale);
+        // The cursor on row 0, the window at the top. Find a row lower in the window.
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame(0, 0));
+        let k = visible - 2;
+        let row_rect = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::ListRow(k))
+            .expect("row k is on screen")
+            .rect;
+        let point = (row_rect.x + 40.0, row_rect.y + row_rect.h / 2.0);
+        assert_eq!(hit_at(&ui.hits, point.0, point.1), Some(HitId::ListRow(k)));
+
+        // The click selects row k and leaves the window alone, so the same
+        // point hits the same row again (a second click plays it).
+        ui.begin(1280, 720, vp.scale);
+        draw_song_select(&mut ui, &frame(k, 0));
+        assert_eq!(hit_at(&ui.hits, point.0, point.1), Some(HitId::ListRow(k)));
     }
 
     #[test]
@@ -2180,6 +2322,7 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected: 5,
+            scroll: 0,
             scores: &scores,
             crumbs: &["전체".to_string(), "전체 곡".to_string()],
             sort: "TITLE",
@@ -2345,6 +2488,7 @@ mod tests {
                 ln_option: LnOption::Auto,
                 rows: &rows,
                 selected,
+                scroll: 0,
                 scores: &scores,
                 crumbs: &["전체".to_string(), "전체 곡".to_string()],
                 sort: "TITLE",
@@ -2390,6 +2534,7 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected: 0,
+            scroll: 0,
             scores: &scores,
             crumbs: &crumbs,
             sort: "TITLE",
