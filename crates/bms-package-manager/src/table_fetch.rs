@@ -14,6 +14,10 @@ use std::path::{Path, PathBuf};
 /// Largest pack accepted, compressed. Packs in the Satellite and Stella tables are far smaller.
 pub const MAX_PACK_BYTES: u64 = 100 * 1024 * 1024;
 
+/// Largest total size a zip pack may declare when unpacked. Checked from the
+/// archive headers before anything is written.
+pub const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
+
 const DIRECT_PACK_PREFIXES: &[&str] = &["https://stellabms.xyz/upload/"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
 
@@ -27,9 +31,9 @@ pub fn is_direct_pack(url: &str) -> bool {
 /// The archive type a link names by the extension of its last path segment: `zip`,
 /// `rar` or `7z`, in lower case. The query string is ignored. `None` for any other name.
 pub fn pack_extension(url: &str) -> Option<&'static str> {
+    let url = url.split(['?', '#']).next()?;
     let (_, after_scheme) = url.split_once("://")?;
     let (_, path) = after_scheme.split_once('/')?;
-    let path = path.split(['?', '#']).next()?;
     let name = path.rsplit('/').next()?;
     let (_, ext) = name.rsplit_once('.')?;
     let ext = ext.to_ascii_lowercase();
@@ -97,6 +101,12 @@ pub fn keep_pack(
     scratch: &Path,
     pack_dir: &Path,
 ) -> Result<KeptPack, String> {
+    if archive_path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+    {
+        check_zip_size(archive_path, MAX_UNPACKED_BYTES)?;
+    }
     let unpacked = scratch.join("unpacked");
     let _ = fs::remove_dir_all(&unpacked);
     extract_archive(archive_path, &unpacked).map_err(|e| format!("cannot unpack: {e}"))?;
@@ -117,6 +127,26 @@ pub fn keep_pack(
     };
     copy_new_files(&unpacked, pack_dir, &mut kept)?;
     Ok(kept)
+}
+
+/// Fails when the entries of the zip at `zip_path` declare more than `limit` bytes
+/// in total. Only the headers are read, so nothing is unpacked.
+pub fn check_zip_size(zip_path: &Path, limit: u64) -> Result<(), String> {
+    let file = fs::File::open(zip_path).map_err(|e| format!("cannot open the pack: {e}"))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("not a valid zip: {e}"))?;
+    let mut total: u64 = 0;
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index_raw(index)
+            .map_err(|e| format!("corrupt zip entry: {e}"))?;
+        total = total.saturating_add(entry.size());
+    }
+    if total > limit {
+        return Err(format!(
+            "the pack declares {total} bytes unpacked, more than the {limit} allowed"
+        ));
+    }
+    Ok(())
 }
 
 /// How many key sounds a chart declares that are not next to it, as the
@@ -232,6 +262,8 @@ mod tests {
         assert_eq!(pack_extension("https://a.test/page"), None);
         assert_eq!(pack_extension("https://a.zip"), None);
         assert_eq!(pack_extension("https://a.test/x.exe"), None);
+        assert_eq!(pack_extension("https://a.test?f=/x.zip"), None);
+        assert_eq!(pack_extension("https://a.test#/x.rar"), None);
     }
 
     #[test]
@@ -316,6 +348,20 @@ mod tests {
         );
         fs::write(root.join("snare.wav"), b"x").unwrap();
         assert_eq!(missing_key_sounds(&chart), Some(0));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_zip_declaring_too_much_is_refused_before_unpacking() {
+        let root = scratch("size");
+        let zip_path = root.join("pack.zip");
+        write_zip(&zip_path, &[("a.bme", CHART), ("b.wav", b"sound")]);
+        let total = (CHART.len() + 5) as u64;
+        assert!(check_zip_size(&zip_path, total).is_ok());
+        assert!(check_zip_size(&zip_path, total - 1).is_err());
+        let pack_dir = root.join("out");
+        let scratch_dir = root.join("work");
+        assert!(keep_pack(&zip_path, &entry_for(CHART), &scratch_dir, &pack_dir).is_ok());
         fs::remove_dir_all(&root).ok();
     }
 

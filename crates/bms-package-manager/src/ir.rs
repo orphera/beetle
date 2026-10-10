@@ -57,7 +57,12 @@ fn row_links(html: &str, label: &str) -> Vec<String> {
     let mut rest = html;
     while let Some(at) = rest.find(&header) {
         let row = &rest[at + header.len()..];
-        let end = row.find("</tr>").unwrap_or(row.len());
+        // The row ends at its closing tag, or at the next row or header if the tag is missing.
+        let end = ["</tr>", "<tr", "<th"]
+            .iter()
+            .filter_map(|tag| row.find(tag))
+            .min()
+            .unwrap_or(row.len());
         for href in hrefs(&row[..end]) {
             if crate::table_fetch::is_web_url(&href) && !out.contains(&href) {
                 out.push(href);
@@ -128,6 +133,15 @@ mod tests {
             parse_chart_page(html).unwrap().diff,
             vec!["https://a.test/x.zip"]
         );
+    }
+
+    #[test]
+    fn a_row_without_a_closing_tag_ends_at_the_next_row() {
+        let html = r#"<div class="archive-root"><tr><th>곡</th><td><a href="https://a.test/body.zip">a</a></td>
+<tr><th>차분</th><td><a href="https://a.test/diff.zip">b</a></td></tr></div>"#;
+        let links = parse_chart_page(html).unwrap();
+        assert_eq!(links.body, vec!["https://a.test/body.zip"]);
+        assert_eq!(links.diff, vec!["https://a.test/diff.zip"]);
     }
 
     #[test]
