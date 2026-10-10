@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
 use beetle_core::{
-    apply_lane_modifier, BmsChart, ClearType, JudgeEngine, JudgeGrade, PlayResult, ReplayData,
-    ScoreUpdate, SongMetadata, TimingModel,
+    apply_lane_modifier, BmsChart, ClearType, GaugeTrend, JudgeEngine, JudgeGrade, PlayResult,
+    ReplayData, ScoreUpdate, SongMetadata, TimingModel,
 };
 
 use crate::calibration::judged_time;
@@ -244,6 +244,8 @@ pub fn finalize_start_gameplay(
     state.is_gameplay_paused = false;
     state.pause_selected_option = 0;
     state.gameplay_end = None;
+    state.play_end.reset();
+    state.gauge_trend = GaugeTrend::new(total_duration);
     state.gameplay_readout = None;
     state.audio_engine = audio_engine;
     state.screen = AppScreen::Gameplay;
@@ -276,21 +278,40 @@ pub fn audio_time_now(state: &AppState) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// Whether a play's end has been taken yet. A play ends once: the end
+/// saves the play, and every later end event of the same play (a second
+/// tick during the banner, or one after ENTER skipped the banner) is ignored.
+/// Reset when a new play starts; leaving the banner does not reset it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PlayEndGuard {
+    ended: bool,
+}
+
+impl PlayEndGuard {
+    /// `true` for the first end of the play, `false` for every later call.
+    pub fn take(&mut self) -> bool {
+        !std::mem::replace(&mut self.ended, true)
+    }
+
+    /// A new play starts.
+    pub fn reset(&mut self) {
+        self.ended = false;
+    }
+}
+
 /// The song is over (played out, or the stage failed). Saves the play once
 /// and starts the end banner; the result screen follows in `leave_gameplay`.
-/// Calling it again during the banner does nothing.
+/// Calling it again during the banner, or after the banner was skipped, does
+/// nothing (see `PlayEndGuard`).
 pub fn finish_gameplay(state: &mut AppState) {
-    if state.gameplay_end.is_some() {
+    if !state.play_end.take() {
         return;
     }
     let lamp = match &state.active_judge {
-        Some(judge) => {
-            let lamp = judge.score().clear_type();
-            record_play(state);
-            lamp
-        }
+        Some(judge) => judge.score().clear_type(),
         None => ClearType::Failed,
     };
+    record_play(state);
     state.gameplay_end = Some(GameplayEnd {
         lamp,
         started: Instant::now(),
@@ -467,12 +488,17 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
     // 3. Advance video frame for BGA
     state.update_video_bga(audio_time);
 
-    // 4. Check Stage Failure (Hard / Hazard gauge depleted to 0)
-    let is_stage_failed = state
-        .active_judge
-        .as_ref()
-        .map(|j| j.score().is_failed)
-        .unwrap_or(false);
+    // 4. Check Stage Failure (Hard / Hazard gauge depleted to 0). The gauge
+    // is sampled here too, so the trend graph ends at the failure point.
+    let is_stage_failed = match state.active_judge.as_ref().map(|j| j.score()) {
+        Some(score) => {
+            state
+                .gauge_trend
+                .sample(audio_time, score.gauge, score.is_failed);
+            score.is_failed
+        }
+        None => false,
+    };
 
     if is_stage_failed && !state.is_auto_play && !state.is_replay_playback {
         return GameplayTickResult::StageFailed;
@@ -484,4 +510,49 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
     }
 
     GameplayTickResult::Continue
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_play_ends_once_even_when_the_banner_is_skipped() {
+        let mut guard = PlayEndGuard::default();
+        // The song ends: the first end saves and starts the banner.
+        assert!(guard.take());
+        // A second end event during the banner does nothing.
+        assert!(!guard.take());
+        // ENTER skips the banner (`leave_gameplay` clears it), then a
+        // stray end event arrives: still no second save.
+        assert!(!guard.take());
+        // A new play starts with a fresh guard.
+        guard.reset();
+        assert!(guard.take());
+        assert!(!guard.take());
+    }
+
+    #[test]
+    fn saves_counted_through_the_end_phase_stay_at_one() {
+        let mut guard = PlayEndGuard::default();
+        let mut banner: Option<GameplayEnd> = None;
+        let mut saves = 0;
+        // Ends fired from the frame loop and from a fail event, then the
+        // banner is skipped with ENTER and the frame loop keeps calling.
+        for step in 0..6 {
+            if step == 3 {
+                banner = None; // leave_gameplay
+            }
+            if guard.take() {
+                saves += 1;
+                banner = Some(GameplayEnd {
+                    lamp: ClearType::Failed,
+                    started: Instant::now(),
+                });
+            }
+        }
+        assert_eq!(saves, 1);
+        // The banner stays skipped: no end after the skip brings it back.
+        assert!(banner.is_none());
+    }
 }

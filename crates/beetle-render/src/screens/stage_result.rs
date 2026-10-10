@@ -20,7 +20,7 @@ use crate::ui::Ui;
 use crate::view::Viewport;
 use crate::{RANK_POP_SECONDS, SCORE_COUNT_SECONDS};
 use beetle_core::{
-    BmsChart, ClearType, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
+    BmsChart, ClearType, GaugeTrend, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
 };
 
 /// Everything the result screen shows for one frame.
@@ -39,15 +39,22 @@ pub struct ResultFrame<'a> {
     pub unsaved_reason: Option<&'a str>,
     /// The long note rule the play was judged under, for a chart with long notes (`LN`, `CN`, `CN (HCN)`).
     pub ln_label: Option<&'a str>,
+    /// The gauge over the play, for the trend graph.
+    pub gauge_trend: &'a GaugeTrend,
 }
 
-const HINTS: [widgets::Hint; 3] = [
+const HINTS: [widgets::Hint; 4] = [
     (
         "ENTER",
         strings::RESULT_SONG_SELECT,
         Some(HitId::ResultSongSelect),
     ),
     ("R", strings::RESULT_RETRY, Some(HitId::ResultRetry)),
+    (
+        "TAB",
+        strings::RESULT_RETRY_OPTIONS,
+        Some(HitId::ResultRetryOptions),
+    ),
     (
         "P",
         strings::RESULT_SCREENSHOT,
@@ -197,7 +204,7 @@ fn outcome_panel(
     let pop = 1.0 + 0.5 * (1.0 - ease_out_back(p_rank));
     let alpha = ease_out_cubic(p_rank);
     let cx = inner.x + inner.w / 2.0;
-    let baseline = p.y + 300.0 * s;
+    let baseline = p.y + 284.0 * s;
     c.set_additive(true);
     c.sprite_centered(
         sk.glow,
@@ -223,8 +230,16 @@ fn outcome_panel(
         .color(lamp_col);
     let sw = t.measure(c, status, &st);
     t.draw(c, status, cx - sw / 2.0, baseline + 44.0 * s, &st);
+    // Tags say what got better: the lamp ("램프 갱신") and the banner ("신기록").
     if f.update.lamp {
-        new_tag(c, t, cx + sw / 2.0 + 10.0 * s, baseline + 44.0 * s, s);
+        new_tag(
+            c,
+            t,
+            cx + sw / 2.0 + 10.0 * s,
+            baseline + 44.0 * s,
+            strings::NEW_LAMP,
+            s,
+        );
     }
     if f.update.any() {
         let st = caption(11.0, s).color(theme::WHITE);
@@ -248,6 +263,9 @@ fn outcome_panel(
     let score = f.score;
     let gcol = gauge_color(score);
     let bar = Rect::new(inner.x, inner.bottom() - 18.0 * s, inner.w, 18.0 * s);
+    // The trend graph sits between the tags and the final gauge's caption.
+    let graph = Rect::from_ltrb(inner.x, p.y + 388.0 * s, inner.right(), bar.y - 42.0 * s);
+    gauge_trend_graph(c, t, sk, graph, f, gcol, s);
     let gauge_caption = match f.ln_label {
         Some(rule) => strings::fill(strings::GAUGE_NAME_RULE, &[score.gauge_type.as_str(), rule]),
         None => strings::fill(strings::GAUGE_NAME, &[score.gauge_type.as_str()]),
@@ -297,13 +315,133 @@ fn outcome_panel(
 // Score: EX score, vs best, stats, judge breakdown
 // ---------------------------------------------------------------------------
 
-/// Small "NEW" tag marking a best this play beat; `baseline` is the label's baseline.
-fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, s: f32) {
-    let st = caption(8.0, s).color(theme::WHITE);
-    let w = t.measure(c, strings::NEW_RECORD, &st) + 10.0 * s;
+/// Small tag beside a label: a best this play beat (`NEW_RECORD`, on the EX
+/// score and the stat labels) or a clear lamp that improved (`NEW_LAMP`).
+/// `baseline` is the label's baseline. All tags share one size.
+fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, text: &str, s: f32) {
+    let st = caption(9.0, s).color(theme::WHITE);
+    let w = t.measure(c, text, &st) + 10.0 * s;
     let tag = Rect::new(x, baseline - 11.0 * s, w, 14.0 * s);
     c.fill_rect(tag, theme::MAGENTA);
-    t.draw_in(c, strings::NEW_RECORD, tag, Align::Center, &st);
+    t.draw_in(c, text, tag, Align::Center, &st);
+}
+
+/// The gauge over the play as a stepped line in `rect`, one step per ~3 px so
+/// the frame stays one batch (a sample per pixel column, not per sample).
+/// The clear line (80% for EASY / GROOVE, the fail line at 0 for HARD /
+/// HAZARD) is dashed; a stage that failed ends its line in a red marker.
+fn gauge_trend_graph(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    rect: Rect,
+    f: &ResultFrame,
+    col: ColorRgba,
+    s: f32,
+) {
+    let trend = f.gauge_trend;
+    let score = f.score;
+    let lw = 2.0 * s;
+    c.nine(&sk.panel_sm, rect, theme::SURF2);
+    for k in 1..=3 {
+        let gy = rect.y + rect.h * k as f32 / 4.0;
+        c.fill_rect(
+            Rect::new(rect.x, gy, rect.w, s.max(1.0)),
+            theme::LINE.with_alpha(90),
+        );
+    }
+    let y_of = |gauge: f64| rect.bottom() - (gauge.clamp(0.0, 100.0) as f32 / 100.0) * rect.h;
+
+    // Clear line: 80 for EASY / GROOVE, 0 (the fail line) for HARD / HAZARD.
+    let (clear_pct, clear_label) = match score.gauge_type {
+        GaugeType::Easy | GaugeType::Groove => (80.0, true),
+        GaugeType::Hard | GaugeType::Hazard => (0.0, false),
+    };
+    let y_clear = y_of(clear_pct);
+    let mut x = rect.x;
+    while x < rect.right() {
+        let w = (6.0 * s).min(rect.right() - x);
+        c.fill_rect(
+            Rect::new(x, y_clear - s / 2.0, w, s.max(1.0)),
+            theme::GOLD.with_alpha(200),
+        );
+        x += 10.0 * s;
+    }
+    let clear_text = if clear_label {
+        strings::fill(strings::GRAPH_CLEAR_LINE, &[&format!("{clear_pct:.0}")])
+    } else {
+        strings::GRAPH_FAIL_LINE.to_string()
+    };
+    // On the left: the trend starts low, so the label does not sit on the line.
+    t.draw_in(
+        c,
+        &clear_text,
+        Rect::new(
+            rect.x + 6.0 * s,
+            y_clear - 16.0 * s,
+            rect.w - 12.0 * s,
+            14.0 * s,
+        ),
+        Align::Left,
+        &caption(10.0, s).color(theme::GOLD),
+    );
+
+    let points = trend.points();
+    let span = trend.span();
+    let failed_x = trend
+        .failed_at()
+        .filter(|_| span > 0.0)
+        .map(|at| rect.x + (at / span).clamp(0.0, 1.0) as f32 * rect.w);
+    if !points.is_empty() && span > 0.0 {
+        let n = ((rect.w / (3.0 * s)).floor() as usize).clamp(2, 160);
+        let bw = rect.w / n as f32;
+        let mut idx = 0;
+        let mut prev_y: Option<f32> = None;
+        for k in 0..n {
+            let x0 = rect.x + k as f32 * bw;
+            let x1 = x0 + bw;
+            // The sample in force at the bucket's centre (a step, not a lerp).
+            let at = (k as f64 + 0.5) / n as f64 * span;
+            if failed_x.is_some_and(|fx| x0 >= fx) {
+                break;
+            }
+            while idx + 1 < points.len() && points[idx + 1].time <= at {
+                idx += 1;
+            }
+            let y = y_of(points[idx].gauge);
+            c.fill_rect_vgradient(
+                Rect::from_ltrb(x0, y, x1, rect.bottom()),
+                col.with_alpha(90),
+                col.with_alpha(8),
+            );
+            c.fill_rect(Rect::from_ltrb(x0, y - lw / 2.0, x1, y + lw / 2.0), col);
+            if let Some(py) = prev_y {
+                if (py - y).abs() > 0.5 {
+                    c.fill_rect(
+                        Rect::from_ltrb(x0 - lw / 2.0, py.min(y), x0 + lw / 2.0, py.max(y)),
+                        col,
+                    );
+                }
+            }
+            prev_y = Some(y);
+        }
+    }
+
+    if let Some(fx) = failed_x {
+        c.fill_rect(
+            Rect::from_ltrb(fx - lw / 2.0, rect.y, fx + lw / 2.0, rect.bottom()),
+            theme::RED,
+        );
+        let st = caption(10.0, s).color(theme::RED);
+        let label_w = t.measure(c, strings::GRAPH_FAILED, &st);
+        // Label on the side with more room.
+        let lx = if fx > rect.x + rect.w / 2.0 {
+            fx - lw - label_w - 4.0 * s
+        } else {
+            fx + lw + 4.0 * s
+        };
+        t.draw(c, strings::GRAPH_FAILED, lx, rect.y + 14.0 * s, &st);
+    }
 }
 
 fn score_panel_draw(
@@ -322,7 +460,14 @@ fn score_panel_draw(
 
     let label_w = t.draw(c, "EX SCORE", inner.x, y + 14.0 * s, &caption(10.0, s));
     if f.update.ex {
-        new_tag(c, t, inner.x + label_w + 8.0 * s, y + 14.0 * s, s);
+        new_tag(
+            c,
+            t,
+            inner.x + label_w + 8.0 * s,
+            y + 14.0 * s,
+            strings::NEW_RECORD,
+            s,
+        );
     }
     let shown = (score.ex_score as f32 * reveal).round() as u32;
     let ex_w = t.draw(
@@ -416,7 +561,7 @@ fn score_panel_draw(
         };
         if beaten {
             // Above the label: the columns are too narrow to fit it beside one.
-            new_tag(c, t, sx, y + 138.0 * s, s);
+            new_tag(c, t, sx, y + 138.0 * s, strings::NEW_RECORD, s);
         }
         let vw = t.draw(
             c,
@@ -658,6 +803,12 @@ mod tests {
                 JudgeGrade::PerfectGreat
             });
         }
+        // A dense trend (more samples than graph columns): the graph must
+        // still fit in the frame's one batch.
+        let mut trend = GaugeTrend::new(120.0);
+        for i in 0..240 {
+            trend.sample(i as f64 * 0.5, 20.0 + i as f64 * 0.3, false);
+        }
         let mut ui = Ui::new(vp.scale);
         let beaten = ScoreUpdate {
             lamp: true,
@@ -679,6 +830,7 @@ mod tests {
                     jacket: None,
                     unsaved_reason: Some("AUTO PLAY"),
                     ln_label: Some("CN (HCN)"),
+                    gauge_trend: &trend,
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
@@ -705,12 +857,14 @@ mod tests {
                 jacket: None,
                 unsaved_reason: None,
                 ln_label: None,
+                gauge_trend: &GaugeTrend::default(),
             },
         );
         let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;
         for id in [
             HitId::ResultSongSelect,
             HitId::ResultRetry,
+            HitId::ResultRetryOptions,
             HitId::ResultScreenshot,
         ] {
             let r = ui
@@ -727,7 +881,7 @@ mod tests {
         }
         assert_eq!(
             ui.hits.len(),
-            3,
+            4,
             "the result screen has only its footer buttons"
         );
     }

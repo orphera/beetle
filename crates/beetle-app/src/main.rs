@@ -254,6 +254,8 @@ impl ApplicationHandler for BeetleApp {
             key_hint: saved_config.key_hint,
             gameplay_readout: None,
             gameplay_end: None,
+            play_end: crate::gameplay::PlayEndGuard::default(),
+            gauge_trend: beetle_core::GaugeTrend::default(),
             is_alt_pressed: false,
             bgm_cursor: 0,
             library_receiver: Some(library_receiver),

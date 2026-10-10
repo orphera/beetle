@@ -266,6 +266,7 @@ table! {
     pub HINT_MOVE = "이동";
     pub HINT_CHANGE = "변경";
     pub HINT_CLOSE = "닫기";
+    pub HINT_START = "시작";
     pub HINT_SELECT = "선택";
 
     // Help sentences: one line under the highlighted row (plain Korean).
@@ -354,8 +355,20 @@ table! {
     pub RESULT = "결과";
     pub RESULT_SONG_SELECT = "곡 선택";
     pub RESULT_RETRY = "다시 하기";
+    pub RESULT_RETRY_OPTIONS = "옵션 바꿔 다시 하기";
     pub RESULT_SCREENSHOT = "스크린샷";
     pub SCORE_NOT_SAVED = "기록이 저장되지 않음";
+    /// The button of the play options panel opened from the result: play
+    /// again with the options as changed (ENTER).
+    pub RESULT_OPTIONS_START = "새 옵션으로 다시 하기";
+    /// Trend graph: the clear line (`{}` = gauge percent) and the fail line of
+    /// the HARD / HAZARD gauges, which fail at 0.
+    pub GRAPH_CLEAR_LINE = "클리어 {}%";
+    pub GRAPH_FAIL_LINE = "실패 0%";
+    /// Marks the point where the stage failed on the trend graph.
+    pub GRAPH_FAILED = "FAILED";
+    /// Tag next to the clear lamp when the lamp got better.
+    pub NEW_LAMP = "램프 갱신";
     /// Clear banners. Kept in English next to the clear lamps (FULL COMBO, FAILED).
     pub STAGE_CLEAR = "STAGE CLEAR";
     pub STAGE_FAILED = "STAGE FAILED";

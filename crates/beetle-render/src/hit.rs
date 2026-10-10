@@ -59,10 +59,15 @@ pub enum HitId {
     Rescan,
     /// Opens the quit prompt.
     Quit,
-    /// Result screen footer: back to song select, play again, screenshot.
+    /// Result screen footer: back to song select, play again, play again with
+    /// the play options changed (opens the options panel), screenshot.
     ResultSongSelect,
     ResultRetry,
+    ResultRetryOptions,
     ResultScreenshot,
+    /// The play options panel opened from the result: play again with the
+    /// options as changed.
+    OptionStart,
     /// Key configuration: a mode tab (index into `KEY_MODES`).
     KeyModeTab(usize),
     /// Key configuration: a lane button (index into the screen lane order).

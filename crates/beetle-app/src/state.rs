@@ -149,6 +149,11 @@ pub struct AppState {
     /// Set once the song is over: the end banner is showing and the play has
     /// been saved (see `gameplay::finish_gameplay`).
     pub gameplay_end: Option<crate::gameplay::GameplayEnd>,
+    /// Whether this play has ended yet: it is saved once (see `PlayEndGuard`).
+    pub play_end: crate::gameplay::PlayEndGuard,
+    /// The gauge over the current play, for the result screen's trend graph.
+    /// Reserved at song start and sampled in `tick_gameplay`.
+    pub gauge_trend: beetle_core::GaugeTrend,
     pub is_alt_pressed: bool,
     pub bgm_cursor: usize,
     /// The song library being read on a worker thread (`AppScreen::Boot`).

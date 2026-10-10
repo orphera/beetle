@@ -30,11 +30,12 @@ pub use hit::{hit_at, Hit, HitId};
 pub use image::{BgaAtlasBuilder, ImageBuffer};
 pub use screens::{
     centred_start, clamp_into_window, draw_boot, draw_calibrate, draw_exit_modal, draw_gameplay,
-    draw_key_config, draw_loading, draw_options_modal, draw_result, draw_screen_fade,
-    draw_settings, draw_song_select, draw_toast, filter_items, scroll_by, visible_rows,
-    window_start, BootFrame, CalibrateFrame, CalibratePhase, FilterBar, FilterItem, KeyBinding,
-    KeyConfigFrame, LoadingFrame, OptionLine, PlayFrame, Rebind, ResultFrame, SelectFrame,
-    SelectRow, SettingsFrame, SizedTexture, SortMenu, ToastFrame, ToastKind, KEY_MODES,
+    draw_key_config, draw_loading, draw_options_modal, draw_options_panel, draw_result,
+    draw_screen_fade, draw_settings, draw_song_select, draw_toast, filter_items, scroll_by,
+    visible_rows, window_start, BootFrame, CalibrateFrame, CalibratePhase, FilterBar, FilterItem,
+    KeyBinding, KeyConfigFrame, LoadingFrame, OptionLine, OptionsFooter, PlayFrame, Rebind,
+    ResultFrame, SelectFrame, SelectRow, SettingsFrame, SizedTexture, SortMenu, ToastFrame,
+    ToastKind, KEY_MODES,
 };
 pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT};
 pub use skin::{

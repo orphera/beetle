@@ -585,7 +585,23 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 jacket,
                 unsaved_reason: unsaved,
                 ln_label: ln_label.as_deref(),
+                gauge_trend: &state.gauge_trend,
             },
+        );
+    }
+    // TAB on the result opens the play options over it (the same panel as on
+    // song select); ENTER there plays again with the options as changed.
+    if state.show_option_modal {
+        let lines = option_lines(state, PLAY_OPTIONS);
+        let row = state.modal_row.min(PLAY_OPTIONS.len() - 1);
+        let d = &PLAY_OPTIONS[row];
+        beetle_render::draw_options_panel(
+            &mut state.gpu_ui.ui,
+            &state.view.viewport,
+            &lines,
+            row,
+            (d.label, d.help),
+            beetle_render::OptionsFooter::Retry,
         );
     }
     overlays(state, true);

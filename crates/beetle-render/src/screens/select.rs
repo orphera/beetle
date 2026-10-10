@@ -2251,18 +2251,44 @@ pub fn draw_options_modal(
     selected: usize,
     help: (&str, &str),
 ) {
+    draw_options_panel(ui, vp, lines, selected, help, OptionsFooter::Close);
+}
+
+/// What the play options panel offers besides the rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionsFooter {
+    /// Over the song list: TAB closes it (the values were saved as changed).
+    Close,
+    /// Over the result screen: a start button plays again with the options as
+    /// changed (ENTER, or a click on the button). TAB closes without playing.
+    Retry,
+}
+
+/// The play options panel with the footer of `footer` (see `OptionsFooter`).
+pub fn draw_options_panel(
+    ui: &mut Ui,
+    vp: &Viewport,
+    lines: &[OptionLine],
+    selected: usize,
+    help: (&str, &str),
+    footer: OptionsFooter,
+) {
     let sk = ui.skin;
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = vp.scale;
     let row_h = 34.0 * s;
     let section_h = 30.0 * s;
+    let start_h = match footer {
+        OptionsFooter::Close => 0.0,
+        OptionsFooter::Retry => 56.0 * s,
+    };
     // Rows, section headers, then the help card and the hint line below them.
     let body: f32 = lines
         .iter()
         .map(|l| row_h + if l.section.is_some() { section_h } else { 0.0 })
         .sum();
-    let h = (body + (widgets::HELP_CARD_H + 136.0) * s).min(vp.height - 32.0 * s);
+    let h = (body + (widgets::HELP_CARD_H + 136.0) * s + start_h).min(vp.height - 32.0 * s);
     let panel = modal_panel(c, &sk, vp, &mut hs, 500.0 * s, h, s);
     let inner = panel.inset(28.0 * s);
 
@@ -2297,17 +2323,46 @@ pub fn draw_options_modal(
     let card = Rect::new(inner.x, y + 12.0 * s, inner.w, widgets::HELP_CARD_H * s);
     widgets::help_card(c, t, &sk, card, help.0, help.1, s);
 
-    let hints = [
-        ("↑↓", strings::HINT_MOVE),
-        (LEFT_RIGHT, strings::HINT_CHANGE),
-        ("TAB", strings::HINT_CLOSE),
-    ];
-    let w = hint_row(c, t, &sk, &hints, 0.0, 0.0, s, false);
+    let hints: &[(&str, &str)] = match footer {
+        OptionsFooter::Close => &[
+            ("↑↓", strings::HINT_MOVE),
+            (LEFT_RIGHT, strings::HINT_CHANGE),
+            ("TAB", strings::HINT_CLOSE),
+        ],
+        OptionsFooter::Retry => {
+            let start = Rect::new(inner.x, card.bottom() + 12.0 * s, inner.w, 36.0 * s);
+            hs.add(start, HitId::OptionStart);
+            let hovered = hs.hovered(start);
+            c.nine(
+                &sk.cut_panel,
+                start,
+                if hovered {
+                    theme::CYAN
+                } else {
+                    theme::CYAN.with_alpha(200)
+                },
+            );
+            t.draw_in(
+                c,
+                strings::RESULT_OPTIONS_START,
+                start,
+                Align::Center,
+                &TextStyle::new(15.0 * s).bold().color(theme::ON_ACCENT),
+            );
+            &[
+                ("↑↓", strings::HINT_MOVE),
+                (LEFT_RIGHT, strings::HINT_CHANGE),
+                ("ENTER", strings::HINT_START),
+                ("TAB", strings::HINT_CLOSE),
+            ]
+        }
+    };
+    let w = hint_row(c, t, &sk, hints, 0.0, 0.0, s, false);
     hint_row(
         c,
         t,
         &sk,
-        &hints,
+        hints,
         panel.x + (panel.w - w) / 2.0,
         panel.bottom() - 44.0 * s,
         s,

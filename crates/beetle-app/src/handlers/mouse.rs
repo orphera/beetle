@@ -16,7 +16,7 @@ use crate::handlers::key_config::{
 use crate::handlers::options::{
     change_option, close_options, move_option_row, move_row, open_options,
 };
-use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
+use crate::handlers::result::{retry_song, retry_with_options, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
     activate_filter, activate_selected, choose_chart, clear_filter, close_help, close_sort_menu,
@@ -143,9 +143,28 @@ fn song_select_click(state: &mut AppState, id: HitId) {
 }
 
 fn result_click(state: &mut AppState, id: HitId) {
+    // The play options panel over the result: its rows, and its start button.
+    if state.show_option_modal {
+        match id {
+            HitId::OptionRow(row) => state.modal_row = row,
+            HitId::OptionPrev(row) => {
+                state.modal_row = row;
+                change_option(state, row, false);
+            }
+            HitId::OptionNext(row) => {
+                state.modal_row = row;
+                change_option(state, row, true);
+            }
+            HitId::OptionStart => retry_with_options(state),
+            HitId::Blocker => close_options(state),
+            _ => (),
+        }
+        return;
+    }
     match id {
         HitId::ResultSongSelect => to_song_select(state),
         HitId::ResultRetry => retry_song(state),
+        HitId::ResultRetryOptions => open_options(state),
         HitId::ResultScreenshot => take_screenshot(state),
         _ => (),
     }
