@@ -761,7 +761,7 @@ U4는 두 커밋이다. 먼저 크기 원인을 줄이고(커밋 `22a66af`), 그
   - 렌더 텍스트 크기: 태그·칩은 `TextStyle::new(11.0 * s)` 리터럴로 남아 있다(테스트가 리터럴 값을 본다).
   - `beetle-app.exe`가 1 MB 목표를 넘은 상태(3.13 MB). 줄일 방법은 따로 측정해서 정한다.
 - **범위 밖 문제(U3b에서 발견)**
-  - 라이브러리 검색에 `AIRSHAVER`가 나오지 않는다(`songs/AIRSHAVER.bmsp`가 있는데도 0건). 원인은 아직 확인하지 않았다.
+  - ~~라이브러리 검색에 `AIRSHAVER`가 나오지 않는다~~ → **원인 확인: (c) 의도된 동작.** `songs/AIRSHAVER.bmsp`는 설치되지 않은 패키지다. 스캐너(`scanner.rs`)는 폴더에서 `bms/bme/bml/pms`만 읽고, 패키지는 레지스트리의 활성 상태만 읽는다(942634e). `packages/`에는 `registry.json`이 없어 활성 패키지가 0개다(`bpm list`: "No packages installed."). Baby·514nm 등은 라이브러리 폴더(`D:\U_E`)의 `.bms`다. 격리 실험(`scratch/airshaver-run`, 복사본 설치)에서는 `bpm install` 뒤 `bpm songs`에 AIRSHAVER(6채보: 7K·14K)가 나왔다. 코드 변경 없음. 제안: 재스캔(F5)이나 부팅 때 `songs/`에 설치되지 않은 `.bmsp`가 있으면 토스트로 "설치되지 않은 패키지 N개: AIRSHAVER.bmsp — `bpm install`로 설치" 안내. 의미 변경은 하지 않았다.
   - 노트 수 1,412 vs 1,440: 상세 패널은 LN 규칙별 `notes_for`, 로딩 카드는 CN 기준 `notes_count`를 쓴다. 한쪽으로 맞춰야 한다.
 
 순서 근거: U1이 없으면 U2~U5에서 마우스·IME·문자열을 화면마다 따로 붙이게 된다.
