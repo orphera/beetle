@@ -4,6 +4,7 @@ mod calibration;
 mod config;
 mod demo;
 mod devtools;
+mod filters;
 mod folders;
 mod gameplay;
 mod gpu_ui;
@@ -185,6 +186,12 @@ impl ApplicationHandler for BeetleApp {
             entries: Vec::new(),
             selected_entry: 0,
             chart_choice: saved_config.chart_choices.clone(),
+            filter: saved_config.filter.clone(),
+            filter_focus: None,
+            sort_menu: None,
+            present_modes: Vec::new(),
+            level_steps: Vec::new(),
+            result_count: None,
             search_query: String::new(),
             search_preedit: String::new(),
             is_search_active: false,

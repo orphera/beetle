@@ -1,6 +1,9 @@
 use std::fs;
 
-use beetle_core::{sort_songs, ReplayData};
+use std::time::Instant;
+
+use beetle_core::{sort_songs, ReplayData, SortMode};
+use beetle_render::{filter_items, FilterItem};
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
@@ -84,6 +87,12 @@ pub fn handle_song_select_input(
         return;
     }
 
+    // The sort menu and the filter row take their keys first. Any other key
+    // closes the menu or leaves the row, and then acts as usual.
+    if sort_menu_key(state, code) || filter_key(state, code) {
+        return;
+    }
+
     // Normal SongSelect navigation & hotkeys
     match code {
         // ESC goes up a folder; at the root it asks to quit.
@@ -103,6 +112,7 @@ pub fn handle_song_select_input(
         KeyCode::F12 | KeyCode::KeyC => open_key_config(state),
         KeyCode::F4 => open_settings(state),
         KeyCode::F2 => cycle_sort(state),
+        KeyCode::F10 => focus_filter(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
         // On a group row the arrows switch its chart; elsewhere they open or leave a folder.
@@ -278,9 +288,15 @@ pub fn activate_selected(state: &mut AppState) {
     }
 }
 
-/// Cycles the sort mode, re-sorts the library and saves the choice.
+/// Cycles the sort mode (F2), re-sorts the library and saves the choice.
 pub fn cycle_sort(state: &mut AppState) {
-    state.sort_mode = state.sort_mode.next();
+    let next = state.sort_mode.next();
+    set_sort(state, next);
+}
+
+/// Sorts the library by `mode`, re-sorts the rows and saves the choice.
+pub fn set_sort(state: &mut AppState, mode: SortMode) {
+    state.sort_mode = mode;
     let ln_option = state.ln_option();
     sort_songs(
         &mut state.songs,
@@ -289,8 +305,163 @@ pub fn cycle_sort(state: &mut AppState) {
         ln_option,
     );
     state.recompute_entries();
-    state.cursor_settle_time = std::time::Instant::now();
+    state.cursor_settle_time = Instant::now();
     state.save_config();
+}
+
+/// The position of the sort mode in the sort menu.
+fn sort_index(mode: SortMode) -> usize {
+    SortMode::ALL.iter().position(|&m| m == mode).unwrap_or(0)
+}
+
+/// Opens the sort menu with the mode in use highlighted.
+pub fn open_sort_menu(state: &mut AppState) {
+    state.sort_menu = Some(sort_index(state.sort_mode));
+}
+
+/// Opens the sort menu, or closes it when it is open (a click on the sort selector).
+pub fn toggle_sort_menu(state: &mut AppState) {
+    if state.sort_menu.is_some() {
+        close_sort_menu(state);
+    } else {
+        open_sort_menu(state);
+    }
+}
+
+/// Closes the sort menu without changing the sort (ESC, or a click outside).
+pub fn close_sort_menu(state: &mut AppState) {
+    state.sort_menu = None;
+}
+
+/// Moves the menu's highlight one option down or up, wrapping.
+pub fn move_sort_highlight(state: &mut AppState, down: bool) {
+    let n = SortMode::ALL.len();
+    if let Some(highlight) = state.sort_menu.as_mut() {
+        *highlight = if down {
+            (*highlight + 1) % n
+        } else {
+            (*highlight + n - 1) % n
+        };
+    }
+}
+
+/// Picks the sort option at `index` (a click, or ENTER on the highlight) and closes the menu.
+pub fn pick_sort(state: &mut AppState, index: usize) {
+    state.sort_menu = None;
+    if let Some(&mode) = SortMode::ALL.get(index) {
+        set_sort(state, mode);
+    }
+}
+
+/// The sort menu's keys while it is open. Returns false (after closing it)
+/// for a key the menu does not use, so that key acts as usual.
+fn sort_menu_key(state: &mut AppState, code: KeyCode) -> bool {
+    let Some(highlight) = state.sort_menu else {
+        return false;
+    };
+    match code {
+        KeyCode::Escape => close_sort_menu(state),
+        KeyCode::ArrowUp | KeyCode::KeyK => move_sort_highlight(state, false),
+        KeyCode::ArrowDown | KeyCode::KeyJ => move_sort_highlight(state, true),
+        KeyCode::Enter | KeyCode::Space => pick_sort(state, highlight),
+        _ => {
+            close_sort_menu(state);
+            return false;
+        }
+    }
+    true
+}
+
+/// The filter row item at `index`, as the row lists them now.
+fn filter_item_at(state: &AppState, index: usize) -> Option<FilterItem> {
+    filter_items(state.present_modes.len(), state.filter.is_active())
+        .get(index)
+        .copied()
+}
+
+/// Gives the filter row keyboard focus (F10), or takes it back.
+pub fn focus_filter(state: &mut AppState) {
+    state.filter_focus = match state.filter_focus {
+        Some(_) => None,
+        None => Some(0),
+    };
+}
+
+/// Runs filter item `index` as ENTER or a click does: a mode chip toggles, a
+/// level bound steps up, a toggle flips, 초기화 clears the filter.
+pub fn activate_filter(state: &mut AppState, index: usize) {
+    let Some(item) = filter_item_at(state, index) else {
+        return;
+    };
+    match item {
+        FilterItem::Mode(i) => match state.present_modes.get(i) {
+            Some(&mode) => state.filter.toggle_mode(mode),
+            None => return,
+        },
+        FilterItem::LevelMin => state.filter.step_level(&state.level_steps, false, true),
+        FilterItem::LevelMax => state.filter.step_level(&state.level_steps, true, true),
+        FilterItem::Unplayed => state.filter.only_unplayed = !state.filter.only_unplayed,
+        FilterItem::Uncleared => state.filter.only_uncleared = !state.filter.only_uncleared,
+        FilterItem::Reset => state.filter.clear(),
+    }
+    apply_filter(state);
+}
+
+/// Steps a level bound of filter item `index` down or up (its arrows, or UP / DOWN on it).
+pub fn step_filter_level(state: &mut AppState, index: usize, up: bool) {
+    match filter_item_at(state, index) {
+        Some(FilterItem::LevelMin) => state.filter.step_level(&state.level_steps, false, up),
+        Some(FilterItem::LevelMax) => state.filter.step_level(&state.level_steps, true, up),
+        _ => return,
+    }
+    apply_filter(state);
+}
+
+/// Shows every song again (the 초기화 item, or the empty list's button).
+pub fn clear_filter(state: &mut AppState) {
+    state.filter.clear();
+    apply_filter(state);
+}
+
+/// Rebuilds the list after a filter change and saves the filter.
+fn apply_filter(state: &mut AppState) {
+    state.recompute_entries();
+    state.cursor_settle_time = Instant::now();
+    state.save_config();
+}
+
+/// The filter row's keys while it has focus: LEFT / RIGHT move the focus,
+/// ENTER activates the item, UP / DOWN step a level bound, ESC / F10 leave the
+/// row. Returns false (after leaving the row) for any other key.
+fn filter_key(state: &mut AppState, code: KeyCode) -> bool {
+    let Some(focus) = state.filter_focus else {
+        return false;
+    };
+    let last = filter_items(state.present_modes.len(), state.filter.is_active()).len() - 1;
+    match code {
+        KeyCode::Escape | KeyCode::F10 => state.filter_focus = None,
+        KeyCode::ArrowLeft => state.filter_focus = Some(focus.saturating_sub(1)),
+        KeyCode::ArrowRight => state.filter_focus = Some((focus + 1).min(last)),
+        KeyCode::Enter | KeyCode::Space => {
+            activate_filter(state, focus);
+            // Reset may have left the row: keep the focus on an item.
+            let last = filter_items(state.present_modes.len(), state.filter.is_active()).len() - 1;
+            state.filter_focus = Some(focus.min(last));
+        }
+        KeyCode::ArrowUp | KeyCode::ArrowDown
+            if matches!(
+                filter_item_at(state, focus),
+                Some(FilterItem::LevelMin | FilterItem::LevelMax)
+            ) =>
+        {
+            step_filter_level(state, focus, code == KeyCode::ArrowUp);
+        }
+        _ => {
+            state.filter_focus = None;
+            return false;
+        }
+    }
+    true
 }
 
 /// Plays the highlighted song (ENTER, or a click on the selected row).

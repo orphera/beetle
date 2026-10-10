@@ -25,8 +25,20 @@ pub enum HitId {
         row: usize,
         pos: usize,
     },
-    /// The sort selector (cycles the sort mode).
+    /// The sort selector: opens or closes the sort menu.
     Sort,
+    /// A row of the open sort menu (its index in `SortMode::ALL`).
+    SortOption(usize),
+    /// A filter row item (its index in `filter_items`): a mode chip toggles,
+    /// a level bound steps up, a toggle flips, 초기화 clears.
+    FilterItem(usize),
+    /// A level bound's arrow: step it down (`up` false) or up.
+    FilterStep {
+        item: usize,
+        up: bool,
+    },
+    /// The empty list's 필터 초기화 button.
+    FilterReset,
     /// The search box (starts a search).
     Search,
     Play,

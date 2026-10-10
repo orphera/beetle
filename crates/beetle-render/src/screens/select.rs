@@ -76,6 +76,12 @@ pub struct SelectFrame<'a> {
     pub has_replay: bool,
     /// Seconds the selected song's audio preview has been playing; `None` when it is not.
     pub preview_secs: Option<f32>,
+    /// The filter row (mode chips, level bounds, toggles).
+    pub filter: FilterBar<'a>,
+    /// The "N곡 찾음" count while a search or a filter is on.
+    pub result_count: Option<usize>,
+    /// The sort menu, while it is open.
+    pub sort_menu: Option<SortMenu<'a>>,
 }
 
 // Layout grid (1280×720 units).
@@ -105,12 +111,12 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
 
     let content = Rect::from_ltrb(
         vp.x + PAD * s,
-        vp.y + (TOPBAR_H + 24.0) * s,
+        vp.y + (TOPBAR_H + 36.0) * s,
         vp.x + vp.width - PAD * s,
         vp.y + vp.height - (FOOTER_H + 24.0) * s,
     );
     if f.rows.is_empty() {
-        empty_state(c, t, f, content, s);
+        empty_state(c, t, f, content, s, &mut hs);
     } else {
         let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
         song_list(c, t, &sk, f, list, s, &mut hs);
@@ -143,8 +149,13 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         }
     }
 
-    ui.ime_caret = top_bar(c, t, &sk, f, s, &mut hs);
+    let (caret, sort_anchor) = top_bar(c, t, &sk, f, s, &mut hs);
+    ui.ime_caret = caret;
+    filter_row(c, t, &sk, f, s, &mut hs);
     footer(c, t, &sk, f, s, &mut hs);
+    if let Some(menu) = &f.sort_menu {
+        sort_menu(c, t, &sk, vp, menu, sort_anchor, s, &mut hs);
+    }
 }
 
 fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetadata>, lite: bool) {
@@ -218,6 +229,8 @@ fn bar_button(
 /// Between two breadcrumb segments.
 const CRUMB_SEP: &str = " > ";
 
+/// Draws the top bar. Returns the IME caret rect and the sort selector's rect
+/// (the sort menu opens under it).
 fn top_bar(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -225,7 +238,7 @@ fn top_bar(
     f: &SelectFrame,
     s: f32,
     hs: &mut HitSink,
-) -> Option<Rect> {
+) -> (Option<Rect>, Rect) {
     let vp = f.viewport;
     let x0 = vp.x + PAD * s;
     let adv = widgets::top_bar(c, t, vp, strings::WORDMARK, s);
@@ -323,7 +336,7 @@ fn top_bar(
     };
     c.sprite(sk.icons.chevron_right, next, next_col);
 
-    // Sort: "LABEL  value", a click cycles it.
+    // Sort: "LABEL  value", a click opens the sort menu.
     let mut sx = sort_x;
     sx += t.draw(c, strings::SORT, sx, base, &cap) + 12.0 * s;
     t.draw(c, f.sort, sx, base, &sort_value_st);
@@ -334,7 +347,7 @@ fn top_bar(
         bar_h,
     );
     hs.add(sort_hit, HitId::Sort);
-    if hs.hovered(sort_hit) {
+    if hs.hovered(sort_hit) || f.sort_menu.is_some() {
         c.stroke_rect(sort_hit, s.max(1.0), theme::CYAN.with_alpha(90));
     }
 
@@ -443,7 +456,7 @@ fn top_bar(
         20.0 * s,
     );
     keycap(c, t, sk, "/", key, s);
-    caret
+    (caret, sort_hit)
 }
 
 // ---------------------------------------------------------------------------
@@ -949,14 +962,26 @@ fn folder_panel(
     );
 }
 
-fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, s: f32) {
-    let (head, hint) = if f.search.is_empty() {
-        (strings::EMPTY_FOLDER.to_string(), strings::EMPTY_HINT)
-    } else {
+fn empty_state(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    f: &SelectFrame,
+    area: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    let (head, hint) = if !f.search.is_empty() {
         (
             strings::fill(strings::NO_MATCH, &[&f.search]),
             strings::SEARCH_HINT,
         )
+    } else if f.filter.active {
+        (
+            strings::FILTER_NO_MATCH.to_string(),
+            strings::FILTER_EMPTY_HINT,
+        )
+    } else {
+        (strings::EMPTY_FOLDER.to_string(), strings::EMPTY_HINT)
     };
     let cy = area.y + area.h * 0.42;
     let head_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
@@ -975,6 +1000,22 @@ fn empty_state(c: &mut Canvas, t: &mut TextEngine, f: &SelectFrame, area: Rect, 
         Align::Center,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
     );
+    if f.filter.active {
+        let w = 120.0 * s;
+        let r = Rect::new(area.x + (area.w - w) / 2.0, cy + 46.0 * s, w, 28.0 * s);
+        hs.add(r, HitId::FilterReset);
+        let hot = hs.hovered(r);
+        chip_frame(c, r, false, hot, false, s);
+        t.draw_in(
+            c,
+            strings::FILTER_RESET,
+            r,
+            Align::Center,
+            &TextStyle::new(12.0 * s)
+                .bold()
+                .color(if hot { theme::TEXT } else { theme::MUTED }),
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,6 +1559,384 @@ fn footer(
 }
 
 // ---------------------------------------------------------------------------
+// Filter row
+// ---------------------------------------------------------------------------
+
+/// The filter row's top edge and height (1280×720 units). It sits under the
+/// top bar's divider; the list starts below it (see `draw_song_select`).
+const FILTER_Y: f32 = 70.0;
+const FILTER_H: f32 = 24.0;
+
+/// One item of the filter row. The row lists them left to right in this order,
+/// and the app's keys and clicks index them with `filter_items`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterItem {
+    /// A mode chip: the index into `FilterBar::modes`.
+    Mode(usize),
+    /// The lowest level shown (`‹ value ›`).
+    LevelMin,
+    /// The highest level shown.
+    LevelMax,
+    Unplayed,
+    Uncleared,
+    /// 초기화, listed only while a filter is on.
+    Reset,
+}
+
+/// The items of the filter row for `modes` mode chips.
+pub fn filter_items(modes: usize, active: bool) -> Vec<FilterItem> {
+    let mut items: Vec<FilterItem> = (0..modes).map(FilterItem::Mode).collect();
+    items.extend([
+        FilterItem::LevelMin,
+        FilterItem::LevelMax,
+        FilterItem::Unplayed,
+        FilterItem::Uncleared,
+    ]);
+    if active {
+        items.push(FilterItem::Reset);
+    }
+    items
+}
+
+/// What the filter row shows: the mode chips (label, in the filter), the level
+/// bounds, the two toggles, and the keyboard focus.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FilterBar<'a> {
+    pub modes: &'a [(&'a str, bool)],
+    pub level_min: Option<u32>,
+    pub level_max: Option<u32>,
+    pub unplayed: bool,
+    pub uncleared: bool,
+    /// Whether any filter is on (the row then lists 초기화).
+    pub active: bool,
+    /// The focused item, an index into `filter_items`.
+    pub focus: Option<usize>,
+}
+
+/// The open sort menu: its option names, the option in use, and the highlighted one.
+#[derive(Clone, Copy, Debug)]
+pub struct SortMenu<'a> {
+    pub options: &'a [&'a str],
+    pub current: usize,
+    pub highlight: usize,
+}
+
+/// A filter chip (or button) frame: filled and outlined in the accent when
+/// `on`, with a white ring when keyboard focus is on it.
+fn chip_frame(c: &mut Canvas, r: Rect, on: bool, hot: bool, focus: bool, s: f32) {
+    let fill = if on {
+        theme::CYAN.with_alpha(36)
+    } else if hot {
+        theme::SURF3
+    } else {
+        theme::SURF2
+    };
+    c.fill_rect(r, fill);
+    c.stroke_rect(
+        r,
+        s.max(1.0),
+        if on {
+            theme::CYAN.with_alpha(200)
+        } else {
+            theme::LINE
+        },
+    );
+    if focus {
+        let ring = Rect::new(r.x - 2.0 * s, r.y - 2.0 * s, r.w + 4.0 * s, r.h + 4.0 * s);
+        c.stroke_rect(ring, s.max(1.0), theme::WHITE.with_alpha(200));
+    }
+}
+
+/// A chip's label, centered. Lit text when the chip is on or hovered.
+fn chip_label(c: &mut Canvas, t: &mut TextEngine, r: Rect, label: &str, lit: bool, s: f32) {
+    let st = TextStyle::new(11.0 * s)
+        .bold()
+        .color(if lit { theme::TEXT } else { theme::MUTED });
+    t.draw_in(c, label, r, Align::Center, &st);
+}
+
+/// Width of a text chip: its label plus padding.
+fn chip_width(c: &mut Canvas, t: &mut TextEngine, label: &str, s: f32) -> f32 {
+    t.measure(c, label, &TextStyle::new(11.0 * s).bold()) + 16.0 * s
+}
+
+/// The filter row: `필터 F10`, the mode chips, the level bounds, the toggles,
+/// 초기화 while a filter is on, and the result count at the right.
+fn filter_row(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    let vp = f.viewport;
+    let bar = Rect::new(
+        vp.x + PAD * s,
+        vp.y + FILTER_Y * s,
+        vp.width - 2.0 * PAD * s,
+        FILTER_H * s,
+    );
+    let fb = &f.filter;
+    let cap = caption(10.0, s);
+    let mut x = bar.x;
+
+    let label_w = t.measure(c, strings::FILTER, &cap);
+    t.draw_in(
+        c,
+        strings::FILTER,
+        Rect::new(x, bar.y, label_w + 1.0, bar.h),
+        Align::Left,
+        &cap,
+    );
+    x += label_w + 6.0 * s;
+    let key_w = keycap_width(c, t, "F10", s);
+    keycap(
+        c,
+        t,
+        sk,
+        "F10",
+        Rect::new(x, bar.y + (bar.h - 20.0 * s) / 2.0, key_w, 20.0 * s),
+        s,
+    );
+    x += key_w + 14.0 * s;
+
+    // The item indices follow `filter_items`: modes, the bounds, the toggles, reset.
+    let mut item = 0;
+    for &(label, on) in fb.modes {
+        let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
+        hs.add(r, HitId::FilterItem(item));
+        let hot = hs.hovered(r);
+        chip_frame(c, r, on, hot, fb.focus == Some(item), s);
+        chip_label(c, t, r, label, on || hot, s);
+        x += r.w + 6.0 * s;
+        item += 1;
+    }
+
+    x += 8.0 * s;
+    c.fill_rect(
+        Rect::new(x, bar.y + 4.0 * s, s.max(1.0), bar.h - 8.0 * s),
+        theme::LINE,
+    );
+    x += 10.0 * s;
+
+    let level_w = t.measure(c, strings::FILTER_LEVEL, &cap);
+    t.draw_in(
+        c,
+        strings::FILTER_LEVEL,
+        Rect::new(x, bar.y, level_w + 1.0, bar.h),
+        Align::Left,
+        &cap,
+    );
+    x += level_w + 6.0 * s;
+    let min_label = fb
+        .level_min
+        .map_or(strings::FILTER_LEVEL_MIN_ANY.to_string(), |v| v.to_string());
+    let min_on = fb.level_min.is_some();
+    x += level_stepper(
+        c,
+        t,
+        sk,
+        hs,
+        x,
+        bar,
+        &min_label,
+        min_on,
+        fb.focus == Some(item),
+        item,
+        s,
+    );
+    item += 1;
+    let tilde_w = t.measure(c, "~", &cap);
+    t.draw_in(
+        c,
+        "~",
+        Rect::new(x, bar.y, tilde_w + 1.0, bar.h),
+        Align::Left,
+        &cap,
+    );
+    x += tilde_w + 6.0 * s;
+    let max_label = fb
+        .level_max
+        .map_or(strings::FILTER_LEVEL_MAX_ANY.to_string(), |v| v.to_string());
+    let max_on = fb.level_max.is_some();
+    x += level_stepper(
+        c,
+        t,
+        sk,
+        hs,
+        x,
+        bar,
+        &max_label,
+        max_on,
+        fb.focus == Some(item),
+        item,
+        s,
+    );
+    item += 1;
+
+    x += 12.0 * s;
+    for (label, on) in [
+        (strings::FILTER_UNPLAYED, fb.unplayed),
+        (strings::FILTER_UNCLEARED, fb.uncleared),
+    ] {
+        let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
+        hs.add(r, HitId::FilterItem(item));
+        let hot = hs.hovered(r);
+        chip_frame(c, r, on, hot, fb.focus == Some(item), s);
+        chip_label(c, t, r, label, on || hot, s);
+        x += r.w + 6.0 * s;
+        item += 1;
+    }
+
+    if fb.active {
+        let r = Rect::new(
+            x + 6.0 * s,
+            bar.y,
+            chip_width(c, t, strings::FILTER_RESET, s),
+            bar.h,
+        );
+        hs.add(r, HitId::FilterItem(item));
+        let hot = hs.hovered(r);
+        chip_frame(c, r, false, hot, fb.focus == Some(item), s);
+        chip_label(c, t, r, strings::FILTER_RESET, hot, s);
+    }
+
+    // The result count ends at the search box's right edge.
+    if let Some(n) = f.result_count {
+        let right = vp.x + vp.width - (PAD + 112.0 + 144.0 + 12.0) * s;
+        let text = strings::fill(strings::RESULT_COUNT, &[&thousands(n as u32)]);
+        t.draw_in(
+            c,
+            &text,
+            Rect::new(right - 160.0 * s, bar.y, 160.0 * s, bar.h),
+            Align::Right,
+            &TextStyle::new(12.0 * s).bold().color(theme::TEXT),
+        );
+    }
+}
+
+/// A level bound `‹ value ›`. The chip is item `item` (a click or ENTER steps
+/// it up); the two arrows record `FilterStep`. Returns the width used.
+#[allow(clippy::too_many_arguments)]
+fn level_stepper(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    hs: &mut HitSink,
+    x: f32,
+    bar: Rect,
+    value: &str,
+    on: bool,
+    focus: bool,
+    item: usize,
+    s: f32,
+) -> f32 {
+    let arrow = 12.0 * s;
+    let st = TextStyle::new(11.0 * s).bold();
+    let value_w = t.measure(c, value, &st);
+    let w = arrow + 8.0 * s + value_w + 8.0 * s + arrow + 4.0 * s;
+    let r = Rect::new(x, bar.y, w + 8.0 * s, bar.h);
+    hs.add(r, HitId::FilterItem(item));
+    let hot = hs.hovered(r);
+    chip_frame(c, r, on, hot, focus, s);
+
+    let arrow_y = bar.y + (bar.h - arrow) / 2.0;
+    let left = Rect::new(r.x + 4.0 * s, arrow_y, arrow, arrow);
+    let right = Rect::new(r.right() - 4.0 * s - arrow, arrow_y, arrow, arrow);
+    let left_hit = Rect::new(r.x, bar.y, arrow + 8.0 * s, bar.h);
+    let right_hit = Rect::new(r.right() - arrow - 8.0 * s, bar.y, arrow + 8.0 * s, bar.h);
+    hs.add(left_hit, HitId::FilterStep { item, up: false });
+    hs.add(right_hit, HitId::FilterStep { item, up: true });
+    let left_col = if hs.hovered(left_hit) {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    let right_col = if hs.hovered(right_hit) {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    c.sprite(sk.icons.chevron_left, left, left_col);
+    c.sprite(sk.icons.chevron_right, right, right_col);
+    t.draw_in(
+        c,
+        value,
+        Rect::new(left.right(), bar.y, right.x - left.right(), bar.h),
+        Align::Center,
+        &st.color(if on || hot { theme::TEXT } else { theme::MUTED }),
+    );
+    r.w
+}
+
+// ---------------------------------------------------------------------------
+// Sort menu
+// ---------------------------------------------------------------------------
+
+/// The sort menu: a small list under the sort selector. The full-screen
+/// blocker is recorded first, so a click outside closes it; the panel and then
+/// the options record after it and win inside.
+#[allow(clippy::too_many_arguments)]
+fn sort_menu(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    vp: &Viewport,
+    menu: &SortMenu,
+    anchor: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    hs.add(Rect::new(vp.x, vp.y, vp.width, vp.height), HitId::Blocker);
+    let item_h = 28.0 * s;
+    let pad = 6.0 * s;
+    let panel = Rect::new(
+        anchor.x,
+        anchor.bottom() + 4.0 * s,
+        144.0 * s,
+        menu.options.len() as f32 * item_h + pad * 2.0,
+    );
+    hs.add(panel, HitId::ModalPanel);
+    c.nine(&sk.panel_lg, panel, theme::SURF1);
+    c.stroke_rect(panel, s.max(1.0), theme::CYAN.with_alpha(160));
+    for (i, label) in menu.options.iter().enumerate() {
+        let r = Rect::new(
+            panel.x + 4.0 * s,
+            panel.y + pad + i as f32 * item_h,
+            panel.w - 8.0 * s,
+            item_h,
+        );
+        hs.add(r, HitId::SortOption(i));
+        let hot = hs.hovered(r);
+        if i == menu.highlight {
+            c.fill_rect(r, theme::SURF3);
+        }
+        let current = i == menu.current;
+        if current {
+            c.fill_rect(
+                Rect::new(r.x + 4.0 * s, r.y + 7.0 * s, 3.0 * s, r.h - 14.0 * s),
+                theme::CYAN,
+            );
+        }
+        let st = TextStyle::new(13.0 * s).bold().color(if current {
+            theme::CYAN
+        } else if hot || i == menu.highlight {
+            theme::TEXT
+        } else {
+            theme::MUTED
+        });
+        t.draw_in(
+            c,
+            label,
+            Rect::new(r.x + 14.0 * s, r.y, r.w - 18.0 * s, r.h),
+            Align::Left,
+            &st,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Modals
 // ---------------------------------------------------------------------------
 
@@ -1773,6 +2192,9 @@ mod tests {
             auto_play: false,
             has_replay: true,
             preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
         };
 
         ui.begin(1280, 720, vp.scale);
@@ -1935,6 +2357,9 @@ mod tests {
                 auto_play: selected == 0,
                 has_replay: selected == 5,
                 preview_secs: None,
+                filter: FilterBar::default(),
+                result_count: None,
+                sort_menu: None,
             };
             draw_song_select(&mut ui, &frame);
             draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
@@ -1977,6 +2402,9 @@ mod tests {
             auto_play: false,
             has_replay: false,
             preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
         };
 
         ui.begin(1280, 720, vp.scale);

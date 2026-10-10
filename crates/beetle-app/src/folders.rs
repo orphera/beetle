@@ -179,6 +179,20 @@ pub fn mode_id(mode: PlayMode) -> &'static str {
     }
 }
 
+/// The key mode with this folder id (the inverse of `mode_id`).
+pub fn mode_from_id(id: &str) -> Option<PlayMode> {
+    MODE_ORDER.iter().copied().find(|&m| mode_id(m) == id)
+}
+
+/// The key modes the library has songs in, in the folder order.
+pub fn present_modes(songs: &[SongMetadata]) -> Vec<PlayMode> {
+    MODE_ORDER
+        .iter()
+        .copied()
+        .filter(|&m| songs.iter().any(|s| s.play_mode == m))
+        .collect()
+}
+
 /// The stable id of a clear lamp folder.
 pub fn lamp_id(lamp: Option<ClearType>) -> &'static str {
     match lamp {
@@ -238,17 +252,21 @@ fn collect_songs(folder: &Folder, out: &mut HashSet<usize>) {
 /// The whole tree for the current library. Top level: 전체 곡, 키 모드, 레벨,
 /// 클리어 램프, 난이도표. Folders with no songs are left out; 난이도표 is left
 /// out when no table has a song in the library.
+///
+/// `pass[i]` says whether song `i` passes the filter (see `filters.rs`). Only
+/// passing songs are listed, so the counts are the counts of the filtered list.
 pub fn build_tree(
     songs: &[SongMetadata],
     score_store: &ScoreStore,
     tables: &TableIndex,
     ln_option: LnOption,
+    pass: &[bool],
 ) -> Vec<Folder> {
     let mut root = Vec::new();
     root.extend(leaf(
         "all".into(),
         strings::FOLDER_ALL.into(),
-        (0..songs.len()).collect(),
+        (0..songs.len()).filter(|&i| pass[i]).collect(),
     ));
 
     // Key modes. The demo track is listed under 5K and 7K as it always was.
@@ -258,9 +276,10 @@ pub fn build_tree(
             let idx = songs
                 .iter()
                 .enumerate()
-                .filter(|(_, s)| {
-                    s.play_mode == mode
-                        || (is_demo(s) && matches!(mode, PlayMode::Keys5 | PlayMode::Keys7))
+                .filter(|(i, s)| {
+                    pass[*i]
+                        && (s.play_mode == mode
+                            || (is_demo(s) && matches!(mode, PlayMode::Keys5 | PlayMode::Keys7)))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -271,7 +290,7 @@ pub fn build_tree(
 
     // Levels, ascending.
     let mut by_level: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
-    for (i, s) in songs.iter().enumerate() {
+    for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
         by_level.entry(s.play_level).or_default().push(i);
     }
     let levels: Vec<Folder> = by_level
@@ -287,7 +306,9 @@ pub fn build_tree(
             let idx = songs
                 .iter()
                 .enumerate()
-                .filter(|(_, s)| score_store.best(s, ln_option).map(|r| r.clear_type) == lamp)
+                .filter(|(i, s)| {
+                    pass[*i] && score_store.best(s, ln_option).map(|r| r.clear_type) == lamp
+                })
                 .map(|(i, _)| i)
                 .collect();
             let label = match lamp {
@@ -304,7 +325,7 @@ pub fn build_tree(
     let mut used_ids: HashMap<String, usize> = HashMap::new();
     for (ti, table) in tables.tables().iter().enumerate() {
         let mut by_level: HashMap<&str, Vec<usize>> = HashMap::new();
-        for (i, s) in songs.iter().enumerate() {
+        for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
             if let Some(entry) = tables.entry_for(ti, s.id) {
                 by_level.entry(entry.level.as_str()).or_default().push(i);
             }
@@ -547,26 +568,61 @@ pub fn row_showing(entries: &[ListEntry], songs: &[SongMetadata], id: ChartId) -
     })
 }
 
+/// The songs a search at `path` looks in: the current leaf's songs, or every
+/// passing song when the folder is a branch (or the root).
+fn search_pool(
+    tree: &[Folder],
+    path: &FolderPath,
+    songs: &[SongMetadata],
+    pass: &[bool],
+) -> Vec<usize> {
+    match node(tree, path).map(|f| &f.body) {
+        Some(Body::Leaf(idx)) => idx.clone(),
+        _ => (0..songs.len()).filter(|&i| pass[i]).collect(),
+    }
+}
+
+/// How many songs the list at `path` shows as a result: the matches of a
+/// non-empty search in its pool, else the songs of the folder (the whole
+/// passing library at the root). Used for the "N곡 찾음" count.
+pub fn result_count(
+    tree: &[Folder],
+    path: &FolderPath,
+    songs: &[SongMetadata],
+    query: &str,
+    pass: &[bool],
+) -> usize {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return match node(tree, path) {
+            Some(folder) => folder.count,
+            None => pass.iter().filter(|&&p| p).count(),
+        };
+    }
+    search_pool(tree, path, songs, pass)
+        .into_iter()
+        .filter(|&i| matches_query(&songs[i], &q))
+        .count()
+}
+
 /// The rows to show for `path`. A branch lists its child folders with their
 /// counts; a leaf lists its songs, with the charts of one song grouped.
 ///
 /// A non-empty search replaces the list with matching songs: from the current
-/// leaf when the folder is one, otherwise from every song in the library (a
-/// branch has no songs of its own to search in). Matches are grouped too.
+/// leaf when the folder is one, otherwise from every passing song in the
+/// library (a branch has no songs of its own to search in). Matches are
+/// grouped too. `pass` is the filter mask; a leaf already holds only passing songs.
 pub fn entries_for(
     tree: &[Folder],
     path: &FolderPath,
     songs: &[SongMetadata],
     query: &str,
     choices: &ChartChoices,
+    pass: &[bool],
 ) -> Vec<ListEntry> {
     let q = query.trim().to_lowercase();
     if !q.is_empty() {
-        let pool: Vec<usize> = match node(tree, path).map(|f| &f.body) {
-            Some(Body::Leaf(idx)) => idx.clone(),
-            _ => (0..songs.len()).collect(),
-        };
-        let matched: Vec<usize> = pool
+        let matched: Vec<usize> = search_pool(tree, path, songs, pass)
             .into_iter()
             .filter(|&i| matches_query(&songs[i], &q))
             .collect();
@@ -661,7 +717,18 @@ mod tests {
     }
 
     fn tree_of(songs: &[SongMetadata], tables: &TableIndex) -> Vec<Folder> {
-        build_tree(songs, &ScoreStore::new(), tables, LnOption::Cn)
+        build_tree(
+            songs,
+            &ScoreStore::new(),
+            tables,
+            LnOption::Cn,
+            &pass_all(&songs),
+        )
+    }
+
+    /// Every song passes: the filter is off.
+    fn pass_all(songs: &[SongMetadata]) -> Vec<bool> {
+        vec![true; songs.len()]
     }
 
     fn ids(tree: &[Folder]) -> Vec<&str> {
@@ -782,6 +849,7 @@ mod tests {
             &songs,
             "",
             &ChartChoices::new(),
+            &pass_all(&songs),
         );
         assert_eq!(
             root,
@@ -810,13 +878,28 @@ mod tests {
         );
 
         let level12 = FolderPath::top("level").child("12");
-        let entries = entries_for(&tree, &level12, &songs, "", &ChartChoices::new());
+        let entries = entries_for(
+            &tree,
+            &level12,
+            &songs,
+            "",
+            &ChartChoices::new(),
+            &pass_all(&songs),
+        );
         assert_eq!(songs_of(&entries), [0, 2]);
         assert_eq!(entries.len(), 2, "a leaf has no folder rows");
 
         let modes = FolderPath::top("mode");
         assert_eq!(
-            entries_for(&tree, &modes, &songs, "", &ChartChoices::new()).len(),
+            entries_for(
+                &tree,
+                &modes,
+                &songs,
+                "",
+                &ChartChoices::new(),
+                &pass_all(&songs)
+            )
+            .len(),
             4
         );
     }
@@ -833,11 +916,20 @@ mod tests {
                 &level12,
                 &songs,
                 "artist 3",
-                &ChartChoices::new()
+                &ChartChoices::new(),
+                &pass_all(&songs)
             )),
             [2]
         );
-        assert!(entries_for(&tree, &level12, &songs, "banana", &ChartChoices::new()).is_empty());
+        assert!(entries_for(
+            &tree,
+            &level12,
+            &songs,
+            "banana",
+            &ChartChoices::new(),
+            &pass_all(&songs)
+        )
+        .is_empty());
     }
 
     #[test]
@@ -846,7 +938,14 @@ mod tests {
         let tree = tree_of(&songs, &TableIndex::default());
         // The level folder is a branch: its search covers all songs, not one level.
         let level = FolderPath::top("level");
-        let found = entries_for(&tree, &level, &songs, "BANANA", &ChartChoices::new());
+        let found = entries_for(
+            &tree,
+            &level,
+            &songs,
+            "BANANA",
+            &ChartChoices::new(),
+            &pass_all(&songs),
+        );
         assert_eq!(found, [ListEntry::Song(1)]);
         // Apple, Cherry, Date and Elder contain "e"; the artists ("artist N") do not.
         assert_eq!(
@@ -855,7 +954,8 @@ mod tests {
                 &FolderPath::default(),
                 &songs,
                 "e",
-                &ChartChoices::new()
+                &ChartChoices::new(),
+                &pass_all(&songs)
             ))
             .len(),
             4
@@ -958,6 +1058,7 @@ mod tests {
             &songs,
             "",
             &ChartChoices::new(),
+            &pass_all(&songs),
         );
         assert_eq!(focus_index(&entries, Some("level")), 2);
         assert_eq!(focus_index(&entries, Some("nope")), 0);
@@ -1099,9 +1200,17 @@ mod tests {
             &ScoreStore::new(),
             &TableIndex::default(),
             LnOption::Cn,
+            &pass_all(&songs),
         );
         let all = FolderPath::top("all");
-        let rows = entries_for(&tree, &all, &songs, "", &ChartChoices::new());
+        let rows = entries_for(
+            &tree,
+            &all,
+            &songs,
+            "",
+            &ChartChoices::new(),
+            &pass_all(&songs),
+        );
         assert_eq!(rows.len(), 2);
         assert_eq!(row_showing(&rows, &songs, songs[1].id), Some(0));
         assert_eq!(row_showing(&rows, &songs, songs[2].id), Some(1));
@@ -1112,8 +1221,69 @@ mod tests {
             &songs,
             "air",
             &ChartChoices::new(),
+            &pass_all(&songs),
         );
         assert_eq!(found.len(), 1);
         assert!(matches!(found[0], ListEntry::Group { .. }));
+    }
+
+    #[test]
+    fn the_filter_mask_shapes_the_folders_the_leaves_and_the_search() {
+        let songs = library(); // Apple 7K 12, Banana 7K 13, Cherry 14K 12, Date 5K 5, Elder 9K 9
+        let pass: Vec<bool> = songs.iter().map(|s| s.play_level == 12).collect();
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &TableIndex::default(),
+            LnOption::Cn,
+            &pass,
+        );
+
+        // The 전체 곡 count and the level branch count only the passing songs.
+        assert_eq!(tree[0].count, 2);
+        let level = tree.iter().find(|f| f.id == "level").unwrap();
+        let Body::Branch(levels) = &level.body else {
+            panic!("level is a branch");
+        };
+        assert_eq!(
+            levels.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            ["12"]
+        );
+        assert_eq!(levels[0].count, 2);
+
+        // The mode branch lists only the modes that still have a passing song.
+        let mode = tree.iter().find(|f| f.id == "mode").unwrap();
+        let Body::Branch(modes) = &mode.body else {
+            panic!("mode is a branch");
+        };
+        assert_eq!(
+            modes.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            ["7k", "14k"]
+        );
+
+        // A search from the root looks only at the passing songs.
+        let root = FolderPath::default();
+        let found = entries_for(&tree, &root, &songs, "apple", &ChartChoices::new(), &pass);
+        assert_eq!(songs_of(&found), [0]);
+        assert_eq!(result_count(&tree, &root, &songs, "apple", &pass), 1);
+        assert_eq!(result_count(&tree, &root, &songs, "", &pass), 2);
+        let hidden = entries_for(&tree, &root, &songs, "date", &ChartChoices::new(), &pass);
+        assert!(hidden.is_empty(), "a song the filter hides is not searched");
+    }
+
+    #[test]
+    fn the_present_modes_follow_the_folder_order_and_the_ids_read_back() {
+        let songs = library();
+        assert_eq!(
+            present_modes(&songs),
+            [
+                PlayMode::Keys5,
+                PlayMode::Keys7,
+                PlayMode::Keys9,
+                PlayMode::Keys14
+            ]
+        );
+        assert_eq!(mode_from_id("14k"), Some(PlayMode::Keys14));
+        assert_eq!(mode_from_id("zz"), None);
     }
 }

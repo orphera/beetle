@@ -1,4 +1,5 @@
-use crate::folders::{ChartChoices, FolderPath};
+use crate::filters::Filter;
+use crate::folders::{mode_from_id, mode_id, ChartChoices, FolderPath};
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
 use beetle_render::{px_per_sec_to_green_ms, EightKForm, FieldPosition, ScratchSide};
@@ -176,6 +177,9 @@ pub struct AppConfig {
     pub folder_path: FolderPath,
     /// The chart each group shows, away from its default (`chart_choice=<group key hex>:<chart id>`).
     pub chart_choices: ChartChoices,
+    /// The song list filter (`filter_modes`, `filter_level_min` / `_max` (0 = no bound),
+    /// `filter_unplayed`, `filter_uncleared`). Defaults to no filter.
+    pub filter: Filter,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
     pub key_layouts: [Option<SavedLayout>; 8],
@@ -204,6 +208,7 @@ impl Default for AppConfig {
             sort_mode: SortMode::Title,
             folder_path: FolderPath::top("all"),
             chart_choices: ChartChoices::new(),
+            filter: Filter::default(),
             key_layouts: Default::default(),
             legacy_key_layout: None,
             master_volume: 1.0,
@@ -307,6 +312,23 @@ impl AppConfig {
                     }
                 }
                 "folder_path" => config.folder_path = FolderPath::parse(val),
+                "filter_modes" => {
+                    for id in val.split(',') {
+                        if let Some(mode) = mode_from_id(id.trim()) {
+                            if !config.filter.modes.contains(&mode) {
+                                config.filter.modes.push(mode);
+                            }
+                        }
+                    }
+                }
+                "filter_level_min" => {
+                    config.filter.level_min = val.parse::<u32>().ok().filter(|&v| v > 0);
+                }
+                "filter_level_max" => {
+                    config.filter.level_max = val.parse::<u32>().ok().filter(|&v| v > 0);
+                }
+                "filter_unplayed" => config.filter.only_unplayed = val == "1",
+                "filter_uncleared" => config.filter.only_uncleared = val == "1",
                 "chart_choice" => {
                     if let Some((key, id)) = val.split_once(':') {
                         if let (Ok(key), Some(id)) =
@@ -447,6 +469,21 @@ impl AppConfig {
                 id.to_hex()
             ));
         }
+        let mut modes: Vec<&str> = self.filter.modes.iter().map(|&m| mode_id(m)).collect();
+        modes.sort_unstable();
+        out.push_str(&format!(
+            "filter_modes={}
+filter_level_min={}
+filter_level_max={}
+filter_unplayed={}
+filter_uncleared={}
+",
+            modes.join(","),
+            self.filter.level_min.unwrap_or(0),
+            self.filter.level_max.unwrap_or(0),
+            u8::from(self.filter.only_unplayed),
+            u8::from(self.filter.only_uncleared),
+        ));
         out
     }
 }
@@ -454,6 +491,7 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beetle_core::PlayMode;
 
     #[test]
     fn test_config_serialization_roundtrip() {
@@ -472,6 +510,13 @@ mod tests {
             sort_mode: SortMode::Level,
             folder_path: FolderPath::parse("mode/7k"),
             chart_choices: ChartChoices::new(),
+            filter: Filter {
+                modes: vec![PlayMode::Keys14, PlayMode::Keys7],
+                level_min: Some(10),
+                level_max: None,
+                only_unplayed: true,
+                only_uncleared: false,
+            },
             key_layouts: [
                 Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
                 Some((KeyPreset::ArcadeZx, String::new())),
@@ -550,6 +595,41 @@ chart_choice=12
 ",
         );
         assert!(bad.chart_choices.is_empty());
+    }
+
+    #[test]
+    fn the_filter_round_trips_and_defaults_to_no_filter() {
+        let text = AppConfig::default().serialize_str();
+        assert!(text.contains(
+            "filter_modes=
+filter_level_min=0
+filter_level_max=0
+"
+        ));
+        assert_eq!(AppConfig::parse_str(&text).filter, Filter::default());
+
+        let config = AppConfig::parse_str(
+            "filter_modes=14k,7k,bogus,7k
+filter_level_min=3
+filter_level_max=0
+filter_unplayed=1
+filter_uncleared=0
+",
+        );
+        assert_eq!(config.filter.modes, [PlayMode::Keys14, PlayMode::Keys7]);
+        assert_eq!(config.filter.level_min, Some(3));
+        assert_eq!(config.filter.level_max, None);
+        assert!(config.filter.only_unplayed);
+        assert!(!config.filter.only_uncleared);
+
+        let mut saved = AppConfig::default();
+        saved.filter.modes = vec![PlayMode::Keys5];
+        saved.filter.level_max = Some(9);
+        saved.filter.only_uncleared = true;
+        assert_eq!(
+            AppConfig::parse_str(&saved.serialize_str()).filter,
+            saved.filter
+        );
     }
 
     #[test]

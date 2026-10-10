@@ -28,6 +28,15 @@ pub enum SortMode {
 }
 
 impl SortMode {
+    /// Every sort mode, in the order the sort menu lists them.
+    pub const ALL: [SortMode; 5] = [
+        SortMode::Title,
+        SortMode::Level,
+        SortMode::ClearLamp,
+        SortMode::ScoreRate,
+        SortMode::Bpm,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Title => "TITLE",

@@ -12,8 +12,8 @@ use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
     draw_exit_modal, draw_options_modal, draw_screen_fade, draw_song_select, draw_toast,
-    D3d11Backend, GpuBackend, OptionLine, SelectFrame, SelectRow, ToastFrame, ToastKind, Ui,
-    Viewport,
+    D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame, SelectRow, SortMenu, ToastFrame,
+    ToastKind, Ui, Viewport,
 };
 use common::{write_bmp, HiddenWindow};
 
@@ -189,6 +189,14 @@ fn render(
     render_with(gpu, ui, selected, search, preedit, overlay, name, None)
 }
 
+/// What the filter row, the result count and the sort menu show on top of the list.
+#[derive(Default)]
+struct Extra<'a> {
+    filter: FilterBar<'a>,
+    result_count: Option<usize>,
+    sort_menu: Option<SortMenu<'a>>,
+}
+
 /// `folder` replaces the flat song list with a folder view: the rows and the
 /// breadcrumb the app would build for it (the tree itself lives in beetle-app).
 #[allow(clippy::too_many_arguments)]
@@ -201,6 +209,31 @@ fn render_with(
     overlay: Overlay,
     name: &str,
     folder: Option<(Vec<SelectRow<'static>>, Vec<String>)>,
+) -> usize {
+    render_ex(
+        gpu,
+        ui,
+        selected,
+        search,
+        preedit,
+        overlay,
+        name,
+        folder,
+        Extra::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_ex(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    selected: usize,
+    search: &str,
+    preedit: &str,
+    overlay: Overlay,
+    name: &str,
+    folder: Option<(Vec<SelectRow<'static>>, Vec<String>)>,
+    extra: Extra<'_>,
 ) -> usize {
     let vp = Viewport::new(W, H);
     let songs = library();
@@ -270,6 +303,9 @@ fn render_with(
             auto_play: false,
             has_replay: selected == 5,
             preview_secs: (selected == 5 && search.is_empty()).then_some(0.4),
+            filter: extra.filter,
+            result_count: extra.result_count,
+            sort_menu: extra.sort_menu,
         },
     );
     match overlay {
@@ -507,4 +543,134 @@ fn song_select_layouts() {
             t0.elapsed().as_secs_f64() * 1000.0 / 60.0
         );
     }
+}
+
+#[test]
+fn song_select_filter_and_sort_views() {
+    let window = HiddenWindow::with_size(W, H);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let mut ui = Ui::new(1.0);
+    let songs = library();
+    let crumbs = vec![
+        strings::FOLDER_ROOT.to_string(),
+        strings::FOLDER_ALL.to_string(),
+    ];
+    let sort_names = [
+        strings::SORT_TITLE,
+        strings::SORT_LEVEL,
+        strings::SORT_CLEAR_LAMP,
+        strings::SORT_SCORE_RATE,
+        strings::SORT_BPM,
+    ];
+
+    // The sort menu open over the list; the highlight is on 클리어 and the mode in use is 제목.
+    let menu = SortMenu {
+        options: &sort_names,
+        current: 0,
+        highlight: 2,
+    };
+    assert_eq!(
+        render_ex(
+            &mut gpu,
+            &mut ui,
+            5,
+            "",
+            "",
+            Overlay::None,
+            "sort-menu",
+            None,
+            Extra {
+                sort_menu: Some(menu),
+                ..Default::default()
+            },
+        ),
+        1
+    );
+
+    // Filter on: 7K only, level 12 and up, unplayed only. The list is the 7K songs that pass.
+    let chips = [("5K", false), ("7K", true), ("14K", false)];
+    let passing: Vec<SelectRow<'static>> = (0..songs.len())
+        .filter(|&i| songs[i].play_mode == PlayMode::Keys7 && songs[i].play_level >= 12)
+        .map(SelectRow::Song)
+        .collect();
+    let passing_count = passing.len();
+    for (focus, name) in [(None, "filter-chips"), (Some(1), "filter-focus")] {
+        let filter = FilterBar {
+            modes: &chips,
+            level_min: Some(12),
+            level_max: None,
+            unplayed: true,
+            uncleared: false,
+            active: true,
+            focus,
+        };
+        assert_eq!(
+            render_ex(
+                &mut gpu,
+                &mut ui,
+                0,
+                "",
+                "",
+                Overlay::None,
+                name,
+                Some((passing.clone(), crumbs.clone())),
+                Extra {
+                    filter,
+                    result_count: Some(passing_count),
+                    ..Default::default()
+                },
+            ),
+            1
+        );
+    }
+
+    // A search with the count of its matches, no filter.
+    let hits = songs.iter().filter(|s| s.title.contains('a')).count();
+    assert_eq!(
+        render_ex(
+            &mut gpu,
+            &mut ui,
+            0,
+            "a",
+            "",
+            Overlay::None,
+            "search-count",
+            None,
+            Extra {
+                result_count: Some(hits),
+                ..Default::default()
+            },
+        ),
+        1
+    );
+
+    // A filter that leaves nothing: the empty state names the filter and offers 초기화.
+    let empty_filter = FilterBar {
+        modes: &chips,
+        level_min: None,
+        level_max: Some(1),
+        unplayed: false,
+        uncleared: true,
+        active: true,
+        focus: None,
+    };
+    assert_eq!(
+        render_ex(
+            &mut gpu,
+            &mut ui,
+            0,
+            "",
+            "",
+            Overlay::None,
+            "empty-filter",
+            Some((Vec::new(), crumbs.clone())),
+            Extra {
+                filter: empty_filter,
+                result_count: Some(0),
+                ..Default::default()
+            },
+        ),
+        1
+    );
 }

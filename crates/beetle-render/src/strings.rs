@@ -136,6 +136,21 @@ table! {
     pub SORT_SCORE_RATE = "정확도";
     pub SORT_BPM = "BPM";
 
+    // Filter row and result count (song select, F10 focuses the row).
+    pub FILTER = "필터";
+    pub FILTER_LEVEL = "레벨";
+    /// The level bounds while they are not set.
+    pub FILTER_LEVEL_MIN_ANY = "최소";
+    pub FILTER_LEVEL_MAX_ANY = "최대";
+    pub FILTER_UNPLAYED = "미플레이만";
+    pub FILTER_UNCLEARED = "미클리어만";
+    pub FILTER_RESET = "초기화";
+    /// Empty list while a filter is on and there is no search.
+    pub FILTER_NO_MATCH = "필터에 맞는 곡이 없습니다.";
+    pub FILTER_EMPTY_HINT = "필터를 바꾸거나 초기화하세요.";
+    /// `{}` is the number of songs found.
+    pub RESULT_COUNT = "{}곡 찾음";
+
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS = "플레이 옵션";
     pub GROUP_PLAY = "플레이";

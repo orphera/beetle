@@ -221,6 +221,11 @@ fn gameplay_badge_and_hint(
     (None, strings::fill(strings::HUD_KEYS, &[keys]))
 }
 
+/// The sort menu's option names, in `SortMode::ALL` order.
+fn sort_names() -> [&'static str; 5] {
+    SortMode::ALL.map(sort_label)
+}
+
 /// Display names of the options that are stored under English enum names.
 fn sort_label(mode: SortMode) -> &'static str {
     match mode {
@@ -281,6 +286,34 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
 
     begin(state, size);
     let crumbs = crate::folders::crumbs(&state.folder_tree, &state.folder_path);
+    let mode_chips: Vec<(&str, bool)> = state
+        .present_modes
+        .iter()
+        .map(|&m| {
+            (
+                beetle_render::theme::mode_label(m),
+                state.filter.modes.contains(&m),
+            )
+        })
+        .collect();
+    let filter = beetle_render::FilterBar {
+        modes: &mode_chips,
+        level_min: state.filter.level_min,
+        level_max: state.filter.level_max,
+        unplayed: state.filter.only_unplayed,
+        uncleared: state.filter.only_uncleared,
+        active: state.filter.is_active(),
+        focus: state.filter_focus,
+    };
+    let names = sort_names();
+    let sort_menu = state.sort_menu.map(|highlight| beetle_render::SortMenu {
+        options: &names,
+        current: SortMode::ALL
+            .iter()
+            .position(|&m| m == state.sort_mode)
+            .unwrap_or(0),
+        highlight,
+    });
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()
@@ -327,6 +360,9 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             auto_play: state.is_auto_play,
             has_replay,
             preview_secs: state.preview.playing_for(),
+            filter,
+            result_count: state.result_count,
+            sort_menu,
         },
     );
     if let Some(lines) = &option_panel {

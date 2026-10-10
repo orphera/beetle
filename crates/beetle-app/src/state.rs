@@ -53,6 +53,18 @@ pub struct AppState {
     pub selected_entry: usize,
     /// The chart each group shows when it is not the first one (saved in `config.dat`).
     pub chart_choice: crate::folders::ChartChoices,
+    /// The song list filter (see `filters.rs`), saved in `config.dat`.
+    pub filter: crate::filters::Filter,
+    /// The filter row's keyboard focus: an index into the row's items (`None` = not focused).
+    pub filter_focus: Option<usize>,
+    /// The sort menu, while open: its highlighted option.
+    pub sort_menu: Option<usize>,
+    /// The key modes the library has songs in (the mode chips), rebuilt with the list.
+    pub present_modes: Vec<beetle_core::PlayMode>,
+    /// The levels the library has, ascending (the level steppers step through them).
+    pub level_steps: Vec<u32>,
+    /// The "N곡 찾음" count while a search or a filter is on; `None` otherwise.
+    pub result_count: Option<usize>,
     pub search_query: String,
     /// IME composition text shown after the query; empty when none. Set only
     /// while the search box is open (see `ime.rs`).
@@ -304,6 +316,7 @@ impl AppState {
             sort_mode: self.sort_mode,
             folder_path: self.folder_path.clone(),
             chart_choices: self.chart_choice.clone(),
+            filter: self.filter.clone(),
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,
             master_volume: self.master_volume,
@@ -405,8 +418,17 @@ impl AppState {
     /// folder that no longer exists falls back to its nearest existing parent.
     pub fn recompute_entries(&mut self) {
         let ln_option = self.ln_option();
-        self.folder_tree =
-            folders::build_tree(&self.songs, &self.score_store, &self.tables, ln_option);
+        self.present_modes = folders::present_modes(&self.songs);
+        self.level_steps = crate::filters::level_steps(&self.songs);
+        let pass =
+            crate::filters::pass_mask(&self.songs, &self.score_store, ln_option, &self.filter);
+        self.folder_tree = folders::build_tree(
+            &self.songs,
+            &self.score_store,
+            &self.tables,
+            ln_option,
+            &pass,
+        );
         self.folder_path = folders::normalize(&self.folder_tree, &self.folder_path);
         self.entries = folders::entries_for(
             &self.folder_tree,
@@ -414,7 +436,18 @@ impl AppState {
             &self.songs,
             &self.search_query,
             &self.chart_choice,
+            &pass,
         );
+        self.result_count =
+            (!self.search_query.trim().is_empty() || self.filter.is_active()).then(|| {
+                folders::result_count(
+                    &self.folder_tree,
+                    &self.folder_path,
+                    &self.songs,
+                    &self.search_query,
+                    &pass,
+                )
+            });
 
         if self.entries.is_empty() {
             self.selected_entry = 0;

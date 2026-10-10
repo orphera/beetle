@@ -19,8 +19,9 @@ use crate::handlers::options::{
 use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
-    activate_selected, choose_chart, cycle_folder, cycle_sort, go_to_crumb, go_up, move_selection,
-    open_exit_prompt, open_key_config, start_replay, toggle_auto,
+    activate_filter, activate_selected, choose_chart, clear_filter, close_sort_menu, cycle_folder,
+    go_to_crumb, go_up, move_selection, open_exit_prompt, open_key_config, pick_sort, start_replay,
+    step_filter_level, toggle_auto, toggle_sort_menu,
 };
 use crate::ime::set_search_active;
 use crate::options_table::SETTINGS;
@@ -92,6 +93,15 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         }
         return;
     }
+    // The sort menu is open: its options pick, a click elsewhere closes it.
+    if state.sort_menu.is_some() {
+        match id {
+            HitId::SortOption(i) => pick_sort(state, i),
+            HitId::Blocker => close_sort_menu(state),
+            _ => (),
+        }
+        return;
+    }
     match id {
         // The first click selects a row; a click on the selected row plays it.
         HitId::ListRow(i) if i == state.selected_entry => activate_selected(state),
@@ -104,7 +114,10 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::FolderUp => go_up(state),
         HitId::Crumb(depth) => go_to_crumb(state, depth),
         HitId::ChartTab { row, pos } => choose_chart(state, row, pos),
-        HitId::Sort => cycle_sort(state),
+        HitId::Sort => toggle_sort_menu(state),
+        HitId::FilterItem(i) => activate_filter(state, i),
+        HitId::FilterStep { item, up } => step_filter_level(state, item, up),
+        HitId::FilterReset => clear_filter(state),
         HitId::Search => set_search_active(state, true),
         HitId::Play => activate_selected(state),
         HitId::Replay => start_replay(state),
