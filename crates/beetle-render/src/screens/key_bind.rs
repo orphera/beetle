@@ -151,7 +151,7 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     // Top bar: layout chip on the right
     widgets::top_bar(c, t, vp, strings::KEY_CONFIG, s);
     let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
-    let cap = caption(10.0, s);
+    let cap = caption(12.0, s);
     let right = vp.x + vp.width - PAD * s;
     let name_w = t.measure(c, f.layout, &st).min(460.0 * s);
     let name = t.fit(c, f.layout, name_w, &st).into_owned();
@@ -369,7 +369,7 @@ fn controllers(
                 label,
                 body.x + 12.0 * k,
                 body.y - 8.0 * k,
-                &caption(11.0, s).color(theme::MUTED),
+                &caption(12.0, s).color(theme::MUTED),
             );
         }
 
@@ -631,7 +631,7 @@ fn detail_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
         title,
         inner.x,
         inner.y + 14.0 * s,
-        &caption(10.0, s).color(accent),
+        &caption(12.0, s).color(accent),
     );
     let label_st = TextStyle::new(24.0 * s).bold().color(theme::TEXT);
     let label_w = t.draw(c, b.label, inner.x, inner.y + 48.0 * s, &label_st);
@@ -663,7 +663,7 @@ fn detail_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &KeyConfigFrame
         strings::KEYS_CAPTION,
         Rect::new(x.max(min_x) - 60.0 * s, inner.y, 48.0 * s, 44.0 * s),
         Align::Right,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
     for (key, w) in caps.iter().zip(&widths).skip(first) {
         if x < min_x {

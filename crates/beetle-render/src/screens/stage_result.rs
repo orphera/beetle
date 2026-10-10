@@ -98,7 +98,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     widgets::top_bar(c, t, vp, strings::RESULT, s);
     let bar = widgets::footer_bar(c, vp, s);
     if let Some(reason) = f.unsaved_reason {
-        let st = caption(10.0, s).color(theme::ON_ACCENT);
+        let st = caption(12.0, s).color(theme::ON_ACCENT);
         let w = t.measure(c, reason, &st) + 20.0 * s;
         let chip = Rect::new(bar.x + PAD * s, bar.y + 10.0 * s, w, 20.0 * s);
         c.nine(&sk.panel_lg, chip, theme::CYAN);
@@ -108,7 +108,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
             strings::SCORE_NOT_SAVED,
             chip.right() + 10.0 * s,
             bar.y + 25.0 * s,
-            &caption(10.0, s).color(theme::MUTED),
+            &caption(12.0, s).color(theme::MUTED),
         );
     }
     widgets::footer_buttons(c, t, &sk, &HINTS, bar, s, &mut hs);
@@ -185,7 +185,7 @@ fn outcome_panel(
         &format!("{tier} {}", header.play_level),
         tx,
         inner.y + 14.0 * s,
-        &caption(10.0, s).color(tier_col),
+        &caption(12.0, s).color(tier_col),
     );
     let title_st = TextStyle::new(17.0 * s).bold().color(theme::TEXT);
     let title = t.fit(c, &header.title, tw, &title_st).into_owned();
@@ -242,7 +242,7 @@ fn outcome_panel(
         );
     }
     if f.update.any() {
-        let st = caption(11.0, s).color(theme::WHITE);
+        let st = caption(12.0, s).color(theme::WHITE);
         let w = t.measure(c, strings::NEW_RECORD, &st) + 40.0 * s;
         let chip = Rect::new(cx - w / 2.0, baseline + 64.0 * s, w, 28.0 * s);
         c.set_additive(true);
@@ -275,7 +275,7 @@ fn outcome_panel(
         &gauge_caption,
         inner.x,
         bar.y - 12.0 * s,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
     let pct = format!("{:.1}%", score.gauge);
     t.draw_in(
@@ -319,7 +319,7 @@ fn outcome_panel(
 /// score and the stat labels) or a clear lamp that improved (`NEW_LAMP`).
 /// `baseline` is the label's baseline. All tags share one size.
 fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, text: &str, s: f32) {
-    let st = caption(9.0, s).color(theme::WHITE);
+    let st = TextStyle::new(11.0 * s).color(theme::WHITE);
     let w = t.measure(c, text, &st) + 10.0 * s;
     let tag = Rect::new(x, baseline - 11.0 * s, w, 14.0 * s);
     c.fill_rect(tag, theme::MAGENTA);
@@ -383,7 +383,7 @@ fn gauge_trend_graph(
             14.0 * s,
         ),
         Align::Left,
-        &caption(10.0, s).color(theme::GOLD),
+        &caption(12.0, s).color(theme::GOLD),
     );
 
     let points = trend.points();
@@ -432,7 +432,7 @@ fn gauge_trend_graph(
             Rect::from_ltrb(fx - lw / 2.0, rect.y, fx + lw / 2.0, rect.bottom()),
             theme::RED,
         );
-        let st = caption(10.0, s).color(theme::RED);
+        let st = caption(12.0, s).color(theme::RED);
         let label_w = t.measure(c, strings::GRAPH_FAILED, &st);
         // Label on the side with more room.
         let lx = if fx > rect.x + rect.w / 2.0 {
@@ -458,7 +458,7 @@ fn score_panel_draw(
     let score = f.score;
     let y = inner.y;
 
-    let label_w = t.draw(c, "EX SCORE", inner.x, y + 14.0 * s, &caption(10.0, s));
+    let label_w = t.draw(c, "EX SCORE", inner.x, y + 14.0 * s, &caption(12.0, s));
     if f.update.ex {
         new_tag(
             c,
@@ -509,7 +509,7 @@ fn score_panel_draw(
                 &cap,
                 Rect::new(right.x, y + 58.0 * s, right.w, 16.0 * s),
                 Align::Right,
-                &caption(10.0, s),
+                &caption(12.0, s),
             );
         }
         None => {
@@ -518,7 +518,7 @@ fn score_panel_draw(
                 strings::FIRST_PLAY,
                 Rect::new(right.x, y + 36.0 * s, right.w, 24.0 * s),
                 Align::Right,
-                &caption(11.0, s).color(theme::CYAN),
+                &caption(12.0, s).color(theme::CYAN),
             );
         }
     }
@@ -553,15 +553,23 @@ fn score_panel_draw(
     let col_w = inner.w / 3.0;
     for (i, (k, v, suffix)) in stats.iter().enumerate() {
         let sx = inner.x + i as f32 * col_w;
-        t.draw(c, k, sx, y + 152.0 * s, &caption(10.0, s));
+        t.draw(c, k, sx, y + 152.0 * s, &caption(12.0, s));
         let beaten = match i {
             1 => f.update.combo,
             2 => f.update.bp,
             _ => false,
         };
         if beaten {
-            // Above the label: the columns are too narrow to fit it beside one.
-            new_tag(c, t, sx, y + 138.0 * s, strings::NEW_RECORD, s);
+            // Beside the label on its baseline (the 12 px label leaves no room above it).
+            let lw = t.measure(c, k, &caption(12.0, s));
+            new_tag(
+                c,
+                t,
+                sx + lw + 6.0 * s,
+                y + 152.0 * s,
+                strings::NEW_RECORD,
+                s,
+            );
         }
         let vw = t.draw(
             c,
@@ -595,7 +603,7 @@ fn score_panel_draw(
         (JudgeGrade::Miss, score.miss_count),
     ];
     let total = counts.iter().map(|c| c.1).sum::<u32>().max(1);
-    t.draw(c, strings::JUDGE, inner.x, y + 232.0 * s, &caption(10.0, s));
+    t.draw(c, strings::JUDGE, inner.x, y + 232.0 * s, &caption(12.0, s));
     let row_h = (inner.bottom() - (y + 248.0 * s)) / counts.len() as f32;
     for (i, (g, n)) in counts.iter().enumerate() {
         let ry = y + 248.0 * s + i as f32 * row_h;
@@ -611,7 +619,7 @@ fn score_panel_draw(
             theme::judge_label(*g),
             Rect::new(inner.x + 14.0 * s, ry, 80.0 * s, row_h),
             Align::Left,
-            &caption(11.0, s).color(theme::MUTED),
+            &caption(12.0, s).color(theme::MUTED),
         );
         let bar = Rect::new(
             inner.x + 96.0 * s,
@@ -657,14 +665,14 @@ fn timing_panel(
     let score = f.score;
     let y = inner.y;
 
-    t.draw(c, strings::TIMING, inner.x, y + 14.0 * s, &caption(10.0, s));
+    t.draw(c, strings::TIMING, inner.x, y + 14.0 * s, &caption(12.0, s));
     let half = Rect::new(inner.x, y + 28.0 * s, inner.w / 2.0, 52.0 * s);
     t.draw(
         c,
         "FAST",
         half.x,
         half.y + 12.0 * s,
-        &caption(10.0, s).color(theme::FAST),
+        &caption(12.0, s).color(theme::FAST),
     );
     t.draw(
         c,
@@ -679,7 +687,7 @@ fn timing_panel(
         "SLOW",
         Rect::new(rhalf.x, rhalf.y, rhalf.w, 16.0 * s),
         Align::Right,
-        &caption(10.0, s).color(theme::SLOW),
+        &caption(12.0, s).color(theme::SLOW),
     );
     t.draw_in(
         c,
@@ -717,7 +725,7 @@ fn timing_panel(
         strings::OFFSET,
         inner.x,
         y + 140.0 * s,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
     let hist = Rect::from_ltrb(
         inner.x,
@@ -765,7 +773,7 @@ fn timing_panel(
         theme::GOLD.with_alpha(120),
     );
     let label_y = hist.bottom() + 20.0 * s;
-    let st = caption(10.0, s);
+    let st = caption(12.0, s);
     t.draw(c, "-40 ms", hist.x, label_y, &st.color(theme::FAST));
     let zw = t.measure(c, "0", &st);
     t.draw(c, "0", cx - zw / 2.0, label_y, &st.color(theme::GOLD));

@@ -279,7 +279,7 @@ fn top_bar(
     let icon = 16.0 * s;
     let iy = vp.y + 32.0 * s - icon / 2.0;
     let base = vp.y + 37.0 * s;
-    let cap = caption(10.0, s);
+    let cap = caption(12.0, s);
     let sort_value_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
     let sort_label_w = t.measure(c, strings::SORT, &cap);
     let sort_value_w = t.measure(c, f.sort, &sort_value_st);
@@ -639,7 +639,7 @@ fn level_chip(
     baseline: f32,
     s: f32,
 ) -> f32 {
-    let st = caption(9.0, s).color(theme::PURPLE);
+    let st = TextStyle::new(11.0 * s).color(theme::PURPLE);
     let w = t.measure(c, text, &st) + 12.0 * s;
     let pill = Rect::new(x, baseline - 12.0 * s, w, 16.0 * s);
     c.fill_rect(pill, theme::PURPLE.with_alpha(36));
@@ -674,7 +674,7 @@ fn song_row(
         mode,
         tx,
         row.y + 42.0 * s,
-        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
+        &caption(12.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
     );
     let mut ax = tx + mode_w + 8.0 * s;
     if let Some(chip) = table_chip {
@@ -831,7 +831,7 @@ fn chart_chip(
     on: bool,
     s: f32,
 ) -> f32 {
-    let st = caption(9.0, s).color(if on { theme::TEXT } else { col });
+    let st = TextStyle::new(11.0 * s).color(if on { theme::TEXT } else { col });
     let w = t.measure(c, text, &st) + 12.0 * s;
     let pill = Rect::new(x, baseline - 12.0 * s, w, 16.0 * s);
     c.fill_rect(pill, col.with_alpha(if on { 90 } else { 24 }));
@@ -926,7 +926,7 @@ fn chart_tabs(
             chart.play_level
         );
         let on = pos == tabs.selected;
-        let st = caption(11.0, s).color(if on { theme::TEXT } else { theme::MUTED });
+        let st = caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
         let w = t.measure(c, &text, &st) + 24.0 * s;
         let rect = Rect::new(x, strip.y, w, strip.h);
         c.fill_rect(rect, if on { col.with_alpha(70) } else { theme::SURF2 });
@@ -974,7 +974,7 @@ fn folder_row(
 
     let chevron = 14.0 * s;
     let count_text = strings::fill(strings::FOLDER_SONGS, &[&thousands(count as u32)]);
-    let count_w = t.measure(c, &count_text, &caption(11.0, s));
+    let count_w = t.measure(c, &count_text, &caption(12.0, s));
     let name_x = row.x + 24.0 * s;
     let name_w = row.w - (name_x - row.x) - count_w - chevron - 32.0 * s;
     let name_st = TextStyle::new(16.0 * s).bold().color(if on {
@@ -991,7 +991,7 @@ fn folder_row(
         &count_text,
         count_x,
         row.y + row.h / 2.0 + 5.0 * s,
-        &caption(11.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
+        &caption(12.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
     );
     c.sprite(
         sk.icons.chevron_right,
@@ -1067,7 +1067,7 @@ fn lamp_breakdown(
         strings::FOLDER_LAMP,
         area.x,
         area.y + 12.0 * s,
-        &caption(11.0, s).color(theme::MUTED),
+        &caption(12.0, s).color(theme::MUTED),
     );
     let bar = Rect::new(area.x, area.y + 22.0 * s, area.w, 10.0 * s);
     c.nine(&sk.panel_sm, bar, theme::SURF2);
@@ -1330,7 +1330,7 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
         strings::PREVIEW,
         pill.x + 30.0 * s,
         pill.bottom() - 6.0 * s,
-        &caption(9.0, s).color(theme::CYAN),
+        &TextStyle::new(11.0 * s).color(theme::CYAN),
     );
 }
 
@@ -1413,7 +1413,7 @@ fn detail_panel(
         &tier_txt,
         ix,
         inner.y + 14.0 * s,
-        &caption(11.0, s).color(tier_col),
+        &caption(12.0, s).color(tier_col),
     );
     // The tables the chart is in (the first ones; the panel has no room for more).
     let mut chip_x = ix + tier_w + 12.0 * s;
@@ -1454,7 +1454,7 @@ fn detail_panel(
     // Chart stats along the jacket's bottom edge. MODE and NOTES hang off the
     // right edge at their content width; BPM gets the room that is left, so a
     // long tempo range shrinks rather than running into the next value.
-    let label_st = caption(10.0, s).color(theme::MUTED);
+    let label_st = caption(12.0, s).color(theme::MUTED);
     let value_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
     let gap = 18.0 * s;
     let bpm = song.bpm_label();
@@ -1499,7 +1499,7 @@ fn detail_panel(
     let chips_y = cta.y - 40.0 * s;
     let mut cx = inner.x;
     for chip in f.option_chips {
-        let st = caption(10.0, s).color(theme::MUTED);
+        let st = caption(12.0, s).color(theme::MUTED);
         let w = t.measure(c, chip, &st) + 20.0 * s;
         if cx + w > inner.right() {
             break;
@@ -1510,7 +1510,7 @@ fn detail_panel(
         cx += w + 8.0 * s;
     }
     if f.auto_play {
-        let st = caption(10.0, s).color(theme::ON_ACCENT);
+        let st = caption(12.0, s).color(theme::ON_ACCENT);
         let w = t.measure(c, strings::AUTO_PLAY, &st) + 20.0 * s;
         let r = Rect::new(inner.right() - w, chips_y, w, 24.0 * s);
         c.nine(&sk.panel_lg, r, theme::CYAN);
@@ -1639,7 +1639,7 @@ fn personal_best(
         strings::PERSONAL_BEST,
         area.x,
         y + 32.0 * s,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
     let Some(b) = best else {
         if let Some(rule) = rule {
@@ -1648,7 +1648,7 @@ fn personal_best(
                 rule,
                 area.x + header_w + 14.0 * s,
                 y + 32.0 * s,
-                &caption(9.0, s).color(theme::MUTED),
+                &TextStyle::new(11.0 * s).color(theme::MUTED),
             );
         }
         t.draw(
@@ -1686,7 +1686,7 @@ fn personal_best(
         ));
     }
     if !notes.is_empty() {
-        let st = caption(9.0, s).color(theme::MUTED);
+        let st = TextStyle::new(11.0 * s).color(theme::MUTED);
         t.draw(
             c,
             &notes.join("  /  "),
@@ -1698,7 +1698,7 @@ fn personal_best(
 
     // Clear lamp chip
     let (lamp, lamp_col) = theme::clear_lamp(Some(b.clear_type));
-    let st = caption(10.0, s).color(lamp_col);
+    let st = caption(12.0, s).color(lamp_col);
     let w = t.measure(c, lamp, &st) + 24.0 * s;
     let chip = Rect::new(area.right() - w, y + 16.0 * s, w, 24.0 * s);
     c.nine(&sk.panel_lg, chip, lamp_col.with_alpha(36));
@@ -1757,7 +1757,7 @@ fn personal_best(
     let col_w = area.w / 3.0;
     for (i, (k, v)) in stats.iter().enumerate() {
         let sx = area.x + i as f32 * col_w;
-        t.draw(c, k, sx, y + 134.0 * s, &caption(10.0, s));
+        t.draw(c, k, sx, y + 134.0 * s, &caption(12.0, s));
         t.draw(
             c,
             v,
@@ -1795,7 +1795,7 @@ fn footer(
     } else {
         x += t.draw(c, &thousands(f.rows.len() as u32), x, base, &count_st);
         let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
-        t.draw(c, &total, x, base, &caption(10.0, s));
+        t.draw(c, &total, x, base, &caption(12.0, s));
     }
 
     // Only the keys a player needs here; the rest are in the help overlay (?).
@@ -1948,7 +1948,7 @@ fn filter_row(
         FILTER_H * s,
     );
     let fb = &f.filter;
-    let cap = caption(10.0, s);
+    let cap = caption(12.0, s);
     let mut x = bar.x;
 
     let label_w = t.measure(c, strings::FILTER, &cap);
@@ -2684,7 +2684,7 @@ pub fn draw_help_overlay(ui: &mut Ui, vp: &Viewport) {
                     row.caption,
                     kx,
                     ry + 16.0 * s,
-                    &caption(10.0, s).color(theme::MUTED2),
+                    &caption(12.0, s).color(theme::MUTED2),
                 );
             }
             for key in row.keys {

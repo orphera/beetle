@@ -683,7 +683,7 @@ fn combo_and_judge(
         let st = TextStyle::new(52.0 * s).bold().color(theme::TEXT);
         let w = t.measure(c, &txt, &st) * pulse;
         t.draw_scaled(c, &txt, cx - w / 2.0, anchor, &st, pulse);
-        let cap = caption(11.0, s).color(theme::MUTED);
+        let cap = caption(12.0, s).color(theme::MUTED);
         let cw = t.measure(c, strings::COMBO, &cap);
         t.draw(c, strings::COMBO, cx - cw / 2.0, anchor + 18.0 * s, &cap);
     }
@@ -787,10 +787,10 @@ fn info_column(
         &tier_txt,
         x,
         y + 14.0 * s,
-        &caption(11.0, s).color(tier_col),
+        &caption(12.0, s).color(tier_col),
     );
     if let Some(badge) = f.badge {
-        let st = caption(11.0, s).color(theme::ON_ACCENT);
+        let st = caption(12.0, s).color(theme::ON_ACCENT);
         let bw = t.measure(c, badge, &st) + 20.0 * s;
         let chip = Rect::new(right - bw, y, bw, 20.0 * s);
         c.nine(&sk.panel_lg, chip, theme::CYAN);
@@ -839,7 +839,7 @@ fn info_column(
         "EX SCORE",
         inner.x,
         inner.y + 10.0 * s,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
     let ex = thousands(score.ex_score);
     let ex_st = TextStyle::new(if roomy { 52.0 } else { 44.0 } * s)
@@ -940,7 +940,7 @@ fn info_column(
             theme::judge_label(*g),
             lx + 12.0 * s,
             ly,
-            &caption(10.0, s).color(theme::MUTED),
+            &caption(12.0, s).color(theme::MUTED),
         );
         t.draw_in(
             c,
@@ -981,7 +981,7 @@ fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, co
                         strings::NO_BGA,
                         frame,
                         Align::Center,
-                        &caption(11.0, s).color(theme::MUTED2),
+                        &caption(12.0, s).color(theme::MUTED2),
                     );
                 }
             }
@@ -1078,20 +1078,20 @@ fn judge_timeline(
         c,
         strings::TIMELINE_TITLE,
         frame.x + 12.0 * s,
-        frame.y + 10.0 * s,
-        &caption(11.0, s).color(theme::MUTED),
+        frame.y + 14.0 * s,
+        &caption(12.0, s).color(theme::MUTED),
     );
     t.draw_in(
         c,
         strings::TIMELINE_RANGE,
         Rect::new(
             frame.x + 12.0 * s,
-            frame.y + 10.0 * s,
+            frame.y + 14.0 * s,
             frame.w - 24.0 * s,
             16.0 * s,
         ),
         Align::Right,
-        &caption(11.0, s).color(theme::MUTED2),
+        &caption(12.0, s).color(theme::MUTED2),
     );
     let plot = Rect::from_ltrb(
         frame.x + 12.0 * s,
@@ -1110,14 +1110,14 @@ fn judge_timeline(
         strings::TIMING_FAST,
         plot.x,
         plot.y,
-        &caption(10.0, s).color(theme::FAST),
+        &caption(12.0, s).color(theme::FAST),
     );
     t.draw(
         c,
         strings::TIMING_SLOW,
         plot.x,
         plot.bottom() - 12.0 * s,
-        &caption(10.0, s).color(theme::SLOW),
+        &caption(12.0, s).color(theme::SLOW),
     );
 
     let sq = 6.0 * s;
@@ -1347,7 +1347,7 @@ fn pause_menu(
         strings::PAUSE_HINT,
         Rect::new(inner.x, panel.bottom() - 34.0 * s, inner.w, 20.0 * s),
         Align::Center,
-        &caption(10.0, s),
+        &caption(12.0, s),
     );
 }
 

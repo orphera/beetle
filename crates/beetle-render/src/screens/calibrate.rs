@@ -221,7 +221,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
             label,
             Rect::new(r.x, r.y + 8.0 * s, r.w, 22.0 * s),
             Align::Center,
-            &caption(11.0, s).color(theme::MUTED),
+            &caption(12.0, s).color(theme::MUTED),
         );
         t.draw_in(
             c,
@@ -257,7 +257,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
             color,
         );
     }
-    let dir = caption(11.0, s).color(theme::MUTED);
+    let dir = caption(12.0, s).color(theme::MUTED);
     t.draw_in(
         c,
         strings::CALIBRATE_EARLY,
@@ -284,7 +284,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
             &text,
             Rect::new(x - 60.0 * s, line_y + 18.0 * s, 120.0 * s, 16.0 * s),
             Align::Center,
-            &caption(10.0, s).color(theme::MUTED2),
+            &caption(12.0, s).color(theme::MUTED2),
         );
     }
     if f.marks.iter().any(|&(_, counted)| !counted) {
@@ -293,7 +293,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
             strings::CALIBRATE_EXCLUDED,
             Rect::new(area.x, line_y + 44.0 * s, area.w, 18.0 * s),
             Align::Center,
-            &caption(10.0, s).color(theme::MUTED2),
+            &caption(12.0, s).color(theme::MUTED2),
         );
     }
 

@@ -113,7 +113,7 @@ pub(crate) type Hint = (&'static str, &'static str, Option<HitId>);
 
 /// Width of a footer row of hints, laid out as `footer_buttons` draws them.
 pub(crate) fn hints_width(c: &mut Canvas, t: &mut TextEngine, hints: &[Hint], s: f32) -> f32 {
-    let label_st = caption(10.0, s).color(theme::MUTED);
+    let label_st = caption(12.0, s).color(theme::MUTED);
     let mut w = 0.0;
     for (i, (key, label, _)) in hints.iter().enumerate() {
         if i > 0 {
@@ -135,7 +135,7 @@ pub(crate) fn footer_buttons(
     s: f32,
     hs: &mut HitSink,
 ) {
-    let label_st = caption(10.0, s).color(theme::MUTED);
+    let label_st = caption(12.0, s).color(theme::MUTED);
     let y = bar.y + 10.0 * s;
     let mut hx = bar.right() - PAD * s - hints_width(c, t, hints, s);
     for (i, (key, label, action)) in hints.iter().enumerate() {
@@ -180,7 +180,7 @@ pub(crate) fn section_header(
     w: f32,
     s: f32,
 ) {
-    let cap = caption(10.0, s).color(theme::CYAN.with_alpha(200));
+    let cap = caption(12.0, s).color(theme::CYAN.with_alpha(200));
     let lw = t.draw(c, label, x, y + 20.0 * s, &cap);
     c.fill_rect(
         Rect::new(
@@ -307,13 +307,13 @@ pub(crate) fn rate_bar(
             Rect::new(mx - s / 2.0, bar.y - 3.0 * s, s.max(1.0), bar.h + 6.0 * s),
             theme::MUTED2,
         );
-        let lw = t.measure(c, label, &caption(9.0, s));
+        let lw = t.measure(c, label, &TextStyle::new(11.0 * s).color(theme::MUTED2));
         t.draw(
             c,
             label,
             mx - lw / 2.0,
             bar.bottom() + 14.0 * s,
-            &caption(9.0, s),
+            &TextStyle::new(11.0 * s).color(theme::MUTED2),
         );
     }
 }
@@ -348,7 +348,7 @@ pub(crate) fn keycap(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, key: &str, r
         key,
         Rect::new(r.x, r.y, r.w, r.h - 2.0 * s),
         Align::Center,
-        &TextStyle::new(10.0 * s).bold().color(theme::MUTED),
+        &TextStyle::new(11.0 * s).bold().color(theme::MUTED),
     );
 }
 
@@ -367,7 +367,7 @@ pub(crate) fn hint_row(
     s: f32,
     draw: bool,
 ) -> f32 {
-    let label_st = caption(10.0, s).color(theme::MUTED);
+    let label_st = caption(12.0, s).color(theme::MUTED);
     let mut hx = x;
     for (i, (key, label)) in hints.iter().enumerate() {
         if i > 0 {
@@ -387,7 +387,7 @@ pub(crate) fn keycap_width(c: &mut Canvas, t: &mut TextEngine, key: &str, s: f32
     if key == LEFT_RIGHT {
         return 28.0 * s;
     }
-    (t.measure(c, key, &TextStyle::new(10.0 * s).bold()) + 12.0 * s).max(20.0 * s)
+    (t.measure(c, key, &TextStyle::new(11.0 * s).bold()) + 12.0 * s).max(20.0 * s)
 }
 
 /// Splits `text` into at most two lines that fit `max_w`, preferring to

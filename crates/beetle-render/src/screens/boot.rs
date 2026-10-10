@@ -41,7 +41,7 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
     let x = vp.x + 160.0 * s - slide;
     let y = vp.y + 270.0 * s;
     // Korean caption: no letter-spacing (tracking splits the syllables).
-    let label = caption(11.0, s).color(theme::CYAN.with_alpha(a(255)));
+    let label = caption(12.0, s).color(theme::CYAN.with_alpha(a(255)));
     t.draw(c, f.title, x, y, &label);
     let mark = TextStyle::new(72.0 * s)
         .bold()

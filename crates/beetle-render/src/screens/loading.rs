@@ -112,10 +112,10 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let x = jacket.right() + 48.0 * s + slide * 2.0;
     let w = vp.x + vp.width - 160.0 * s - (jacket.right() + 48.0 * s);
     let mut y = jacket.y + 18.0 * s;
-    let now = caption(11.0, s).color(theme::CYAN.with_alpha(a(255)));
+    let now = caption(12.0, s).color(theme::CYAN.with_alpha(a(255)));
     let nw = t.draw(c, strings::LOADING, x, y, &now);
     if let Some(badge) = f.badge {
-        let st = caption(10.0, s).color(theme::ON_ACCENT);
+        let st = caption(12.0, s).color(theme::ON_ACCENT);
         let bw = t.measure(c, badge, &st) + 20.0 * s;
         let chip = Rect::new(x + nw + 16.0 * s, y - 15.0 * s, bw, 20.0 * s);
         c.nine(&sk.panel_lg, chip, theme::CYAN.with_alpha(a(255)));
@@ -180,7 +180,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
             k,
             sx,
             jacket.bottom() - 74.0 * s,
-            &caption(10.0, s).color(theme::MUTED2.with_alpha(a(255))),
+            &caption(12.0, s).color(theme::MUTED2.with_alpha(a(255))),
         );
         t.draw(
             c,
@@ -195,7 +195,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     // Options in effect
     let mut cx = x;
     for chip in f.option_chips {
-        let st = caption(10.0, s).color(theme::MUTED.with_alpha(a(255)));
+        let st = caption(12.0, s).color(theme::MUTED.with_alpha(a(255)));
         let cw = t.measure(c, chip, &st) + 20.0 * s;
         if cx + cw > x + w {
             break;
