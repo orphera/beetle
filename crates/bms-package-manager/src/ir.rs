@@ -88,6 +88,23 @@ fn hrefs(fragment: &str) -> Vec<String> {
     out
 }
 
+/// Splits the links of a chart page into the zip links that are fetched
+/// automatically (with their row label) and every other link, which is only shown.
+pub fn split_zip_links(links: IrLinks) -> (Vec<(&'static str, String)>, Vec<String>) {
+    let mut zips = Vec::new();
+    let mut others = Vec::new();
+    for (label, found) in [("body", links.body), ("diff", links.diff)] {
+        for url in found {
+            if crate::table_fetch::pack_extension(&url) == Some("zip") {
+                zips.push((label, url));
+            } else {
+                others.push(url);
+            }
+        }
+    }
+    (zips, others)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +165,23 @@ mod tests {
     fn a_chart_page_without_rows_lists_nothing() {
         let links = parse_chart_page(r#"<div class="archive-root">no rows</div>"#).unwrap();
         assert_eq!(links, IrLinks::default());
+    }
+
+    #[test]
+    fn only_zip_links_are_split_off_for_fetching() {
+        let links = IrLinks {
+            body: vec!["https://a.test/body.rar".into()],
+            diff: vec![
+                "https://a.test/diff.zip".into(),
+                "https://a.test/x.7z".into(),
+            ],
+        };
+        let (zips, others) = split_zip_links(links);
+        assert_eq!(zips, vec![("diff", "https://a.test/diff.zip".to_string())]);
+        assert_eq!(
+            others,
+            vec!["https://a.test/body.rar", "https://a.test/x.7z"]
+        );
     }
 
     #[test]

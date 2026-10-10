@@ -84,6 +84,26 @@ pub fn fetch_diff(
     table_fetch::keep_pack(&zip, entry, &scratch.join("diff-work"), folder)
 }
 
+/// Downloads one archive link of a table entry into `scratch`, and keeps the pack
+/// in `pack_dir` when one of its charts has the entry's hash. The archive type
+/// comes from the link, and is zip when the link names none.
+pub fn fetch_pack(
+    client: &HttpClient,
+    url: &str,
+    entry: &TableEntry,
+    scratch: &Path,
+    pack_dir: &Path,
+) -> Result<KeptPack, String> {
+    let ext = table_fetch::pack_extension(url).unwrap_or("zip");
+    let bytes = client
+        .get_bytes(url, table_fetch::MAX_PACK_BYTES)
+        .map_err(|e| format!("cannot download {url}: {e}"))?;
+    fs::create_dir_all(scratch).map_err(|e| e.to_string())?;
+    let archive = scratch.join(format!("pack.{ext}"));
+    fs::write(&archive, bytes).map_err(|e| e.to_string())?;
+    table_fetch::keep_pack(&archive, entry, scratch, pack_dir)
+}
+
 /// Unpacks a body archive (zip, or rar and 7z through 7-Zip) into `scratch` and
 /// returns the folder that holds the charts: the single folder the archive
 /// unpacks to, or the scratch folder itself.

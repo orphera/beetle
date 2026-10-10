@@ -1381,20 +1381,16 @@ fn fetch_ir_packs(
                 continue;
             }
         };
-        let mut urls = Vec::new();
-        for (label, found) in [("body", links.body), ("diff", links.diff)] {
-            for url in found {
-                // Only zip links are fetched here: rar and 7z need 7-Zip, and the
-                // size limit is checked for zip only (see `check_zip_size`).
-                if table_fetch::pack_extension(&url) == Some("zip") {
-                    urls.push(IrLink { label, url });
-                } else {
-                    println!(
-                        "#{number}: not a zip link, so not fetched. Open it in a browser: {url}"
-                    );
-                }
-            }
+        // Only zip links are fetched here: rar and 7z need 7-Zip, and the size
+        // limit is checked for zip only (see `check_zip_size`).
+        let (zips, others) = ir::split_zip_links(links);
+        for url in others {
+            println!("#{number}: not a zip link, so not fetched. Open it in a browser: {url}");
         }
+        let urls: Vec<IrLink> = zips
+            .into_iter()
+            .map(|(label, url)| IrLink { label, url })
+            .collect();
         if urls.is_empty() {
             println!("#{number}: the IR page lists no archive link");
         } else {
@@ -1477,17 +1473,11 @@ fn download_pack(
     slug: &str,
     into: Option<&Path>,
 ) -> Result<(table_fetch::KeptPack, PathBuf), String> {
-    let ext = table_fetch::pack_extension(url).unwrap_or("zip");
-    let bytes = client
-        .get_bytes(url, table_fetch::MAX_PACK_BYTES)
-        .map_err(|e| format!("cannot download {url}: {e}"))?;
-    let archive = scratch.join(format!("pack.{ext}"));
-    fs::write(&archive, bytes).map_err(|e| e.to_string())?;
     let pack_dir = match into {
         Some(dir) => dir.to_path_buf(),
         None => PathBuf::from("songs").join(slug).join(number.to_string()),
     };
-    table_fetch::keep_pack(&archive, entry, scratch, &pack_dir).map(|kept| (kept, pack_dir))
+    table_ops::fetch_pack(client, url, entry, scratch, &pack_dir).map(|kept| (kept, pack_dir))
 }
 
 /// Asks a yes/no question on stdin. Anything but `y` or `yes` is no.
