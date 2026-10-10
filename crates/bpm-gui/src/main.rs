@@ -2,65 +2,45 @@
 
 mod bitmap_font;
 mod clipboard;
+mod dialogs;
+mod file_dialog;
 mod image_draw;
 mod tables_tab;
+mod tasks;
 mod ui;
+mod widgets;
+
+#[cfg(test)]
+mod snapshot;
 
 use beetle_render::image::ImageBuffer;
-use bms_package_manager::{PackageManager, PackageRecord};
+use bms_package_manager::{BgaPackMode, PackageManager, PackageRecord};
+use dialogs::{Dialog, DialogKind};
 use softbuffer::{Context, Surface};
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
-use ui::{GuiRenderer, TaskProgressInfo};
+use tasks::{BgTask, TaskKind, TaskMessage};
+use ui::{ActiveTab, StatusKind};
+use widgets::{GuiRenderer, ListView, ScrollTarget, UiAction};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+/// Where a path picked in the Open dialog goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ModalMode {
-    ImportFolder,
-    InstallBmsp,
-    PackFolder {
-        is_turbo: bool,
-        bga_mode: bms_package_manager::BgaPackMode,
-    },
-    ApplyDelta,
-    CreateDelta,
-    /// Legacy BMS folders the player scans in place (`library.dat`).
-    Library,
-    /// Yes/no: download the difference pack of the selected table entry.
-    TableFetchDiff,
-    /// Path of a body file to get the selected table entry from.
-    TableGetBody,
-}
-
-enum BgTaskMessage {
-    Progress {
-        phase: String,
-        current: usize,
-        total: usize,
-        detail: String,
-    },
-    Completed(String),
-    Failed(String),
-}
-
-#[derive(Debug, Clone)]
-struct BgTaskState {
-    title: String,
-    phase: String,
-    current: usize,
-    total: usize,
-    detail: String,
+enum PickTarget {
+    /// Into a text field of the open dialog.
+    Field(usize),
+    /// Straight into "add songs".
+    AddPath,
 }
 
 struct AppState {
@@ -71,78 +51,66 @@ struct AppState {
     manager: PackageManager,
     packages: Vec<PackageRecord>,
     filtered_indices: Vec<usize>,
-    selected_idx: usize,
-    selected_ver_idx: usize,
+    installed: ListView,
     search_query: String,
     is_search_active: bool,
-    status_msg: String,
-    modal: Option<(ModalMode, String)>,
+    status: String,
+    status_kind: StatusKind,
+    dialog: Option<Dialog>,
     preview_image: Option<ImageBuffer>,
-    bg_receiver: Option<Receiver<BgTaskMessage>>,
-    bg_task_running: Option<BgTaskState>,
-    bg_cancel_flag: Option<Arc<AtomicBool>>,
+    /// Which package state the preview image belongs to.
+    preview_key: Option<(String, String)>,
+    task: Option<BgTask>,
+    picker: Option<(PickTarget, Receiver<Option<PathBuf>>)>,
     modifiers: ModifiersState,
-    spinner_frame: usize,
+    anim_frame: usize,
     last_anim_time: Instant,
-    active_tab: ui::ActiveTab,
+    active_tab: ActiveTab,
     tables: tables_tab::TablesTab,
-    /// The question shown in the dialog open now (download or path).
-    pending_prompt: String,
-    /// Lines under the dialog's hints (where a download will be saved).
-    pending_lines: Vec<String>,
-    /// The table task running now, if any.
-    table_task: Option<TableTaskKind>,
     remote_packages: Vec<ui::RemotePackageDisplayInfo>,
     remote_raw_packages: Vec<(bms_package_manager::RemotePackageMetadata, String)>,
     remote_filtered_indices: Vec<usize>,
-    remote_selected_idx: usize,
+    remote_view: ListView,
     remote_level_filter: u8,
+    remote_with_bga: bool,
     cursor_pos: (f32, f32),
+    hover: Option<UiAction>,
+    /// A file is being dragged over the window.
+    drag_hover: bool,
     library: Vec<String>,
 }
 
-/// One Enter in the library modal: a list number removes that folder, a
-/// registered path removes it, any other existing folder is added.
-fn apply_library_input(state: &mut AppState, text: &str) {
-    let mut list = bms_package_manager::load_library();
-    let by_number = text
-        .parse::<usize>()
-        .ok()
-        .and_then(|n| n.checked_sub(1))
-        .and_then(|i| list.paths().get(i).cloned());
-    let result = if let Some(path) = by_number {
-        list.remove(&path).then(|| format!("Removed {path}"))
-    } else {
-        match bms_package_manager::absolute_dir(text) {
-            Ok(abs) if list.add(&abs) => {
-                Some(format!("Added {abs} (player rescans on next start)"))
-            }
-            Ok(abs) if list.remove(&abs) => Some(format!("Removed {abs}")),
-            Ok(_) => None,
-            Err(e) if list.remove(text) => Some(format!("Removed {text} ({e})")),
-            Err(e) => {
-                state.status_msg = format!("Library: {e}");
-                return;
-            }
-        }
-    };
-    if let Some(msg) = result {
-        state.status_msg = match bms_package_manager::save_library(&list) {
-            Ok(()) => msg,
-            Err(e) => format!("Library save error: {e}"),
-        };
-    }
-    state.library = list.paths().to_vec();
-}
-
 impl AppState {
+    fn info(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+        self.status_kind = StatusKind::Info;
+    }
+
+    fn ok(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+        self.status_kind = StatusKind::Success;
+    }
+
+    fn err(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+        self.status_kind = StatusKind::Error;
+    }
+
+    /// True (and says so) when a task is running, for actions that must wait.
+    fn busy(&mut self) -> bool {
+        if self.task.is_some() {
+            self.err("지금 하는 작업이 끝난 뒤에 다시 해 주세요");
+            true
+        } else {
+            false
+        }
+    }
+
     fn refresh_packages(&mut self) {
-        // Reload registry
         let root = self.manager.root_dir().to_path_buf();
         if let Ok(new_mgr) = PackageManager::new(&root) {
             self.manager = new_mgr;
         }
-
         self.packages = self
             .manager
             .registry()
@@ -150,16 +118,16 @@ impl AppState {
             .into_iter()
             .cloned()
             .collect();
-
+        self.packages.sort_by_key(|p| p.name.to_lowercase());
         self.apply_filter();
         self.refresh_remote_packages();
     }
 
     fn refresh_remote_packages(&mut self) {
         let packages_dir = self.manager.root_dir().to_path_buf();
-        let sources_path = packages_dir.join("sources.json");
         let sources_config =
-            bms_package_manager::SourcesConfig::load_or_init(&sources_path).unwrap_or_default();
+            bms_package_manager::SourcesConfig::load_or_init(&packages_dir.join("sources.json"))
+                .unwrap_or_default();
         let cache_mgr = bms_package_manager::RegistryCacheManager::new(&packages_dir);
 
         let active_sources = sources_config.active_sources_by_priority();
@@ -184,19 +152,15 @@ impl AppState {
 
         let mut raw_list = Vec::new();
         let mut display_list = Vec::new();
-
         for pkg in merged {
             let base_url = url_map.get(&pkg.id).cloned().unwrap_or_default();
-            let status = if let Some(inst) = installed_map.get(pkg.id.as_str()) {
-                if inst.state_hashes.contains_key(&pkg.state_hash) {
+            let status = match installed_map.get(pkg.id.as_str()) {
+                Some(inst) if inst.state_hashes.contains_key(&pkg.state_hash) => {
                     ui::RemotePackageStatus::Installed
-                } else {
-                    ui::RemotePackageStatus::UpdateAvailable
                 }
-            } else {
-                ui::RemotePackageStatus::Available
+                Some(_) => ui::RemotePackageStatus::UpdateAvailable,
+                None => ui::RemotePackageStatus::Available,
             };
-
             display_list.push(ui::RemotePackageDisplayInfo {
                 id: pkg.id.clone(),
                 title: pkg.title.clone(),
@@ -207,10 +171,8 @@ impl AppState {
                 size_bytes: pkg.size_bytes,
                 sha256: pkg.sha256.clone(),
                 status,
-                has_companion_bga: pkg.companion_bga.is_some(),
-                download_url: pkg.download_url.clone(),
+                bga_size_bytes: pkg.companion_bga.as_ref().map(|b| b.size_bytes),
             });
-
             raw_list.push((pkg, base_url));
         }
 
@@ -220,91 +182,117 @@ impl AppState {
     }
 
     fn apply_remote_filter(&mut self) {
-        let q = self.search_query.trim().to_ascii_lowercase();
+        let q = self.search_query.trim().to_lowercase();
         let lvl_filter = self.remote_level_filter;
-
         self.remote_filtered_indices = self
             .remote_packages
             .iter()
             .enumerate()
             .filter(|(_, p)| {
                 let text_match = q.is_empty()
-                    || p.id.to_ascii_lowercase().contains(&q)
-                    || p.title.to_ascii_lowercase().contains(&q)
-                    || p.artist.to_ascii_lowercase().contains(&q)
-                    || p.genre
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_ascii_lowercase()
-                        .contains(&q);
-
-                if !text_match {
-                    return false;
-                }
-
-                if lvl_filter == 0 {
-                    return true;
-                }
-
-                if p.play_levels.is_empty() {
-                    return false;
-                }
-
-                match lvl_filter {
+                    || p.id.to_lowercase().contains(&q)
+                    || p.title.to_lowercase().contains(&q)
+                    || p.artist.to_lowercase().contains(&q)
+                    || p.genre.as_deref().unwrap_or("").to_lowercase().contains(&q);
+                let level_match = match lvl_filter {
                     1 => p.play_levels.iter().any(|&l| (1..=4).contains(&l)),
                     2 => p.play_levels.iter().any(|&l| (5..=8).contains(&l)),
                     3 => p.play_levels.iter().any(|&l| (9..=11).contains(&l)),
                     4 => p.play_levels.iter().any(|&l| l >= 12),
                     _ => true,
-                }
+                };
+                text_match && level_match
             })
             .map(|(i, _)| i)
             .collect();
-
-        if self.remote_selected_idx >= self.remote_filtered_indices.len() {
-            self.remote_selected_idx = self.remote_filtered_indices.len().saturating_sub(1);
-        }
+        self.remote_view.follow = true;
     }
 
     fn apply_filter(&mut self) {
-        let q = self.search_query.trim().to_ascii_lowercase();
-        if q.is_empty() {
-            self.filtered_indices = (0..self.packages.len()).collect();
-        } else {
-            self.filtered_indices = self
-                .packages
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| {
-                    p.id.to_ascii_lowercase().contains(&q)
-                        || p.name.to_ascii_lowercase().contains(&q)
-                        || p.author
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_ascii_lowercase()
-                            .contains(&q)
-                })
-                .map(|(i, _)| i)
-                .collect();
-        }
-
-        if self.selected_idx >= self.filtered_indices.len() {
-            self.selected_idx = self.filtered_indices.len().saturating_sub(1);
-        }
-        self.selected_ver_idx = 0;
-        self.update_preview_image();
+        let q = self.search_query.trim().to_lowercase();
+        self.filtered_indices = self
+            .packages
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                q.is_empty()
+                    || p.id.to_lowercase().contains(&q)
+                    || p.name.to_lowercase().contains(&q)
+                    || p.author
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&q)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.installed.follow = true;
         self.apply_remote_filter();
     }
 
+    fn selected_package(&self) -> Option<&PackageRecord> {
+        self.filtered_indices
+            .get(self.installed.selected)
+            .and_then(|&i| self.packages.get(i))
+    }
+
+    /// Loads the artwork of the selected package when the selection changed.
     fn update_preview_image(&mut self) {
-        self.preview_image = None;
-        if let Some(&pkg_idx) = self.filtered_indices.get(self.selected_idx) {
-            if let Some(pkg) = self.packages.get(pkg_idx) {
-                if let Some(state_rec) = pkg.state_hashes.get(&pkg.active_state) {
-                    let dir = self.manager.root_dir().join(&state_rec.path);
-                    self.preview_image = load_artwork_from_dir(&dir);
-                }
+        let key = self
+            .selected_package()
+            .map(|p| (p.id.clone(), p.active_state.clone()));
+        if key == self.preview_key {
+            return;
+        }
+        self.preview_image = self.selected_package().and_then(|pkg| {
+            let state = pkg.state_hashes.get(&pkg.active_state)?;
+            load_artwork_from_dir(&self.manager.root_dir().join(&state.path))
+        });
+        self.preview_key = key;
+    }
+
+    fn hwnd(&self) -> isize {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match self.window.window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get(),
+            _ => 0,
+        }
+    }
+
+    fn open_picker(&mut self, target: PickTarget, kind: file_dialog::PickKind, title: &str) {
+        if self.picker.is_some() {
+            return;
+        }
+        let rx = file_dialog::pick(kind, title, self.hwnd());
+        self.picker = Some((target, rx));
+    }
+
+    fn open_dialog(&mut self, kind: DialogKind) {
+        self.is_search_active = false;
+        self.dialog = Some(Dialog::new(kind));
+    }
+
+    fn start_task<F>(&mut self, title: String, phase: &str, kind: TaskKind, work: F)
+    where
+        F: FnOnce(&tasks::Reporter) -> Result<String, String> + Send + 'static,
+    {
+        if self.busy() {
+            return;
+        }
+        self.info(title.clone());
+        self.task = Some(tasks::spawn(title, phase, kind, work));
+    }
+
+    /// Adds a folder, an archive, a package or an update file.
+    fn start_add(&mut self, path: PathBuf) {
+        match tasks::add_title(&path) {
+            Ok(title) => {
+                let root = self.manager.root_dir().to_path_buf();
+                self.start_task(title, "준비하는 중...", TaskKind::Adds, move |r| {
+                    tasks::add_path(root, path, r)
+                });
             }
+            Err(msg) => self.err(msg),
         }
     }
 }
@@ -313,8 +301,7 @@ fn load_artwork_from_dir(dir: &Path) -> Option<ImageBuffer> {
     if !dir.exists() {
         return None;
     }
-
-    for name in &[
+    for name in [
         "stagefile.bmp",
         "stage.bmp",
         "banner.bmp",
@@ -325,29 +312,23 @@ fn load_artwork_from_dir(dir: &Path) -> Option<ImageBuffer> {
         "BANNER.BMP",
         "TITLE.BMP",
     ] {
-        let p = dir.join(name);
-        if let Some(img) = ImageBuffer::load_from_file(&p) {
+        if let Some(img) = ImageBuffer::load_from_file(dir.join(name)) {
             return Some(img);
         }
     }
-
-    // Check image/ folder if present
     let img_dir = dir.join("image");
-    if img_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&img_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("bmp") {
-                        if let Some(img) = ImageBuffer::load_from_file(&p) {
-                            return Some(img);
-                        }
-                    }
-                }
+    for entry in fs::read_dir(&img_dir).into_iter().flatten().flatten() {
+        let p = entry.path();
+        let is_bmp = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("bmp"));
+        if is_bmp {
+            if let Some(img) = ImageBuffer::load_from_file(&p) {
+                return Some(img);
             }
         }
     }
-
     None
 }
 
@@ -362,8 +343,9 @@ impl ApplicationHandler for BpmGuiApp {
         }
 
         let window_attributes = Window::default_attributes()
-            .with_title("BMS Package Manager (BPM GUI)")
-            .with_inner_size(LogicalSize::new(960.0, 680.0));
+            .with_title("Beetle 곡 관리자")
+            .with_inner_size(LogicalSize::new(1080.0, 740.0))
+            .with_min_inner_size(LogicalSize::new(900.0, 620.0));
 
         let window = match event_loop.create_window(window_attributes) {
             Ok(w) => Arc::new(w),
@@ -372,7 +354,6 @@ impl ApplicationHandler for BpmGuiApp {
                 return;
             }
         };
-
         let context = match Context::new(window.clone()) {
             Ok(c) => c,
             Err(e) => {
@@ -380,7 +361,6 @@ impl ApplicationHandler for BpmGuiApp {
                 return;
             }
         };
-
         let surface = match Surface::new(&context, window.clone()) {
             Ok(s) => s,
             Err(e) => {
@@ -390,7 +370,6 @@ impl ApplicationHandler for BpmGuiApp {
         };
 
         let packages_dir = bms_package::installed::packages_root();
-
         let manager =
             PackageManager::new(&packages_dir).expect("Failed to initialize PackageManager");
         let size = window.inner_size();
@@ -405,100 +384,55 @@ impl ApplicationHandler for BpmGuiApp {
             manager,
             packages: Vec::new(),
             filtered_indices: Vec::new(),
-            selected_idx: 0,
-            selected_ver_idx: 0,
+            installed: ListView::default(),
             search_query: String::new(),
             is_search_active: false,
-            status_msg: "Ready".to_string(),
-            modal: None,
+            status: "준비됐어요. 처음이라면 오른쪽 위 '도움말'을 눌러 보세요.".to_string(),
+            status_kind: StatusKind::Info,
+            dialog: None,
             preview_image: None,
-            bg_receiver: None,
-            bg_task_running: None,
-            bg_cancel_flag: None,
+            preview_key: None,
+            task: None,
+            picker: None,
             modifiers: ModifiersState::default(),
-            spinner_frame: 0,
+            anim_frame: 0,
             last_anim_time: Instant::now(),
-            active_tab: ui::ActiveTab::Installed,
+            active_tab: ActiveTab::Installed,
             tables: tables_tab::TablesTab::load(),
-            pending_prompt: String::new(),
-            pending_lines: Vec::new(),
-            table_task: None,
             remote_packages: Vec::new(),
             remote_raw_packages: Vec::new(),
             remote_filtered_indices: Vec::new(),
-            remote_selected_idx: 0,
+            remote_view: ListView::default(),
             remote_level_filter: 0,
-            cursor_pos: (0.0, 0.0),
+            remote_with_bga: true,
+            cursor_pos: (-1.0, -1.0),
+            hover: None,
+            drag_hover: false,
             library: bms_package_manager::load_library().paths().to_vec(),
         };
-
         app_state.refresh_packages();
         self.state = Some(app_state);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let state = match &mut self.state {
-            Some(s) => s,
-            None => return,
+        let Some(state) = &mut self.state else {
+            return;
         };
 
-        // Check if background task sent progress or completed
-        if let Some(rx) = &state.bg_receiver {
-            while let Ok(res) = rx.try_recv() {
-                match res {
-                    BgTaskMessage::Progress {
-                        phase,
-                        current,
-                        total,
-                        detail,
-                    } => {
-                        if let Some(ref mut task) = state.bg_task_running {
-                            task.phase = phase;
-                            task.current = current;
-                            task.total = total;
-                            task.detail = detail;
-                        }
-                        state.window.request_redraw();
-                    }
-                    BgTaskMessage::Completed(msg) => {
-                        state.bg_receiver = None;
-                        state.bg_task_running = None;
-                        state.bg_cancel_flag = None;
-                        state.status_msg = msg;
-                        state.refresh_packages();
-                        state.tables.reload_index();
-                        match state.table_task.take() {
-                            Some(TableTaskKind::Adds) => state.tables.stale = true,
-                            Some(TableTaskKind::Scan) => state.tables.stale = false,
-                            None => {}
-                        }
-                        state.window.request_redraw();
-                        break;
-                    }
-                    BgTaskMessage::Failed(err) => {
-                        state.table_task = None;
-                        state.bg_receiver = None;
-                        state.bg_task_running = None;
-                        state.bg_cancel_flag = None;
-                        state.status_msg = err;
-                        state.refresh_packages();
-                        state.window.request_redraw();
-                        break;
-                    }
-                }
-            }
-        }
+        poll_task(state);
+        poll_picker(state);
 
-        // Animate spinner smoothly if background task is active
-        if state.bg_task_running.is_some() {
+        if state.task.is_some() {
             let now = Instant::now();
-            if now.duration_since(state.last_anim_time) >= Duration::from_millis(80) {
-                state.spinner_frame = state.spinner_frame.wrapping_add(1);
+            if now.duration_since(state.last_anim_time) >= Duration::from_millis(33) {
+                state.anim_frame = state.anim_frame.wrapping_add(1);
                 state.last_anim_time = now;
                 state.window.request_redraw();
             }
+        }
+        if state.task.is_some() || state.picker.is_some() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(30),
+                Instant::now() + Duration::from_millis(33),
             ));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
@@ -511,13 +445,15 @@ impl ApplicationHandler for BpmGuiApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let state = match &mut self.state {
-            Some(s) => s,
-            None => return,
+        let Some(state) = &mut self.state else {
+            return;
         };
 
         match event {
             WindowEvent::CloseRequested => {
+                if let Some(task) = &state.task {
+                    task.cancel.store(true, Ordering::SeqCst);
+                }
                 event_loop.exit();
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {
@@ -535,1212 +471,625 @@ impl ApplicationHandler for BpmGuiApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor_pos = (position.x as f32, position.y as f32);
+                state.renderer.cursor = state.cursor_pos;
+                let hover = state.renderer.hit_at(state.cursor_pos);
+                if hover != state.hover {
+                    state.hover = hover;
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                // Only the highlight goes: a click always comes with a fresh position.
+                state.renderer.cursor = (-1.0, -1.0);
+                state.hover = None;
+                state.window.request_redraw();
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
             } => {
-                let (mx, my) = state.cursor_pos;
-                let size = state.window.inner_size();
-                let w = size.width as f32;
-
-                // Tab 1: Installed
-                if (14.0..=42.0).contains(&my) && (210.0..=350.0).contains(&mx) {
-                    state.active_tab = ui::ActiveTab::Installed;
-                    state.is_search_active = false;
-                    state.window.request_redraw();
-                } else if (14.0..=42.0).contains(&my) && (360.0..=510.0).contains(&mx) {
-                    // Tab 2: Online Hub
-                    state.active_tab = ui::ActiveTab::OnlineHub;
-                    state.is_search_active = false;
-                    state.window.request_redraw();
-                } else if (14.0..=42.0).contains(&my) && (520.0..=670.0).contains(&mx) {
-                    // Tab 3: Tables
-                    state.active_tab = ui::ActiveTab::Tables;
-                    state.is_search_active = false;
-                    state.window.request_redraw();
-                } else {
-                    let search_box_x = (w - 320.0).max(690.0);
-                    let s_w = w - search_box_x - 16.0;
-                    if (14.0..=42.0).contains(&my)
-                        && state.active_tab != ui::ActiveTab::Tables
-                        && (search_box_x..=(search_box_x + s_w)).contains(&mx)
-                    {
-                        state.is_search_active = true;
-                        state.window.request_redraw();
-                    } else if state.active_tab == ui::ActiveTab::OnlineHub {
-                        let list_w = 460.0_f32.min(w * 0.52);
-                        // Level filter pills: filter_y = 68.0 + 32.0 = 100.0, height = 22.0
-                        if (100.0..=122.0).contains(&my)
-                            && (18.0..=(18.0 + list_w - 20.0)).contains(&mx)
-                        {
-                            let pill_w = (list_w - 20.0) / 5.0;
-                            let clicked_filter = (((mx - 18.0) / pill_w) as u8).min(4);
-                            state.remote_level_filter = clicked_filter;
-                            state.apply_remote_filter();
-                            state.window.request_redraw();
-                        } else {
-                            // Catalog list: catalog_y = 126.0, row_h = 50.0
-                            let catalog_y = 126.0;
-                            let content_h = size.height as f32 - 68.0 - ui::FOOTER_RESERVE;
-                            let catalog_h = content_h - 58.0;
-                            let row_h = 50.0;
-                            let max_visible_rows = (catalog_h / row_h) as usize;
-                            let scroll_offset = if state.remote_selected_idx >= max_visible_rows {
-                                state.remote_selected_idx - max_visible_rows + 1
-                            } else {
-                                0
-                            };
-                            if (catalog_y..=(catalog_y + catalog_h)).contains(&my)
-                                && (18.0..=(18.0 + list_w)).contains(&mx)
-                            {
-                                let r = ((my - catalog_y) / row_h) as usize;
-                                let clicked_idx = scroll_offset + r;
-                                if clicked_idx < state.remote_filtered_indices.len() {
-                                    state.remote_selected_idx = clicked_idx;
-                                    state.window.request_redraw();
-                                }
+                if state.picker.is_none() {
+                    match state.renderer.hit_at(state.cursor_pos) {
+                        Some(action) => {
+                            if action != UiAction::FocusSearch {
+                                state.is_search_active = false;
                             }
+                            dispatch(state, action);
                         }
-                    } else if state.active_tab == ui::ActiveTab::Installed {
-                        let list_w = 420.0;
-                        let row_y_start = 68.0 + 32.0;
-                        let content_h = size.height as f32 - 68.0 - ui::FOOTER_RESERVE;
-                        let row_h = 44.0;
-                        let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
-                        let scroll_offset = if state.selected_idx >= max_visible_rows {
-                            state.selected_idx - max_visible_rows + 1
-                        } else {
-                            0
-                        };
-                        if (row_y_start..=(row_y_start + (max_visible_rows as f32 * row_h)))
-                            .contains(&my)
-                            && (18.0..=(18.0 + list_w)).contains(&mx)
-                        {
-                            let r = ((my - row_y_start) / row_h) as usize;
-                            let clicked_idx = scroll_offset + r;
-                            if clicked_idx < state.filtered_indices.len() {
-                                state.selected_idx = clicked_idx;
-                                state.selected_ver_idx = 0;
-                                state.update_preview_image();
-                                state.window.request_redraw();
-                            }
-                        }
+                        None => state.is_search_active = false,
                     }
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
+                };
+                let rows = (-lines * 3.0).round() as isize;
+                if rows != 0 && state.dialog.is_none() {
+                    match state.renderer.scroll_target_at(state.cursor_pos) {
+                        Some(ScrollTarget::Installed) => state.installed.scroll_by(rows),
+                        Some(ScrollTarget::Remote) => state.remote_view.scroll_by(rows),
+                        Some(ScrollTarget::Tables) => state.tables.view.scroll_by(rows),
+                        None => {}
+                    }
+                    state.window.request_redraw();
                 }
             }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
                         physical_key: PhysicalKey::Code(code),
-                        state: key_state,
+                        state: ElementState::Pressed,
                         text,
                         ..
                     },
                 ..
             } => {
-                if key_state == ElementState::Pressed {
-                    handle_key_input(state, code, text.as_deref(), event_loop);
+                if state.picker.is_none() {
+                    handle_key_input(state, code, text.as_deref());
                     state.window.request_redraw();
                 }
             }
-            WindowEvent::RedrawRequested => {
-                let size = state.window.inner_size();
-                if NonZeroU32::new(size.width).is_some() && NonZeroU32::new(size.height).is_some() {
-                    let filtered_pkgs: Vec<&PackageRecord> = state
-                        .filtered_indices
-                        .iter()
-                        .filter_map(|&idx| state.packages.get(idx))
-                        .collect();
-
-                    let filtered_remote: Vec<ui::RemotePackageDisplayInfo> = state
-                        .remote_filtered_indices
-                        .iter()
-                        .filter_map(|&idx| state.remote_packages.get(idx).cloned())
-                        .collect();
-
-                    let library_lines: Vec<String> = state
-                        .library
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            let tag = if Path::new(p).is_dir() {
-                                "ok"
-                            } else {
-                                "missing"
-                            };
-                            format!("{}. [{tag}] {p}", i + 1)
-                        })
-                        .collect();
-
-                    let pending_prompt = state.pending_prompt.clone();
-                    let pending_lines = state.pending_lines.clone();
-                    let modal_info = state.modal.as_ref().map(|(mode, input)| match mode {
-                        ModalMode::Library => ui::ModalDisplayInfo {
-                            prompt: "Legacy BMS folders (path: add / path or number: remove):",
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &library_lines,
-                        },
-                        ModalMode::TableFetchDiff => ui::ModalDisplayInfo {
-                            prompt: pending_prompt.as_str(),
-                            input: "",
-                            pack_options: None,
-                            list: &pending_lines,
-                        },
-                        ModalMode::TableGetBody => ui::ModalDisplayInfo {
-                            prompt: pending_prompt.as_str(),
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &pending_lines,
-                        },
-                        ModalMode::ImportFolder => ui::ModalDisplayInfo {
-                            prompt: "Import BMS Folder (enter directory path):",
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &[],
-                        },
-                        ModalMode::InstallBmsp => ui::ModalDisplayInfo {
-                            prompt: "Install .bmsp Package (enter file path):",
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &[],
-                        },
-                        ModalMode::PackFolder { is_turbo, bga_mode } => ui::ModalDisplayInfo {
-                            prompt: "Pack BMS Folder (configure options & path below):",
-                            input: input.as_str(),
-                            pack_options: Some(ui::PackModalOptionsDisplay {
-                                is_turbo: *is_turbo,
-                                bga_mode: *bga_mode,
-                            }),
-                            list: &[],
-                        },
-                        ModalMode::ApplyDelta => ui::ModalDisplayInfo {
-                            prompt: "Apply Delta .bmdp (enter file path):",
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &[],
-                        },
-                        ModalMode::CreateDelta => ui::ModalDisplayInfo {
-                            prompt: "Create Delta (enter '<base_path> <target_path>'):",
-                            input: input.as_str(),
-                            pack_options: None,
-                            list: &[],
-                        },
-                    });
-
-                    let bg_task_info =
-                        state.bg_task_running.as_ref().map(|task| TaskProgressInfo {
-                            message: &task.title,
-                            phase: &task.phase,
-                            current: task.current,
-                            total: task.total,
-                            detail: &task.detail,
-                            spinner_frame: state.spinner_frame,
-                        });
-
-                    state.renderer.render_frame(
-                        state.active_tab,
-                        &filtered_pkgs,
-                        state.selected_idx,
-                        state.selected_ver_idx,
-                        state.preview_image.as_ref(),
-                        &filtered_remote,
-                        state.remote_selected_idx,
-                        state.remote_level_filter,
-                        &state.search_query,
-                        state.is_search_active,
-                        &state.status_msg,
-                        modal_info,
-                        bg_task_info,
-                        &mut state.tables,
-                    );
-
-                    if let Ok(mut buffer) = state.surface.buffer_mut() {
-                        let data = state.renderer.pixmap.data();
-                        for (dst, src) in buffer.iter_mut().zip(data.chunks_exact(4)) {
-                            *dst = ((src[3] as u32) << 24)
-                                | ((src[0] as u32) << 16)
-                                | ((src[1] as u32) << 8)
-                                | (src[2] as u32);
-                        }
-                        buffer.present().ok();
-                    }
-                }
-            }
-            WindowEvent::DroppedFile(path) if state.bg_task_running.is_none() => {
-                let root_dir = state.manager.root_dir().to_path_buf();
-                let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-                state.bg_receiver = Some(rx);
-
-                let cancel_flag = Arc::new(AtomicBool::new(false));
-                state.bg_cancel_flag = Some(cancel_flag.clone());
-
-                let path_buf = path.clone();
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                if ext == "bmdp" {
-                    state.bg_task_running = Some(BgTaskState {
-                        title: format!("Applying delta '{}'", path.display()),
-                        phase: "Starting...".to_string(),
-                        current: 0,
-                        total: 0,
-                        detail: String::new(),
-                    });
-                    thread::spawn(move || match PackageManager::new(&root_dir) {
-                        Ok(mut mgr) => match mgr.apply_delta(&path_buf) {
-                            Ok(installed) => {
-                                let short_h = if installed.state_hash.len() > 8 {
-                                    &installed.state_hash[..8]
-                                } else {
-                                    &installed.state_hash
-                                };
-                                let _ = tx.send(BgTaskMessage::Completed(format!(
-                                    "Updated '{}' (#{})",
-                                    installed.name, short_h
-                                )));
-                            }
-                            Err(e) => {
-                                let _ = tx
-                                    .send(BgTaskMessage::Failed(format!("Delta apply error: {e}")));
-                            }
-                        },
-                        Err(e) => {
-                            let _ = tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                        }
-                    });
-                } else if ext == "bmsp" {
-                    let file_str = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("package.bmsp")
-                        .to_string();
-                    let is_bga_companion = file_str.ends_with(".bga.bmsp");
-                    if is_bga_companion {
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Installing BGA companion '{}'", file_str),
-                            phase: "Installing companion...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let p_buf = path.clone();
-                        thread::spawn(move || match PackageManager::new(&root_dir) {
-                            Ok(mut mgr) => match mgr.install_bga_companion(&p_buf) {
-                                Ok(target_id) => {
-                                    let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Installed BGA companion for '{}'",
-                                        target_id
-                                    )));
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!(
-                                        "BGA companion error: {e}"
-                                    )));
-                                }
-                            },
-                            Err(e) => {
-                                let _ =
-                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                            }
-                        });
-                    } else {
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Installing '{}'", file_str),
-                            phase: "Reading package...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || {
-                            match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.install_with_progress(
-                                        &path_buf,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            // Check for adjacent companion package (.bga.bmsp)
-                                            let companion_name = format!(
-                                                "{}.bga.bmsp",
-                                                file_str.trim_end_matches(".bmsp")
-                                            );
-                                            if let Some(parent) = path_buf.parent() {
-                                                let candidate = parent.join(&companion_name);
-                                                if candidate.exists() {
-                                                    let _ = mgr.install_bga_companion(&candidate);
-                                                }
-                                            }
-                                            let short_h = if installed.state_hash.len() > 8 {
-                                                &installed.state_hash[..8]
-                                            } else {
-                                                &installed.state_hash
-                                            };
-                                            let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Installed '{}' (#{})",
-                                                installed.name, short_h
-                                            )));
-                                        }
-                                        Err(
-                                            bms_package_manager::PackageManagerError::Cancelled,
-                                        ) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Install cancelled by user".to_string(),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                "Install error: {e}"
-                                            )));
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            }
-                        });
-                    }
-                } else if path.is_dir() {
-                    let roots = bms_package_manager::find_bms_song_roots(&path_buf);
-                    if roots.is_empty() {
-                        state.status_msg =
-                            format!("No BMS chart files found in '{}'", path_buf.display());
-                        return;
-                    }
-
-                    if roots.len() == 1 {
-                        let target_root = roots[0].clone();
-                        let folder_name = target_root
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("folder")
-                            .to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Importing '{}'", folder_name),
-                            phase: "Scanning folder...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || match PackageManager::new(&root_dir) {
-                            Ok(mut mgr) => {
-                                let res = mgr.import_folder_with_progress(
-                                    &target_root,
-                                    None,
-                                    Some(&cancel_flag),
-                                    move |phase, curr, tot, detail| {
-                                        let _ = tx_progress.send(BgTaskMessage::Progress {
-                                            phase: phase.to_string(),
-                                            current: curr,
-                                            total: tot,
-                                            detail: detail.to_string(),
-                                        });
-                                    },
-                                );
-                                match res {
-                                    Ok(installed) => {
-                                        let short_h = if installed.state_hash.len() > 8 {
-                                            &installed.state_hash[..8]
-                                        } else {
-                                            &installed.state_hash
-                                        };
-                                        let _ = tx.send(BgTaskMessage::Completed(format!(
-                                            "Imported '{}' (#{})",
-                                            installed.name, short_h
-                                        )));
-                                    }
-                                    Err(bms_package_manager::PackageManagerError::Cancelled) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(
-                                            "Import cancelled by user".to_string(),
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "Import error: {e}"
-                                        )));
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let _ =
-                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                            }
-                        });
-                    } else {
-                        let total_count = roots.len();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Batch importing {} songs", total_count),
-                            phase: "Starting batch import...".to_string(),
-                            current: 0,
-                            total: total_count,
-                            detail: String::new(),
-                        });
-                        let tx_progress = tx.clone();
-                        thread::spawn(move || match PackageManager::new(&root_dir) {
-                            Ok(mut mgr) => {
-                                let mut success_count = 0;
-                                for (i, r) in roots.iter().enumerate() {
-                                    if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                                        let _ = tx.send(BgTaskMessage::Failed(
-                                            "Batch import cancelled by user".to_string(),
-                                        ));
-                                        return;
-                                    }
-                                    let s_name = r
-                                        .file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or("song")
-                                        .to_string();
-                                    let _ = tx_progress.send(BgTaskMessage::Progress {
-                                        phase: format!(
-                                            "[{}/{}] Importing '{}'",
-                                            i + 1,
-                                            total_count,
-                                            s_name
-                                        ),
-                                        current: i + 1,
-                                        total: total_count,
-                                        detail: s_name.clone(),
-                                    });
-
-                                    match mgr.import_folder_with_progress(
-                                        r,
-                                        None,
-                                        Some(&cancel_flag),
-                                        |_, _, _, _| {},
-                                    ) {
-                                        Ok(_) => {
-                                            success_count += 1;
-                                        }
-                                        Err(
-                                            bms_package_manager::PackageManagerError::Cancelled,
-                                        ) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Batch import cancelled by user".to_string(),
-                                            ));
-                                            return;
-                                        }
-                                        Err(_) => {}
-                                    }
-                                }
-                                let _ = tx.send(BgTaskMessage::Completed(format!(
-                                    "Batch imported {}/{} songs into registry",
-                                    success_count, total_count
-                                )));
-                            }
-                            Err(e) => {
-                                let _ =
-                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                            }
-                        });
-                    }
-                }
+            WindowEvent::HoveredFile(_) => {
+                state.drag_hover = true;
                 state.window.request_redraw();
             }
+            WindowEvent::HoveredFileCancelled => {
+                state.drag_hover = false;
+                state.window.request_redraw();
+            }
+            WindowEvent::DroppedFile(path) => {
+                state.drag_hover = false;
+                handle_drop(state, path);
+                state.window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => redraw(state),
             _ => (),
         }
     }
 }
 
-fn handle_key_input(
-    state: &mut AppState,
-    code: KeyCode,
-    text: Option<&str>,
-    event_loop: &ActiveEventLoop,
-) {
-    // 0. Background Task Active -> Allow ESC to cancel
-    if state.bg_task_running.is_some() {
-        if code == KeyCode::Escape {
-            if let Some(flag) = &state.bg_cancel_flag {
-                flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                state.status_msg = "Cancelling task...".to_string();
-            }
-        }
+fn redraw(state: &mut AppState) {
+    let size = state.window.inner_size();
+    if size.width == 0 || size.height == 0 {
         return;
     }
+    state.update_preview_image();
 
-    // 1. Modal Dialog Input Mode
-    if let Some((mode, input)) = &mut state.modal {
-        // Ctrl+V Paste
-        if (state.modifiers.control_key() && code == KeyCode::KeyV) || text == Some("\u{16}") {
-            if let Some(clip) = clipboard::get_clipboard_text() {
-                input.push_str(&clip);
+    let filtered_pkgs: Vec<&PackageRecord> = state
+        .filtered_indices
+        .iter()
+        .filter_map(|&idx| state.packages.get(idx))
+        .collect();
+    let filtered_remote: Vec<&ui::RemotePackageDisplayInfo> = state
+        .remote_filtered_indices
+        .iter()
+        .filter_map(|&idx| state.remote_packages.get(idx))
+        .collect();
+    let dialog_view = state.dialog.as_ref().map(|d| d.view(&state.library));
+    let task_info = state.task.as_ref().map(|task| ui::TaskProgressInfo {
+        title: &task.title,
+        phase: &task.phase,
+        current: task.current,
+        total: task.total,
+        detail: &task.detail,
+        frame: state.anim_frame,
+        cancelling: task.cancel.load(Ordering::SeqCst),
+    });
+
+    state.renderer.render(ui::Frame {
+        tab: state.active_tab,
+        packages: &filtered_pkgs,
+        installed_total: state.packages.len(),
+        installed: &mut state.installed,
+        preview: state.preview_image.as_ref(),
+        remote: &filtered_remote,
+        remote_total: state.remote_packages.len(),
+        remote_view: &mut state.remote_view,
+        level_filter: state.remote_level_filter,
+        with_bga: state.remote_with_bga,
+        search: &state.search_query,
+        search_active: state.is_search_active,
+        status: &state.status,
+        status_kind: state.status_kind,
+        dialog: dialog_view.as_ref(),
+        task: task_info,
+        tables: &mut state.tables,
+        drop_hint: state.drag_hover,
+    });
+
+    if let Ok(mut buffer) = state.surface.buffer_mut() {
+        let data = state.renderer.pixmap.data();
+        for (dst, src) in buffer.iter_mut().zip(data.chunks_exact(4)) {
+            *dst = ((src[3] as u32) << 24)
+                | ((src[0] as u32) << 16)
+                | ((src[1] as u32) << 8)
+                | (src[2] as u32);
+        }
+        buffer.present().ok();
+    }
+}
+
+fn poll_task(state: &mut AppState) {
+    let Some(task) = &mut state.task else {
+        return;
+    };
+    let mut done = None;
+    while let Ok(msg) = task.receiver.try_recv() {
+        match msg {
+            TaskMessage::Progress {
+                phase,
+                current,
+                total,
+                detail,
+            } => {
+                task.phase = phase;
+                task.current = current;
+                task.total = total;
+                task.detail = detail;
+            }
+            TaskMessage::Done(result) => {
+                done = Some(result);
+                break;
+            }
+        }
+    }
+    let Some(result) = done else {
+        return;
+    };
+    let kind = state.task.take().map(|t| t.kind).unwrap_or(TaskKind::Other);
+    let success = result.is_ok();
+    match result {
+        Ok(msg) => state.ok(msg),
+        Err(msg) => state.err(msg),
+    }
+    state.refresh_packages();
+    if success {
+        match kind {
+            TaskKind::Adds => state.tables.stale = state.tables.index.is_some(),
+            TaskKind::TableScan => {
+                state.tables.reload_index();
+                state.tables.stale = false;
+            }
+            TaskKind::TableAdded => {
+                let before: Vec<String> =
+                    state.tables.tables.iter().map(|t| t.name.clone()).collect();
+                state.tables.reload_tables();
+                let added = state
+                    .tables
+                    .tables
+                    .iter()
+                    .find(|t| !before.contains(&t.name))
+                    .map(|t| t.name.clone());
+                if let Some(name) = added {
+                    state.tables.show_table(&name);
+                }
+            }
+            TaskKind::Other => {}
+        }
+    }
+    state.window.request_redraw();
+}
+
+fn poll_picker(state: &mut AppState) {
+    let Some((target, rx)) = &state.picker else {
+        return;
+    };
+    let Ok(picked) = rx.try_recv() else {
+        return;
+    };
+    let target = *target;
+    state.picker = None;
+    state.window.request_redraw();
+    let Some(path) = picked else {
+        return;
+    };
+    match target {
+        PickTarget::AddPath => {
+            state.dialog = None;
+            state.start_add(path);
+        }
+        PickTarget::Field(i) => {
+            let text = path.display().to_string();
+            let library = matches!(
+                state.dialog.as_ref().map(|d| &d.kind),
+                Some(DialogKind::Library)
+            );
+            if library {
+                library_add(state, &text);
+            } else if let Some(field) = state.dialog.as_mut().and_then(|d| d.fields.get_mut(i)) {
+                *field = text;
+            }
+        }
+    }
+}
+
+/// A file or folder dropped on the window: into the open dialog's field, or added.
+fn handle_drop(state: &mut AppState, path: PathBuf) {
+    if let Some(dialog) = &mut state.dialog {
+        if dialog.kind != DialogKind::Add && dialog.has_fields() {
+            let focus = dialog.focus.min(dialog.fields.len() - 1);
+            dialog.fields[focus] = path.display().to_string();
+            if dialog.kind == DialogKind::Library {
+                let text = path.display().to_string();
+                library_add(state, &text);
             }
             return;
         }
+        state.dialog = None;
+    }
+    state.start_add(path);
+}
 
-        // Option toggle hotkeys in PackFolder modal
-        if let ModalMode::PackFolder {
-            ref mut is_turbo,
-            ref mut bga_mode,
-        } = mode
-        {
-            if code == KeyCode::Tab
-                || code == KeyCode::F2
-                || (state.modifiers.control_key() && code == KeyCode::KeyT)
-            {
-                *is_turbo = !*is_turbo;
-                state.status_msg = if *is_turbo {
-                    "Turbo Profile: ENABLED (Dual Atlas)".to_string()
-                } else {
-                    "Turbo Profile: DISABLED (Classic)".to_string()
-                };
-                return;
-            }
+fn library_add(state: &mut AppState, text: &str) {
+    let mut list = bms_package_manager::load_library();
+    match bms_package_manager::absolute_dir(text) {
+        Ok(abs) if list.add(&abs) => match bms_package_manager::save_library(&list) {
+            Ok(()) => state.ok(format!(
+                "'{abs}' 폴더를 연결했어요. 게임을 다시 시작하면 반영돼요."
+            )),
+            Err(e) => state.err(format!("저장하지 못했어요: {e}")),
+        },
+        Ok(abs) => state.info(format!("'{abs}'은(는) 이미 연결된 폴더예요")),
+        Err(e) => state.err(format!("폴더를 찾을 수 없어요: {e}")),
+    }
+    state.library = list.paths().to_vec();
+    if let Some(dialog) = &mut state.dialog {
+        if let Some(field) = dialog.fields.first_mut() {
+            field.clear();
+        }
+    }
+}
 
-            if code == KeyCode::F3 || (state.modifiers.control_key() && code == KeyCode::KeyS) {
-                *bga_mode = match *bga_mode {
-                    bms_package_manager::BgaPackMode::Embed => {
-                        bms_package_manager::BgaPackMode::Split
-                    }
-                    bms_package_manager::BgaPackMode::Split => {
-                        bms_package_manager::BgaPackMode::NoVideo
-                    }
-                    bms_package_manager::BgaPackMode::NoVideo => {
-                        bms_package_manager::BgaPackMode::Embed
-                    }
-                };
-                state.status_msg = match *bga_mode {
-                    bms_package_manager::BgaPackMode::Split => {
-                        "BGA Mode: SPLIT COMPANION (.bga.bmsp)".to_string()
-                    }
-                    bms_package_manager::BgaPackMode::Embed => {
-                        "BGA Mode: EMBEDDED (All-in-one)".to_string()
-                    }
-                    bms_package_manager::BgaPackMode::NoVideo => {
-                        "BGA Mode: NO VIDEO (Omit video)".to_string()
-                    }
-                };
-                return;
+fn library_remove(state: &mut AppState, index: usize) {
+    let mut list = bms_package_manager::load_library();
+    let Some(path) = list.paths().get(index).cloned() else {
+        return;
+    };
+    if list.remove(&path) {
+        match bms_package_manager::save_library(&list) {
+            Ok(()) => state.ok(format!(
+                "'{path}' 연결을 뺐어요. 폴더 안의 파일은 그대로예요."
+            )),
+            Err(e) => state.err(format!("저장하지 못했어요: {e}")),
+        }
+    }
+    state.library = list.paths().to_vec();
+}
+
+/// Runs what a click (or a key mapped to it) asks for.
+fn dispatch(state: &mut AppState, action: UiAction) {
+    match action {
+        UiAction::None => {}
+        UiAction::Tab(tab) => {
+            state.active_tab = tab;
+            state.is_search_active = false;
+        }
+        UiAction::Help => state.open_dialog(DialogKind::Help),
+        UiAction::FocusSearch => state.is_search_active = true,
+        UiAction::ClearSearch => {
+            state.search_query.clear();
+            state.apply_filter();
+        }
+        UiAction::OpenAdd => state.open_dialog(DialogKind::Add),
+        UiAction::OpenLibrary => {
+            state.library = bms_package_manager::load_library().paths().to_vec();
+            state.open_dialog(DialogKind::Library);
+        }
+        UiAction::OpenAdvanced => state.open_dialog(DialogKind::Advanced),
+        UiAction::SelectInstalled(i) => state.installed.select(i),
+        UiAction::UseVersion(i) => use_version(state, i),
+        UiAction::AskUninstallVersion(i) => {
+            if let Some(pkg) = state.selected_package() {
+                let st = pkg.state_hashes.keys().nth(i).cloned();
+                let (id, name) = (pkg.id.clone(), pkg.name.clone());
+                state.open_dialog(DialogKind::ConfirmUninstall {
+                    id,
+                    name,
+                    state: st,
+                });
             }
         }
+        UiAction::AskUninstall => {
+            if let Some(pkg) = state.selected_package() {
+                let (id, name) = (pkg.id.clone(), pkg.name.clone());
+                state.open_dialog(DialogKind::ConfirmUninstall {
+                    id,
+                    name,
+                    state: None,
+                });
+            }
+        }
+        UiAction::AskRemoveBga => {
+            if let Some(pkg) = state.selected_package() {
+                let (id, name) = (pkg.id.clone(), pkg.name.clone());
+                state.open_dialog(DialogKind::ConfirmRemoveBga { id, name });
+            }
+        }
+        UiAction::SelectRemote(i) => state.remote_view.select(i),
+        UiAction::LevelFilter(level) => {
+            state.remote_level_filter = level;
+            state.remote_view.reset();
+            state.apply_remote_filter();
+        }
+        UiAction::ToggleWithBga => state.remote_with_bga = !state.remote_with_bga,
+        UiAction::InstallRemote => start_remote_install(state),
+        UiAction::SyncSources => {
+            let root = state.manager.root_dir().to_path_buf();
+            state.start_task(
+                "온라인 곡 목록 받는 중".to_string(),
+                "저장소에 연결하는 중...",
+                TaskKind::Other,
+                move |r| tasks::sync_sources(root, r),
+            );
+        }
+        UiAction::PrevTable => state.tables.switch_table(false),
+        UiAction::NextTable => state.tables.switch_table(true),
+        UiAction::SelectTableRow(i) => state.tables.view.select(i),
+        UiAction::OpenSongPage => table_open_link(state, false),
+        UiAction::OpenChartPage => table_open_link(state, true),
+        UiAction::AskDownloadChart => table_ask_diff(state),
+        UiAction::AskAddFromArchive => {
+            if let Some(row) = state.tables.selected_row() {
+                let title = row.title.clone();
+                state.open_dialog(DialogKind::TableGetBody { title });
+            }
+        }
+        UiAction::ScanCollection => table_scan(state),
+        UiAction::AskAddTable => state.open_dialog(DialogKind::AddTable),
+        UiAction::DialogFocus(i) => {
+            if let Some(dialog) = &mut state.dialog {
+                dialog.focus = i;
+            }
+        }
+        UiAction::DialogBrowse(i) => {
+            if let Some((kind, title)) = state.dialog.as_ref().and_then(|d| d.browse(i)) {
+                state.open_picker(PickTarget::Field(i), kind, title);
+            }
+        }
+        UiAction::DialogConfirm => confirm_dialog(state),
+        UiAction::DialogCancel => state.dialog = None,
+        UiAction::DialogChoice(group, option) => {
+            if let Some(Dialog {
+                kind: DialogKind::Pack { turbo, bga },
+                ..
+            }) = &mut state.dialog
+            {
+                match group {
+                    0 => *turbo = option == 1,
+                    _ => {
+                        *bga = match option {
+                            0 => BgaPackMode::Embed,
+                            1 => BgaPackMode::Split,
+                            _ => BgaPackMode::NoVideo,
+                        }
+                    }
+                }
+            }
+        }
+        UiAction::DialogListRemove(i) => library_remove(state, i),
+        UiAction::DialogCard(i) => {
+            let Some(dialog) = &state.dialog else {
+                return;
+            };
+            if let Some((kind, title)) = dialog.card_pick(i) {
+                state.open_picker(PickTarget::AddPath, kind, title);
+            } else if dialog.kind == DialogKind::Advanced {
+                state.open_dialog(match i {
+                    0 => DialogKind::Pack {
+                        turbo: false,
+                        bga: BgaPackMode::Embed,
+                    },
+                    1 => DialogKind::ApplyDelta,
+                    _ => DialogKind::CreateDelta,
+                });
+            }
+        }
+        UiAction::CancelTask => {
+            if let Some(task) = &state.task {
+                task.cancel.store(true, Ordering::SeqCst);
+                state.info("취소하는 중...");
+            }
+        }
+    }
+}
 
+fn confirm_dialog(state: &mut AppState) {
+    let Some(dialog) = &state.dialog else {
+        return;
+    };
+    let kind = dialog.kind.clone();
+    let first = dialog.field(0);
+    let second = dialog.field(1);
+    match kind {
+        DialogKind::Help | DialogKind::Advanced => state.dialog = None,
+        DialogKind::Add | DialogKind::ApplyDelta => {
+            if first.is_empty() {
+                state.err("경로를 넣거나 골라 주세요");
+                return;
+            }
+            state.dialog = None;
+            state.start_add(PathBuf::from(first));
+        }
+        DialogKind::Library => {
+            if !first.is_empty() {
+                library_add(state, &first);
+            }
+        }
+        DialogKind::Pack { turbo, bga } => {
+            if first.is_empty() {
+                state.err("패키지로 만들 곡 폴더를 골라 주세요");
+                return;
+            }
+            state.dialog = None;
+            let root = state.manager.root_dir().to_path_buf();
+            let folder = PathBuf::from(first);
+            let name = folder
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string();
+            state.start_task(
+                format!("'{name}' 패키지 만드는 중"),
+                "곡 폴더 읽는 중...",
+                TaskKind::Other,
+                move |r| tasks::pack(root, folder, turbo, bga, r),
+            );
+        }
+        DialogKind::CreateDelta => {
+            if first.is_empty() || second.is_empty() {
+                state.err("원래 폴더와 바뀐 폴더를 모두 골라 주세요");
+                return;
+            }
+            state.dialog = None;
+            let (base, target) = (PathBuf::from(first), PathBuf::from(second));
+            state.start_task(
+                "업데이트 파일 만드는 중".to_string(),
+                "두 폴더 비교하는 중...",
+                TaskKind::Other,
+                move |_| tasks::create_delta(base, target),
+            );
+        }
+        DialogKind::ConfirmUninstall {
+            id,
+            name,
+            state: one,
+        } => {
+            state.dialog = None;
+            uninstall(state, &id, &name, one);
+        }
+        DialogKind::ConfirmRemoveBga { id, name } => {
+            state.dialog = None;
+            if state.busy() {
+                return;
+            }
+            match state.manager.remove_bga_companion(&id) {
+                Ok(reclaimed) => {
+                    let mb = reclaimed as f64 / (1024.0 * 1024.0);
+                    state.ok(format!("'{name}'의 배경 영상을 지웠어요 ({mb:.1} MB 확보)"));
+                }
+                Err(e) => state.err(format!("배경 영상을 지우지 못했어요: {e}")),
+            }
+            state.refresh_packages();
+        }
+        DialogKind::TableFetchDiff { .. } => {
+            state.dialog = None;
+            table_start_diff(state);
+        }
+        DialogKind::TableGetBody { .. } => {
+            if first.is_empty() {
+                state.err("받은 곡 파일을 골라 주세요");
+                return;
+            }
+            state.dialog = None;
+            table_start_get(state, PathBuf::from(first));
+        }
+        DialogKind::AddTable => {
+            let address = first;
+            if address.is_empty() {
+                state.err("난이도표 주소를 넣어 주세요");
+                return;
+            }
+            state.dialog = None;
+            state.start_task(
+                "난이도표 받는 중".to_string(),
+                "표를 내려받는 중...",
+                TaskKind::TableAdded,
+                move |_| {
+                    let client = bms_package_manager::HttpClient::with_timeouts(
+                        Duration::from_secs(10),
+                        Duration::from_secs(30),
+                    );
+                    let get = |url: &str, max: u64| client.get_bytes(url, max);
+                    let table = bms_package_manager::fetch_table(&get, &address)
+                        .map_err(|e| format!("난이도표를 받지 못했어요: {e}"))?;
+                    tables_tab::store()
+                        .install(&table)
+                        .map_err(|e| format!("난이도표를 저장하지 못했어요: {e}"))?;
+                    Ok(format!(
+                        "'{}' 난이도표를 추가했어요 ({}곡)",
+                        table.name,
+                        table.entries.len()
+                    ))
+                },
+            );
+        }
+    }
+}
+
+fn use_version(state: &mut AppState, index: usize) {
+    if state.busy() {
+        return;
+    }
+    let Some(pkg) = state.selected_package() else {
+        return;
+    };
+    let Some(hash) = pkg.state_hashes.keys().nth(index).cloned() else {
+        return;
+    };
+    let id = pkg.id.clone();
+    match state.manager.set_active(&id, &hash) {
+        Ok(()) => state.ok(format!("이제 게임에서 버전 {}을(를) 써요", index + 1)),
+        Err(e) => state.err(format!("버전을 바꾸지 못했어요: {e}")),
+    }
+    state.refresh_packages();
+}
+
+fn uninstall(state: &mut AppState, id: &str, name: &str, one: Option<String>) {
+    if state.busy() {
+        return;
+    }
+    let hashes: Vec<String> = match one {
+        Some(hash) => vec![hash],
+        None => state
+            .packages
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.state_hashes.keys().cloned().collect())
+            .unwrap_or_default(),
+    };
+    let mut result = Ok(());
+    for hash in &hashes {
+        result = state.manager.uninstall(id, hash);
+        if result.is_err() {
+            break;
+        }
+    }
+    match result {
+        Ok(()) => state.ok(format!("'{name}'을(를) 삭제했어요")),
+        Err(e) => state.err(format!("삭제하지 못했어요: {e}")),
+    }
+    state.refresh_packages();
+}
+
+fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>) {
+    let ctrl = state.modifiers.control_key();
+    let paste = (ctrl && code == KeyCode::KeyV) || text == Some("\u{16}");
+
+    // 1. The open dialog takes every key.
+    if let Some(dialog) = &mut state.dialog {
         match code {
-            KeyCode::Escape => {
-                state.modal = None;
+            KeyCode::Escape => state.dialog = None,
+            KeyCode::Enter | KeyCode::NumpadEnter => confirm_dialog(state),
+            KeyCode::Tab if dialog.fields.len() > 1 => {
+                dialog.focus = (dialog.focus + 1) % dialog.fields.len();
             }
             KeyCode::Backspace => {
-                input.pop();
-            }
-            KeyCode::Enter => {
-                let target_path = input.trim().to_string();
-                let m = *mode;
-                if m == ModalMode::TableFetchDiff {
-                    state.modal = None;
-                    table_start_diff(state);
-                    return;
-                }
-                if m == ModalMode::TableGetBody {
-                    state.modal = None;
-                    table_start_get(state, &target_path);
-                    return;
-                }
-                if m == ModalMode::Library {
-                    // Stays open so the list shows the change.
-                    input.clear();
-                    if !target_path.is_empty() {
-                        apply_library_input(state, &target_path);
-                    }
-                    return;
-                }
-                state.modal = None;
-
-                if target_path.is_empty() {
-                    state.status_msg = "Path cannot be empty".to_string();
-                    return;
-                }
-
-                // Launch non-blocking background thread with progress and cancel support
-                let root_dir = state.manager.root_dir().to_path_buf();
-                let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-                state.bg_receiver = Some(rx);
-
-                let cancel_flag = Arc::new(AtomicBool::new(false));
-                state.bg_cancel_flag = Some(cancel_flag.clone());
-
-                match m {
-                    ModalMode::Library | ModalMode::TableFetchDiff | ModalMode::TableGetBody => {
-                        unreachable!("handled before the background task starts")
-                    }
-                    ModalMode::ImportFolder => {
-                        let clean_path = target_path.trim().trim_matches('"').to_string();
-                        let roots = bms_package_manager::find_bms_song_roots(&clean_path);
-                        if roots.is_empty() {
-                            state.status_msg =
-                                format!("No BMS chart files found in '{}'", clean_path);
-                            return;
-                        }
-
-                        if roots.len() == 1 {
-                            let target_root = roots[0].clone();
-                            let folder_name = target_root
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("folder")
-                                .to_string();
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Importing '{}'", folder_name),
-                                phase: "Scanning folder...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let res = mgr.import_folder_with_progress(
-                                        &target_root,
-                                        None,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(installed) => {
-                                            let short_h = if installed.state_hash.len() > 8 {
-                                                &installed.state_hash[..8]
-                                            } else {
-                                                &installed.state_hash
-                                            };
-                                            let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                "Imported '{}' (#{})",
-                                                installed.name, short_h
-                                            )));
-                                        }
-                                        Err(
-                                            bms_package_manager::PackageManagerError::Cancelled,
-                                        ) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Import cancelled by user".to_string(),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                "Import error: {e}"
-                                            )));
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        } else {
-                            let total_count = roots.len();
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Batch importing {} songs", total_count),
-                                phase: "Starting batch import...".to_string(),
-                                current: 0,
-                                total: total_count,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => {
-                                    let mut success_count = 0;
-                                    for (i, r) in roots.iter().enumerate() {
-                                        if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Batch import cancelled by user".to_string(),
-                                            ));
-                                            return;
-                                        }
-                                        let s_name = r
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("song")
-                                            .to_string();
-                                        let _ = tx_progress.send(BgTaskMessage::Progress {
-                                            phase: format!(
-                                                "[{}/{}] Importing '{}'",
-                                                i + 1,
-                                                total_count,
-                                                s_name
-                                            ),
-                                            current: i + 1,
-                                            total: total_count,
-                                            detail: s_name.clone(),
-                                        });
-
-                                        match mgr.import_folder_with_progress(
-                                            r,
-                                            None,
-                                            Some(&cancel_flag),
-                                            |_, _, _, _| {},
-                                        ) {
-                                            Ok(_) => {
-                                                success_count += 1;
-                                            }
-                                            Err(
-                                                bms_package_manager::PackageManagerError::Cancelled,
-                                            ) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(
-                                                    "Batch import cancelled by user".to_string(),
-                                                ));
-                                                return;
-                                            }
-                                            Err(_) => {}
-                                        }
-                                    }
-                                    let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Batch imported {}/{} songs into registry",
-                                        success_count, total_count
-                                    )));
-                                }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        }
-                    }
-                    ModalMode::InstallBmsp => {
-                        let path_obj = Path::new(&target_path);
-                        let file_str = path_obj
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("package.bmsp")
-                            .to_string();
-                        let is_bga_companion = file_str.ends_with(".bga.bmsp");
-                        if is_bga_companion {
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Installing BGA companion '{}'", file_str),
-                                phase: "Installing companion...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let target_p = target_path.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mut mgr) => match mgr.install_bga_companion(&target_p) {
-                                    Ok(target_id) => {
-                                        let _ = tx.send(BgTaskMessage::Completed(format!(
-                                            "Installed BGA companion for '{}'",
-                                            target_id
-                                        )));
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "BGA companion error: {e}"
-                                        )));
-                                    }
-                                },
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        } else {
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Installing '{}'", file_str),
-                                phase: "Reading package...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            let target_p = target_path.clone();
-                            thread::spawn(move || {
-                                match PackageManager::new(&root_dir) {
-                                    Ok(mut mgr) => {
-                                        let res = mgr.install_with_progress(
-                                            &target_p,
-                                            Some(&cancel_flag),
-                                            move |phase, curr, tot, detail| {
-                                                let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                    phase: phase.to_string(),
-                                                    current: curr,
-                                                    total: tot,
-                                                    detail: detail.to_string(),
-                                                });
-                                            },
-                                        );
-                                        match res {
-                                            Ok(installed) => {
-                                                // Check for adjacent companion package
-                                                let companion_name = format!(
-                                                    "{}.bga.bmsp",
-                                                    file_str.trim_end_matches(".bmsp")
-                                                );
-                                                if let Some(parent) = Path::new(&target_p).parent()
-                                                {
-                                                    let candidate = parent.join(&companion_name);
-                                                    if candidate.exists() {
-                                                        let _ =
-                                                            mgr.install_bga_companion(&candidate);
-                                                    }
-                                                }
-                                                let short_h = if installed.state_hash.len() > 8 {
-                                                    &installed.state_hash[..8]
-                                                } else {
-                                                    &installed.state_hash
-                                                };
-                                                let _ = tx.send(BgTaskMessage::Completed(format!(
-                                                    "Installed '{}' (#{})",
-                                                    installed.name, short_h
-                                                )));
-                                            }
-                                            Err(
-                                                bms_package_manager::PackageManagerError::Cancelled,
-                                            ) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(
-                                                    "Install cancelled by user".to_string(),
-                                                ));
-                                            }
-                                            Err(e) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                    "Install error: {e}"
-                                                )));
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "Manager error: {e}"
-                                        )));
-                                    }
-                                }
-                            });
-                        }
-                    }
-                    ModalMode::PackFolder { is_turbo, bga_mode } => {
-                        let is_split_bga = bga_mode == bms_package_manager::BgaPackMode::Split
-                            || target_path.contains("--split-bga");
-                        let is_no_video = bga_mode == bms_package_manager::BgaPackMode::NoVideo
-                            || target_path.contains("--no-video");
-                        let is_turbo_effective = is_turbo
-                            || target_path.contains("--turbo")
-                            || target_path.contains("--atlas");
-                        let clean_path = target_path
-                            .replace("--split-bga", "")
-                            .replace("--no-video", "")
-                            .replace("--turbo", "")
-                            .replace("--atlas", "")
-                            .trim()
-                            .trim_matches('"')
-                            .to_string();
-
-                        let roots = bms_package_manager::find_bms_song_roots(&clean_path);
-                        if roots.is_empty() {
-                            state.status_msg =
-                                format!("No BMS chart files found in '{}'", clean_path);
-                            return;
-                        }
-
-                        let profile = if is_turbo_effective {
-                            bms_package_manager::PackProfile::Turbo
-                        } else {
-                            bms_package_manager::PackProfile::Classic
-                        };
-                        let bga_mode_effective = if is_split_bga {
-                            bms_package_manager::BgaPackMode::Split
-                        } else if is_no_video {
-                            bms_package_manager::BgaPackMode::NoVideo
-                        } else {
-                            bga_mode
-                        };
-                        let pack_options =
-                            bms_package_manager::PackOptions::new(profile, bga_mode_effective);
-
-                        let mode_str = match (profile, bga_mode_effective) {
-                            (
-                                bms_package_manager::PackProfile::Turbo,
-                                bms_package_manager::BgaPackMode::Split,
-                            ) => "Turbo + Split BGA",
-                            (
-                                bms_package_manager::PackProfile::Turbo,
-                                bms_package_manager::BgaPackMode::NoVideo,
-                            ) => "Turbo (No Video)",
-                            (bms_package_manager::PackProfile::Turbo, _) => "Turbo (Dual Atlas)",
-                            (_, bms_package_manager::BgaPackMode::Split) => "Classic + Split BGA",
-                            (_, bms_package_manager::BgaPackMode::NoVideo) => "Classic (No Video)",
-                            _ => "Classic",
-                        };
-
-                        let base_path = PathBuf::from(&clean_path);
-
-                        if roots.len() == 1 {
-                            let target_root = roots[0].clone();
-                            let folder_name = target_root
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("package")
-                                .to_string();
-                            let out_path = if target_root == base_path {
-                                base_path
-                                    .parent()
-                                    .unwrap_or(&base_path)
-                                    .join(format!("{}.bmsp", folder_name))
-                            } else {
-                                base_path.join(format!("{}.bmsp", folder_name))
-                            };
-
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!("Packing {} folder '{}'", mode_str, folder_name),
-                                phase: "Scanning folder...".to_string(),
-                                current: 0,
-                                total: 0,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mgr) => {
-                                    let res = mgr.pack_folder_advanced_with_progress(
-                                        &target_root,
-                                        None,
-                                        pack_options,
-                                        Some(&cancel_flag),
-                                        move |phase, curr, tot, detail| {
-                                            let _ = tx_progress.send(BgTaskMessage::Progress {
-                                                phase: phase.to_string(),
-                                                current: curr,
-                                                total: tot,
-                                                detail: detail.to_string(),
-                                            });
-                                        },
-                                    );
-                                    match res {
-                                        Ok(pack_out) => {
-                                            if let Err(e) =
-                                                fs::write(&out_path, &pack_out.base_package)
-                                            {
-                                                let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                    "Write error: {e}"
-                                                )));
-                                            } else {
-                                                if let Some(bga_bytes) = pack_out.bga_package {
-                                                    let companion_file =
-                                                        out_path.with_extension("bga.bmsp");
-                                                    let _ = fs::write(&companion_file, bga_bytes);
-                                                    let _ =
-                                                        tx.send(BgTaskMessage::Completed(format!(
-                                                            "Packed into '{}' and companion '{}'",
-                                                            out_path.display(),
-                                                            companion_file.display()
-                                                        )));
-                                                } else {
-                                                    let _ =
-                                                        tx.send(BgTaskMessage::Completed(format!(
-                                                            "Packed {} into '{}'",
-                                                            mode_str,
-                                                            out_path.display()
-                                                        )));
-                                                }
-                                            }
-                                        }
-                                        Err(
-                                            bms_package_manager::PackageManagerError::Cancelled,
-                                        ) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Packing cancelled by user".to_string(),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(BgTaskMessage::Failed(format!(
-                                                "Pack error: {e}"
-                                            )));
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        } else {
-                            let total_count = roots.len();
-                            state.bg_task_running = Some(BgTaskState {
-                                title: format!(
-                                    "Batch packing {} songs [{}]",
-                                    total_count, mode_str
-                                ),
-                                phase: "Starting batch...".to_string(),
-                                current: 0,
-                                total: total_count,
-                                detail: String::new(),
-                            });
-                            let tx_progress = tx.clone();
-                            thread::spawn(move || match PackageManager::new(&root_dir) {
-                                Ok(mgr) => {
-                                    let mut success_count = 0;
-                                    for (i, r) in roots.iter().enumerate() {
-                                        if cancel_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                                            let _ = tx.send(BgTaskMessage::Failed(
-                                                "Batch packing cancelled by user".to_string(),
-                                            ));
-                                            return;
-                                        }
-                                        let s_name = r
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("song")
-                                            .to_string();
-                                        let out_path = base_path.join(format!("{}.bmsp", s_name));
-                                        let _ = tx_progress.send(BgTaskMessage::Progress {
-                                            phase: format!(
-                                                "[{}/{}] Packing '{}'",
-                                                i + 1,
-                                                total_count,
-                                                s_name
-                                            ),
-                                            current: i + 1,
-                                            total: total_count,
-                                            detail: out_path.display().to_string(),
-                                        });
-
-                                        match mgr.pack_folder_advanced_with_progress(
-                                            r,
-                                            None,
-                                            pack_options,
-                                            Some(&cancel_flag),
-                                            |_, _, _, _| {},
-                                        ) {
-                                            Ok(pack_out) => {
-                                                if fs::write(&out_path, &pack_out.base_package)
-                                                    .is_ok()
-                                                {
-                                                    if let Some(bga_bytes) = pack_out.bga_package {
-                                                        let companion_file =
-                                                            out_path.with_extension("bga.bmsp");
-                                                        let _ =
-                                                            fs::write(&companion_file, bga_bytes);
-                                                    }
-                                                    success_count += 1;
-                                                }
-                                            }
-                                            Err(
-                                                bms_package_manager::PackageManagerError::Cancelled,
-                                            ) => {
-                                                let _ = tx.send(BgTaskMessage::Failed(
-                                                    "Batch packing cancelled by user".to_string(),
-                                                ));
-                                                return;
-                                            }
-                                            Err(_) => {}
-                                        }
-                                    }
-                                    let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Batch packed {}/{} songs [{}] into '{}'",
-                                        success_count,
-                                        total_count,
-                                        mode_str,
-                                        base_path.display()
-                                    )));
-                                }
-                                Err(e) => {
-                                    let _ = tx
-                                        .send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                                }
-                            });
-                        }
-                    }
-                    ModalMode::ApplyDelta => {
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Applying delta '{}'", target_path),
-                            phase: "Starting...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        thread::spawn(move || match PackageManager::new(&root_dir) {
-                            Ok(mut mgr) => match mgr.apply_delta(&target_path) {
-                                Ok(installed) => {
-                                    let short_h = if installed.state_hash.len() > 8 {
-                                        &installed.state_hash[..8]
-                                    } else {
-                                        &installed.state_hash
-                                    };
-                                    let _ = tx.send(BgTaskMessage::Completed(format!(
-                                        "Updated '{}' (#{})",
-                                        installed.name, short_h
-                                    )));
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!(
-                                        "Delta apply error: {e}"
-                                    )));
-                                }
-                            },
-                            Err(e) => {
-                                let _ =
-                                    tx.send(BgTaskMessage::Failed(format!("Manager error: {e}")));
-                            }
-                        });
-                    }
-                    ModalMode::CreateDelta => {
-                        let parts: Vec<&str> = target_path.split_whitespace().collect();
-                        if parts.len() < 2 {
-                            let _ = tx.send(BgTaskMessage::Failed(
-                                "Usage: <base_path> <target_path>".to_string(),
-                            ));
-                            return;
-                        }
-                        let base_p = parts[0].to_string();
-                        let target_p = parts[1].to_string();
-                        let out_name = "update.bmdp".to_string();
-                        state.bg_task_running = Some(BgTaskState {
-                            title: format!("Creating delta '{}' -> '{}'", base_p, target_p),
-                            phase: "Diffing states...".to_string(),
-                            current: 0,
-                            total: 0,
-                            detail: String::new(),
-                        });
-                        thread::spawn(move || {
-                            match bms_package_manager::PackageUpdater::create_delta_between_paths(
-                                &base_p, &target_p,
-                            ) {
-                                Ok(bytes) => {
-                                    if let Err(e) = fs::write(&out_name, bytes) {
-                                        let _ = tx.send(BgTaskMessage::Failed(format!(
-                                            "Write error: {e}"
-                                        )));
-                                    } else {
-                                        let _ = tx.send(BgTaskMessage::Completed(format!(
-                                            "Created delta '{}'",
-                                            out_name
-                                        )));
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(BgTaskMessage::Failed(format!(
-                                        "Delta create error: {e}"
-                                    )));
-                                }
-                            }
-                        });
-                    }
+                if let Some(field) = dialog.fields.get_mut(dialog.focus) {
+                    field.pop();
                 }
             }
             _ => {
-                if let Some(t) = text {
-                    for c in t.chars() {
-                        if !c.is_control() {
-                            input.push(c);
+                if let Some(field) = dialog.fields.get_mut(dialog.focus) {
+                    if paste {
+                        if let Some(clip) = clipboard::get_clipboard_text() {
+                            field.push_str(clip.trim_end_matches(['\r', '\n']));
                         }
+                    } else if let Some(t) = text {
+                        field.extend(t.chars().filter(|c| !c.is_control()));
                     }
                 }
             }
@@ -1748,346 +1097,147 @@ fn handle_key_input(
         return;
     }
 
-    // 2. Search Filter Input Mode
+    // 2. Typing in the search box.
     if state.is_search_active {
-        // Ctrl+V Paste
-        if (state.modifiers.control_key() && code == KeyCode::KeyV) || text == Some("\u{16}") {
-            if let Some(clip) = clipboard::get_clipboard_text() {
-                state.search_query.push_str(&clip);
-                state.apply_filter();
-            }
-            return;
-        }
-
         match code {
-            KeyCode::Escape => {
-                state.is_search_active = false;
+            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter => {
+                state.is_search_active = false
             }
-            KeyCode::Enter => {
+            KeyCode::ArrowDown | KeyCode::ArrowUp => {
                 state.is_search_active = false;
+                handle_key_input(state, code, text);
             }
             KeyCode::Backspace => {
                 state.search_query.pop();
                 state.apply_filter();
             }
             _ => {
-                if let Some(t) = text {
-                    for c in t.chars() {
-                        if !c.is_control() {
-                            state.search_query.push(c);
-                        }
+                if paste {
+                    if let Some(clip) = clipboard::get_clipboard_text() {
+                        state.search_query.push_str(clip.trim());
+                        state.apply_filter();
                     }
-                    state.apply_filter();
+                } else if let Some(t) = text {
+                    let before = state.search_query.len();
+                    state
+                        .search_query
+                        .extend(t.chars().filter(|c| !c.is_control()));
+                    if state.search_query.len() != before {
+                        state.apply_filter();
+                    }
                 }
             }
         }
         return;
     }
 
-    // 3. Normal Navigation & Shortcuts
-    if code == KeyCode::Tab {
-        state.active_tab = match state.active_tab {
-            ui::ActiveTab::Installed => ui::ActiveTab::OnlineHub,
-            ui::ActiveTab::OnlineHub => ui::ActiveTab::Tables,
-            ui::ActiveTab::Tables => ui::ActiveTab::Installed,
-        };
-        return;
-    }
-
-    if code == KeyCode::Escape
-        && state.active_tab == ui::ActiveTab::Tables
-        && state.search_query.is_empty()
-    {
-        state.status_msg =
-            "Esc does not quit from this tab. Press Tab to switch tabs, or close the window."
-                .to_string();
-        return;
-    }
-
-    if code == KeyCode::Escape {
-        if !state.search_query.is_empty() {
-            state.search_query.clear();
-            state.apply_filter();
-            state.status_msg = "Search filter cleared".to_string();
+    // 3. Keys that work on every tab.
+    match code {
+        KeyCode::Escape => {
+            if state.task.is_some() {
+                dispatch(state, UiAction::CancelTask);
+            } else if !state.search_query.is_empty() {
+                dispatch(state, UiAction::ClearSearch);
+            }
             return;
         }
-        event_loop.exit();
-        return;
+        KeyCode::Tab => {
+            let order = [
+                ActiveTab::Installed,
+                ActiveTab::OnlineHub,
+                ActiveTab::Tables,
+            ];
+            let i = order
+                .iter()
+                .position(|&t| t == state.active_tab)
+                .unwrap_or(0);
+            let next = if state.modifiers.shift_key() {
+                i + 2
+            } else {
+                i + 1
+            } % 3;
+            dispatch(state, UiAction::Tab(order[next % 3]));
+            return;
+        }
+        KeyCode::F1 => {
+            dispatch(state, UiAction::Help);
+            return;
+        }
+        KeyCode::Slash | KeyCode::KeyF
+            if state.active_tab != ActiveTab::Tables && (code == KeyCode::Slash || ctrl) =>
+        {
+            dispatch(state, UiAction::FocusSearch);
+            return;
+        }
+        _ => {}
     }
 
-    if code == KeyCode::Slash && state.active_tab != ui::ActiveTab::Tables {
-        state.is_search_active = true;
-        return;
-    }
-
-    if state.active_tab == ui::ActiveTab::Tables {
-        match code {
-            KeyCode::ArrowUp | KeyCode::KeyK => state.tables.move_selection(-1),
-            KeyCode::ArrowDown | KeyCode::KeyJ => state.tables.move_selection(1),
-            KeyCode::PageUp => state.tables.move_selection(-20),
-            KeyCode::PageDown => state.tables.move_selection(20),
-            KeyCode::BracketLeft => state.tables.switch_table(false),
-            KeyCode::BracketRight => state.tables.switch_table(true),
-            KeyCode::KeyO => table_open_body(state),
-            KeyCode::KeyD if state.modifiers.shift_key() => table_open_chart_page(state),
-            KeyCode::KeyD => table_ask_diff(state),
-            KeyCode::KeyG => table_ask_body(state),
-            KeyCode::KeyS => table_scan(state),
-            KeyCode::KeyR => {
-                state.tables.reload_index();
-                state.status_msg = "Reloaded the collection index".to_string();
+    // 4. Keys of the shown tab.
+    let page = |len: usize, view: &mut ListView, code: KeyCode| match code {
+        KeyCode::ArrowUp | KeyCode::KeyK => view.move_by(-1, len),
+        KeyCode::ArrowDown | KeyCode::KeyJ => view.move_by(1, len),
+        KeyCode::PageUp => view.move_by(-10, len),
+        KeyCode::PageDown => view.move_by(10, len),
+        KeyCode::Home => view.move_by(-(len as isize), len),
+        KeyCode::End => view.move_by(len as isize, len),
+        _ => {}
+    };
+    match state.active_tab {
+        ActiveTab::Installed => match code {
+            KeyCode::Delete => dispatch(state, UiAction::AskUninstall),
+            KeyCode::KeyI | KeyCode::Insert => dispatch(state, UiAction::OpenAdd),
+            KeyCode::KeyL => dispatch(state, UiAction::OpenLibrary),
+            KeyCode::F5 => {
+                state.refresh_packages();
+                state.info("목록을 새로 읽었어요");
             }
-            _ => {}
-        }
-        return;
-    }
-
-    if state.active_tab == ui::ActiveTab::OnlineHub {
-        match code {
-            KeyCode::ArrowUp | KeyCode::KeyK => {
-                if state.remote_selected_idx > 0 {
-                    state.remote_selected_idx -= 1;
-                }
+            _ => page(state.filtered_indices.len(), &mut state.installed, code),
+        },
+        ActiveTab::OnlineHub => match code {
+            KeyCode::Enter | KeyCode::NumpadEnter => dispatch(state, UiAction::InstallRemote),
+            KeyCode::F5 => dispatch(state, UiAction::SyncSources),
+            KeyCode::Digit0 => dispatch(state, UiAction::LevelFilter(0)),
+            KeyCode::Digit1 => dispatch(state, UiAction::LevelFilter(1)),
+            KeyCode::Digit2 => dispatch(state, UiAction::LevelFilter(2)),
+            KeyCode::Digit3 => dispatch(state, UiAction::LevelFilter(3)),
+            KeyCode::Digit4 => dispatch(state, UiAction::LevelFilter(4)),
+            _ => page(
+                state.remote_filtered_indices.len(),
+                &mut state.remote_view,
+                code,
+            ),
+        },
+        ActiveTab::Tables => match code {
+            KeyCode::BracketLeft | KeyCode::ArrowLeft => dispatch(state, UiAction::PrevTable),
+            KeyCode::BracketRight | KeyCode::ArrowRight => dispatch(state, UiAction::NextTable),
+            KeyCode::KeyO => dispatch(state, UiAction::OpenSongPage),
+            KeyCode::KeyD => dispatch(state, UiAction::AskDownloadChart),
+            KeyCode::KeyG => dispatch(state, UiAction::AskAddFromArchive),
+            KeyCode::F5 | KeyCode::KeyS => dispatch(state, UiAction::ScanCollection),
+            _ => {
+                let len = state.tables.rows.len();
+                page(len, &mut state.tables.view, code)
             }
-            KeyCode::ArrowDown | KeyCode::KeyJ => {
-                if !state.remote_filtered_indices.is_empty()
-                    && state.remote_selected_idx + 1 < state.remote_filtered_indices.len()
-                {
-                    state.remote_selected_idx += 1;
-                }
-            }
-            KeyCode::Enter | KeyCode::KeyI => {
-                start_remote_install(state, false);
-            }
-            KeyCode::KeyU => {
-                start_remote_install(state, false);
-            }
-            KeyCode::KeyB => {
-                start_remote_install(state, true);
-            }
-            KeyCode::Digit0 => {
-                state.remote_level_filter = 0;
-                state.apply_remote_filter();
-            }
-            KeyCode::Digit1 => {
-                state.remote_level_filter = 1;
-                state.apply_remote_filter();
-            }
-            KeyCode::Digit2 => {
-                state.remote_level_filter = 2;
-                state.apply_remote_filter();
-            }
-            KeyCode::Digit3 => {
-                state.remote_level_filter = 3;
-                state.apply_remote_filter();
-            }
-            KeyCode::Digit4 => {
-                state.remote_level_filter = 4;
-                state.apply_remote_filter();
-            }
-            KeyCode::F5 | KeyCode::KeyR => {
-                start_sync_sources(state);
-            }
-            _ => (),
-        }
-        return;
-    }
-
-    // ActiveTab::Installed
-    match code {
-        KeyCode::F5 | KeyCode::KeyR => {
-            state.refresh_packages();
-            state.status_msg = "Packages refreshed".to_string();
-        }
-        KeyCode::ArrowUp | KeyCode::KeyK => {
-            if state.selected_idx > 0 {
-                state.selected_idx -= 1;
-                state.selected_ver_idx = 0;
-                state.update_preview_image();
-            }
-        }
-        KeyCode::ArrowDown | KeyCode::KeyJ => {
-            if !state.filtered_indices.is_empty()
-                && state.selected_idx + 1 < state.filtered_indices.len()
-            {
-                state.selected_idx += 1;
-                state.selected_ver_idx = 0;
-                state.update_preview_image();
-            }
-        }
-        KeyCode::ArrowLeft => {
-            if state.selected_ver_idx > 0 {
-                state.selected_ver_idx -= 1;
-            }
-        }
-        KeyCode::ArrowRight => {
-            if let Some(&pkg_idx) = state.filtered_indices.get(state.selected_idx) {
-                if let Some(pkg) = state.packages.get(pkg_idx) {
-                    if state.selected_ver_idx + 1 < pkg.state_hashes.len() {
-                        state.selected_ver_idx += 1;
-                    }
-                }
-            }
-        }
-        KeyCode::KeyA => {
-            // Activate selected state
-            if let Some(&pkg_idx) = state.filtered_indices.get(state.selected_idx) {
-                if let Some(pkg) = state.packages.get(pkg_idx) {
-                    let states: Vec<&String> = pkg.state_hashes.keys().collect();
-                    if let Some(&st) = states.get(state.selected_ver_idx) {
-                        let id = pkg.id.clone();
-                        let state_hash = st.clone();
-                        match state.manager.set_active(&id, &state_hash) {
-                            Ok(()) => {
-                                let short_h = if state_hash.len() > 8 {
-                                    &state_hash[..8]
-                                } else {
-                                    &state_hash
-                                };
-                                state.status_msg =
-                                    format!("Set active state of '{}' to #{}", id, short_h);
-                                state.refresh_packages();
-                            }
-                            Err(e) => {
-                                state.status_msg = format!("Activation error: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        KeyCode::KeyU | KeyCode::Delete => {
-            // Uninstall selected state
-            if let Some(&pkg_idx) = state.filtered_indices.get(state.selected_idx) {
-                if let Some(pkg) = state.packages.get(pkg_idx) {
-                    let states: Vec<&String> = pkg.state_hashes.keys().collect();
-                    if let Some(&st) = states.get(state.selected_ver_idx) {
-                        let id = pkg.id.clone();
-                        let state_hash = st.clone();
-                        match state.manager.uninstall(&id, &state_hash) {
-                            Ok(()) => {
-                                let short_h = if state_hash.len() > 8 {
-                                    &state_hash[..8]
-                                } else {
-                                    &state_hash
-                                };
-                                state.status_msg = format!("Uninstalled '{}' #{}", id, short_h);
-                                state.refresh_packages();
-                            }
-                            Err(e) => {
-                                state.status_msg = format!("Uninstall error: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        KeyCode::KeyI | KeyCode::F1 => {
-            state.modal = Some((ModalMode::ImportFolder, String::new()));
-        }
-        KeyCode::KeyL => {
-            state.library = bms_package_manager::load_library().paths().to_vec();
-            state.modal = Some((ModalMode::Library, String::new()));
-        }
-        KeyCode::F2 => {
-            state.modal = Some((ModalMode::InstallBmsp, String::new()));
-        }
-        KeyCode::KeyP => {
-            state.modal = Some((
-                ModalMode::PackFolder {
-                    is_turbo: false,
-                    bga_mode: bms_package_manager::BgaPackMode::Embed,
-                },
-                String::new(),
-            ));
-        }
-        KeyCode::KeyT => {
-            state.modal = Some((
-                ModalMode::PackFolder {
-                    is_turbo: true,
-                    bga_mode: bms_package_manager::BgaPackMode::Embed,
-                },
-                String::new(),
-            ));
-        }
-        KeyCode::KeyB => {
-            // Diet / Remove BGA companion to reclaim disk space
-            if let Some(&pkg_idx) = state.filtered_indices.get(state.selected_idx) {
-                if let Some(pkg) = state.packages.get(pkg_idx) {
-                    if pkg.bga_status == bms_package_manager::BgaStatus::Companion {
-                        let id = pkg.id.clone();
-                        match state.manager.remove_bga_companion(&id) {
-                            Ok(reclaimed) => {
-                                let mb = reclaimed as f64 / (1024.0 * 1024.0);
-                                state.status_msg =
-                                    format!("BGA removed for '{}' (saved {:.2} MB)", id, mb);
-                                state.refresh_packages();
-                            }
-                            Err(e) => {
-                                state.status_msg = format!("Diet error: {e}");
-                            }
-                        }
-                    } else {
-                        state.status_msg = "Package has no companion BGA to remove".to_string();
-                    }
-                }
-            }
-        }
-        KeyCode::KeyS => {
-            state.modal = Some((
-                ModalMode::PackFolder {
-                    is_turbo: false,
-                    bga_mode: bms_package_manager::BgaPackMode::Split,
-                },
-                String::new(),
-            ));
-        }
-        KeyCode::KeyD | KeyCode::F3 => {
-            state.modal = Some((ModalMode::ApplyDelta, String::new()));
-        }
-        KeyCode::KeyC | KeyCode::F4 => {
-            state.modal = Some((ModalMode::CreateDelta, String::new()));
-        }
-        _ => (),
+        },
     }
 }
 
-/// Which table task is running, so its result can update the list's freshness.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TableTaskKind {
-    /// Added a chart or a difference: the collection index is now out of date.
-    Adds,
-    /// Rescanned: the collection index is current.
-    Scan,
-}
-
-/// Runs `work` on a background thread, with the task bar shown, and reports its
-/// result in the status line.
-fn start_table_task<F>(state: &mut AppState, title: &str, phase: &str, kind: TableTaskKind, work: F)
-where
-    F: FnOnce() -> Result<String, String> + Send + 'static,
-{
-    if state.bg_task_running.is_some() {
-        state.status_msg = "Another task is already running".to_string();
+fn start_remote_install(state: &mut AppState) {
+    let Some(&idx) = state
+        .remote_filtered_indices
+        .get(state.remote_view.selected)
+    else {
+        state.err("설치할 곡을 먼저 골라 주세요");
         return;
-    }
-    state.bg_task_running = Some(BgTaskState {
-        title: title.to_string(),
-        phase: phase.to_string(),
-        current: 0,
-        total: 0,
-        detail: String::new(),
-    });
-    state.bg_cancel_flag = Some(Arc::new(AtomicBool::new(false)));
-    state.table_task = Some(kind);
-    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-    state.bg_receiver = Some(rx);
-    thread::spawn(move || {
-        let message = match work() {
-            Ok(text) => BgTaskMessage::Completed(text),
-            Err(text) => BgTaskMessage::Failed(text),
-        };
-        let _ = tx.send(message);
+    };
+    let Some((meta, base_url)) = state.remote_raw_packages.get(idx).cloned() else {
+        return;
+    };
+    let root = state.manager.root_dir().to_path_buf();
+    let with_bga = state.remote_with_bga;
+    let title = format!("'{}' 내려받는 중", meta.title);
+    state.start_task(title, "연결하는 중...", TaskKind::Adds, move |r| {
+        tasks::install_remote(root, meta, base_url, with_bga, r)
     });
 }
 
@@ -2100,60 +1250,38 @@ fn table_chart_folder(table_name: &str, number: usize) -> PathBuf {
         .join(number.to_string())
 }
 
-/// Opens the selected entry's song (body) page in the browser.
-fn table_open_body(state: &mut AppState) {
+/// Opens the selected entry's song page, or its chart page, in the browser.
+fn table_open_link(state: &mut AppState, chart: bool) {
     let Some(row) = state.tables.selected_row() else {
-        state.status_msg = "No entry selected".to_string();
         return;
     };
-    if row.url.is_empty() {
-        state.status_msg = format!("#{}: the table has no song link for this entry", row.number);
+    let link = if chart { &row.url_diff } else { &row.url };
+    if link.is_empty() {
+        state.err("이 곡은 난이도표에 받는 곳 주소가 없어요");
         return;
     }
-    state.status_msg = match bms_package_manager::table_fetch::open_in_browser(&row.url) {
-        Ok(()) => format!("#{}: opened the song page in the browser", row.number),
-        Err(e) => e,
-    };
-}
-
-/// Opens the selected entry's chart (difference) page in the browser. Only for
-/// links that are web pages; a direct zip link is downloaded with [D] instead.
-fn table_open_chart_page(state: &mut AppState) {
-    let Some(row) = state.tables.selected_row() else {
-        state.status_msg = "No entry selected".to_string();
-        return;
-    };
-    if row.url_diff.is_empty() {
-        state.status_msg = format!(
-            "#{}: the table has no chart link for this entry",
-            row.number
-        );
-        return;
+    match bms_package_manager::table_fetch::open_in_browser(link) {
+        Ok(()) => {
+            let what = if chart { "채보" } else { "곡 파일" };
+            state.ok(format!(
+                "브라우저에서 {what} 페이지를 열었어요. 받은 뒤 '받은 곡 파일 추가'를 눌러 주세요."
+            ));
+        }
+        Err(e) => state.err(e),
     }
-    state.status_msg = match bms_package_manager::table_fetch::open_in_browser(&row.url_diff) {
-        Ok(()) => format!("#{}: opened the chart page in the browser", row.number),
-        Err(e) => e,
-    };
 }
 
-/// Asks before downloading the selected entry's chart (difference) into its folder.
+/// Asks before downloading the selected entry's chart.
 fn table_ask_diff(state: &mut AppState) {
     let Some(row) = state.tables.selected_row() else {
-        state.status_msg = "No entry selected".to_string();
         return;
     };
     if row.url_diff.is_empty() {
-        state.status_msg = format!(
-            "#{}: the table has no chart link for this entry",
-            row.number
-        );
+        state.err("이 곡은 난이도표에 채보 주소가 없어요");
         return;
     }
     if !bms_package_manager::table_fetch::is_direct_pack(&row.url_diff) {
-        state.status_msg = format!(
-            "#{}: the chart link is a web page, not a direct file. Press [Shift+D] to open it in the browser.",
-            row.number
-        );
+        table_open_link(state, true);
         return;
     }
     let (number, title) = (row.number, row.title.clone());
@@ -2163,24 +1291,7 @@ fn table_ask_diff(state: &mut AppState) {
         .map(|t| t.name.clone())
         .unwrap_or_default();
     let folder = table_chart_folder(&table_name, number);
-    state.pending_prompt =
-        format!("Download the chart for #{number} \"{title}\"? Enter = yes, Esc = no");
-    state.pending_lines = vec![format!("Saved to: {}", folder.display())];
-    state.modal = Some((ModalMode::TableFetchDiff, String::new()));
-}
-
-/// Asks for the song archive (body) to add the selected entry from.
-fn table_ask_body(state: &mut AppState) {
-    let Some(row) = state.tables.selected_row() else {
-        state.status_msg = "No entry selected".to_string();
-        return;
-    };
-    state.pending_prompt = format!(
-        "Add #{} \"{}\" from its song archive:",
-        row.number, row.title
-    );
-    state.pending_lines = vec!["Path of the .zip, .rar or .7z file, then Enter".to_string()];
-    state.modal = Some((ModalMode::TableGetBody, String::new()));
+    state.open_dialog(DialogKind::TableFetchDiff { title, folder });
 }
 
 /// Downloads the chart of the selected entry into `songs/<table>/<#>`.
@@ -2190,72 +1301,67 @@ fn table_start_diff(state: &mut AppState) {
         state.tables.selected_entry().cloned(),
         state.tables.table().map(|t| t.name.clone()),
     ) else {
-        state.status_msg = "No entry selected".to_string();
         return;
     };
     let number = row.number;
     let folder = table_chart_folder(&table, number);
     let scratch =
         std::env::temp_dir().join(format!("bpm-gui-diff-{}-{number}", std::process::id()));
-    start_table_task(
-        state,
-        &format!("Downloading the chart for #{number}"),
-        "Downloading and checking the chart...",
-        TableTaskKind::Adds,
-        move || {
+    state.start_task(
+        format!("'{}' 채보 받는 중", row.title),
+        "내려받아 확인하는 중...",
+        TaskKind::Adds,
+        move |_| {
             let _ = fs::remove_dir_all(&scratch);
             let client = bms_package_manager::HttpClient::new();
             let result =
                 bms_package_manager::table_ops::fetch_diff(&client, &entry, &scratch, &folder);
             let _ = fs::remove_dir_all(&scratch);
-            let kept = result?;
+            let kept = result.map_err(|e| format!("채보를 받지 못했어요: {e}"))?;
             if kept.matching == 0 {
-                return Err(format!(
-                    "#{number}: the downloaded pack has no matching chart (wrong version?). Nothing was kept."
-                ));
+                return Err(
+                    "받은 파일에 이 곡의 채보가 없어요 (버전이 다를 수 있어요). 아무것도 저장하지 않았어요."
+                        .to_string(),
+                );
             }
             Ok(format!(
-                "#{number}: saved {} chart(s) to {} ({} copied, {} already there). Press [S] to rescan.",
+                "채보 {}개를 {}에 저장했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요.",
                 kept.matching,
-                folder.display(),
-                kept.copied,
-                kept.skipped
+                folder.display()
             ))
         },
     );
 }
 
 /// Adds the selected entry from the song archive at `path`.
-fn table_start_get(state: &mut AppState, path: &str) {
-    let path = path.trim().trim_matches('"').to_string();
-    if path.is_empty() {
-        state.status_msg = "Path cannot be empty".to_string();
-        return;
-    }
-    let Some(entry) = state.tables.selected_entry().cloned() else {
-        state.status_msg = "No entry selected".to_string();
+fn table_start_get(state: &mut AppState, path: PathBuf) {
+    let (Some(entry), Some(row)) = (
+        state.tables.selected_entry().cloned(),
+        state.tables.selected_row().cloned(),
+    ) else {
         return;
     };
-    let number = state.tables.selected_row().map_or(0, |row| row.number);
     let packages_root = state.manager.root_dir().to_path_buf();
-    let scratch = std::env::temp_dir().join(format!("bpm-gui-get-{}-{number}", std::process::id()));
-    start_table_task(
-        state,
-        &format!("Adding #{number}"),
-        "Unpacking the song archive...",
-        TableTaskKind::Adds,
-        move || {
+    let scratch =
+        std::env::temp_dir().join(format!("bpm-gui-get-{}-{}", std::process::id(), row.number));
+    state.start_task(
+        format!("'{}' 추가하는 중", row.title),
+        "곡 파일 압축 푸는 중...",
+        TaskKind::Adds,
+        move |_| {
             let _ = fs::remove_dir_all(&scratch);
             let client = bms_package_manager::HttpClient::new();
             let result = bms_package_manager::table_ops::get_from_body(
                 &client,
                 &entry,
-                Path::new(&path),
+                &path,
                 &scratch,
                 &packages_root,
             );
             let _ = fs::remove_dir_all(&scratch);
-            result.map(|summary| format!("#{number}: {summary}. Press [S] to rescan."))
+            result
+                .map(|summary| format!("'{}'을(를) 추가했어요 ({summary})", row.title))
+                .map_err(|e| format!("추가하지 못했어요: {e}"))
         },
     );
 }
@@ -2263,242 +1369,18 @@ fn table_start_get(state: &mut AppState, path: &str) {
 /// Scans the library folders, the songs folder, and the packages into the index.
 fn table_scan(state: &mut AppState) {
     let packages_root = state.manager.root_dir().to_path_buf();
-    start_table_task(
-        state,
-        "Scanning the collection",
-        "Reading the folders and packages...",
-        TableTaskKind::Scan,
-        move || {
+    state.start_task(
+        "내 곡 확인하는 중".to_string(),
+        "폴더와 설치된 곡을 읽는 중...",
+        TaskKind::TableScan,
+        move |_| {
             let report = bms_package_manager::table_ops::scan_collection(&packages_root)?;
             Ok(format!(
-                "Scan done: {} charts found. The missing list is up to date.",
+                "확인을 마쳤어요: 채보 {}개를 찾았어요",
                 report.charts
             ))
         },
     );
-}
-
-fn start_remote_install(state: &mut AppState, with_bga: bool) {
-    if state.bg_task_running.is_some() {
-        state.status_msg = "Another task is already running".to_string();
-        return;
-    }
-
-    let selected_pkg_idx = match state.remote_filtered_indices.get(state.remote_selected_idx) {
-        Some(&idx) => idx,
-        None => {
-            state.status_msg = "No remote package selected".to_string();
-            return;
-        }
-    };
-
-    let (pkg_meta, base_url) = match state.remote_raw_packages.get(selected_pkg_idx) {
-        Some(item) => item.clone(),
-        None => {
-            state.status_msg = "Package metadata not found".to_string();
-            return;
-        }
-    };
-
-    let title = pkg_meta.title.clone();
-    let root_dir = state.manager.root_dir().to_path_buf();
-    let has_bga = pkg_meta.companion_bga.is_some();
-    let install_with_bga = with_bga && has_bga;
-
-    state.bg_task_running = Some(BgTaskState {
-        title: format!("Downloading '{}'", title),
-        phase: "Connecting...".to_string(),
-        current: 0,
-        total: pkg_meta.size_bytes as usize,
-        detail: String::new(),
-    });
-
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    state.bg_cancel_flag = Some(cancel_flag.clone());
-
-    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-    state.bg_receiver = Some(rx);
-
-    thread::spawn(move || {
-        let client = bms_package_manager::HttpClient::new();
-        let installer = bms_package_manager::RemotePackageInstaller::new(&root_dir);
-        let mut mgr = match bms_package_manager::PackageManager::new(&root_dir) {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = tx.send(BgTaskMessage::Failed(format!(
-                    "PackageManager init error: {e}"
-                )));
-                return;
-            }
-        };
-
-        struct GuiDownloadCallback {
-            cancel_flag: Arc<AtomicBool>,
-            tx: Sender<BgTaskMessage>,
-            last_emit: Instant,
-            last_pct: f64,
-        }
-
-        impl bms_package_manager::DownloadProgressCallback for GuiDownloadCallback {
-            fn on_progress(&mut self, down: u64, tot: Option<u64>) {
-                let now = Instant::now();
-                let tot_b = tot.unwrap_or(0);
-                let pct = if tot_b > 0 {
-                    (down as f64 / tot_b as f64) * 100.0
-                } else {
-                    0.0
-                };
-                let elapsed = now.duration_since(self.last_emit);
-                let delta_pct = (pct - self.last_pct).abs();
-                // Throttling: max 30 FPS (~33ms) or >= 1.0% change (INV-5, ADR-024)
-                if elapsed >= Duration::from_millis(33)
-                    || delta_pct >= 1.0
-                    || (tot_b > 0 && down >= tot_b)
-                {
-                    self.last_emit = now;
-                    self.last_pct = pct;
-                    let mb_down = down as f64 / (1024.0 * 1024.0);
-                    let mb_tot = tot_b as f64 / (1024.0 * 1024.0);
-                    let detail = if tot_b > 0 {
-                        format!("{:.1} / {:.1} MB ({:.0}%)", mb_down, mb_tot, pct)
-                    } else {
-                        format!("{:.1} MB", mb_down)
-                    };
-                    let _ = self.tx.send(BgTaskMessage::Progress {
-                        phase: "Downloading package...".to_string(),
-                        current: down as usize,
-                        total: tot_b as usize,
-                        detail,
-                    });
-                }
-            }
-
-            fn is_cancelled(&self) -> bool {
-                self.cancel_flag.load(Ordering::SeqCst)
-            }
-        }
-
-        let callback = GuiDownloadCallback {
-            cancel_flag: cancel_flag.clone(),
-            tx: tx.clone(),
-            last_emit: Instant::now() - Duration::from_secs(1),
-            last_pct: -1.0,
-        };
-
-        match installer.install_remote_package(&mut mgr, &client, &pkg_meta, &base_url, callback) {
-            Ok(installed) => {
-                if install_with_bga {
-                    if let Some(bga_meta) = &pkg_meta.companion_bga {
-                        let _ = tx.send(BgTaskMessage::Progress {
-                            phase: "Downloading companion BGA...".to_string(),
-                            current: 0,
-                            total: bga_meta.size_bytes as usize,
-                            detail: "Downloading companion video...".to_string(),
-                        });
-                        match installer.download_bga_companion(
-                            &client,
-                            bga_meta,
-                            &base_url,
-                            bms_package_manager::NoopProgressCallback,
-                        ) {
-                            Ok(bga_temp) => {
-                                let bga_path = bga_temp.commit();
-                                let _ = mgr.install_bga_companion(&bga_path);
-                                let _ = std::fs::remove_file(&bga_path);
-                            }
-                            Err(e) => {
-                                eprintln!("Warning: companion BGA download failed: {e}");
-                            }
-                        }
-                    }
-                }
-
-                let short_h = if installed.state_hash.len() > 8 {
-                    &installed.state_hash[..8]
-                } else {
-                    &installed.state_hash
-                };
-                let _ = tx.send(BgTaskMessage::Completed(format!(
-                    "Installed '{}' (#{}) successfully",
-                    installed.name, short_h
-                )));
-            }
-            Err(e) => {
-                let _ = tx.send(BgTaskMessage::Failed(format!("Installation failed: {e}")));
-            }
-        }
-    });
-}
-
-fn start_sync_sources(state: &mut AppState) {
-    if state.bg_task_running.is_some() {
-        state.status_msg = "Another task is already running".to_string();
-        return;
-    }
-
-    let root_dir = state.manager.root_dir().to_path_buf();
-    state.bg_task_running = Some(BgTaskState {
-        title: "Syncing Online Registries".to_string(),
-        phase: "Contacting sources...".to_string(),
-        current: 0,
-        total: 0,
-        detail: String::new(),
-    });
-
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    state.bg_cancel_flag = Some(cancel_flag.clone());
-
-    let (tx, rx): (Sender<BgTaskMessage>, Receiver<BgTaskMessage>) = channel();
-    state.bg_receiver = Some(rx);
-
-    thread::spawn(move || {
-        let client = bms_package_manager::HttpClient::default();
-        let sources_path = root_dir.join("sources.json");
-        let sources_config =
-            bms_package_manager::SourcesConfig::load_or_init(&sources_path).unwrap_or_default();
-        let cache_mgr = bms_package_manager::RegistryCacheManager::new(&root_dir);
-
-        let mut updated_count = 0;
-        let mut total_packages = 0;
-        let mut errors = Vec::new();
-
-        let active_sources = sources_config.active_sources_by_priority();
-        for src in active_sources {
-            if cancel_flag.load(Ordering::SeqCst) {
-                let _ = tx.send(BgTaskMessage::Failed("Sync cancelled by user".to_string()));
-                return;
-            }
-            let _ = tx.send(BgTaskMessage::Progress {
-                phase: format!("Fetching '{}'...", src.name),
-                current: 0,
-                total: 0,
-                detail: src.url.clone(),
-            });
-            match cache_mgr.update_or_fallback(&client, src) {
-                Ok((idx, from_cache)) => {
-                    total_packages += idx.packages.len();
-                    if !from_cache {
-                        updated_count += 1;
-                    }
-                }
-                Err(e) => {
-                    errors.push(format!("{}: {}", src.name, e));
-                }
-            }
-        }
-
-        if updated_count > 0 || errors.is_empty() {
-            let _ = tx.send(BgTaskMessage::Completed(format!(
-                "Synced {} source(s) ({} online packages available)",
-                updated_count, total_packages
-            )));
-        } else {
-            let _ = tx.send(BgTaskMessage::Failed(format!(
-                "Sync failed: {}",
-                errors.join("; ")
-            )));
-        }
-    });
 }
 
 fn main() {

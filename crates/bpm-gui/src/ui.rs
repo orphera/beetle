@@ -1,13 +1,21 @@
-use crate::bitmap_font::BitmapFont;
-use beetle_render::image::ImageBuffer;
+//! The window's screens: the header with the three tabs, each tab's page, the
+//! open dialog, the task card and the status bar. Everything is drawn from a
+//! `Frame` each time and every clickable thing records a `Hit`, so the click
+//! handler never repeats the layout math.
 
-/// Height of the bottom status/help footer in px.
-const FOOTER_H: f32 = 56.0;
-/// Space kept below the content panels: the footer plus an 8px gap.
-pub const FOOTER_RESERVE: f32 = FOOTER_H + 8.0;
+use crate::tables_tab::{TablesState, TablesTab};
+use crate::widgets::{
+    cap, fit, text_w, text_w_bold, theme, wrap, Btn, GuiRenderer, ListView, ScrollTarget, UiAction,
+    PX_BODY, PX_PAGE, PX_SMALL, PX_TITLE,
+};
+use beetle_render::image::ImageBuffer;
 use beetle_render::skin::ColorRgba;
-use bms_package_manager::PackageRecord;
-use tiny_skia::{Color, Paint, Pixmap, Rect, Shader, Transform};
+use bms_package_manager::{BgaStatus, PackageRecord};
+
+/// Height of the status bar at the bottom.
+const STATUS_H: f32 = 32.0;
+const HEADER_H: f32 = 60.0;
+const PAD: f32 = 20.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
@@ -34,1489 +42,107 @@ pub struct RemotePackageDisplayInfo {
     pub size_bytes: u64,
     pub sha256: String,
     pub status: RemotePackageStatus,
-    pub has_companion_bga: bool,
-    pub download_url: String,
+    /// Size of the separate background video, when the song has one.
+    pub bga_size_bytes: Option<u64>,
 }
 
+/// The tone of the status bar message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PackModalOptionsDisplay {
-    pub is_turbo: bool,
-    pub bga_mode: bms_package_manager::BgaPackMode,
+pub enum StatusKind {
+    Info,
+    Success,
+    Error,
 }
 
-#[derive(Debug, Clone)]
-pub struct ModalDisplayInfo<'a> {
-    pub prompt: &'a str,
-    pub input: &'a str,
-    pub pack_options: Option<PackModalOptionsDisplay>,
-    /// Extra lines under the hints (the legacy folder list).
-    pub list: &'a [String],
-}
-
+/// A running background task, for the progress card.
 #[derive(Debug, Clone)]
 pub struct TaskProgressInfo<'a> {
-    pub message: &'a str,
+    pub title: &'a str,
     pub phase: &'a str,
     pub current: usize,
     pub total: usize,
     pub detail: &'a str,
-    pub spinner_frame: usize,
+    pub frame: usize,
+    pub cancelling: bool,
 }
 
-pub struct GuiRenderer {
-    pub pixmap: Pixmap,
+/// One text field of a dialog.
+#[derive(Debug, Clone, Default)]
+pub struct FieldView {
+    pub label: String,
+    pub value: String,
+    pub placeholder: String,
+    pub focused: bool,
+    pub browse: bool,
 }
 
-impl GuiRenderer {
-    pub fn new(width: u32, height: u32) -> Option<Self> {
-        let pixmap = Pixmap::new(width.max(1), height.max(1))?;
-        Some(Self { pixmap })
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0
-            && height > 0
-            && (self.pixmap.width() != width || self.pixmap.height() != height)
-        {
-            if let Some(new_pixmap) = Pixmap::new(width, height) {
-                self.pixmap = new_pixmap;
-            }
-        }
-    }
-
-    pub fn clear(&mut self, color: ColorRgba) {
-        self.pixmap
-            .fill(Color::from_rgba8(color.r, color.g, color.b, color.a));
-    }
-
-    pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: ColorRgba) {
-        if w <= 0.0 || h <= 0.0 {
-            return;
-        }
-        if let Some(rect) = Rect::from_xywh(x, y, w, h) {
-            let skia_color = Color::from_rgba8(color.r, color.g, color.b, color.a);
-            self.pixmap.fill_rect(
-                rect,
-                &Paint {
-                    shader: Shader::SolidColor(skia_color),
-                    ..Default::default()
-                },
-                Transform::identity(),
-                None,
-            );
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn render_frame(
-        &mut self,
-        active_tab: ActiveTab,
-        packages: &[&PackageRecord],
-        selected_idx: usize,
-        selected_ver_idx: usize,
-        preview_img: Option<&ImageBuffer>,
-        remote_packages: &[RemotePackageDisplayInfo],
-        remote_selected_idx: usize,
-        remote_level_filter: u8,
-        search_query: &str,
-        is_search_active: bool,
-        status_msg: &str,
-        modal_info: Option<ModalDisplayInfo>,
-        bg_task_info: Option<TaskProgressInfo>,
-        tables: &mut crate::tables_tab::TablesTab,
-    ) {
-        let w = self.pixmap.width() as f32;
-        let h = self.pixmap.height() as f32;
-
-        // 1. Background
-        self.clear(ColorRgba::new(14, 14, 20, 255));
-
-        // 2. Top Header Bar
-        self.draw_rect(0.0, 0.0, w, 56.0, ColorRgba::new(22, 22, 32, 255));
-        self.draw_rect(0.0, 55.0, w, 1.0, ColorRgba::new(45, 45, 65, 255));
-
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            "BEETLE BPM",
-            20,
-            16,
-            2,
-            ColorRgba::new(255, 220, 90, 255),
-        );
-
-        // Top Navigation Tabs
-        let tab1_x = 210.0;
-        let tab1_w = 140.0;
-        let tab1_active = active_tab == ActiveTab::Installed;
-        let tab1_bg = if tab1_active {
-            ColorRgba::new(35, 45, 70, 255)
-        } else {
-            ColorRgba::new(20, 20, 28, 255)
-        };
-        let tab1_border = if tab1_active {
-            ColorRgba::new(255, 220, 80, 255)
-        } else {
-            ColorRgba::new(50, 50, 70, 255)
-        };
-        let tab1_fg = if tab1_active {
-            ColorRgba::new(255, 235, 120, 255)
-        } else {
-            ColorRgba::new(140, 140, 160, 255)
-        };
-
-        self.draw_rect(tab1_x, 14.0, tab1_w, 28.0, tab1_bg);
-        self.draw_rect(tab1_x, 14.0, tab1_w, 1.0, tab1_border);
-        self.draw_rect(tab1_x, 41.0, tab1_w, 1.0, tab1_border);
-        self.draw_rect(tab1_x, 14.0, 1.0, 28.0, tab1_border);
-        self.draw_rect(tab1_x + tab1_w - 1.0, 14.0, 1.0, 28.0, tab1_border);
-        BitmapFont::draw_text_centered(
-            &mut self.pixmap.as_mut(),
-            "[1] Installed",
-            (tab1_x + tab1_w / 2.0) as i32,
-            22,
-            1,
-            tab1_fg,
-        );
-
-        let tab2_x = 360.0;
-        let tab2_w = 150.0;
-        let tab2_active = active_tab == ActiveTab::OnlineHub;
-        let tab2_bg = if tab2_active {
-            ColorRgba::new(20, 48, 70, 255)
-        } else {
-            ColorRgba::new(20, 20, 28, 255)
-        };
-        let tab2_border = if tab2_active {
-            ColorRgba::new(80, 210, 255, 255)
-        } else {
-            ColorRgba::new(50, 50, 70, 255)
-        };
-        let tab2_fg = if tab2_active {
-            ColorRgba::new(100, 225, 255, 255)
-        } else {
-            ColorRgba::new(140, 140, 160, 255)
-        };
-
-        self.draw_rect(tab2_x, 14.0, tab2_w, 28.0, tab2_bg);
-        self.draw_rect(tab2_x, 14.0, tab2_w, 1.0, tab2_border);
-        self.draw_rect(tab2_x, 41.0, tab2_w, 1.0, tab2_border);
-        self.draw_rect(tab2_x, 14.0, 1.0, 28.0, tab2_border);
-        self.draw_rect(tab2_x + tab2_w - 1.0, 14.0, 1.0, 28.0, tab2_border);
-        BitmapFont::draw_text_centered(
-            &mut self.pixmap.as_mut(),
-            "[2] Online Hub",
-            (tab2_x + tab2_w / 2.0) as i32,
-            22,
-            1,
-            tab2_fg,
-        );
-
-        let tab3_x = 520.0;
-        let tab3_w = 150.0;
-        let tab3_active = active_tab == ActiveTab::Tables;
-        let tab3_bg = if tab3_active {
-            ColorRgba::new(40, 28, 60, 255)
-        } else {
-            ColorRgba::new(20, 20, 28, 255)
-        };
-        let tab3_border = if tab3_active {
-            ColorRgba::new(200, 150, 255, 255)
-        } else {
-            ColorRgba::new(50, 50, 70, 255)
-        };
-        let tab3_fg = if tab3_active {
-            ColorRgba::new(215, 180, 255, 255)
-        } else {
-            ColorRgba::new(140, 140, 160, 255)
-        };
-        self.draw_rect(tab3_x, 14.0, tab3_w, 28.0, tab3_bg);
-        self.draw_rect(tab3_x, 14.0, tab3_w, 1.0, tab3_border);
-        self.draw_rect(tab3_x, 41.0, tab3_w, 1.0, tab3_border);
-        self.draw_rect(tab3_x, 14.0, 1.0, 28.0, tab3_border);
-        self.draw_rect(tab3_x + tab3_w - 1.0, 14.0, 1.0, 28.0, tab3_border);
-        BitmapFont::draw_text_centered(
-            &mut self.pixmap.as_mut(),
-            "[3] Tables",
-            (tab3_x + tab3_w / 2.0) as i32,
-            22,
-            1,
-            tab3_fg,
-        );
-
-        // Search Input Box (not used on the Tables tab)
-        if active_tab != ActiveTab::Tables {
-            let search_box_x = (w - 320.0).max(690.0);
-            let s_w = w - search_box_x - 16.0;
-            let search_border_col = if is_search_active {
-                ColorRgba::new(255, 220, 80, 255)
-            } else {
-                ColorRgba::new(60, 60, 80, 255)
-            };
-            self.draw_rect(
-                search_box_x,
-                14.0,
-                s_w,
-                28.0,
-                ColorRgba::new(16, 16, 24, 255),
-            );
-            self.draw_rect(search_box_x, 14.0, s_w, 1.0, search_border_col);
-            self.draw_rect(search_box_x, 41.0, s_w, 1.0, search_border_col);
-            self.draw_rect(search_box_x, 14.0, 1.0, 28.0, search_border_col);
-            self.draw_rect(search_box_x + s_w - 1.0, 14.0, 1.0, 28.0, search_border_col);
-
-            let search_display = if search_query.is_empty() {
-                if is_search_active {
-                    "Type to search..._"
-                } else {
-                    "Search (press [/])..."
-                }
-            } else {
-                search_query
-            };
-            let search_text_col = if is_search_active {
-                ColorRgba::new(255, 255, 255, 255)
-            } else {
-                ColorRgba::new(120, 120, 140, 255)
-            };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                search_display,
-                (search_box_x + 10.0) as i32,
-                22,
-                1,
-                search_text_col,
-            );
-        }
-
-        let content_y = 68.0;
-        let content_h = h - content_y - FOOTER_RESERVE;
-
-        if active_tab == ActiveTab::Installed {
-            // 3. Left Panel: Package List View
-            let list_w = 420.0;
-
-            self.draw_rect(
-                16.0,
-                content_y,
-                list_w,
-                content_h,
-                ColorRgba::new(18, 18, 26, 255),
-            );
-            self.draw_rect(
-                16.0,
-                content_y,
-                list_w,
-                28.0,
-                ColorRgba::new(26, 26, 38, 255),
-            );
-
-            let list_title = format!("INSTALLED PACKAGES ({})", packages.len());
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &list_title,
-                26,
-                (content_y + 8.0) as i32,
-                1,
-                ColorRgba::new(170, 170, 190, 255),
-            );
-
-            let row_h = 44.0;
-            let max_visible_rows = ((content_h - 32.0) / row_h) as usize;
-            let scroll_offset = if selected_idx >= max_visible_rows {
-                selected_idx - max_visible_rows + 1
-            } else {
-                0
-            };
-
-            let mut row_y = content_y + 32.0;
-            for (i, &pkg) in packages
-                .iter()
-                .skip(scroll_offset)
-                .take(max_visible_rows)
-                .enumerate()
-            {
-                let actual_idx = scroll_offset + i;
-                let is_selected = actual_idx == selected_idx;
-
-                if is_selected {
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        list_w - 4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(35, 45, 70, 255),
-                    );
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(255, 210, 80, 255),
-                    );
-                } else if actual_idx % 2 == 1 {
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        list_w - 4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(22, 22, 30, 255),
-                    );
-                }
-
-                // Name
-                // Name
-                let name_col = if is_selected {
-                    ColorRgba::new(255, 255, 255, 255)
-                } else {
-                    ColorRgba::new(210, 210, 225, 255)
-                };
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &pkg.name,
-                    30,
-                    (row_y + 6.0) as i32,
-                    1,
-                    name_col,
-                );
-
-                // BGA Status Badge
-                let (bga_tag, bga_bg, bga_fg) = match pkg.bga_status {
-                    bms_package_manager::BgaStatus::Embedded => (
-                        "EMBED",
-                        ColorRgba::new(20, 50, 40, 255),
-                        ColorRgba::new(80, 220, 140, 255),
-                    ),
-                    bms_package_manager::BgaStatus::Companion => (
-                        "COMPANION",
-                        ColorRgba::new(20, 45, 75, 255),
-                        ColorRgba::new(90, 190, 255, 255),
-                    ),
-                    bms_package_manager::BgaStatus::None => (
-                        "NO-BGA",
-                        ColorRgba::new(32, 32, 42, 255),
-                        ColorRgba::new(130, 130, 150, 255),
-                    ),
-                };
-                let badge_w = 72.0;
-                let badge_x = 18.0 + list_w - badge_w - 8.0;
-                self.draw_rect(badge_x, row_y + 5.0, badge_w, 14.0, bga_bg);
-                self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, bga_fg);
-                BitmapFont::draw_text_centered(
-                    &mut self.pixmap.as_mut(),
-                    bga_tag,
-                    (badge_x + badge_w / 2.0) as i32,
-                    (row_y + 8.0) as i32,
-                    1,
-                    bga_fg,
-                );
-
-                // ID & Author & State
-                let author = pkg.author.as_deref().unwrap_or("Unknown");
-                let short_active = if pkg.active_state.len() > 10 {
-                    &pkg.active_state[..10]
-                } else {
-                    &pkg.active_state
-                };
-                let sub_info = format!(
-                    "{} | by {} | #{} ({} states)",
-                    pkg.id,
-                    author,
-                    short_active,
-                    pkg.state_hashes.len()
-                );
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &sub_info,
-                    30,
-                    (row_y + 24.0) as i32,
-                    1,
-                    ColorRgba::new(120, 130, 150, 255),
-                );
-
-                row_y += row_h;
-            }
-
-            // 4. Right Panel: Package Detail View
-            let detail_x = 16.0 + list_w + 16.0;
-            let detail_w = w - detail_x - 16.0;
-
-            self.draw_rect(
-                detail_x,
-                content_y,
-                detail_w,
-                content_h,
-                ColorRgba::new(18, 18, 26, 255),
-            );
-            self.draw_rect(
-                detail_x,
-                content_y,
-                detail_w,
-                28.0,
-                ColorRgba::new(26, 26, 38, 255),
-            );
-
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                "PACKAGE DETAILS",
-                detail_x as i32 + 12,
-                (content_y + 8.0) as i32,
-                1,
-                ColorRgba::new(170, 170, 190, 255),
-            );
-
-            if let Some(&selected_pkg) = packages.get(selected_idx) {
-                let mut dy = content_y + 38.0;
-
-                // Artwork Frame (if preview image exists)
-                let art_w = (detail_w - 24.0).min(320.0);
-                let art_h = art_w * (9.0 / 16.0);
-                let art_x = detail_x + (detail_w - art_w) / 2.0;
-
-                self.draw_rect(art_x, dy, art_w, art_h, ColorRgba::new(10, 10, 16, 255));
-                if let Some(img) = preview_img {
-                    crate::image_draw::draw_scaled(
-                        img,
-                        &mut self.pixmap,
-                        art_x as i32,
-                        dy as i32,
-                        art_w as u32,
-                        art_h as u32,
-                    );
-                } else {
-                    BitmapFont::draw_text_centered(
-                        &mut self.pixmap.as_mut(),
-                        "[NO ARTWORK PREVIEW]",
-                        (art_x + art_w / 2.0) as i32,
-                        (dy + art_h / 2.0 - 4.0) as i32,
-                        1,
-                        ColorRgba::new(80, 80, 100, 255),
-                    );
-                }
-                dy += art_h + 16.0;
-
-                // Metadata Lines
-                let title_line = format!("Title: {}", selected_pkg.name);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &title_line,
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    ColorRgba::new(240, 240, 250, 255),
-                );
-                dy += 20.0;
-
-                let id_line = format!("ID:    {}", selected_pkg.id);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &id_line,
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    ColorRgba::new(180, 180, 200, 255),
-                );
-                dy += 20.0;
-
-                let author_line = format!(
-                    "Author: {}",
-                    selected_pkg.author.as_deref().unwrap_or("Unknown")
-                );
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &author_line,
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    ColorRgba::new(180, 180, 200, 255),
-                );
-                dy += 20.0;
-
-                let (bga_label, bga_col) = match selected_pkg.bga_status {
-                    bms_package_manager::BgaStatus::Embedded => (
-                        "Embedded in package.bmsp (All-in-one)",
-                        ColorRgba::new(80, 220, 140, 255),
-                    ),
-                    bms_package_manager::BgaStatus::Companion => (
-                        "Decoupled Companion (.bga.bmsp installed)",
-                        ColorRgba::new(90, 190, 255, 255),
-                    ),
-                    bms_package_manager::BgaStatus::None => (
-                        "None (Audio & charts only)",
-                        ColorRgba::new(150, 150, 170, 255),
-                    ),
-                };
-                let bga_line = format!("BGA:    {}", bga_label);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &bga_line,
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    bga_col,
-                );
-                dy += 20.0;
-
-                if let Some(ref comp_path) = selected_pkg.bga_companion_path {
-                    let comp_line = format!("Path:   {}", comp_path);
-                    BitmapFont::draw_text(
-                        &mut self.pixmap.as_mut(),
-                        &comp_line,
-                        detail_x as i32 + 14,
-                        dy as i32,
-                        1,
-                        ColorRgba::new(130, 150, 180, 255),
-                    );
-                    dy += 20.0;
-                }
-                dy += 6.0;
-
-                // Installed States Management Box
-                self.draw_rect(
-                    detail_x + 10.0,
-                    dy,
-                    detail_w - 20.0,
-                    1.0,
-                    ColorRgba::new(45, 45, 60, 255),
-                );
-                dy += 8.0;
-
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    "Installed States (Use [<-/->] to select):",
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    ColorRgba::new(255, 210, 80, 255),
-                );
-                dy += 20.0;
-
-                let state_keys: Vec<&String> = selected_pkg.state_hashes.keys().collect();
-                for (v_idx, &st) in state_keys.iter().enumerate() {
-                    let is_state_selected = v_idx == selected_ver_idx;
-                    let is_active = st == &selected_pkg.active_state;
-                    let short_st = if st.len() > 12 { &st[..12] } else { st };
-
-                    let ver_tag = format!(
-                        "{} {} {}{}",
-                        if is_state_selected { ">" } else { " " },
-                        short_st,
-                        if is_active { "[ACTIVE]" } else { "" },
-                        if is_state_selected { " (Selected)" } else { "" }
-                    );
-
-                    let ver_col = if is_active {
-                        ColorRgba::new(80, 220, 130, 255)
-                    } else if is_state_selected {
-                        ColorRgba::new(255, 230, 120, 255)
-                    } else {
-                        ColorRgba::new(150, 150, 170, 255)
-                    };
-
-                    BitmapFont::draw_text(
-                        &mut self.pixmap.as_mut(),
-                        &ver_tag,
-                        detail_x as i32 + 20,
-                        dy as i32,
-                        1,
-                        ver_col,
-                    );
-                    dy += 18.0;
-                }
-
-                dy += 12.0;
-
-                // Actions box
-                self.draw_rect(
-                    detail_x + 10.0,
-                    dy,
-                    detail_w - 20.0,
-                    1.0,
-                    ColorRgba::new(45, 45, 60, 255),
-                );
-                dy += 8.0;
-
-                let action_text =
-                    if selected_pkg.bga_status == bms_package_manager::BgaStatus::Companion {
-                        "[A]: Set Active   [U]/[Del]: Uninstall   [B]: Diet (Remove BGA)"
-                    } else {
-                        "[A]: Set Active State   [U]/[Del]: Uninstall Selected State"
-                    };
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    action_text,
-                    detail_x as i32 + 14,
-                    dy as i32,
-                    1,
-                    ColorRgba::new(130, 170, 220, 255),
-                );
-            } // ends if let Some(&selected_pkg)
-        } else if active_tab == ActiveTab::OnlineHub {
-            self.render_online_hub(
-                w,
-                h,
-                content_y,
-                content_h,
-                remote_packages,
-                remote_selected_idx,
-                remote_level_filter,
-            );
-        } else {
-            tables.draw(self, 16.0, content_y, w - 32.0, content_h);
-        }
-
-        // 5. Bottom Status / Footer Bar
-        // Three rows: status message, then two rows of key hints. Real-size
-        // text is wider than the old 5px cells, so the hints wrap instead of
-        // running off the right edge.
-        let footer_y = h - FOOTER_H;
-        self.draw_rect(0.0, footer_y, w, FOOTER_H, ColorRgba::new(16, 16, 24, 255));
-        self.draw_rect(0.0, footer_y, w, 1.0, ColorRgba::new(35, 35, 50, 255));
-
-        // Status message
-        if !status_msg.is_empty() {
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                status_msg,
-                16,
-                (footer_y + 6.0) as i32,
-                1,
-                ColorRgba::new(80, 220, 140, 255),
-            );
-        }
-
-        // Help shortcuts
-        let (help_line1, help_line2) = if active_tab == ActiveTab::Installed {
-            (
-                "[Up/Down]: Move  [I]: Import  [L]: Legacy folders  [P]: Pack  [T]: Turbo",
-                "[S]: Split BGA  [B]: Diet BGA  [F5]: Refresh  [Tab]: Online Hub",
-            )
-        } else if active_tab == ActiveTab::OnlineHub {
-            (
-                "[Up/Down]: Move  [Enter]/[I]: Install  [U]: Upgrade  [B]: With BGA",
-                "[0-4]: Filter  [F5]: Refresh  [Tab]: Tables",
-            )
-        } else {
-            (
-                "[Up/Down]: Move  [PgUp/PgDn]: Page  [ [ / ] ]: Prev/Next table  [O]: Song page  [D]: Download chart",
-                "[Shift+D]: Chart page  [G]: Add from song file  [S]: Scan  [Tab]: Installed",
-            )
-        };
-        for (i, line) in [help_line1, help_line2].iter().enumerate() {
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                line,
-                16,
-                (footer_y + 22.0 + i as f32 * 16.0) as i32,
-                1,
-                ColorRgba::new(160, 160, 180, 255),
-            );
-        }
-
-        // 6. Input Modal (if active)
-        if let Some(modal) = modal_info {
-            let is_pack = modal.pack_options.is_some();
-            let modal_w = if is_pack { 580.0 } else { 540.0 };
-            let list_rows = modal.list.len().min(8) as f32;
-            let modal_h = if is_pack {
-                226.0
-            } else if modal.list.is_empty() {
-                160.0
-            } else {
-                160.0 + 8.0 + list_rows * 16.0
-            };
-            let modal_x = (w - modal_w) / 2.0;
-            let modal_y = (h - modal_h) / 2.0;
-
-            // Backdrop dimming
-            self.draw_rect(0.0, 0.0, w, h, ColorRgba::new(0, 0, 0, 160));
-
-            // Modal box
-            self.draw_rect(
-                modal_x,
-                modal_y,
-                modal_w,
-                modal_h,
-                ColorRgba::new(26, 26, 38, 255),
-            );
-            self.draw_rect(
-                modal_x,
-                modal_y,
-                modal_w,
-                2.0,
-                ColorRgba::new(255, 210, 80, 255),
-            );
-
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                modal.prompt,
-                (modal_x + 20.0) as i32,
-                (modal_y + 18.0) as i32,
-                1,
-                ColorRgba::new(255, 255, 255, 255),
-            );
-
-            // Input line box
-            let inp_box_y = modal_y + 46.0;
-            self.draw_rect(
-                modal_x + 20.0,
-                inp_box_y,
-                modal_w - 40.0,
-                32.0,
-                ColorRgba::new(16, 16, 24, 255),
-            );
-            self.draw_rect(
-                modal_x + 20.0,
-                inp_box_y,
-                modal_w - 40.0,
-                1.0,
-                ColorRgba::new(80, 180, 255, 255),
-            );
-
-            let input_display = format!("{}_", modal.input);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &input_display,
-                (modal_x + 28.0) as i32,
-                (inp_box_y + 10.0) as i32,
-                1,
-                ColorRgba::new(255, 255, 255, 255),
-            );
-
-            if let Some(pack_opts) = modal.pack_options {
-                let opts_y = inp_box_y + 40.0;
-                self.draw_rect(
-                    modal_x + 20.0,
-                    opts_y,
-                    modal_w - 40.0,
-                    1.0,
-                    ColorRgba::new(45, 45, 65, 255),
-                );
-
-                // Turbo Option Row
-                let turbo_check = if pack_opts.is_turbo { "[X]" } else { "[ ]" };
-                let (turbo_label, turbo_col) = if pack_opts.is_turbo {
-                    (
-                        "Turbo Dual Atlas (Pre-decoded audio & GPU texture atlas)",
-                        ColorRgba::new(255, 220, 80, 255),
-                    )
-                } else {
-                    (
-                        "Classic Packaging (Standard WAV/OGG files)",
-                        ColorRgba::new(150, 150, 170, 255),
-                    )
-                };
-                let turbo_line = format!("{} [Tab/F2]  Profile: {}", turbo_check, turbo_label);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &turbo_line,
-                    (modal_x + 22.0) as i32,
-                    (opts_y + 10.0) as i32,
-                    1,
-                    turbo_col,
-                );
-
-                // BGA Option Row
-                let (bga_check, bga_label, bga_col) = match pack_opts.bga_mode {
-                    bms_package_manager::BgaPackMode::Split => (
-                        "[X]",
-                        "Split BGA Companion (.bga.bmsp - diet friendly)",
-                        ColorRgba::new(80, 200, 255, 255),
-                    ),
-                    bms_package_manager::BgaPackMode::Embed => (
-                        "[ ]",
-                        "Embed Video (All-in-one .bmsp)",
-                        ColorRgba::new(130, 210, 150, 255),
-                    ),
-                    bms_package_manager::BgaPackMode::NoVideo => (
-                        "[ ]",
-                        "No Video (Pure audio/charts, minimal size)",
-                        ColorRgba::new(160, 160, 180, 255),
-                    ),
-                };
-                let bga_line = format!("{} [Ctrl+S/F3] BGA: {}", bga_check, bga_label);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &bga_line,
-                    (modal_x + 22.0) as i32,
-                    (opts_y + 30.0) as i32,
-                    1,
-                    bga_col,
-                );
-
-                // Combined Mode Badge
-                let profile_tag = if pack_opts.is_turbo {
-                    "TURBO DUAL ATLAS"
-                } else {
-                    "CLASSIC"
-                };
-                let bga_tag = match pack_opts.bga_mode {
-                    bms_package_manager::BgaPackMode::Split => "SPLIT BGA COMPANION",
-                    bms_package_manager::BgaPackMode::Embed => "EMBEDDED VIDEO",
-                    bms_package_manager::BgaPackMode::NoVideo => "NO VIDEO",
-                };
-                let combo_disp = format!("Output: [{}] + [{}]", profile_tag, bga_tag);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &combo_disp,
-                    (modal_x + 22.0) as i32,
-                    (opts_y + 50.0) as i32,
-                    1,
-                    ColorRgba::new(255, 255, 255, 255),
-                );
-
-                // Hints line
-                let hint_y = modal_y + modal_h - 22.0;
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    "[Enter]: Pack   [Tab]: Turbo   [Ctrl+S]: BGA Mode   [Ctrl+V]: Paste   [Esc]: Cancel",
-                    (modal_x + 20.0) as i32,
-                    hint_y as i32,
-                    1,
-                    ColorRgba::new(140, 150, 175, 255),
-                );
-            } else {
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    "[Enter]: Confirm   [Ctrl+V]: Paste   [Esc]: Cancel",
-                    (modal_x + 20.0) as i32,
-                    (modal_y + 118.0) as i32,
-                    1,
-                    ColorRgba::new(140, 140, 160, 255),
-                );
-                for (i, line) in modal.list.iter().take(8).enumerate() {
-                    BitmapFont::draw_text(
-                        &mut self.pixmap.as_mut(),
-                        line,
-                        (modal_x + 20.0) as i32,
-                        (modal_y + 142.0 + i as f32 * 16.0) as i32,
-                        1,
-                        ColorRgba::new(190, 200, 225, 255),
-                    );
-                }
-            }
-        }
-
-        // 7. Background Task Running Banner (if active)
-        if let Some(info) = bg_task_info {
-            let banner_w = (w - 60.0).min(520.0);
-            let banner_h = if info.total > 0 { 86.0 } else { 48.0 };
-            let banner_x = (w - banner_w) / 2.0;
-            let banner_y = 66.0;
-
-            self.draw_rect(
-                banner_x,
-                banner_y,
-                banner_w,
-                banner_h,
-                ColorRgba::new(20, 28, 44, 250),
-            );
-            self.draw_rect(
-                banner_x,
-                banner_y,
-                banner_w,
-                2.0,
-                ColorRgba::new(80, 180, 255, 255),
-            );
-            self.draw_rect(
-                banner_x,
-                banner_y + banner_h - 1.0,
-                banner_w,
-                1.0,
-                ColorRgba::new(60, 140, 200, 255),
-            );
-
-            let spinner_chars = ['|', '/', '-', '\\'];
-            let spinner = spinner_chars[info.spinner_frame % 4];
-
-            if info.total > 0 {
-                // Title & counts
-                let pct = ((info.current as f32 / info.total.max(1) as f32) * 100.0) as u32;
-                let phase_disp = if !info.phase.is_empty() {
-                    format!(
-                        "[{}] {} ({}% - {}/{})",
-                        spinner, info.phase, pct, info.current, info.total
-                    )
-                } else {
-                    format!(
-                        "[{}] {} ({}% - {}/{})",
-                        spinner, info.message, pct, info.current, info.total
-                    )
-                };
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &phase_disp,
-                    (banner_x + 16.0) as i32,
-                    (banner_y + 12.0) as i32,
-                    1,
-                    ColorRgba::new(255, 230, 90, 255),
-                );
-
-                // Progress Bar
-                let bar_x = banner_x + 16.0;
-                let bar_y = banner_y + 36.0;
-                let bar_w = banner_w - 32.0;
-                let bar_h = 14.0;
-                self.draw_rect(bar_x, bar_y, bar_w, bar_h, ColorRgba::new(12, 16, 26, 255));
-                self.draw_rect(bar_x, bar_y, bar_w, 1.0, ColorRgba::new(40, 60, 90, 255));
-
-                let ratio = (info.current as f32 / info.total.max(1) as f32).clamp(0.0, 1.0);
-                let fill_w = bar_w * ratio;
-                if fill_w > 0.0 {
-                    self.draw_rect(
-                        bar_x,
-                        bar_y,
-                        fill_w,
-                        bar_h,
-                        ColorRgba::new(40, 180, 240, 255),
-                    );
-                }
-
-                // Detail filename & Cancel text
-                let detail_str = if info.detail.len() > 36 {
-                    format!("...{}", &info.detail[info.detail.len() - 33..])
-                } else {
-                    info.detail.to_string()
-                };
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &detail_str,
-                    (banner_x + 16.0) as i32,
-                    (banner_y + 60.0) as i32,
-                    1,
-                    ColorRgba::new(170, 190, 215, 255),
-                );
-
-                let cancel_hint = "[ESC] Cancel";
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    cancel_hint,
-                    (banner_x + banner_w - 110.0) as i32,
-                    (banner_y + 60.0) as i32,
-                    1,
-                    ColorRgba::new(255, 120, 120, 255),
-                );
-            } else {
-                let disp = format!("[{}] {}", spinner, info.message);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &disp,
-                    (banner_x + 16.0) as i32,
-                    (banner_y + 16.0) as i32,
-                    1,
-                    ColorRgba::new(255, 230, 90, 255),
-                );
-                let cancel_hint = "[ESC] Cancel";
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    cancel_hint,
-                    (banner_x + banner_w - 110.0) as i32,
-                    (banner_y + 16.0) as i32,
-                    1,
-                    ColorRgba::new(255, 120, 120, 255),
-                );
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_online_hub(
-        &mut self,
-        w: f32,
-        _h: f32,
-        content_y: f32,
-        content_h: f32,
-        remote_packages: &[RemotePackageDisplayInfo],
-        selected_idx: usize,
-        level_filter: u8,
-    ) {
-        let list_w = 460.0_f32.min(w * 0.52);
-
-        // Catalog Container
-        self.draw_rect(
-            16.0,
-            content_y,
-            list_w,
-            content_h,
-            ColorRgba::new(18, 18, 26, 255),
-        );
-        self.draw_rect(
-            16.0,
-            content_y,
-            list_w,
-            28.0,
-            ColorRgba::new(26, 26, 38, 255),
-        );
-
-        let list_title = format!("ONLINE SONG HUB ({})", remote_packages.len());
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            &list_title,
-            26,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(140, 200, 255, 255),
-        );
-
-        // Level Filter Bar
-        let filter_y = content_y + 32.0;
-        let filter_labels = ["[0] All", "[1] 1-4", "[2] 5-8", "[3] 9-11", "[4] 12+"];
-        let pill_w = (list_w - 20.0) / 5.0;
-        for (i, label) in filter_labels.iter().enumerate() {
-            let px = 18.0 + (i as f32 * pill_w);
-            let is_active_filter = level_filter == (i as u8);
-            let pill_bg = if is_active_filter {
-                ColorRgba::new(20, 50, 75, 255)
-            } else {
-                ColorRgba::new(24, 24, 34, 255)
-            };
-            let pill_border = if is_active_filter {
-                ColorRgba::new(80, 210, 255, 255)
-            } else {
-                ColorRgba::new(45, 45, 60, 255)
-            };
-            let pill_fg = if is_active_filter {
-                ColorRgba::new(100, 230, 255, 255)
-            } else {
-                ColorRgba::new(140, 140, 160, 255)
-            };
-
-            self.draw_rect(px, filter_y, pill_w - 2.0, 22.0, pill_bg);
-            self.draw_rect(px, filter_y, pill_w - 2.0, 1.0, pill_border);
-            self.draw_rect(px, filter_y + 21.0, pill_w - 2.0, 1.0, pill_border);
-            self.draw_rect(px, filter_y, 1.0, 22.0, pill_border);
-            self.draw_rect(px + pill_w - 3.0, filter_y, 1.0, 22.0, pill_border);
-            BitmapFont::draw_text_centered(
-                &mut self.pixmap.as_mut(),
-                label,
-                (px + (pill_w - 2.0) / 2.0) as i32,
-                (filter_y + 6.0) as i32,
-                1,
-                pill_fg,
-            );
-        }
-
-        // Virtual Scrolling Catalog List (Viewport Culling - INV-5)
-        let catalog_y = filter_y + 26.0;
-        let catalog_h = content_h - (catalog_y - content_y) - 6.0;
-        let row_h = 50.0;
-        let max_visible_rows = (catalog_h / row_h) as usize;
-        let scroll_offset = if selected_idx >= max_visible_rows {
-            selected_idx - max_visible_rows + 1
-        } else {
-            0
-        };
-
-        if remote_packages.is_empty() {
-            BitmapFont::draw_text_centered(
-                &mut self.pixmap.as_mut(),
-                "No online packages found.",
-                (16.0 + list_w / 2.0) as i32,
-                (catalog_y + catalog_h / 2.0 - 10.0) as i32,
-                1,
-                ColorRgba::new(140, 140, 160, 255),
-            );
-            BitmapFont::draw_text_centered(
-                &mut self.pixmap.as_mut(),
-                "Press [F5] to sync remote registries or clear filter.",
-                (16.0 + list_w / 2.0) as i32,
-                (catalog_y + catalog_h / 2.0 + 10.0) as i32,
-                1,
-                ColorRgba::new(100, 100, 120, 255),
-            );
-        } else {
-            for (i, pkg) in remote_packages
-                .iter()
-                .skip(scroll_offset)
-                .take(max_visible_rows)
-                .enumerate()
-            {
-                let actual_idx = scroll_offset + i;
-                let is_selected = actual_idx == selected_idx;
-                let row_y = catalog_y + (i as f32 * row_h);
-
-                if is_selected {
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        list_w - 4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(25, 45, 75, 255),
-                    );
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(80, 210, 255, 255),
-                    );
-                } else if actual_idx % 2 == 1 {
-                    self.draw_rect(
-                        18.0,
-                        row_y,
-                        list_w - 4.0,
-                        row_h - 2.0,
-                        ColorRgba::new(22, 22, 30, 255),
-                    );
-                }
-
-                // Title
-                let title_col = if is_selected {
-                    ColorRgba::new(255, 255, 255, 255)
-                } else {
-                    ColorRgba::new(220, 230, 245, 255)
-                };
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &pkg.title,
-                    28,
-                    (row_y + 6.0) as i32,
-                    1,
-                    title_col,
-                );
-
-                // Status Badge on right
-                let (status_text, status_bg, status_border, status_fg) = match pkg.status {
-                    RemotePackageStatus::Available => (
-                        "[INSTALL]",
-                        ColorRgba::new(15, 45, 55, 255),
-                        ColorRgba::new(70, 200, 220, 255),
-                        ColorRgba::new(90, 225, 245, 255),
-                    ),
-                    RemotePackageStatus::Installed => (
-                        "[INSTALLED]",
-                        ColorRgba::new(20, 45, 30, 255),
-                        ColorRgba::new(60, 160, 100, 255),
-                        ColorRgba::new(90, 220, 140, 255),
-                    ),
-                    RemotePackageStatus::UpdateAvailable => (
-                        "[UPDATE AVAIL]",
-                        ColorRgba::new(55, 45, 15, 255),
-                        ColorRgba::new(230, 180, 40, 255),
-                        ColorRgba::new(255, 210, 70, 255),
-                    ),
-                };
-                let badge_w = 90.0;
-                let badge_x = 18.0 + list_w - badge_w - 8.0;
-                self.draw_rect(badge_x, row_y + 5.0, badge_w, 15.0, status_bg);
-                self.draw_rect(badge_x, row_y + 5.0, badge_w, 1.0, status_border);
-                self.draw_rect(badge_x, row_y + 19.0, badge_w, 1.0, status_border);
-                self.draw_rect(badge_x, row_y + 5.0, 1.0, 15.0, status_border);
-                self.draw_rect(
-                    badge_x + badge_w - 1.0,
-                    row_y + 5.0,
-                    1.0,
-                    15.0,
-                    status_border,
-                );
-                BitmapFont::draw_text_centered(
-                    &mut self.pixmap.as_mut(),
-                    status_text,
-                    (badge_x + badge_w / 2.0) as i32,
-                    (row_y + 8.0) as i32,
-                    1,
-                    status_fg,
-                );
-
-                // Sub line 1: Artist, Genre, BPM
-                let genre_str = pkg.genre.as_deref().unwrap_or("Unknown");
-                let bpm_str = pkg
-                    .bpm
-                    .map(|b| format!("{:.0}", b))
-                    .unwrap_or_else(|| "---".to_string());
-                let sub_str = format!("{} | {} | BPM {}", pkg.artist, genre_str, bpm_str);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &sub_str,
-                    28,
-                    (row_y + 22.0) as i32,
-                    1,
-                    ColorRgba::new(135, 145, 165, 255),
-                );
-
-                // Sub line 2: Levels, Size, Companion BGA badge
-                let levels_str = if pkg.play_levels.is_empty() {
-                    "Lv: -".to_string()
-                } else {
-                    let lv_items: Vec<String> =
-                        pkg.play_levels.iter().map(|l| l.to_string()).collect();
-                    format!("Lv: {}", lv_items.join(", "))
-                };
-                let size_str = format_bytes(pkg.size_bytes);
-                let bga_tag = if pkg.has_companion_bga {
-                    " | [+BGA]"
-                } else {
-                    ""
-                };
-                let meta_line = format!("{} | {}{}", levels_str, size_str, bga_tag);
-                BitmapFont::draw_text(
-                    &mut self.pixmap.as_mut(),
-                    &meta_line,
-                    28,
-                    (row_y + 36.0) as i32,
-                    1,
-                    ColorRgba::new(110, 125, 145, 255),
-                );
-            }
-        }
-
-        // Right Panel: Remote Package Details
-        let detail_x = 16.0 + list_w + 16.0;
-        let detail_w = w - detail_x - 16.0;
-
-        self.draw_rect(
-            detail_x,
-            content_y,
-            detail_w,
-            content_h,
-            ColorRgba::new(18, 18, 26, 255),
-        );
-        self.draw_rect(
-            detail_x,
-            content_y,
-            detail_w,
-            28.0,
-            ColorRgba::new(26, 26, 38, 255),
-        );
-
-        BitmapFont::draw_text(
-            &mut self.pixmap.as_mut(),
-            "ONLINE SONG DETAILS",
-            detail_x as i32 + 12,
-            (content_y + 8.0) as i32,
-            1,
-            ColorRgba::new(170, 170, 190, 255),
-        );
-
-        if let Some(selected_pkg) = remote_packages.get(selected_idx) {
-            let mut dy = content_y + 40.0;
-
-            // Title (Header)
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &selected_pkg.title,
-                detail_x as i32 + 16,
-                dy as i32,
-                2,
-                ColorRgba::new(255, 255, 255, 255),
-            );
-            dy += 28.0;
-
-            // Artist
-            let artist_str = format!("Artist: {}", selected_pkg.artist);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &artist_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(180, 200, 230, 255),
-            );
-            dy += 18.0;
-
-            // Genre & BPM
-            let genre_bpm = format!(
-                "Genre: {}   |   BPM: {}",
-                selected_pkg.genre.as_deref().unwrap_or("Unknown"),
-                selected_pkg
-                    .bpm
-                    .map(|b| format!("{:.1}", b))
-                    .unwrap_or_else(|| "Variable".to_string())
-            );
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &genre_bpm,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(150, 165, 185, 255),
-            );
-            dy += 22.0;
-
-            // Status Banner Box
-            let (status_banner, banner_bg, banner_border, banner_fg) = match selected_pkg.status {
-                RemotePackageStatus::Available => (
-                    "STATUS: AVAILABLE FOR DOWNLOAD",
-                    ColorRgba::new(18, 42, 52, 255),
-                    ColorRgba::new(60, 180, 210, 255),
-                    ColorRgba::new(90, 220, 250, 255),
-                ),
-                RemotePackageStatus::Installed => (
-                    "STATUS: INSTALLED & UP TO DATE",
-                    ColorRgba::new(20, 45, 30, 255),
-                    ColorRgba::new(60, 170, 95, 255),
-                    ColorRgba::new(90, 230, 140, 255),
-                ),
-                RemotePackageStatus::UpdateAvailable => (
-                    "STATUS: UPDATE AVAILABLE! (Newer state in registry)",
-                    ColorRgba::new(55, 45, 15, 255),
-                    ColorRgba::new(230, 180, 40, 255),
-                    ColorRgba::new(255, 215, 75, 255),
-                ),
-            };
-            self.draw_rect(detail_x + 14.0, dy, detail_w - 28.0, 26.0, banner_bg);
-            self.draw_rect(detail_x + 14.0, dy, detail_w - 28.0, 1.0, banner_border);
-            self.draw_rect(
-                detail_x + 14.0,
-                dy + 25.0,
-                detail_w - 28.0,
-                1.0,
-                banner_border,
-            );
-            self.draw_rect(detail_x + 14.0, dy, 1.0, 26.0, banner_border);
-            self.draw_rect(detail_x + detail_w - 15.0, dy, 1.0, 26.0, banner_border);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                status_banner,
-                detail_x as i32 + 26,
-                (dy + 8.0) as i32,
-                1,
-                banner_fg,
-            );
-            dy += 36.0;
-
-            // Details section
-            let id_str = format!("Package ID:   {}", selected_pkg.id);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &id_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(200, 205, 220, 255),
-            );
-            dy += 18.0;
-
-            let size_str = format!(
-                "Package Size: {} ({} bytes)",
-                format_bytes(selected_pkg.size_bytes),
-                selected_pkg.size_bytes
-            );
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &size_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(170, 180, 195, 255),
-            );
-            dy += 18.0;
-
-            let short_hash = if selected_pkg.sha256.len() > 16 {
-                format!("{}...", &selected_pkg.sha256[..16])
-            } else {
-                selected_pkg.sha256.clone()
-            };
-            let hash_str = format!("SHA-256:      {}", short_hash);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &hash_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(150, 160, 180, 255),
-            );
-            dy += 18.0;
-
-            let bga_str = if selected_pkg.has_companion_bga {
-                "Companion BGA: Available (split/diet ready)"
-            } else {
-                "Companion BGA: None (Audio and charts only)"
-            };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                bga_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                if selected_pkg.has_companion_bga {
-                    ColorRgba::new(100, 200, 255, 255)
-                } else {
-                    ColorRgba::new(130, 135, 150, 255)
-                },
-            );
-            dy += 18.0;
-
-            let short_url = if selected_pkg.download_url.len() > 36 {
-                format!(
-                    "...{}",
-                    &selected_pkg.download_url[selected_pkg.download_url.len() - 33..]
-                )
-            } else {
-                selected_pkg.download_url.clone()
-            };
-            let url_str = format!("Remote URL:    {}", short_url);
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &url_str,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(125, 140, 165, 255),
-            );
-            dy += 18.0;
-
-            let levels_detail = if selected_pkg.play_levels.is_empty() {
-                "Play Levels:   None specified".to_string()
-            } else {
-                let lv_str: Vec<String> = selected_pkg
-                    .play_levels
-                    .iter()
-                    .map(|l| format!("Lv.{}", l))
-                    .collect();
-                format!("Play Levels:   {}", lv_str.join("  "))
-            };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                &levels_detail,
-                detail_x as i32 + 16,
-                dy as i32,
-                1,
-                ColorRgba::new(240, 210, 120, 255),
-            );
-            dy += 24.0;
-
-            // Actions Box at bottom of detail panel
-            let actions_box_y = (content_y + content_h - 76.0).max(dy + 10.0);
-            self.draw_rect(
-                detail_x + 10.0,
-                actions_box_y,
-                detail_w - 20.0,
-                1.0,
-                ColorRgba::new(45, 45, 60, 255),
-            );
-
-            let action_main = match selected_pkg.status {
-                RemotePackageStatus::UpdateAvailable => "[U] / [Enter]: Upgrade to Latest Version",
-                RemotePackageStatus::Available => "[I] / [Enter]: 1-Click Download & Install",
-                RemotePackageStatus::Installed => "[Enter]: Re-download / Reinstall Package",
-            };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                action_main,
-                detail_x as i32 + 14,
-                (actions_box_y + 10.0) as i32,
-                1,
-                ColorRgba::new(100, 230, 255, 255),
-            );
-
-            let action_sub = if selected_pkg.has_companion_bga {
-                "[B]: With BGA  [0-4]: Filter  [F5]: Sync Sources"
-            } else {
-                "[0-4]: Filter   [F5]: Sync Sources   [Tab]: Installed"
-            };
-            BitmapFont::draw_text(
-                &mut self.pixmap.as_mut(),
-                action_sub,
-                detail_x as i32 + 14,
-                (actions_box_y + 28.0) as i32,
-                1,
-                ColorRgba::new(150, 160, 180, 255),
-            );
-        }
-    }
+/// A one-of-many choice in a dialog.
+#[derive(Debug, Clone, Default)]
+pub struct ChoiceView {
+    pub label: String,
+    pub options: Vec<&'static str>,
+    pub selected: usize,
+    /// What the selected option does, in a sentence.
+    pub note: String,
 }
 
-fn format_bytes(bytes: u64) -> String {
+#[derive(Debug, Clone, Default)]
+pub struct ListRowView {
+    pub text: String,
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ButtonView {
+    pub label: String,
+    pub style: Btn,
+    pub action: UiAction,
+}
+
+/// Everything an open dialog shows. Built from the dialog state each frame.
+#[derive(Debug, Clone, Default)]
+pub struct DialogView {
+    pub title: String,
+    pub body: Vec<String>,
+    /// Big choices with a title and a description (`DialogCard(i)`).
+    pub cards: Vec<(String, String)>,
+    pub fields: Vec<FieldView>,
+    pub choices: Vec<ChoiceView>,
+    /// Rows with a remove button (`DialogListRemove(i)`).
+    pub list: Vec<ListRowView>,
+    pub list_empty: String,
+    pub buttons: Vec<ButtonView>,
+    pub footnote: String,
+    pub wide: bool,
+}
+
+/// What one frame shows.
+pub struct Frame<'a> {
+    pub tab: ActiveTab,
+    pub packages: &'a [&'a PackageRecord],
+    pub installed_total: usize,
+    pub installed: &'a mut ListView,
+    pub preview: Option<&'a ImageBuffer>,
+    pub remote: &'a [&'a RemotePackageDisplayInfo],
+    pub remote_total: usize,
+    pub remote_view: &'a mut ListView,
+    pub level_filter: u8,
+    pub with_bga: bool,
+    pub search: &'a str,
+    pub search_active: bool,
+    pub status: &'a str,
+    pub status_kind: StatusKind,
+    pub dialog: Option<&'a DialogView>,
+    pub task: Option<TaskProgressInfo<'a>>,
+    pub tables: &'a mut TablesTab,
+    /// A file is dragged over the window.
+    pub drop_hint: bool,
+}
+
+/// Level filter buttons of the "곡 받기" page: label and the levels it keeps.
+pub const LEVEL_FILTERS: [&str; 5] = ["전체", "쉬움 1-4", "보통 5-8", "어려움 9-11", "최상 12+"];
+
+pub fn format_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 * 1024 {
         format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     } else if bytes >= 1024 * 1024 {
@@ -1525,5 +151,1415 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.0} KB", bytes as f64 / 1024.0)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+/// How a song's background video is stored, in plain words.
+fn video_label(status: BgaStatus) -> &'static str {
+    match status {
+        BgaStatus::Embedded => "배경 영상 포함",
+        BgaStatus::Companion => "배경 영상 별도 설치됨",
+        BgaStatus::None => "배경 영상 없음",
+    }
+}
+
+impl GuiRenderer {
+    pub fn render(&mut self, mut f: Frame) {
+        let w = self.pixmap.width() as f32;
+        let h = self.pixmap.height() as f32;
+        self.begin_frame(f.dialog.is_none());
+
+        self.draw_header(w, f.tab, f.installed_total, &*f.tables);
+
+        let top = HEADER_H + 16.0;
+        let bottom = h - STATUS_H - 16.0;
+        match f.tab {
+            ActiveTab::Installed => self.page_installed(w, top, bottom, &mut f),
+            ActiveTab::OnlineHub => self.page_online(w, top, bottom, &mut f),
+            ActiveTab::Tables => self.page_tables(w, top, bottom, &mut *f.tables),
+        }
+
+        self.draw_status(w, h, f.status, f.status_kind, f.task.is_some());
+
+        if let Some(task) = &f.task {
+            self.draw_task(w, task);
+        }
+        if let Some(dialog) = f.dialog {
+            self.set_hover_enabled(true);
+            self.draw_dialog(w, h, dialog);
+        }
+        if f.drop_hint {
+            self.draw_drop_hint(w, h);
+        }
+    }
+
+    fn draw_drop_hint(&mut self, w: f32, h: f32) {
+        self.fill(0.0, 0.0, w, h, ColorRgba::new(10, 10, 14, 200));
+        self.outline(24.0, 24.0, w - 48.0, h - 48.0, 18.0, theme::ACCENT, true);
+        self.text_centered(
+            "여기에 놓으면 곡을 추가해요",
+            w / 2.0,
+            h / 2.0 - 20.0,
+            PX_PAGE,
+            theme::ACCENT,
+        );
+        self.text_centered(
+            "곡 폴더, 압축 파일(.zip/.rar/.7z), .bmsp 패키지를 넣을 수 있어요",
+            w / 2.0,
+            h / 2.0 + 18.0,
+            PX_BODY,
+            theme::TEXT_DIM,
+        );
+    }
+
+    // ----------------------------------------------------------------- header
+
+    fn draw_header(&mut self, w: f32, tab: ActiveTab, installed: usize, tables: &TablesTab) {
+        self.fill(0.0, 0.0, w, HEADER_H, theme::SURFACE);
+        self.fill(0.0, HEADER_H - 1.0, w, 1.0, theme::BORDER);
+
+        // Logo: a small beetle-yellow mark and the name.
+        self.round(PAD, 18.0, 24.0, 24.0, 7.0, theme::ACCENT);
+        self.circle(PAD + 12.0, 30.0, 5.0, theme::ACCENT_TEXT);
+        self.text_bold("Beetle", PAD + 34.0, 22.0, PX_TITLE, theme::TEXT);
+        let name_w = text_w_bold("Beetle", PX_TITLE);
+        self.text(
+            "곡 관리자",
+            PAD + 40.0 + name_w,
+            25.0,
+            PX_SMALL,
+            theme::TEXT_DIM,
+        );
+
+        let installed_label = format!("내 곡  {installed}");
+        let tables_label = format!("난이도표  {}", tables.tables.len());
+        let tabs = [
+            (ActiveTab::Installed, installed_label.as_str()),
+            (ActiveTab::OnlineHub, "곡 받기"),
+            (ActiveTab::Tables, tables_label.as_str()),
+        ];
+        let mut x = 210.0;
+        for (t, label) in tabs {
+            let tw = text_w(label, PX_BODY) + 36.0;
+            let active = t == tab;
+            let hover = self.hovered(x, 10.0, tw, HEADER_H - 10.0);
+            if active || hover {
+                self.round(
+                    x,
+                    12.0,
+                    tw,
+                    36.0,
+                    8.0,
+                    if active {
+                        theme::SURFACE_2
+                    } else {
+                        ColorRgba::new(27, 29, 39, 255)
+                    },
+                );
+            }
+            let color = if active || hover {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            };
+            let ty = (12.0 + (36.0 - cap(PX_BODY)) / 2.0).round();
+            if active {
+                self.text_bold(label, x + 18.0, ty, PX_BODY, color);
+                self.round(x + 14.0, HEADER_H - 4.0, tw - 28.0, 3.0, 1.5, theme::ACCENT);
+            } else {
+                self.text(label, x + 18.0, ty, PX_BODY, color);
+            }
+            self.hit(x, 10.0, tw, HEADER_H - 10.0, UiAction::Tab(t));
+            x += tw + 6.0;
+        }
+
+        let help = "? 도움말";
+        let bw = GuiRenderer::button_w(help);
+        self.button(
+            w - PAD - bw,
+            13.0,
+            bw,
+            34.0,
+            help,
+            Btn::Ghost,
+            UiAction::Help,
+        );
+    }
+
+    /// Page title, its one-line explanation, and buttons on the right.
+    fn page_head(
+        &mut self,
+        w: f32,
+        y: f32,
+        title: &str,
+        desc: &str,
+        buttons: &[(&str, Btn, UiAction)],
+    ) {
+        let left = self.buttons_right(w - PAD, y + 2.0, 36.0, buttons);
+        self.text_bold(title, PAD, y + 2.0, PX_PAGE, theme::TEXT);
+        let desc = fit(desc, left - PAD - 16.0, PX_SMALL, false);
+        self.text(&desc, PAD, y + 32.0, PX_SMALL, theme::TEXT_DIM);
+    }
+
+    fn search_box(&mut self, x: f32, y: f32, w: f32, query: &str, active: bool, placeholder: &str) {
+        let clear = !query.is_empty();
+        let field_w = if clear { w - 44.0 } else { w };
+        self.text_field(
+            x,
+            y,
+            field_w,
+            query,
+            placeholder,
+            active,
+            UiAction::FocusSearch,
+            None,
+        );
+        if clear {
+            self.button(
+                x + w - 36.0,
+                y,
+                36.0,
+                36.0,
+                "x",
+                Btn::Ghost,
+                UiAction::ClearSearch,
+            );
+        }
+    }
+
+    // ------------------------------------------------------------ "내 곡" page
+
+    fn page_installed(&mut self, w: f32, top: f32, bottom: f32, f: &mut Frame) {
+        self.page_head(
+            w,
+            top,
+            "내 곡",
+            "이 컴퓨터에 설치된 곡이에요. 여기 있는 곡은 Beetle 게임의 곡 선택 화면에 나와요.",
+            &[
+                ("고급 도구", Btn::Secondary, UiAction::OpenAdvanced),
+                ("기존 폴더 연결", Btn::Secondary, UiAction::OpenLibrary),
+                ("+ 곡 추가", Btn::Primary, UiAction::OpenAdd),
+            ],
+        );
+
+        let row_y = top + 60.0;
+        if f.installed_total == 0 {
+            self.empty_installed(w, row_y, bottom);
+            return;
+        }
+
+        let list_w = (w * 0.44).clamp(340.0, 520.0);
+        self.search_box(
+            PAD,
+            row_y,
+            list_w,
+            f.search,
+            f.search_active,
+            "곡 제목이나 아티스트로 찾기",
+        );
+        let count = if f.search.is_empty() {
+            format!("{}곡", f.installed_total)
+        } else {
+            format!("{}곡 중 {}곡", f.installed_total, f.packages.len())
+        };
+        self.text(
+            &count,
+            PAD + list_w + 16.0,
+            row_y + 11.0,
+            PX_SMALL,
+            theme::TEXT_FAINT,
+        );
+
+        let panel_y = row_y + 48.0;
+        let panel_h = bottom - panel_y;
+        self.panel(PAD, panel_y, list_w, panel_h);
+
+        // The list.
+        let row_h = 56.0;
+        let list_top = panel_y + 6.0;
+        let list_h = panel_h - 12.0;
+        let visible = (list_h / row_h).floor().max(1.0) as usize;
+        f.installed.layout(f.packages.len(), visible);
+        let view = *f.installed;
+        self.scroll_area(PAD, panel_y, list_w, panel_h, ScrollTarget::Installed);
+        if f.packages.is_empty() {
+            self.text_centered(
+                "찾는 곡이 없어요",
+                PAD + list_w / 2.0,
+                panel_y + 40.0,
+                PX_BODY,
+                theme::TEXT_DIM,
+            );
+        }
+        for (slot, idx) in (view.scroll..f.packages.len()).take(visible).enumerate() {
+            let pkg = f.packages[idx];
+            let y = list_top + slot as f32 * row_h;
+            let (x, rw) = (PAD + 6.0, list_w - 16.0);
+            let selected = idx == view.selected;
+            let hover = self.hovered(x, y, rw, row_h - 4.0);
+            if selected {
+                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SELECT);
+                self.round(x, y + 12.0, 3.0, row_h - 28.0, 1.5, theme::ACCENT);
+            } else if hover {
+                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SURFACE_2);
+            }
+            let title = fit(&pkg.name, rw - 28.0, PX_BODY, false);
+            self.text(&title, x + 14.0, y + 11.0, PX_BODY, theme::TEXT);
+            let mut sub = pkg
+                .author
+                .clone()
+                .unwrap_or_else(|| "아티스트 정보 없음".into());
+            sub.push_str(" · ");
+            sub.push_str(video_label(pkg.bga_status));
+            if pkg.state_hashes.len() > 1 {
+                sub.push_str(&format!(" · 버전 {}개", pkg.state_hashes.len()));
+            }
+            let sub = fit(&sub, rw - 28.0, PX_SMALL, false);
+            self.text(&sub, x + 14.0, y + 32.0, PX_SMALL, theme::TEXT_FAINT);
+            self.hit(x, y, rw, row_h - 4.0, UiAction::SelectInstalled(idx));
+        }
+        self.scrollbar(
+            PAD + list_w - 8.0,
+            list_top,
+            list_h,
+            f.packages.len(),
+            visible,
+            view.scroll,
+        );
+
+        // The details.
+        let dx = PAD + list_w + 16.0;
+        let dw = w - dx - PAD;
+        self.panel(dx, panel_y, dw, panel_h);
+        if let Some(pkg) = f.packages.get(view.selected) {
+            self.installed_details(dx, panel_y, dw, panel_h, pkg, f.preview);
+        }
+    }
+
+    fn installed_details(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        pkg: &PackageRecord,
+        preview: Option<&ImageBuffer>,
+    ) {
+        let inner = w - 40.0;
+        let mut dy = y + 20.0;
+
+        // Artwork, when the song has a picture.
+        let art_w = inner.min(320.0);
+        let art_h = (art_w * 9.0 / 16.0).round();
+        if let Some(img) = preview {
+            self.round(x + 20.0, dy, art_w, art_h, 8.0, theme::BG);
+            crate::image_draw::draw_scaled(
+                img,
+                &mut self.pixmap,
+                (x + 20.0) as i32,
+                dy as i32,
+                art_w as u32,
+                art_h as u32,
+            );
+            dy += art_h + 18.0;
+        }
+
+        for line in wrap(&pkg.name, inner, PX_TITLE).iter().take(2) {
+            self.text_bold(line, x + 20.0, dy, PX_TITLE, theme::TEXT);
+            dy += 26.0;
+        }
+        let artist = pkg.author.as_deref().unwrap_or("아티스트 정보 없음");
+        self.text(
+            &fit(artist, inner, PX_BODY, false),
+            x + 20.0,
+            dy,
+            PX_BODY,
+            theme::TEXT_DIM,
+        );
+        dy += 28.0;
+
+        let mut cx = x + 20.0;
+        let (vfg, vbg) = match pkg.bga_status {
+            BgaStatus::None => (theme::TEXT_DIM, theme::SURFACE_2),
+            _ => (theme::GREEN, theme::GREEN_SOFT),
+        };
+        cx += self.chip(video_label(pkg.bga_status), cx, dy, vfg, vbg) + 6.0;
+        self.chip(
+            "게임에서 플레이 가능",
+            cx,
+            dy,
+            theme::BLUE,
+            ColorRgba::new(26, 40, 64, 255),
+        );
+        dy += 36.0;
+
+        // Versions: only worth a section when there is more than one.
+        let states: Vec<&String> = pkg.state_hashes.keys().collect();
+        if states.len() > 1 {
+            self.fill(x + 20.0, dy, inner, 1.0, theme::BORDER);
+            dy += 14.0;
+            self.text_bold("버전", x + 20.0, dy, PX_BODY, theme::TEXT);
+            self.text(
+                "같은 곡의 다른 버전이 있어요. 게임에서 쓸 버전 하나를 고르세요.",
+                x + 64.0,
+                dy + 1.0,
+                PX_SMALL,
+                theme::TEXT_FAINT,
+            );
+            dy += 26.0;
+            let room = ((y + h - 70.0 - dy) / 40.0).max(1.0) as usize;
+            for (i, st) in states.iter().enumerate().take(room) {
+                let active = **st == pkg.active_state;
+                self.round(x + 20.0, dy, inner, 36.0, 8.0, theme::SURFACE_2);
+                let short = &st[..st.len().min(8)];
+                self.text(
+                    &format!("버전 {}", i + 1),
+                    x + 34.0,
+                    dy + 11.0,
+                    PX_BODY,
+                    theme::TEXT,
+                );
+                self.text(
+                    &format!("#{short}"),
+                    x + 100.0,
+                    dy + 12.0,
+                    PX_SMALL,
+                    theme::TEXT_FAINT,
+                );
+                if active {
+                    let cw = text_w("사용 중", PX_SMALL) + 14.0;
+                    self.chip(
+                        "사용 중",
+                        x + 20.0 + inner - cw - 10.0,
+                        dy + 8.0,
+                        theme::GREEN,
+                        theme::GREEN_SOFT,
+                    );
+                } else {
+                    let right = x + 20.0 + inner - 6.0;
+                    self.buttons_right(
+                        right,
+                        dy + 4.0,
+                        28.0,
+                        &[
+                            ("삭제", Btn::Ghost, UiAction::AskUninstallVersion(i)),
+                            ("이 버전 사용", Btn::Secondary, UiAction::UseVersion(i)),
+                        ],
+                    );
+                }
+                dy += 40.0;
+            }
+        }
+
+        // Actions at the bottom of the panel.
+        let by = y + h - 56.0;
+        self.fill(x + 20.0, by - 12.0, inner, 1.0, theme::BORDER);
+        let mut buttons: Vec<(&str, Btn, UiAction)> = Vec::new();
+        if pkg.bga_status == BgaStatus::Companion {
+            buttons.push(("배경 영상 지우기", Btn::Secondary, UiAction::AskRemoveBga));
+        }
+        buttons.push(("곡 삭제", Btn::Danger, UiAction::AskUninstall));
+        self.buttons_right(x + w - 20.0, by, 36.0, &buttons);
+    }
+
+    fn empty_installed(&mut self, w: f32, y: f32, bottom: f32) {
+        let (x, zw, zh) = (PAD, w - PAD * 2.0, bottom - y);
+        self.round(x, y, zw, zh, 14.0, theme::SURFACE);
+        self.outline(x, y, zw, zh, 14.0, theme::SURFACE_3, true);
+        let cx = x + zw / 2.0;
+        let mut cy = y + (zh / 2.0 - 120.0).max(24.0);
+
+        // A folder drawn from two boxes.
+        self.round(cx - 34.0, cy, 30.0, 14.0, 4.0, theme::ACCENT_SOFT);
+        self.round(cx - 34.0, cy + 8.0, 68.0, 46.0, 7.0, theme::ACCENT_SOFT);
+        self.round(cx - 2.0, cy + 20.0, 4.0, 22.0, 2.0, theme::ACCENT);
+        self.round(cx - 11.0, cy + 29.0, 22.0, 4.0, 2.0, theme::ACCENT);
+        cy += 74.0;
+
+        self.text_centered("아직 설치된 곡이 없어요", cx, cy, PX_TITLE, theme::TEXT);
+        cy += 32.0;
+        for line in [
+            "BMS 곡 폴더나 .bmsp 파일을 이 창에 끌어다 놓으면 바로 추가돼요.",
+            "인터넷에서 곡을 찾고 있다면 '곡 받기' 탭에서 골라 설치할 수도 있어요.",
+        ] {
+            self.text_centered(line, cx, cy, PX_BODY, theme::TEXT_DIM);
+            cy += 24.0;
+        }
+        cy += 14.0;
+        let a = "+ 곡 추가";
+        let b = "곡 받기로 가기";
+        let (aw, bw) = (GuiRenderer::button_w(a) + 16.0, GuiRenderer::button_w(b));
+        let bx = cx - (aw + bw + 10.0) / 2.0;
+        self.button(bx, cy, aw, 40.0, a, Btn::Primary, UiAction::OpenAdd);
+        self.button(
+            bx + aw + 10.0,
+            cy,
+            bw,
+            40.0,
+            b,
+            Btn::Secondary,
+            UiAction::Tab(ActiveTab::OnlineHub),
+        );
+        cy += 72.0;
+
+        let note = "BMS는 리듬게임용 곡 형식이에요. 곡 하나는 보통 음악, 효과음(키음), 채보 파일(.bms/.bme/.bml)이 든 폴더 하나예요.";
+        for line in wrap(note, (zw - 80.0).min(620.0), PX_SMALL) {
+            self.text_centered(&line, cx, cy, PX_SMALL, theme::TEXT_FAINT);
+            cy += 20.0;
+        }
+    }
+
+    // --------------------------------------------------------- "곡 받기" page
+
+    fn page_online(&mut self, w: f32, top: f32, bottom: f32, f: &mut Frame) {
+        self.page_head(
+            w,
+            top,
+            "곡 받기",
+            "등록된 온라인 저장소에 있는 곡이에요. 고른 뒤 '설치하기'를 누르면 내려받아 바로 설치돼요.",
+            &[("목록 새로고침", Btn::Secondary, UiAction::SyncSources)],
+        );
+        let row_y = top + 60.0;
+        if f.remote_total == 0 {
+            self.empty_state(
+                w,
+                row_y,
+                bottom,
+                "아직 받아 온 곡 목록이 없어요",
+                &[
+                    "'목록 새로고침'을 누르면 저장소에서 설치할 수 있는 곡 목록을 받아 와요.",
+                    "인터넷 연결이 필요해요.",
+                ],
+                ("목록 새로고침", UiAction::SyncSources),
+            );
+            return;
+        }
+
+        let list_w = (w * 0.46).clamp(360.0, 540.0);
+        self.search_box(
+            PAD,
+            row_y,
+            260.0,
+            f.search,
+            f.search_active,
+            "제목, 아티스트, 장르",
+        );
+        // Level filter as a segmented control.
+        let mut fx = PAD + 272.0;
+        let seg_y = row_y;
+        let total_w: f32 = LEVEL_FILTERS
+            .iter()
+            .map(|l| text_w(l, PX_SMALL) + 22.0)
+            .sum();
+        self.round(fx, seg_y, total_w + 8.0, 36.0, 8.0, theme::SURFACE);
+        fx += 4.0;
+        for (i, label) in LEVEL_FILTERS.iter().enumerate() {
+            let lw = text_w(label, PX_SMALL) + 22.0;
+            let active = f.level_filter == i as u8;
+            let hover = self.hovered(fx, seg_y + 4.0, lw, 28.0);
+            if active {
+                self.round(fx, seg_y + 4.0, lw, 28.0, 6.0, theme::SURFACE_3);
+            } else if hover {
+                self.round(fx, seg_y + 4.0, lw, 28.0, 6.0, theme::SURFACE_2);
+            }
+            let color = if active { theme::TEXT } else { theme::TEXT_DIM };
+            self.text(
+                label,
+                fx + 11.0,
+                seg_y + 4.0 + ((28.0 - cap(PX_SMALL)) / 2.0).round(),
+                PX_SMALL,
+                color,
+            );
+            self.hit(fx, seg_y + 4.0, lw, 28.0, UiAction::LevelFilter(i as u8));
+            fx += lw;
+        }
+
+        let panel_y = row_y + 48.0;
+        let panel_h = bottom - panel_y;
+        self.panel(PAD, panel_y, list_w, panel_h);
+        let row_h = 56.0;
+        let list_top = panel_y + 6.0;
+        let list_h = panel_h - 12.0;
+        let visible = (list_h / row_h).floor().max(1.0) as usize;
+        f.remote_view.layout(f.remote.len(), visible);
+        let view = *f.remote_view;
+        self.scroll_area(PAD, panel_y, list_w, panel_h, ScrollTarget::Remote);
+        if f.remote.is_empty() {
+            self.text_centered(
+                "조건에 맞는 곡이 없어요",
+                PAD + list_w / 2.0,
+                panel_y + 40.0,
+                PX_BODY,
+                theme::TEXT_DIM,
+            );
+        }
+        for (slot, idx) in (view.scroll..f.remote.len()).take(visible).enumerate() {
+            let pkg = f.remote[idx];
+            let y = list_top + slot as f32 * row_h;
+            let (x, rw) = (PAD + 6.0, list_w - 16.0);
+            let selected = idx == view.selected;
+            let hover = self.hovered(x, y, rw, row_h - 4.0);
+            if selected {
+                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SELECT);
+                self.round(x, y + 12.0, 3.0, row_h - 28.0, 1.5, theme::ACCENT);
+            } else if hover {
+                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SURFACE_2);
+            }
+            // Right side: install state, or the download size.
+            let (badge, fg, bg) = match pkg.status {
+                RemotePackageStatus::Installed => ("설치됨", theme::GREEN, theme::GREEN_SOFT),
+                RemotePackageStatus::UpdateAvailable => ("업데이트", theme::WARN, theme::WARN_SOFT),
+                RemotePackageStatus::Available => ("", theme::TEXT_FAINT, theme::SURFACE),
+            };
+            let right_w = if badge.is_empty() {
+                let size = format_bytes(pkg.size_bytes);
+                let sw = text_w(&size, PX_SMALL);
+                self.text(
+                    &size,
+                    x + rw - sw - 12.0,
+                    y + 13.0,
+                    PX_SMALL,
+                    theme::TEXT_FAINT,
+                );
+                sw + 20.0
+            } else {
+                let cw = text_w(badge, PX_SMALL) + 14.0;
+                self.chip(badge, x + rw - cw - 10.0, y + 8.0, fg, bg);
+                cw + 20.0
+            };
+            let title = fit(&pkg.title, rw - 28.0 - right_w, PX_BODY, false);
+            self.text(&title, x + 14.0, y + 11.0, PX_BODY, theme::TEXT);
+            let mut sub = pkg.artist.clone();
+            if let Some(genre) = &pkg.genre {
+                sub.push_str(" · ");
+                sub.push_str(genre);
+            }
+            if let Some(bpm) = pkg.bpm {
+                sub.push_str(&format!(" · BPM {bpm:.0}"));
+            }
+            self.text(
+                &fit(&sub, rw - 28.0, PX_SMALL, false),
+                x + 14.0,
+                y + 32.0,
+                PX_SMALL,
+                theme::TEXT_FAINT,
+            );
+            self.hit(x, y, rw, row_h - 4.0, UiAction::SelectRemote(idx));
+        }
+        self.scrollbar(
+            PAD + list_w - 8.0,
+            list_top,
+            list_h,
+            f.remote.len(),
+            visible,
+            view.scroll,
+        );
+
+        let dx = PAD + list_w + 16.0;
+        let dw = w - dx - PAD;
+        self.panel(dx, panel_y, dw, panel_h);
+        if let Some(&pkg) = f.remote.get(view.selected) {
+            self.online_details(dx, panel_y, dw, panel_h, pkg, f.with_bga);
+        }
+    }
+
+    fn online_details(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        pkg: &RemotePackageDisplayInfo,
+        with_bga: bool,
+    ) {
+        let inner = w - 40.0;
+        let mut dy = y + 22.0;
+        for line in wrap(&pkg.title, inner, PX_TITLE).iter().take(2) {
+            self.text_bold(line, x + 20.0, dy, PX_TITLE, theme::TEXT);
+            dy += 26.0;
+        }
+        self.text(
+            &fit(&pkg.artist, inner, PX_BODY, false),
+            x + 20.0,
+            dy,
+            PX_BODY,
+            theme::TEXT_DIM,
+        );
+        dy += 30.0;
+
+        // Facts as chips, wrapping to a new line when the panel is narrow.
+        let mut facts: Vec<String> = Vec::new();
+        if let Some(genre) = &pkg.genre {
+            facts.push(format!("장르 {genre}"));
+        }
+        if let Some(bpm) = pkg.bpm {
+            facts.push(format!("BPM {bpm:.0}"));
+        }
+        if !pkg.play_levels.is_empty() {
+            let levels: Vec<String> = pkg.play_levels.iter().map(|l| l.to_string()).collect();
+            facts.push(format!("난이도 {}", levels.join(" · ")));
+        }
+        facts.push(format!("크기 {}", format_bytes(pkg.size_bytes)));
+        let mut cx = x + 20.0;
+        for fact in &facts {
+            let fw = text_w(fact, PX_SMALL) + 14.0;
+            if cx + fw > x + 20.0 + inner {
+                cx = x + 20.0;
+                dy += 26.0;
+            }
+            cx += self.chip(fact, cx, dy, theme::TEXT_DIM, theme::SURFACE_2) + 6.0;
+        }
+        dy += 40.0;
+
+        let (state_line, color) = match pkg.status {
+            RemotePackageStatus::Available => ("아직 설치하지 않은 곡이에요.", theme::TEXT_DIM),
+            RemotePackageStatus::Installed => (
+                "이미 설치되어 있어요. 내 곡에서 볼 수 있어요.",
+                theme::GREEN,
+            ),
+            RemotePackageStatus::UpdateAvailable => (
+                "설치된 버전보다 새 버전이 있어요. 업데이트하면 새 버전이 추가돼요.",
+                theme::WARN,
+            ),
+        };
+        for line in wrap(state_line, inner, PX_BODY) {
+            self.text(&line, x + 20.0, dy, PX_BODY, color);
+            dy += 22.0;
+        }
+        let _ = dy;
+
+        // Install area at the bottom.
+        let mut by = y + h - 60.0;
+        let area_top = if pkg.bga_size_bytes.is_some() {
+            by - 40.0
+        } else {
+            by
+        };
+        self.fill(x + 20.0, area_top - 14.0, inner, 1.0, theme::BORDER);
+        if let Some(bga) = pkg.bga_size_bytes {
+            let label = format!("배경 영상도 함께 받기 (+{})", format_bytes(bga));
+            self.checkbox(
+                x + 20.0,
+                by - 36.0,
+                &label,
+                with_bga,
+                UiAction::ToggleWithBga,
+            );
+        }
+        let total = pkg.size_bytes
+            + if with_bga {
+                pkg.bga_size_bytes.unwrap_or(0)
+            } else {
+                0
+            };
+        let label = match pkg.status {
+            RemotePackageStatus::Available => format!("설치하기 ({})", format_bytes(total)),
+            RemotePackageStatus::UpdateAvailable => {
+                format!("업데이트하기 ({})", format_bytes(total))
+            }
+            RemotePackageStatus::Installed => "다시 설치하기".to_string(),
+        };
+        let style = if pkg.status == RemotePackageStatus::Installed {
+            Btn::Secondary
+        } else {
+            Btn::Primary
+        };
+        let bw = (GuiRenderer::button_w(&label) + 24.0).min(inner);
+        self.button(
+            x + w - 20.0 - bw,
+            by,
+            bw,
+            40.0,
+            &label,
+            style,
+            UiAction::InstallRemote,
+        );
+        by += 12.0;
+        let id = fit(
+            &format!("ID {}", pkg.id),
+            inner - bw - 16.0,
+            PX_SMALL,
+            false,
+        );
+        self.text(&id, x + 20.0, by, PX_SMALL, theme::TEXT_FAINT);
+        let hash = &pkg.sha256[..pkg.sha256.len().min(12)];
+        self.text(
+            &format!("SHA-256 {hash}..."),
+            x + 20.0,
+            by + 18.0,
+            PX_SMALL,
+            theme::TEXT_FAINT,
+        );
+    }
+
+    // -------------------------------------------------------- "난이도표" page
+
+    fn page_tables(&mut self, w: f32, top: f32, bottom: f32, t: &mut TablesTab) {
+        self.page_head(
+            w,
+            top,
+            "난이도표",
+            "커뮤니티가 난이도별로 모은 곡 목록이에요. 이 표에 있지만 아직 내 곡에 없는 곡을 보여 줘요.",
+            &[
+                ("+ 난이도표 추가", Btn::Secondary, UiAction::AskAddTable),
+                ("내 곡 다시 확인", Btn::Secondary, UiAction::ScanCollection),
+            ],
+        );
+        let row_y = top + 60.0;
+        match t.state() {
+            TablesState::NoTables => {
+                self.empty_state(
+                    w,
+                    row_y,
+                    bottom,
+                    "추가한 난이도표가 없어요",
+                    &[
+                        "난이도표 웹페이지 주소를 넣으면 표를 받아 와요.",
+                        "그러면 그 표의 곡 중 아직 없는 곡과 받는 곳을 여기서 볼 수 있어요.",
+                    ],
+                    ("+ 난이도표 추가", UiAction::AskAddTable),
+                );
+                return;
+            }
+            TablesState::NoIndex => {
+                self.empty_state(
+                    w,
+                    row_y,
+                    bottom,
+                    "먼저 내 곡을 확인해야 해요",
+                    &[
+                        "어떤 곡이 없는지 알려면 갖고 있는 곡을 한 번 훑어봐야 해요.",
+                        "곡이 많으면 조금 걸릴 수 있어요.",
+                    ],
+                    ("지금 확인하기", UiAction::ScanCollection),
+                );
+                return;
+            }
+            TablesState::Ready => {}
+        }
+
+        // Table picker: < name >
+        let name = t
+            .table()
+            .map(|table| table.name.clone())
+            .unwrap_or_default();
+        self.button(
+            PAD,
+            row_y,
+            36.0,
+            36.0,
+            "<",
+            Btn::Secondary,
+            UiAction::PrevTable,
+        );
+        let name_w = (text_w_bold(&name, PX_BODY) + 32.0).clamp(160.0, 340.0);
+        self.round(PAD + 42.0, row_y, name_w, 36.0, 7.0, theme::SURFACE_2);
+        let shown = fit(&name, name_w - 24.0, PX_BODY, true);
+        let sw = text_w_bold(&shown, PX_BODY);
+        self.text_bold(
+            &shown,
+            PAD + 42.0 + (name_w - sw) / 2.0,
+            row_y + 11.0,
+            PX_BODY,
+            theme::TEXT,
+        );
+        self.button(
+            PAD + 48.0 + name_w,
+            row_y,
+            36.0,
+            36.0,
+            ">",
+            Btn::Secondary,
+            UiAction::NextTable,
+        );
+        let mut info_x = PAD + 96.0 + name_w;
+        if t.tables.len() > 1 {
+            let pos = format!("{} / {}", t.table_idx + 1, t.tables.len());
+            self.text(&pos, info_x, row_y + 12.0, PX_SMALL, theme::TEXT_FAINT);
+            info_x += text_w(&pos, PX_SMALL) + 16.0;
+        }
+        let total = t.table().map_or(0, |table| table.entries.len());
+        let summary = format!("{total}곡 중 {}곡이 아직 없어요", t.rows.len());
+        self.text(&summary, info_x, row_y + 12.0, PX_SMALL, theme::TEXT_DIM);
+        if t.stale {
+            let note = "곡을 추가했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요";
+            let nw = text_w(note, PX_SMALL) + 14.0;
+            if w - PAD - nw > info_x + text_w(&summary, PX_SMALL) + 16.0 {
+                self.chip(
+                    note,
+                    w - PAD - nw,
+                    row_y + 8.0,
+                    theme::WARN,
+                    theme::WARN_SOFT,
+                );
+            }
+        }
+
+        let detail_h = 132.0;
+        let panel_y = row_y + 48.0;
+        let panel_h = bottom - panel_y - detail_h - 12.0;
+        let list_w = w - PAD * 2.0;
+        self.panel(PAD, panel_y, list_w, panel_h);
+        if t.rows.is_empty() {
+            self.text_centered(
+                "이 난이도표의 곡을 모두 갖고 있어요!",
+                PAD + list_w / 2.0,
+                panel_y + panel_h / 2.0 - 8.0,
+                PX_BODY,
+                theme::GREEN,
+            );
+        }
+        let row_h = 32.0;
+        let list_top = panel_y + 6.0;
+        let list_h = panel_h - 12.0;
+        let visible = (list_h / row_h).floor().max(1.0) as usize;
+        t.view.layout(t.rows.len(), visible);
+        self.scroll_area(PAD, panel_y, list_w, panel_h, ScrollTarget::Tables);
+        let symbol = t
+            .table()
+            .map(|table| table.symbol.clone())
+            .unwrap_or_default();
+        for (slot, idx) in (t.view.scroll..t.rows.len()).take(visible).enumerate() {
+            let row = &t.rows[idx];
+            let y = list_top + slot as f32 * row_h;
+            let (x, rw) = (PAD + 6.0, list_w - 16.0);
+            let selected = idx == t.view.selected;
+            let hover = self.hovered(x, y, rw, row_h - 2.0);
+            if selected {
+                self.round(x, y, rw, row_h - 2.0, 6.0, theme::SELECT);
+            } else if hover {
+                self.round(x, y, rw, row_h - 2.0, 6.0, theme::SURFACE_2);
+            }
+            let level = format!("{symbol}{}", row.level);
+            let lw = (text_w(&level, PX_SMALL) + 14.0).max(56.0);
+            self.round(x + 8.0, y + 5.0, lw, 20.0, 10.0, theme::ACCENT_SOFT);
+            let lt = text_w(&level, PX_SMALL);
+            self.text(
+                &level,
+                x + 8.0 + (lw - lt) / 2.0,
+                y + 5.0 + ((20.0 - cap(PX_SMALL)) / 2.0).round(),
+                PX_SMALL,
+                theme::ACCENT,
+            );
+            let tx = x + lw + 20.0;
+            let mut right = x + rw - 10.0;
+            if row.body_needed {
+                let tag = "곡 파일 필요";
+                let cw = text_w(tag, PX_SMALL) + 14.0;
+                right -= cw;
+                self.chip(tag, right, y + 5.0, theme::WARN, theme::WARN_SOFT);
+                right -= 10.0;
+            }
+            let artist_w = ((right - tx) * 0.35).min(260.0);
+            let artist = fit(&row.artist, artist_w, PX_SMALL, false);
+            self.text(
+                &artist,
+                right - text_w(&artist, PX_SMALL),
+                y + ((row_h - 2.0 - cap(PX_SMALL)) / 2.0).round(),
+                PX_SMALL,
+                theme::TEXT_FAINT,
+            );
+            let title = fit(&row.title, right - artist_w - 16.0 - tx, PX_BODY, false);
+            self.text(
+                &title,
+                tx,
+                y + ((row_h - 2.0 - cap(PX_BODY)) / 2.0).round(),
+                PX_BODY,
+                theme::TEXT,
+            );
+            self.hit(x, y, rw, row_h - 2.0, UiAction::SelectTableRow(idx));
+        }
+        self.scrollbar(
+            PAD + list_w - 8.0,
+            list_top,
+            list_h,
+            t.rows.len(),
+            visible,
+            t.view.scroll,
+        );
+
+        // The selected entry and what can be done with it.
+        let dy = bottom - detail_h;
+        self.panel(PAD, dy, list_w, detail_h);
+        let Some(row) = t.selected_row() else {
+            return;
+        };
+        let inner = list_w - 40.0;
+        let title = fit(&row.title, inner * 0.6, PX_TITLE, true);
+        self.text_bold(&title, PAD + 20.0, dy + 18.0, PX_TITLE, theme::TEXT);
+        let artist = fit(&row.artist, inner * 0.6, PX_SMALL, false);
+        self.text(&artist, PAD + 20.0, dy + 46.0, PX_SMALL, theme::TEXT_DIM);
+
+        let direct = !row.url_diff.is_empty()
+            && bms_package_manager::table_fetch::is_direct_pack(&row.url_diff);
+        let mut steps: Vec<(&str, Btn, UiAction)> = Vec::new();
+        if !row.url.is_empty() {
+            steps.push((
+                "곡 파일 받으러 가기",
+                Btn::Secondary,
+                UiAction::OpenSongPage,
+            ));
+        }
+        steps.push((
+            "받은 곡 파일 추가...",
+            Btn::Secondary,
+            UiAction::AskAddFromArchive,
+        ));
+        if direct {
+            steps.push(("채보 받기", Btn::Primary, UiAction::AskDownloadChart));
+        } else if !row.url_diff.is_empty() {
+            steps.push(("채보 페이지 열기", Btn::Secondary, UiAction::OpenChartPage));
+        }
+        // Number the buttons when they are steps to follow in order.
+        let labels: Vec<String> = if steps.len() > 1 {
+            steps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("{}. {}", i + 1, s.0))
+                .collect()
+        } else {
+            steps.iter().map(|s| s.0.to_string()).collect()
+        };
+        let buttons: Vec<(&str, Btn, UiAction)> = steps
+            .iter()
+            .zip(&labels)
+            .map(|(s, label)| (label.as_str(), s.1, s.2))
+            .collect();
+        self.buttons_right(PAD + list_w - 20.0, dy + 72.0, 36.0, &buttons);
+        let tip = if row.body_needed {
+            "이 곡은 채보는 있지만 소리 파일이 모자라요. 곡 파일(본체)을 받아 추가해 주세요."
+        } else if steps.len() == 1 {
+            "난이도표에 이 곡을 받을 주소가 없어요. 곡 파일을 따로 구했다면 '받은 곡 파일 추가'로 넣을 수 있어요."
+        } else {
+            "BMS 곡은 '곡 파일(본체)'과 '채보(차분)'가 따로 배포되기도 해요. 왼쪽 버튼부터 순서대로 하면 돼요."
+        };
+        let tip_max = list_w
+            - 40.0
+            - (buttons
+                .iter()
+                .map(|b| GuiRenderer::button_w(b.0) + 8.0)
+                .sum::<f32>())
+            - 16.0;
+        for (i, line) in wrap(tip, tip_max.max(120.0), PX_SMALL)
+            .iter()
+            .take(2)
+            .enumerate()
+        {
+            self.text(
+                line,
+                PAD + 20.0,
+                dy + 76.0 + i as f32 * 18.0,
+                PX_SMALL,
+                theme::TEXT_FAINT,
+            );
+        }
+    }
+
+    /// A centered message with one action, in place of an empty list.
+    fn empty_state(
+        &mut self,
+        w: f32,
+        y: f32,
+        bottom: f32,
+        title: &str,
+        lines: &[&str],
+        action: (&str, UiAction),
+    ) {
+        let (x, zw, zh) = (PAD, w - PAD * 2.0, bottom - y);
+        self.panel(x, y, zw, zh);
+        let cx = x + zw / 2.0;
+        let mut cy = y + (zh / 2.0 - 70.0).max(24.0);
+        self.text_centered(title, cx, cy, PX_TITLE, theme::TEXT);
+        cy += 34.0;
+        for line in lines {
+            self.text_centered(line, cx, cy, PX_BODY, theme::TEXT_DIM);
+            cy += 24.0;
+        }
+        cy += 16.0;
+        let bw = GuiRenderer::button_w(action.0) + 16.0;
+        self.button(
+            cx - bw / 2.0,
+            cy,
+            bw,
+            40.0,
+            action.0,
+            Btn::Primary,
+            action.1,
+        );
+    }
+
+    fn text_centered(&mut self, text: &str, cx: f32, y: f32, px: u16, color: ColorRgba) {
+        let tw = text_w(text, px);
+        self.text(text, (cx - tw / 2.0).round(), y, px, color);
+    }
+
+    // ---------------------------------------------------- status, task, dialog
+
+    fn draw_status(&mut self, w: f32, h: f32, msg: &str, kind: StatusKind, busy: bool) {
+        let y = h - STATUS_H;
+        self.fill(0.0, y, w, STATUS_H, theme::SURFACE);
+        self.fill(0.0, y, w, 1.0, theme::BORDER);
+        let color = match kind {
+            StatusKind::Info => theme::TEXT_FAINT,
+            StatusKind::Success => theme::GREEN,
+            StatusKind::Error => theme::DANGER,
+        };
+        let hint = if busy {
+            ""
+        } else {
+            "곡 폴더나 파일을 창에 끌어다 놓아도 추가돼요"
+        };
+        let hint_w = if hint.is_empty() {
+            0.0
+        } else {
+            text_w(hint, PX_SMALL) + 24.0
+        };
+        self.circle(PAD + 4.0, y + STATUS_H / 2.0, 4.0, color);
+        let text_color = if kind == StatusKind::Info {
+            theme::TEXT_DIM
+        } else {
+            color
+        };
+        self.text_in(
+            msg,
+            PAD + 16.0,
+            y,
+            STATUS_H,
+            w - PAD * 2.0 - 16.0 - hint_w,
+            PX_SMALL,
+            text_color,
+        );
+        if !hint.is_empty() && w > 720.0 {
+            self.text_in(
+                hint,
+                w - PAD - hint_w + 24.0,
+                y,
+                STATUS_H,
+                hint_w,
+                PX_SMALL,
+                theme::TEXT_FAINT,
+            );
+        }
+    }
+
+    fn draw_task(&mut self, w: f32, task: &TaskProgressInfo) {
+        let cw = (w - 40.0).min(560.0);
+        let ch = 108.0;
+        let x = ((w - cw) / 2.0).round();
+        let y = HEADER_H + 10.0;
+        self.round(
+            x - 1.0,
+            y - 1.0,
+            cw + 2.0,
+            ch + 2.0,
+            12.0,
+            ColorRgba::new(0, 0, 0, 120),
+        );
+        self.round(x, y, cw, ch, 12.0, theme::SURFACE_2);
+        self.outline(x, y, cw, ch, 12.0, theme::SURFACE_3, false);
+
+        let cancel = if task.cancelling {
+            "취소하는 중..."
+        } else {
+            "취소"
+        };
+        let bw = GuiRenderer::button_w(cancel);
+        self.button(
+            x + cw - bw - 16.0,
+            y + 14.0,
+            bw,
+            32.0,
+            cancel,
+            Btn::Secondary,
+            UiAction::CancelTask,
+        );
+        let title = fit(task.title, cw - bw - 52.0, PX_BODY, true);
+        self.text_bold(&title, x + 20.0, y + 18.0, PX_BODY, theme::TEXT);
+        let phase = if task.phase.is_empty() {
+            "작업 중..."
+        } else {
+            task.phase
+        };
+        self.text(
+            &fit(phase, cw - bw - 52.0, PX_SMALL, false),
+            x + 20.0,
+            y + 40.0,
+            PX_SMALL,
+            theme::TEXT_DIM,
+        );
+
+        // Progress bar: filled when the total is known, a moving band otherwise.
+        let (bx, by, bw2, bh) = (x + 20.0, y + 64.0, cw - 40.0, 8.0);
+        self.round(bx, by, bw2, bh, 4.0, theme::BG);
+        if task.total > 0 {
+            let ratio = (task.current as f32 / task.total as f32).clamp(0.0, 1.0);
+            if ratio > 0.0 {
+                self.round(bx, by, (bw2 * ratio).max(8.0), bh, 4.0, theme::ACCENT);
+            }
+        } else {
+            let band = bw2 * 0.28;
+            let span = bw2 - band;
+            let t = (task.frame % 40) as f32 / 40.0;
+            let pos = if t < 0.5 { t * 2.0 } else { 2.0 - t * 2.0 };
+            self.round(bx + span * pos, by, band, bh, 4.0, theme::ACCENT);
+        }
+        let detail = if task.total > 0 && task.detail.is_empty() {
+            format!("{} / {}", task.current, task.total)
+        } else {
+            task.detail.to_string()
+        };
+        self.text(
+            &fit(&detail, cw - 40.0, PX_SMALL, false),
+            x + 20.0,
+            y + 84.0,
+            PX_SMALL,
+            theme::TEXT_FAINT,
+        );
+    }
+
+    fn draw_dialog(&mut self, w: f32, h: f32, d: &DialogView) {
+        self.fill(0.0, 0.0, w, h, theme::SCRIM);
+        self.hit(0.0, 0.0, w, h, UiAction::None);
+
+        let dw = (if d.wide { 640.0_f32 } else { 540.0 }).min(w - 40.0);
+        let inner = dw - 56.0;
+
+        // Measure first, so the box fits its content.
+        // Each body entry is a paragraph: wrapped lines, then a small gap.
+        let body: Vec<Vec<String>> = d
+            .body
+            .iter()
+            .map(|line| wrap(line, inner, PX_BODY))
+            .collect();
+        let body_lines: usize = body.iter().map(Vec::len).sum();
+        let mut dh = 28.0 + 34.0 + body_lines as f32 * 23.0 + body.len() as f32 * 6.0;
+        if !body.is_empty() {
+            dh += 4.0;
+        }
+        dh += d.cards.len() as f32 * 76.0;
+        for field in &d.fields {
+            dh += if field.label.is_empty() { 0.0 } else { 24.0 } + 48.0;
+        }
+        for choice in &d.choices {
+            dh += 24.0 + 42.0 + if choice.note.is_empty() { 0.0 } else { 22.0 } + 8.0;
+        }
+        let list_rows = d.list.len().min(6);
+        if !d.list.is_empty() || !d.list_empty.is_empty() {
+            dh += list_rows.max(1) as f32 * 40.0 + 10.0;
+        }
+        let foot: Vec<String> = if d.footnote.is_empty() {
+            Vec::new()
+        } else {
+            wrap(&d.footnote, inner, PX_SMALL)
+        };
+        dh += foot.len() as f32 * 19.0 + if foot.is_empty() { 0.0 } else { 6.0 };
+        dh += 8.0 + 40.0 + 24.0;
+        let dh = dh.min(h - 40.0);
+
+        let x = ((w - dw) / 2.0).round();
+        let y = ((h - dh) / 2.0).round().max(20.0);
+        self.round(
+            x - 2.0,
+            y - 2.0,
+            dw + 4.0,
+            dh + 4.0,
+            16.0,
+            ColorRgba::new(0, 0, 0, 140),
+        );
+        self.round(x, y, dw, dh, 14.0, theme::SURFACE_2);
+        self.outline(x, y, dw, dh, 14.0, theme::SURFACE_3, false);
+        self.hit(x, y, dw, dh, UiAction::None);
+
+        let lx = x + 28.0;
+        let mut cy = y + 28.0;
+        self.text_bold(
+            &fit(&d.title, inner, PX_TITLE, true),
+            lx,
+            cy,
+            PX_TITLE,
+            theme::TEXT,
+        );
+        cy += 34.0;
+        for paragraph in &body {
+            for line in paragraph {
+                self.text(line, lx, cy, PX_BODY, theme::TEXT_DIM);
+                cy += 23.0;
+            }
+            cy += 6.0;
+        }
+        if !body.is_empty() {
+            cy += 4.0;
+        }
+
+        for (i, (title, desc)) in d.cards.iter().enumerate() {
+            let hover = self.hovered(lx, cy, inner, 66.0);
+            self.round(
+                lx,
+                cy,
+                inner,
+                66.0,
+                10.0,
+                if hover {
+                    theme::SURFACE_3
+                } else {
+                    theme::SURFACE
+                },
+            );
+            self.outline(
+                lx,
+                cy,
+                inner,
+                66.0,
+                10.0,
+                if hover { theme::ACCENT } else { theme::BORDER },
+                false,
+            );
+            self.text_bold(
+                &fit(title, inner - 60.0, PX_BODY, true),
+                lx + 18.0,
+                cy + 16.0,
+                PX_BODY,
+                theme::TEXT,
+            );
+            self.text(
+                &fit(desc, inner - 60.0, PX_SMALL, false),
+                lx + 18.0,
+                cy + 40.0,
+                PX_SMALL,
+                theme::TEXT_DIM,
+            );
+            self.text_bold(
+                ">",
+                lx + inner - 28.0,
+                cy + 26.0,
+                PX_BODY,
+                if hover {
+                    theme::ACCENT
+                } else {
+                    theme::TEXT_FAINT
+                },
+            );
+            self.hit(lx, cy, inner, 66.0, UiAction::DialogCard(i));
+            cy += 76.0;
+        }
+
+        for (i, field) in d.fields.iter().enumerate() {
+            if !field.label.is_empty() {
+                self.text(&field.label, lx, cy, PX_SMALL, theme::TEXT_DIM);
+                cy += 24.0;
+            }
+            self.text_field(
+                lx,
+                cy,
+                inner,
+                &field.value,
+                &field.placeholder,
+                field.focused,
+                UiAction::DialogFocus(i),
+                field.browse.then_some(UiAction::DialogBrowse(i)),
+            );
+            cy += 48.0;
+        }
+
+        for (gi, choice) in d.choices.iter().enumerate() {
+            self.text(&choice.label, lx, cy, PX_SMALL, theme::TEXT_DIM);
+            cy += 24.0;
+            let seg_w = inner / choice.options.len() as f32;
+            self.round(lx, cy, inner, 36.0, 8.0, theme::SURFACE);
+            for (oi, option) in choice.options.iter().enumerate() {
+                let ox = lx + oi as f32 * seg_w;
+                let active = oi == choice.selected;
+                let hover = self.hovered(ox + 3.0, cy + 3.0, seg_w - 6.0, 30.0);
+                if active {
+                    self.round(ox + 3.0, cy + 3.0, seg_w - 6.0, 30.0, 6.0, theme::ACCENT);
+                } else if hover {
+                    self.round(ox + 3.0, cy + 3.0, seg_w - 6.0, 30.0, 6.0, theme::SURFACE_3);
+                }
+                let label = fit(option, seg_w - 14.0, PX_SMALL, active);
+                let tw = if active {
+                    text_w_bold(&label, PX_SMALL)
+                } else {
+                    text_w(&label, PX_SMALL)
+                };
+                let tx = (ox + (seg_w - tw) / 2.0).round();
+                let ty = cy + ((36.0 - cap(PX_SMALL)) / 2.0).round();
+                if active {
+                    self.text_bold(&label, tx, ty, PX_SMALL, theme::ACCENT_TEXT);
+                } else {
+                    self.text(&label, tx, ty, PX_SMALL, theme::TEXT_DIM);
+                }
+                self.hit(ox, cy, seg_w, 36.0, UiAction::DialogChoice(gi, oi));
+            }
+            cy += 42.0;
+            if !choice.note.is_empty() {
+                self.text(
+                    &fit(&choice.note, inner, PX_SMALL, false),
+                    lx,
+                    cy,
+                    PX_SMALL,
+                    theme::TEXT_FAINT,
+                );
+                cy += 22.0;
+            }
+            cy += 8.0;
+        }
+
+        if !d.list.is_empty() || !d.list_empty.is_empty() {
+            if d.list.is_empty() {
+                self.round(lx, cy, inner, 36.0, 8.0, theme::SURFACE);
+                self.text_in(
+                    &d.list_empty,
+                    lx + 14.0,
+                    cy,
+                    36.0,
+                    inner - 28.0,
+                    PX_SMALL,
+                    theme::TEXT_FAINT,
+                );
+                cy += 40.0;
+            }
+            for (i, row) in d.list.iter().enumerate().take(6) {
+                self.round(lx, cy, inner, 36.0, 8.0, theme::SURFACE);
+                let (tag, fg, bg) = if row.ok {
+                    ("연결됨", theme::GREEN, theme::GREEN_SOFT)
+                } else {
+                    ("폴더 없음", theme::DANGER, theme::DANGER_SOFT)
+                };
+                let tag_w = self.chip(tag, lx + 10.0, cy + 8.0, fg, bg);
+                let bw = GuiRenderer::button_w("빼기");
+                self.text_in(
+                    &row.text,
+                    lx + 20.0 + tag_w,
+                    cy,
+                    36.0,
+                    inner - tag_w - bw - 40.0,
+                    PX_SMALL,
+                    theme::TEXT,
+                );
+                self.button(
+                    lx + inner - bw - 4.0,
+                    cy + 4.0,
+                    bw,
+                    28.0,
+                    "빼기",
+                    Btn::Ghost,
+                    UiAction::DialogListRemove(i),
+                );
+                cy += 40.0;
+            }
+            cy += 10.0;
+        }
+
+        for line in &foot {
+            self.text(line, lx, cy, PX_SMALL, theme::TEXT_FAINT);
+            cy += 19.0;
+        }
+
+        let items: Vec<(&str, Btn, UiAction)> = d
+            .buttons
+            .iter()
+            .map(|b| (b.label.as_str(), b.style, b.action))
+            .collect();
+        self.buttons_right(x + dw - 28.0, y + dh - 64.0, 40.0, &items);
     }
 }

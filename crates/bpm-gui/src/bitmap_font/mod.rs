@@ -12,6 +12,9 @@ pub use ascii::get_ascii_glyph;
 pub use hangul::get_hangul_glyph;
 pub use kana::get_kana_or_symbol_glyph;
 
+/// U+00B7, the separator the window puts between facts.
+const MIDDLE_DOT: char = '\u{00B7}';
+
 /// Text engine for bpm-gui: proportional, antialiased TrueType text at a
 /// real pixel size, with the hand-drawn bitmap tables as a last resort.
 pub struct BitmapFont;
@@ -66,6 +69,7 @@ impl BitmapFont {
     }
 
     /// Calculates horizontal width in pixels of any mixed ASCII / Hangul / Japanese string.
+    #[allow(dead_code)] // whole-scale API: the window draws with `draw_text_px`
     pub fn text_width(text: &str, scale: u32) -> f32 {
         text.chars().map(|c| Self::char_advance(c, scale)).sum()
     }
@@ -77,6 +81,7 @@ impl BitmapFont {
     /// through to the hand bitmap tables only for characters outside the
     /// embedded fonts' subsetted coverage (rare Hanja, obscure Hangul,
     /// symbols) — those stay hand-drawn or go to the Windows GDI fallback.
+    #[allow(dead_code)] // whole-scale API: the window draws with `draw_text_px`
     pub fn draw_char(
         pixmap: &mut PixmapMut,
         c: char,
@@ -158,6 +163,7 @@ impl BitmapFont {
 
     /// Renders a text string with its cap-height line at `y`, mixing ASCII,
     /// Korean and Japanese with each glyph's own advance.
+    #[allow(dead_code)] // whole-scale API: the window draws with `draw_text_px`
     pub fn draw_text(
         pixmap: &mut PixmapMut,
         text: &str,
@@ -174,7 +180,66 @@ impl BitmapFont {
         }
     }
 
+    /// Width in px of `text` drawn at an em size of `px` (see `draw_text_px`).
+    pub fn text_width_px(text: &str, px: u16, bold: bool) -> f32 {
+        let scale = (px as u32 / Self::PX_PER_SCALE).max(1);
+        text.chars()
+            .map(|c| {
+                let c = if c == MIDDLE_DOT { ' ' } else { c };
+                truetype_font::advance(c, px, bold).unwrap_or_else(|| Self::char_advance(c, scale))
+            })
+            .sum()
+    }
+
+    /// Renders `text` at any em size `px` with its cap-height line at `y`.
+    /// Characters outside the embedded fonts fall back to the nearest whole
+    /// bitmap scale.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_px(
+        pixmap: &mut PixmapMut,
+        text: &str,
+        x: f32,
+        y: f32,
+        px: u16,
+        bold: bool,
+        color: ColorRgba,
+    ) {
+        let scale = (px as u32 / Self::PX_PER_SCALE).max(1);
+        let top = y.round() as i32;
+        let baseline = top + truetype_font::cap_height(px);
+        let mut pen = x;
+        for c in text.chars() {
+            if c == MIDDLE_DOT {
+                // The Latin subset has no U+00B7: a dot centered in a space.
+                let advance = truetype_font::advance(' ', px, bold).unwrap_or(px as f32 * 0.6);
+                let size = if px >= 15 { 3 } else { 2 };
+                let dot_x = (pen + advance / 2.0).round() as i32 - size as i32 / 2;
+                let dot_y = top + truetype_font::cap_height(px) / 2 - size as i32 / 2;
+                fill_pixel_block(pixmap, dot_x, dot_y, size, color);
+                pen += advance;
+                continue;
+            }
+            let advance = truetype_font::advance(c, px, bold);
+            if c != ' '
+                && c != '\u{3000}'
+                && !truetype_font::draw_char(
+                    pixmap,
+                    c,
+                    pen.round() as i32,
+                    baseline,
+                    px,
+                    bold,
+                    color,
+                )
+            {
+                Self::draw_char_weighted(pixmap, c, pen.round() as i32, top, scale, color, bold);
+            }
+            pen += advance.unwrap_or_else(|| Self::char_advance(c, scale));
+        }
+    }
+
     /// Renders horizontally centered text.
+    #[allow(dead_code)] // whole-scale API: the window draws with `draw_text_px`
     pub fn draw_text_centered(
         pixmap: &mut PixmapMut,
         text: &str,
