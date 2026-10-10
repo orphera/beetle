@@ -751,6 +751,7 @@ U4는 두 커밋이다. 먼저 크기 원인을 줄이고(커밋 `22a66af`), 그
 - **수정함**: 선곡 검색이 곡명·아티스트·장르와 검색어의 공백을 모두 뺀 뒤 대소문자 무시로 비교한다(`A D D i c` ↔ `addic`). 테스트: `folders::tests::a_search_ignores_spaces_in_titles_and_queries`.
 - **수정함**: 테스트 코드의 rustc 경고(미사용 import 2개, 불필요한 `mut`)를 없앴다. clippy 경고는 그대로 남아 있다.
 - **수정함**: clippy 경고 43건을 모두 고쳤다(`cargo clippy --workspace --all-targets` 0건). Win32 이름 타입과 FFI 헬퍼 몇 곳만 `#[allow]`를 사유와 함께 달았다. 릴리스 크기는 바뀌지 않았다(beetle-app 3,136,512 B, bpm-gui 4,832,256 B, bpm 2,974,208 B).
+- **수정함**: 줄바꿈 설정을 `.gitattributes`(`* text=auto eol=lf`, 바이너리 에셋 `binary`)로 고정했다. 저장소 blob은 이미 전부 LF였고 `renormalize` 시뮬레이션은 0개 파일을 바꿨다. 전역·저장소 git 설정은 건드리지 않았다.
 - **검증하지 못한 것**
   - 실제 한글·일본어 IME 조합과 후보창 위치(합성 메시지에는 IME 문맥이 없다).
   - 캘리브레이션 정확도(사람이 누른 입력으로 측정한 값은 아직 없다).
