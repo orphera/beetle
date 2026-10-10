@@ -90,10 +90,10 @@ pub fn decode_bmp(data: &[u8]) -> Option<ImageBuffer> {
 
     // Calculate row stride padded to 4-byte boundary
     let row_stride = match bpp {
-        1 => ((width as usize + 31) / 32) * 4,
-        4 => ((width as usize * 4 + 31) / 32) * 4,
-        8 => ((width as usize + 3) / 4) * 4,
-        24 => ((width as usize * 3 + 3) / 4) * 4,
+        1 => (width as usize).div_ceil(32) * 4,
+        4 => (width as usize * 4).div_ceil(32) * 4,
+        8 => (width as usize).div_ceil(4) * 4,
+        24 => (width as usize * 3).div_ceil(4) * 4,
         32 => width as usize * 4,
         _ => return None,
     };
@@ -227,9 +227,7 @@ pub fn encode_bmp(image: &ImageBuffer) -> Vec<u8> {
             data.push(px.g);
             data.push(px.r);
         }
-        for _ in 0..row_padding {
-            data.push(0);
-        }
+        data.resize(data.len() + row_padding, 0);
     }
 
     data

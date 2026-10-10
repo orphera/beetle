@@ -649,7 +649,7 @@ impl GpuBackend for D3d11Backend {
             if hr_vb < 0 || mapped_vb.pData.is_null() {
                 return;
             }
-            let byte_count = vertices.len() * std::mem::size_of::<Vertex2D>();
+            let byte_count = std::mem::size_of_val(vertices);
             ptr::copy_nonoverlapping(
                 vertices.as_ptr() as *const c_void,
                 mapped_vb.pData,
@@ -670,7 +670,7 @@ impl GpuBackend for D3d11Backend {
             if hr_ib < 0 || mapped_ib.pData.is_null() {
                 return;
             }
-            let byte_count = indices.len() * std::mem::size_of::<u16>();
+            let byte_count = std::mem::size_of_val(indices);
             ptr::copy_nonoverlapping(
                 indices.as_ptr() as *const c_void,
                 mapped_ib.pData,

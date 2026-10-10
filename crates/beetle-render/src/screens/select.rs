@@ -809,33 +809,32 @@ fn row_record(
 ) {
     // Personal best: rank + score-rate bar, or "NO PLAY".
     let rx = row.right() - right_w - 16.0 * s;
-    match best {
-        Some(b) => {
-            let (rank, rank_col) = theme::rank(b.accuracy_rate());
-            t.draw_in(
-                c,
-                rank,
-                Rect::new(rx, row.y + 8.0 * s, right_w, 22.0 * s),
-                Align::Right,
-                &TextStyle::new(16.0 * s).bold().color(rank_col),
-            );
-            let bar = Rect::new(rx, row.y + 36.0 * s, right_w, 4.0 * s);
-            c.nine(&sk.panel_sm, bar, theme::LINE);
-            let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
-            c.nine(
-                &sk.panel_sm,
-                Rect::new(bar.x, bar.y, bar.w * rate, bar.h),
-                rank_col,
-            );
-        }
-        // An unplayed row stays quiet: its lamp strip is already dim, and the
-        // right side stays empty so the played rows stand out.
-        None => {}
+    // An unplayed row stays quiet: its lamp strip is already dim, and the
+    // right side stays empty so the played rows stand out.
+    if let Some(b) = best {
+        let (rank, rank_col) = theme::rank(b.accuracy_rate());
+        t.draw_in(
+            c,
+            rank,
+            Rect::new(rx, row.y + 8.0 * s, right_w, 22.0 * s),
+            Align::Right,
+            &TextStyle::new(16.0 * s).bold().color(rank_col),
+        );
+        let bar = Rect::new(rx, row.y + 36.0 * s, right_w, 4.0 * s);
+        c.nine(&sk.panel_sm, bar, theme::LINE);
+        let rate = (b.accuracy_rate() / 100.0).clamp(0.0, 1.0) as f32;
+        c.nine(
+            &sk.panel_sm,
+            Rect::new(bar.x, bar.y, bar.w * rate, bar.h),
+            rank_col,
+        );
     }
 }
 
 /// A chart chip on a group row or in the detail tabs' text: `7K 12` in the
 /// level's tier colour. The chosen chart is filled. Returns its width.
+// Draw helper: arguments are passed flat, as in the other chip helpers.
+#[allow(clippy::too_many_arguments)]
 fn chart_chip(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -1135,7 +1134,7 @@ fn empty_state(
 ) {
     let (head, hint) = if !f.search.is_empty() {
         (
-            strings::fill(strings::NO_MATCH, &[&f.search]),
+            strings::fill(strings::NO_MATCH, &[f.search]),
             strings::SEARCH_HINT,
         )
     } else if f.filter.active {
@@ -1212,7 +1211,11 @@ fn first_run_guide(
         &TextStyle::new(13.0 * s).color(theme::MUTED),
     );
     // (step text, button label and the action it records, keycap of the button)
-    let steps: [(&str, Option<(&str, HitId, Option<&str>)>); 4] = [
+    type Step = (
+        &'static str,
+        Option<(&'static str, HitId, Option<&'static str>)>,
+    );
+    let steps: [Step; 4] = [
         (
             strings::GUIDE_MANAGER,
             Some((strings::GUIDE_BTN_MANAGER, HitId::OpenManager, None)),
@@ -1340,7 +1343,6 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn detail_panel(
     c: &mut Canvas,
@@ -2779,7 +2781,7 @@ mod tests {
             bpm_max: 150.0,
             play_level: (i % 13) as u32,
             notes_count: 1000 + i,
-            play_mode: if i % 3 == 0 {
+            play_mode: if i.is_multiple_of(3) {
                 PlayMode::Keys14
             } else {
                 PlayMode::Keys7

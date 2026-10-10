@@ -630,10 +630,11 @@ mod tests {
     /// Skin with fixed, un-scaled lane dimensions (no Viewport needed) so
     /// expected pixel values are simple arithmetic.
     fn test_skin() -> SkinConfig {
-        let mut skin = SkinConfig::default();
-        skin.lane_width = 50.0;
-        skin.scratch_lane_width = 72.0;
-        skin
+        SkinConfig {
+            lane_width: 50.0,
+            scratch_lane_width: 72.0,
+            ..SkinConfig::default()
+        }
     }
 
     #[test]

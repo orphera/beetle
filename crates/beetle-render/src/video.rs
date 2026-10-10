@@ -30,6 +30,8 @@ mod wmf_backend {
 
     #[repr(C)]
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    // Win32 struct name; kept to match the Windows docs.
+    #[allow(clippy::upper_case_acronyms)]
     pub struct GUID {
         pub data1: u32,
         pub data2: u16,
@@ -102,7 +104,8 @@ mod wmf_backend {
     };
 
     #[repr(C)]
-    #[allow(non_snake_case, dead_code)]
+    // Win32 struct name; kept to match the Windows docs.
+    #[allow(non_snake_case, dead_code, clippy::upper_case_acronyms)]
     struct PROPVARIANT {
         vt: u16,
         w_reserved1: u16,
