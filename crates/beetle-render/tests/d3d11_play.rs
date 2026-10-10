@@ -14,7 +14,7 @@ use beetle_render::{
     draw_gameplay, D3d11Backend, FieldPosition, GpuBackend, HitBurst, JudgeMark, PlayFrame,
     ScratchSide, SkinConfig, Ui, Viewport,
 };
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -264,7 +264,9 @@ fn gameplay_layouts() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     assert_eq!(
-        render(&mut gpu, &mut ui, PlayMode::Keys7, LEFT, None, "7k"),
+        assert_repeatable(&mut gpu, "play-7k.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, PlayMode::Keys7, LEFT, None, "7k")
+        }),
         1
     );
     assert_eq!(
@@ -312,7 +314,9 @@ fn gameplay_layouts() {
         1
     );
     assert_eq!(
-        render(&mut gpu, &mut ui, PlayMode::Keys7, LEFT, Some(1), "paused"),
+        assert_repeatable(&mut gpu, "play-paused.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, PlayMode::Keys7, LEFT, Some(1), "paused")
+        }),
         1
     );
     assert_eq!(

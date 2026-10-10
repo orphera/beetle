@@ -7,7 +7,7 @@ mod common;
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{draw_boot, BootFrame, D3d11Backend, GpuBackend, Ui, Viewport};
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -40,13 +40,9 @@ fn boot_layouts() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     assert_eq!(
-        render(
-            &mut gpu,
-            &mut ui,
-            strings::BOOT_TITLE_STARTUP,
-            0.12,
-            "enter"
-        ),
+        assert_repeatable(&mut gpu, "boot-enter.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, strings::BOOT_TITLE_STARTUP, 0.12, "enter")
+        }),
         1
     );
     assert_eq!(

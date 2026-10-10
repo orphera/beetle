@@ -10,7 +10,7 @@ use beetle_render::{
     draw_key_config, D3d11Backend, EightKForm, GpuBackend, KeyBinding, KeyConfigFrame, Rebind,
     ScratchSide, SkinConfig, Ui, Viewport,
 };
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -124,7 +124,12 @@ fn key_config_layouts() {
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, PlayMode::Keys7, 4, None, "7k"), 1);
+    assert_eq!(
+        assert_repeatable(&mut gpu, "keys-7k.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, PlayMode::Keys7, 4, None, "7k")
+        }),
+        1
+    );
     assert_eq!(
         render(&mut gpu, &mut ui, PlayMode::Keys14, 0, None, "14k"),
         1

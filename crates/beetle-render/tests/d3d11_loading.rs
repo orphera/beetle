@@ -8,7 +8,7 @@ use beetle_core::{PlayMode, SongMetadata};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{draw_loading, D3d11Backend, GpuBackend, LoadingFrame, Ui, Viewport};
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -68,7 +68,12 @@ fn loading_layouts() {
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
-    assert_eq!(render(&mut gpu, &mut ui, "MilK", 0.12, "enter"), 1);
+    assert_eq!(
+        assert_repeatable(&mut gpu, "loading-enter.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, "MilK", 0.12, "enter")
+        }),
+        1
+    );
     assert_eq!(
         render(
             &mut gpu,

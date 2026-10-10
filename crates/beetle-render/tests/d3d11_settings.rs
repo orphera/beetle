@@ -10,7 +10,7 @@ use beetle_render::strings;
 use beetle_render::{
     draw_settings, D3d11Backend, GpuBackend, OptionLine, SettingsFrame, Ui, Viewport,
 };
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -135,9 +135,18 @@ fn settings_layouts() {
     let window = HiddenWindow::with_size(W, H);
     let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
         .expect("WARP device");
-    let mut ui = Ui::new(1.0);
     // Graphics row selected, with a value that waits for a restart.
-    assert_eq!(render(&mut gpu, &mut ui, 2, true, "display"), 1);
+    assert_eq!(
+        assert_repeatable(&mut gpu, "settings-display.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, 2, true, "display")
+        }),
+        1
+    );
     // Key layout row (right column, the last one) selected.
-    assert_eq!(render(&mut gpu, &mut ui, 10, false, "keys"), 1);
+    assert_eq!(
+        assert_repeatable(&mut gpu, "settings-keys.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, 10, false, "keys")
+        }),
+        1
+    );
 }

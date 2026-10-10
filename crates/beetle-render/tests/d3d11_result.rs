@@ -16,7 +16,7 @@ use beetle_render::{
     draw_options_panel, draw_result, D3d11Backend, GpuBackend, OptionLine, OptionsFooter,
     ResultFrame, Ui, Viewport,
 };
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -148,16 +148,18 @@ fn result_layouts() {
         ..ScoreRecord::default()
     };
     assert_eq!(
-        render(
-            &mut gpu,
-            &mut ui,
-            &clear,
-            &clear_trend,
-            Some(&best),
-            new_record(),
-            None,
-            "clear"
-        ),
+        assert_repeatable(&mut gpu, "result-clear.bmp", 1.0, |gpu, ui| {
+            render(
+                gpu,
+                ui,
+                &clear,
+                &clear_trend,
+                Some(&best),
+                new_record(),
+                None,
+                "clear",
+            )
+        }),
         1
     );
 

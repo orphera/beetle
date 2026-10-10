@@ -82,3 +82,49 @@ pub fn write_bmp(path: &std::path::Path, w: u32, h: u32, px: &[u8]) {
     }
     let _ = std::fs::write(path, out);
 }
+
+/// Where a render helper writes its capture: `target/<file>`.
+pub fn capture_path(file: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(file)
+}
+
+/// Draws one frame three times (twice on one `Ui`, then once on a fresh
+/// `Ui`) and asserts that every capture is byte-identical, so a capture can
+/// serve as a regression check. `draw` must write its capture to
+/// `capture_path(file)`. Returns the draw-call count of the first pass.
+#[cfg(target_os = "windows")]
+pub fn assert_repeatable(
+    gpu: &mut beetle_render::D3d11Backend,
+    file: &str,
+    scale: f32,
+    mut draw: impl FnMut(&mut beetle_render::D3d11Backend, &mut beetle_render::Ui) -> usize,
+) -> usize {
+    let path = capture_path(file);
+    let mut ui = beetle_render::Ui::new(scale);
+    let mut captures = Vec::with_capacity(3);
+    let mut calls = 0;
+    for pass in 0..3 {
+        if pass == 2 {
+            ui = beetle_render::Ui::new(scale);
+        }
+        let _ = std::fs::remove_file(&path);
+        let n = draw(gpu, &mut ui);
+        if pass == 0 {
+            calls = n;
+        }
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("{file}: pass {pass} wrote no capture: {e}"));
+        captures.push(bytes);
+    }
+    assert!(
+        captures[0] == captures[1],
+        "{file}: a second draw on the same Ui differs from the first"
+    );
+    assert!(
+        captures[0] == captures[2],
+        "{file}: a draw on a fresh Ui differs from the first"
+    );
+    calls
+}

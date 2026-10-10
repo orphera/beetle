@@ -15,7 +15,7 @@ use beetle_render::{
     draw_song_select, draw_toast, D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame,
     SelectRow, SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
 };
-use common::{write_bmp, HiddenWindow};
+use common::{assert_repeatable, write_bmp, HiddenWindow};
 
 const W: u32 = 1280;
 const H: u32 = 720;
@@ -529,7 +529,9 @@ fn song_select_layouts() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     assert_eq!(
-        render(&mut gpu, &mut ui, 5, "", "", Overlay::None, "list"),
+        assert_repeatable(&mut gpu, "select-list.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, 5, "", "", Overlay::None, "list")
+        }),
         1
     );
     assert_eq!(
@@ -558,7 +560,9 @@ fn song_select_layouts() {
         1
     );
     assert_eq!(
-        render(&mut gpu, &mut ui, 5, "", "", Overlay::Options, "options"),
+        assert_repeatable(&mut gpu, "select-options.bmp", 1.0, |gpu, ui| {
+            render(gpu, ui, 5, "", "", Overlay::Options, "options")
+        }),
         1
     );
     assert_eq!(
