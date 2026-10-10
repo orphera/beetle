@@ -604,7 +604,7 @@ mod tests {
         // 8-bit stereo @22050 with a data length claiming more than the file
         // holds, and an odd byte count: hound rejects it, we keep whole frames.
         let mut b = Vec::new();
-        b.extend_from_slice(b"RIFF    WAVEfmt ");
+        b.extend_from_slice(b"RIFF\x00\x00\x00\x00WAVEfmt ");
         b.extend_from_slice(&16u32.to_le_bytes());
         for v in [1u16, 2] {
             b.extend_from_slice(&v.to_le_bytes());
