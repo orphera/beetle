@@ -51,7 +51,6 @@ fn remote(
         bpm: Some(174.0),
         play_levels: vec![3, 7, 11],
         size_bytes: 23_456_789,
-        sha256: "3f2a".repeat(16),
         status,
         bga_size_bytes: bga,
     }

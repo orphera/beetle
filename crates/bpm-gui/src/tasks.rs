@@ -432,7 +432,9 @@ pub fn sync_sources(root: PathBuf, r: &Reporter) -> Result<String, String> {
     let cache = bms_package_manager::RegistryCacheManager::new(&root);
     let sources = config.active_sources_by_priority();
     if sources.is_empty() {
-        return Err("등록된 온라인 저장소가 없어요 (bpm source add 로 추가)".to_string());
+        return Err(
+            "연결된 곡 목록 서버가 없어요. '난이도표' 탭에서 곡을 받을 수 있어요.".to_string(),
+        );
     }
     let mut updated = 0;
     let mut packages = 0;
@@ -441,12 +443,7 @@ pub fn sync_sources(root: PathBuf, r: &Reporter) -> Result<String, String> {
         if r.cancelled() {
             return Err(CANCELLED.to_string());
         }
-        r.progress(
-            &format!("'{}'에서 목록 받는 중...", source.name),
-            0,
-            0,
-            &source.url,
-        );
+        r.progress("곡 목록 받는 중...", 0, 0, &source.url);
         match cache.update_or_fallback(&client, source) {
             Ok((index, from_cache)) => {
                 packages += index.packages.len();
@@ -460,9 +457,11 @@ pub fn sync_sources(root: PathBuf, r: &Reporter) -> Result<String, String> {
     if updated > 0 || errors.is_empty() {
         Ok(format!("곡 목록을 새로 받았어요: {packages}곡"))
     } else {
-        Err(format!(
-            "목록을 받지 못했어요. 인터넷 연결을 확인해 주세요. ({})",
-            errors.join("; ")
-        ))
+        // The details name the server address, so they go to the console only.
+        eprintln!("곡 목록을 받지 못했어요: {}", errors.join("; "));
+        Err(
+            "곡 목록 서버에 연결하지 못했어요. 잠시 뒤에 다시 시도해 주세요. 그동안 '난이도표' 탭에서 곡을 받을 수 있어요."
+                .to_string(),
+        )
     }
 }

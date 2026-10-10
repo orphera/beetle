@@ -173,7 +173,6 @@ impl AppState {
                 bpm: pkg.bpm,
                 play_levels: pkg.play_levels.clone(),
                 size_bytes: pkg.size_bytes,
-                sha256: pkg.sha256.clone(),
                 status,
                 bga_size_bytes: pkg.companion_bga.as_ref().map(|b| b.size_bytes),
             });
@@ -831,8 +830,8 @@ fn dispatch(state: &mut AppState, action: UiAction) {
         UiAction::SyncSources => {
             let root = state.manager.root_dir().to_path_buf();
             state.start_task(
-                "온라인 곡 목록 받는 중".to_string(),
-                "저장소에 연결하는 중...",
+                "곡 목록 받는 중".to_string(),
+                "곡 목록 서버에 연결하는 중...",
                 TaskKind::Other,
                 move |r| tasks::sync_sources(root, r),
             );

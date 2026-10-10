@@ -40,7 +40,6 @@ pub struct RemotePackageDisplayInfo {
     pub bpm: Option<f64>,
     pub play_levels: Vec<u32>,
     pub size_bytes: u64,
-    pub sha256: String,
     pub status: RemotePackageStatus,
     /// Size of the separate background video, when the song has one.
     pub bga_size_bytes: Option<u64>,
@@ -139,7 +138,7 @@ pub struct Frame<'a> {
     pub drop_hint: bool,
 }
 
-/// Level filter buttons of the "곡 받기" page: label and the levels it keeps.
+/// Level filter buttons of the "바로 설치" page: label and the levels it keeps.
 pub const LEVEL_FILTERS: [&str; 5] = ["전체", "쉬움 1-4", "보통 5-8", "어려움 9-11", "최상 12+"];
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -235,7 +234,7 @@ impl GuiRenderer {
         let tables_label = format!("난이도표  {}", tables.tables.len());
         let tabs = [
             (ActiveTab::Installed, installed_label.as_str()),
-            (ActiveTab::OnlineHub, "곡 받기"),
+            (ActiveTab::OnlineHub, "바로 설치"),
             (ActiveTab::Tables, tables_label.as_str()),
         ];
         let mut x = 210.0;
@@ -580,14 +579,14 @@ impl GuiRenderer {
         cy += 32.0;
         for line in [
             "BMS 곡 폴더나 .bmsp 파일을 이 창에 끌어다 놓으면 바로 추가돼요.",
-            "인터넷에서 곡을 찾고 있다면 '곡 받기' 탭에서 골라 설치할 수도 있어요.",
+            "인터넷에서 곡을 받고 싶다면 '난이도표' 탭에서 찾아 받을 수 있어요.",
         ] {
             self.text_centered(line, cx, cy, PX_BODY, theme::TEXT_DIM);
             cy += 24.0;
         }
         cy += 14.0;
         let a = "+ 곡 추가";
-        let b = "곡 받기로 가기";
+        let b = "난이도표로 가기";
         let (aw, bw) = (GuiRenderer::button_w(a) + 16.0, GuiRenderer::button_w(b));
         let bx = cx - (aw + bw + 10.0) / 2.0;
         self.button(bx, cy, aw, 40.0, a, Btn::Primary, UiAction::OpenAdd);
@@ -598,7 +597,7 @@ impl GuiRenderer {
             40.0,
             b,
             Btn::Secondary,
-            UiAction::Tab(ActiveTab::OnlineHub),
+            UiAction::Tab(ActiveTab::Tables),
         );
         cy += 72.0;
 
@@ -609,14 +608,14 @@ impl GuiRenderer {
         }
     }
 
-    // --------------------------------------------------------- "곡 받기" page
+    // --------------------------------------------------------- "바로 설치" page
 
     fn page_online(&mut self, w: f32, top: f32, bottom: f32, f: &mut Frame) {
         self.page_head(
             w,
             top,
-            "곡 받기",
-            "등록된 온라인 저장소에 있는 곡이에요. 고른 뒤 '설치하기'를 누르면 내려받아 바로 설치돼요.",
+            "바로 설치",
+            "Beetle용으로 준비된 곡이에요. 고르고 '설치하기'를 누르면 받아서 바로 내 곡에 넣어 줘요.",
             &[("목록 새로고침", Btn::Secondary, UiAction::SyncSources)],
         );
         let row_y = top + 60.0;
@@ -625,10 +624,10 @@ impl GuiRenderer {
                 w,
                 row_y,
                 bottom,
-                "아직 받아 온 곡 목록이 없어요",
+                "아직 곡 목록을 받지 않았어요",
                 &[
-                    "'목록 새로고침'을 누르면 저장소에서 설치할 수 있는 곡 목록을 받아 와요.",
-                    "인터넷 연결이 필요해요.",
+                    "'목록 새로고침'을 누르면 곡 목록 서버에서 설치할 수 있는 곡을 받아 와요.",
+                    "다른 곡을 찾고 있다면 '난이도표' 탭에서도 받을 수 있어요.",
                 ],
                 ("목록 새로고침", UiAction::SyncSources),
             );
@@ -875,21 +874,24 @@ impl GuiRenderer {
             UiAction::InstallRemote,
         );
         by += 12.0;
-        let id = fit(
-            &format!("ID {}", pkg.id),
-            inner - bw - 16.0,
-            PX_SMALL,
-            false,
-        );
-        self.text(&id, x + 20.0, by, PX_SMALL, theme::TEXT_FAINT);
-        let hash = &pkg.sha256[..pkg.sha256.len().min(12)];
-        self.text(
-            &format!("SHA-256 {hash}..."),
-            x + 20.0,
-            by + 18.0,
-            PX_SMALL,
-            theme::TEXT_FAINT,
-        );
+        // What happens after the install, beside the button. The ID and hash are
+        // for the package system, not for the player, so they are not shown.
+        if matches!(pkg.status, RemotePackageStatus::Available) {
+            let note = "설치하면 '내 곡'에 추가되고 Beetle에서 바로 플레이할 수 있어요.";
+            for (i, line) in wrap(note, inner - bw - 16.0, PX_SMALL)
+                .iter()
+                .take(2)
+                .enumerate()
+            {
+                self.text(
+                    line,
+                    x + 20.0,
+                    by + 4.0 + i as f32 * 18.0,
+                    PX_SMALL,
+                    theme::TEXT_FAINT,
+                );
+            }
+        }
     }
 
     // -------------------------------------------------------- "난이도표" page
