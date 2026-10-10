@@ -20,29 +20,7 @@ const PAD: f32 = 20.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     Installed,
-    OnlineHub,
     Tables,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RemotePackageStatus {
-    Available,
-    Installed,
-    UpdateAvailable,
-}
-
-#[derive(Debug, Clone)]
-pub struct RemotePackageDisplayInfo {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub genre: Option<String>,
-    pub bpm: Option<f64>,
-    pub play_levels: Vec<u32>,
-    pub size_bytes: u64,
-    pub status: RemotePackageStatus,
-    /// Size of the separate background video, when the song has one.
-    pub bga_size_bytes: Option<u64>,
 }
 
 /// The tone of the status bar message.
@@ -122,11 +100,6 @@ pub struct Frame<'a> {
     pub installed_total: usize,
     pub installed: &'a mut ListView,
     pub preview: Option<&'a ImageBuffer>,
-    pub remote: &'a [&'a RemotePackageDisplayInfo],
-    pub remote_total: usize,
-    pub remote_view: &'a mut ListView,
-    pub level_filter: u8,
-    pub with_bga: bool,
     pub search: &'a str,
     pub search_active: bool,
     pub status: &'a str,
@@ -136,21 +109,6 @@ pub struct Frame<'a> {
     pub tables: &'a mut TablesTab,
     /// A file is dragged over the window.
     pub drop_hint: bool,
-}
-
-/// Level filter buttons of the "바로 설치" page: label and the levels it keeps.
-pub const LEVEL_FILTERS: [&str; 5] = ["전체", "쉬움 1-4", "보통 5-8", "어려움 9-11", "최상 12+"];
-
-pub fn format_bytes(bytes: u64) -> String {
-    if bytes >= 1024 * 1024 * 1024 {
-        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    } else if bytes >= 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes >= 1024 {
-        format!("{:.0} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 /// How a song's background video is stored, in plain words.
@@ -174,7 +132,6 @@ impl GuiRenderer {
         let bottom = h - STATUS_H - 16.0;
         match f.tab {
             ActiveTab::Installed => self.page_installed(w, top, bottom, &mut f),
-            ActiveTab::OnlineHub => self.page_online(w, top, bottom, &mut f),
             ActiveTab::Tables => self.page_tables(w, top, bottom, &mut *f.tables),
         }
 
@@ -234,7 +191,6 @@ impl GuiRenderer {
         let tables_label = format!("난이도표  {}", tables.tables.len());
         let tabs = [
             (ActiveTab::Installed, installed_label.as_str()),
-            (ActiveTab::OnlineHub, "바로 설치"),
             (ActiveTab::Tables, tables_label.as_str()),
         ];
         let mut x = 210.0;
@@ -609,290 +565,6 @@ impl GuiRenderer {
     }
 
     // --------------------------------------------------------- "바로 설치" page
-
-    fn page_online(&mut self, w: f32, top: f32, bottom: f32, f: &mut Frame) {
-        self.page_head(
-            w,
-            top,
-            "바로 설치",
-            "Beetle용으로 준비된 곡이에요. 고르고 '설치하기'를 누르면 받아서 바로 내 곡에 넣어 줘요.",
-            &[("목록 새로고침", Btn::Secondary, UiAction::SyncSources)],
-        );
-        let row_y = top + 60.0;
-        if f.remote_total == 0 {
-            self.empty_state(
-                w,
-                row_y,
-                bottom,
-                "아직 곡 목록을 받지 않았어요",
-                &[
-                    "'목록 새로고침'을 누르면 곡 목록 서버에서 설치할 수 있는 곡을 받아 와요.",
-                    "다른 곡을 찾고 있다면 '난이도표' 탭에서도 받을 수 있어요.",
-                ],
-                ("목록 새로고침", UiAction::SyncSources),
-            );
-            return;
-        }
-
-        let list_w = (w * 0.46).clamp(360.0, 540.0);
-        self.search_box(
-            PAD,
-            row_y,
-            260.0,
-            f.search,
-            f.search_active,
-            "제목, 아티스트, 장르",
-        );
-        // Level filter as a segmented control.
-        let mut fx = PAD + 272.0;
-        let seg_y = row_y;
-        let total_w: f32 = LEVEL_FILTERS
-            .iter()
-            .map(|l| text_w(l, PX_SMALL) + 22.0)
-            .sum();
-        self.round(fx, seg_y, total_w + 8.0, 36.0, 8.0, theme::SURFACE);
-        fx += 4.0;
-        for (i, label) in LEVEL_FILTERS.iter().enumerate() {
-            let lw = text_w(label, PX_SMALL) + 22.0;
-            let active = f.level_filter == i as u8;
-            let hover = self.hovered(fx, seg_y + 4.0, lw, 28.0);
-            if active {
-                self.round(fx, seg_y + 4.0, lw, 28.0, 6.0, theme::SURFACE_3);
-            } else if hover {
-                self.round(fx, seg_y + 4.0, lw, 28.0, 6.0, theme::SURFACE_2);
-            }
-            let color = if active { theme::TEXT } else { theme::TEXT_DIM };
-            self.text(
-                label,
-                fx + 11.0,
-                seg_y + 4.0 + ((28.0 - cap(PX_SMALL)) / 2.0).round(),
-                PX_SMALL,
-                color,
-            );
-            self.hit(fx, seg_y + 4.0, lw, 28.0, UiAction::LevelFilter(i as u8));
-            fx += lw;
-        }
-
-        let panel_y = row_y + 48.0;
-        let panel_h = bottom - panel_y;
-        self.panel(PAD, panel_y, list_w, panel_h);
-        let row_h = 56.0;
-        let list_top = panel_y + 6.0;
-        let list_h = panel_h - 12.0;
-        let visible = (list_h / row_h).floor().max(1.0) as usize;
-        f.remote_view.layout(f.remote.len(), visible);
-        let view = *f.remote_view;
-        self.scroll_area(PAD, panel_y, list_w, panel_h, ScrollTarget::Remote);
-        if f.remote.is_empty() {
-            self.text_centered(
-                "조건에 맞는 곡이 없어요",
-                PAD + list_w / 2.0,
-                panel_y + 40.0,
-                PX_BODY,
-                theme::TEXT_DIM,
-            );
-        }
-        for (slot, idx) in (view.scroll..f.remote.len()).take(visible).enumerate() {
-            let pkg = f.remote[idx];
-            let y = list_top + slot as f32 * row_h;
-            let (x, rw) = (PAD + 6.0, list_w - 16.0);
-            let selected = idx == view.selected;
-            let hover = self.hovered(x, y, rw, row_h - 4.0);
-            if selected {
-                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SELECT);
-                self.round(x, y + 12.0, 3.0, row_h - 28.0, 1.5, theme::ACCENT);
-            } else if hover {
-                self.round(x, y, rw, row_h - 4.0, 8.0, theme::SURFACE_2);
-            }
-            // Right side: install state, or the download size.
-            let (badge, fg, bg) = match pkg.status {
-                RemotePackageStatus::Installed => ("설치됨", theme::GREEN, theme::GREEN_SOFT),
-                RemotePackageStatus::UpdateAvailable => ("업데이트", theme::WARN, theme::WARN_SOFT),
-                RemotePackageStatus::Available => ("", theme::TEXT_FAINT, theme::SURFACE),
-            };
-            let right_w = if badge.is_empty() {
-                let size = format_bytes(pkg.size_bytes);
-                let sw = text_w(&size, PX_SMALL);
-                self.text(
-                    &size,
-                    x + rw - sw - 12.0,
-                    y + 13.0,
-                    PX_SMALL,
-                    theme::TEXT_FAINT,
-                );
-                sw + 20.0
-            } else {
-                let cw = text_w(badge, PX_SMALL) + 14.0;
-                self.chip(badge, x + rw - cw - 10.0, y + 8.0, fg, bg);
-                cw + 20.0
-            };
-            let title = fit(&pkg.title, rw - 28.0 - right_w, PX_BODY, false);
-            self.text(&title, x + 14.0, y + 11.0, PX_BODY, theme::TEXT);
-            let mut sub = pkg.artist.clone();
-            if let Some(genre) = &pkg.genre {
-                sub.push_str(" · ");
-                sub.push_str(genre);
-            }
-            if let Some(bpm) = pkg.bpm {
-                sub.push_str(&format!(" · BPM {bpm:.0}"));
-            }
-            self.text(
-                &fit(&sub, rw - 28.0, PX_SMALL, false),
-                x + 14.0,
-                y + 32.0,
-                PX_SMALL,
-                theme::TEXT_FAINT,
-            );
-            self.hit(x, y, rw, row_h - 4.0, UiAction::SelectRemote(idx));
-        }
-        self.scrollbar(
-            PAD + list_w - 8.0,
-            list_top,
-            list_h,
-            f.remote.len(),
-            visible,
-            view.scroll,
-        );
-
-        let dx = PAD + list_w + 16.0;
-        let dw = w - dx - PAD;
-        self.panel(dx, panel_y, dw, panel_h);
-        if let Some(&pkg) = f.remote.get(view.selected) {
-            self.online_details(dx, panel_y, dw, panel_h, pkg, f.with_bga);
-        }
-    }
-
-    fn online_details(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        pkg: &RemotePackageDisplayInfo,
-        with_bga: bool,
-    ) {
-        let inner = w - 40.0;
-        let mut dy = y + 22.0;
-        for line in wrap(&pkg.title, inner, PX_TITLE).iter().take(2) {
-            self.text_bold(line, x + 20.0, dy, PX_TITLE, theme::TEXT);
-            dy += 26.0;
-        }
-        self.text(
-            &fit(&pkg.artist, inner, PX_BODY, false),
-            x + 20.0,
-            dy,
-            PX_BODY,
-            theme::TEXT_DIM,
-        );
-        dy += 30.0;
-
-        // Facts as chips, wrapping to a new line when the panel is narrow.
-        let mut facts: Vec<String> = Vec::new();
-        if let Some(genre) = &pkg.genre {
-            facts.push(format!("장르 {genre}"));
-        }
-        if let Some(bpm) = pkg.bpm {
-            facts.push(format!("BPM {bpm:.0}"));
-        }
-        if !pkg.play_levels.is_empty() {
-            let levels: Vec<String> = pkg.play_levels.iter().map(|l| l.to_string()).collect();
-            facts.push(format!("난이도 {}", levels.join(" · ")));
-        }
-        facts.push(format!("크기 {}", format_bytes(pkg.size_bytes)));
-        let mut cx = x + 20.0;
-        for fact in &facts {
-            let fw = text_w(fact, PX_SMALL) + 14.0;
-            if cx + fw > x + 20.0 + inner {
-                cx = x + 20.0;
-                dy += 26.0;
-            }
-            cx += self.chip(fact, cx, dy, theme::TEXT_DIM, theme::SURFACE_2) + 6.0;
-        }
-        dy += 40.0;
-
-        let (state_line, color) = match pkg.status {
-            RemotePackageStatus::Available => ("아직 설치하지 않은 곡이에요.", theme::TEXT_DIM),
-            RemotePackageStatus::Installed => (
-                "이미 설치되어 있어요. 내 곡에서 볼 수 있어요.",
-                theme::GREEN,
-            ),
-            RemotePackageStatus::UpdateAvailable => (
-                "설치된 버전보다 새 버전이 있어요. 업데이트하면 새 버전이 추가돼요.",
-                theme::WARN,
-            ),
-        };
-        for line in wrap(state_line, inner, PX_BODY) {
-            self.text(&line, x + 20.0, dy, PX_BODY, color);
-            dy += 22.0;
-        }
-        let _ = dy;
-
-        // Install area at the bottom.
-        let mut by = y + h - 60.0;
-        let area_top = if pkg.bga_size_bytes.is_some() {
-            by - 40.0
-        } else {
-            by
-        };
-        self.fill(x + 20.0, area_top - 14.0, inner, 1.0, theme::BORDER);
-        if let Some(bga) = pkg.bga_size_bytes {
-            let label = format!("배경 영상도 함께 받기 (+{})", format_bytes(bga));
-            self.checkbox(
-                x + 20.0,
-                by - 36.0,
-                &label,
-                with_bga,
-                UiAction::ToggleWithBga,
-            );
-        }
-        let total = pkg.size_bytes
-            + if with_bga {
-                pkg.bga_size_bytes.unwrap_or(0)
-            } else {
-                0
-            };
-        let label = match pkg.status {
-            RemotePackageStatus::Available => format!("설치하기 ({})", format_bytes(total)),
-            RemotePackageStatus::UpdateAvailable => {
-                format!("업데이트하기 ({})", format_bytes(total))
-            }
-            RemotePackageStatus::Installed => "다시 설치하기".to_string(),
-        };
-        let style = if pkg.status == RemotePackageStatus::Installed {
-            Btn::Secondary
-        } else {
-            Btn::Primary
-        };
-        let bw = (GuiRenderer::button_w(&label) + 24.0).min(inner);
-        self.button(
-            x + w - 20.0 - bw,
-            by,
-            bw,
-            40.0,
-            &label,
-            style,
-            UiAction::InstallRemote,
-        );
-        by += 12.0;
-        // What happens after the install, beside the button. The ID and hash are
-        // for the package system, not for the player, so they are not shown.
-        if matches!(pkg.status, RemotePackageStatus::Available) {
-            let note = "설치하면 '내 곡'에 추가되고 Beetle에서 바로 플레이할 수 있어요.";
-            for (i, line) in wrap(note, inner - bw - 16.0, PX_SMALL)
-                .iter()
-                .take(2)
-                .enumerate()
-            {
-                self.text(
-                    line,
-                    x + 20.0,
-                    by + 4.0 + i as f32 * 18.0,
-                    PX_SMALL,
-                    theme::TEXT_FAINT,
-                );
-            }
-        }
-    }
 
     // -------------------------------------------------------- "난이도표" page
 

@@ -59,11 +59,6 @@ pub enum UiAction {
     AskUninstall,
     AskRemoveBga,
     // Get songs
-    SelectRemote(usize),
-    LevelFilter(u8),
-    ToggleWithBga,
-    InstallRemote,
-    SyncSources,
     // Difficulty tables
     PrevTable,
     NextTable,
@@ -90,7 +85,6 @@ pub enum UiAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollTarget {
     Installed,
-    Remote,
     Tables,
 }
 
@@ -540,57 +534,6 @@ impl GuiRenderer {
             x -= 8.0;
         }
         x + 8.0
-    }
-
-    /// A checkbox with a label; the whole line is clickable.
-    pub fn checkbox(&mut self, x: f32, y: f32, label: &str, checked: bool, action: UiAction) {
-        let w = 26.0 + text_w(label, PX_BODY);
-        let hover = self.hovered(x, y, w, 22.0);
-        if checked {
-            self.round(x, y + 2.0, 18.0, 18.0, 4.0, theme::ACCENT);
-            // A check mark from two short strokes.
-            let mut pb = PathBuilder::new();
-            pb.move_to(x + 4.5, y + 11.0);
-            pb.line_to(x + 8.0, y + 14.5);
-            pb.line_to(x + 14.0, y + 7.0);
-            if let Some(path) = pb.finish() {
-                let stroke = Stroke {
-                    width: 2.2,
-                    ..Default::default()
-                };
-                self.pixmap.stroke_path(
-                    &path,
-                    &skia(theme::ACCENT_TEXT),
-                    &stroke,
-                    Transform::identity(),
-                    None,
-                );
-            }
-        } else {
-            self.round(x, y + 2.0, 18.0, 18.0, 4.0, theme::SURFACE_2);
-            self.outline(
-                x,
-                y + 2.0,
-                18.0,
-                18.0,
-                4.0,
-                if hover {
-                    theme::TEXT_DIM
-                } else {
-                    theme::BORDER
-                },
-                false,
-            );
-        }
-        let color = if hover { theme::TEXT } else { theme::TEXT_DIM };
-        self.text(
-            label,
-            x + 26.0,
-            y + ((22.0 - cap(PX_BODY)) / 2.0).round(),
-            PX_BODY,
-            color,
-        );
-        self.hit(x, y, w, 22.0, action);
     }
 
     /// A text field. `browse` adds a "찾아보기" button on the right.

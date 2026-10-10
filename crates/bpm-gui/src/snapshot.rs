@@ -6,9 +6,7 @@
 
 use crate::dialogs::{Dialog, DialogKind};
 use crate::tables_tab::TablesTab;
-use crate::ui::{
-    ActiveTab, Frame, RemotePackageDisplayInfo, RemotePackageStatus, StatusKind, TaskProgressInfo,
-};
+use crate::ui::{ActiveTab, Frame, StatusKind, TaskProgressInfo};
 use crate::widgets::{GuiRenderer, ListView};
 use bms_package_manager::{BgaPackMode, BgaStatus, PackageRecord, PackageStateRecord};
 use std::collections::BTreeMap;
@@ -37,29 +35,9 @@ fn package(name: &str, author: &str, bga: BgaStatus, versions: usize) -> Package
     }
 }
 
-fn remote(
-    title: &str,
-    artist: &str,
-    status: RemotePackageStatus,
-    bga: Option<u64>,
-) -> RemotePackageDisplayInfo {
-    RemotePackageDisplayInfo {
-        id: title.to_lowercase().replace(' ', "-"),
-        title: title.into(),
-        artist: artist.into(),
-        genre: Some("Trance".into()),
-        bpm: Some(174.0),
-        play_levels: vec![3, 7, 11],
-        size_bytes: 23_456_789,
-        status,
-        bga_size_bytes: bga,
-    }
-}
-
 struct Scene<'a> {
     tab: ActiveTab,
     packages: &'a [&'a PackageRecord],
-    remote: &'a [&'a RemotePackageDisplayInfo],
     dialog: Option<Dialog>,
     task: Option<TaskProgressInfo<'a>>,
     status: (&'a str, StatusKind),
@@ -68,15 +46,10 @@ struct Scene<'a> {
 }
 
 impl<'a> Scene<'a> {
-    fn new(
-        tab: ActiveTab,
-        packages: &'a [&'a PackageRecord],
-        remote: &'a [&'a RemotePackageDisplayInfo],
-    ) -> Self {
+    fn new(tab: ActiveTab, packages: &'a [&'a PackageRecord]) -> Self {
         Self {
             tab,
             packages,
-            remote,
             dialog: None,
             task: None,
             status: (
@@ -91,7 +64,6 @@ impl<'a> Scene<'a> {
 
 fn render(r: &mut GuiRenderer, tables: &mut TablesTab, scene: Scene, out: &Path) {
     let mut installed = ListView::default();
-    let mut remote_view = ListView::default();
     let dialog = scene.dialog.as_ref().map(|d| d.view(&scene.library));
     r.render(Frame {
         tab: scene.tab,
@@ -99,11 +71,6 @@ fn render(r: &mut GuiRenderer, tables: &mut TablesTab, scene: Scene, out: &Path)
         installed_total: scene.packages.len(),
         installed: &mut installed,
         preview: None,
-        remote: scene.remote,
-        remote_total: scene.remote.len(),
-        remote_view: &mut remote_view,
-        level_filter: 0,
-        with_bga: true,
         search: "",
         search_active: false,
         status: scene.status.0,
@@ -133,22 +100,6 @@ fn snapshot_screens() {
         package("Blue Zenith", "xi", BgaStatus::None, 1),
     ];
     let packages: Vec<&PackageRecord> = owned.iter().collect();
-    let owned_remote = [
-        remote(
-            "Sample Song",
-            "Artist",
-            RemotePackageStatus::Available,
-            Some(5_400_000),
-        ),
-        remote("Air", "Ryu*", RemotePackageStatus::Installed, None),
-        remote(
-            "Blue Zenith",
-            "xi",
-            RemotePackageStatus::UpdateAvailable,
-            None,
-        ),
-    ];
-    let remotes: Vec<&RemotePackageDisplayInfo> = owned_remote.iter().collect();
 
     let mut r = GuiRenderer::new(1080, 740).expect("pixmap");
     let mut tables = TablesTab::load();
@@ -157,36 +108,24 @@ fn snapshot_screens() {
     render(
         &mut r,
         &mut tables,
-        Scene::new(ActiveTab::Installed, &[], &[]),
+        Scene::new(ActiveTab::Installed, &[]),
         &shot("01-installed-empty"),
     );
     render(
         &mut r,
         &mut tables,
-        Scene::new(ActiveTab::Installed, &packages, &remotes),
+        Scene::new(ActiveTab::Installed, &packages),
         &shot("02-installed"),
     );
     render(
         &mut r,
         &mut tables,
-        Scene::new(ActiveTab::OnlineHub, &packages, &remotes),
-        &shot("03-online"),
-    );
-    render(
-        &mut r,
-        &mut tables,
-        Scene::new(ActiveTab::OnlineHub, &packages, &[]),
-        &shot("04-online-empty"),
-    );
-    render(
-        &mut r,
-        &mut tables,
-        Scene::new(ActiveTab::Tables, &packages, &remotes),
+        Scene::new(ActiveTab::Tables, &packages),
         &shot("05-tables"),
     );
 
     let with_dialog = |kind: DialogKind| {
-        let mut scene = Scene::new(ActiveTab::Installed, &packages, &remotes);
+        let mut scene = Scene::new(ActiveTab::Installed, &packages);
         scene.dialog = Some(Dialog::new(kind));
         scene
     };
@@ -225,7 +164,7 @@ fn snapshot_screens() {
     scene.library = vec!["D:\\BMS\\songs".into(), "E:\\old\\bms".into()];
     render(&mut r, &mut tables, scene, &shot("10-dialog-library"));
 
-    let mut scene = Scene::new(ActiveTab::OnlineHub, &packages, &remotes);
+    let mut scene = Scene::new(ActiveTab::Installed, &packages);
     scene.task = Some(TaskProgressInfo {
         title: "'Sample Song' 내려받는 중",
         phase: "내려받는 중...",
@@ -237,7 +176,7 @@ fn snapshot_screens() {
     });
     render(&mut r, &mut tables, scene, &shot("11-task"));
 
-    let mut scene = Scene::new(ActiveTab::Installed, &packages, &remotes);
+    let mut scene = Scene::new(ActiveTab::Installed, &packages);
     scene.drop = true;
     render(&mut r, &mut tables, scene, &shot("12-drop"));
 
@@ -259,7 +198,7 @@ fn snapshot_screens() {
         &shot("14-dialog-ir-fetch"),
     );
 
-    let mut scene = Scene::new(ActiveTab::Installed, &packages, &remotes);
+    let mut scene = Scene::new(ActiveTab::Installed, &packages);
     scene.status = ("'FREEDOM DiVE'을(를) 삭제했어요", StatusKind::Success);
     scene.dialog = Some(Dialog::new(DialogKind::Advanced));
     render(&mut r, &mut tables, scene, &shot("13-dialog-advanced"));

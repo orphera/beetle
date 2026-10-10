@@ -71,12 +71,6 @@ struct AppState {
     last_anim_time: Instant,
     active_tab: ActiveTab,
     tables: tables_tab::TablesTab,
-    remote_packages: Vec<ui::RemotePackageDisplayInfo>,
-    remote_raw_packages: Vec<(bms_package_manager::RemotePackageMetadata, String)>,
-    remote_filtered_indices: Vec<usize>,
-    remote_view: ListView,
-    remote_level_filter: u8,
-    remote_with_bga: bool,
     cursor_pos: (f32, f32),
     hover: Option<UiAction>,
     /// A file is being dragged over the window.
@@ -124,91 +118,6 @@ impl AppState {
             .collect();
         self.packages.sort_by_key(|p| p.name.to_lowercase());
         self.apply_filter();
-        self.refresh_remote_packages();
-    }
-
-    fn refresh_remote_packages(&mut self) {
-        let packages_dir = self.manager.root_dir().to_path_buf();
-        let sources_config =
-            bms_package_manager::SourcesConfig::load_or_init(&packages_dir.join("sources.json"))
-                .unwrap_or_default();
-        let cache_mgr = bms_package_manager::RegistryCacheManager::new(&packages_dir);
-
-        let active_sources = sources_config.active_sources_by_priority();
-        let cached_indices = cache_mgr.load_all_cached(&active_sources);
-        let pairs: Vec<(
-            &bms_package_manager::RegistrySource,
-            &bms_package_manager::RemoteRegistryIndex,
-        )> = cached_indices.iter().map(|(s, idx)| (s, idx)).collect();
-        let merged = bms_package_manager::SourcesConfig::merge_packages(&pairs);
-
-        let mut url_map = std::collections::HashMap::new();
-        for (src, index) in &cached_indices {
-            for pkg in &index.packages {
-                url_map
-                    .entry(pkg.id.clone())
-                    .or_insert_with(|| src.url.clone());
-            }
-        }
-
-        let installed_map: std::collections::HashMap<&str, &PackageRecord> =
-            self.packages.iter().map(|p| (p.id.as_str(), p)).collect();
-
-        let mut raw_list = Vec::new();
-        let mut display_list = Vec::new();
-        for pkg in merged {
-            let base_url = url_map.get(&pkg.id).cloned().unwrap_or_default();
-            let status = match installed_map.get(pkg.id.as_str()) {
-                Some(inst) if inst.state_hashes.contains_key(&pkg.state_hash) => {
-                    ui::RemotePackageStatus::Installed
-                }
-                Some(_) => ui::RemotePackageStatus::UpdateAvailable,
-                None => ui::RemotePackageStatus::Available,
-            };
-            display_list.push(ui::RemotePackageDisplayInfo {
-                id: pkg.id.clone(),
-                title: pkg.title.clone(),
-                artist: pkg.artist.clone(),
-                genre: pkg.genre.clone(),
-                bpm: pkg.bpm,
-                play_levels: pkg.play_levels.clone(),
-                size_bytes: pkg.size_bytes,
-                status,
-                bga_size_bytes: pkg.companion_bga.as_ref().map(|b| b.size_bytes),
-            });
-            raw_list.push((pkg, base_url));
-        }
-
-        self.remote_raw_packages = raw_list;
-        self.remote_packages = display_list;
-        self.apply_remote_filter();
-    }
-
-    fn apply_remote_filter(&mut self) {
-        let q = self.search_query.trim().to_lowercase();
-        let lvl_filter = self.remote_level_filter;
-        self.remote_filtered_indices = self
-            .remote_packages
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| {
-                let text_match = q.is_empty()
-                    || p.id.to_lowercase().contains(&q)
-                    || p.title.to_lowercase().contains(&q)
-                    || p.artist.to_lowercase().contains(&q)
-                    || p.genre.as_deref().unwrap_or("").to_lowercase().contains(&q);
-                let level_match = match lvl_filter {
-                    1 => p.play_levels.iter().any(|&l| (1..=4).contains(&l)),
-                    2 => p.play_levels.iter().any(|&l| (5..=8).contains(&l)),
-                    3 => p.play_levels.iter().any(|&l| (9..=11).contains(&l)),
-                    4 => p.play_levels.iter().any(|&l| l >= 12),
-                    _ => true,
-                };
-                text_match && level_match
-            })
-            .map(|(i, _)| i)
-            .collect();
-        self.remote_view.follow = true;
     }
 
     fn apply_filter(&mut self) {
@@ -230,7 +139,6 @@ impl AppState {
             .map(|(i, _)| i)
             .collect();
         self.installed.follow = true;
-        self.apply_remote_filter();
     }
 
     fn selected_package(&self) -> Option<&PackageRecord> {
@@ -404,12 +312,6 @@ impl ApplicationHandler for BpmGuiApp {
             last_anim_time: Instant::now(),
             active_tab: ActiveTab::Installed,
             tables: tables_tab::TablesTab::load(),
-            remote_packages: Vec::new(),
-            remote_raw_packages: Vec::new(),
-            remote_filtered_indices: Vec::new(),
-            remote_view: ListView::default(),
-            remote_level_filter: 0,
-            remote_with_bga: true,
             cursor_pos: (-1.0, -1.0),
             hover: None,
             drag_hover: false,
@@ -516,7 +418,6 @@ impl ApplicationHandler for BpmGuiApp {
                 if rows != 0 && state.dialog.is_none() {
                     match state.renderer.scroll_target_at(state.cursor_pos) {
                         Some(ScrollTarget::Installed) => state.installed.scroll_by(rows),
-                        Some(ScrollTarget::Remote) => state.remote_view.scroll_by(rows),
                         Some(ScrollTarget::Tables) => state.tables.view.scroll_by(rows),
                         None => {}
                     }
@@ -569,11 +470,6 @@ fn redraw(state: &mut AppState) {
         .iter()
         .filter_map(|&idx| state.packages.get(idx))
         .collect();
-    let filtered_remote: Vec<&ui::RemotePackageDisplayInfo> = state
-        .remote_filtered_indices
-        .iter()
-        .filter_map(|&idx| state.remote_packages.get(idx))
-        .collect();
     let dialog_view = state.dialog.as_ref().map(|d| d.view(&state.library));
     let task_info = state.task.as_ref().map(|task| ui::TaskProgressInfo {
         title: &task.title,
@@ -591,11 +487,6 @@ fn redraw(state: &mut AppState) {
         installed_total: state.packages.len(),
         installed: &mut state.installed,
         preview: state.preview_image.as_ref(),
-        remote: &filtered_remote,
-        remote_total: state.remote_packages.len(),
-        remote_view: &mut state.remote_view,
-        level_filter: state.remote_level_filter,
-        with_bga: state.remote_with_bga,
         search: &state.search_query,
         search_active: state.is_search_active,
         status: &state.status,
@@ -818,23 +709,6 @@ fn dispatch(state: &mut AppState, action: UiAction) {
                 let (id, name) = (pkg.id.clone(), pkg.name.clone());
                 state.open_dialog(DialogKind::ConfirmRemoveBga { id, name });
             }
-        }
-        UiAction::SelectRemote(i) => state.remote_view.select(i),
-        UiAction::LevelFilter(level) => {
-            state.remote_level_filter = level;
-            state.remote_view.reset();
-            state.apply_remote_filter();
-        }
-        UiAction::ToggleWithBga => state.remote_with_bga = !state.remote_with_bga,
-        UiAction::InstallRemote => start_remote_install(state),
-        UiAction::SyncSources => {
-            let root = state.manager.root_dir().to_path_buf();
-            state.start_task(
-                "곡 목록 받는 중".to_string(),
-                "곡 목록 서버에 연결하는 중...",
-                TaskKind::Other,
-                move |r| tasks::sync_sources(root, r),
-            );
         }
         UiAction::PrevTable => state.tables.switch_table(false),
         UiAction::NextTable => state.tables.switch_table(true),
@@ -1162,21 +1036,18 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>) {
             return;
         }
         KeyCode::Tab => {
-            let order = [
-                ActiveTab::Installed,
-                ActiveTab::OnlineHub,
-                ActiveTab::Tables,
-            ];
+            let order = [ActiveTab::Installed, ActiveTab::Tables];
             let i = order
                 .iter()
                 .position(|&t| t == state.active_tab)
                 .unwrap_or(0);
+            let len = order.len();
             let next = if state.modifiers.shift_key() {
-                i + 2
+                (i + len - 1) % len
             } else {
-                i + 1
-            } % 3;
-            dispatch(state, UiAction::Tab(order[next % 3]));
+                (i + 1) % len
+            };
+            dispatch(state, UiAction::Tab(order[next]));
             return;
         }
         KeyCode::F1 => {
@@ -1213,20 +1084,6 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>) {
             }
             _ => page(state.filtered_indices.len(), &mut state.installed, code),
         },
-        ActiveTab::OnlineHub => match code {
-            KeyCode::Enter | KeyCode::NumpadEnter => dispatch(state, UiAction::InstallRemote),
-            KeyCode::F5 => dispatch(state, UiAction::SyncSources),
-            KeyCode::Digit0 => dispatch(state, UiAction::LevelFilter(0)),
-            KeyCode::Digit1 => dispatch(state, UiAction::LevelFilter(1)),
-            KeyCode::Digit2 => dispatch(state, UiAction::LevelFilter(2)),
-            KeyCode::Digit3 => dispatch(state, UiAction::LevelFilter(3)),
-            KeyCode::Digit4 => dispatch(state, UiAction::LevelFilter(4)),
-            _ => page(
-                state.remote_filtered_indices.len(),
-                &mut state.remote_view,
-                code,
-            ),
-        },
         ActiveTab::Tables => match code {
             KeyCode::BracketLeft | KeyCode::ArrowLeft => dispatch(state, UiAction::PrevTable),
             KeyCode::BracketRight | KeyCode::ArrowRight => dispatch(state, UiAction::NextTable),
@@ -1240,25 +1097,6 @@ fn handle_key_input(state: &mut AppState, code: KeyCode, text: Option<&str>) {
             }
         },
     }
-}
-
-fn start_remote_install(state: &mut AppState) {
-    let Some(&idx) = state
-        .remote_filtered_indices
-        .get(state.remote_view.selected)
-    else {
-        state.err("설치할 곡을 먼저 골라 주세요");
-        return;
-    };
-    let Some((meta, base_url)) = state.remote_raw_packages.get(idx).cloned() else {
-        return;
-    };
-    let root = state.manager.root_dir().to_path_buf();
-    let with_bga = state.remote_with_bga;
-    let title = format!("'{}' 내려받는 중", meta.title);
-    state.start_task(title, "연결하는 중...", TaskKind::Adds, move |r| {
-        tasks::install_remote(root, meta, base_url, with_bga, r)
-    });
 }
 
 /// The folder a downloaded chart goes to: `songs/<table>/<#>` under the folder
