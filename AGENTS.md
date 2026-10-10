@@ -72,8 +72,8 @@
 - `crates/bms-hash`: SHA-256과 MD5만 담은 의존성 없는 작은 크레이트입니다. 차트 식별(`beetle-core`)과 패키지 체크섬(`bms-package`)이 함께 씁니다.
 - `crates/beetle-core`: 순수 알고리즘 크레이트로 OS API, 창, 오디오 하드웨어 의존성이 없습니다.
 - `crates/beetle-audio`: cpal 기반 오디오 I/O, PCM 버퍼링, 락프리 믹서 및 마스터 클럭을 다룹니다.
-- `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다.
-- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`, `Settings`) 및 입력 통합을 담당합니다. 옵션 목록(플레이 옵션 패널, 설정 화면)은 `options_table.rs`의 표 한 곳에서 그리기와 입력을 함께 처리합니다.
+- `crates/beetle-render`: Direct3D 11 기반 2D 배치 렌더러(단일 아틀라스, UI 스프라이트 + 글리프)로 그리며 입력을 직접 폴링하지 않습니다. 기본 스킨 에셋은 외부 파일 없이 코드로 생성합니다. 화면은 `screens/`에 있고, 한국어 문자열은 `strings.rs` 표 한 곳에 모으며(모든 글자가 내장 폰트에 있는지 테스트), 클릭 영역은 `hit.rs`의 `HitId`로 기록합니다. 색은 `theme.rs` 토큰만 씁니다.
+- `crates/beetle-app`: 게임 루프, 화면 상태 전이(`SongSelect`, `Loading`, `Gameplay`, `Result`, `KeyConfig`, `Settings`) 및 입력 통합을 담당합니다. 옵션 목록(플레이 옵션 패널, 설정 화면)은 `options_table.rs`의 표 한 곳에서 그리기와 입력을 함께 처리합니다. 선곡 폴더 트리·곡 묶음·필터는 `folders.rs`·`filters.rs`(순수 모델), 키와 마우스는 `handlers/`에서 같은 이름 있는 함수를 부릅니다. `ime.rs`는 검색창 IME, `calibration.rs`는 판정 오프셋 측정, `transition.rs`는 화면 전환과 토스트를 맡습니다.
 - `crates/bms-package`: 단일 패키지(`.bmsp`) 포맷, Manifest, 결정론적 패커 및 안전한 리더를 다룹니다.
 - `crates/bms-package-manager`: 로컬 저장소(`packages/`), `registry.json`, 원자적 설치, 다중 버전 관리 및 `bpm` CLI를 담당합니다.
 - `crates/bpm-gui`: 독립형 경량 데스크톱 패키지 관리 GUI 애플리케이션입니다.
