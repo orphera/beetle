@@ -393,6 +393,12 @@ impl AppState {
             self.screen = crate::devtools::start_screen().unwrap_or(AppScreen::SongSelect);
             self.key_config_edit_mode = self.key_config_mode();
         }
+        // Once per load, and only when song select is the screen that shows.
+        if self.screen == AppScreen::SongSelect {
+            if let Some(text) = uninstalled_toast_text(&load.uninstalled) {
+                crate::transition::show_toast(self, beetle_render::ToastKind::Info, text);
+            }
+        }
         self.window.request_redraw();
     }
 
@@ -732,6 +738,23 @@ pub struct LibraryLoad {
     pub tables: TableIndex,
     /// Present at startup (the scores are read with the library); a rescan keeps the current ones.
     pub score_store: Option<ScoreStore>,
+    /// `.bmsp` files in the library folders that are not installed, sorted.
+    pub uninstalled: Vec<String>,
+}
+
+/// The notice for uninstalled packages, or `None` when there are none.
+pub fn uninstalled_toast_text(names: &[String]) -> Option<String> {
+    let first = names.first()?;
+    Some(match names.len() {
+        1 => strings::fill(strings::TOAST_UNINSTALLED_ONE, &[first.as_str()]),
+        n => {
+            let count = n.to_string();
+            strings::fill(
+                strings::TOAST_UNINSTALLED_MANY,
+                &[count.as_str(), first.as_str()],
+            )
+        }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -746,10 +769,12 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
     std::thread::spawn(move || {
         let (songs, score_store) = init_songs_and_scores(sort_mode);
         let tables = crate::tables::build_index(&songs);
+        let uninstalled = crate::scanner::uninstalled_in_library(DEFAULT_SONGS_DIR);
         let _ = tx.send(LibraryLoad {
             songs,
             tables,
             score_store: Some(score_store),
+            uninstalled,
         });
     });
     rx
@@ -762,10 +787,12 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     std::thread::spawn(move || {
         let songs = rescan_songs();
         let tables = crate::tables::build_index(&songs);
+        let uninstalled = crate::scanner::uninstalled_in_library(DEFAULT_SONGS_DIR);
         let _ = tx.send(LibraryLoad {
             songs,
             tables,
             score_store: None,
+            uninstalled,
         });
     });
     rx
@@ -822,4 +849,23 @@ fn rescan_songs() -> Vec<SongMetadata> {
         songs.insert(0, demo_song());
     }
     songs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uninstalled_toast_names_one_file_or_counts_several() {
+        assert_eq!(uninstalled_toast_text(&[]), None);
+        assert_eq!(
+            uninstalled_toast_text(&["AIRSHAVER.bmsp".to_string()]).as_deref(),
+            Some("설치되지 않은 패키지: AIRSHAVER.bmsp / bpm install로 설치하세요")
+        );
+        let many = ["AIRSHAVER.bmsp", "Other.bmsp", "Third.bmsp"].map(String::from);
+        assert_eq!(
+            uninstalled_toast_text(&many).as_deref(),
+            Some("설치되지 않은 패키지 3개 (AIRSHAVER.bmsp 외) / bpm install로 설치하세요")
+        );
+    }
 }

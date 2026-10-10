@@ -173,6 +173,10 @@ enum Overlay {
     Exit,
     /// A success toast, fully shown.
     Toast,
+    /// The info toast for one uninstalled package, fully shown.
+    UninstalledOne,
+    /// The info toast for several uninstalled packages, fully shown.
+    UninstalledMany,
     /// The fade-in halfway through: the background covers half of the frame.
     Fade,
     /// The help overlay (?) over the list.
@@ -361,6 +365,24 @@ fn render_ex(
                 },
             )
         }
+        Overlay::UninstalledOne | Overlay::UninstalledMany => {
+            let text = if matches!(overlay, Overlay::UninstalledOne) {
+                strings::fill(strings::TOAST_UNINSTALLED_ONE, &["AIRSHAVER.bmsp"])
+            } else {
+                strings::fill(strings::TOAST_UNINSTALLED_MANY, &["3", "AIRSHAVER.bmsp"])
+            };
+            draw_toast(
+                ui,
+                &vp,
+                &ToastFrame {
+                    text: &text,
+                    kind: ToastKind::Info,
+                    alpha: 1.0,
+                    slide: 1.0,
+                    anchor: ToastAnchor::Footer,
+                },
+            )
+        }
         Overlay::Fade => draw_screen_fade(ui, 0.5),
         Overlay::Help => draw_help_overlay(ui, &vp),
         Overlay::Drop => draw_drop_overlay(ui, &vp),
@@ -543,6 +565,32 @@ fn song_select_layouts() {
     );
     assert_eq!(
         render(&mut gpu, &mut ui, 5, "", "", Overlay::Fade, "fade-mid"),
+        1
+    );
+
+    // Uninstalled-package notices (info), one file and several.
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            5,
+            "",
+            "",
+            Overlay::UninstalledOne,
+            "uninstalled-one"
+        ),
+        1
+    );
+    assert_eq!(
+        render(
+            &mut gpu,
+            &mut ui,
+            5,
+            "",
+            "",
+            Overlay::UninstalledMany,
+            "uninstalled-many"
+        ),
         1
     );
 

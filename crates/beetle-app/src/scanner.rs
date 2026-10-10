@@ -189,6 +189,68 @@ fn absolute_dir(path: &Path) -> Option<String> {
     Some(display_path(&full.to_string_lossy()).to_string())
 }
 
+/// `.bmsp` files directly in the library folders that the game does not play:
+/// the package id is not the id of an active registry state, or the manifest
+/// cannot be read. Sorted file names. The registry is read only when a folder
+/// has a `.bmsp` file, so a library without packages does no extra work.
+pub fn uninstalled_packages(folders: &[String], packages_root: &Path) -> Vec<String> {
+    let mut found: Vec<(String, PathBuf)> = Vec::new();
+    for folder in folders {
+        let Ok(entries) = fs::read_dir(folder) else {
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            let is_bmsp = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("bmsp"));
+            if is_bmsp && path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    found.push((name.to_string(), path.clone()));
+                }
+            }
+        }
+    }
+    if found.is_empty() {
+        return Vec::new();
+    }
+    let active: Vec<String> = installed::read_active_states(packages_root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|state| state.id)
+        .collect();
+    let manifests: Vec<(String, Option<String>)> = found
+        .into_iter()
+        .map(|(name, path)| {
+            let id = PackageReader::open_file(&path)
+                .ok()
+                .map(|reader| reader.manifest().id.clone());
+            (name, id)
+        })
+        .collect();
+    uninstalled_files(&manifests, &active)
+}
+
+/// The decision behind `uninstalled_packages`: each file with its manifest id
+/// (`None` when unreadable) and the active registry ids. Returns the sorted,
+/// de-duplicated names of the files that are not installed.
+pub fn uninstalled_files(files: &[(String, Option<String>)], active_ids: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = files
+        .iter()
+        .filter(|(_, id)| !id.as_ref().is_some_and(|id| active_ids.contains(id)))
+        .map(|(name, _)| name.clone())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// `uninstalled_packages` for the library folders the game scans now.
+pub fn uninstalled_in_library<P: AsRef<Path>>(songs_dir: P) -> Vec<String> {
+    let folders = current_folders(songs_dir.as_ref());
+    uninstalled_packages(&folders, &installed::packages_root())
+}
+
 /// A cache older than the library list or the registry was built without some
 /// folders or with states that are no longer active.
 fn cache_is_stale(cache: &Path) -> bool {
@@ -326,6 +388,43 @@ mod tests {
             copy(Kind::Folder, "D:/a", "x.bms", "D:/a/x.bms", 0),
         ]);
         assert_eq!(kept[0].file_path, "D:/a/x.bms");
+    }
+
+    #[test]
+    fn a_package_is_uninstalled_unless_its_id_is_active() {
+        let files = vec![
+            ("AIRSHAVER.bmsp".to_string(), Some("airshaver".to_string())),
+            ("Kept.bmsp".to_string(), Some("kept".to_string())),
+            ("broken.bmsp".to_string(), None),
+            ("Other.bmsp".to_string(), Some("other".to_string())),
+        ];
+        let active = vec!["kept".to_string()];
+        assert_eq!(
+            uninstalled_files(&files, &active),
+            vec![
+                "AIRSHAVER.bmsp".to_string(),
+                "Other.bmsp".to_string(),
+                "broken.bmsp".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unreadable_package_counts_as_uninstalled_even_with_no_registry() {
+        let files = vec![("broken.bmsp".to_string(), None)];
+        assert_eq!(uninstalled_files(&files, &[]), vec!["broken.bmsp"]);
+        assert!(uninstalled_files(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn a_folder_without_packages_reports_nothing() {
+        let dir = std::env::temp_dir().join(format!("beetle-nobmsp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.bme"), CHART).unwrap();
+        let folders = vec![dir.to_string_lossy().into_owned()];
+        assert!(uninstalled_packages(&folders, &dir.join("no-packages")).is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

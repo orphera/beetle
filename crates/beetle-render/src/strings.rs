@@ -56,6 +56,10 @@ table! {
     /// Shown when leaving Settings with a value that only applies after a restart.
     pub TOAST_RESTART_NEEDED = "재시작 후 적용됩니다";
     pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일입니다 (.bmsp, .bms, .bme, .bml, .pms)";
+    /// `{}` is the file name of the package.
+    pub TOAST_UNINSTALLED_ONE = "설치되지 않은 패키지: {} / bpm install로 설치하세요";
+    /// The first `{}` is the count, the second the first file name.
+    pub TOAST_UNINSTALLED_MANY = "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
     /// `{}` is the layout name (key mode and preset, e.g. "7K HomeRow (...)").
