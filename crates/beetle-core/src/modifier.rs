@@ -46,7 +46,9 @@ impl LaneModifier {
 /// Comprehensive player options configured in song select.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayOptions {
-    pub hi_speed: f32,
+    /// Green number: how long a note takes to cross the visible lane, in ms
+    /// (`beetle_render::green_ms_to_px_per_sec` turns it into scroll speed).
+    pub green_ms: u32,
     pub lane_modifier: LaneModifier,
     pub gauge_type: GaugeType,
     pub ln: LnOption,
@@ -56,7 +58,8 @@ pub struct PlayOptions {
 impl Default for PlayOptions {
     fn default() -> Self {
         Self {
-            hi_speed: 400.0, // 400 pixels/sec default
+            // 400 px/s with no lane cover (592 units of visible lane / 400 px/s).
+            green_ms: 1480,
             lane_modifier: LaneModifier::Regular,
             gauge_type: GaugeType::Groove,
             ln: LnOption::Auto,

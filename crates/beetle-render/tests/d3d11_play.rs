@@ -181,7 +181,7 @@ fn render(
             key_pressed: &keys,
             hit_bursts: &bursts,
             last_judge: Some((JudgeGrade::PerfectGreat, audio_time - 0.05, -3.0)),
-            hint: "키  Shift+S D F Space J K L    1/2 하이스피드    F10/F11 커버    ESC 일시정지",
+            hint: "키  Shift+S D F Space J K L    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
             badge: None,
             pause,
         },

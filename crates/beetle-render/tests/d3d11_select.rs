@@ -215,7 +215,7 @@ fn render(
         .collect();
     let scores = scores();
     let chips = vec![
-        format!("{} 1100", strings::ROW_HI_SPEED),
+        strings::fill(strings::CHIP_GREEN, &["500"]),
         "REGULAR".into(),
         "GROOVE".into(),
     ];
@@ -260,11 +260,7 @@ fn render(
                 value: value.to_string(),
             };
             let lines = [
-                line(
-                    Some(strings::GROUP_PLAY),
-                    strings::ROW_HI_SPEED,
-                    "1100 px/s",
-                ),
+                line(Some(strings::GROUP_PLAY), strings::ROW_GREEN, "500 ms"),
                 line(None, strings::ROW_LANE_COVER, "25%"),
                 line(None, strings::ROW_MODIFIER, "REGULAR"),
                 line(None, strings::ROW_GAUGE, "GROOVE"),

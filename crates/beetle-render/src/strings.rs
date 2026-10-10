@@ -58,10 +58,10 @@ table! {
     pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일입니다 (.bmsp, .bms, .bme, .bml, .pms)";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
-    /// `{}` are the key mode (7K) and the preset name.
-    pub TOAST_PRESET = "{} 키 배치: {} 프리셋";
-    /// `{}` are the key mode (7K) and the preset name.
-    pub TOAST_LAYOUT_RESET = "{} 키 배치를 {} 프리셋으로 되돌렸습니다";
+    /// `{}` is the layout name (key mode and preset, e.g. "7K HomeRow (...)").
+    pub TOAST_PRESET = "키 배치: {} 프리셋";
+    /// `{}` is the layout name (key mode and preset).
+    pub TOAST_LAYOUT_RESET = "키 배치를 {} 프리셋으로 되돌렸습니다";
 
     // ---- Boot ---------------------------------------------------------
     pub BOOT_TITLE_STARTUP = "시작하는 중";
@@ -142,7 +142,7 @@ table! {
     pub GROUP_JUDGE = "판정";
     pub GROUP_LAYOUT = "레이아웃";
     pub GROUP_INPUT = "입력";
-    pub ROW_HI_SPEED = "하이스피드";
+    pub ROW_GREEN = "그린 넘버";
     pub ROW_LANE_COVER = "레인 커버";
     pub ROW_MODIFIER = "모디파이어";
     pub ROW_GAUGE = "게이지";
@@ -184,8 +184,10 @@ table! {
     pub VALUE_FPS = "{} FPS";
     /// `{}` is the LN rule AUTO resolves to for the highlighted song.
     pub VALUE_AUTO_RESOLVED = "자동 ({})";
-    /// `{}` is the scroll speed in pixels per second.
-    pub VALUE_PX_PER_SEC = "{} px/s";
+    /// `{}` is the green number in milliseconds.
+    pub VALUE_MS = "{} ms";
+    /// Option chip above PLAY; `{}` is the green number in milliseconds.
+    pub CHIP_GREEN = "그린 {}";
     /// Modal footer hints.
     pub HINT_MOVE = "이동";
     pub HINT_CHANGE = "변경";
@@ -193,7 +195,7 @@ table! {
     pub HINT_SELECT = "선택";
 
     // Help sentences: one line under the highlighted row (plain Korean).
-    pub HELP_HI_SPEED = "노트가 떨어지는 속도입니다. 값이 클수록 노트가 빨리 떨어집니다. 단위는 초당 픽셀입니다.";
+    pub HELP_GREEN = "노트가 화면에 나타나서 판정선에 닿기까지의 시간입니다. 작을수록 빠릅니다. 레인 커버를 바꿔도 유지됩니다.";
     pub HELP_LANE_COVER = "레인 위쪽을 가려 노트가 보이는 구간을 줄입니다. 0%는 가리지 않습니다. 플레이 중 F10, F11로도 바꿀 수 있습니다.";
     pub HELP_MODIFIER = "노트 배치를 바꿉니다. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞습니다.";
     pub HELP_GAUGE = "점수 게이지의 방식입니다. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격합니다.";
@@ -234,9 +236,9 @@ table! {
     /// Key hint line during a replay or auto play.
     pub HUD_BACK_TO_SELECT = "ESC  곡 선택으로";
     /// Key hint line while playing; `{}` is the key layout.
-    pub HUD_KEYS = "키  {}    1/2 하이스피드    F10/F11 커버    ESC 일시정지";
+    pub HUD_KEYS = "키  {}    1/2 그린 넘버    F10/F11 커버    ESC 일시정지";
     /// Same, for layouts without cover keys (double play).
-    pub HUD_KEYS_NO_COVER = "키  {}    1/2 하이스피드    ESC 일시정지";
+    pub HUD_KEYS_NO_COVER = "키  {}    1/2 그린 넘버    ESC 일시정지";
     pub KEYS_CUSTOM = "사용자 배치";
 
     // ---- Result -------------------------------------------------------

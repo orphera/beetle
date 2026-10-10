@@ -377,6 +377,16 @@ impl AppState {
         beetle_render::GpuBackend::resize(&mut self.d3d11, target_w, target_h);
     }
 
+    /// Sets the renderer's scroll speed from the green number and the lane
+    /// cover. Call after either changes; the green number itself is kept, so
+    /// a new cover keeps the time a note is visible.
+    pub fn sync_hi_speed(&mut self) {
+        self.view.skin.hi_speed = beetle_render::green_ms_to_px_per_sec(
+            self.play_options.green_ms as f32,
+            self.view.skin.lane_cover_ratio,
+        );
+    }
+
     pub fn save_config(&self) {
         let size = self.window.inner_size();
         let app_config = AppConfig {

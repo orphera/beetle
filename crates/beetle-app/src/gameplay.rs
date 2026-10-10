@@ -204,7 +204,7 @@ pub fn finalize_start_gameplay(
     let is_pms = song.file_path.to_lowercase().ends_with(".pms");
     let play_mode = play_chart.detect_play_mode_with_hint(is_pms);
     state.view.skin.set_play_mode(play_mode);
-    state.view.skin.hi_speed = state.play_options.hi_speed;
+    state.sync_hi_speed();
 
     let mut audio_engine = AudioEngine::new(soundbank).ok();
     if let Some(audio) = &mut audio_engine {

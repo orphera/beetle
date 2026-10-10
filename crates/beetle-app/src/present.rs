@@ -86,14 +86,13 @@ fn overlays(state: &mut AppState, toasts: bool) {
     }
 }
 
-/// "하이스피드 1100", "REGULAR", "GROOVE", and for a chart with long notes
+/// "그린 500", "REGULAR", "GROOVE", and for a chart with long notes
 /// "LN" / "CN" / "CN (HCN)": the options a play of `song` will use.
 fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
     let mut chips = vec![
-        format!(
-            "{} {:.0}",
-            strings::ROW_HI_SPEED,
-            state.play_options.hi_speed
+        strings::fill(
+            strings::CHIP_GREEN,
+            &[&state.play_options.green_ms.to_string()],
         ),
         state.play_options.lane_modifier.as_str().to_string(),
         state.play_options.gauge_type.as_str().to_string(),

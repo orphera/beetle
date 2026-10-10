@@ -27,7 +27,7 @@ pub struct LoadingFrame<'a> {
     /// Seconds since loading started.
     pub elapsed: f64,
     pub status: &'a str,
-    /// Play options in effect ("HI-SPEED 1100", ...).
+    /// Play options in effect ("그린 500", ...).
     pub option_chips: &'a [String],
     /// "AUTO PLAY" / "REPLAY" when the run is not a normal play.
     pub badge: Option<&'a str>,
@@ -269,7 +269,7 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
         };
-        let chips = vec![format!("{} 1100", strings::ROW_HI_SPEED)];
+        let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
         let mut ui = Ui::new(vp.scale);
         for elapsed in [0.0, 0.1, 0.7, 3.3] {
             ui.begin(1280, 720, vp.scale);

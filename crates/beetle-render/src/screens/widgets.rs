@@ -166,7 +166,7 @@ pub struct OptionLine<'a> {
     pub column: usize,
     pub section: Option<&'a str>,
     pub label: &'a str,
-    /// The value as shown ("1100 px/s", "GROOVE", "<" arrows added by the drawing).
+    /// The value as shown ("500 ms", "GROOVE", "<" arrows added by the drawing).
     pub value: String,
 }
 

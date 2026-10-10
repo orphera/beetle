@@ -1,5 +1,5 @@
 use beetle_core::{Lane, PlayMode};
-use beetle_render::SkinConfig;
+use beetle_render::{theme::mode_label, SkinConfig};
 use std::collections::HashMap;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -87,6 +87,19 @@ impl KeyPreset {
             Self::Ue8KTriggers => "8K 6K + L/R (LShift S D F J K L RShift)",
             Self::DoublePlay => "Double Play (LShift+ZSXDCFV / RShift+UIOP[]\\)",
             Self::Custom => "Custom Layout",
+        }
+    }
+
+    /// The preset with its key mode in front ("7K HomeRow (...)"). Some
+    /// preset names already carry the mode ("6K (A S D L ; ')"), so the mode
+    /// is added only when the name does not have it as a word.
+    pub fn layout_name(self, mode: PlayMode) -> String {
+        let name = self.as_str();
+        let label = mode_label(mode);
+        if name.split_whitespace().any(|word| word == label) {
+            name.to_string()
+        } else {
+            format!("{label} {name}")
         }
     }
 }
@@ -833,6 +846,30 @@ pub fn identifier_to_key_code(s: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layout_name_adds_the_mode_only_when_the_name_lacks_it() {
+        assert_eq!(
+            KeyPreset::Ue6K.layout_name(PlayMode::Keys6),
+            "6K (A S D L ; ')"
+        );
+        assert_eq!(
+            KeyPreset::Pms9K.layout_name(PlayMode::Keys9),
+            "PMS 9K (S D F Space J K L ; ')"
+        );
+        assert_eq!(
+            KeyPreset::Ue8KTriggers.layout_name(PlayMode::Keys8),
+            "8K 6K + L/R (LShift S D F J K L RShift)"
+        );
+        assert_eq!(
+            KeyPreset::HomeRow.layout_name(PlayMode::Keys7),
+            "7K HomeRow (S D F Space J K L)"
+        );
+        assert_eq!(
+            KeyPreset::Custom.layout_name(PlayMode::Keys14),
+            "14K Custom Layout"
+        );
+    }
 
     #[test]
     fn test_input_presets() {

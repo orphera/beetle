@@ -1,6 +1,6 @@
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
-use beetle_render::{EightKForm, FieldPosition, ScratchSide};
+use beetle_render::{px_per_sec_to_green_ms, EightKForm, FieldPosition, ScratchSide};
 use std::fs;
 use std::path::Path;
 
@@ -149,6 +149,17 @@ impl TrackBgaSetting {
     }
 }
 
+/// Green number range in ms (the Settings and play panel steps stay inside it).
+pub const GREEN_MS_MIN: u32 = 100;
+pub const GREEN_MS_MAX: u32 = 2000;
+
+/// The green number a file written before U2b meant: its px/s hi-speed at the
+/// saved lane cover, rounded to the 10 ms step.
+pub fn green_ms_from_hi_speed(px_per_sec: f32, lane_cover: f32) -> u32 {
+    let ms = px_per_sec_to_green_ms(px_per_sec, lane_cover);
+    (((ms / 10.0).round() as u32) * 10).clamp(GREEN_MS_MIN, GREEN_MS_MAX)
+}
+
 /// Persistent application configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -229,6 +240,8 @@ impl AppConfig {
         // `scratch_side` was one setting for 5K and 7K before each mode got its own.
         let mut legacy_side = None;
         let mut side_set = [false; 3];
+        // Files before U2b stored px/s (`hi_speed`); `green_ms` wins when both exist.
+        let (mut old_hi_speed, mut green_seen) = (None, false);
 
         for line in data.lines() {
             let line = line.trim();
@@ -245,9 +258,15 @@ impl AppConfig {
             let val = parts[1].trim();
 
             match key {
+                "green_ms" => {
+                    if let Ok(v) = val.parse::<u32>() {
+                        config.play_options.green_ms = v.clamp(GREEN_MS_MIN, GREEN_MS_MAX);
+                        green_seen = true;
+                    }
+                }
                 "hi_speed" => {
                     if let Ok(v) = val.parse::<f32>() {
-                        config.play_options.hi_speed = v.clamp(100.0, 1200.0);
+                        old_hi_speed = Some(v.clamp(100.0, 1200.0));
                     }
                 }
                 "lane_cover_ratio" => {
@@ -350,6 +369,9 @@ impl AppConfig {
             }
         }
 
+        if let (false, Some(px)) = (green_seen, old_hi_speed) {
+            config.play_options.green_ms = green_ms_from_hi_speed(px, config.lane_cover_ratio);
+        }
         for i in 0..MODE_SLOTS.len() {
             config.key_layouts[i] = presets[i].map(|p| (p, std::mem::take(&mut bindings[i])));
         }
@@ -366,8 +388,8 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "hi_speed={:.1}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
-            self.play_options.hi_speed,
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\n",
+            self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
             self.play_options.gauge_type.as_str(),
@@ -409,7 +431,7 @@ mod tests {
     fn test_config_serialization_roundtrip() {
         let config = AppConfig {
             play_options: PlayOptions {
-                hi_speed: 550.0,
+                green_ms: 1080,
                 lane_modifier: LaneModifier::Random,
                 gauge_type: GaugeType::Hard,
                 ln: LnOption::Cn,
@@ -444,7 +466,7 @@ mod tests {
         let serialized = config.serialize_str();
         let parsed = AppConfig::parse_str(&serialized);
 
-        assert_eq!(config.play_options.hi_speed, parsed.play_options.hi_speed);
+        assert_eq!(config.play_options.green_ms, parsed.play_options.green_ms);
         assert_eq!(
             config.play_options.lane_modifier,
             parsed.play_options.lane_modifier
@@ -488,5 +510,75 @@ mod tests {
             parsed.scratch_sides,
             [ScratchSide::Right, ScratchSide::Left, ScratchSide::Left]
         );
+    }
+
+    #[test]
+    fn old_hi_speed_file_converts_to_green_with_its_lane_cover() {
+        // 1150 px/s at a 5 % cover: 558.4 units visible -> 485.6 ms -> 490 ms.
+        let parsed = AppConfig::parse_str(
+            "hi_speed=1150.0
+lane_cover_ratio=0.05
+",
+        );
+        assert_eq!(parsed.play_options.green_ms, 490);
+        // The cover key may come after the old speed.
+        let parsed = AppConfig::parse_str(
+            "hi_speed=400.0
+",
+        );
+        assert_eq!(parsed.play_options.green_ms, 1480);
+        assert_eq!(green_ms_from_hi_speed(1125.0, 0.0), 530);
+    }
+
+    #[test]
+    fn green_ms_wins_over_an_old_hi_speed_line() {
+        let parsed = AppConfig::parse_str(
+            "hi_speed=1150.0
+green_ms=700
+",
+        );
+        assert_eq!(parsed.play_options.green_ms, 700);
+    }
+
+    #[test]
+    fn green_ms_is_clamped_and_saved_without_hi_speed() {
+        assert_eq!(
+            AppConfig::parse_str(
+                "green_ms=5
+"
+            )
+            .play_options
+            .green_ms,
+            GREEN_MS_MIN
+        );
+        assert_eq!(
+            AppConfig::parse_str(
+                "green_ms=99999
+"
+            )
+            .play_options
+            .green_ms,
+            GREEN_MS_MAX
+        );
+        let config = AppConfig {
+            play_options: PlayOptions {
+                green_ms: 530,
+                ..PlayOptions::default()
+            },
+            ..AppConfig::default()
+        };
+        let text = config.serialize_str();
+        assert!(
+            text.contains(
+                "
+green_ms=530
+"
+            ) || text.starts_with(
+                "green_ms=530
+"
+            )
+        );
+        assert!(!text.contains("hi_speed"));
+        assert_eq!(AppConfig::parse_str(&text).play_options.green_ms, 530);
     }
 }

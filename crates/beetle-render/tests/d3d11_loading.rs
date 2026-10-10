@@ -34,7 +34,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         play_mode: PlayMode::Keys7,
     };
     let chips = vec![
-        format!("{} 1100", strings::ROW_HI_SPEED),
+        strings::fill(strings::CHIP_GREEN, &["500"]),
         "REGULAR".into(),
         "GROOVE".into(),
     ];

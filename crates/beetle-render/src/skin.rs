@@ -172,6 +172,34 @@ fn side_slot(mode: PlayMode) -> usize {
     }
 }
 
+/// Playfield geometry in 720-unit layout space; `update_layout` scales it by
+/// the viewport. The field's top, its height and the judge line do not depend
+/// on the key mode or the field position, so the green number conversion below
+/// needs no layout argument.
+pub const FIELD_TOP_720: f32 = 24.0;
+pub const FIELD_HEIGHT_720: f32 = 672.0;
+pub const JUDGE_LINE_720: f32 = 616.0;
+/// Largest lane cover the renderer draws.
+pub const MAX_LANE_COVER: f32 = 0.85;
+
+/// Length of the lane a note travels visibly, in 720-unit px: from the bottom
+/// edge of the lane cover (`play.rs` covers `FIELD_HEIGHT_720 * ratio` from
+/// the field top) down to the judge line.
+pub fn visible_lane_720(lane_cover: f32) -> f32 {
+    (JUDGE_LINE_720 - FIELD_TOP_720) - FIELD_HEIGHT_720 * lane_cover.clamp(0.0, MAX_LANE_COVER)
+}
+
+/// The scroll speed (`SkinConfig::hi_speed`, 720-unit px per second at the
+/// chart's first BPM) at which a note takes `green_ms` to cross the visible lane.
+pub fn green_ms_to_px_per_sec(green_ms: f32, lane_cover: f32) -> f32 {
+    visible_lane_720(lane_cover) * 1000.0 / green_ms.max(1.0)
+}
+
+/// The inverse of `green_ms_to_px_per_sec`: the green number a scroll speed gives.
+pub fn px_per_sec_to_green_ms(px_per_sec: f32, lane_cover: f32) -> f32 {
+    visible_lane_720(lane_cover) * 1000.0 / px_per_sec.max(1.0)
+}
+
 /// Gameplay lane layout (playfield geometry, lane widths and note colors).
 #[derive(Debug, Clone)]
 pub struct SkinConfig {
@@ -286,9 +314,9 @@ impl SkinConfig {
     pub fn update_layout(&mut self, vp: &crate::view::Viewport) {
         let s = vp.scale;
         (self.area_x, self.area_width, self.area_scale) = (vp.x, vp.width, s);
-        self.playfield_y = vp.y + 24.0 * s;
-        self.playfield_height = 672.0 * s;
-        self.judge_line_y = vp.y + 616.0 * s;
+        self.playfield_y = vp.y + FIELD_TOP_720 * s;
+        self.playfield_height = FIELD_HEIGHT_720 * s;
+        self.judge_line_y = vp.y + JUDGE_LINE_720 * s;
 
         self.scratch_lane_width = 72.0 * s;
         self.lane_width = 50.0 * s;
@@ -833,5 +861,42 @@ mod tests {
             .map(|&l| skin.lane_x(l))
             .collect();
         assert!(xs.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn green_number_is_the_time_across_the_visible_lane() {
+        // Without a cover the lane is 592 units: 400 px/s is 1.48 s.
+        assert!((green_ms_to_px_per_sec(1480.0, 0.0) - 400.0).abs() < 0.01);
+        // A 25 % cover hides 168 units of the 672-unit field: 424 units visible.
+        let visible = visible_lane_720(0.25);
+        assert!((visible - 424.0).abs() < 1e-3);
+        assert!((green_ms_to_px_per_sec(1000.0, 0.25) - 424.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn green_number_round_trips_through_px_per_sec() {
+        for cover in [0.0, 0.05, 0.4, 0.8, 0.85] {
+            for green in [100.0, 530.0, 1480.0, 2000.0] {
+                let px = green_ms_to_px_per_sec(green, cover);
+                let back = px_per_sec_to_green_ms(px, cover);
+                assert!((back - green).abs() < 1e-2, "cover {cover} green {green}");
+            }
+        }
+    }
+
+    #[test]
+    fn cover_is_clamped_so_the_visible_lane_stays_positive() {
+        assert_eq!(visible_lane_720(-1.0), visible_lane_720(0.0));
+        assert_eq!(visible_lane_720(2.0), visible_lane_720(MAX_LANE_COVER));
+        assert!(visible_lane_720(MAX_LANE_COVER) > 0.0);
+    }
+
+    #[test]
+    fn layout_places_judge_line_and_field_from_the_720_constants() {
+        let mut skin = SkinConfig::default();
+        let vp = crate::view::Viewport::new(1280, 720);
+        skin.update_layout(&vp);
+        assert_eq!(skin.judge_line_y, JUDGE_LINE_720 * vp.scale + vp.y);
+        assert_eq!(skin.playfield_height, FIELD_HEIGHT_720 * vp.scale);
     }
 }

@@ -35,7 +35,8 @@ pub use screens::{
     SelectFrame, SettingsFrame, SizedTexture, ToastFrame, ToastKind, KEY_MODES,
 };
 pub use skin::{
-    scratch_side_applies, ColorRgba, EightKForm, FieldPosition, ScratchSide, SkinConfig,
+    green_ms_to_px_per_sec, px_per_sec_to_green_ms, scratch_side_applies, ColorRgba, EightKForm,
+    FieldPosition, ScratchSide, SkinConfig,
 };
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::Ui;

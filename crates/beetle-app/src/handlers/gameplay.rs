@@ -3,6 +3,7 @@ use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::gameplay::queue_start_gameplay;
+use crate::options_table::green_ms_next;
 use crate::state::{AppScreen, AppState};
 
 /// Handles keyboard input during gameplay, pause modal, and live hotkeys.
@@ -36,27 +37,30 @@ pub fn handle_gameplay_input(
                 }
                 return;
             }
+            // F3 / 1: faster (a smaller green number), F4 / 2: slower.
             KeyCode::F3 | KeyCode::PageUp | KeyCode::Digit1 => {
-                state.play_options.hi_speed = (state.play_options.hi_speed + 25.0).min(1200.0);
-                state.view.skin.hi_speed = state.play_options.hi_speed;
+                state.play_options.green_ms = green_ms_next(state.play_options.green_ms, false);
+                state.sync_hi_speed();
                 state.save_config();
                 return;
             }
             KeyCode::F4 | KeyCode::PageDown | KeyCode::Digit2 => {
-                state.play_options.hi_speed = (state.play_options.hi_speed - 25.0).max(100.0);
-                state.view.skin.hi_speed = state.play_options.hi_speed;
+                state.play_options.green_ms = green_ms_next(state.play_options.green_ms, true);
+                state.sync_hi_speed();
                 state.save_config();
                 return;
             }
             KeyCode::F10 => {
                 state.view.skin.lane_cover_ratio =
                     (state.view.skin.lane_cover_ratio + 0.05).min(0.80);
+                state.sync_hi_speed();
                 state.save_config();
                 return;
             }
             KeyCode::F11 => {
                 state.view.skin.lane_cover_ratio =
                     (state.view.skin.lane_cover_ratio - 0.05).max(0.0);
+                state.sync_hi_speed();
                 state.save_config();
                 return;
             }

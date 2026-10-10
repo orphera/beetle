@@ -6,7 +6,7 @@ use winit::keyboard::KeyCode;
 use crate::input::{lanes_for, screen_lanes_for, KeyPreset};
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
-use beetle_render::{strings, theme, ToastKind};
+use beetle_render::{strings, ToastKind};
 
 /// Handles keyboard input on the Key Configuration screen.
 ///
@@ -120,11 +120,11 @@ pub fn cycle_key_preset(state: &mut AppState) {
         follow_lane(state, mode, lane);
     }
     state.save_config();
-    let preset = state.key_bindings.get(mode).preset.as_str();
+    let layout = state.key_bindings.get(mode).preset.layout_name(mode);
     show_toast(
         state,
         ToastKind::Info,
-        strings::fill(strings::TOAST_PRESET, &[theme::mode_label(mode), preset]),
+        strings::fill(strings::TOAST_PRESET, &[&layout]),
     );
 }
 
@@ -171,10 +171,7 @@ pub fn reset_key_layout(state: &mut AppState) {
     show_toast(
         state,
         ToastKind::Info,
-        strings::fill(
-            strings::TOAST_LAYOUT_RESET,
-            &[theme::mode_label(mode), preset.as_str()],
-        ),
+        strings::fill(strings::TOAST_LAYOUT_RESET, &[&preset.layout_name(mode)]),
     );
 }
 

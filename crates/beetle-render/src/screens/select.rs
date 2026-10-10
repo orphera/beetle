@@ -41,7 +41,7 @@ pub struct SelectFrame<'a> {
     pub jacket: Option<SizedTexture>,
     /// Dominant color of that image (tints the ambient light).
     pub ambient: Option<ColorRgba>,
-    /// Current play options shown above the PLAY button ("HI-SPEED 1100", ...).
+    /// Current play options shown above the PLAY button ("그린 500", ...).
     pub option_chips: &'a [String],
     pub auto_play: bool,
     pub has_replay: bool,
@@ -1425,8 +1425,8 @@ mod tests {
             OptionLine {
                 column: 0,
                 section: Some("플레이"),
-                label: "HI-SPEED",
-                value: "1100 px/s".into(),
+                label: "그린 넘버",
+                value: "500 ms".into(),
             },
             OptionLine {
                 column: 0,
@@ -1468,11 +1468,7 @@ mod tests {
             random_seed: None,
             played_at: 0,
         });
-        let chips = vec![
-            "HI-SPEED 1100".to_string(),
-            "REGULAR".into(),
-            "GROOVE".into(),
-        ];
+        let chips = vec!["그린 500".to_string(), "REGULAR".into(), "GROOVE".into()];
         let mut ui = Ui::new(vp.scale);
         for (selected, search) in [(5, ""), (30, "zzz"), (0, "")] {
             let visible = if search.is_empty() {

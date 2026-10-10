@@ -148,7 +148,10 @@ impl ApplicationHandler for BeetleApp {
         };
         let size = window.inner_size();
         let skin = SkinConfig {
-            hi_speed: saved_config.play_options.hi_speed,
+            hi_speed: beetle_render::green_ms_to_px_per_sec(
+                saved_config.play_options.green_ms as f32,
+                saved_config.lane_cover_ratio,
+            ),
             lane_cover_ratio: saved_config.lane_cover_ratio,
             field_position: saved_config.field_position,
             scratch_sides: saved_config.scratch_sides,

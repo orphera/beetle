@@ -7,7 +7,7 @@
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
 use beetle_render::{scratch_side_applies, strings, FieldPosition, ScratchSide};
 
-use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting};
+use crate::config::{DisplayMode, GpuBackendSetting, TrackBgaSetting, GREEN_MS_MAX, GREEN_MS_MIN};
 use crate::state::AppState;
 
 /// Frame rates the target FPS row cycles through; 0 is unlimited.
@@ -31,7 +31,7 @@ const LN_ORDER: [LnOption; 3] = [LnOption::Auto, LnOption::Ln, LnOption::Cn];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptionId {
     // Play options panel.
-    HiSpeed,
+    Green,
     LaneCover,
     Modifier,
     Gauge,
@@ -68,11 +68,11 @@ pub struct OptionDesc {
 /// The per-play options, shown by the play options panel.
 pub const PLAY_OPTIONS: &[OptionDesc] = &[
     OptionDesc {
-        id: OptionId::HiSpeed,
+        id: OptionId::Green,
         group: strings::GROUP_PLAY,
         column: 0,
-        label: strings::ROW_HI_SPEED,
-        help: strings::HELP_HI_SPEED,
+        label: strings::ROW_GREEN,
+        help: strings::HELP_GREEN,
     },
     OptionDesc {
         id: OptionId::LaneCover,
@@ -219,9 +219,15 @@ pub fn activation(id: OptionId) -> Option<Activation> {
 // Value steps (pure, so the ranges can be tested without a window)
 // ---------------------------------------------------------------------------
 
-/// Hi-speed in px/s: 25 steps between 100 and 1200.
-pub fn hi_speed_next(v: f32, forward: bool) -> f32 {
-    (v + if forward { 25.0 } else { -25.0 }).clamp(100.0, 1200.0)
+/// Green number in ms: 10 ms steps between 100 and 2000. A value off the
+/// step (a hand-edited file) moves to the next step in that direction.
+pub fn green_ms_next(v: u32, forward: bool) -> u32 {
+    let next = if forward {
+        (v / 10 + 1) * 10
+    } else {
+        ((v + 9) / 10).saturating_sub(1) * 10
+    };
+    next.clamp(GREEN_MS_MIN, GREEN_MS_MAX)
 }
 
 /// Lane cover ratio: 5 % steps between 0 and 80 %, the range of the cover
@@ -276,9 +282,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         }
     };
     match id {
-        OptionId::HiSpeed => {
-            strings::fill(strings::VALUE_PX_PER_SEC, &[&format!("{:.0}", o.hi_speed)])
-        }
+        OptionId::Green => strings::fill(strings::VALUE_MS, &[&o.green_ms.to_string()]),
         OptionId::LaneCover => format!("{:.0}%", state.view.skin.lane_cover_ratio * 100.0),
         OptionId::Modifier => o.lane_modifier.as_str().to_string(),
         OptionId::Gauge => o.gauge_type.as_str().to_string(),
@@ -327,11 +331,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::KeyLayout => {
             // Layouts are per key mode; this row shows the selected song's.
             let mode = state.key_config_mode();
-            format!(
-                "{}  {}",
-                beetle_render::theme::mode_label(mode),
-                state.key_bindings.get(mode).preset.as_str()
-            )
+            state.key_bindings.get(mode).preset.layout_name(mode)
         }
     }
 }
@@ -340,14 +340,15 @@ pub fn value(state: &AppState, id: OptionId) -> String {
 /// a row without an activation). The caller saves the config.
 pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
     match id {
-        OptionId::HiSpeed => {
-            let o = &mut state.play_options;
-            o.hi_speed = hi_speed_next(o.hi_speed, forward);
-            state.view.skin.hi_speed = o.hi_speed;
+        OptionId::Green => {
+            state.play_options.green_ms = green_ms_next(state.play_options.green_ms, forward);
+            state.sync_hi_speed();
         }
         OptionId::LaneCover => {
             let skin = &mut state.view.skin;
             skin.lane_cover_ratio = lane_cover_next(skin.lane_cover_ratio, forward);
+            // The green number stays; the scroll speed follows the cover.
+            state.sync_hi_speed();
         }
         OptionId::Modifier => {
             state.play_options.lane_modifier =
@@ -542,11 +543,14 @@ mod tests {
     }
 
     #[test]
-    fn hi_speed_steps_are_reversible_inside_the_range() {
-        assert_eq!(hi_speed_next(1100.0, true), 1125.0);
-        assert_eq!(hi_speed_next(1125.0, false), 1100.0);
-        assert_eq!(hi_speed_next(1200.0, true), 1200.0);
-        assert_eq!(hi_speed_next(100.0, false), 100.0);
+    fn green_steps_are_10_ms_and_reversible_inside_the_range() {
+        assert_eq!(green_ms_next(1480, true), 1490);
+        assert_eq!(green_ms_next(1490, false), 1480);
+        assert_eq!(green_ms_next(1485, false), 1480);
+        assert_eq!(green_ms_next(1485, true), 1490);
+        assert_eq!(green_ms_next(2000, true), 2000);
+        assert_eq!(green_ms_next(100, false), 100);
+        assert_eq!(green_ms_next(0, false), 100);
     }
 
     #[test]
