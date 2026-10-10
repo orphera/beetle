@@ -33,11 +33,13 @@ pub enum SelectRow<'a> {
         lamps: [usize; LAMP_COUNT],
     },
     /// The charts of one song: `charts` are indices into `SelectFrame::songs`
-    /// (by level), `selected` the position in `charts` the row shows.
+    /// (by level), `selected` the position in `charts` the row shows, `labels`
+    /// the chip text of each chart in that order.
     Group {
         title: &'a str,
         charts: &'a [usize],
         selected: usize,
+        labels: &'a [String],
     },
 }
 
@@ -58,6 +60,7 @@ struct ChartTabs<'a> {
     row: usize,
     charts: &'a [usize],
     selected: usize,
+    labels: &'a [String],
 }
 
 /// Clear lamps a folder's breakdown counts: the lamp rows, in the order the
@@ -162,11 +165,13 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             Some(&SelectRow::Group {
                 charts,
                 selected: pos,
+                labels,
                 ..
             }) => Some(ChartTabs {
                 row: f.selected,
                 charts,
                 selected: pos,
+                labels,
             }),
             _ => None,
         };
@@ -611,10 +616,11 @@ fn song_list(
                 title,
                 charts,
                 selected,
+                labels,
             } => {
                 hs.add(row, HitId::ListRow(slot));
                 group_row(
-                    c, t, sk, f, title, charts, selected, slot, row, on, hot, s, hs,
+                    c, t, sk, f, title, charts, labels, selected, slot, row, on, hot, s, hs,
                 );
             }
         }
@@ -860,6 +866,7 @@ fn group_row(
     f: &SelectFrame,
     title: &str,
     charts: &[usize],
+    labels: &[String],
     selected: usize,
     slot: usize,
     row: Rect,
@@ -883,16 +890,11 @@ fn group_row(
     let base = row.y + 42.0 * s;
     let mut ax = tx;
     for (pos, &i) in charts.iter().enumerate() {
-        let Some(chart) = f.songs.get(i) else {
+        let (Some(chart), Some(text)) = (f.songs.get(i), labels.get(pos)) else {
             continue;
         };
         let (_, col) = theme::level_tier(chart.play_level);
-        let text = format!(
-            "{} {}",
-            theme::mode_label(chart.play_mode),
-            chart.play_level
-        );
-        let w = chart_chip(c, t, &text, ax, base, col, pos == selected, s);
+        let w = chart_chip(c, t, text, ax, base, col, pos == selected, s);
         hs.add(
             Rect::new(ax, base - 12.0 * s, w, 16.0 * s),
             HitId::ChartTab { row: slot, pos },
@@ -925,18 +927,13 @@ fn chart_tabs(
 ) {
     let mut x = strip.x;
     for (pos, &i) in tabs.charts.iter().enumerate() {
-        let Some(chart) = f.songs.get(i) else {
+        let (Some(chart), Some(text)) = (f.songs.get(i), tabs.labels.get(pos)) else {
             continue;
         };
         let (_, col) = theme::level_tier(chart.play_level);
-        let text = format!(
-            "{} {}",
-            theme::mode_label(chart.play_mode),
-            chart.play_level
-        );
         let on = pos == tabs.selected;
         let st = caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
-        let w = t.measure(c, &text, &st) + 24.0 * s;
+        let w = t.measure(c, text, &st) + 24.0 * s;
         let rect = Rect::new(x, strip.y, w, strip.h);
         c.fill_rect(rect, if on { col.with_alpha(70) } else { theme::SURF2 });
         c.stroke_rect(rect, s.max(1.0), if on { col } else { theme::LINE });
@@ -946,7 +943,7 @@ fn chart_tabs(
                 col,
             );
         }
-        t.draw_in(c, &text, rect, Align::Center, &st);
+        t.draw_in(c, text, rect, Align::Center, &st);
         hs.add(rect, HitId::ChartTab { row: tabs.row, pos });
         x += w + 6.0 * s;
     }
@@ -3188,6 +3185,7 @@ mod tests {
                 title: "Baby",
                 charts: &charts,
                 selected: 0,
+                labels: &[],
             }),
             3
         );

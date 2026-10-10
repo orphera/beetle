@@ -129,6 +129,8 @@ pub enum ListEntry {
         charts: Vec<usize>,
         /// The position in `charts` the row shows.
         selected: usize,
+        /// The chip label of each chart, in `charts` order (see `chip_labels`).
+        labels: Vec<String>,
     },
     Song(usize),
 }
@@ -520,22 +522,115 @@ pub fn song_folder(file_path: &str) -> Option<String> {
     }
 }
 
-/// The title without its trailing `[...]` or `(...)` part:
-/// `AIRSHAVER [7key, Another]` → `AIRSHAVER`. The whole title when stripping
-/// would leave nothing.
-pub fn base_title(title: &str) -> &str {
+/// The title split at its trailing `[...]` or `(...)` part:
+/// `AIRSHAVER [7key, Another]` → (`AIRSHAVER`, `7key, Another`). `None` when
+/// there is no such part or stripping would leave nothing.
+fn split_trailing_bracket(title: &str) -> Option<(&str, &str)> {
     let t = title.trim();
     for (open, close) in [('[', ']'), ('(', ')')] {
         if let Some(stripped) = t.strip_suffix(close) {
             if let Some(pos) = stripped.rfind(open) {
                 let base = stripped[..pos].trim_end();
                 if !base.is_empty() {
-                    return base;
+                    return Some((base, stripped[pos + open.len_utf8()..].trim()));
                 }
             }
         }
     }
-    t
+    None
+}
+
+/// The title without its trailing `[...]` or `(...)` part:
+/// `AIRSHAVER [7key, Another]` → `AIRSHAVER`. The whole title when stripping
+/// would leave nothing.
+pub fn base_title(title: &str) -> &str {
+    split_trailing_bracket(title).map_or(title.trim(), |(base, _)| base)
+}
+
+/// Most characters of a chart's tag in its chip label.
+const CHIP_TAG_MAX: usize = 8;
+
+/// A tag of at most `CHIP_TAG_MAX` characters from `text`: the text when it
+/// fits, else its last word that fits and has a letter or digit, else its first
+/// characters. `None` for blank text.
+fn short_tag(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let fits = |w: &str| w.chars().count() <= CHIP_TAG_MAX;
+    if fits(text) {
+        return Some(text.to_string());
+    }
+    let word = text
+        .split_whitespace()
+        .rev()
+        .find(|w| fits(w) && w.chars().any(char::is_alphanumeric));
+    Some(match word {
+        Some(w) => w.to_string(),
+        None => text
+            .chars()
+            .take(CHIP_TAG_MAX)
+            .collect::<String>()
+            .trim_end()
+            .to_string(),
+    })
+}
+
+/// `base` with each tag appended (`6K 21 UwU`), when the labels come out all
+/// different. A chart without a tag keeps `base`.
+fn labels_with_tags(base: &str, tags: &[Option<String>]) -> Option<Vec<String>> {
+    let labels: Vec<String> = tags
+        .iter()
+        .map(|tag| match tag {
+            Some(tag) => format!("{base} {tag}"),
+            None => base.to_string(),
+        })
+        .collect();
+    let distinct: HashSet<&String> = labels.iter().collect();
+    (distinct.len() == labels.len()).then_some(labels)
+}
+
+/// The chip label of each chart of a group, in `charts` order: `{mode} {level}`
+/// (`7K 12`). Charts that would show the same label are all told apart at once,
+/// by the trailing bracket of their title (`6K 21 UwU`), else by their subtitle,
+/// else by an ordinal (`6K 21 #2`). Charts with a unique label keep it.
+pub fn chip_labels(songs: &[SongMetadata], charts: &[usize]) -> Vec<String> {
+    let base: Vec<String> = charts
+        .iter()
+        .map(|&i| {
+            format!(
+                "{} {}",
+                theme::mode_label(songs[i].play_mode),
+                songs[i].play_level
+            )
+        })
+        .collect();
+    let mut labels = base.clone();
+    let mut done: HashSet<&str> = HashSet::new();
+    for text in &base {
+        if !done.insert(text.as_str()) {
+            continue;
+        }
+        let run: Vec<usize> = (0..base.len()).filter(|&q| base[q] == *text).collect();
+        if run.len() < 2 {
+            continue;
+        }
+        let members: Vec<&SongMetadata> = run.iter().map(|&q| &songs[charts[q]]).collect();
+        let bracket: Vec<Option<String>> = members
+            .iter()
+            .map(|m| split_trailing_bracket(&m.title).and_then(|(_, inner)| short_tag(inner)))
+            .collect();
+        let subtitle: Vec<Option<String>> =
+            members.iter().map(|m| short_tag(&m.subtitle)).collect();
+        let picked = labels_with_tags(text, &bracket)
+            .or_else(|| labels_with_tags(text, &subtitle))
+            .unwrap_or_else(|| (1..=run.len()).map(|k| format!("{text} #{k}")).collect());
+        for (&q, label) in run.iter().zip(picked) {
+            labels[q] = label;
+        }
+    }
+    labels
 }
 
 /// The key of a song's group: its folder and base title, FNV-1a 64. `None`
@@ -592,11 +687,13 @@ pub fn group_entries(
                     .get(&key)
                     .and_then(|id| charts.iter().position(|&c| songs[c].id == *id))
                     .unwrap_or(0);
+                let labels = chip_labels(songs, &charts);
                 ListEntry::Group {
                     key,
                     title: base_title(&songs[charts[0]].title).to_string(),
                     charts,
                     selected,
+                    labels,
                 }
             }
         })
@@ -1274,6 +1371,7 @@ mod tests {
                     title: "AIR".into(),
                     charts: vec![3, 2, 0],
                     selected: 0,
+                    labels: vec!["7K 11 5key".into(), "7K 11 7key".into(), "7K 12".into()],
                 },
                 ListEntry::Song(1),
             ]
@@ -1404,5 +1502,95 @@ mod tests {
         );
         assert_eq!(mode_from_id("14k"), Some(PlayMode::Keys14));
         assert_eq!(mode_from_id("zz"), None);
+    }
+
+    /// A chart of `mode` and `level` in the song folder `x/Song`, with a subtitle.
+    fn tagged(n: u64, title: &str, subtitle: &str, mode: PlayMode, level: u32) -> SongMetadata {
+        SongMetadata {
+            file_path: "x/Song/c.bms".into(),
+            subtitle: subtitle.into(),
+            ..song(n, title, level, mode)
+        }
+    }
+
+    #[test]
+    fn chip_labels_keep_labels_that_are_already_unique() {
+        let songs = vec![
+            tagged(1, "S", "", PlayMode::Keys7, 5),
+            tagged(2, "S [A]", "", PlayMode::Keys7, 6),
+        ];
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["7K 5", "7K 6"]);
+    }
+
+    #[test]
+    fn a_tie_is_told_apart_by_the_bracket_of_the_charts_that_have_one() {
+        let songs = vec![
+            tagged(1, "ADDicTiON 4500000", "", PlayMode::Keys6, 21),
+            tagged(2, "ADDicTiON 4500000 [6K UE UwU]", "", PlayMode::Keys6, 21),
+        ];
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["6K 21", "6K 21 UwU"]);
+    }
+
+    #[test]
+    fn two_brackets_that_differ_both_show_their_tag() {
+        let songs = vec![
+            tagged(1, "X [6K UE UwU]", "", PlayMode::Keys6, 21),
+            tagged(2, "X [6K UE ABC]", "", PlayMode::Keys6, 21),
+        ];
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["6K 21 UwU", "6K 21 ABC"]);
+    }
+
+    #[test]
+    fn repeated_brackets_fall_back_to_the_subtitles() {
+        let songs = vec![
+            tagged(1, "X [A]", "Hard", PlayMode::Keys6, 21),
+            tagged(2, "X [A]", "Ex", PlayMode::Keys6, 21),
+        ];
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["6K 21 Hard", "6K 21 Ex"]);
+    }
+
+    #[test]
+    fn a_three_way_tie_with_no_tags_gets_ordinals() {
+        let songs = vec![
+            tagged(1, "X", "", PlayMode::Keys6, 21),
+            tagged(2, "X", "", PlayMode::Keys6, 21),
+            tagged(3, "X", "", PlayMode::Keys6, 21),
+        ];
+        assert_eq!(
+            chip_labels(&songs, &[0, 1, 2]),
+            ["6K 21 #1", "6K 21 #2", "6K 21 #3"]
+        );
+    }
+
+    #[test]
+    fn an_empty_bracket_is_no_tag() {
+        let songs = vec![
+            tagged(1, "X []", "", PlayMode::Keys6, 21),
+            tagged(2, "X", "", PlayMode::Keys6, 21),
+        ];
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["6K 21 #1", "6K 21 #2"]);
+    }
+
+    #[test]
+    fn a_tie_only_renames_its_own_charts() {
+        let songs = vec![
+            tagged(1, "X [A]", "", PlayMode::Keys6, 21),
+            tagged(2, "X [B]", "", PlayMode::Keys6, 21),
+            tagged(3, "X", "", PlayMode::Keys6, 9),
+        ];
+        assert_eq!(
+            chip_labels(&songs, &[0, 1, 2]),
+            ["6K 21 A", "6K 21 B", "6K 9"]
+        );
+    }
+
+    #[test]
+    fn short_tags_keep_a_short_word_of_a_long_text() {
+        assert_eq!(short_tag("6K UE UwU").as_deref(), Some("UwU"));
+        assert_eq!(short_tag("7key, Another").as_deref(), Some("Another"));
+        assert_eq!(short_tag("Title").as_deref(), Some("Title"));
+        assert_eq!(short_tag("- Some Title -").as_deref(), Some("Title"));
+        assert_eq!(short_tag("Extraordinary").as_deref(), Some("Extraord"));
+        assert_eq!(short_tag("   "), None);
     }
 }

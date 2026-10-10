@@ -484,12 +484,15 @@ fn song_select_folder_views() {
     );
     // A leaf with a group: the two AIRSHAVER charts share one row (charts by level,
     // then title: 14K first). The chosen chart is the 7K one, then the 14K one.
+    let labels: &'static [String] =
+        Box::leak(Box::new(["14K 11".to_string(), "7K 11".to_string()]));
     for (pos, name) in [(1, "select-group-7k"), (0, "select-group-14k")] {
         let rows: Vec<SelectRow<'static>> = vec![
             SelectRow::Group {
                 title: "AIRSHAVER",
                 charts: &[3, 2],
                 selected: pos,
+                labels,
             },
             SelectRow::Song(0),
             SelectRow::Song(1),

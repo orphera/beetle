@@ -361,11 +361,13 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
                 title,
                 charts,
                 selected,
+                labels,
                 ..
             } => beetle_render::SelectRow::Group {
                 title: title.as_str(),
                 charts,
                 selected: *selected,
+                labels,
             },
         })
         .collect();
