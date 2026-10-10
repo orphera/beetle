@@ -105,8 +105,18 @@ pub fn handle_song_select_input(
         KeyCode::F2 => cycle_sort(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
-        KeyCode::ArrowRight => enter_folder(state),
-        KeyCode::ArrowLeft | KeyCode::Backspace => go_up(state),
+        // On a group row the arrows switch its chart; elsewhere they open or leave a folder.
+        KeyCode::ArrowRight => {
+            if !cycle_chart(state, true) {
+                enter_folder(state);
+            }
+        }
+        KeyCode::ArrowLeft => {
+            if !cycle_chart(state, false) {
+                go_up(state);
+            }
+        }
+        KeyCode::Backspace => go_up(state),
         KeyCode::PageUp => {
             if !state.entries.is_empty() {
                 state.selected_entry = state.selected_entry.saturating_sub(10);
@@ -178,6 +188,46 @@ pub fn set_folder(state: &mut AppState, path: FolderPath, focus: Option<&str>) {
     state.folder_path = path;
     state.recompute_entries();
     state.selected_entry = folders::focus_index(&state.entries, focus);
+    state.cursor_settle_time = std::time::Instant::now();
+    state.save_config();
+}
+
+/// Moves a group row to its next (or previous) chart, wrapping. Returns false
+/// when the highlighted row is not a group (the arrows then do their folder job).
+pub fn cycle_chart(state: &mut AppState, forward: bool) -> bool {
+    let Some(ListEntry::Group {
+        charts, selected, ..
+    }) = state.entries.get(state.selected_entry)
+    else {
+        return false;
+    };
+    let n = charts.len();
+    let next = if forward {
+        (selected + 1) % n
+    } else {
+        (selected + n - 1) % n
+    };
+    let row = state.selected_entry;
+    choose_chart(state, row, next);
+    true
+}
+
+/// Shows chart `pos` of the group at `row` and remembers it (a chip or tab
+/// click, or the arrows). The first chart is the default, so it is not stored.
+pub fn choose_chart(state: &mut AppState, row: usize, pos: usize) {
+    let Some(ListEntry::Group { key, charts, .. }) = state.entries.get(row) else {
+        return;
+    };
+    let (key, Some(&chart)) = (*key, charts.get(pos)) else {
+        return;
+    };
+    if pos == 0 {
+        state.chart_choice.remove(&key);
+    } else {
+        state.chart_choice.insert(key, state.songs[chart].id);
+    }
+    state.selected_entry = row;
+    state.recompute_entries();
     state.cursor_settle_time = std::time::Instant::now();
     state.save_config();
 }

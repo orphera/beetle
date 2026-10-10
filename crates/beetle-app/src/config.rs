@@ -1,6 +1,6 @@
-use crate::folders::FolderPath;
+use crate::folders::{ChartChoices, FolderPath};
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
-use beetle_core::{GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
+use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
 use beetle_render::{px_per_sec_to_green_ms, EightKForm, FieldPosition, ScratchSide};
 use std::fs;
 use std::path::Path;
@@ -174,6 +174,8 @@ pub struct AppConfig {
     pub sort_mode: SortMode,
     /// The folder song select opens in (ids from `folders.rs`, `folder_path=mode/7k`).
     pub folder_path: FolderPath,
+    /// The chart each group shows, away from its default (`chart_choice=<group key hex>:<chart id>`).
+    pub chart_choices: ChartChoices,
     /// Key layout per key mode, in `input::MODE_SLOTS` order (`None` = not
     /// in the file yet).
     pub key_layouts: [Option<SavedLayout>; 8],
@@ -201,6 +203,7 @@ impl Default for AppConfig {
             eight_k_form: EightKForm::Inline,
             sort_mode: SortMode::Title,
             folder_path: FolderPath::top("all"),
+            chart_choices: ChartChoices::new(),
             key_layouts: Default::default(),
             legacy_key_layout: None,
             master_volume: 1.0,
@@ -304,6 +307,15 @@ impl AppConfig {
                     }
                 }
                 "folder_path" => config.folder_path = FolderPath::parse(val),
+                "chart_choice" => {
+                    if let Some((key, id)) = val.split_once(':') {
+                        if let (Ok(key), Some(id)) =
+                            (u64::from_str_radix(key, 16), ChartId::from_hex(id))
+                        {
+                            config.chart_choices.insert(key, id);
+                        }
+                    }
+                }
                 "sort_mode" => {
                     config.sort_mode = match val {
                         "LEVEL" => SortMode::Level,
@@ -425,6 +437,16 @@ impl AppConfig {
                 ));
             }
         }
+        // Sorted, so the same choices always write the same file.
+        let mut choices: Vec<_> = self.chart_choices.iter().collect();
+        choices.sort_by_key(|(key, _)| **key);
+        for (key, id) in choices {
+            out.push_str(&format!(
+                "chart_choice={key:016x}:{}
+",
+                id.to_hex()
+            ));
+        }
         out
     }
 }
@@ -449,6 +471,7 @@ mod tests {
             eight_k_form: EightKForm::Triggers,
             sort_mode: SortMode::Level,
             folder_path: FolderPath::parse("mode/7k"),
+            chart_choices: ChartChoices::new(),
             key_layouts: [
                 Some((KeyPreset::Custom, "Scratch:KeyA,Key1:KeyZ".to_string())),
                 Some((KeyPreset::ArcadeZx, String::new())),
@@ -503,6 +526,30 @@ mod tests {
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);
         assert_eq!(config.eight_k_form, parsed.eight_k_form);
+    }
+
+    #[test]
+    fn chart_choices_round_trip_and_bad_lines_are_skipped() {
+        let mut config = AppConfig::default();
+        config.chart_choices.insert(0xabc, ChartId::synthetic(7));
+        config.chart_choices.insert(0x12, ChartId::synthetic(8));
+        let text = config.serialize_str();
+        // Sorted by key, one line each.
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("chart_choice="))
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("chart_choice=0000000000000012:"));
+        let parsed = AppConfig::parse_str(&text);
+        assert_eq!(parsed.chart_choices, config.chart_choices);
+        // A line with a bad key or id is ignored.
+        let bad = AppConfig::parse_str(
+            "chart_choice=zz:sha256:00
+chart_choice=12
+",
+        );
+        assert!(bad.chart_choices.is_empty());
     }
 
     #[test]

@@ -292,6 +292,16 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
                     count: *count,
                 }
             }
+            crate::folders::ListEntry::Group {
+                title,
+                charts,
+                selected,
+                ..
+            } => beetle_render::SelectRow::Group {
+                title: title.as_str(),
+                charts,
+                selected: *selected,
+            },
         })
         .collect();
     let vp = state.view.viewport;

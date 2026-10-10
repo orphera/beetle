@@ -9,8 +9,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use beetle_core::{ClearType, LnOption, PlayMode, ScoreStore, SongMetadata, TableIndex};
+use beetle_core::{ChartId, ClearType, LnOption, PlayMode, ScoreStore, SongMetadata, TableIndex};
 use beetle_render::{strings, theme};
+
+/// The chart each group shows when it is not the first one: group key → chart.
+/// Only choices away from the default (the lowest level) are kept.
+pub type ChartChoices = HashMap<u64, ChartId>;
 
 /// Where the player is in the tree: the folder ids from the top level down.
 /// The empty path is the root (the top-level folders are listed there).
@@ -111,7 +115,31 @@ pub enum ListEntry {
         label: String,
         count: usize,
     },
+    /// The charts of one song (same folder and base title), shown as one row.
+    Group {
+        /// The group key (see `group_key`); it names the remembered chart.
+        key: u64,
+        /// The base title (the title without its trailing `[...]`).
+        title: String,
+        /// Song indices, by level then title. Never fewer than two.
+        charts: Vec<usize>,
+        /// The position in `charts` the row shows.
+        selected: usize,
+    },
     Song(usize),
+}
+
+impl ListEntry {
+    /// The library index of the song the row plays: a group's selected chart.
+    pub fn song(&self) -> Option<usize> {
+        match self {
+            ListEntry::Song(i) => Some(*i),
+            ListEntry::Group {
+                charts, selected, ..
+            } => charts.get(*selected).copied(),
+            ListEntry::Folder { .. } => None,
+        }
+    }
 }
 
 /// Key modes in the order the mode folder lists them.
@@ -409,17 +437,128 @@ pub fn matches_query(song: &SongMetadata, query: &str) -> bool {
         || song.genre.to_lowercase().contains(query)
 }
 
+/// The folder a chart sits in: its directory, with `\` read as `/`. A chart
+/// inside a package (`pkg.bmsp::sub/chart.bms`) is in the package path plus its
+/// directory inside the package. `None` for the built-in demo and for a chart
+/// with no directory.
+pub fn song_folder(file_path: &str) -> Option<String> {
+    if file_path == ":demo:" {
+        return None;
+    }
+    let path = file_path.replace('\\', "/");
+    let dir = |text: &str| text.rsplit_once('/').map_or("", |(d, _)| d).to_string();
+    match path.split_once("::") {
+        Some((package, inner)) => Some(format!("{package}::{}", dir(inner))),
+        None => Some(dir(&path)).filter(|d| !d.is_empty()),
+    }
+}
+
+/// The title without its trailing `[...]` or `(...)` part:
+/// `AIRSHAVER [7key, Another]` → `AIRSHAVER`. The whole title when stripping
+/// would leave nothing.
+pub fn base_title(title: &str) -> &str {
+    let t = title.trim();
+    for (open, close) in [('[', ']'), ('(', ')')] {
+        if let Some(stripped) = t.strip_suffix(close) {
+            if let Some(pos) = stripped.rfind(open) {
+                let base = stripped[..pos].trim_end();
+                if !base.is_empty() {
+                    return base;
+                }
+            }
+        }
+    }
+    t
+}
+
+/// The key of a song's group: its folder and base title, FNV-1a 64. `None`
+/// when the song has no folder (the demo), so it always gets its own row.
+pub fn group_key(song: &SongMetadata) -> Option<u64> {
+    let folder = song_folder(&song.file_path)?;
+    let text = format!("{folder}\n{}", base_title(&song.title));
+    Some(text.bytes().fold(0xcbf2_9ce4_8422_2325, |h: u64, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    }))
+}
+
+/// The rows for `indices` (song indices in list order). Charts with the same
+/// group key share one row, which takes the place of its first chart. A
+/// group of one chart is a plain song row. The charts run by level, then title,
+/// and the row shows the remembered chart (or the first one).
+pub fn group_entries(
+    songs: &[SongMetadata],
+    indices: &[usize],
+    choices: &ChartChoices,
+) -> Vec<ListEntry> {
+    enum Slot {
+        Song(usize),
+        Group(u64),
+    }
+    let mut members: HashMap<u64, Vec<usize>> = HashMap::new();
+    let mut order = Vec::new();
+    for &i in indices {
+        match group_key(&songs[i]) {
+            Some(key) => {
+                let bucket = members.entry(key).or_default();
+                if bucket.is_empty() {
+                    order.push(Slot::Group(key));
+                }
+                bucket.push(i);
+            }
+            None => order.push(Slot::Song(i)),
+        }
+    }
+    order
+        .into_iter()
+        .map(|slot| match slot {
+            Slot::Song(i) => ListEntry::Song(i),
+            Slot::Group(key) => {
+                let mut charts = members.remove(&key).unwrap_or_default();
+                if charts.len() == 1 {
+                    return ListEntry::Song(charts[0]);
+                }
+                charts.sort_by(|&a, &b| {
+                    (songs[a].play_level, &songs[a].title)
+                        .cmp(&(songs[b].play_level, &songs[b].title))
+                });
+                let selected = choices
+                    .get(&key)
+                    .and_then(|id| charts.iter().position(|&c| songs[c].id == *id))
+                    .unwrap_or(0);
+                ListEntry::Group {
+                    key,
+                    title: base_title(&songs[charts[0]].title).to_string(),
+                    charts,
+                    selected,
+                }
+            }
+        })
+        .collect()
+}
+
+/// The row that shows the chart `id`: its song row, or the group holding it.
+pub fn row_showing(entries: &[ListEntry], songs: &[SongMetadata], id: ChartId) -> Option<usize> {
+    entries.iter().position(|e| match e {
+        ListEntry::Song(i) => songs.get(*i).is_some_and(|s| s.id == id),
+        ListEntry::Group { charts, .. } => charts
+            .iter()
+            .any(|&c| songs.get(c).is_some_and(|s| s.id == id)),
+        ListEntry::Folder { .. } => false,
+    })
+}
+
 /// The rows to show for `path`. A branch lists its child folders with their
-/// counts; a leaf lists its songs in library order.
+/// counts; a leaf lists its songs, with the charts of one song grouped.
 ///
 /// A non-empty search replaces the list with matching songs: from the current
 /// leaf when the folder is one, otherwise from every song in the library (a
-/// branch has no songs of its own to search in).
+/// branch has no songs of its own to search in). Matches are grouped too.
 pub fn entries_for(
     tree: &[Folder],
     path: &FolderPath,
     songs: &[SongMetadata],
     query: &str,
+    choices: &ChartChoices,
 ) -> Vec<ListEntry> {
     let q = query.trim().to_lowercase();
     if !q.is_empty() {
@@ -427,16 +566,16 @@ pub fn entries_for(
             Some(Body::Leaf(idx)) => idx.clone(),
             _ => (0..songs.len()).collect(),
         };
-        return pool
+        let matched: Vec<usize> = pool
             .into_iter()
             .filter(|&i| matches_query(&songs[i], &q))
-            .map(ListEntry::Song)
             .collect();
+        return group_entries(songs, &matched, choices);
     }
     match children(tree, path) {
         Some(folders) => folders.iter().map(folder_entry).collect(),
         None => match node(tree, path).map(|f| &f.body) {
-            Some(Body::Leaf(idx)) => idx.iter().copied().map(ListEntry::Song).collect(),
+            Some(Body::Leaf(idx)) => group_entries(songs, idx, choices),
             _ => Vec::new(),
         },
     }
@@ -637,7 +776,13 @@ mod tests {
     fn a_leaf_lists_its_songs_and_a_branch_lists_folders() {
         let songs = library();
         let tree = tree_of(&songs, &TableIndex::default());
-        let root = entries_for(&tree, &FolderPath::default(), &songs, "");
+        let root = entries_for(
+            &tree,
+            &FolderPath::default(),
+            &songs,
+            "",
+            &ChartChoices::new(),
+        );
         assert_eq!(
             root,
             [
@@ -665,12 +810,15 @@ mod tests {
         );
 
         let level12 = FolderPath::top("level").child("12");
-        let entries = entries_for(&tree, &level12, &songs, "");
+        let entries = entries_for(&tree, &level12, &songs, "", &ChartChoices::new());
         assert_eq!(songs_of(&entries), [0, 2]);
         assert_eq!(entries.len(), 2, "a leaf has no folder rows");
 
         let modes = FolderPath::top("mode");
-        assert_eq!(entries_for(&tree, &modes, &songs, "").len(), 4);
+        assert_eq!(
+            entries_for(&tree, &modes, &songs, "", &ChartChoices::new()).len(),
+            4
+        );
     }
 
     #[test]
@@ -680,10 +828,16 @@ mod tests {
         let level12 = FolderPath::top("level").child("12");
         // "artist 3" matches Cherry (in level 12), but "banana" is in level 13.
         assert_eq!(
-            songs_of(&entries_for(&tree, &level12, &songs, "artist 3")),
+            songs_of(&entries_for(
+                &tree,
+                &level12,
+                &songs,
+                "artist 3",
+                &ChartChoices::new()
+            )),
             [2]
         );
-        assert!(entries_for(&tree, &level12, &songs, "banana").is_empty());
+        assert!(entries_for(&tree, &level12, &songs, "banana", &ChartChoices::new()).is_empty());
     }
 
     #[test]
@@ -692,11 +846,18 @@ mod tests {
         let tree = tree_of(&songs, &TableIndex::default());
         // The level folder is a branch: its search covers all songs, not one level.
         let level = FolderPath::top("level");
-        let found = entries_for(&tree, &level, &songs, "BANANA");
+        let found = entries_for(&tree, &level, &songs, "BANANA", &ChartChoices::new());
         assert_eq!(found, [ListEntry::Song(1)]);
         // Apple, Cherry, Date and Elder contain "e"; the artists ("artist N") do not.
         assert_eq!(
-            songs_of(&entries_for(&tree, &FolderPath::default(), &songs, "e")).len(),
+            songs_of(&entries_for(
+                &tree,
+                &FolderPath::default(),
+                &songs,
+                "e",
+                &ChartChoices::new()
+            ))
+            .len(),
             4
         );
     }
@@ -791,7 +952,13 @@ mod tests {
     fn the_cursor_lands_on_the_folder_the_player_came_from() {
         let songs = library();
         let tree = tree_of(&songs, &TableIndex::default());
-        let entries = entries_for(&tree, &FolderPath::default(), &songs, "");
+        let entries = entries_for(
+            &tree,
+            &FolderPath::default(),
+            &songs,
+            "",
+            &ChartChoices::new(),
+        );
         assert_eq!(focus_index(&entries, Some("level")), 2);
         assert_eq!(focus_index(&entries, Some("nope")), 0);
         assert_eq!(focus_index(&entries, None), 0);
@@ -813,5 +980,140 @@ mod tests {
             })
             .unwrap();
         assert_eq!(id, "A|B");
+    }
+
+    /// A chart in `path` (a song folder) with the given title and level.
+    fn chart(n: u64, path: &str, title: &str, level: u32) -> SongMetadata {
+        SongMetadata {
+            file_path: path.into(),
+            ..song(n, title, level, PlayMode::Keys7)
+        }
+    }
+
+    #[test]
+    fn base_title_strips_the_trailing_bracket_only() {
+        assert_eq!(base_title("AIRSHAVER [7key, Another]"), "AIRSHAVER");
+        assert_eq!(base_title("AIRSHAVER [14key, Another]"), "AIRSHAVER");
+        assert_eq!(base_title("Song (Remix) [SP]"), "Song (Remix)");
+        assert_eq!(base_title("Plain"), "Plain");
+        // Nothing left after stripping: keep the title.
+        assert_eq!(base_title("[only]"), "[only]");
+    }
+
+    #[test]
+    fn song_folder_is_the_directory_or_the_package_path() {
+        assert_eq!(
+            song_folder("songs/AIR/7k.bms").as_deref(),
+            Some("songs/AIR")
+        );
+        assert_eq!(
+            song_folder("D:\\songs\\AIR\\7k.bms").as_deref(),
+            Some("D:/songs/AIR")
+        );
+        assert_eq!(
+            song_folder("packages/p.bmsp::sub/chart.bms").as_deref(),
+            Some("packages/p.bmsp::sub")
+        );
+        assert_eq!(
+            song_folder("packages/p.bmsp::chart.bms").as_deref(),
+            Some("packages/p.bmsp::")
+        );
+        assert_eq!(song_folder(":demo:"), None);
+        assert_eq!(song_folder("loose.bms"), None);
+    }
+
+    #[test]
+    fn charts_of_one_song_in_one_folder_share_a_group_key() {
+        let a = chart(1, "songs/AIR/a.bms", "AIRSHAVER [7key, Another]", 12);
+        let b = chart(2, "songs/AIR/b.bms", "AIRSHAVER [14key, Another]", 12);
+        let other_folder = chart(3, "songs/OTHER/c.bms", "AIRSHAVER [7key, Another]", 12);
+        let other_song = chart(4, "songs/AIR/d.bms", "AIRSHAVER 2", 12);
+        assert_eq!(group_key(&a), group_key(&b));
+        assert_ne!(group_key(&a), group_key(&other_folder));
+        assert_ne!(group_key(&a), group_key(&other_song));
+        assert_eq!(group_key(&song(5, "Demo", 1, PlayMode::Keys7)), None);
+    }
+
+    #[test]
+    fn a_group_takes_the_place_of_its_first_chart_and_sorts_by_level() {
+        let songs = vec![
+            chart(1, "x/AIR/a.bms", "AIR [14key]", 12),
+            chart(2, "x/Other/b.bms", "Other", 3),
+            chart(3, "x/AIR/c.bms", "AIR [7key]", 11),
+            chart(4, "x/AIR/d.bms", "AIR [5key]", 11),
+        ];
+        let entries = group_entries(&songs, &[0, 1, 2, 3], &ChartChoices::new());
+        // The group sits where its first chart (index 0) was; its charts run by level, then title.
+        assert_eq!(
+            entries,
+            [
+                ListEntry::Group {
+                    key: group_key(&songs[0]).unwrap(),
+                    title: "AIR".into(),
+                    charts: vec![3, 2, 0],
+                    selected: 0,
+                },
+                ListEntry::Song(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_remembered_chart_is_the_selected_one_and_the_demo_stays_alone() {
+        let mut demo = song(9, "Demo", 5, PlayMode::Keys7);
+        demo.file_path = ":demo:".into();
+        let songs = vec![
+            chart(1, "x/AIR/a.bms", "AIR [7key]", 11),
+            chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
+            demo,
+        ];
+        let key = group_key(&songs[0]).unwrap();
+        let mut choices = ChartChoices::new();
+        choices.insert(key, songs[1].id);
+        let entries = group_entries(&songs, &[0, 1, 2], &choices);
+        assert_eq!(entries.len(), 2);
+        match &entries[0] {
+            ListEntry::Group {
+                charts, selected, ..
+            } => {
+                assert_eq!(charts, &[0, 1]);
+                assert_eq!(*selected, 1);
+            }
+            other => panic!("expected a group, got {other:?}"),
+        }
+        assert_eq!(entries[0].song(), Some(1));
+        assert_eq!(entries[1], ListEntry::Song(2));
+        // A group with one chart in this list is a plain song row.
+        assert_eq!(group_entries(&songs, &[1], &choices), [ListEntry::Song(1)]);
+    }
+
+    #[test]
+    fn the_leaf_and_search_rows_are_grouped_and_a_row_finds_its_chart() {
+        let songs = vec![
+            chart(1, "x/AIR/a.bms", "AIR [7key]", 11),
+            chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
+            chart(3, "x/Lone/c.bms", "Lone", 4),
+        ];
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &TableIndex::default(),
+            LnOption::Cn,
+        );
+        let all = FolderPath::top("all");
+        let rows = entries_for(&tree, &all, &songs, "", &ChartChoices::new());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(row_showing(&rows, &songs, songs[1].id), Some(0));
+        assert_eq!(row_showing(&rows, &songs, songs[2].id), Some(1));
+        // A search over the whole library groups the matches too.
+        let found = entries_for(
+            &tree,
+            &FolderPath::default(),
+            &songs,
+            "air",
+            &ChartChoices::new(),
+        );
+        assert_eq!(found.len(), 1);
+        assert!(matches!(found[0], ListEntry::Group { .. }));
     }
 }

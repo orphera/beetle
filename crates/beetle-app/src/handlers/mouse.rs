@@ -19,7 +19,7 @@ use crate::handlers::options::{
 use crate::handlers::result::{retry_song, take_screenshot, to_song_select};
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
-    activate_selected, cycle_folder, cycle_sort, go_to_crumb, go_up, move_selection,
+    activate_selected, choose_chart, cycle_folder, cycle_sort, go_to_crumb, go_up, move_selection,
     open_exit_prompt, open_key_config, start_replay, toggle_auto,
 };
 use crate::ime::set_search_active;
@@ -103,6 +103,7 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::FolderNext => cycle_folder(state, true),
         HitId::FolderUp => go_up(state),
         HitId::Crumb(depth) => go_to_crumb(state, depth),
+        HitId::ChartTab { row, pos } => choose_chart(state, row, pos),
         HitId::Sort => cycle_sort(state),
         HitId::Search => set_search_active(state, true),
         HitId::Play => activate_selected(state),

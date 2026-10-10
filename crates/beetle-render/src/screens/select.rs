@@ -19,12 +19,31 @@ use crate::view::Viewport;
 use beetle_core::{LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex};
 
 /// Everything the song select screen shows for one frame.
-/// One row of the list: a song (an index into `SelectFrame::songs`) or a folder
-/// (its name and how many songs it holds). U3b adds a row for a group of charts.
+/// One row of the list: a song (an index into `SelectFrame::songs`), a folder
+/// (its name and how many songs it holds), or a group of charts of one song.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectRow<'a> {
     Song(usize),
-    Folder { label: &'a str, count: usize },
+    Folder {
+        label: &'a str,
+        count: usize,
+    },
+    /// The charts of one song: `charts` are indices into `SelectFrame::songs`
+    /// (by level), `selected` the position in `charts` the row shows.
+    Group {
+        title: &'a str,
+        charts: &'a [usize],
+        selected: usize,
+    },
+}
+
+/// The charts of the highlighted group, shown as tabs above the detail panel.
+#[derive(Clone, Copy)]
+struct ChartTabs<'a> {
+    /// The group's row (its index in the visible rows).
+    row: usize,
+    charts: &'a [usize],
+    selected: usize,
 }
 
 pub struct SelectFrame<'a> {
@@ -74,6 +93,11 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let s = vp.scale;
     let selected = match f.rows.get(f.selected) {
         Some(SelectRow::Song(i)) => f.songs.get(*i),
+        Some(SelectRow::Group {
+            charts,
+            selected: pos,
+            ..
+        }) => charts.get(*pos).and_then(|&i| f.songs.get(i)),
         _ => None,
     };
 
@@ -96,9 +120,21 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             content.right(),
             content.bottom(),
         );
+        let tabs = match f.rows.get(f.selected) {
+            Some(&SelectRow::Group {
+                charts,
+                selected: pos,
+                ..
+            }) => Some(ChartTabs {
+                row: f.selected,
+                charts,
+                selected: pos,
+            }),
+            _ => None,
+        };
         match (f.rows.get(f.selected), selected) {
-            (Some(SelectRow::Song(_)), Some(song)) => {
-                detail_panel(c, t, &sk, f, song, detail, s, &mut hs)
+            (Some(SelectRow::Song(_) | SelectRow::Group { .. }), Some(song)) => {
+                detail_panel(c, t, &sk, f, song, detail, tabs, s, &mut hs)
             }
             (Some(&SelectRow::Folder { label, count }), _) => {
                 folder_panel(c, t, &sk, label, count, detail, s)
@@ -469,6 +505,16 @@ fn song_list(
                 hs.add(row, HitId::ListRow(slot));
                 folder_row(c, t, sk, label, count, row, on, hot, s);
             }
+            SelectRow::Group {
+                title,
+                charts,
+                selected,
+            } => {
+                hs.add(row, HitId::ListRow(slot));
+                group_row(
+                    c, t, sk, f, title, charts, selected, slot, row, on, hot, s, hs,
+                );
+            }
         }
     }
 
@@ -522,6 +568,36 @@ fn song_row(
     hot: bool,
     s: f32,
 ) {
+    row_background(c, sk, row, on, hot, s);
+    lamp_strip(c, sk, row, best, s);
+    let tx = level_badge(c, t, sk, song.play_level, row, s);
+    let right_w = 112.0 * s;
+    let text_w = row.right() - right_w - 16.0 * s - tx;
+    row_title(c, t, row, &song.title, tx, text_w, on, s);
+    let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+    let mode = theme::mode_label(song.play_mode);
+    let mode_w = t.draw(
+        c,
+        mode,
+        tx,
+        row.y + 42.0 * s,
+        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
+    );
+    let mut ax = tx + mode_w + 8.0 * s;
+    if let Some(chip) = table_chip {
+        ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
+    }
+    let artist = t
+        .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
+        .into_owned();
+    t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
+
+    row_record(c, t, sk, best, row, right_w, s);
+}
+
+/// The frame of a list row: a lit row when it is the highlight, else the
+/// background (the hover tint when the pointer is over it).
+fn row_background(c: &mut Canvas, sk: &Skin, row: Rect, on: bool, hot: bool, s: f32) {
     if on {
         c.halo(&sk.shadow, row, theme::WHITE.with_alpha(200));
         c.nine(&sk.panel, row, theme::SURF3);
@@ -547,7 +623,11 @@ fn song_row(
         let bg = if hot { theme::SURF2 } else { theme::SURF1 };
         c.nine(&sk.panel, row, bg.with_alpha(220));
     }
+}
 
+/// The clear lamp: a strip on the row's left edge (IIDX convention). A row
+/// without a record shows a dim strip.
+fn lamp_strip(c: &mut Canvas, sk: &Skin, row: Rect, best: Option<&ScoreRecord>, s: f32) {
     // Clear lamp: a strip on the left edge (IIDX convention).
     let (_, lamp) = theme::clear_lamp(best.map(|b| b.clear_type));
     let lamp = if best.is_some() { lamp } else { theme::LINE };
@@ -556,9 +636,19 @@ fn song_row(
         Rect::new(row.x + 6.0 * s, row.y + 10.0 * s, 4.0 * s, row.h - 20.0 * s),
         lamp,
     );
+}
 
+/// The level badge at the row's left. Returns the x where the title starts.
+fn level_badge(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    level: u32,
+    row: Rect,
+    s: f32,
+) -> f32 {
     // Level badge
-    let (_, diff) = theme::level_tier(song.play_level);
+    let (_, diff) = theme::level_tier(level);
     let badge = Rect::new(row.x + 20.0 * s, row.y + 10.0 * s, 40.0 * s, 32.0 * s);
     c.nine(&sk.panel_sm, badge, diff.with_alpha(40));
     c.nine(
@@ -568,41 +658,46 @@ fn song_row(
     );
     t.draw_in(
         c,
-        &song.play_level.to_string(),
+        &level.to_string(),
         badge,
         Align::Center,
         &TextStyle::new(17.0 * s).bold().color(diff),
     );
 
-    // Title + artist
-    let tx = badge.right() + 16.0 * s;
-    let right_w = 112.0 * s;
-    let text_w = row.right() - right_w - 16.0 * s - tx;
+    badge.right() + 16.0 * s
+}
+
+/// The row title on one line, cut to `text_w`.
+#[allow(clippy::too_many_arguments)]
+fn row_title(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    row: Rect,
+    text: &str,
+    tx: f32,
+    text_w: f32,
+    on: bool,
+    s: f32,
+) {
     let title_st = TextStyle::new(16.0 * s).bold().color(if on {
         theme::TEXT
     } else {
         theme::TEXT.with_alpha(215)
     });
-    let title = t.fit(c, &song.title, text_w, &title_st).into_owned();
-    t.draw(c, &title, tx, row.y + 24.0 * s, &title_st);
-    let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
-    let mode = theme::mode_label(song.play_mode);
-    let mode_w = t.draw(
-        c,
-        mode,
-        tx,
-        row.y + 42.0 * s,
-        &caption(10.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
-    );
-    let mut ax = tx + mode_w + 8.0 * s;
-    if let Some(chip) = table_chip {
-        ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
-    }
-    let artist = t
-        .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
-        .into_owned();
-    t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
+    let shown = t.fit(c, text, text_w, &title_st).into_owned();
+    t.draw(c, &shown, tx, row.y + 24.0 * s, &title_st);
+}
 
+/// The right column of a row: the personal best's rank and rate bar, or "NO PLAY".
+fn row_record(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    best: Option<&ScoreRecord>,
+    row: Rect,
+    right_w: f32,
+    s: f32,
+) {
     // Personal best: rank + score-rate bar, or "NO PLAY".
     let rx = row.right() - right_w - 16.0 * s;
     match best {
@@ -633,6 +728,130 @@ fn song_row(
                 &caption(10.0, s).color(theme::MUTED),
             );
         }
+    }
+}
+
+/// A chart chip on a group row or in the detail tabs' text: `7K 12` in the
+/// level's tier colour. The chosen chart is filled. Returns its width.
+fn chart_chip(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    text: &str,
+    x: f32,
+    baseline: f32,
+    col: ColorRgba,
+    on: bool,
+    s: f32,
+) -> f32 {
+    let st = caption(9.0, s).color(if on { theme::TEXT } else { col });
+    let w = t.measure(c, text, &st) + 12.0 * s;
+    let pill = Rect::new(x, baseline - 12.0 * s, w, 16.0 * s);
+    c.fill_rect(pill, col.with_alpha(if on { 90 } else { 24 }));
+    c.stroke_rect(pill, s.max(1.0), col.with_alpha(if on { 255 } else { 110 }));
+    t.draw_in(c, text, pill, Align::Center, &st);
+    w
+}
+
+/// A group row: the group's title, one chip per chart (the chosen one filled)
+/// and the chosen chart's artist, badge, lamp and record. Each chip is a hit
+/// region that picks its chart.
+#[allow(clippy::too_many_arguments)]
+fn group_row(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    f: &SelectFrame,
+    title: &str,
+    charts: &[usize],
+    selected: usize,
+    slot: usize,
+    row: Rect,
+    on: bool,
+    hot: bool,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    let Some(song) = charts.get(selected).and_then(|&i| f.songs.get(i)) else {
+        return;
+    };
+    let best = f.scores.best(song, f.ln_option);
+    row_background(c, sk, row, on, hot, s);
+    lamp_strip(c, sk, row, best, s);
+    let tx = level_badge(c, t, sk, song.play_level, row, s);
+    let right_w = 112.0 * s;
+    let text_w = row.right() - right_w - 16.0 * s - tx;
+    row_title(c, t, row, title, tx, text_w, on, s);
+
+    // Chips on the second line, then the chosen chart's artist.
+    let base = row.y + 42.0 * s;
+    let mut ax = tx;
+    for (pos, &i) in charts.iter().enumerate() {
+        let Some(chart) = f.songs.get(i) else {
+            continue;
+        };
+        let (_, col) = theme::level_tier(chart.play_level);
+        let text = format!(
+            "{} {}",
+            theme::mode_label(chart.play_mode),
+            chart.play_level
+        );
+        let w = chart_chip(c, t, &text, ax, base, col, pos == selected, s);
+        hs.add(
+            Rect::new(ax, base - 12.0 * s, w, 16.0 * s),
+            HitId::ChartTab { row: slot, pos },
+        );
+        ax += w + 6.0 * s;
+    }
+    let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+    let artist = t
+        .fit(
+            c,
+            &song.artist,
+            row.right() - right_w - 16.0 * s - (ax + 8.0 * s),
+            &sub_st,
+        )
+        .into_owned();
+    t.draw(c, &artist, ax + 8.0 * s, base, &sub_st);
+    row_record(c, t, sk, best, row, right_w, s);
+}
+
+/// The difficulty tabs of a group, in a strip at the top of the detail panel.
+/// Each tab is a hit region that picks its chart.
+fn chart_tabs(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    f: &SelectFrame,
+    tabs: ChartTabs,
+    strip: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
+    let mut x = strip.x;
+    for (pos, &i) in tabs.charts.iter().enumerate() {
+        let Some(chart) = f.songs.get(i) else {
+            continue;
+        };
+        let (_, col) = theme::level_tier(chart.play_level);
+        let text = format!(
+            "{} {}",
+            theme::mode_label(chart.play_mode),
+            chart.play_level
+        );
+        let on = pos == tabs.selected;
+        let st = caption(11.0, s).color(if on { theme::TEXT } else { theme::MUTED });
+        let w = t.measure(c, &text, &st) + 24.0 * s;
+        let rect = Rect::new(x, strip.y, w, strip.h);
+        c.fill_rect(rect, if on { col.with_alpha(70) } else { theme::SURF2 });
+        c.stroke_rect(rect, s.max(1.0), if on { col } else { theme::LINE });
+        if on {
+            c.fill_rect(
+                Rect::new(rect.x, rect.bottom() - 3.0 * s, rect.w, 3.0 * s),
+                col,
+            );
+        }
+        t.draw_in(c, &text, rect, Align::Center, &st);
+        hs.add(rect, HitId::ChartTab { row: tabs.row, pos });
+        x += w + 6.0 * s;
     }
 }
 
@@ -796,6 +1015,7 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn detail_panel(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -803,12 +1023,27 @@ fn detail_panel(
     f: &SelectFrame,
     song: &SongMetadata,
     panel: Rect,
+    tabs: Option<ChartTabs>,
     s: f32,
     hs: &mut HitSink,
 ) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
     let inner = panel.inset(24.0 * s);
+    // A group's difficulty tabs take a strip at the top; the content goes below it.
+    let inner = match tabs {
+        Some(tabs) => {
+            let strip = Rect::new(inner.x, inner.y, inner.w, 22.0 * s);
+            chart_tabs(c, t, f, tabs, strip, s, hs);
+            Rect::from_ltrb(
+                inner.x,
+                strip.bottom() + 12.0 * s,
+                inner.right(),
+                inner.bottom(),
+            )
+        }
+        None => inner,
+    };
     let (tier, tier_col) = theme::level_tier(song.play_level);
 
     // Jacket (stage image, 4:3) or a generated placeholder in the tier color.

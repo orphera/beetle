@@ -184,6 +184,7 @@ impl ApplicationHandler for BeetleApp {
             folder_tree: Vec::new(),
             entries: Vec::new(),
             selected_entry: 0,
+            chart_choice: saved_config.chart_choices.clone(),
             search_query: String::new(),
             search_preedit: String::new(),
             is_search_active: false,

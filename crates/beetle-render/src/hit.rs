@@ -18,6 +18,13 @@ pub enum HitId {
     FolderUp,
     /// A breadcrumb segment: go to the folder at this depth (0 = the root).
     Crumb(usize),
+    /// A chart of a group: a chip on a group row (`row` is the row's index in
+    /// the visible rows) or a difficulty tab of the detail panel. `pos` is the
+    /// chart's position in the group.
+    ChartTab {
+        row: usize,
+        pos: usize,
+    },
     /// The sort selector (cycles the sort mode).
     Sort,
     /// The search box (starts a search).

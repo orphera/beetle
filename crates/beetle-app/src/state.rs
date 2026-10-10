@@ -51,6 +51,8 @@ pub struct AppState {
     pub entries: Vec<ListEntry>,
     /// Highlighted row of `entries`.
     pub selected_entry: usize,
+    /// The chart each group shows when it is not the first one (saved in `config.dat`).
+    pub chart_choice: crate::folders::ChartChoices,
     pub search_query: String,
     /// IME composition text shown after the query; empty when none. Set only
     /// while the search box is open (see `ime.rs`).
@@ -301,6 +303,7 @@ impl AppState {
             eight_k_form: self.view.skin.eight_k_form,
             sort_mode: self.sort_mode,
             folder_path: self.folder_path.clone(),
+            chart_choices: self.chart_choice.clone(),
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,
             master_volume: self.master_volume,
@@ -392,11 +395,7 @@ impl AppState {
         );
         self.recompute_entries();
         if let Some(id) = keep {
-            if let Some(pos) = self
-                .entries
-                .iter()
-                .position(|e| matches!(e, ListEntry::Song(i) if self.songs[*i].id == id))
-            {
+            if let Some(pos) = folders::row_showing(&self.entries, &self.songs, id) {
                 self.selected_entry = pos;
             }
         }
@@ -414,6 +413,7 @@ impl AppState {
             &self.folder_path,
             &self.songs,
             &self.search_query,
+            &self.chart_choice,
         );
 
         if self.entries.is_empty() {
@@ -423,12 +423,10 @@ impl AppState {
         }
     }
 
-    /// The song under the highlight. `None` when a folder row is highlighted.
+    /// The song under the highlight: a group's selected chart. `None` when a folder row is highlighted.
     pub fn current_selected_song(&self) -> Option<&SongMetadata> {
-        match self.entries.get(self.selected_entry)? {
-            ListEntry::Song(i) => self.songs.get(*i),
-            ListEntry::Folder { .. } => None,
-        }
+        let i = self.entries.get(self.selected_entry)?.song()?;
+        self.songs.get(i)
     }
 
     /// Keeps the 8K arrangement in step with the 8K key preset: the trigger
