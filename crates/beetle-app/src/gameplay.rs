@@ -200,6 +200,15 @@ pub fn finalize_start_gameplay(
     state.sync_hi_speed();
 
     let mut audio_engine = AudioEngine::new(soundbank).ok();
+    if audio_engine.is_none() {
+        state.screen = AppScreen::SongSelect;
+        crate::transition::show_toast(
+            state,
+            beetle_render::ToastKind::Error,
+            "오디오 장치를 찾지 못했습니다",
+        );
+        return;
+    }
     if let Some(audio) = &mut audio_engine {
         let _ = audio.set_master_volume(state.master_volume);
     }

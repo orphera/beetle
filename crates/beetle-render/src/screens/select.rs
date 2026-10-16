@@ -1227,7 +1227,7 @@ fn first_run_guide(
         ),
         (
             strings::GUIDE_RESCAN,
-            Some((strings::GUIDE_BTN_RESCAN, HitId::Rescan, Some("F5"))),
+            Some((strings::GUIDE_BTN_RESCAN, HitId::Rescan, Some("Enter"))),
         ),
     ];
     let mut y = inner.y + 96.0 * s;
