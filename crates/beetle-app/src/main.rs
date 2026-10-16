@@ -292,6 +292,7 @@ impl ApplicationHandler for BeetleApp {
             gpu_backend_at_start: saved_config.gpu_backend,
             cursor: None,
             wheel_carry: 0.0,
+            last_library_mtime: None,
         };
 
         app_state.apply_display_mode();
@@ -604,6 +605,11 @@ impl ApplicationHandler for BeetleApp {
             WindowEvent::HoveredFileCancelled => {
                 state.drop_hover = false;
                 state.window.request_redraw();
+            }
+            WindowEvent::Focused(_focused) => {
+                if is_menu_screen(state.screen) {
+                    crate::handlers::song_select::check_autofocus_rescan(state);
+                }
             }
             WindowEvent::DroppedFile(path) => {
                 state.drop_hover = false;

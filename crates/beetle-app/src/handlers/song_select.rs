@@ -208,6 +208,43 @@ pub fn rescan(state: &mut AppState) {
 }
 
 /// The song manager (`bpm-gui.exe`) that ships next to the running app.
+pub fn check_autofocus_rescan(state: &mut AppState) {
+    let now = library_mtime();
+    if state.last_library_mtime.is_some_and(|last| last == now) {
+        return;
+    }
+    state.last_library_mtime = Some(now);
+    state.start_rescan();
+    transition::show_toast(
+        state,
+        ToastKind::Info,
+        "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신됩니다",
+    );
+}
+
+fn library_mtime() -> std::time::SystemTime {
+    let songs_dir = std::path::Path::new(DEFAULT_SONGS_DIR);
+    let registry = std::env::current_dir()
+        .ok()
+        .filter(|p| p.join("packages/registry.json").exists())
+        .map(|p| p.join("packages/registry.json"));
+    let mut latest = std::time::SystemTime::UNIX_EPOCH;
+    if let Ok(meta) = fs::metadata(songs_dir) {
+        if let Ok(m) = meta.modified() {
+            latest = m.max(latest);
+        }
+    }
+    if let Some(p) = registry {
+        if let Ok(meta) = fs::metadata(&p) {
+            if let Ok(m) = meta.modified() {
+                latest = m.max(latest);
+            }
+        }
+    }
+    latest
+}
+
+/// The song manager (`bpm-gui.exe`) that ships next to the running app.
 pub fn manager_beside(exe: &Path) -> PathBuf {
     exe.with_file_name(SONG_MANAGER_EXE)
 }
@@ -215,7 +252,6 @@ pub fn manager_beside(exe: &Path) -> PathBuf {
 /// The song manager's file name, next to the app's own executable.
 const SONG_MANAGER_EXE: &str = "bpm-gui.exe";
 
-/// Opens the song manager in its own process (the first-run guide's button).
 /// The process is not waited for, so the UI keeps running. A toast says so
 /// when the file is not there or cannot start.
 pub fn open_song_manager(state: &mut AppState) {

@@ -214,6 +214,10 @@ pub struct AppState {
     pub cursor: Option<(f32, f32)>,
     /// Wheel notches not yet applied (precise wheels report fractions).
     pub wheel_carry: f32,
+    /// The mtime of `songs/` and `packages/registry.json` the last time the
+    /// library was read. Compared on focus regain so a song manager or
+    /// Explorer session triggers a rescan without a key press.
+    pub last_library_mtime: Option<std::time::SystemTime>,
 }
 
 impl AppState {
@@ -419,6 +423,9 @@ impl AppState {
                 crate::transition::show_toast(self, beetle_render::ToastKind::Info, text);
             }
         }
+        // Remember the mtime so focus-regain knows whether a rescan is needed.
+        let now = std::time::SystemTime::now();
+        self.last_library_mtime = Some(now);
         self.window.request_redraw();
     }
 
