@@ -424,8 +424,41 @@ fn top_bar(
         s,
     );
 
+    // Three quick-action buttons between the options and the search box.
+    let btn_w = 80.0 * s;
+    let exit_btn = Rect::new(options.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    bar_button(
+        c,
+        t,
+        sk,
+        hs,
+        exit_btn,
+        strings::QUIT,
+        "",
+        HitId::ExitQuit,
+        s,
+    );
+    let key_btn = Rect::new(exit_btn.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    bar_button(c, t, sk, hs, key_btn, "키 설정", "F12", HitId::KeyConfig, s);
+    let auto_btn = Rect::new(key_btn.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    bar_button(
+        c,
+        t,
+        sk,
+        hs,
+        auto_btn,
+        if f.auto_play {
+            strings::AUTO_PLAY
+        } else {
+            "자동"
+        },
+        "A",
+        HitId::Auto,
+        s,
+    );
+
     // Search box
-    let search = Rect::new(options.x - (12.0 + 280.0) * s, bar_top, 280.0 * s, bar_h);
+    let search = Rect::new(auto_btn.x - (8.0 + 280.0) * s, bar_top, 280.0 * s, bar_h);
     hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,
