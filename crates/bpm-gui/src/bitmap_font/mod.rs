@@ -183,10 +183,11 @@ impl BitmapFont {
     /// Width in px of `text` drawn at an em size of `px` (see `draw_text_px`).
     pub fn text_width_px(text: &str, px: f32, bold: bool) -> f32 {
         let scale = (px as u32 / Self::PX_PER_SCALE).max(1);
+        let pxi = px.round() as u16;
         text.chars()
             .map(|c| {
                 let c = if c == MIDDLE_DOT { ' ' } else { c };
-                truetype_font::advance(c, px, bold).unwrap_or_else(|| Self::char_advance(c, scale))
+                truetype_font::advance(c, pxi, bold).unwrap_or_else(|| Self::char_advance(c, scale))
             })
             .sum()
     }
@@ -205,21 +206,22 @@ impl BitmapFont {
         color: ColorRgba,
     ) {
         let scale = (px as u32 / Self::PX_PER_SCALE).max(1);
+        let pxi = px.round() as u16;
         let top = y.round() as i32;
-        let baseline = top + truetype_font::cap_height(px);
+        let baseline = top + truetype_font::cap_height(pxi);
         let mut pen = x;
         for c in text.chars() {
             if c == MIDDLE_DOT {
                 // The Latin subset has no U+00B7: a dot centered in a space.
-                let advance = truetype_font::advance(' ', px, bold).unwrap_or(px as f32 * 0.6);
-                let size = if px >= 15 { 3 } else { 2 };
+                let advance = truetype_font::advance(' ', pxi, bold).unwrap_or(px as f32 * 0.6);
+                let size = if pxi >= 15 { 3 } else { 2 };
                 let dot_x = (pen + advance / 2.0).round() as i32 - size as i32 / 2;
-                let dot_y = top + truetype_font::cap_height(px) / 2 - size as i32 / 2;
+                let dot_y = top + truetype_font::cap_height(pxi) / 2 - size as i32 / 2;
                 fill_pixel_block(pixmap, dot_x, dot_y, size, color);
                 pen += advance;
                 continue;
             }
-            let advance = truetype_font::advance(c, px, bold);
+            let advance = truetype_font::advance(c, pxi, bold);
             if c != ' '
                 && c != '\u{3000}'
                 && !truetype_font::draw_char(
@@ -227,7 +229,7 @@ impl BitmapFont {
                     c,
                     pen.round() as i32,
                     baseline,
-                    px,
+                    pxi,
                     bold,
                     color,
                 )

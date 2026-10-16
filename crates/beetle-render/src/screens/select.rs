@@ -290,8 +290,9 @@ fn top_bar(
     let bar_h = 32.0 * s;
 
     // Left group: FOLDER ‹ breadcrumb ›, then SORT. The right group (SETTINGS,
-    // OPTIONS, search) is laid out below; its left edge bounds this group.
-    let right_limit = vp.x + vp.width - (PAD + 112.0) * s - 144.0 * s - 292.0 * s - 16.0 * s;
+    // OPTIONS, quick buttons, search) is laid out below; its left edge bounds this group.
+    let right_limit =
+        vp.x + vp.width - (PAD + 112.0) * s - 144.0 * s - 264.0 * s - 288.0 * s - 16.0 * s;
     let icon = 16.0 * s;
     let iy = vp.y + 32.0 * s - icon / 2.0;
     let base = vp.y + 37.0 * s;
@@ -428,7 +429,7 @@ fn top_bar(
 
     // Three quick-action buttons between the options and the search box.
     let btn_w = 80.0 * s;
-    let exit_btn = Rect::new(options.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    let exit_btn = Rect::new(options.x - (8.0 * s + btn_w), bar_top, btn_w, bar_h);
     bar_button(
         c,
         t,
@@ -440,9 +441,9 @@ fn top_bar(
         HitId::ExitQuit,
         s,
     );
-    let key_btn = Rect::new(exit_btn.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    let key_btn = Rect::new(exit_btn.x - (8.0 * s + btn_w), bar_top, btn_w, bar_h);
     bar_button(c, t, sk, hs, key_btn, "키 설정", "F12", HitId::KeyConfig, s);
-    let auto_btn = Rect::new(key_btn.x - (8.0 + btn_w) * s, bar_top, btn_w, bar_h);
+    let auto_btn = Rect::new(key_btn.x - (8.0 * s + btn_w), bar_top, btn_w, bar_h);
     bar_button(
         c,
         t,

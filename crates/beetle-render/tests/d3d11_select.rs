@@ -323,6 +323,7 @@ fn render_ex(
             result_count: extra.result_count,
             sort_menu: extra.sort_menu,
             library_empty: extra.library_empty,
+            show_help: false,
         },
     );
     match overlay {

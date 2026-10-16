@@ -867,7 +867,7 @@ impl GuiRenderer {
         );
     }
 
-    fn text_centered(&mut self, text: &str, cx: f32, y: f32, px: u16, color: ColorRgba) {
+    fn text_centered(&mut self, text: &str, cx: f32, y: f32, px: f32, color: ColorRgba) {
         let tw = text_w(text, px);
         self.text(text, (cx - tw / 2.0).round(), y, px, color);
     }
