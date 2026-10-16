@@ -35,10 +35,10 @@ pub mod theme {
 }
 
 /// Text sizes in px.
-pub const PX_SMALL: u16 = 13;
-pub const PX_BODY: u16 = 15;
-pub const PX_TITLE: u16 = 18;
-pub const PX_PAGE: u16 = 22;
+pub const PX_SMALL: f32 = 13.0;
+pub const PX_BODY: f32 = 15.0;
+pub const PX_TITLE: f32 = 18.0;
+pub const PX_PAGE: f32 = 22.0;
 
 /// What a click on a drawn region does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,20 +160,20 @@ pub enum Btn {
 }
 
 /// Cap height of text at `px`, for centering text in a box.
-pub fn cap(px: u16) -> f32 {
+pub fn cap(px: f32) -> f32 {
     (px as f32 * 0.73).round()
 }
 
-pub fn text_w(text: &str, px: u16) -> f32 {
+pub fn text_w(text: &str, px: f32) -> f32 {
     BitmapFont::text_width_px(text, px, false)
 }
 
-pub fn text_w_bold(text: &str, px: u16) -> f32 {
+pub fn text_w_bold(text: &str, px: f32) -> f32 {
     BitmapFont::text_width_px(text, px, true)
 }
 
 /// Cuts `text` to `max_w` px, ending with "…" when cut.
-pub fn fit(text: &str, max_w: f32, px: u16, bold: bool) -> String {
+pub fn fit(text: &str, max_w: f32, px: f32, bold: bool) -> String {
     if max_w <= 0.0 {
         return String::new();
     }
@@ -197,7 +197,7 @@ pub fn fit(text: &str, max_w: f32, px: u16, bold: bool) -> String {
 
 /// Splits `text` into lines no wider than `max_w` px, breaking at spaces
 /// where it can and anywhere inside a word that is too long.
-pub fn wrap(text: &str, max_w: f32, px: u16) -> Vec<String> {
+pub fn wrap(text: &str, max_w: f32, px: f32) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
     for word in text.split(' ') {
@@ -406,11 +406,11 @@ impl GuiRenderer {
     }
 
     /// Text with its cap-height line at `y`.
-    pub fn text(&mut self, text: &str, x: f32, y: f32, px: u16, color: ColorRgba) {
+    pub fn text(&mut self, text: &str, x: f32, y: f32, px: f32, color: ColorRgba) {
         BitmapFont::draw_text_px(&mut self.pixmap.as_mut(), text, x, y, px, false, color);
     }
 
-    pub fn text_bold(&mut self, text: &str, x: f32, y: f32, px: u16, color: ColorRgba) {
+    pub fn text_bold(&mut self, text: &str, x: f32, y: f32, px: f32, color: ColorRgba) {
         BitmapFont::draw_text_px(&mut self.pixmap.as_mut(), text, x, y, px, true, color);
     }
 
@@ -423,7 +423,7 @@ impl GuiRenderer {
         y: f32,
         h: f32,
         max_w: f32,
-        px: u16,
+        px: f32,
         color: ColorRgba,
     ) {
         let shown = fit(text, max_w, px, false);

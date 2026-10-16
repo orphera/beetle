@@ -181,7 +181,7 @@ impl BitmapFont {
     }
 
     /// Width in px of `text` drawn at an em size of `px` (see `draw_text_px`).
-    pub fn text_width_px(text: &str, px: u16, bold: bool) -> f32 {
+    pub fn text_width_px(text: &str, px: f32, bold: bool) -> f32 {
         let scale = (px as u32 / Self::PX_PER_SCALE).max(1);
         text.chars()
             .map(|c| {
@@ -200,7 +200,7 @@ impl BitmapFont {
         text: &str,
         x: f32,
         y: f32,
-        px: u16,
+        px: f32,
         bold: bool,
         color: ColorRgba,
     ) {
