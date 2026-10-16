@@ -269,7 +269,7 @@ table! {
     /// `{}` is the green number in milliseconds.
     pub VALUE_MS = "{} ms";
     /// Option chip above PLAY; `{}` is the green number in milliseconds.
-    pub CHIP_GREEN = "{}";
+    pub CHIP_GREEN = "G {}";
     /// Modal footer hints.
     pub HINT_MOVE = "이동";
     pub HINT_CHANGE = "변경";
