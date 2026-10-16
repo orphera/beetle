@@ -399,6 +399,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             filter,
             result_count: state.result_count,
             sort_menu,
+            show_help: state.show_help,
         },
     );
     if let Some(lines) = &option_panel {

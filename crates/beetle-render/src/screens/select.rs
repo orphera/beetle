@@ -119,6 +119,8 @@ pub struct SelectFrame<'a> {
     pub result_count: Option<usize>,
     /// The sort menu, while it is open.
     pub sort_menu: Option<SortMenu<'a>>,
+    /// The help overlay (?) is open; drawing can be simplified.
+    pub show_help: bool,
 }
 
 // Layout grid (1280×720 units).
@@ -153,7 +155,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         first_run_guide(c, t, &sk, list, s, &mut hs);
     } else if f.rows.is_empty() {
         empty_state(c, t, f, content, s, &mut hs);
-    } else {
+    } else if !f.show_help {
         song_list(c, t, &sk, f, list, s, &mut hs);
         let detail = Rect::from_ltrb(
             list.right() + PAD * s,
@@ -2902,6 +2904,7 @@ mod tests {
             filter: FilterBar::default(),
             result_count: None,
             sort_menu: None,
+            show_help: false,
         };
         let mut ui = Ui::new(vp.scale);
         // The cursor on row 0, the window at the top. Find a row lower in the window.
@@ -2958,6 +2961,7 @@ mod tests {
             filter: FilterBar::default(),
             result_count: None,
             sort_menu: None,
+            show_help: false,
         };
 
         ui.begin(1280, 720, vp.scale);
@@ -3118,6 +3122,7 @@ mod tests {
                 filter: FilterBar::default(),
                 result_count: None,
                 sort_menu: None,
+                show_help: false,
             };
             draw_song_select(&mut ui, &frame);
             draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
@@ -3165,6 +3170,7 @@ mod tests {
             filter: FilterBar::default(),
             result_count: None,
             sort_menu: None,
+            show_help: false,
         };
         ui.begin(1280, 720, vp.scale);
         draw_song_select(&mut ui, &guide);
@@ -3286,6 +3292,7 @@ mod tests {
             filter: FilterBar::default(),
             result_count: None,
             sort_menu: None,
+            show_help: false,
         };
 
         ui.begin(1280, 720, vp.scale);
