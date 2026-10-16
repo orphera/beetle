@@ -1,0 +1,64 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # Windows 전용 (Direct3D 11 / Raw Input, ADR-026)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Type check
+        run: cargo check --workspace --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Release build
+        run: cargo build --release --locked
+
+      - name: Binary sizes
+        shell: pwsh
+        run: |
+          $files = 'beetle-app.exe', 'bpm-gui.exe', 'bpm.exe' | ForEach-Object { Get-Item "target/release/$_" }
+          $files | Select-Object Name, Length | Format-Table | Out-String | Tee-Object -Variable table
+          "### Binary sizes`n``````n$table`n``````" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/beetle-app.exe, target/release/bpm-gui.exe, target/release/bpm.exe dist/
+          Compress-Archive -Path dist/* -DestinationPath beetle-windows-x64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beetle-windows-x64
+          path: beetle-windows-x64.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: beetle-windows-x64.zip
+          generate_release_notes: true
