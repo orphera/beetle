@@ -184,6 +184,10 @@ impl Thread {
         unsafe {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
         }
+        // Controllers plugged in before the process started send no arrival.
+        for device in unsafe { present_hid_devices() } {
+            self.open_pad(device);
+        }
 
         let tick = Duration::from_millis(u64::from(TICK_MILLIS));
         let mut msg = Msg::default();
@@ -207,10 +211,16 @@ impl Thread {
                     let at = Instant::now();
                     self.input(msg.l_param, at);
                 } else if msg.message == WM_INPUT_DEVICE_CHANGE {
-                    // A controller left (or came): its handle may be reused, so
-                    // its cached data is dropped, and its held buttons let go.
+                    // A controller came: it is opened now, so its first report
+                    // does not parse its data. One left: its handle may be
+                    // reused, so its cached data is dropped and its held
+                    // buttons let go.
                     let at = Instant::now();
-                    self.forget_pad(msg.l_param as usize, at);
+                    let device = msg.l_param as usize;
+                    self.forget_pad(device, at);
+                    if msg.w_param == GIDC_ARRIVAL as usize {
+                        self.open_pad(device);
+                    }
                 }
                 // Raw input needs DefWindowProc to release its buffers.
                 unsafe { DispatchMessageW(&msg) };
@@ -287,11 +297,8 @@ impl Thread {
     /// rejected.
     fn pad_read(&mut self, device: usize, report: &[u8]) -> Option<(Edges, Option<(u32, u8)>)> {
         if !self.pads.contains_key(&device) {
-            if self.pads.len() >= hid::MAX_DEVICES {
-                return None;
-            }
-            let opened = unsafe { hid::Device::open(device as *mut c_void) };
-            self.pads.insert(device, opened);
+            // Normally opened on arrival; this covers a report that came first.
+            self.open_pad(device);
         }
         let axis = self.turntable_axis.map(usize::from);
         let pad = self.pads.get_mut(&device)?.as_mut()?;
@@ -377,6 +384,16 @@ impl Thread {
         }
     }
 
+    /// Opens a controller and keeps it (or keeps that it is not one hid.dll
+    /// describes). Beyond `MAX_DEVICES` it is not kept.
+    fn open_pad(&mut self, device: usize) {
+        if !self.pads.contains_key(&device) && self.pads.len() >= hid::MAX_DEVICES {
+            return;
+        }
+        let opened = unsafe { hid::Device::open(device as *mut c_void) };
+        self.pads.insert(device, opened);
+    }
+
     /// Forgets a controller that was removed (or that changed): its held
     /// buttons are released, so nothing stays down.
     fn forget_pad(&mut self, device: usize, at: Instant) {
@@ -434,6 +451,34 @@ impl Thread {
             }
         }
     }
+}
+
+/// The raw input handles of the controllers present now (HID devices only).
+///
+/// # Safety
+/// Raw input must be registered by this thread's window (`open_target`).
+unsafe fn present_hid_devices() -> Vec<usize> {
+    let size = std::mem::size_of::<RawInputDeviceList>() as u32;
+    let mut count = 0u32;
+    if GetRawInputDeviceList(std::ptr::null_mut(), &mut count, size) == u32::MAX || count == 0 {
+        return Vec::new();
+    }
+    let mut list = vec![
+        RawInputDeviceList {
+            device: std::ptr::null_mut(),
+            kind: 0,
+        };
+        count as usize
+    ];
+    let got = GetRawInputDeviceList(list.as_mut_ptr(), &mut count, size);
+    if got == u32::MAX {
+        return Vec::new();
+    }
+    list.truncate(got as usize);
+    list.iter()
+        .filter(|d| d.kind == RIM_TYPEHID)
+        .map(|d| d.device as usize)
+        .collect()
 }
 
 /// The lane source of a turntable direction.
@@ -641,6 +686,7 @@ const RI_KEY_E0: u16 = 0x02;
 const RI_KEY_E1: u16 = 0x04;
 const WM_INPUT: u32 = 0x00FF;
 const WM_INPUT_DEVICE_CHANGE: u32 = 0x00FE;
+const GIDC_ARRIVAL: u32 = 1;
 const WM_QUIT: u32 = 0x0012;
 const WM_APP: u32 = 0x8000;
 const PM_REMOVE: u32 = 0x0001;
@@ -661,6 +707,14 @@ struct RawInputDevice {
     usage: u16,
     flags: u32,
     target: *mut c_void,
+}
+
+/// `RAWINPUTDEVICELIST`: a device handle and its type.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RawInputDeviceList {
+    device: *mut c_void,
+    kind: u32,
 }
 
 #[repr(C)]
@@ -726,6 +780,7 @@ extern "system" {
         param: *mut c_void,
     ) -> *mut c_void;
     fn RegisterRawInputDevices(devices: *const RawInputDevice, count: u32, size: u32) -> i32;
+    fn GetRawInputDeviceList(list: *mut RawInputDeviceList, count: *mut u32, size: u32) -> u32;
     fn GetRawInputData(
         raw_input: *mut c_void,
         command: u32,
@@ -841,6 +896,13 @@ mod tests {
         // A short or unknown block is nothing.
         assert_eq!(key_from(&down[..20]), None);
         assert_eq!(key_from(&keyboard_block(0x2C, 0, 0x5A, 0x0200)), None);
+    }
+
+    #[test]
+    fn the_present_hid_devices_list_without_error() {
+        // Any count is fine here (a machine may have none); the call must not fail.
+        let devices = unsafe { present_hid_devices() };
+        assert!(devices.len() < 256);
     }
 
     #[test]

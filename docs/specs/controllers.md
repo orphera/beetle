@@ -36,7 +36,7 @@ Beetle은 두 종류의 컨트롤러를 받는다. 둘 다 새 크레이트 없�
 ### 2.1 장치와 보고서
 
 - 등록: 키보드와 같은 메시지 전용 창에 `RIDEV_INPUTSINK`로 usage page `0x01`, usage `0x04`(조이스틱)와 `0x05`(게임패드)를 등록한다. `RIDEV_DEVNOTIFY`로 장치 제거를 알린다. HID 등록이 실패해도 키보드는 그대로 동작한다.
-- 장치마다 `HidP_GetCaps` / `HidP_GetButtonCaps` / `HidP_GetValueCaps`로 구조를 한 번 읽어 캐시한다(장치 핸들 기준). 해석할 수 없는 장치는 다시 묻지 않는다.
+- 장치마다 `HidP_GetCaps` / `HidP_GetButtonCaps` / `HidP_GetValueCaps`로 구조를 한 번 읽어 캐시한다(장치 핸들 기준). 해석할 수 없는 장치는 다시 묻지 않는다. 장치는 입력 스레드 시작 때 이미 연결된 것을 열고, 도착 통지(`GIDC_ARRIVAL`)로 새로 연결된 것을 연다. 첫 보고서에서 처음 여는 것은 예비 경로다.
 - 보고서마다 `HidP_GetUsages`(버튼)와 `HidP_GetUsageValue`(축)를 부른다. 보고서가 너무 짧거나 너무 길거나 hid.dll이 거부하면 그 보고서는 버린다(패닉 없음).
 - 장치가 제거되면 그 장치가 누르고 있던 버튼은 모두 떼어진 것으로 처리한다.
 
