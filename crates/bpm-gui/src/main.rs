@@ -29,7 +29,7 @@ use ui::{ActiveTab, StatusKind};
 use widgets::{GuiRenderer, ListView, ScrollTarget, UiAction};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -54,6 +54,8 @@ struct AppState {
     installed: ListView,
     search_query: String,
     is_search_active: bool,
+    /// Whether the window currently accepts IME input (only while searching).
+    ime_allowed: bool,
     status: String,
     status_kind: StatusKind,
     dialog: Option<Dialog>,
@@ -298,6 +300,7 @@ impl ApplicationHandler for BpmGuiApp {
             installed: ListView::default(),
             search_query: String::new(),
             is_search_active: false,
+            ime_allowed: false,
             status: "준비됐어요. 처음이라면 오른쪽 위 '도움말'을 눌러 보세요.".to_string(),
             status_kind: StatusKind::Info,
             dialog: None,
@@ -452,8 +455,23 @@ impl ApplicationHandler for BpmGuiApp {
                 handle_drop(state, path);
                 state.window.request_redraw();
             }
+            WindowEvent::Ime(Ime::Commit(text)) if state.is_search_active => {
+                let before = state.search_query.len();
+                state
+                    .search_query
+                    .extend(text.chars().filter(|c| !c.is_control()));
+                if state.search_query.len() != before {
+                    state.apply_filter();
+                }
+                state.window.request_redraw();
+            }
             WindowEvent::RedrawRequested => redraw(state),
             _ => (),
+        }
+        // The search box is the only text field: IME input is on only while it is focused.
+        if state.ime_allowed != state.is_search_active {
+            state.ime_allowed = state.is_search_active;
+            state.window.set_ime_allowed(state.ime_allowed);
         }
     }
 }
