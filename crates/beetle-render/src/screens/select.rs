@@ -154,7 +154,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         // No songs at all: the guide takes the list area and there is no detail.
         first_run_guide(c, t, &sk, list, s, &mut hs);
     } else if f.rows.is_empty() {
-        empty_state(c, t, f, content, s, &mut hs);
+        empty_state(c, t, &sk, f, content, s, &mut hs);
     } else if !f.show_help {
         song_list(c, t, &sk, f, list, s, &mut hs);
         let detail = Rect::from_ltrb(
@@ -294,8 +294,7 @@ fn top_bar(
 
     // Left group: FOLDER ‹ breadcrumb ›, then SORT. The right group (SETTINGS,
     // OPTIONS, quick buttons, search) is laid out below; its left edge bounds this group.
-    let right_limit =
-        vp.x + vp.width - (PAD + 112.0) * s - 144.0 * s - 264.0 * s - 288.0 * s - 16.0 * s;
+    let right_limit = vp.x + vp.width - (PAD + 5.0 * 108.0 + 12.0 + 264.0 + 16.0) * s;
     let icon = 16.0 * s;
     let iy = vp.y + 32.0 * s - icon / 2.0;
     let base = vp.y + 37.0 * s;
@@ -400,12 +399,7 @@ fn top_bar(
     }
 
     // Right edge: SETTINGS (F4), then OPTIONS (TAB); the search box sits to their left.
-    let settings = Rect::new(
-        vp.x + vp.width - (PAD + 112.0) * s,
-        bar_top,
-        112.0 * s,
-        bar_h,
-    );
+    let settings = Rect::new(vp.x + vp.width - (PAD + 96.0) * s, bar_top, 96.0 * s, bar_h);
     bar_button(
         c,
         t,
@@ -417,7 +411,7 @@ fn top_bar(
         HitId::OpenSettings,
         s,
     );
-    let options = Rect::new(settings.x - (8.0 + 136.0) * s, bar_top, 136.0 * s, bar_h);
+    let options = Rect::new(settings.x - (12.0 + 96.0) * s, bar_top, 96.0 * s, bar_h);
     bar_button(
         c,
         t,
@@ -464,7 +458,7 @@ fn top_bar(
     );
 
     // Search box
-    let search = Rect::new(auto_btn.x - (8.0 + 224.0) * s, bar_top, 224.0 * s, bar_h);
+    let search = Rect::new(auto_btn.x - (12.0 + 264.0) * s, bar_top, 264.0 * s, bar_h);
     hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,
@@ -1166,6 +1160,7 @@ fn lamp_colour(lamp: Option<ClearType>) -> ColorRgba {
 fn empty_state(
     c: &mut Canvas,
     t: &mut TextEngine,
+    sk: &Skin,
     f: &SelectFrame,
     area: Rect,
     s: f32,
@@ -1206,7 +1201,7 @@ fn empty_state(
         let r = Rect::new(area.x + (area.w - w) / 2.0, cy + 46.0 * s, w, 28.0 * s);
         hs.add(r, HitId::FilterReset);
         let hot = hs.hovered(r);
-        chip_frame(c, r, false, hot, false, s);
+        chip_frame(c, sk, r, false, hot, false, s);
         t.draw_in(
             c,
             strings::FILTER_RESET,
@@ -1326,7 +1321,7 @@ fn guide_button(
 ) {
     hs.add(r, id);
     let hot = hs.hovered(r);
-    chip_frame(c, r, primary, hot, false, s);
+    chip_frame(c, sk, r, primary, hot, false, s);
     let st = TextStyle::new(12.0 * s).bold().color(if hot || primary {
         theme::TEXT
     } else {
@@ -1950,29 +1945,27 @@ pub struct SortMenu<'a> {
     pub highlight: usize,
 }
 
-/// A filter chip (or button) frame: filled and outlined in the accent when
-/// `on`, with a white ring when keyboard focus is on it.
-fn chip_frame(c: &mut Canvas, r: Rect, on: bool, hot: bool, focus: bool, s: f32) {
-    let fill = if on {
-        theme::CYAN.with_alpha(36)
-    } else if hot {
-        theme::SURF3
+/// A filter chip (or button) frame: rounded, outlined in the accent when
+/// `on`, with an accent ring when keyboard focus is on it.
+fn chip_frame(c: &mut Canvas, sk: &Skin, r: Rect, on: bool, hot: bool, focus: bool, s: f32) {
+    let border = if on {
+        theme::CYAN.with_alpha(200)
     } else {
-        theme::SURF2
+        theme::LINE
     };
-    c.fill_rect(r, fill);
-    c.stroke_rect(
-        r,
-        s.max(1.0),
-        if on {
-            theme::CYAN.with_alpha(200)
-        } else {
-            theme::LINE
-        },
+    c.nine(&sk.panel_sm, r, border);
+    let inner = r.inset(s.max(1.0));
+    c.nine(
+        &sk.panel_sm,
+        inner,
+        if hot { theme::SURF3 } else { theme::SURF2 },
     );
+    if on {
+        c.nine(&sk.panel_sm, inner, theme::CYAN.with_alpha(36));
+    }
     if focus {
         let ring = Rect::new(r.x - 2.0 * s, r.y - 2.0 * s, r.w + 4.0 * s, r.h + 4.0 * s);
-        c.stroke_rect(ring, s.max(1.0), theme::WHITE.with_alpha(200));
+        c.stroke_rect(ring, s.max(1.0), theme::CYAN);
     }
 }
 
@@ -2036,7 +2029,7 @@ fn filter_row(
         let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
         hs.add(r, HitId::FilterItem(item));
         let hot = hs.hovered(r);
-        chip_frame(c, r, on, hot, fb.focus == Some(item), s);
+        chip_frame(c, sk, r, on, hot, fb.focus == Some(item), s);
         chip_label(c, t, r, label, on || hot, s);
         x += r.w + 6.0 * s;
         item += 1;
@@ -2112,7 +2105,7 @@ fn filter_row(
         let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
         hs.add(r, HitId::FilterItem(item));
         let hot = hs.hovered(r);
-        chip_frame(c, r, on, hot, fb.focus == Some(item), s);
+        chip_frame(c, sk, r, on, hot, fb.focus == Some(item), s);
         chip_label(c, t, r, label, on || hot, s);
         x += r.w + 6.0 * s;
         item += 1;
@@ -2127,7 +2120,7 @@ fn filter_row(
         );
         hs.add(r, HitId::FilterItem(item));
         let hot = hs.hovered(r);
-        chip_frame(c, r, false, hot, fb.focus == Some(item), s);
+        chip_frame(c, sk, r, false, hot, fb.focus == Some(item), s);
         chip_label(c, t, r, strings::FILTER_RESET, hot, s);
     }
 
@@ -2168,7 +2161,7 @@ fn level_stepper(
     let r = Rect::new(x, bar.y, w + 8.0 * s, bar.h);
     hs.add(r, HitId::FilterItem(item));
     let hot = hs.hovered(r);
-    chip_frame(c, r, on, hot, focus, s);
+    chip_frame(c, sk, r, on, hot, focus, s);
 
     let arrow_y = bar.y + (bar.h - arrow) / 2.0;
     let left = Rect::new(r.x + 4.0 * s, arrow_y, arrow, arrow);
