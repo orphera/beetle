@@ -5,6 +5,7 @@ use crate::art::Skin;
 use crate::backend::GpuBackend;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{self, Hit, HitId};
+use crate::jacket::JacketAtlas;
 use crate::text::TextEngine;
 
 pub struct Ui {
@@ -29,6 +30,8 @@ pub struct Ui {
     /// `AMBIENT_LOOP_SECS`. Set by the app before drawing; it is not the audio
     /// clock and nothing that is judged or timed reads it.
     pub clock: f32,
+    /// Song jacket thumbnails, in a slot grid of the shared atlas (`jacket`).
+    pub jackets: JacketAtlas,
 }
 
 /// Length of the ambient clock's loop, in seconds. Every decorative period
@@ -46,6 +49,7 @@ impl Ui {
     pub fn new(scale: f32) -> Self {
         let mut canvas = Canvas::default();
         let skin = Skin::generate(canvas.atlas_mut(), scale);
+        let jackets = JacketAtlas::new(canvas.atlas_mut());
         Self {
             canvas,
             text: TextEngine::new(),
@@ -55,6 +59,7 @@ impl Ui {
             pointer: None,
             ime_caret: None,
             clock: 0.0,
+            jackets,
         }
     }
 
@@ -65,6 +70,9 @@ impl Ui {
             self.canvas.reset_atlas();
             self.text.clear_cache();
             self.skin = Skin::generate(self.canvas.atlas_mut(), scale);
+            // The reset emptied the atlas: the jacket grid is reserved again
+            // and its residents are gone.
+            self.jackets = JacketAtlas::new(self.canvas.atlas_mut());
         }
         self.canvas.begin(width, height);
         self.hits.clear();

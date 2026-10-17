@@ -7,8 +7,9 @@
 
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, OptionLine, LEFT_RIGHT};
 use crate::art::Skin;
-use crate::canvas::{Canvas, Rect};
+use crate::canvas::{AtlasRegion, Canvas, Rect};
 use crate::hit::{HitId, HitSink};
+use crate::jacket::{jacket_seed, JacketAtlas, THUMB_PX};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::strings;
@@ -181,7 +182,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     } else if f.rows.is_empty() {
         empty_state(c, t, &sk, f, content, s, &mut hs);
     } else if !f.show_help {
-        song_list(c, t, &sk, f, list, s, &mut hs);
+        song_list(c, t, &sk, f, list, s, &mut hs, &mut ui.jackets);
         let detail = Rect::from_ltrb(
             list.right() + PAD * s,
             content.y,
@@ -205,9 +206,18 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         // The detail panel fades in whenever the selection changes.
         c.set_opacity(f.motion.detail);
         match (f.rows.get(f.selected), selected) {
-            (Some(SelectRow::Song(_) | SelectRow::Group { .. }), Some(song)) => {
-                detail_panel(c, t, &sk, f, song, detail, tabs, s, &mut hs)
-            }
+            (Some(SelectRow::Song(_) | SelectRow::Group { .. }), Some(song)) => detail_panel(
+                c,
+                t,
+                &sk,
+                f,
+                song,
+                detail,
+                tabs,
+                s,
+                &mut hs,
+                &mut ui.jackets,
+            ),
             (
                 Some(&SelectRow::Folder {
                     label,
@@ -608,6 +618,7 @@ pub fn clamp_into_window(selected: usize, start: usize, total: usize, rows: usiz
     selected.clamp(start.min(last), last)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn song_list(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -616,6 +627,7 @@ fn song_list(
     list: Rect,
     s: f32,
     hs: &mut HitSink,
+    jackets: &mut JacketAtlas,
 ) {
     let step = (ROW_H + ROW_GAP) * s;
     let rows = visible_rows(f.viewport);
@@ -655,6 +667,9 @@ fn song_list(
         };
         let whole = takes_clicks(view, row);
         let hot = !on && hs.hovered(view);
+        let jacket = row_song_index(entry)
+            .and_then(|i| f.songs.get(i))
+            .and_then(|song| jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)));
         match *entry {
             SelectRow::Song(idx) => {
                 let Some(song) = f.songs.get(idx) else {
@@ -674,6 +689,7 @@ fn song_list(
                     row,
                     on,
                     hot,
+                    jacket,
                     s,
                 );
             }
@@ -693,7 +709,8 @@ fn song_list(
                     hs.add(view, HitId::ListRow(slot));
                 }
                 group_row(
-                    c, t, sk, f, title, charts, labels, selected, slot, row, view, on, hot, s, hs,
+                    c, t, sk, f, title, charts, labels, selected, slot, row, view, on, hot, jacket,
+                    s, hs,
                 );
             }
         }
@@ -716,6 +733,17 @@ fn song_list(
             Rect::new(track.x, thumb_y, track.w, thumb_h),
             theme::CYAN.with_alpha(200),
         );
+    }
+}
+
+/// The song a list row shows: the song itself, or the chosen chart of a group.
+fn row_song_index(row: &SelectRow) -> Option<usize> {
+    match *row {
+        SelectRow::Song(i) => Some(i),
+        SelectRow::Group {
+            charts, selected, ..
+        } => charts.get(selected).copied(),
+        SelectRow::Folder { .. } => None,
     }
 }
 
@@ -748,11 +776,12 @@ fn song_row(
     row: Rect,
     on: bool,
     hot: bool,
+    jacket: Option<(AtlasRegion, bool)>,
     s: f32,
 ) {
     row_background(c, sk, row, on, hot, s);
     lamp_strip(c, sk, row, best, s);
-    let tx = level_badge(c, t, sk, song.play_level, row, s);
+    let tx = row_jacket(c, t, song.play_level, jacket, &song.title, row, s);
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
     row_title(c, t, row, &song.title, tx, text_w, on, s);
@@ -820,22 +849,61 @@ fn lamp_strip(c: &mut Canvas, sk: &Skin, row: Rect, best: Option<&ScoreRecord>, 
     );
 }
 
-/// The level badge at the row's left. Returns the x where the title starts.
-fn level_badge(
+/// Side of a list row's jacket at 1280×720, in layout units (the row is 52).
+const JACKET_PX: f32 = 44.0;
+
+/// The row's jacket at its left: the song's artwork, or its procedural
+/// placeholder with the title's first letter. The level badge sits on the
+/// jacket's lower-right corner, coloured by difficulty. Returns the x where the
+/// title starts.
+#[allow(clippy::too_many_arguments)]
+fn row_jacket(
     c: &mut Canvas,
     t: &mut TextEngine,
-    sk: &Skin,
     level: u32,
+    jacket: Option<(AtlasRegion, bool)>,
+    title: &str,
     row: Rect,
     s: f32,
 ) -> f32 {
-    // Level badge
     let (_, diff) = theme::level_tier(level);
-    let badge = Rect::new(row.x + 20.0 * s, row.y + 10.0 * s, 40.0 * s, 32.0 * s);
-    c.nine(&sk.panel_sm, badge, diff.with_alpha(40));
-    c.nine(
-        &sk.panel_sm,
-        Rect::new(badge.x, badge.bottom() - 3.0 * s, badge.w, 3.0 * s),
+    let j = Rect::new(
+        row.x + 20.0 * s,
+        row.y + (row.h - JACKET_PX * s) / 2.0,
+        JACKET_PX * s,
+        JACKET_PX * s,
+    );
+    c.fill_rect(j, theme::SURF3);
+    if let Some((region, placeholder)) = jacket {
+        let whole = Rect::new(0.0, 0.0, THUMB_PX as f32, THUMB_PX as f32);
+        c.sprite_sub(region, whole, j, theme::WHITE);
+        if placeholder {
+            if let Some(first) = title.chars().next() {
+                let letter: String = first.to_uppercase().collect();
+                t.draw_in(
+                    c,
+                    &letter,
+                    j,
+                    Align::Center,
+                    &TextStyle::new(22.0 * s)
+                        .bold()
+                        .color(theme::WHITE.with_alpha(230)),
+                );
+            }
+        }
+    }
+
+    let badge = Rect::new(
+        j.right() - 18.0 * s,
+        j.bottom() - 12.0 * s,
+        26.0 * s,
+        16.0 * s,
+    );
+    // Single quads only: a row's jacket must stay cheap in vertices, or the
+    // list splits into more batches (see `MAX_BATCH_VERTICES`).
+    c.fill_rect(badge, theme::BG.with_alpha(230));
+    c.fill_rect(
+        Rect::new(badge.x, badge.bottom() - 2.0 * s, badge.w, 2.0 * s),
         diff,
     );
     t.draw_in(
@@ -843,10 +911,10 @@ fn level_badge(
         &level.to_string(),
         badge,
         Align::Center,
-        &TextStyle::new(17.0 * s).bold().color(diff),
+        &TextStyle::new(11.0 * s).bold().color(diff),
     );
 
-    badge.right() + 16.0 * s
+    j.right() + 12.0 * s
 }
 
 /// The row title on one line, cut to `text_w`.
@@ -946,6 +1014,7 @@ fn group_row(
     view: Rect,
     on: bool,
     hot: bool,
+    jacket: Option<(AtlasRegion, bool)>,
     s: f32,
     hs: &mut HitSink,
 ) {
@@ -955,7 +1024,7 @@ fn group_row(
     let best = f.scores.best(song, f.ln_option);
     row_background(c, sk, row, on, hot, s);
     lamp_strip(c, sk, row, best, s);
-    let tx = level_badge(c, t, sk, song.play_level, row, s);
+    let tx = row_jacket(c, t, song.play_level, jacket, title, row, s);
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
     row_title(c, t, row, title, tx, text_w, on, s);
@@ -1441,6 +1510,7 @@ fn detail_panel(
     tabs: Option<ChartTabs>,
     s: f32,
     hs: &mut HitSink,
+    jackets: &mut JacketAtlas,
 ) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
@@ -1468,31 +1538,43 @@ fn detail_panel(
             c.fill_rect(jacket, theme::BG);
             c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE);
         }
-        None => {
-            c.fill_rect_corners(
-                jacket,
-                [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
-            );
-            c.set_additive(true);
-            c.sprite_centered(
-                sk.flare,
-                jacket.x + jacket.w * 0.7,
-                jacket.y + jacket.h * 0.3,
-                160.0 * s,
-                160.0 * s,
-                theme::WHITE.with_alpha(90),
-            );
-            c.set_additive(false);
-            t.draw_in(
-                c,
-                theme::mode_label(song.play_mode),
-                jacket.inset(12.0 * s),
-                Align::Left,
-                &TextStyle::new(44.0 * s)
-                    .bold()
-                    .color(theme::WHITE.with_alpha(40)),
-            );
-        }
+        None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
+            // No stage image: the song's jacket thumbnail or placeholder, cropped to 4:3.
+            Some((region, _)) => {
+                c.fill_rect(jacket, theme::SURF3);
+                c.sprite_sub(
+                    region,
+                    Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
+                    jacket,
+                    theme::WHITE,
+                );
+            }
+            None => {
+                c.fill_rect_corners(
+                    jacket,
+                    [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
+                );
+                c.set_additive(true);
+                c.sprite_centered(
+                    sk.flare,
+                    jacket.x + jacket.w * 0.7,
+                    jacket.y + jacket.h * 0.3,
+                    160.0 * s,
+                    160.0 * s,
+                    theme::WHITE.with_alpha(90),
+                );
+                c.set_additive(false);
+                t.draw_in(
+                    c,
+                    theme::mode_label(song.play_mode),
+                    jacket.inset(12.0 * s),
+                    Align::Left,
+                    &TextStyle::new(44.0 * s)
+                        .bold()
+                        .color(theme::WHITE.with_alpha(40)),
+                );
+            }
+        },
     }
     c.stroke_rect(jacket, s.max(1.0), theme::LINE);
     if let Some(secs) = f.preview_secs {
@@ -3515,5 +3597,107 @@ mod tests {
         draw_song_select(&mut ui, &frame("가을", "", true));
         let without = ui.ime_caret.expect("caret");
         assert!(caret.x > without.x);
+    }
+}
+
+#[cfg(test)]
+mod jacket_tests {
+    use super::*;
+    use crate::jacket::{jacket_seed, JacketKey, THUMB_PX};
+    use beetle_core::{PlayMode, SongMetadata};
+
+    fn song(i: usize) -> SongMetadata {
+        SongMetadata {
+            id: beetle_core::ChartId::synthetic(i as u64 + 1),
+            md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
+            legacy_hash: i as u64 + 1,
+            file_path: format!("songs/{i}.bms"),
+            title: format!("Song number {i} with a fairly long title"),
+            subtitle: String::new(),
+            artist: "Artist 아티스트".into(),
+            genre: "TRANCE".into(),
+            bpm: 150.0,
+            bpm_min: 150.0,
+            bpm_max: 150.0,
+            play_level: (i % 13) as u32,
+            notes_count: 1000 + i,
+            play_mode: PlayMode::Keys7,
+        }
+    }
+
+    /// Draws the list, with thumbnails resident for the first rows when
+    /// `with_jackets`. Returns the batch count and the hit regions.
+    fn draw(
+        ui: &mut Ui,
+        songs: &[SongMetadata],
+        rows: &[SelectRow],
+        with_jackets: bool,
+    ) -> (usize, Vec<(HitId, (f32, f32, f32, f32))>) {
+        let vp = Viewport::new(1280, 720);
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
+        ui.begin(1280, 720, vp.scale);
+        if with_jackets {
+            let art = vec![180u8; (THUMB_PX * THUMB_PX * 4) as usize];
+            for (i, s) in songs.iter().enumerate().take(12) {
+                if i % 2 == 0 {
+                    let key = JacketKey::Chart(s.id);
+                    assert!(ui.jackets.insert(ui.canvas.atlas_mut(), key, &art));
+                } else {
+                    let seed = jacket_seed(&s.title, &s.artist);
+                    assert!(ui.jackets.ensure_placeholder(ui.canvas.atlas_mut(), seed));
+                }
+            }
+        }
+        let frame = SelectFrame {
+            viewport: &vp,
+            songs,
+            tables: &tables,
+            ln_option: LnOption::Auto,
+            rows,
+            selected: 3,
+            motion: SelectMotion::at_rest(0),
+            library_empty: false,
+            scores: &scores,
+            crumbs: &crumbs,
+            sort: "TITLE",
+            search: "",
+            search_active: false,
+            preedit: "",
+            jacket: None,
+            ambient: None,
+            option_chips: &chips,
+            auto_play: false,
+            has_replay: false,
+            preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
+            show_help: false,
+        };
+        draw_song_select(ui, &frame);
+        let hits = ui
+            .hits
+            .iter()
+            .map(|h| (h.id, (h.rect.x, h.rect.y, h.rect.w, h.rect.h)))
+            .collect();
+        (ui.canvas.debug_batches().len(), hits)
+    }
+
+    #[test]
+    fn row_jackets_stay_in_the_list_batch_and_keep_hit_regions() {
+        let songs: Vec<_> = (0..40).map(song).collect();
+        let rows: Vec<SelectRow> = (0..40).map(SelectRow::Song).collect();
+        let mut ui = Ui::new(1.0);
+        let (plain_batches, plain_hits) = draw(&mut ui, &songs, &rows, false);
+        let (jacket_batches, jacket_hits) = draw(&mut ui, &songs, &rows, true);
+        assert_eq!(plain_batches, 1);
+        // Thumbnails share the atlas page with the sprites and glyphs.
+        assert_eq!(jacket_batches, 1, "row jackets added a batch");
+        assert_eq!(plain_hits, jacket_hits);
     }
 }

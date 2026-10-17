@@ -11,6 +11,7 @@ pub mod backend;
 pub mod canvas;
 pub mod hit;
 pub mod image;
+pub mod jacket;
 pub mod motion;
 pub mod reveal;
 pub mod screens;

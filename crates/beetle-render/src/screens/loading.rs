@@ -8,6 +8,7 @@
 use super::widgets::{self, wrap2};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
+use crate::jacket::{jacket_seed, THUMB_PX};
 use crate::motion::ease_out_cubic;
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
@@ -41,6 +42,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
     let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let jackets = &mut ui.jackets;
     let vp = f.viewport;
     let s = vp.scale;
     let song = f.song;
@@ -78,36 +80,48 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
                 theme::WHITE.with_alpha(a(255)),
             );
         }
-        None => {
-            c.fill_rect_corners(
-                jacket,
-                [
-                    tier_col.with_alpha(a(255)),
-                    theme::SURF3.with_alpha(a(255)),
-                    theme::BG.with_alpha(a(255)),
-                    tier_col.with_alpha(a(160)),
-                ],
-            );
-            c.set_additive(true);
-            c.sprite_centered(
-                sk.flare,
-                jacket.x + jacket.w * 0.7,
-                jacket.y + jacket.h * 0.3,
-                260.0 * s,
-                260.0 * s,
-                theme::WHITE.with_alpha(a(90)),
-            );
-            c.set_additive(false);
-            t.draw_in(
-                c,
-                theme::mode_label(song.play_mode),
-                jacket.inset(20.0 * s),
-                Align::Left,
-                &TextStyle::new(72.0 * s)
-                    .bold()
-                    .color(theme::WHITE.with_alpha(a(40))),
-            );
-        }
+        None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
+            // No stage image: the song's placeholder (or thumbnail), cropped to 4:3.
+            Some((region, _)) => {
+                c.fill_rect(jacket, theme::SURF3.with_alpha(a(255)));
+                c.sprite_sub(
+                    region,
+                    Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
+                    jacket,
+                    theme::WHITE.with_alpha(a(255)),
+                );
+            }
+            None => {
+                c.fill_rect_corners(
+                    jacket,
+                    [
+                        tier_col.with_alpha(a(255)),
+                        theme::SURF3.with_alpha(a(255)),
+                        theme::BG.with_alpha(a(255)),
+                        tier_col.with_alpha(a(160)),
+                    ],
+                );
+                c.set_additive(true);
+                c.sprite_centered(
+                    sk.flare,
+                    jacket.x + jacket.w * 0.7,
+                    jacket.y + jacket.h * 0.3,
+                    260.0 * s,
+                    260.0 * s,
+                    theme::WHITE.with_alpha(a(90)),
+                );
+                c.set_additive(false);
+                t.draw_in(
+                    c,
+                    theme::mode_label(song.play_mode),
+                    jacket.inset(20.0 * s),
+                    Align::Left,
+                    &TextStyle::new(72.0 * s)
+                        .bold()
+                        .color(theme::WHITE.with_alpha(a(40))),
+                );
+            }
+        },
     }
     c.stroke_rect(jacket, s.max(1.0), theme::LINE.with_alpha(a(255)));
 
