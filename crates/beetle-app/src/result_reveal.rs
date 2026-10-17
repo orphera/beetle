@@ -32,26 +32,36 @@ pub struct Due {
     pub toast: bool,
 }
 
+/// A frame gap (seconds) above which the reveal is taken to have stalled: its
+/// Tick and Stamp are not sounded (see `due`).
+pub const STALL_GAP: f64 = 0.25;
+
 /// The sounds due at reveal time `t` (the frame's), given the last frame's
 /// time in `sounds`. `new_best` is whether the play set a best (the Toast);
 /// `skipped` is whether the reveal was skipped (then `t` is the final time).
 pub fn due(sounds: &mut RevealSounds, t: f64, new_best: bool, skipped: bool) -> Due {
     let prev = sounds.last_t;
     sounds.last_t = t;
-    let mut due = Due::default();
-    if skipped {
-        // Skipping lands on the final state: the impact sounds that have not
-        // played yet play now, and no count-up ticks do.
-        due.stamp = !sounds.stamp_fired;
-        due.toast = new_best && !sounds.toast_fired;
+    // A frame that jumps this far (the window was minimised, or the app
+    // stalled) still marks its ticks and stamp as done, but sounds neither:
+    // played that late they would be out of step with the screen. A skip is
+    // the player's own action and always sounds.
+    let stalled = !skipped && t - prev > STALL_GAP;
+    let stamp_hit = if skipped {
+        // Skipping lands on the final state: the impact that has not played yet
+        // plays now, and no count-up ticks do.
+        !sounds.stamp_fired
     } else {
-        due.tick = reveal::ticks_between(prev, t) > 0;
-        due.stamp = !sounds.stamp_fired && reveal::stamp_due(prev, t);
-        due.toast = new_best && !sounds.toast_fired && reveal::toast_due(prev, t);
+        !sounds.stamp_fired && reveal::stamp_due(prev, t)
+    };
+    let toast_hit = new_best && !sounds.toast_fired && (skipped || reveal::toast_due(prev, t));
+    sounds.stamp_fired |= stamp_hit;
+    sounds.toast_fired |= toast_hit;
+    Due {
+        tick: !skipped && !stalled && reveal::ticks_between(prev, t) > 0,
+        stamp: stamp_hit && !stalled,
+        toast: toast_hit,
     }
-    sounds.stamp_fired |= due.stamp;
-    sounds.toast_fired |= due.toast;
-    due
 }
 
 /// Starts the reveal for a new Result screen (called when the screen opens).
@@ -152,11 +162,21 @@ mod tests {
     }
 
     #[test]
-    fn stamp_plays_once_on_a_long_frame_across_the_impact() {
+    fn a_stalled_frame_across_the_impact_is_silent_and_the_stamp_never_replays() {
         // The frame before the impact at 1.0 s, then one 1.2 s frame over it.
         let dues = run(&[0.0, 1.0, 2.2, 2.3, 4.0], false);
-        assert_eq!(count(&dues, |d| d.stamp), 1);
+        assert!(
+            !dues[2].stamp,
+            "a stalled frame does not sound the stamp late"
+        );
+        assert_eq!(count(&dues, |d| d.stamp), 0);
+    }
+
+    #[test]
+    fn a_normal_frame_across_the_impact_sounds_the_stamp_once() {
+        let dues = run(&[1.6, 1.65, 1.75, 1.8, 2.0], false);
         assert!(dues[2].stamp, "the frame that crosses the impact sounds it");
+        assert_eq!(count(&dues, |d| d.stamp), 1);
     }
 
     #[test]
@@ -188,11 +208,14 @@ mod tests {
     }
 
     #[test]
-    fn a_huge_frame_still_sounds_one_tick_and_no_double_stamp() {
+    fn a_stalled_frame_sounds_no_tick_or_stamp_but_the_toast_still_plays() {
         let dues = run(&[0.0, 0.1, 3.0, 3.2], true);
-        assert_eq!(count(&dues, |d| d.stamp), 1);
+        assert!(
+            !dues[2].tick && !dues[2].stamp,
+            "the stalled frame is silent"
+        );
+        assert_eq!(count(&dues, |d| d.stamp), 0, "the stamp never replays late");
         assert_eq!(count(&dues, |d| d.toast), 1);
-        assert!(dues[2].tick, "the covered ticks sound as one");
     }
 
     #[test]
