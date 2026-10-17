@@ -30,16 +30,18 @@ const SWEEP_SHARE: f32 = 0.5;
 const PROMPT_MIN: f32 = 0.45;
 
 /// The menu's labels, top to bottom (the app maps each index to an action).
-pub const MENU_LABELS: [&str; 4] = [
-    strings::TITLE_START,
-    strings::SETTINGS,
-    strings::KEY_CONFIG,
-    strings::QUIT,
-];
+pub fn menu_labels() -> [&'static str; 4] {
+    [
+        strings::TITLE_START(),
+        strings::SETTINGS(),
+        strings::KEY_CONFIG(),
+        strings::QUIT(),
+    ]
+}
 
 pub struct TitleFrame<'a> {
     pub viewport: &'a Viewport,
-    /// Highlighted menu entry (an index into `MENU_LABELS`).
+    /// Highlighted menu entry (an index into `menu_labels()`).
     pub selected: usize,
     /// Songs in the library.
     pub songs: usize,
@@ -109,7 +111,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
         .bold()
         .tracking(16.0 * s)
         .color(theme::TEXT);
-    let width = t.measure(c, strings::WORDMARK, &mark);
+    let width = t.measure(c, strings::WORDMARK(), &mark);
     let x0 = cx - width / 2.0;
     let cap = size * 0.72;
     if !lite {
@@ -137,7 +139,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
         outline: Some((theme::BLACK, 3.0 * s)),
         gradient: Some((theme::CYAN, theme::MAGENTA)),
     };
-    t.draw_fx(c, strings::WORDMARK, x0, base, &mark, 1.0, fx);
+    t.draw_fx(c, strings::WORDMARK(), x0, base, &mark, 1.0, fx);
     if !lite {
         if let Some(p) = sweep_center(time) {
             // The slanted band of the menu backdrop, laid over the letters.
@@ -172,7 +174,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
     }
 
     // Tagline and song count.
-    let tagline = strings::fill(strings::TITLE_TAGLINE, &[f.version]);
+    let tagline = strings::fill(strings::TITLE_TAGLINE(), &[f.version]);
     t.draw_in(
         c,
         &tagline,
@@ -180,7 +182,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
         Align::Center,
         &caption(15.0, s),
     );
-    let songs = strings::fill(strings::TITLE_SONGS, &[&f.songs.to_string()]);
+    let songs = strings::fill(strings::TITLE_SONGS(), &[&f.songs.to_string()]);
     t.draw_in(
         c,
         &songs,
@@ -208,7 +210,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
         };
         t.draw_in(
             c,
-            MENU_LABELS[i],
+            menu_labels()[i],
             *r,
             Align::Center,
             &TextStyle::new(20.0 * s).bold().color(color),
@@ -221,25 +223,25 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
         .bold()
         .tracking(3.0 * s)
         .color(theme::TEXT.with_alpha(a));
-    let press_w = t.measure(c, strings::TITLE_PRESS, &label);
-    let key_w = keycap_width(c, t, strings::TITLE_ENTER, s);
-    let start_w = t.measure(c, strings::TITLE_START, &label);
+    let press_w = t.measure(c, strings::TITLE_PRESS(), &label);
+    let key_w = keycap_width(c, t, strings::TITLE_ENTER(), s);
+    let start_w = t.measure(c, strings::TITLE_START(), &label);
     let gap = 10.0 * s;
     let total = press_w + gap + key_w + gap + start_w;
     let py = vp.y + 640.0 * s;
     let mut x = cx - total / 2.0;
-    t.draw(c, strings::TITLE_PRESS, x, py, &label);
+    t.draw(c, strings::TITLE_PRESS(), x, py, &label);
     x += press_w + gap;
     keycap(
         c,
         t,
         &sk,
-        strings::TITLE_ENTER,
+        strings::TITLE_ENTER(),
         Rect::new(x, py - 17.0 * s, key_w, 22.0 * s),
         s,
     );
     x += key_w + gap;
-    t.draw(c, strings::TITLE_START, x, py, &label);
+    t.draw(c, strings::TITLE_START(), x, py, &label);
 }
 
 /// A rounded menu panel in `tint`.
@@ -391,8 +393,8 @@ mod tests {
 
     #[test]
     fn the_menu_starts_with_start_and_ends_with_quit() {
-        assert_eq!(MENU_LABELS.len(), 4);
-        assert_eq!(MENU_LABELS[0], strings::TITLE_START);
-        assert_eq!(MENU_LABELS[3], strings::QUIT);
+        assert_eq!(menu_labels().len(), 4);
+        assert_eq!(menu_labels()[0], strings::TITLE_START());
+        assert_eq!(menu_labels()[3], strings::QUIT());
     }
 }

@@ -50,24 +50,26 @@ pub struct ResultFrame<'a> {
     pub gauge_trend: &'a GaugeTrend,
 }
 
-const HINTS: [widgets::Hint; 4] = [
-    (
-        "ENTER",
-        strings::RESULT_SONG_SELECT,
-        Some(HitId::ResultSongSelect),
-    ),
-    ("R", strings::RESULT_RETRY, Some(HitId::ResultRetry)),
-    (
-        "TAB",
-        strings::RESULT_RETRY_OPTIONS,
-        Some(HitId::ResultRetryOptions),
-    ),
-    (
-        "P",
-        strings::RESULT_SCREENSHOT,
-        Some(HitId::ResultScreenshot),
-    ),
-];
+fn hints() -> [widgets::Hint; 4] {
+    [
+        (
+            "ENTER",
+            strings::RESULT_SONG_SELECT(),
+            Some(HitId::ResultSongSelect),
+        ),
+        ("R", strings::RESULT_RETRY(), Some(HitId::ResultRetry)),
+        (
+            "TAB",
+            strings::RESULT_RETRY_OPTIONS(),
+            Some(HitId::ResultRetryOptions),
+        ),
+        (
+            "P",
+            strings::RESULT_SCREENSHOT(),
+            Some(HitId::ResultScreenshot),
+        ),
+    ]
+}
 
 pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let sk = ui.skin;
@@ -119,7 +121,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     timing_panel(c, t, &sk, f, timing, &stage, s);
     c.set_opacity(1.0);
 
-    widgets::top_bar(c, t, vp, strings::RESULT, s);
+    widgets::top_bar(c, t, vp, strings::RESULT(), s);
     c.set_opacity(stage.footer);
     let bar = widgets::footer_bar(c, vp, s);
     if let Some(reason) = f.unsaved_reason {
@@ -130,13 +132,13 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
         t.draw_in(c, reason, chip, Align::Center, &st);
         t.draw(
             c,
-            strings::SCORE_NOT_SAVED,
+            strings::SCORE_NOT_SAVED(),
             chip.right() + 10.0 * s,
             bar.y + 25.0 * s,
             &caption(12.0, s).color(theme::MUTED),
         );
     }
-    widgets::footer_buttons(c, t, &sk, &HINTS, bar, s, &mut hs);
+    widgets::footer_buttons(c, t, &sk, &hints(), bar, s, &mut hs);
     c.set_opacity(1.0);
 
     // The white flash covers the whole screen at the stamp.
@@ -165,10 +167,10 @@ fn result_rank(score: &ScoreTracker) -> (&'static str, ColorRgba) {
 
 fn clear_title(clear: ClearType) -> &'static str {
     match clear {
-        ClearType::Perfect => strings::PERFECT,
-        ClearType::FullCombo => strings::FULL_COMBO,
-        ClearType::Easy | ClearType::Clear | ClearType::Hard => strings::STAGE_CLEAR,
-        ClearType::Failed => strings::STAGE_FAILED,
+        ClearType::Perfect => strings::PERFECT(),
+        ClearType::FullCombo => strings::FULL_COMBO(),
+        ClearType::Easy | ClearType::Clear | ClearType::Hard => strings::STAGE_CLEAR(),
+        ClearType::Failed => strings::STAGE_FAILED(),
     }
 }
 
@@ -290,7 +292,7 @@ fn outcome_panel(
     let sw = t.measure(c, status, &st);
     // Tags say what got better: the lamp ("램프 갱신") and the banner ("신기록").
     let lamp_tag_w = if f.update.lamp {
-        tag_width(c, t, strings::NEW_LAMP, s) + 10.0 * s
+        tag_width(c, t, strings::NEW_LAMP(), s) + 10.0 * s
     } else {
         0.0
     };
@@ -313,7 +315,7 @@ fn outcome_panel(
                 t,
                 cx + sw / 2.0 + 10.0 * s,
                 baseline + 44.0 * s,
-                strings::NEW_LAMP,
+                strings::NEW_LAMP(),
                 s,
                 stage.tags,
             );
@@ -322,7 +324,7 @@ fn outcome_panel(
     }
     if f.update.any() && stage.tags > 0.0 {
         let st = caption(12.0, s).color(theme::WHITE);
-        let w = t.measure(c, strings::NEW_RECORD, &st) + 40.0 * s;
+        let w = t.measure(c, strings::NEW_RECORD(), &st) + 40.0 * s;
         let chip = Rect::new(cx - w / 2.0, baseline + 64.0 * s, w, 28.0 * s);
         let k = pop_scale(stage.tags);
         let pop = Rect::new(
@@ -342,7 +344,7 @@ fn outcome_panel(
         );
         c.set_additive(false);
         c.nine(&sk.cut_panel, pop, theme::MAGENTA);
-        t.draw_in(c, strings::NEW_RECORD, pop, Align::Center, &st);
+        t.draw_in(c, strings::NEW_RECORD(), pop, Align::Center, &st);
     }
     c.set_opacity(stage.panel);
 
@@ -354,8 +356,11 @@ fn outcome_panel(
     let graph = Rect::from_ltrb(inner.x, p.y + 388.0 * s, inner.right(), bar.y - 42.0 * s);
     gauge_trend_graph(c, t, sk, graph, f, gcol, s);
     let gauge_caption = match f.ln_label {
-        Some(rule) => strings::fill(strings::GAUGE_NAME_RULE, &[score.gauge_type.as_str(), rule]),
-        None => strings::fill(strings::GAUGE_NAME, &[score.gauge_type.as_str()]),
+        Some(rule) => strings::fill(
+            strings::GAUGE_NAME_RULE(),
+            &[score.gauge_type.as_str(), rule],
+        ),
+        None => strings::fill(strings::GAUGE_NAME(), &[score.gauge_type.as_str()]),
     };
     t.draw(
         c,
@@ -539,9 +544,9 @@ fn gauge_trend_graph(
         x += 10.0 * s;
     }
     let clear_text = if clear_label {
-        strings::fill(strings::GRAPH_CLEAR_LINE, &[&format!("{clear_pct:.0}")])
+        strings::fill(strings::GRAPH_CLEAR_LINE(), &[&format!("{clear_pct:.0}")])
     } else {
-        strings::GRAPH_FAIL_LINE.to_string()
+        strings::GRAPH_FAIL_LINE().to_string()
     };
     // On the left: the trend starts low, so the label does not sit on the line.
     t.draw_in(
@@ -604,14 +609,14 @@ fn gauge_trend_graph(
             theme::RED,
         );
         let st = caption(12.0, s).color(theme::RED);
-        let label_w = t.measure(c, strings::GRAPH_FAILED, &st);
+        let label_w = t.measure(c, strings::GRAPH_FAILED(), &st);
         // Label on the side with more room.
         let lx = if fx > rect.x + rect.w / 2.0 {
             fx - lw - label_w - 4.0 * s
         } else {
             fx + lw + 4.0 * s
         };
-        t.draw(c, strings::GRAPH_FAILED, lx, rect.y + 14.0 * s, &st);
+        t.draw(c, strings::GRAPH_FAILED(), lx, rect.y + 14.0 * s, &st);
     }
 }
 
@@ -639,7 +644,7 @@ fn score_panel_draw(
             t,
             inner.x + label_w + 8.0 * s,
             y + 14.0 * s,
-            strings::NEW_RECORD,
+            strings::NEW_RECORD(),
             s,
             stage.tags,
         );
@@ -678,7 +683,7 @@ fn score_panel_draw(
                 Align::Right,
                 &TextStyle::new(22.0 * s).bold().color(col),
             );
-            let cap = strings::fill(strings::BEST_EX, &[&thousands(best.ex_score)]);
+            let cap = strings::fill(strings::BEST_EX(), &[&thousands(best.ex_score)]);
             t.draw_in(
                 c,
                 &cap,
@@ -691,7 +696,7 @@ fn score_panel_draw(
             if shows_first_play(f.unsaved_reason) {
                 t.draw_in(
                     c,
-                    strings::FIRST_PLAY,
+                    strings::FIRST_PLAY(),
                     Rect::new(right.x, y + 36.0 * s, right.w, 24.0 * s),
                     Align::Right,
                     &caption(12.0, s).color(theme::CYAN),
@@ -716,16 +721,16 @@ fn score_panel_draw(
     // (label, value, "/ total" suffix)
     let stats = [
         (
-            strings::ACCURACY,
+            strings::ACCURACY(),
             format!("{:.2}%", score.accuracy_rate()),
             None,
         ),
         (
-            strings::MAX_COMBO,
+            strings::MAX_COMBO(),
             thousands(score.max_combo),
             Some(format!("/ {}", thousands(score.total_notes))),
         ),
-        (strings::MISS_COUNT, thousands(breaks), None),
+        (strings::MISS_COUNT(), thousands(breaks), None),
     ];
     let col_w = inner.w / 3.0;
     for (i, (k, v, suffix)) in stats.iter().enumerate() {
@@ -744,7 +749,7 @@ fn score_panel_draw(
                 t,
                 sx + lw + 6.0 * s,
                 y + 152.0 * s,
-                strings::NEW_RECORD,
+                strings::NEW_RECORD(),
                 s,
                 stage.tags,
             );
@@ -781,7 +786,13 @@ fn score_panel_draw(
         (JudgeGrade::Miss, score.miss_count),
     ];
     let total = counts.iter().map(|c| c.1).sum::<u32>().max(1);
-    t.draw(c, strings::JUDGE, inner.x, y + 232.0 * s, &caption(12.0, s));
+    t.draw(
+        c,
+        strings::JUDGE(),
+        inner.x,
+        y + 232.0 * s,
+        &caption(12.0, s),
+    );
     let row_h = (inner.bottom() - (y + 248.0 * s)) / counts.len() as f32;
     for (i, (g, n)) in counts.iter().enumerate() {
         // Each row slides in from the right, staggered, and fades in with it.
@@ -850,7 +861,13 @@ fn timing_panel(
     let score = f.score;
     let y = inner.y;
 
-    t.draw(c, strings::TIMING, inner.x, y + 14.0 * s, &caption(12.0, s));
+    t.draw(
+        c,
+        strings::TIMING(),
+        inner.x,
+        y + 14.0 * s,
+        &caption(12.0, s),
+    );
     let half = Rect::new(inner.x, y + 28.0 * s, inner.w / 2.0, 52.0 * s);
     t.draw(
         c,
@@ -907,7 +924,7 @@ fn timing_panel(
     // Offset histogram: 17 buckets, -40 ms (early) .. +40 ms (late).
     t.draw(
         c,
-        strings::OFFSET,
+        strings::OFFSET(),
         inner.x,
         y + 140.0 * s,
         &caption(12.0, s),
@@ -1098,9 +1115,9 @@ mod tests {
     #[test]
     fn first_play_tag_skips_unsaved_runs() {
         assert!(shows_first_play(None));
-        assert!(!shows_first_play(Some(strings::AUTO_PLAY)));
-        assert!(!shows_first_play(Some(strings::REPLAY)));
-        assert!(!shows_first_play(Some(strings::PRACTICE)));
+        assert!(!shows_first_play(Some(strings::AUTO_PLAY())));
+        assert!(!shows_first_play(Some(strings::REPLAY())));
+        assert!(!shows_first_play(Some(strings::PRACTICE())));
     }
 
     #[test]

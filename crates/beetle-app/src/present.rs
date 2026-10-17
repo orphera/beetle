@@ -21,7 +21,7 @@ use crate::devtools;
 use crate::gameplay::END_BANNER_SECONDS;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
-use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
+use crate::options_table::{self, play_options, settings_options, OptionDesc};
 use crate::state::{replay_path, AppScreen, AppState, LibraryJob};
 use crate::transition::{self, show_toast};
 
@@ -122,13 +122,13 @@ fn finish(state: &mut AppState) {
                 show_toast(
                     state,
                     ToastKind::Success,
-                    strings::fill(strings::TOAST_SCREENSHOT_SAVED, &[&name]),
+                    strings::fill(strings::TOAST_SCREENSHOT_SAVED(), &[&name]),
                 );
             }
             Err(e) => show_toast(
                 state,
                 ToastKind::Error,
-                strings::fill(strings::TOAST_SCREENSHOT_FAILED, &[&e.to_string()]),
+                strings::fill(strings::TOAST_SCREENSHOT_FAILED(), &[&e.to_string()]),
             ),
         }
     }
@@ -188,7 +188,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
 fn option_chips(state: &AppState, song: Option<&SongMetadata>) -> Vec<String> {
     let mut chips = vec![
         strings::fill(
-            strings::CHIP_GREEN,
+            strings::CHIP_GREEN(),
             &[&state.play_options.green_ms.to_string()],
         ),
         state.play_options.lane_modifier.as_str().to_string(),
@@ -308,14 +308,14 @@ fn gameplay_badge_and_hint(
 ) -> (Option<&'static str>, String) {
     if is_replay {
         return (
-            Some(strings::REPLAY),
-            strings::HUD_BACK_TO_SELECT.to_string(),
+            Some(strings::REPLAY()),
+            strings::HUD_BACK_TO_SELECT().to_string(),
         );
     }
     if is_auto {
         return (
-            Some(strings::AUTO_PLAY),
-            strings::HUD_BACK_TO_SELECT.to_string(),
+            Some(strings::AUTO_PLAY()),
+            strings::HUD_BACK_TO_SELECT().to_string(),
         );
     }
     let keys = match preset {
@@ -328,11 +328,11 @@ fn gameplay_badge_and_hint(
         KeyPreset::Ue8KTriggers => "LShift + S D F J K L + RShift",
         KeyPreset::DoublePlay => {
             let keys = "Shift+ZSXDCFV / RShift+UIOP[]\\";
-            return (None, strings::fill(strings::HUD_KEYS_NO_COVER, &[keys]));
+            return (None, strings::fill(strings::HUD_KEYS_NO_COVER(), &[keys]));
         }
-        KeyPreset::Custom => strings::KEYS_CUSTOM,
+        KeyPreset::Custom => strings::KEYS_CUSTOM(),
     };
-    (None, strings::fill(strings::HUD_KEYS, &[keys]))
+    (None, strings::fill(strings::HUD_KEYS(), &[keys]))
 }
 
 /// The sort menu's option names, in `SortMode::ALL` order.
@@ -343,11 +343,11 @@ fn sort_names() -> [&'static str; 5] {
 /// Display names of the options that are stored under English enum names.
 fn sort_label(mode: SortMode) -> &'static str {
     match mode {
-        SortMode::Title => strings::SORT_TITLE,
-        SortMode::Level => strings::SORT_LEVEL,
-        SortMode::ClearLamp => strings::SORT_CLEAR_LAMP,
-        SortMode::ScoreRate => strings::SORT_SCORE_RATE,
-        SortMode::Bpm => strings::SORT_BPM,
+        SortMode::Title => strings::SORT_TITLE(),
+        SortMode::Level => strings::SORT_LEVEL(),
+        SortMode::ClearLamp => strings::SORT_CLEAR_LAMP(),
+        SortMode::ScoreRate => strings::SORT_SCORE_RATE(),
+        SortMode::Bpm => strings::SORT_BPM(),
     }
 }
 
@@ -380,7 +380,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let chips = option_chips(state, state.current_selected_song());
     let option_panel = state
         .show_option_modal
-        .then(|| option_lines(state, PLAY_OPTIONS));
+        .then(|| option_lines(state, play_options()));
 
     let stage_img = selected_id
         .and_then(|id| state.stage_image_cache.get(&id))
@@ -500,7 +500,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         },
     );
     if let Some(lines) = &option_panel {
-        let d = &PLAY_OPTIONS[state.modal_row.min(PLAY_OPTIONS.len() - 1)];
+        let d = &play_options()[state.modal_row.min(play_options().len() - 1)];
         beetle_render::draw_options_modal(ui, &vp, lines, state.modal_row, (d.label, d.help));
     }
     if state.show_exit_modal {
@@ -525,8 +525,8 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
         calibrate(state, size);
         return;
     }
-    let lines = option_lines(state, SETTINGS);
-    let row = state.settings_row.min(SETTINGS.len() - 1);
+    let lines = option_lines(state, settings_options());
+    let row = state.settings_row.min(settings_options().len() - 1);
     let scroll = beetle_render::follow_settings_scroll(
         &state.view.viewport,
         &lines,
@@ -541,7 +541,7 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
             viewport: &state.view.viewport,
             lines: &lines,
             selected: row,
-            help: SETTINGS[row].help,
+            help: settings_options()[row].help,
             scroll,
         },
     );
@@ -624,8 +624,11 @@ pub fn title(state: &mut AppState, size: PhysicalSize<u32>) {
 
 pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
     let (title, status) = match state.library_job {
-        LibraryJob::Startup => (strings::BOOT_TITLE_STARTUP, strings::BOOT_STATUS_STARTUP),
-        LibraryJob::Rescan => (strings::BOOT_TITLE_RESCAN, strings::BOOT_STATUS_RESCAN),
+        LibraryJob::Startup => (
+            strings::BOOT_TITLE_STARTUP(),
+            strings::BOOT_STATUS_STARTUP(),
+        ),
+        LibraryJob::Rescan => (strings::BOOT_TITLE_RESCAN(), strings::BOOT_STATUS_RESCAN()),
     };
     begin(state, size);
     beetle_render::draw_boot(
@@ -643,9 +646,9 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
 pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     let chips = option_chips(state, state.loading_song.as_ref());
     let badge = if state.is_replay_playback {
-        Some(strings::REPLAY)
+        Some(strings::REPLAY())
     } else if state.is_auto_play {
-        Some(strings::AUTO_PLAY)
+        Some(strings::AUTO_PLAY())
     } else {
         None
     };
@@ -688,7 +691,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
                 jacket,
                 ambient,
                 elapsed,
-                status: strings::LOADING_STATUS,
+                status: strings::LOADING_STATUS(),
                 option_chips: &chips,
                 badge,
                 now,
@@ -744,11 +747,11 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     crate::result_reveal::advance(state);
     let elapsed = crate::result_reveal::reveal_time(state);
     let unsaved = if state.is_replay_playback {
-        Some(strings::REPLAY)
+        Some(strings::REPLAY())
     } else if state.is_auto_play {
-        Some(strings::AUTO_PLAY)
+        Some(strings::AUTO_PLAY())
     } else if state.start_measure > 0 {
-        Some(strings::PRACTICE)
+        Some(strings::PRACTICE())
     } else {
         None
     };
@@ -789,9 +792,9 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     // TAB on the result opens the play options over it (the same panel as on
     // song select); ENTER there plays again with the options as changed.
     if state.show_option_modal {
-        let lines = option_lines(state, PLAY_OPTIONS);
-        let row = state.modal_row.min(PLAY_OPTIONS.len() - 1);
-        let d = &PLAY_OPTIONS[row];
+        let lines = option_lines(state, play_options());
+        let row = state.modal_row.min(play_options().len() - 1);
+        let d = &play_options()[row];
         beetle_render::draw_options_panel(
             &mut state.gpu_ui.ui,
             &state.view.viewport,

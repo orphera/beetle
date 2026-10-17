@@ -99,7 +99,7 @@ extern "system" {
 fn fatal_error(msg: &str) {
     const MB_ICONERROR: u32 = 0x10;
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
-    let (text, caption) = (wide(msg), wide(strings::APP_NAME));
+    let (text, caption) = (wide(msg), wide(strings::APP_NAME()));
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -136,7 +136,7 @@ impl ApplicationHandler for BeetleApp {
         let library_receiver = spawn_library_load(saved_config.sort_mode);
 
         let window_attributes = Window::default_attributes()
-            .with_title(strings::WINDOW_TITLE)
+            .with_title(strings::WINDOW_TITLE())
             .with_inner_size(LogicalSize::new(
                 saved_config.window_width,
                 saved_config.window_height,
@@ -174,7 +174,7 @@ impl ApplicationHandler for BeetleApp {
         let d3d11 = match gpu_ui::create_backend(&window, saved_config.gpu_backend) {
             Ok(d3d) => d3d,
             Err(e) => {
-                fatal_error(&strings::fill(strings::FATAL_D3D11, &[&e.to_string()]));
+                fatal_error(&strings::fill(strings::FATAL_D3D11(), &[&e.to_string()]));
                 event_loop.exit();
                 return;
             }
@@ -842,7 +842,7 @@ fn open_dropped_file(state: &mut AppState, path: &Path) {
             .map(|meta| queue_start_gameplay(state, &meta))
             .is_some()
     } else {
-        transition::show_toast(state, ToastKind::Error, strings::TOAST_UNSUPPORTED_FILE);
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_UNSUPPORTED_FILE());
         return;
     };
     if !started {
@@ -853,7 +853,7 @@ fn open_dropped_file(state: &mut AppState, path: &Path) {
         transition::show_toast(
             state,
             ToastKind::Error,
-            strings::fill(strings::TOAST_OPEN_FAILED, &[&name]),
+            strings::fill(strings::TOAST_OPEN_FAILED(), &[&name]),
         );
     }
 }

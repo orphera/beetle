@@ -34,7 +34,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         play_mode: PlayMode::Keys7,
     };
     let chips = vec![
-        strings::fill(strings::CHIP_GREEN, &["500"]),
+        strings::fill(strings::CHIP_GREEN(), &["500"]),
         "REGULAR".into(),
         "GROOVE".into(),
     ];
@@ -50,7 +50,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
             jacket: None,
             ambient: None,
             elapsed,
-            status: strings::LOADING_STATUS,
+            status: strings::LOADING_STATUS(),
             option_chips: &chips,
             badge: None,
         },

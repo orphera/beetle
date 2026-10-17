@@ -22,7 +22,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
             viewport: &vp,
             elapsed,
             title,
-            status: strings::BOOT_STATUS_STARTUP,
+            status: strings::BOOT_STATUS_STARTUP(),
         },
     );
     let calls = ui.end(gpu);
@@ -41,12 +41,18 @@ fn boot_layouts() {
     let mut ui = Ui::new(1.0);
     assert_eq!(
         assert_repeatable(&mut gpu, "boot-enter.bmp", 1.0, |gpu, ui| {
-            render(gpu, ui, strings::BOOT_TITLE_STARTUP, 0.12, "enter")
+            render(gpu, ui, strings::BOOT_TITLE_STARTUP(), 0.12, "enter")
         }),
         1
     );
     assert_eq!(
-        render(&mut gpu, &mut ui, strings::BOOT_TITLE_RESCAN, 1.9, "rescan"),
+        render(
+            &mut gpu,
+            &mut ui,
+            strings::BOOT_TITLE_RESCAN(),
+            1.9,
+            "rescan"
+        ),
         1
     );
 }

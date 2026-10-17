@@ -284,13 +284,13 @@ fn render_ex(
                 .collect();
             (
                 rows,
-                vec![strings::FOLDER_ROOT.into(), strings::FOLDER_ALL.into()],
+                vec![strings::FOLDER_ROOT().into(), strings::FOLDER_ALL().into()],
             )
         }
     };
     let scores = scores();
     let chips = vec![
-        strings::fill(strings::CHIP_GREEN, &["500"]),
+        strings::fill(strings::CHIP_GREEN(), &["500"]),
         "REGULAR".into(),
         "GROOVE".into(),
     ];
@@ -310,7 +310,7 @@ fn render_ex(
             tables: &tables,
             ln_option: beetle_core::LnOption::Auto,
             crumbs: &crumbs,
-            sort: strings::SORT_TITLE,
+            sort: strings::SORT_TITLE(),
             search,
             search_active: !search.is_empty() || !preedit.is_empty(),
             preedit,
@@ -337,29 +337,29 @@ fn render_ex(
                 value: value.to_string(),
             };
             let lines = [
-                line(Some(strings::GROUP_PLAY), strings::ROW_GREEN, "500 ms"),
-                line(None, strings::ROW_LANE_COVER, "25%"),
-                line(None, strings::ROW_MODIFIER, "REGULAR"),
-                line(None, strings::ROW_GAUGE, "GROOVE"),
-                line(None, strings::ROW_LN_MODE, "자동 (LN)"),
+                line(Some(strings::GROUP_PLAY()), strings::ROW_GREEN(), "500 ms"),
+                line(None, strings::ROW_LANE_COVER(), "25%"),
+                line(None, strings::ROW_MODIFIER(), "REGULAR"),
+                line(None, strings::ROW_GAUGE(), "GROOVE"),
+                line(None, strings::ROW_LN_MODE(), "자동 (LN)"),
                 line(
-                    Some(strings::GROUP_SESSION),
-                    strings::ROW_AUTO_PLAY,
-                    strings::VALUE_OFF,
+                    Some(strings::GROUP_SESSION()),
+                    strings::ROW_AUTO_PLAY(),
+                    strings::VALUE_OFF(),
                 ),
-                line(None, strings::ROW_START_MEASURE, "M.0"),
+                line(None, strings::ROW_START_MEASURE(), "M.0"),
             ];
             draw_options_modal(
                 ui,
                 &vp,
                 &lines,
                 2,
-                (strings::ROW_GAUGE, strings::HELP_GAUGE),
+                (strings::ROW_GAUGE(), strings::HELP_GAUGE()),
             );
         }
         Overlay::Exit => draw_exit_modal(ui, &vp),
         Overlay::Toast => {
-            let text = strings::fill(strings::TOAST_RESCAN_DONE, &["412"]);
+            let text = strings::fill(strings::TOAST_RESCAN_DONE(), &["412"]);
             draw_toast(
                 ui,
                 &vp,
@@ -374,9 +374,9 @@ fn render_ex(
         }
         Overlay::UninstalledOne | Overlay::UninstalledMany => {
             let text = if matches!(overlay, Overlay::UninstalledOne) {
-                strings::fill(strings::TOAST_UNINSTALLED_ONE, &["AIRSHAVER.bmsp"])
+                strings::fill(strings::TOAST_UNINSTALLED_ONE(), &["AIRSHAVER.bmsp"])
             } else {
-                strings::fill(strings::TOAST_UNINSTALLED_MANY, &["3", "AIRSHAVER.bmsp"])
+                strings::fill(strings::TOAST_UNINSTALLED_MANY(), &["3", "AIRSHAVER.bmsp"])
             };
             draw_toast(
                 ui,
@@ -418,11 +418,11 @@ fn song_select_folder_views() {
 
     // Root: the top-level folders (난이도표 is listed last). The highlight is on 레벨.
     let root = vec![
-        folder(strings::FOLDER_ALL, total),
-        folder(strings::FOLDER_MODE, total),
-        folder(strings::FOLDER_LEVEL, total),
-        folder(strings::FOLDER_LAMP, total),
-        folder(strings::FOLDER_TABLE, 4),
+        folder(strings::FOLDER_ALL(), total),
+        folder(strings::FOLDER_MODE(), total),
+        folder(strings::FOLDER_LEVEL(), total),
+        folder(strings::FOLDER_LAMP(), total),
+        folder(strings::FOLDER_TABLE(), 4),
     ];
     assert_eq!(
         render_with(
@@ -433,7 +433,7 @@ fn song_select_folder_views() {
             "",
             Overlay::None,
             "folder-root",
-            Some((root, vec![strings::FOLDER_ROOT.into()])),
+            Some((root, vec![strings::FOLDER_ROOT().into()])),
         ),
         1
     );
@@ -456,7 +456,10 @@ fn song_select_folder_views() {
             "folder-level",
             Some((
                 levels,
-                vec![strings::FOLDER_ROOT.into(), strings::FOLDER_LEVEL.into()],
+                vec![
+                    strings::FOLDER_ROOT().into(),
+                    strings::FOLDER_LEVEL().into()
+                ],
             )),
         ),
         1
@@ -476,8 +479,8 @@ fn song_select_folder_views() {
             Some((
                 songs,
                 vec![
-                    strings::FOLDER_ROOT.into(),
-                    strings::FOLDER_LEVEL.into(),
+                    strings::FOLDER_ROOT().into(),
+                    strings::FOLDER_LEVEL().into(),
                     "12".into(),
                 ],
             )),
@@ -513,8 +516,8 @@ fn song_select_folder_views() {
                 Some((
                     rows,
                     vec![
-                        strings::FOLDER_ROOT.into(),
-                        strings::FOLDER_LEVEL.into(),
+                        strings::FOLDER_ROOT().into(),
+                        strings::FOLDER_LEVEL().into(),
                         "12".into(),
                     ],
                 )),
@@ -630,15 +633,15 @@ fn song_select_filter_and_sort_views() {
     let mut ui = Ui::new(1.0);
     let songs = library();
     let crumbs = vec![
-        strings::FOLDER_ROOT.to_string(),
-        strings::FOLDER_ALL.to_string(),
+        strings::FOLDER_ROOT().to_string(),
+        strings::FOLDER_ALL().to_string(),
     ];
     let sort_names = [
-        strings::SORT_TITLE,
-        strings::SORT_LEVEL,
-        strings::SORT_CLEAR_LAMP,
-        strings::SORT_SCORE_RATE,
-        strings::SORT_BPM,
+        strings::SORT_TITLE(),
+        strings::SORT_LEVEL(),
+        strings::SORT_CLEAR_LAMP(),
+        strings::SORT_SCORE_RATE(),
+        strings::SORT_BPM(),
     ];
 
     // The sort menu open over the list; the highlight is on 클리어 and the mode in use is 제목.
@@ -761,8 +764,8 @@ fn song_select_u3d_views() {
         .expect("WARP device");
     let mut ui = Ui::new(1.0);
     let crumbs = vec![
-        strings::FOLDER_ROOT.to_string(),
-        strings::FOLDER_ALL.to_string(),
+        strings::FOLDER_ROOT().to_string(),
+        strings::FOLDER_ALL().to_string(),
     ];
 
     // The help overlay (? over the list). Over a full list its text passes the
@@ -796,12 +799,12 @@ fn song_select_u3d_views() {
     assert_eq!(lamps.iter().sum::<usize>(), 216);
     let folders = vec![
         SelectRow::Folder {
-            label: strings::FOLDER_ALL,
+            label: strings::FOLDER_ALL(),
             count: 216,
             lamps,
         },
         SelectRow::Folder {
-            label: strings::FOLDER_MODE,
+            label: strings::FOLDER_MODE(),
             count: 216,
             lamps,
         },

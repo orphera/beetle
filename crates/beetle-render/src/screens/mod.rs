@@ -29,7 +29,7 @@ pub use select::{
 };
 pub use settings::{draw_settings, follow_settings_scroll, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
-pub use title::{draw_title, TitleFrame, MENU_LABELS as TITLE_MENU_LABELS};
+pub use title::{draw_title, menu_labels as title_menu_labels, TitleFrame};
 pub use widgets::OptionLine;
 
 #[cfg(test)]

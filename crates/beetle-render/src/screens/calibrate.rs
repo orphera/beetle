@@ -47,33 +47,39 @@ pub struct CalibrateFrame<'a> {
     pub suggestion_ms: Option<f64>,
 }
 
-const HINTS_RUNNING: [Hint; 3] = [
-    ("SPACE", strings::CALIBRATE_HINT_TAP, None),
-    ("R", strings::CALIBRATE_RETRY, Some(HitId::CalibrateRetry)),
-    (
+fn hints_running() -> [Hint; 3] {
+    [
+        ("SPACE", strings::CALIBRATE_HINT_TAP(), None),
+        ("R", strings::CALIBRATE_RETRY(), Some(HitId::CalibrateRetry)),
+        (
+            "ESC",
+            strings::CALIBRATE_CANCEL(),
+            Some(HitId::CalibrateCancel),
+        ),
+    ]
+}
+fn hints_done() -> [Hint; 3] {
+    [
+        (
+            "ENTER",
+            strings::CALIBRATE_APPLY(),
+            Some(HitId::CalibrateApply),
+        ),
+        ("R", strings::CALIBRATE_RETRY(), Some(HitId::CalibrateRetry)),
+        (
+            "ESC",
+            strings::CALIBRATE_CANCEL(),
+            Some(HitId::CalibrateCancel),
+        ),
+    ]
+}
+fn hints_unavailable() -> [Hint; 1] {
+    [(
         "ESC",
-        strings::CALIBRATE_CANCEL,
+        strings::CALIBRATE_CANCEL(),
         Some(HitId::CalibrateCancel),
-    ),
-];
-const HINTS_DONE: [Hint; 3] = [
-    (
-        "ENTER",
-        strings::CALIBRATE_APPLY,
-        Some(HitId::CalibrateApply),
-    ),
-    ("R", strings::CALIBRATE_RETRY, Some(HitId::CalibrateRetry)),
-    (
-        "ESC",
-        strings::CALIBRATE_CANCEL,
-        Some(HitId::CalibrateCancel),
-    ),
-];
-const HINTS_UNAVAILABLE: [Hint; 1] = [(
-    "ESC",
-    strings::CALIBRATE_CANCEL,
-    Some(HitId::CalibrateCancel),
-)];
+    )]
+}
 
 pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     let sk = ui.skin;
@@ -84,7 +90,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     let s = vp.scale;
 
     widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
-    widgets::top_bar(c, t, vp, strings::CALIBRATE_TITLE, s);
+    widgets::top_bar(c, t, vp, strings::CALIBRATE_TITLE(), s);
 
     let content = Rect::from_ltrb(
         vp.x + PAD * s,
@@ -104,19 +110,19 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     // Headline and help, by phase.
     let (headline, help, hints): (&str, &str, &[Hint]) = match f.phase {
         CalibratePhase::Unavailable => (
-            strings::CALIBRATE_NO_AUDIO,
-            strings::CALIBRATE_HELP_NO_AUDIO,
-            &HINTS_UNAVAILABLE,
+            strings::CALIBRATE_NO_AUDIO(),
+            strings::CALIBRATE_HELP_NO_AUDIO(),
+            &hints_unavailable(),
         ),
         CalibratePhase::CountIn | CalibratePhase::Measuring => (
-            strings::CALIBRATE_INSTRUCTION,
-            strings::CALIBRATE_HELP,
-            &HINTS_RUNNING,
+            strings::CALIBRATE_INSTRUCTION(),
+            strings::CALIBRATE_HELP(),
+            &hints_running(),
         ),
         CalibratePhase::Done => (
-            strings::CALIBRATE_DONE_TITLE,
-            strings::CALIBRATE_HELP_DONE,
-            &HINTS_DONE,
+            strings::CALIBRATE_DONE_TITLE(),
+            strings::CALIBRATE_HELP_DONE(),
+            &hints_done(),
         ),
     };
     let head = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
@@ -132,9 +138,9 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     match f.phase {
         CalibratePhase::CountIn | CalibratePhase::Measuring => {
             let label = if f.phase == CalibratePhase::CountIn {
-                strings::CALIBRATE_COUNT_IN
+                strings::CALIBRATE_COUNT_IN()
             } else {
-                strings::CALIBRATE_MEASURING
+                strings::CALIBRATE_MEASURING()
             };
             let cy = area.y + 100.0 * s;
             let glow = (120.0 + 40.0 * f.pulse) * s;
@@ -165,14 +171,14 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
         CalibratePhase::Done => {
             t.draw_in(
                 c,
-                strings::CALIBRATE_SUGGEST,
+                strings::CALIBRATE_SUGGEST(),
                 Rect::new(area.x, area.y + 44.0 * s, area.w, 20.0 * s),
                 Align::Center,
                 &caption(12.0, s).color(theme::MUTED),
             );
             let value = f.suggestion_ms.map_or_else(
                 || "--".to_string(),
-                |v| strings::fill(strings::VALUE_MS, &[&format!("{v:+.0}")]),
+                |v| strings::fill(strings::VALUE_MS(), &[&format!("{v:+.0}")]),
             );
             t.draw_in(
                 c,
@@ -190,21 +196,21 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     let card_w = (area.w - 2.0 * GAP * s) / 3.0;
     let stats = [
         (
-            strings::CALIBRATE_PROGRESS,
+            strings::CALIBRATE_PROGRESS(),
             format!("{}/{}", f.collected, f.required),
         ),
         (
-            strings::CALIBRATE_MEAN,
+            strings::CALIBRATE_MEAN(),
             f.mean_ms.map_or_else(
                 || "--".to_string(),
-                |m| strings::fill(strings::VALUE_MS, &[&format!("{m:+.1}")]),
+                |m| strings::fill(strings::VALUE_MS(), &[&format!("{m:+.1}")]),
             ),
         ),
         (
-            strings::CALIBRATE_SPREAD,
+            strings::CALIBRATE_SPREAD(),
             f.std_ms.map_or_else(
                 || "--".to_string(),
-                |v| strings::fill(strings::VALUE_MS, &[&format!("{v:.1}")]),
+                |v| strings::fill(strings::VALUE_MS(), &[&format!("{v:.1}")]),
             ),
         ),
     ];
@@ -260,20 +266,20 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     let dir = caption(12.0, s).color(theme::MUTED);
     t.draw_in(
         c,
-        strings::CALIBRATE_EARLY,
+        strings::CALIBRATE_EARLY(),
         Rect::new(x0, line_y - 40.0 * s, 120.0 * s, 18.0 * s),
         Align::Left,
         &dir,
     );
     t.draw_in(
         c,
-        strings::CALIBRATE_LATE,
+        strings::CALIBRATE_LATE(),
         Rect::new(x1 - 120.0 * s, line_y - 40.0 * s, 120.0 * s, 18.0 * s),
         Align::Right,
         &dir,
     );
     let w = f.window_ms;
-    let tick = |v: String| strings::fill(strings::VALUE_MS, &[&v]);
+    let tick = |v: String| strings::fill(strings::VALUE_MS(), &[&v]);
     for (x, text) in [
         (x0, tick(format!("-{w:.0}"))),
         (mid, tick("0".to_string())),
@@ -290,14 +296,14 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     if f.marks.iter().any(|&(_, counted)| !counted) {
         t.draw_in(
             c,
-            strings::CALIBRATE_EXCLUDED,
+            strings::CALIBRATE_EXCLUDED(),
             Rect::new(area.x, line_y + 44.0 * s, area.w, 18.0 * s),
             Align::Center,
             &caption(12.0, s).color(theme::MUTED2),
         );
     }
 
-    widgets::help_card(c, t, &sk, card, strings::CALIBRATE_TITLE, help, s);
+    widgets::help_card(c, t, &sk, card, strings::CALIBRATE_TITLE(), help, s);
     let bar = widgets::footer_bar(c, vp, s);
     widgets::footer_buttons(c, t, &sk, hints, bar, s, &mut hs);
 }

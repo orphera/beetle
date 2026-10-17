@@ -931,7 +931,10 @@ pub fn song_file_label(song: &SongMetadata) -> String {
 
 /// The Error toast shown when a song's chart fails to load.
 pub fn chart_load_failure_message(song: &SongMetadata) -> String {
-    strings::fill(strings::TOAST_CHART_LOAD_FAILED, &[&song_file_label(song)])
+    strings::fill(
+        strings::TOAST_CHART_LOAD_FAILED(),
+        &[&song_file_label(song)],
+    )
 }
 
 /// Spawns a background thread to load and decode a song's chart, audio soundbank, BGA frames, and video sources.

@@ -426,7 +426,7 @@ impl AppState {
                 return label;
             }
         }
-        strings::RESOLUTION_CUSTOM
+        strings::RESOLUTION_CUSTOM()
     }
 
     pub fn cycle_resolution(&mut self, forward: bool) {
@@ -550,7 +550,7 @@ impl AppState {
             crate::transition::show_toast(
                 self,
                 beetle_render::ToastKind::Success,
-                strings::fill(strings::TOAST_RESCAN_DONE, &[&count]),
+                strings::fill(strings::TOAST_RESCAN_DONE(), &[&count]),
             );
         }
         self.cursor_settle_time = Instant::now();
@@ -564,7 +564,7 @@ impl AppState {
             self.key_config_edit_mode = self.key_config_mode();
             if self.screen == AppScreen::Settings {
                 if let Some(row) = crate::devtools::start_settings_row() {
-                    self.settings_row = row.min(crate::options_table::SETTINGS.len() - 1);
+                    self.settings_row = row.min(crate::options_table::settings_options().len() - 1);
                 }
             }
         }
@@ -941,11 +941,11 @@ pub struct LibraryLoad {
 pub fn uninstalled_toast_text(names: &[String]) -> Option<String> {
     let first = names.first()?;
     Some(match names.len() {
-        1 => strings::fill(strings::TOAST_UNINSTALLED_ONE, &[first.as_str()]),
+        1 => strings::fill(strings::TOAST_UNINSTALLED_ONE(), &[first.as_str()]),
         n => {
             let count = n.to_string();
             strings::fill(
-                strings::TOAST_UNINSTALLED_MANY,
+                strings::TOAST_UNINSTALLED_MANY(),
                 &[count.as_str(), first.as_str()],
             )
         }

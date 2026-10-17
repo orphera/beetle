@@ -135,7 +135,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let w = vp.x + vp.width - 160.0 * s - (jacket.right() + 48.0 * s);
     let mut y = jacket.y + 18.0 * s;
     let now = caption(12.0, s).color(theme::CYAN.with_alpha(a(255)));
-    let nw = t.draw(c, strings::LOADING, x, y, &now);
+    let nw = t.draw(c, strings::LOADING(), x, y, &now);
     if let Some(badge) = f.badge {
         let st = caption(12.0, s).color(theme::ON_ACCENT);
         let bw = t.measure(c, badge, &st) + 20.0 * s;
@@ -189,9 +189,9 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let bpm = song.bpm_label();
     let notes = thousands(f.notes as u32);
     for (i, (k, v)) in [
-        (strings::BPM, bpm.as_str()),
-        (strings::NOTES, notes.as_str()),
-        (strings::MODE, theme::mode_label(song.play_mode)),
+        (strings::BPM(), bpm.as_str()),
+        (strings::NOTES(), notes.as_str()),
+        (strings::MODE(), theme::mode_label(song.play_mode)),
     ]
     .iter()
     .enumerate()
@@ -253,7 +253,7 @@ fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: 
         &TextStyle::new(13.0 * s).color(theme::MUTED),
     );
     let bar = widgets::footer_bar(c, vp, s);
-    widgets::footer_hints(c, t, sk, &[("ESC", strings::CANCEL)], bar, s);
+    widgets::footer_hints(c, t, sk, &[("ESC", strings::CANCEL())], bar, s);
 }
 
 #[cfg(test)]
@@ -282,7 +282,7 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
         };
-        let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
+        let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);
         for elapsed in [0.0, 0.1, 0.7, 3.3] {
             ui.begin(1280, 720, vp.scale);
@@ -296,9 +296,9 @@ mod tests {
                     jacket: None,
                     ambient: None,
                     elapsed,
-                    status: strings::LOADING,
+                    status: strings::LOADING(),
                     option_chips: &chips,
-                    badge: Some(strings::AUTO_PLAY),
+                    badge: Some(strings::AUTO_PLAY()),
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
@@ -326,7 +326,7 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
         };
-        let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
+        let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);
         let draw = |ui: &mut Ui| {
             ui.begin(1280, 720, vp.scale);
@@ -340,7 +340,7 @@ mod tests {
                     jacket: None,
                     ambient: None,
                     elapsed: 3.3,
-                    status: strings::LOADING,
+                    status: strings::LOADING(),
                     option_chips: &chips,
                     badge: None,
                 },

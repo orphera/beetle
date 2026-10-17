@@ -278,10 +278,10 @@ pub fn open_song_manager(state: &mut AppState) {
     let started = manager.is_some_and(|path| shell_open("open", &path));
     if started {
         play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Info, strings::TOAST_MANAGER_OPENED);
+        transition::show_toast(state, ToastKind::Info, strings::TOAST_MANAGER_OPENED());
     } else {
         play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING);
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING());
     }
 }
 
@@ -294,7 +294,7 @@ pub fn open_songs_folder(state: &mut AppState) {
         .is_some_and(|dir| fs::create_dir_all(&dir).is_ok() && shell_open("explore", &dir));
     if !opened {
         play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED);
+        transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED());
     }
 }
 

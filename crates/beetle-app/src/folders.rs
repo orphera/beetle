@@ -281,7 +281,7 @@ pub fn build_tree(
     let mut root = Vec::new();
     root.extend(leaf(
         "all".into(),
-        strings::FOLDER_ALL.into(),
+        strings::FOLDER_ALL().into(),
         (0..songs.len()).filter(|&i| pass[i]).collect(),
     ));
 
@@ -298,7 +298,7 @@ pub fn build_tree(
             leaf(mode_id(mode).into(), theme::mode_label(mode).into(), idx)
         })
         .collect();
-    root.extend(branch("mode", strings::FOLDER_MODE, modes));
+    root.extend(branch("mode", strings::FOLDER_MODE(), modes));
 
     // Levels, ascending.
     let mut by_level: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
@@ -309,7 +309,7 @@ pub fn build_tree(
         .into_iter()
         .filter_map(|(level, idx)| leaf(level.to_string(), level.to_string(), idx))
         .collect();
-    root.extend(branch("level", strings::FOLDER_LEVEL, levels));
+    root.extend(branch("level", strings::FOLDER_LEVEL(), levels));
 
     // Clear lamps: the best record under the player's long note rule.
     let lamps: Vec<Folder> = LAMP_ORDER
@@ -325,12 +325,12 @@ pub fn build_tree(
                 .collect();
             let label = match lamp {
                 Some(clear) => clear.as_str(),
-                None => strings::NO_PLAY,
+                None => strings::NO_PLAY(),
             };
             leaf(lamp_id(lamp).into(), label.into(), idx)
         })
         .collect();
-    root.extend(branch("lamp", strings::FOLDER_LAMP, lamps));
+    root.extend(branch("lamp", strings::FOLDER_LAMP(), lamps));
 
     // Difficulty tables: a table holds its levels, in the table's own order.
     // Each table starts with 전곡: every passing song of that table, in library order.
@@ -355,7 +355,7 @@ pub fn build_tree(
         });
         let mut levels: Vec<Folder> = leaf(
             TABLE_ALL_ID.into(),
-            strings::FOLDER_TABLE_ALL.into(),
+            strings::FOLDER_TABLE_ALL().into(),
             all_of_table,
         )
         .into_iter()
@@ -372,7 +372,7 @@ pub fn build_tree(
         used_ids.insert(id.clone(), ti);
         table_folders.extend(branch(&id, &table.name, levels));
     }
-    root.extend(branch("table", strings::FOLDER_TABLE, table_folders));
+    root.extend(branch("table", strings::FOLDER_TABLE(), table_folders));
 
     // Clear lamp breakdown per folder, from the same passing songs and records.
     let lamp_of = |i: usize| score_store.best(&songs[i], ln_option).map(|r| r.clear_type);
@@ -504,7 +504,7 @@ pub fn sibling(tree: &[Folder], path: &FolderPath, forward: bool) -> Option<Fold
 /// The breadcrumb labels for `path`: the root label, then each folder's label.
 /// Index `d` is the path truncated to depth `d`.
 pub fn crumbs(tree: &[Folder], path: &FolderPath) -> Vec<String> {
-    let mut out = vec![strings::FOLDER_ROOT.to_string()];
+    let mut out = vec![strings::FOLDER_ROOT().to_string()];
     let mut level = tree;
     for seg in path.segments() {
         let Some(folder) = level.iter().find(|f| f.id == *seg) else {
@@ -1101,7 +1101,7 @@ mod tests {
             panic!("a table is a branch");
         };
         assert_eq!(levels[0].id, TABLE_ALL_ID);
-        assert_eq!(levels[0].label, strings::FOLDER_TABLE_ALL);
+        assert_eq!(levels[0].label, strings::FOLDER_TABLE_ALL());
         assert_eq!(levels[0].count, 2);
     }
 
@@ -1198,25 +1198,25 @@ mod tests {
             [
                 ListEntry::Folder {
                     id: "all".into(),
-                    label: strings::FOLDER_ALL.into(),
+                    label: strings::FOLDER_ALL().into(),
                     count: 5,
                     lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "mode".into(),
-                    label: strings::FOLDER_MODE.into(),
+                    label: strings::FOLDER_MODE().into(),
                     count: 5,
                     lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "level".into(),
-                    label: strings::FOLDER_LEVEL.into(),
+                    label: strings::FOLDER_LEVEL().into(),
                     count: 5,
                     lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
                 ListEntry::Folder {
                     id: "lamp".into(),
-                    label: strings::FOLDER_LAMP.into(),
+                    label: strings::FOLDER_LAMP().into(),
                     count: 5,
                     lamps: [0, 0, 0, 0, 0, 0, 5],
                 },
@@ -1428,11 +1428,11 @@ mod tests {
         let path = FolderPath::top("level").child("12");
         assert_eq!(
             crumbs(&tree, &path),
-            [strings::FOLDER_ROOT, strings::FOLDER_LEVEL, "12"]
+            [strings::FOLDER_ROOT(), strings::FOLDER_LEVEL(), "12"]
         );
         assert_eq!(
             crumbs(&tree, &FolderPath::default()),
-            [strings::FOLDER_ROOT]
+            [strings::FOLDER_ROOT()]
         );
         assert_eq!(path.truncated(1), FolderPath::top("level"));
     }

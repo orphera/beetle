@@ -123,7 +123,7 @@ fn loading_frame(
 ) -> (usize, Vec<u8>) {
     let vp = Viewport::new(W, H);
     let song = song(42);
-    let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
+    let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
     ui.lite = false;
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
     ui.backdrop.reset();
@@ -139,7 +139,7 @@ fn loading_frame(
             jacket: None,
             ambient: None,
             elapsed: 3.3,
-            status: strings::LOADING,
+            status: strings::LOADING(),
             option_chips: &chips,
             badge: None,
         },
@@ -162,10 +162,10 @@ fn select_draw(
     let tables = TableIndex::new(Vec::new());
     let scores = ScoreStore::default();
     let crumbs = vec![
-        strings::FOLDER_ROOT.to_string(),
-        strings::FOLDER_ALL.to_string(),
+        strings::FOLDER_ROOT().to_string(),
+        strings::FOLDER_ALL().to_string(),
     ];
-    let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
+    let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
     ui.lite = false;
     gpu.begin_frame(w, h, [0.0, 0.0, 0.0, 1.0]);
     ui.backdrop.reset();
@@ -189,7 +189,7 @@ fn select_draw(
             ln_option: LnOption::Auto,
             tables: &tables,
             crumbs: &crumbs,
-            sort: strings::SORT_TITLE,
+            sort: strings::SORT_TITLE(),
             search: "",
             search_active: false,
             preedit: "",

@@ -28,7 +28,7 @@ use crate::handlers::song_select::{
 use crate::handlers::title::title_click;
 use crate::ime::set_search_active;
 use crate::menu_audio::play_ui;
-use crate::options_table::SETTINGS;
+use crate::options_table::settings_options;
 use crate::state::{AppScreen, AppState};
 
 /// Precise (touchpad) scrolling reports pixels; this many make one notch.
@@ -252,7 +252,7 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
             }
             AppScreen::KeyConfig if state.rebinding.is_none() => step_key_mode(state, up),
             AppScreen::Settings if state.calibration.is_none() => {
-                move_row(&mut state.settings_row, SETTINGS.len(), !up)
+                move_row(&mut state.settings_row, settings_options().len(), !up)
             }
             _ => (),
         }

@@ -14,14 +14,14 @@ use crate::state::{AppScreen, AppState};
 fn show_green_readout(state: &mut AppState) {
     let at = audio_time_now(state);
     let ms = state.play_options.green_ms.to_string();
-    state.gameplay_readout = Some((strings::fill(strings::READOUT_GREEN, &[&ms]), at));
+    state.gameplay_readout = Some((strings::fill(strings::READOUT_GREEN(), &[&ms]), at));
 }
 
 /// Shows the lane cover just changed, over the lane for a second.
 fn show_cover_readout(state: &mut AppState) {
     let at = audio_time_now(state);
     let percent = (state.view.skin.lane_cover_ratio * 100.0).round() as u32;
-    let text = strings::fill(strings::READOUT_COVER, &[&percent.to_string()]);
+    let text = strings::fill(strings::READOUT_COVER(), &[&percent.to_string()]);
     state.gameplay_readout = Some((text, at));
 }
 

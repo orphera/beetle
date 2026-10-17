@@ -43,7 +43,7 @@ pub use screens::{
     ShutterPanel, ShutterPhase, SizedTexture, SortMenu, TitleFrame, ToastAnchor, ToastFrame,
     ToastKind, KEY_MODES,
 };
-pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT, TITLE_MENU_LABELS};
+pub use screens::{draw_drop_overlay, draw_help_overlay, title_menu_labels, LAMP_COUNT};
 pub use skin::{
     green_ms_to_px_per_sec, px_per_sec_to_green_ms, scratch_side_applies, ColorRgba, EightKForm,
     FieldPosition, JudgePosition, ScratchSide, SkinConfig, NOTE_SIZE_MAX, NOTE_SIZE_MIN,

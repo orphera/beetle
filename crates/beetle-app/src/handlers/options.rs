@@ -4,7 +4,7 @@ use winit::keyboard::KeyCode;
 use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::settings::open_calibration;
 use crate::menu_audio::play_ui;
-use crate::options_table::{self, OptionDesc, PLAY_OPTIONS};
+use crate::options_table::{self, play_options, OptionDesc};
 use crate::state::{AppScreen, AppState};
 
 /// Opens the play options panel (TAB, O, or the OPTIONS button).
@@ -32,7 +32,7 @@ pub fn move_row(row: &mut usize, len: usize, down: bool) {
 
 /// Moves the highlighted row of the play options panel.
 pub fn move_option_row(state: &mut AppState, down: bool) {
-    move_row(&mut state.modal_row, PLAY_OPTIONS.len(), down);
+    move_row(&mut state.modal_row, play_options().len(), down);
 }
 
 /// Handles keyboard input when the play options panel is open.
@@ -51,7 +51,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
 
 /// Changes the value of row `row` of the play options one step and saves.
 pub fn change_option(state: &mut AppState, row: usize, forward: bool) {
-    if let Some(desc) = PLAY_OPTIONS.get(row) {
+    if let Some(desc) = play_options().get(row) {
         play_ui(state, UiSound::Move);
         options_table::step(state, desc.id, forward);
         state.save_config();

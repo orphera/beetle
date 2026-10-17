@@ -4,6 +4,8 @@
 //! `handlers/settings.rs`). A row is an index into its table; nothing
 //! numbers the rows.
 
+use std::sync::OnceLock;
+
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
 use beetle_render::{
     scratch_side_applies, strings, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
@@ -78,195 +80,221 @@ pub struct OptionDesc {
     pub help: &'static str,
 }
 
+/// Option tables hold labels, so they are built once per UI language.
+fn per_lang(
+    cells: &'static [OnceLock<Vec<OptionDesc>>; 3],
+    build: fn() -> Vec<OptionDesc>,
+) -> &'static [OptionDesc] {
+    cells[strings::lang() as usize]
+        .get_or_init(build)
+        .as_slice()
+}
+
 /// The per-play options, shown by the play options panel.
-pub const PLAY_OPTIONS: &[OptionDesc] = &[
-    OptionDesc {
-        id: OptionId::Green,
-        group: strings::GROUP_PLAY,
-        column: 0,
-        label: strings::ROW_GREEN,
-        help: strings::HELP_GREEN,
-    },
-    OptionDesc {
-        id: OptionId::LaneCover,
-        group: strings::GROUP_PLAY,
-        column: 0,
-        label: strings::ROW_LANE_COVER,
-        help: strings::HELP_LANE_COVER,
-    },
-    OptionDesc {
-        id: OptionId::Modifier,
-        group: strings::GROUP_PLAY,
-        column: 0,
-        label: strings::ROW_MODIFIER,
-        help: strings::HELP_MODIFIER,
-    },
-    OptionDesc {
-        id: OptionId::Gauge,
-        group: strings::GROUP_PLAY,
-        column: 0,
-        label: strings::ROW_GAUGE,
-        help: strings::HELP_GAUGE,
-    },
-    OptionDesc {
-        id: OptionId::LnMode,
-        group: strings::GROUP_PLAY,
-        column: 0,
-        label: strings::ROW_LN_MODE,
-        help: strings::HELP_LN_MODE,
-    },
-    OptionDesc {
-        id: OptionId::AutoPlay,
-        group: strings::GROUP_SESSION,
-        column: 0,
-        label: strings::ROW_AUTO_PLAY,
-        help: strings::HELP_AUTO_PLAY,
-    },
-    OptionDesc {
-        id: OptionId::StartMeasure,
-        group: strings::GROUP_SESSION,
-        column: 0,
-        label: strings::ROW_START_MEASURE,
-        help: strings::HELP_START_MEASURE,
-    },
-];
+fn build_play_options() -> Vec<OptionDesc> {
+    vec![
+        OptionDesc {
+            id: OptionId::Green,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_GREEN(),
+            help: strings::HELP_GREEN(),
+        },
+        OptionDesc {
+            id: OptionId::LaneCover,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_LANE_COVER(),
+            help: strings::HELP_LANE_COVER(),
+        },
+        OptionDesc {
+            id: OptionId::Modifier,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_MODIFIER(),
+            help: strings::HELP_MODIFIER(),
+        },
+        OptionDesc {
+            id: OptionId::Gauge,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_GAUGE(),
+            help: strings::HELP_GAUGE(),
+        },
+        OptionDesc {
+            id: OptionId::LnMode,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_LN_MODE(),
+            help: strings::HELP_LN_MODE(),
+        },
+        OptionDesc {
+            id: OptionId::AutoPlay,
+            group: strings::GROUP_SESSION(),
+            column: 0,
+            label: strings::ROW_AUTO_PLAY(),
+            help: strings::HELP_AUTO_PLAY(),
+        },
+        OptionDesc {
+            id: OptionId::StartMeasure,
+            group: strings::GROUP_SESSION(),
+            column: 0,
+            label: strings::ROW_START_MEASURE(),
+            help: strings::HELP_START_MEASURE(),
+        },
+    ]
+}
+
+pub fn play_options() -> &'static [OptionDesc] {
+    static CELLS: [OnceLock<Vec<OptionDesc>>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    per_lang(&CELLS, build_play_options)
+}
 
 /// The Settings screen, in table order (the two columns follow `column`).
-pub const SETTINGS: &[OptionDesc] = &[
-    OptionDesc {
-        id: OptionId::DisplayMode,
-        group: strings::GROUP_DISPLAY,
-        column: 0,
-        label: strings::ROW_DISPLAY_MODE,
-        help: strings::HELP_DISPLAY_MODE,
-    },
-    OptionDesc {
-        id: OptionId::Resolution,
-        group: strings::GROUP_DISPLAY,
-        column: 0,
-        label: strings::ROW_RESOLUTION,
-        help: strings::HELP_RESOLUTION,
-    },
-    OptionDesc {
-        id: OptionId::Graphics,
-        group: strings::GROUP_DISPLAY,
-        column: 0,
-        label: strings::ROW_GRAPHICS,
-        help: strings::HELP_GRAPHICS,
-    },
-    OptionDesc {
-        id: OptionId::TargetFps,
-        group: strings::GROUP_DISPLAY,
-        column: 0,
-        label: strings::ROW_TARGET_FPS,
-        help: strings::HELP_TARGET_FPS,
-    },
-    OptionDesc {
-        id: OptionId::ReduceFlashes,
-        group: strings::GROUP_DISPLAY,
-        column: 0,
-        label: strings::ROW_REDUCE_FLASHES,
-        help: strings::HELP_REDUCE_FLASHES,
-    },
-    OptionDesc {
-        id: OptionId::MasterVolume,
-        group: strings::GROUP_AUDIO,
-        column: 0,
-        label: strings::ROW_MASTER_VOLUME,
-        help: strings::HELP_MASTER_VOLUME,
-    },
-    OptionDesc {
-        id: OptionId::BgmVolume,
-        group: strings::GROUP_AUDIO,
-        column: 0,
-        label: strings::ROW_BGM_VOLUME,
-        help: strings::HELP_BGM_VOLUME,
-    },
-    OptionDesc {
-        id: OptionId::KeyVolume,
-        group: strings::GROUP_AUDIO,
-        column: 0,
-        label: strings::ROW_KEY_VOLUME,
-        help: strings::HELP_KEY_VOLUME,
-    },
-    OptionDesc {
-        id: OptionId::SfxVolume,
-        group: strings::GROUP_AUDIO,
-        column: 0,
-        label: strings::ROW_SFX_VOLUME,
-        help: strings::HELP_SFX_VOLUME,
-    },
-    OptionDesc {
-        id: OptionId::JudgeOffset,
-        group: strings::GROUP_JUDGE,
-        column: 0,
-        label: strings::ROW_JUDGE_OFFSET,
-        help: strings::HELP_JUDGE_OFFSET,
-    },
-    OptionDesc {
-        id: OptionId::VisualOffset,
-        group: strings::GROUP_JUDGE,
-        column: 0,
-        label: strings::ROW_VISUAL_OFFSET,
-        help: strings::HELP_VISUAL_OFFSET,
-    },
-    OptionDesc {
-        id: OptionId::JudgePosition,
-        group: strings::GROUP_JUDGE,
-        column: 0,
-        label: strings::ROW_JUDGE_POSITION,
-        help: strings::HELP_JUDGE_POSITION,
-    },
-    OptionDesc {
-        id: OptionId::Playfield,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_PLAYFIELD,
-        help: strings::HELP_PLAYFIELD,
-    },
-    OptionDesc {
-        id: OptionId::Scratch,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_SCRATCH,
-        help: strings::HELP_SCRATCH,
-    },
-    OptionDesc {
-        id: OptionId::NoteSize,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_NOTE_SIZE,
-        help: strings::HELP_NOTE_SIZE,
-    },
-    OptionDesc {
-        id: OptionId::Bga,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_BGA,
-        help: strings::HELP_BGA,
-    },
-    OptionDesc {
-        id: OptionId::TrackBga,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_TRACK_BGA,
-        help: strings::HELP_TRACK_BGA,
-    },
-    OptionDesc {
-        id: OptionId::KeyHint,
-        group: strings::GROUP_LAYOUT,
-        column: 1,
-        label: strings::ROW_KEY_HINT,
-        help: strings::HELP_KEY_HINT,
-    },
-    OptionDesc {
-        id: OptionId::KeyLayout,
-        group: strings::GROUP_INPUT,
-        column: 1,
-        label: strings::ROW_KEY_LAYOUT,
-        help: strings::HELP_KEY_LAYOUT,
-    },
-];
+fn build_settings_options() -> Vec<OptionDesc> {
+    vec![
+        OptionDesc {
+            id: OptionId::DisplayMode,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_DISPLAY_MODE(),
+            help: strings::HELP_DISPLAY_MODE(),
+        },
+        OptionDesc {
+            id: OptionId::Resolution,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_RESOLUTION(),
+            help: strings::HELP_RESOLUTION(),
+        },
+        OptionDesc {
+            id: OptionId::Graphics,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_GRAPHICS(),
+            help: strings::HELP_GRAPHICS(),
+        },
+        OptionDesc {
+            id: OptionId::TargetFps,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_TARGET_FPS(),
+            help: strings::HELP_TARGET_FPS(),
+        },
+        OptionDesc {
+            id: OptionId::ReduceFlashes,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_REDUCE_FLASHES(),
+            help: strings::HELP_REDUCE_FLASHES(),
+        },
+        OptionDesc {
+            id: OptionId::MasterVolume,
+            group: strings::GROUP_AUDIO(),
+            column: 0,
+            label: strings::ROW_MASTER_VOLUME(),
+            help: strings::HELP_MASTER_VOLUME(),
+        },
+        OptionDesc {
+            id: OptionId::BgmVolume,
+            group: strings::GROUP_AUDIO(),
+            column: 0,
+            label: strings::ROW_BGM_VOLUME(),
+            help: strings::HELP_BGM_VOLUME(),
+        },
+        OptionDesc {
+            id: OptionId::KeyVolume,
+            group: strings::GROUP_AUDIO(),
+            column: 0,
+            label: strings::ROW_KEY_VOLUME(),
+            help: strings::HELP_KEY_VOLUME(),
+        },
+        OptionDesc {
+            id: OptionId::SfxVolume,
+            group: strings::GROUP_AUDIO(),
+            column: 0,
+            label: strings::ROW_SFX_VOLUME(),
+            help: strings::HELP_SFX_VOLUME(),
+        },
+        OptionDesc {
+            id: OptionId::JudgeOffset,
+            group: strings::GROUP_JUDGE(),
+            column: 0,
+            label: strings::ROW_JUDGE_OFFSET(),
+            help: strings::HELP_JUDGE_OFFSET(),
+        },
+        OptionDesc {
+            id: OptionId::VisualOffset,
+            group: strings::GROUP_JUDGE(),
+            column: 0,
+            label: strings::ROW_VISUAL_OFFSET(),
+            help: strings::HELP_VISUAL_OFFSET(),
+        },
+        OptionDesc {
+            id: OptionId::JudgePosition,
+            group: strings::GROUP_JUDGE(),
+            column: 0,
+            label: strings::ROW_JUDGE_POSITION(),
+            help: strings::HELP_JUDGE_POSITION(),
+        },
+        OptionDesc {
+            id: OptionId::Playfield,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_PLAYFIELD(),
+            help: strings::HELP_PLAYFIELD(),
+        },
+        OptionDesc {
+            id: OptionId::Scratch,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_SCRATCH(),
+            help: strings::HELP_SCRATCH(),
+        },
+        OptionDesc {
+            id: OptionId::NoteSize,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_NOTE_SIZE(),
+            help: strings::HELP_NOTE_SIZE(),
+        },
+        OptionDesc {
+            id: OptionId::Bga,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_BGA(),
+            help: strings::HELP_BGA(),
+        },
+        OptionDesc {
+            id: OptionId::TrackBga,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_TRACK_BGA(),
+            help: strings::HELP_TRACK_BGA(),
+        },
+        OptionDesc {
+            id: OptionId::KeyHint,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_KEY_HINT(),
+            help: strings::HELP_KEY_HINT(),
+        },
+        OptionDesc {
+            id: OptionId::KeyLayout,
+            group: strings::GROUP_INPUT(),
+            column: 1,
+            label: strings::ROW_KEY_LAYOUT(),
+            help: strings::HELP_KEY_LAYOUT(),
+        },
+    ]
+}
+
+pub fn settings_options() -> &'static [OptionDesc] {
+    static CELLS: [OnceLock<Vec<OptionDesc>>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    per_lang(&CELLS, build_settings_options)
+}
 
 /// Judge offset range in ms (the Settings row and the calibration suggestion).
 pub const JUDGE_OFFSET_MAX_MS: f64 = 100.0;
@@ -383,20 +411,20 @@ pub fn value(state: &AppState, id: OptionId) -> String {
     let o = &state.play_options;
     let on_off = |on: bool| {
         if on {
-            strings::VALUE_ON
+            strings::VALUE_ON()
         } else {
-            strings::VALUE_OFF
+            strings::VALUE_OFF()
         }
     };
     match id {
-        OptionId::Green => strings::fill(strings::VALUE_MS, &[&o.green_ms.to_string()]),
+        OptionId::Green => strings::fill(strings::VALUE_MS(), &[&o.green_ms.to_string()]),
         OptionId::LaneCover => format!("{:.0}%", state.view.skin.lane_cover_ratio * 100.0),
         OptionId::Modifier => o.lane_modifier.as_str().to_string(),
         OptionId::Gauge => o.gauge_type.as_str().to_string(),
         OptionId::LnMode => match state.current_selected_song().filter(|s| s.ln_count > 0) {
             // AUTO says what it comes to for the highlighted song.
             Some(song) if o.ln == LnOption::Auto => strings::fill(
-                strings::VALUE_AUTO_RESOLVED,
+                strings::VALUE_AUTO_RESOLVED(),
                 &[&Ruleset::resolve(song.ln_mode, o.ln).label()],
             ),
             _ => o.ln.as_str().to_string(),
@@ -410,16 +438,16 @@ pub fn value(state: &AppState, id: OptionId) -> String {
                 gpu_label(state.gpu_backend).to_string()
             } else {
                 strings::fill(
-                    strings::VALUE_AFTER_RESTART,
+                    strings::VALUE_AFTER_RESTART(),
                     &[gpu_label(state.gpu_backend)],
                 )
             }
         }
         OptionId::TargetFps => {
             if state.target_fps == 0 {
-                strings::VALUE_UNLIMITED.to_string()
+                strings::VALUE_UNLIMITED().to_string()
             } else {
-                strings::fill(strings::VALUE_FPS, &[&state.target_fps.to_string()])
+                strings::fill(strings::VALUE_FPS(), &[&state.target_fps.to_string()])
             }
         }
         OptionId::MasterVolume => format!("{:.0}%", state.master_volume * 100.0),
@@ -437,7 +465,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             if scratch_side_applies(mode) {
                 scratch_label(state.view.skin.scratch_side_of(mode)).to_string()
             } else {
-                strings::VALUE_NOT_APPLICABLE.to_string()
+                strings::VALUE_NOT_APPLICABLE().to_string()
             }
         }
         OptionId::Bga => on_off(state.bga_enabled).to_string(),
@@ -589,56 +617,56 @@ fn toggle_scratch(state: &mut AppState) {
 
 fn display_mode_label(mode: DisplayMode) -> &'static str {
     match mode {
-        DisplayMode::Windowed => strings::DISPLAY_WINDOWED,
-        DisplayMode::Borderless => strings::DISPLAY_BORDERLESS,
-        DisplayMode::ExclusiveFullscreen => strings::DISPLAY_FULLSCREEN,
+        DisplayMode::Windowed => strings::DISPLAY_WINDOWED(),
+        DisplayMode::Borderless => strings::DISPLAY_BORDERLESS(),
+        DisplayMode::ExclusiveFullscreen => strings::DISPLAY_FULLSCREEN(),
     }
 }
 
 fn gpu_label(backend: GpuBackendSetting) -> &'static str {
     match backend {
-        GpuBackendSetting::Auto => strings::GPU_AUTO,
-        GpuBackendSetting::Warp => strings::GPU_WARP,
+        GpuBackendSetting::Auto => strings::GPU_AUTO(),
+        GpuBackendSetting::Warp => strings::GPU_WARP(),
     }
 }
 
 fn judge_position_label(position: JudgePosition) -> &'static str {
     match position {
-        JudgePosition::Upper => strings::JUDGE_POS_UPPER,
-        JudgePosition::Middle => strings::JUDGE_POS_MIDDLE,
-        JudgePosition::Lower => strings::JUDGE_POS_LOWER,
+        JudgePosition::Upper => strings::JUDGE_POS_UPPER(),
+        JudgePosition::Middle => strings::JUDGE_POS_MIDDLE(),
+        JudgePosition::Lower => strings::JUDGE_POS_LOWER(),
     }
 }
 
 fn track_bga_label(bga: TrackBgaSetting) -> &'static str {
     match bga {
-        TrackBgaSetting::Off => strings::TRACK_BGA_OFF,
-        TrackBgaSetting::Low => strings::TRACK_BGA_LOW,
-        TrackBgaSetting::Medium => strings::TRACK_BGA_MEDIUM,
-        TrackBgaSetting::High => strings::TRACK_BGA_HIGH,
+        TrackBgaSetting::Off => strings::TRACK_BGA_OFF(),
+        TrackBgaSetting::Low => strings::TRACK_BGA_LOW(),
+        TrackBgaSetting::Medium => strings::TRACK_BGA_MEDIUM(),
+        TrackBgaSetting::High => strings::TRACK_BGA_HIGH(),
     }
 }
 
 fn key_hint_label(hint: KeyHintSetting) -> &'static str {
     match hint {
-        KeyHintSetting::FirstSeconds => strings::KEY_HINT_FIRST,
-        KeyHintSetting::Always => strings::KEY_HINT_ALWAYS,
-        KeyHintSetting::Off => strings::KEY_HINT_OFF,
+        KeyHintSetting::FirstSeconds => strings::KEY_HINT_FIRST(),
+        KeyHintSetting::Always => strings::KEY_HINT_ALWAYS(),
+        KeyHintSetting::Off => strings::KEY_HINT_OFF(),
     }
 }
 
 fn field_label(position: FieldPosition) -> &'static str {
     match position {
-        FieldPosition::Left => strings::SIDE_LEFT,
-        FieldPosition::Center => strings::VALUE_CENTER,
-        FieldPosition::Right => strings::SIDE_RIGHT,
+        FieldPosition::Left => strings::SIDE_LEFT(),
+        FieldPosition::Center => strings::VALUE_CENTER(),
+        FieldPosition::Right => strings::SIDE_RIGHT(),
     }
 }
 
 fn scratch_label(side: ScratchSide) -> &'static str {
     match side {
-        ScratchSide::Left => strings::SIDE_LEFT,
-        ScratchSide::Right => strings::SIDE_RIGHT,
+        ScratchSide::Left => strings::SIDE_LEFT(),
+        ScratchSide::Right => strings::SIDE_RIGHT(),
     }
 }
 
@@ -647,7 +675,7 @@ mod tests {
     use super::*;
 
     fn all() -> impl Iterator<Item = &'static OptionDesc> {
-        PLAY_OPTIONS.iter().chain(SETTINGS.iter())
+        play_options().iter().chain(settings_options().iter())
     }
 
     #[test]
@@ -657,7 +685,7 @@ mod tests {
             assert!(!seen.contains(&d.id), "{:?} listed twice", d.id);
             seen.push(d.id);
         }
-        assert_eq!(seen.len(), PLAY_OPTIONS.len() + SETTINGS.len());
+        assert_eq!(seen.len(), play_options().len() + settings_options().len());
     }
 
     #[test]
@@ -674,25 +702,29 @@ mod tests {
 
     #[test]
     fn play_options_and_settings_do_not_share_rows() {
-        for p in PLAY_OPTIONS {
-            assert!(!SETTINGS.iter().any(|s| s.id == p.id), "{:?}", p.id);
+        for p in play_options() {
+            assert!(
+                !settings_options().iter().any(|s| s.id == p.id),
+                "{:?}",
+                p.id
+            );
         }
-        for s in SETTINGS {
-            assert!(!PLAY_OPTIONS.iter().any(|p| p.id == s.id), "{:?}", s.id);
+        for s in settings_options() {
+            assert!(!play_options().iter().any(|p| p.id == s.id), "{:?}", s.id);
         }
     }
 
     #[test]
     fn play_options_are_one_column_and_settings_two() {
-        assert!(PLAY_OPTIONS.iter().all(|d| d.column == 0));
-        assert!(SETTINGS.iter().any(|d| d.column == 1));
+        assert!(play_options().iter().all(|d| d.column == 0));
+        assert!(settings_options().iter().any(|d| d.column == 1));
     }
 
     #[test]
     fn groups_are_contiguous() {
         // A section header is drawn where the group changes, so a group must
         // not come back after another one started.
-        for table in [PLAY_OPTIONS, SETTINGS] {
+        for table in [play_options(), settings_options()] {
             let mut seen: Vec<&str> = Vec::new();
             for d in table {
                 if seen.last() != Some(&d.group) {
@@ -794,17 +826,17 @@ mod tests {
         // stops at the last one; up walks back the same way.
         let mut row = 0;
         let mut seen = vec![row];
-        for _ in 0..SETTINGS.len() {
-            crate::handlers::options::move_row(&mut row, SETTINGS.len(), true);
+        for _ in 0..settings_options().len() {
+            crate::handlers::options::move_row(&mut row, settings_options().len(), true);
             seen.push(row);
         }
         assert_eq!(
-            seen[..SETTINGS.len()],
-            (0..SETTINGS.len()).collect::<Vec<_>>()[..]
+            seen[..settings_options().len()],
+            (0..settings_options().len()).collect::<Vec<_>>()[..]
         );
-        assert_eq!(row, SETTINGS.len() - 1);
-        for _ in 0..SETTINGS.len() {
-            crate::handlers::options::move_row(&mut row, SETTINGS.len(), false);
+        assert_eq!(row, settings_options().len() - 1);
+        for _ in 0..settings_options().len() {
+            crate::handlers::options::move_row(&mut row, settings_options().len(), false);
         }
         assert_eq!(row, 0);
     }

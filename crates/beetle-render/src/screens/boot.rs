@@ -47,7 +47,7 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
         .bold()
         .tracking(6.0 * s)
         .color(theme::TEXT.with_alpha(a(255)));
-    let adv = t.draw(c, strings::WORDMARK, x, y + 92.0 * s, &mark);
+    let adv = t.draw(c, strings::WORDMARK(), x, y + 92.0 * s, &mark);
     c.fill_rect_hgradient(
         Rect::new(x, y + 108.0 * s, adv, 3.0 * s),
         theme::CYAN.with_alpha(a(255)),
@@ -87,8 +87,8 @@ mod tests {
                 &BootFrame {
                     viewport: &vp,
                     elapsed,
-                    title: strings::BOOT_TITLE_STARTUP,
-                    status: strings::BOOT_STATUS_STARTUP,
+                    title: strings::BOOT_TITLE_STARTUP(),
+                    status: strings::BOOT_STATUS_STARTUP(),
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");

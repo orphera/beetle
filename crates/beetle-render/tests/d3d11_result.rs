@@ -231,7 +231,7 @@ fn result_layouts() {
             &perfect_trend,
             None,
             ScoreUpdate::default(),
-            Some(strings::AUTO_PLAY),
+            Some(strings::AUTO_PLAY()),
             "auto"
         ),
         1
@@ -261,16 +261,16 @@ fn options_panel_over_the_result() {
         value: value.to_string(),
     };
     let lines = [
-        line(None, strings::ROW_LANE_COVER, "25%"),
-        line(None, strings::ROW_MODIFIER, "REGULAR"),
-        line(None, strings::ROW_GAUGE, "HARD"),
-        line(None, strings::ROW_LN_MODE, "자동 (LN)"),
+        line(None, strings::ROW_LANE_COVER(), "25%"),
+        line(None, strings::ROW_MODIFIER(), "REGULAR"),
+        line(None, strings::ROW_GAUGE(), "HARD"),
+        line(None, strings::ROW_LN_MODE(), "자동 (LN)"),
         line(
-            Some(strings::GROUP_SESSION),
-            strings::ROW_AUTO_PLAY,
-            strings::VALUE_OFF,
+            Some(strings::GROUP_SESSION()),
+            strings::ROW_AUTO_PLAY(),
+            strings::VALUE_OFF(),
         ),
-        line(None, strings::ROW_START_MEASURE, "M.0"),
+        line(None, strings::ROW_START_MEASURE(), "M.0"),
     ];
 
     gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
@@ -297,7 +297,7 @@ fn options_panel_over_the_result() {
         &vp,
         &lines,
         2,
-        (strings::ROW_GAUGE, strings::HELP_GAUGE),
+        (strings::ROW_GAUGE(), strings::HELP_GAUGE()),
         OptionsFooter::Retry,
     );
     let calls = ui.end(&mut gpu);

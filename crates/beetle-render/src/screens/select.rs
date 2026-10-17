@@ -339,7 +339,7 @@ fn top_bar(
 ) -> (Option<Rect>, Rect) {
     let vp = f.viewport;
     let x0 = vp.x + PAD * s;
-    let adv = widgets::top_bar(c, t, vp, strings::WORDMARK, s);
+    let adv = widgets::top_bar(c, t, vp, strings::WORDMARK(), s);
     let bar_top = vp.y + 16.0 * s;
     let bar_h = 32.0 * s;
 
@@ -351,12 +351,12 @@ fn top_bar(
     let base = vp.y + 37.0 * s;
     let cap = caption(12.0, s);
     let sort_value_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
-    let sort_label_w = t.measure(c, strings::SORT, &cap);
+    let sort_label_w = t.measure(c, strings::SORT(), &cap);
     let sort_value_w = t.measure(c, f.sort, &sort_value_st);
     let sort_x = right_limit - (sort_label_w + 12.0 * s + sort_value_w + 32.0 * s);
 
     let mut x = x0 + adv + 48.0 * s;
-    x += t.draw(c, strings::FOLDER, x, base, &cap) + 12.0 * s;
+    x += t.draw(c, strings::FOLDER(), x, base, &cap) + 12.0 * s;
     let prev = Rect::new(x - 4.0 * s, iy, icon, icon);
     let prev_hit = Rect::new(prev.x - 6.0 * s, bar_top, icon + 12.0 * s, bar_h);
     hs.add(prev_hit, HitId::FolderPrev);
@@ -436,7 +436,7 @@ fn top_bar(
 
     // Sort: "LABEL  value", a click opens the sort menu.
     let mut sx = sort_x;
-    sx += t.draw(c, strings::SORT, sx, base, &cap) + 12.0 * s;
+    sx += t.draw(c, strings::SORT(), sx, base, &cap) + 12.0 * s;
     t.draw(c, f.sort, sx, base, &sort_value_st);
     let sort_hit = Rect::new(
         sort_x - 8.0 * s,
@@ -455,16 +455,16 @@ fn top_bar(
     let btn_w = 96.0 * s;
     let (near, far) = (8.0 * s, 20.0 * s);
     let auto_label = if f.auto_play {
-        strings::AUTO_PLAY
+        strings::AUTO_PLAY()
     } else {
         "자동"
     };
     // (label, keycap, hit, gap to the button on the right)
     let buttons: [(&str, &str, HitId, f32); 5] = [
-        (strings::QUIT, "ESC", HitId::ExitQuit, 0.0),
-        (strings::SETTINGS, "F4", HitId::OpenSettings, far),
+        (strings::QUIT(), "ESC", HitId::ExitQuit, 0.0),
+        (strings::SETTINGS(), "F4", HitId::OpenSettings, far),
         ("키 설정", "F12", HitId::KeyConfig, near),
-        (strings::OPTIONS, "TAB", HitId::PlayOptions, far),
+        (strings::OPTIONS(), "TAB", HitId::PlayOptions, far),
         (auto_label, "A", HitId::Auto, near),
     ];
     let mut right = vp.x + vp.width - PAD * s;
@@ -500,7 +500,7 @@ fn top_bar(
     if f.search.is_empty() && f.preedit.is_empty() && !f.search_active {
         t.draw_in(
             c,
-            strings::SEARCH_PLACEHOLDER,
+            strings::SEARCH_PLACEHOLDER(),
             inner,
             Align::Left,
             &TextStyle::new(13.0 * s).color(theme::MUTED2),
@@ -1130,7 +1130,7 @@ fn folder_row(
     );
 
     let chevron = 14.0 * s;
-    let count_text = strings::fill(strings::FOLDER_SONGS, &[&thousands(count as u32)]);
+    let count_text = strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)]);
     let count_w = t.measure(c, &count_text, &caption(12.0, s));
     let name_x = row.x + 24.0 * s;
     let name_w = row.w - (name_x - row.x) - count_w - chevron - 32.0 * s;
@@ -1183,14 +1183,14 @@ fn folder_panel(
     t.draw(c, &name, inner.x, inner.y + 40.0 * s, &name_st);
     t.draw(
         c,
-        &strings::fill(strings::FOLDER_SONGS, &[&thousands(count as u32)]),
+        &strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)]),
         inner.x,
         inner.y + 80.0 * s,
         &TextStyle::new(16.0 * s).bold().color(theme::CYAN),
     );
     t.draw_in(
         c,
-        strings::FOLDER_OPEN_HINT,
+        strings::FOLDER_OPEN_HINT(),
         Rect::new(inner.x, inner.y + 120.0 * s, inner.w, 20.0 * s),
         Align::Left,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
@@ -1221,7 +1221,7 @@ fn lamp_breakdown(
     }
     t.draw(
         c,
-        strings::FOLDER_LAMP,
+        strings::FOLDER_LAMP(),
         area.x,
         area.y + 12.0 * s,
         &caption(12.0, s).color(theme::MUTED),
@@ -1243,7 +1243,7 @@ fn lamp_breakdown(
         c.fill_rect(Rect::new(area.x, y + 3.0 * s, 4.0 * s, 12.0 * s), col);
         let name = match lamp {
             Some(_) => theme::clear_lamp(lamp).0,
-            None => strings::NO_PLAY,
+            None => strings::NO_PLAY(),
         };
         let name_col = if n == 0 {
             theme::MUTED2
@@ -1287,16 +1287,16 @@ fn empty_state(
 ) {
     let (head, hint) = if !f.search.is_empty() {
         (
-            strings::fill(strings::NO_MATCH, &[f.search]),
-            strings::SEARCH_HINT,
+            strings::fill(strings::NO_MATCH(), &[f.search]),
+            strings::SEARCH_HINT(),
         )
     } else if f.filter.active {
         (
-            strings::FILTER_NO_MATCH.to_string(),
-            strings::FILTER_EMPTY_HINT,
+            strings::FILTER_NO_MATCH().to_string(),
+            strings::FILTER_EMPTY_HINT(),
         )
     } else {
-        (strings::EMPTY_FOLDER.to_string(), strings::EMPTY_HINT)
+        (strings::EMPTY_FOLDER().to_string(), strings::EMPTY_HINT())
     };
     let cy = area.y + area.h * 0.42;
     let head_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
@@ -1323,7 +1323,7 @@ fn empty_state(
         chip_frame(c, sk, r, false, hot, false, s);
         t.draw_in(
             c,
-            strings::FILTER_RESET,
+            strings::FILTER_RESET(),
             r,
             Align::Center,
             &TextStyle::new(12.0 * s)
@@ -1360,14 +1360,14 @@ fn first_run_guide(
     let inner = area.inset(24.0 * s);
     t.draw(
         c,
-        strings::GUIDE_TITLE,
+        strings::GUIDE_TITLE(),
         inner.x,
         inner.y + 30.0 * s,
         &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
     );
     t.draw(
         c,
-        strings::GUIDE_LEAD,
+        strings::GUIDE_LEAD(),
         inner.x,
         inner.y + 60.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
@@ -1379,13 +1379,13 @@ fn first_run_guide(
     );
     let steps: [Step; 3] = [
         (
-            strings::GUIDE_MANAGER,
-            Some((strings::GUIDE_BTN_MANAGER, HitId::OpenManager, None)),
+            strings::GUIDE_MANAGER(),
+            Some((strings::GUIDE_BTN_MANAGER(), HitId::OpenManager, None)),
         ),
-        (strings::GUIDE_DROP, None),
+        (strings::GUIDE_DROP(), None),
         (
-            strings::GUIDE_FOLDER,
-            Some((strings::GUIDE_BTN_FOLDER, HitId::OpenSongsFolder, None)),
+            strings::GUIDE_FOLDER(),
+            Some((strings::GUIDE_BTN_FOLDER(), HitId::OpenSongsFolder, None)),
         ),
     ];
     let mut y = inner.y + 96.0 * s;
@@ -1498,7 +1498,7 @@ fn preview_badge(c: &mut Canvas, t: &mut TextEngine, jacket: Rect, secs: f32, s:
     }
     t.draw(
         c,
-        strings::PREVIEW,
+        strings::PREVIEW(),
         pill.x + 30.0 * s,
         pill.bottom() - 6.0 * s,
         &TextStyle::new(11.0 * s).color(theme::CYAN),
@@ -1645,19 +1645,19 @@ fn detail_panel(
     let mode = theme::mode_label(song.play_mode);
     let mode_col = t
         .measure(c, mode, &value_st)
-        .max(t.measure(c, strings::MODE, &label_st));
+        .max(t.measure(c, strings::MODE(), &label_st));
     let notes_col = t
         .measure(c, &notes, &value_st)
-        .max(t.measure(c, strings::NOTES, &label_st));
+        .max(t.measure(c, strings::NOTES(), &label_st));
     let mode_x = inner.right() - mode_col;
     let notes_x = mode_x - gap - notes_col;
     let (bpm_text, bpm_st) = fit_stat(c, t, &bpm, (notes_x - gap - ix).max(0.0), value_st);
     let (label_y, value_y) = (jacket.bottom() - 30.0 * s, jacket.bottom() - 2.0 * s);
-    t.draw(c, strings::BPM, ix, label_y, &label_st);
+    t.draw(c, strings::BPM(), ix, label_y, &label_st);
     t.draw(c, &bpm_text, ix, value_y, &bpm_st);
-    t.draw(c, strings::NOTES, notes_x, label_y, &label_st);
+    t.draw(c, strings::NOTES(), notes_x, label_y, &label_st);
     t.draw(c, &notes, notes_x, value_y, &value_st);
-    t.draw(c, strings::MODE, mode_x, label_y, &label_st);
+    t.draw(c, strings::MODE(), mode_x, label_y, &label_st);
     t.draw(c, mode, mode_x, value_y, &value_st);
 
     let rule_y = jacket.bottom() + 24.0 * s;
@@ -1694,10 +1694,10 @@ fn detail_panel(
     }
     if f.auto_play {
         let st = caption(12.0, s).color(theme::ON_ACCENT);
-        let w = t.measure(c, strings::AUTO_PLAY, &st) + 20.0 * s;
+        let w = t.measure(c, strings::AUTO_PLAY(), &st) + 20.0 * s;
         let r = Rect::new(inner.right() - w, chips_y, w, 24.0 * s);
         c.nine(&sk.panel_lg, r, theme::CYAN);
-        t.draw_in(c, strings::AUTO_PLAY, r, Align::Center, &st);
+        t.draw_in(c, strings::AUTO_PLAY(), r, Align::Center, &st);
     }
 
     if f.has_replay {
@@ -1725,12 +1725,12 @@ fn detail_panel(
             },
         );
         let st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
-        let lw = t.measure(c, strings::REPLAY, &st);
+        let lw = t.measure(c, strings::REPLAY(), &st);
         let kw = 20.0 * s;
         let x = replay.x + (replay.w - lw - kw - 10.0 * s) / 2.0;
         t.draw_in(
             c,
-            strings::REPLAY,
+            strings::REPLAY(),
             Rect::new(x, replay.y, lw, replay.h),
             Align::Left,
             &st,
@@ -1765,9 +1765,9 @@ fn detail_panel(
         theme::ON_ACCENT,
     );
     let label = if f.auto_play {
-        strings::AUTO_PLAY
+        strings::AUTO_PLAY()
     } else {
-        strings::PLAY
+        strings::PLAY()
     };
     t.draw_in(
         c,
@@ -1819,7 +1819,7 @@ fn personal_best(
     let y = area.y;
     let header_w = t.draw(
         c,
-        strings::PERSONAL_BEST,
+        strings::PERSONAL_BEST(),
         area.x,
         y + 32.0 * s,
         &caption(12.0, s),
@@ -1836,14 +1836,14 @@ fn personal_best(
         }
         t.draw(
             c,
-            strings::NOT_PLAYED,
+            strings::NOT_PLAYED(),
             area.x,
             y + 70.0 * s,
             &TextStyle::new(18.0 * s).bold().color(theme::MUTED),
         );
         t.draw(
             c,
-            strings::CLEAR_TO_RECORD,
+            strings::CLEAR_TO_RECORD(),
             area.x,
             y + 92.0 * s,
             &TextStyle::new(13.0 * s).color(theme::MUTED2),
@@ -1860,11 +1860,11 @@ fn personal_best(
         notes.push(modifier.as_str().to_string());
     }
     if let Some(gauge) = b.gauge {
-        notes.push(strings::fill(strings::GAUGE_NAME, &[gauge.as_str()]));
+        notes.push(strings::fill(strings::GAUGE_NAME(), &[gauge.as_str()]));
     }
     if b.play_count > 0 {
         notes.push(strings::fill(
-            strings::PLAY_COUNT,
+            strings::PLAY_COUNT(),
             &[&b.play_count.to_string()],
         ));
     }
@@ -1926,16 +1926,16 @@ fn personal_best(
 
     // Accuracy, combo, miss count
     let stats = [
-        (strings::ACCURACY, format!("{:.2}%", b.accuracy_rate())),
+        (strings::ACCURACY(), format!("{:.2}%", b.accuracy_rate())),
         (
-            strings::MAX_COMBO,
+            strings::MAX_COMBO(),
             format!(
                 "{} / {}",
                 thousands(b.max_combo),
                 thousands(song.notes_for(ln_option) as u32)
             ),
         ),
-        (strings::MIN_BP, thousands(b.min_bp)),
+        (strings::MIN_BP(), thousands(b.min_bp)),
     ];
     let col_w = area.w / 3.0;
     for (i, (k, v)) in stats.iter().enumerate() {
@@ -1973,35 +1973,35 @@ fn footer(
     let folders_only =
         !f.rows.is_empty() && f.rows.iter().all(|r| matches!(r, SelectRow::Folder { .. }));
     if folders_only {
-        let text = strings::fill(strings::FOLDER_COUNT, &[&thousands(f.rows.len() as u32)]);
+        let text = strings::fill(strings::FOLDER_COUNT(), &[&thousands(f.rows.len() as u32)]);
         x += t.draw(c, &text, x, base, &count_st);
     } else {
         // Both numbers count charts ("곡" = chart, as in "N곡 찾음"): a group row
         // stands for its charts, and the total is the whole library.
         let shown: usize = f.rows.iter().map(row_charts).sum();
         x += t.draw(c, &thousands(shown as u32), x, base, &count_st);
-        let total = strings::fill(strings::SONGS_TOTAL, &[&thousands(f.songs.len() as u32)]);
+        let total = strings::fill(strings::SONGS_TOTAL(), &[&thousands(f.songs.len() as u32)]);
         t.draw(c, &total, x, base, &caption(12.0, s));
     }
 
     // Only the keys a player needs here; the rest are in the help overlay (?).
     // ENTER opens a folder row and plays a song row; BKSP goes up when not at the root.
     let on_folder = matches!(f.rows.get(f.selected), Some(SelectRow::Folder { .. }));
-    let mut hints: Vec<widgets::Hint> = vec![("↑↓", strings::FOOTER_MOVE, None)];
+    let mut hints: Vec<widgets::Hint> = vec![("↑↓", strings::FOOTER_MOVE(), None)];
     hints.push((
         "ENTER",
         if on_folder {
-            strings::FOOTER_OPEN
+            strings::FOOTER_OPEN()
         } else {
-            strings::FOOTER_PLAY
+            strings::FOOTER_PLAY()
         },
         Some(HitId::Play),
     ));
     if f.crumbs.len() > 1 {
-        hints.push(("BKSP", strings::BACK, Some(HitId::FolderUp)));
+        hints.push(("BKSP", strings::BACK(), Some(HitId::FolderUp)));
     }
-    hints.push(("TAB", strings::OPTIONS, Some(HitId::PlayOptions)));
-    hints.push(("?", strings::FOOTER_HELP, Some(HitId::Help)));
+    hints.push(("TAB", strings::OPTIONS(), Some(HitId::PlayOptions)));
+    hints.push(("?", strings::FOOTER_HELP(), Some(HitId::Help)));
 
     // Key hints, right-aligned; drop from the left if they do not fit.
     let right = vp.x + vp.width - PAD * s;
@@ -2135,10 +2135,10 @@ fn filter_row(
     let cap = caption(12.0, s);
     let mut x = bar.x;
 
-    let label_w = t.measure(c, strings::FILTER, &cap);
+    let label_w = t.measure(c, strings::FILTER(), &cap);
     t.draw_in(
         c,
-        strings::FILTER,
+        strings::FILTER(),
         Rect::new(x, bar.y, label_w + 1.0, bar.h),
         Align::Left,
         &cap,
@@ -2174,10 +2174,10 @@ fn filter_row(
     );
     x += 10.0 * s;
 
-    let level_w = t.measure(c, strings::FILTER_LEVEL, &cap);
+    let level_w = t.measure(c, strings::FILTER_LEVEL(), &cap);
     t.draw_in(
         c,
-        strings::FILTER_LEVEL,
+        strings::FILTER_LEVEL(),
         Rect::new(x, bar.y, level_w + 1.0, bar.h),
         Align::Left,
         &cap,
@@ -2185,7 +2185,9 @@ fn filter_row(
     x += level_w + 6.0 * s;
     let min_label = fb
         .level_min
-        .map_or(strings::FILTER_LEVEL_MIN_ANY.to_string(), |v| v.to_string());
+        .map_or(strings::FILTER_LEVEL_MIN_ANY().to_string(), |v| {
+            v.to_string()
+        });
     let min_on = fb.level_min.is_some();
     x += level_stepper(
         c,
@@ -2212,7 +2214,9 @@ fn filter_row(
     x += tilde_w + 6.0 * s;
     let max_label = fb
         .level_max
-        .map_or(strings::FILTER_LEVEL_MAX_ANY.to_string(), |v| v.to_string());
+        .map_or(strings::FILTER_LEVEL_MAX_ANY().to_string(), |v| {
+            v.to_string()
+        });
     let max_on = fb.level_max.is_some();
     x += level_stepper(
         c,
@@ -2231,8 +2235,8 @@ fn filter_row(
 
     x += 12.0 * s;
     for (label, on) in [
-        (strings::FILTER_UNPLAYED, fb.unplayed),
-        (strings::FILTER_UNCLEARED, fb.uncleared),
+        (strings::FILTER_UNPLAYED(), fb.unplayed),
+        (strings::FILTER_UNCLEARED(), fb.uncleared),
     ] {
         let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
         hs.add(r, HitId::FilterItem(item));
@@ -2247,19 +2251,19 @@ fn filter_row(
         let r = Rect::new(
             x + 6.0 * s,
             bar.y,
-            chip_width(c, t, strings::FILTER_RESET, s),
+            chip_width(c, t, strings::FILTER_RESET(), s),
             bar.h,
         );
         hs.add(r, HitId::FilterItem(item));
         let hot = hs.hovered(r);
         chip_frame(c, sk, r, false, hot, fb.focus == Some(item), s);
-        chip_label(c, t, r, strings::FILTER_RESET, hot, s);
+        chip_label(c, t, r, strings::FILTER_RESET(), hot, s);
     }
 
     // The result count ends at the search box's right edge.
     if let Some(n) = f.result_count {
         let right = vp.x + vp.width - (PAD + 112.0 + 144.0 + 12.0) * s;
-        let text = strings::fill(strings::RESULT_COUNT, &[&thousands(n as u32)]);
+        let text = strings::fill(strings::RESULT_COUNT(), &[&thousands(n as u32)]);
         t.draw_in(
             c,
             &text,
@@ -2478,7 +2482,7 @@ pub fn draw_options_panel(
 
     t.draw(
         c,
-        strings::MODAL_PLAY_OPTIONS,
+        strings::MODAL_PLAY_OPTIONS(),
         inner.x,
         inner.y + 22.0 * s,
         &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
@@ -2509,9 +2513,9 @@ pub fn draw_options_panel(
 
     let hints: &[(&str, &str)] = match footer {
         OptionsFooter::Close => &[
-            ("↑↓", strings::HINT_MOVE),
-            (LEFT_RIGHT, strings::HINT_CHANGE),
-            ("TAB", strings::HINT_CLOSE),
+            ("↑↓", strings::HINT_MOVE()),
+            (LEFT_RIGHT, strings::HINT_CHANGE()),
+            ("TAB", strings::HINT_CLOSE()),
         ],
         OptionsFooter::Retry => {
             let start = Rect::new(inner.x, card.bottom() + 12.0 * s, inner.w, 36.0 * s);
@@ -2528,16 +2532,16 @@ pub fn draw_options_panel(
             );
             t.draw_in(
                 c,
-                strings::RESULT_OPTIONS_START,
+                strings::RESULT_OPTIONS_START(),
                 start,
                 Align::Center,
                 &TextStyle::new(15.0 * s).bold().color(theme::ON_ACCENT),
             );
             &[
-                ("↑↓", strings::HINT_MOVE),
-                (LEFT_RIGHT, strings::HINT_CHANGE),
-                ("ENTER", strings::HINT_START),
-                ("TAB", strings::HINT_CLOSE),
+                ("↑↓", strings::HINT_MOVE()),
+                (LEFT_RIGHT, strings::HINT_CHANGE()),
+                ("ENTER", strings::HINT_START()),
+                ("TAB", strings::HINT_CLOSE()),
             ]
         }
     };
@@ -2564,14 +2568,14 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
     let inner = panel.inset(28.0 * s);
     t.draw(
         c,
-        strings::QUIT_TITLE,
+        strings::QUIT_TITLE(),
         inner.x,
         inner.y + 26.0 * s,
         &TextStyle::new(24.0 * s).bold().color(theme::TEXT),
     );
     t.draw(
         c,
-        strings::QUIT_NOTE,
+        strings::QUIT_NOTE(),
         inner.x,
         inner.y + 56.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
@@ -2609,8 +2613,8 @@ pub fn draw_exit_modal(ui: &mut Ui, vp: &Viewport) {
         c.fill_rect(quit, theme::WHITE.with_alpha(28));
     }
     for (r, label, key, col) in [
-        (cancel, strings::CANCEL, "ESC", theme::TEXT),
-        (quit, strings::QUIT, "ENTER", theme::WHITE),
+        (cancel, strings::CANCEL(), "ESC", theme::TEXT),
+        (quit, strings::QUIT(), "ENTER", theme::WHITE),
     ] {
         let st = TextStyle::new(14.0 * s).bold().color(col);
         let lw = t.measure(c, label, &st);
@@ -2648,178 +2652,180 @@ pub struct HelpRow {
 /// One group of the help overlay.
 pub struct HelpGroup {
     pub title: &'static str,
-    pub rows: &'static [HelpRow],
+    pub rows: Vec<HelpRow>,
 }
 
 /// Every song select key and mouse action, grouped. The keys are the ones the
 /// song select handler reads; the mouse rows are the regions the screen records.
-pub const HELP_GROUPS: [HelpGroup; 6] = [
-    HelpGroup {
-        title: strings::HELP_GROUP_MOVE,
-        rows: &[
-            HelpRow {
-                keys: &["↑↓"],
-                caption: "",
-                text: strings::HELP_MOVE_ONE,
-            },
-            HelpRow {
-                keys: &["PgUp", "PgDn"],
-                caption: "",
-                text: strings::HELP_MOVE_PAGE,
-            },
-            HelpRow {
-                keys: &["Home", "End"],
-                caption: "",
-                text: strings::HELP_MOVE_ENDS,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_WHEEL,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_ROW,
-            },
-        ],
-    },
-    HelpGroup {
-        title: strings::HELP_GROUP_FOLDER,
-        rows: &[
-            HelpRow {
-                keys: &["BKSP"],
-                caption: "",
-                text: strings::HELP_FOLDER_UP,
-            },
-            HelpRow {
-                keys: &["ENTER"],
-                caption: "",
-                text: strings::HELP_FOLDER_OPEN,
-            },
-            HelpRow {
-                keys: &["F1", "F3"],
-                caption: "",
-                text: strings::HELP_FOLDER_SIDE,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_SIDE,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_CRUMB,
-            },
-        ],
-    },
-    HelpGroup {
-        title: strings::HELP_GROUP_SONG,
-        rows: &[
-            HelpRow {
-                keys: &["ENTER"],
-                caption: "",
-                text: strings::HELP_SONG_PLAY,
-            },
-            HelpRow {
-                keys: &["A"],
-                caption: "",
-                text: strings::HELP_SONG_AUTO,
-            },
-            HelpRow {
-                keys: &["R"],
-                caption: "",
-                text: strings::HELP_SONG_REPLAY,
-            },
-            HelpRow {
-                keys: &["LEFT", "RIGHT"],
-                caption: "",
-                text: strings::HELP_SONG_CHART,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_AGAIN,
-            },
-        ],
-    },
-    HelpGroup {
-        title: strings::HELP_GROUP_OPTIONS,
-        rows: &[
-            HelpRow {
-                keys: &["TAB", "O"],
-                caption: "",
-                text: strings::HELP_OPTIONS,
-            },
-            HelpRow {
-                keys: &["F4"],
-                caption: "",
-                text: strings::HELP_SETTINGS,
-            },
-            HelpRow {
-                keys: &["F12", "C"],
-                caption: "",
-                text: strings::HELP_KEYS,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_BUTTONS,
-            },
-        ],
-    },
-    HelpGroup {
-        title: strings::HELP_GROUP_FILTER,
-        rows: &[
-            HelpRow {
-                keys: &["/"],
-                caption: "",
-                text: strings::HELP_SEARCH,
-            },
-            HelpRow {
-                keys: &["F2"],
-                caption: "",
-                text: strings::HELP_SORT,
-            },
-            HelpRow {
-                keys: &["F10"],
-                caption: "",
-                text: strings::HELP_FILTER,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_MOUSE,
-                text: strings::HELP_MOUSE_FILTER,
-            },
-        ],
-    },
-    HelpGroup {
-        title: strings::HELP_GROUP_MISC,
-        rows: &[
-            HelpRow {
-                keys: &["ESC"],
-                caption: "",
-                text: strings::HELP_BACK_QUIT,
-            },
-            HelpRow {
-                keys: &["F5"],
-                caption: "",
-                text: strings::HELP_RESCAN,
-            },
-            HelpRow {
-                keys: &["?"],
-                caption: "",
-                text: strings::HELP_HELP,
-            },
-            HelpRow {
-                keys: &[],
-                caption: strings::HELP_CAP_DROP,
-                text: strings::HELP_DROP,
-            },
-        ],
-    },
-];
+pub fn help_groups() -> Vec<HelpGroup> {
+    vec![
+        HelpGroup {
+            title: strings::HELP_GROUP_MOVE(),
+            rows: vec![
+                HelpRow {
+                    keys: &["↑↓"],
+                    caption: "",
+                    text: strings::HELP_MOVE_ONE(),
+                },
+                HelpRow {
+                    keys: &["PgUp", "PgDn"],
+                    caption: "",
+                    text: strings::HELP_MOVE_PAGE(),
+                },
+                HelpRow {
+                    keys: &["Home", "End"],
+                    caption: "",
+                    text: strings::HELP_MOVE_ENDS(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_WHEEL(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_ROW(),
+                },
+            ],
+        },
+        HelpGroup {
+            title: strings::HELP_GROUP_FOLDER(),
+            rows: vec![
+                HelpRow {
+                    keys: &["BKSP"],
+                    caption: "",
+                    text: strings::HELP_FOLDER_UP(),
+                },
+                HelpRow {
+                    keys: &["ENTER"],
+                    caption: "",
+                    text: strings::HELP_FOLDER_OPEN(),
+                },
+                HelpRow {
+                    keys: &["F1", "F3"],
+                    caption: "",
+                    text: strings::HELP_FOLDER_SIDE(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_SIDE(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_CRUMB(),
+                },
+            ],
+        },
+        HelpGroup {
+            title: strings::HELP_GROUP_SONG(),
+            rows: vec![
+                HelpRow {
+                    keys: &["ENTER"],
+                    caption: "",
+                    text: strings::HELP_SONG_PLAY(),
+                },
+                HelpRow {
+                    keys: &["A"],
+                    caption: "",
+                    text: strings::HELP_SONG_AUTO(),
+                },
+                HelpRow {
+                    keys: &["R"],
+                    caption: "",
+                    text: strings::HELP_SONG_REPLAY(),
+                },
+                HelpRow {
+                    keys: &["LEFT", "RIGHT"],
+                    caption: "",
+                    text: strings::HELP_SONG_CHART(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_AGAIN(),
+                },
+            ],
+        },
+        HelpGroup {
+            title: strings::HELP_GROUP_OPTIONS(),
+            rows: vec![
+                HelpRow {
+                    keys: &["TAB", "O"],
+                    caption: "",
+                    text: strings::HELP_OPTIONS(),
+                },
+                HelpRow {
+                    keys: &["F4"],
+                    caption: "",
+                    text: strings::HELP_SETTINGS(),
+                },
+                HelpRow {
+                    keys: &["F12", "C"],
+                    caption: "",
+                    text: strings::HELP_KEYS(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_BUTTONS(),
+                },
+            ],
+        },
+        HelpGroup {
+            title: strings::HELP_GROUP_FILTER(),
+            rows: vec![
+                HelpRow {
+                    keys: &["/"],
+                    caption: "",
+                    text: strings::HELP_SEARCH(),
+                },
+                HelpRow {
+                    keys: &["F2"],
+                    caption: "",
+                    text: strings::HELP_SORT(),
+                },
+                HelpRow {
+                    keys: &["F10"],
+                    caption: "",
+                    text: strings::HELP_FILTER(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_MOUSE(),
+                    text: strings::HELP_MOUSE_FILTER(),
+                },
+            ],
+        },
+        HelpGroup {
+            title: strings::HELP_GROUP_MISC(),
+            rows: vec![
+                HelpRow {
+                    keys: &["ESC"],
+                    caption: "",
+                    text: strings::HELP_BACK_QUIT(),
+                },
+                HelpRow {
+                    keys: &["F5"],
+                    caption: "",
+                    text: strings::HELP_RESCAN(),
+                },
+                HelpRow {
+                    keys: &["?"],
+                    caption: "",
+                    text: strings::HELP_HELP(),
+                },
+                HelpRow {
+                    keys: &[],
+                    caption: strings::HELP_CAP_DROP(),
+                    text: strings::HELP_DROP(),
+                },
+            ],
+        },
+    ]
+}
 
 /// The help overlay over song select: every key and mouse action, in two
 /// columns of three groups. A click outside the panel, `?` or ESC closes it.
@@ -2832,14 +2838,14 @@ pub fn draw_help_overlay(ui: &mut Ui, vp: &Viewport) {
     let inner = panel.inset(28.0 * s);
     t.draw(
         c,
-        strings::HELP_TITLE,
+        strings::HELP_TITLE(),
         inner.x,
         inner.y + 24.0 * s,
         &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
     );
     t.draw_in(
         c,
-        strings::HELP_CLOSE,
+        strings::HELP_CLOSE(),
         Rect::new(inner.x, inner.y + 4.0 * s, inner.w, 24.0 * s),
         Align::Right,
         &TextStyle::new(12.0 * s).color(theme::MUTED),
@@ -2848,7 +2854,7 @@ pub fn draw_help_overlay(ui: &mut Ui, vp: &Viewport) {
     let col_gap = 32.0 * s;
     let col_w = (inner.w - col_gap) / 2.0;
     let key_w = 150.0 * s;
-    for (i, group) in HELP_GROUPS.iter().enumerate() {
+    for (i, group) in help_groups().iter().enumerate() {
         let gx = inner.x + (i % 2) as f32 * (col_w + col_gap);
         let gy = inner.y + 52.0 * s + (i / 2) as f32 * 160.0 * s;
         t.draw(
@@ -2918,14 +2924,14 @@ pub fn draw_drop_overlay(ui: &mut Ui, vp: &Viewport) {
     c.stroke_rect(panel, s.max(1.0), theme::CYAN.with_alpha(200));
     t.draw_in(
         c,
-        strings::DROP_TITLE,
+        strings::DROP_TITLE(),
         Rect::new(panel.x, panel.y + 30.0 * s, panel.w, 30.0 * s),
         Align::Center,
         &TextStyle::new(22.0 * s).bold().color(theme::CYAN),
     );
     t.draw_in(
         c,
-        strings::DROP_NOTE,
+        strings::DROP_NOTE(),
         Rect::new(panel.x, panel.y + 74.0 * s, panel.w, 20.0 * s),
         Align::Center,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
@@ -3532,10 +3538,10 @@ mod tests {
 
     #[test]
     fn help_lists_every_row_with_a_key_or_a_caption() {
-        assert_eq!(HELP_GROUPS.len(), 6);
-        for group in &HELP_GROUPS {
+        assert_eq!(help_groups().len(), 6);
+        for group in &help_groups() {
             assert!(!group.rows.is_empty(), "{}", group.title);
-            for row in group.rows {
+            for row in &group.rows {
                 assert!(
                     !row.keys.is_empty() || !row.caption.is_empty(),
                     "{}: {}",

@@ -11,7 +11,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use crate::calibration::Session;
 use crate::handlers::options::{enter_row, move_row};
 use crate::menu_audio::play_ui;
-use crate::options_table::{self, activation, SETTINGS};
+use crate::options_table::{self, activation, settings_options};
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
 
@@ -35,13 +35,13 @@ pub fn leave_settings(state: &mut AppState) {
     state.save_config();
     if state.gpu_backend != state.gpu_backend_at_start {
         play_ui(state, UiSound::Toast);
-        show_toast(state, ToastKind::Info, strings::TOAST_RESTART_NEEDED);
+        show_toast(state, ToastKind::Info, strings::TOAST_RESTART_NEEDED());
     }
 }
 
 /// Changes the value of Settings row `row` one step and saves.
 fn change_setting(state: &mut AppState, row: usize, forward: bool) {
-    if let Some(desc) = SETTINGS.get(row) {
+    if let Some(desc) = settings_options().get(row) {
         play_ui(state, UiSound::Move);
         options_table::step(state, desc.id, forward);
         state.save_config();
@@ -94,7 +94,7 @@ fn apply_calibration(state: &mut AppState) {
         state,
         ToastKind::Success,
         strings::fill(
-            strings::TOAST_CALIBRATE_APPLIED,
+            strings::TOAST_CALIBRATE_APPLIED(),
             &[&format!("{offset:+.0}")],
         ),
     );
@@ -165,16 +165,16 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
         KeyCode::Escape => leave_settings(state),
         KeyCode::ArrowUp | KeyCode::KeyK => {
             play_ui(state, UiSound::Move);
-            move_row(&mut state.settings_row, SETTINGS.len(), false)
+            move_row(&mut state.settings_row, settings_options().len(), false)
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
             play_ui(state, UiSound::Move);
-            move_row(&mut state.settings_row, SETTINGS.len(), true)
+            move_row(&mut state.settings_row, settings_options().len(), true)
         }
         KeyCode::ArrowLeft | KeyCode::KeyH => change_setting(state, row, false),
         KeyCode::ArrowRight | KeyCode::KeyL => change_setting(state, row, true),
         KeyCode::Enter | KeyCode::Space => {
-            enter_row(state, SETTINGS, row, AppScreen::Settings);
+            enter_row(state, settings_options(), row, AppScreen::Settings);
         }
         _ => (),
     }
@@ -191,9 +191,11 @@ pub fn settings_click(state: &mut AppState, id: HitId) {
     }
     match id {
         HitId::OptionRow(i) if i == state.settings_row => {
-            let opens = SETTINGS.get(i).is_some_and(|d| activation(d.id).is_some());
+            let opens = settings_options()
+                .get(i)
+                .is_some_and(|d| activation(d.id).is_some());
             if opens {
-                enter_row(state, SETTINGS, i, AppScreen::Settings);
+                enter_row(state, settings_options(), i, AppScreen::Settings);
             }
         }
         HitId::OptionRow(i) => state.settings_row = i,

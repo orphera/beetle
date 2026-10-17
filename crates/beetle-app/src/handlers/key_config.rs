@@ -129,7 +129,7 @@ pub fn cycle_key_preset(state: &mut AppState) {
     show_toast(
         state,
         ToastKind::Info,
-        strings::fill(strings::TOAST_PRESET, &[&layout]),
+        strings::fill(strings::TOAST_PRESET(), &[&layout]),
     );
 }
 
@@ -177,7 +177,7 @@ pub fn reset_key_layout(state: &mut AppState) {
     show_toast(
         state,
         ToastKind::Info,
-        strings::fill(strings::TOAST_LAYOUT_RESET, &[&preset.layout_name(mode)]),
+        strings::fill(strings::TOAST_LAYOUT_RESET(), &[&preset.layout_name(mode)]),
     );
 }
 

@@ -220,7 +220,7 @@ pub(crate) fn top_bar(
     let x0 = vp.x + PAD * s;
     // Only the English wordmark is letter-spaced; screen titles are Korean.
     let logo = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
-    let logo = if title == strings::WORDMARK {
+    let logo = if title == strings::WORDMARK() {
         logo.tracking(3.0 * s)
     } else {
         logo

@@ -1082,8 +1082,8 @@ fn combo_and_judge(
         };
         t.draw_fx(c, &txt, cx - w / 2.0, anchor, &st, pulse, fx);
         let cap = caption(12.0, s).color(theme::MUTED);
-        let cw = t.measure(c, strings::COMBO, &cap);
-        t.draw(c, strings::COMBO, cx - cw / 2.0, anchor + 18.0 * s, &cap);
+        let cw = t.measure(c, strings::COMBO(), &cap);
+        t.draw(c, strings::COMBO(), cx - cw / 2.0, anchor + 18.0 * s, &cap);
     }
 
     let Some((grade, at, delta_ms)) = f.last_judge else {
@@ -1265,7 +1265,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
     // Caption row: the label, and the next rank's name with the EX still needed.
     t.draw(c, "EX SCORE", r.x, r.y + 14.0 * s, &caption(12.0, s));
     if let Some((name, need)) = next_rank(score.ex_score, judged) {
-        let next = strings::fill(strings::NEXT_RANK, &[&format!("{name} +{need}")]);
+        let next = strings::fill(strings::NEXT_RANK(), &[&format!("{name} +{need}")]);
         t.draw_in(
             c,
             &next,
@@ -1306,7 +1306,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
     let pace_x = r.x + rank_w + 12.0 * s;
     let pace_w = t.draw(
         c,
-        strings::PACE,
+        strings::PACE(),
         pace_x,
         r.y + 84.0 * s,
         &caption(12.0, s).color(theme::MUTED),
@@ -1402,14 +1402,14 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
     if strip_y + 44.0 * s <= r.bottom() - vis_h - 8.0 * s {
         t.draw(
             c,
-            strings::TIMELINE_TITLE,
+            strings::TIMELINE_TITLE(),
             r.x,
             strip_y,
             &caption(12.0, s).color(theme::MUTED),
         );
         t.draw_in(
             c,
-            strings::TIMELINE_RANGE,
+            strings::TIMELINE_RANGE(),
             Rect::new(r.x, strip_y - 12.0 * s, r.w, 14.0 * s),
             Align::Right,
             &caption(12.0, s).color(theme::MUTED2),
@@ -1567,11 +1567,11 @@ fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, a: f3
         .bold()
         .tracking(4.0 * s)
         .color(theme::TEXT.with_alpha(alpha));
-    let w = t.measure(c, strings::READY, &st);
-    t.draw(c, strings::READY, cx - w / 2.0, y, &st);
+    let w = t.measure(c, strings::READY(), &st);
+    t.draw(c, strings::READY(), cx - w / 2.0, y, &st);
     let hint = caption(13.0, s).color(theme::MUTED.with_alpha(alpha));
-    let hw = t.measure(c, strings::READY_HINT, &hint);
-    t.draw(c, strings::READY_HINT, cx - hw / 2.0, y + 52.0 * s, &hint);
+    let hw = t.measure(c, strings::READY_HINT(), &hint);
+    t.draw(c, strings::READY_HINT(), cx - hw / 2.0, y + 52.0 * s, &hint);
 }
 
 /// One count-in number in the middle of the field: it punches in and fades
@@ -1648,10 +1648,10 @@ fn go_flash(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, p: f32, 
         outline: Some((theme::BLACK.with_alpha(a), 4.0 * s)),
         gradient: Some((theme::GOLD.with_alpha(a), theme::WHITE.with_alpha(a))),
     };
-    let w = t.measure(c, strings::GO, &st) * pop;
+    let w = t.measure(c, strings::GO(), &st) * pop;
     t.draw_fx(
         c,
-        strings::GO,
+        strings::GO(),
         cx - w / 2.0,
         cy - size * 0.5 * pop,
         &st,
@@ -1817,7 +1817,7 @@ fn pause_menu(
 
     t.draw(
         c,
-        strings::PAUSED,
+        strings::PAUSED(),
         inner.x,
         inner.y + 26.0 * s,
         &TextStyle::new(28.0 * s).bold().color(theme::TEXT),
@@ -1859,9 +1859,9 @@ fn pause_menu(
     );
 
     let options = [
-        strings::PAUSE_RESUME,
-        strings::PAUSE_RESTART,
-        strings::PAUSE_QUIT,
+        strings::PAUSE_RESUME(),
+        strings::PAUSE_RESTART(),
+        strings::PAUSE_QUIT(),
     ];
     let mut y = bar.bottom() + 36.0 * s;
     for (i, label) in options.iter().enumerate() {
@@ -1890,7 +1890,7 @@ fn pause_menu(
     }
     t.draw_in(
         c,
-        strings::PAUSE_HINT,
+        strings::PAUSE_HINT(),
         Rect::new(inner.x, panel.bottom() - 34.0 * s, inner.w, 20.0 * s),
         Align::Center,
         &caption(12.0, s),
@@ -1993,7 +1993,7 @@ mod tests {
                     hit_bursts: &bursts,
                     last_judge: Some((JudgeGrade::PerfectGreat, 1.0, -6.0)),
                     hint: "ESC 일시정지",
-                    badge: Some(strings::AUTO_PLAY),
+                    badge: Some(strings::AUTO_PLAY()),
                     pause,
                     key_hint_alpha: if busy { 0.5 } else { 1.0 },
                     readout,

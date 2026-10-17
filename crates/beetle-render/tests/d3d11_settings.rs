@@ -18,60 +18,65 @@ const H: u32 = 720;
 /// The Settings rows as the app lists them (table order, two columns).
 fn lines(graphics_after_restart: bool) -> Vec<OptionLine<'static>> {
     let graphics = if graphics_after_restart {
-        strings::fill(strings::VALUE_AFTER_RESTART, &[strings::GPU_WARP])
+        strings::fill(strings::VALUE_AFTER_RESTART(), &[strings::GPU_WARP()])
     } else {
-        strings::GPU_AUTO.to_string()
+        strings::GPU_AUTO().to_string()
     };
     let rows: [(usize, Option<&'static str>, &'static str, String); 11] = [
         (
             0,
-            Some(strings::GROUP_DISPLAY),
-            strings::ROW_DISPLAY_MODE,
-            strings::DISPLAY_WINDOWED.into(),
+            Some(strings::GROUP_DISPLAY()),
+            strings::ROW_DISPLAY_MODE(),
+            strings::DISPLAY_WINDOWED().into(),
         ),
         (
             0,
             None,
-            strings::ROW_RESOLUTION,
+            strings::ROW_RESOLUTION(),
             "1280 x 720 (16:9 HD)".into(),
         ),
-        (0, None, strings::ROW_GRAPHICS, graphics),
+        (0, None, strings::ROW_GRAPHICS(), graphics),
         (
             0,
             None,
-            strings::ROW_TARGET_FPS,
-            strings::VALUE_UNLIMITED.into(),
+            strings::ROW_TARGET_FPS(),
+            strings::VALUE_UNLIMITED().into(),
         ),
         (
             0,
-            Some(strings::GROUP_AUDIO),
-            strings::ROW_MASTER_VOLUME,
+            Some(strings::GROUP_AUDIO()),
+            strings::ROW_MASTER_VOLUME(),
             "80%".into(),
         ),
         (
             0,
-            Some(strings::GROUP_JUDGE),
-            strings::ROW_JUDGE_OFFSET,
+            Some(strings::GROUP_JUDGE()),
+            strings::ROW_JUDGE_OFFSET(),
             "+0 ms".into(),
         ),
         (
             1,
-            Some(strings::GROUP_LAYOUT),
-            strings::ROW_PLAYFIELD,
-            strings::VALUE_CENTER.into(),
+            Some(strings::GROUP_LAYOUT()),
+            strings::ROW_PLAYFIELD(),
+            strings::VALUE_CENTER().into(),
         ),
-        (1, None, strings::ROW_SCRATCH, strings::SIDE_RIGHT.into()),
-        (1, None, strings::ROW_BGA, strings::VALUE_ON.into()),
         (
             1,
             None,
-            strings::ROW_TRACK_BGA,
-            strings::TRACK_BGA_OFF.into(),
+            strings::ROW_SCRATCH(),
+            strings::SIDE_RIGHT().into(),
+        ),
+        (1, None, strings::ROW_BGA(), strings::VALUE_ON().into()),
+        (
+            1,
+            None,
+            strings::ROW_TRACK_BGA(),
+            strings::TRACK_BGA_OFF().into(),
         ),
         (
             1,
-            Some(strings::GROUP_INPUT),
-            strings::ROW_KEY_LAYOUT,
+            Some(strings::GROUP_INPUT()),
+            strings::ROW_KEY_LAYOUT(),
             "7K  HomeRow".into(),
         ),
     ];
@@ -88,17 +93,17 @@ fn lines(graphics_after_restart: bool) -> Vec<OptionLine<'static>> {
 /// Help sentence per row, in the same order as `lines`.
 fn helps() -> [&'static str; 11] {
     [
-        strings::HELP_DISPLAY_MODE,
-        strings::HELP_RESOLUTION,
-        strings::HELP_GRAPHICS,
-        strings::HELP_TARGET_FPS,
-        strings::HELP_MASTER_VOLUME,
-        strings::HELP_JUDGE_OFFSET,
-        strings::HELP_PLAYFIELD,
-        strings::HELP_SCRATCH,
-        strings::HELP_BGA,
-        strings::HELP_TRACK_BGA,
-        strings::HELP_KEY_LAYOUT,
+        strings::HELP_DISPLAY_MODE(),
+        strings::HELP_RESOLUTION(),
+        strings::HELP_GRAPHICS(),
+        strings::HELP_TARGET_FPS(),
+        strings::HELP_MASTER_VOLUME(),
+        strings::HELP_JUDGE_OFFSET(),
+        strings::HELP_PLAYFIELD(),
+        strings::HELP_SCRATCH(),
+        strings::HELP_BGA(),
+        strings::HELP_TRACK_BGA(),
+        strings::HELP_KEY_LAYOUT(),
     ]
 }
 

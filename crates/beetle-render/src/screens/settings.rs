@@ -29,12 +29,14 @@ pub struct SettingsFrame<'a> {
     pub scroll: [f32; 2],
 }
 
-const HINTS: [Hint; 4] = [
-    ("↑↓", strings::FOOTER_MOVE, None),
-    (widgets::LEFT_RIGHT, strings::HINT_CHANGE, None),
-    ("ENTER", strings::HINT_SELECT, None),
-    ("ESC", strings::BACK, Some(HitId::SettingsBack)),
-];
+fn hints() -> [Hint; 4] {
+    [
+        ("↑↓", strings::FOOTER_MOVE(), None),
+        (widgets::LEFT_RIGHT, strings::HINT_CHANGE(), None),
+        ("ENTER", strings::HINT_SELECT(), None),
+        ("ESC", strings::BACK(), Some(HitId::SettingsBack)),
+    ]
+}
 
 /// Where one row of a Settings column sits, from the column's top before
 /// it scrolls.
@@ -134,7 +136,7 @@ pub fn draw_settings(ui: &mut Ui, f: &SettingsFrame) {
     let s = vp.scale;
 
     widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
-    widgets::top_bar(c, t, vp, strings::SETTINGS, s);
+    widgets::top_bar(c, t, vp, strings::SETTINGS(), s);
 
     let area = columns_area(vp);
     let content = Rect::from_ltrb(
@@ -194,7 +196,7 @@ pub fn draw_settings(ui: &mut Ui, f: &SettingsFrame) {
     widgets::help_card(c, t, &sk, card, label, f.help, s);
 
     let bar = widgets::footer_bar(c, vp, s);
-    widgets::footer_buttons(c, t, &sk, &HINTS, bar, s, &mut hs);
+    widgets::footer_buttons(c, t, &sk, &hints(), bar, s, &mut hs);
 }
 
 #[cfg(test)]

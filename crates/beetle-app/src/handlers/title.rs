@@ -116,6 +116,9 @@ mod tests {
                 TitleAction::Quit,
             ]
         );
-        assert_eq!(TITLE_ACTIONS.len(), beetle_render::TITLE_MENU_LABELS.len());
+        assert_eq!(
+            TITLE_ACTIONS.len(),
+            beetle_render::title_menu_labels().len()
+        );
     }
 }
