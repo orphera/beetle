@@ -4,13 +4,13 @@ overview: Beetle의 UI를 스팀 $49급 리듬게임 수준의 프레젠테이�
 todos:
   - id: p0-sfx
     content: UI 효과음 합성(beetle-audio/sfx.rs) + 메뉴 오디오 스트림, 프리뷰 지연·페이드
-    status: pending
+    status: completed
   - id: p0-motion
     content: 선곡 스크롤 이징, 화면 전환(셔터/와이프), 살아 있는 배경
-    status: pending
+    status: completed
   - id: p0-bugs
     content: 로딩 경과시간 제거, 자동 플레이일 때 '첫 플레이' 태그 숨김
-    status: pending
+    status: completed
   - id: p1-play
     content: 노트·판정 스킨 2판, 플레이 레이아웃, 카운트다운/FC·CLEAR·FAILED 연출, 설정 확장
     status: pending
@@ -120,3 +120,7 @@ LR2/beatoraja 스킨 호환, 3D·Live2D·캐릭터, 절차적 작곡, 메뉴 영
 8. 타이틀 → 튜토리얼/오프셋 → 첫 플레이까지 설명서 없이 3분 안.
 9. 크기·성능 수치를 문서에 기록.
 10. **최소 콘텐츠**: 로고 + 키 비주얼 1장, 재배포 허락받은 곡 20–40개(재킷·BGA 포함), 메뉴 BGM 루프 1–2개, 트레일러.
+
+## P0 결과 (2026-10-17)
+
+P0-1~6을 모두 구현했고 Opus 리뷰 뒤 지적 사항(클릭 가능한 잘린 행, 상세 패널 깜빡임, 시작음 누락, 셔터 컷, 프리뷰 타이머 덮어쓰기, `Canvas::line` 감김 방향 등)을 고쳤다. 릴리스 크기: `beetle-app.exe` 3,175,424 B(+16 KB). 소리와 실제 움직임은 사람이 직접 확인해야 한다(에이전트는 들을 수도, 라이브 애니메이션을 볼 수도 없었다).
