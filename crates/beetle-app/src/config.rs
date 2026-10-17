@@ -2,6 +2,7 @@ use crate::filters::Filter;
 use crate::folders::{mode_from_id, mode_id, ChartChoices, FolderPath};
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
+use beetle_render::strings::Lang;
 use beetle_render::{
     px_per_sec_to_green_ms, EightKForm, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
     NOTE_SIZE_MIN,
@@ -228,6 +229,27 @@ pub fn green_ms_from_hi_speed(px_per_sec: f32, lane_cover: f32) -> u32 {
 }
 
 /// A 0..=1 volume read from a file; a value that is not a number keeps `keep`.
+/// The language Windows uses for its UI, from the primary language ID:
+/// Korean, Japanese, or English for everything else.
+pub fn lang_from_lang_id(lang_id: u16) -> Lang {
+    match lang_id & 0x3ff {
+        0x12 => Lang::Ko,
+        0x11 => Lang::Ja,
+        _ => Lang::En,
+    }
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetUserDefaultUILanguage() -> u16;
+}
+
+/// The language of the Windows user interface (the first-run default).
+pub fn os_language() -> Lang {
+    // SAFETY: a plain query with no arguments and no memory involved.
+    lang_from_lang_id(unsafe { GetUserDefaultUILanguage() })
+}
+
 fn parse_unit(val: &str, keep: f32) -> f32 {
     parse_finite(val).map_or(keep, |v| v.clamp(0.0, 1.0))
 }
@@ -284,6 +306,9 @@ pub struct AppConfig {
     pub judge_position: JudgePosition,
     /// No full-field danger flash, dimmer hit bursts, no banner sweep or shake.
     pub reduce_flashes: bool,
+    /// The language picked in Settings (`language=KO|EN|JA`). `None` until the
+    /// player picks one: the Windows UI language is used then.
+    pub language: Option<Lang>,
 }
 
 impl Default for AppConfig {
@@ -316,6 +341,7 @@ impl Default for AppConfig {
             note_size: 1.0,
             judge_position: JudgePosition::Upper,
             reduce_flashes: false,
+            language: None,
         }
     }
 }
@@ -508,6 +534,7 @@ impl AppConfig {
                 }
                 "judge_position" => config.judge_position = JudgePosition::from_name(val),
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
+                "language" => config.language = Lang::from_code(val),
                 _ => {
                     for (i, &mode) in MODE_SLOTS.iter().enumerate() {
                         let slot = mode_slot_name(mode);
@@ -605,6 +632,13 @@ filter_uncleared={}
             u8::from(self.filter.only_unplayed),
             u8::from(self.filter.only_uncleared),
         ));
+        if let Some(lang) = self.language {
+            out.push_str(&format!(
+                "language={}
+",
+                lang.code()
+            ));
+        }
         out
     }
 }
@@ -953,5 +987,42 @@ green_ms=530
         assert!((parsed.bgm_volume - 0.35).abs() < 1e-6);
         assert_eq!(parsed.key_volume, 0.0);
         assert_eq!(parsed.sfx_volume, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn windows_language_ids_map_to_the_three_languages() {
+        assert_eq!(lang_from_lang_id(0x0412), Lang::Ko); // ko-KR
+        assert_eq!(lang_from_lang_id(0x0411), Lang::Ja); // ja-JP
+        assert_eq!(lang_from_lang_id(0x0409), Lang::En); // en-US
+                                                         // Sublanguage bits do not matter; other languages fall back to English.
+        assert_eq!(lang_from_lang_id(0x0812), Lang::Ko);
+        assert_eq!(lang_from_lang_id(0x0804), Lang::En); // zh-CN
+    }
+
+    #[test]
+    fn language_round_trips_and_a_missing_key_means_detect() {
+        let config = AppConfig {
+            language: Some(Lang::Ja),
+            ..AppConfig::default()
+        };
+        let text = config.serialize_str();
+        assert!(text.contains("language=JA\n"));
+        assert_eq!(AppConfig::parse_str(&text).language, Some(Lang::Ja));
+
+        // Files from before the key existed have no line: detect at startup.
+        assert_eq!(AppConfig::parse_str("green_ms=300\n").language, None);
+        let unset = AppConfig::default().serialize_str();
+        assert!(!unset.contains("language="));
+        assert_eq!(AppConfig::parse_str(&unset).language, None);
+    }
+
+    #[test]
+    fn an_unknown_language_value_is_ignored() {
+        assert_eq!(AppConfig::parse_str("language=FR\n").language, None);
     }
 }

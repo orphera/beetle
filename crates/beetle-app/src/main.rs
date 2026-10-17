@@ -130,7 +130,16 @@ impl ApplicationHandler for BeetleApp {
             return;
         }
 
+        // The Windows UI language is used until the config is read (and by the
+        // error dialog below if the config never loads).
+        strings::set_lang(crate::config::os_language());
         let saved_config = AppConfig::load();
+        // `BEETLE_LANG` (devtools) overrides the saved choice for this run only.
+        strings::set_lang(
+            crate::devtools::lang_override()
+                .or(saved_config.language)
+                .unwrap_or_else(crate::config::os_language),
+        );
         // The song library is read on a worker while the window and Direct3D
         // come up; the Boot screen covers the wait (INV-5).
         let library_receiver = spawn_library_load(saved_config.sort_mode);
@@ -275,6 +284,7 @@ impl ApplicationHandler for BeetleApp {
             sfx_volume: saved_config.sfx_volume,
             visual_offset_ms: saved_config.visual_offset_ms,
             reduce_flashes: saved_config.reduce_flashes,
+            language: saved_config.language,
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,

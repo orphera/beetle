@@ -203,6 +203,8 @@ pub struct AppState {
     /// Where the notes are drawn, in ms. Drawing only: judgement never reads it.
     pub visual_offset_ms: f64,
     pub reduce_flashes: bool,
+    /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
+    pub language: Option<strings::Lang>,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
@@ -343,6 +345,15 @@ impl AppState {
         let span = SELECT_EMPHASIS_SECS.max(DETAIL_FADE_SECS);
         self.selected_since
             .is_some_and(|t| now.saturating_duration_since(t).as_secs_f32() < span)
+    }
+
+    /// Switches every string to `lang` at once: the Settings row, the window
+    /// title and the next frame all use it.
+    pub fn set_language(&mut self, lang: strings::Lang) {
+        self.language = Some(lang);
+        strings::set_lang(lang);
+        self.window.set_title(strings::WINDOW_TITLE());
+        self.window.request_redraw();
     }
 
     pub fn apply_display_mode(&mut self) {
@@ -504,6 +515,7 @@ impl AppState {
             judge_position: self.view.skin.judge_position,
             reduce_flashes: self.reduce_flashes,
             display_mode: self.display_mode,
+            language: self.language,
             gpu_backend: self.gpu_backend,
             window_width: size.width.max(640),
             window_height: size.height.max(480),

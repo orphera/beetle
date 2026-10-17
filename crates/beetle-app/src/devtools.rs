@@ -20,6 +20,8 @@
 //! - `BEETLE_CAPTURE_LAMP=<failed|easy|clear|hard|fullcombo|perfect>`: the
 //!   end banner shows this lamp instead of the play's real one (display only).
 //!
+//! - `BEETLE_LANG=ko|en|ja`: the UI language for this run only (not saved).
+//!
 //! Nothing here runs unless the variables are set.
 
 use crate::state::AppScreen;
@@ -48,6 +50,13 @@ fn parse_screen(s: &str) -> Option<AppScreen> {
         "settings" => AppScreen::Settings,
         _ => return None,
     })
+}
+
+/// `BEETLE_LANG`: the UI language for this run, for captures. Not saved.
+pub fn lang_override() -> Option<beetle_render::strings::Lang> {
+    std::env::var("BEETLE_LANG")
+        .ok()
+        .and_then(|v| beetle_render::strings::Lang::from_code(&v))
 }
 
 /// Appends to `devtools.log` in the working directory (the app is a GUI

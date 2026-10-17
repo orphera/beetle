@@ -46,6 +46,7 @@ pub enum OptionId {
     AutoPlay,
     StartMeasure,
     // Settings screen.
+    Language,
     DisplayMode,
     Resolution,
     Graphics,
@@ -154,6 +155,13 @@ pub fn play_options() -> &'static [OptionDesc] {
 /// The Settings screen, in table order (the two columns follow `column`).
 fn build_settings_options() -> Vec<OptionDesc> {
     vec![
+        OptionDesc {
+            id: OptionId::Language,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_LANGUAGE(),
+            help: strings::HELP_LANGUAGE(),
+        },
         OptionDesc {
             id: OptionId::DisplayMode,
             group: strings::GROUP_DISPLAY(),
@@ -431,6 +439,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         },
         OptionId::AutoPlay => on_off(state.is_auto_play).to_string(),
         OptionId::StartMeasure => format!("M.{}", state.start_measure),
+        OptionId::Language => language_label(strings::lang()).to_string(),
         OptionId::DisplayMode => display_mode_label(state.display_mode).to_string(),
         OptionId::Resolution => state.current_resolution_label().to_string(),
         OptionId::Graphics => {
@@ -508,6 +517,14 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         OptionId::AutoPlay => state.is_auto_play = !state.is_auto_play,
         OptionId::StartMeasure => {
             state.start_measure = start_measure_next(state.start_measure, forward);
+        }
+        OptionId::Language => {
+            let lang = if forward {
+                strings::lang().next()
+            } else {
+                strings::lang().prev()
+            };
+            state.set_language(lang);
         }
         OptionId::DisplayMode => {
             state.display_mode = if forward {
@@ -613,6 +630,15 @@ fn toggle_scratch(state: &mut AppState) {
     }
     let side = state.view.skin.scratch_side_of(mode).toggle();
     state.view.skin.set_scratch_side(mode, side);
+}
+
+/// A language's name, in that language (the row shows the same name whatever is active).
+fn language_label(lang: strings::Lang) -> &'static str {
+    match lang {
+        strings::Lang::Ko => strings::LANG_NAME_KO(),
+        strings::Lang::En => strings::LANG_NAME_EN(),
+        strings::Lang::Ja => strings::LANG_NAME_JA(),
+    }
 }
 
 fn display_mode_label(mode: DisplayMode) -> &'static str {

@@ -55,6 +55,37 @@ pub fn lang() -> Lang {
     }
 }
 
+impl Lang {
+    /// Every language, in the order the Settings row cycles them.
+    pub const ALL: [Lang; 3] = [Lang::Ko, Lang::En, Lang::Ja];
+
+    /// The value kept in the config file (`language=KO`).
+    pub fn code(self) -> &'static str {
+        match self {
+            Lang::Ko => "KO",
+            Lang::En => "EN",
+            Lang::Ja => "JA",
+        }
+    }
+
+    /// Reads a config value or an `BEETLE_LANG` value, in any letter case.
+    pub fn from_code(code: &str) -> Option<Lang> {
+        Lang::ALL
+            .into_iter()
+            .find(|lang| lang.code().eq_ignore_ascii_case(code.trim()))
+    }
+
+    /// The next language in `ALL`, wrapping around.
+    pub fn next(self) -> Lang {
+        Lang::ALL[(self as usize + 1) % Lang::ALL.len()]
+    }
+
+    /// The previous language in `ALL`, wrapping around.
+    pub fn prev(self) -> Lang {
+        Lang::ALL[(self as usize + Lang::ALL.len() - 1) % Lang::ALL.len()]
+    }
+}
+
 #[inline]
 fn pick(texts: [&'static str; 3]) -> &'static str {
     texts[lang() as usize]
@@ -1444,6 +1475,38 @@ table! {
         ko "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비워요.",
         en "Enter binds a key, A adds one more, Backspace clears the lane.",
         ja "Enter でキーを割り当て、A で追加、Backspace でレーンを消去します。";
+
+    // ---- Language setting (Settings screen, first row) ----
+    /// Section of the Settings screen for the language.
+    pub GROUP_SYSTEM =
+        ko "시스템",
+        en "System",
+        ja "システム";
+    /// Settings row: the UI language.
+    pub ROW_LANGUAGE =
+        ko "언어",
+        en "Language",
+        ja "言語";
+    /// One sentence under the Language row.
+    pub HELP_LANGUAGE =
+        ko "메뉴와 글자의 언어를 바꿔요. 바로 적용돼요.",
+        en "Changes the language of the menus and text. Applies immediately.",
+        ja "メニューと表示の言語を変更します。すぐに反映されます。";
+    /// The Korean language's name; shown in Korean whatever the current language is.
+    pub LANG_NAME_KO =
+        ko "한국어",
+        en "한국어",
+        ja "한국어";
+    /// The English language's name; shown in English whatever the current language is.
+    pub LANG_NAME_EN =
+        ko "English",
+        en "English",
+        ja "English";
+    /// The Japanese language's name; shown in Japanese whatever the current language is.
+    pub LANG_NAME_JA =
+        ko "日本語",
+        en "日本語",
+        ja "日本語";
 }
 
 #[cfg(test)]
@@ -1452,31 +1515,59 @@ mod tests {
     use crate::text::{JP_BYTES, KR_BYTES};
     use fontdue::{Font, FontSettings};
 
-    /// Every character of every string must be in the embedded KR font, or
-    /// it would be drawn by the GDI fallback and look different. Symbols the
-    /// KR font lacks must be replaced by plain words or ASCII.
+    /// Every Korean character must be in the embedded KR font, or it would be
+    /// drawn by the GDI fallback and look different.
     #[test]
-    fn every_character_is_in_the_embedded_kr_font() {
+    fn every_korean_character_is_in_the_embedded_kr_font() {
         let font = Font::from_bytes(KR_BYTES, FontSettings::default()).expect("KR font");
+        let jp = Font::from_bytes(JP_BYTES, FontSettings::default()).expect("JP font");
         let mut missing = Vec::new();
         for (name, texts) in ALL {
-            // Korean, and English (Basic Latin and common punctuation, which the KR font has).
-            for lang in [Lang::Ko, Lang::En] {
-                for c in texts[lang as usize].chars() {
-                    if c.is_control() || c == ' ' {
-                        continue;
-                    }
-                    if font.lookup_glyph_index(c) == 0 {
-                        missing.push(format!("{name} ({lang:?}): {c:?} (U+{:04X})", c as u32));
-                    }
+            for c in texts[Lang::Ko as usize].chars() {
+                if c.is_control() || c == ' ' {
+                    continue;
+                }
+                // A language's own name may be Japanese (see the English test).
+                let in_jp = name.starts_with("LANG_NAME_") && jp.lookup_glyph_index(c) != 0;
+                if font.lookup_glyph_index(c) == 0 && !in_jp {
+                    missing.push(format!("{name}: {c:?} (U+{:04X})", c as u32));
                 }
             }
         }
         assert!(
             missing.is_empty(),
-            "glyphs missing from the KR font:\n{}",
-            missing.join("\n")
+            "glyphs missing from the KR font:
+{}",
+            missing.join(
+                "
+"
+            )
         );
+    }
+
+    /// English is Basic Latin and punctuation, which the KR font has. The only
+    /// exception is a language's own name (the Settings row shows 日本語 in
+    /// every language), which the JP font covers.
+    #[test]
+    fn english_is_ascii_except_the_language_names() {
+        let kr = Font::from_bytes(KR_BYTES, FontSettings::default()).expect("KR font");
+        let jp = Font::from_bytes(JP_BYTES, FontSettings::default()).expect("JP font");
+        for (name, texts) in ALL {
+            let en = texts[Lang::En as usize];
+            if en.is_ascii() {
+                continue;
+            }
+            assert!(
+                name.starts_with("LANG_NAME_"),
+                "{name} has non-ASCII English: {en}"
+            );
+            for c in en.chars().filter(|c| !c.is_ascii()) {
+                assert!(
+                    kr.lookup_glyph_index(c) != 0 || jp.lookup_glyph_index(c) != 0,
+                    "{name}: {c:?} is in neither embedded font"
+                );
+            }
+        }
     }
 
     /// Every Japanese character must be in the embedded JP font, or in the KR
@@ -1506,6 +1597,19 @@ mod tests {
 "
             )
         );
+    }
+
+    #[test]
+    fn language_codes_and_cycling() {
+        assert_eq!(Lang::from_code("ja"), Some(Lang::Ja));
+        assert_eq!(Lang::from_code(" EN "), Some(Lang::En));
+        assert_eq!(Lang::from_code("fr"), None);
+        for lang in Lang::ALL {
+            assert_eq!(Lang::from_code(lang.code()), Some(lang));
+        }
+        assert_eq!(Lang::Ko.next(), Lang::En);
+        assert_eq!(Lang::Ja.next(), Lang::Ko);
+        assert_eq!(Lang::Ko.prev(), Lang::Ja);
     }
 
     #[test]
