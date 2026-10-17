@@ -13,6 +13,8 @@
 //!   (it is otherwise only reachable by key press).
 //! - `BEETLE_CAPTURE_TRANSITION=<0..1>`: draws the shutter frozen at that
 //!   progress of its length on every frame, so a capture shows a mid-wipe.
+//! - `BEETLE_CAPTURE_LAMP=<failed|easy|clear|hard|fullcombo|perfect>`: the
+//!   end banner shows this lamp instead of the play's real one (display only).
 //!
 //! Nothing here runs unless the variables are set.
 
@@ -68,6 +70,31 @@ pub fn frozen_shutter_progress() -> Option<f32> {
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .map(|p| p.clamp(0.0, 1.0))
+    })
+}
+
+/// The clear lamp the end banner shows instead of the real one, from
+/// `BEETLE_CAPTURE_LAMP` (`failed`, `clear`, `hard`, `easy`, `fullcombo`,
+/// `perfect`). Display only: the play is scored as it was. It exists for
+/// captures: an autoplay judges every note PERFECT, so it can show PERFECT
+/// but never FULL COMBO, and FAILED needs a real miss run instead.
+pub fn banner_lamp_override() -> Option<beetle_core::ClearType> {
+    use beetle_core::ClearType;
+    static LAMP: std::sync::OnceLock<Option<ClearType>> = std::sync::OnceLock::new();
+    *LAMP.get_or_init(|| {
+        match std::env::var("BEETLE_CAPTURE_LAMP")
+            .ok()?
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "failed" => Some(ClearType::Failed),
+            "easy" => Some(ClearType::Easy),
+            "clear" => Some(ClearType::Clear),
+            "hard" => Some(ClearType::Hard),
+            "fullcombo" => Some(ClearType::FullCombo),
+            "perfect" => Some(ClearType::Perfect),
+            _ => None,
+        }
     })
 }
 

@@ -721,11 +721,16 @@ impl ApplicationHandler for BeetleApp {
                         // tick below can count its note as missed.
                         drain_lane_events(state);
                         drain_raw_keys(state);
-                        let audio_time = state
-                            .audio_engine
-                            .as_ref()
-                            .map(|a| a.clock().current_time_seconds())
-                            .unwrap_or(0.0);
+                        // The end banner has closed the gameplay device, so its
+                        // frame stays on the song's last audio time.
+                        let audio_time = match state.gameplay_end {
+                            Some(end) => end.audio_time,
+                            None => state
+                                .audio_engine
+                                .as_ref()
+                                .map(|a| a.clock().current_time_seconds())
+                                .unwrap_or(0.0),
+                        };
                         // The end banner: the play is saved and judged; wait
                         // for its time (or ENTER / ESC) and then show the result.
                         if let Some(end) = state.gameplay_end {

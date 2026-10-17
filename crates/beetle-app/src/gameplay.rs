@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use beetle_audio::{AudioCommand, AudioEngine, SampleBank};
+use beetle_audio::{AudioCommand, AudioEngine, SampleBank, UiSound};
 use beetle_core::{
     apply_lane_modifier, BmsChart, ClearType, GaugeTrend, JudgeEngine, JudgeGrade, JudgeWindow,
     PlayResult, ReplayData, ScoreUpdate, SongMetadata, TimingModel,
@@ -272,6 +272,19 @@ pub const END_BANNER_SECONDS: f64 = 1.5;
 pub struct GameplayEnd {
     pub lamp: ClearType,
     pub started: Instant,
+    /// The audio clock's time when the song ended. The gameplay device is
+    /// closed for the banner (the jingle needs it), so the frame stays on this.
+    pub audio_time: f64,
+}
+
+/// The jingle for a play's end: the fail sound for FAILED, the clear sound for
+/// every clear (`UiSound::Clear` for CLEAR, EASY, HARD, FULL COMBO and PERFECT).
+pub fn end_jingle(lamp: ClearType) -> UiSound {
+    if lamp == ClearType::Failed {
+        UiSound::Fail
+    } else {
+        UiSound::Clear
+    }
 }
 
 /// The audio clock's time in the current song (0 when there is no audio).
@@ -318,18 +331,29 @@ impl PlayEndGuard {
 /// and starts the end banner; the result screen follows in `leave_gameplay`.
 /// Calling it again during the banner, or after the banner was skipped, does
 /// nothing (see `PlayEndGuard`).
+///
+/// The banner is the last thing the play does with the audio, so the gameplay
+/// device is closed here (nothing is judged any more, and the song is over or
+/// stopped), and the end jingle plays on the menu stream instead. Judging ends
+/// with the banner: `sync_lane_session` sends the input thread its End.
 pub fn finish_gameplay(state: &mut AppState) {
     if !state.play_end.take() {
         return;
     }
-    let lamp = match &state.active_judge {
+    let real = match &state.active_judge {
         Some(judge) => judge.score().clear_type(),
         None => ClearType::Failed,
     };
+    let lamp = crate::devtools::banner_lamp_override().unwrap_or(real);
     record_play(state);
+    let audio_time = audio_time_now(state);
+    state.audio_engine = None;
+    state.menu_audio.open(state.master_volume);
+    state.menu_audio.play(end_jingle(lamp));
     state.gameplay_end = Some(GameplayEnd {
         lamp,
         started: Instant::now(),
+        audio_time,
     });
     state.window.request_redraw();
 }
@@ -611,6 +635,20 @@ mod tests {
     }
 
     #[test]
+    fn the_jingle_follows_the_lamp() {
+        assert_eq!(end_jingle(ClearType::Failed), UiSound::Fail);
+        for lamp in [
+            ClearType::FullCombo,
+            ClearType::Perfect,
+            ClearType::Clear,
+            ClearType::Easy,
+            ClearType::Hard,
+        ] {
+            assert_eq!(end_jingle(lamp), UiSound::Clear, "{lamp:?}");
+        }
+    }
+
+    #[test]
     fn saves_counted_through_the_end_phase_stay_at_one() {
         let mut guard = PlayEndGuard::default();
         let mut banner: Option<GameplayEnd> = None;
@@ -626,6 +664,7 @@ mod tests {
                 banner = Some(GameplayEnd {
                     lamp: ClearType::Failed,
                     started: Instant::now(),
+                    audio_time: 0.0,
                 });
             }
         }
