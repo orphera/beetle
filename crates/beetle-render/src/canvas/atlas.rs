@@ -83,6 +83,69 @@ impl DirtyRect {
     pub fn bytes(self) -> usize {
         ((self.x1 - self.x0) * (self.y1 - self.y0) * 4) as usize
     }
+
+    fn area(self) -> u32 {
+        (self.x1 - self.x0) * (self.y1 - self.y0)
+    }
+
+    /// Whether the two rectangles overlap or share an edge.
+    fn touches(self, other: Self) -> bool {
+        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
+    }
+}
+
+/// Most dirty rectangles a page keeps between two syncs. A frame that writes
+/// both the glyph shelf and the thumbnail grid needs two; past this many, the
+/// pair that grows least is merged.
+pub const MAX_DIRTY: usize = 4;
+
+/// The dirty rectangles of one page.
+pub type DirtySlots = [Option<DirtyRect>; MAX_DIRTY];
+
+/// Folds `rect` into the dirty set. A rectangle that overlaps or touches a
+/// kept one merges with it (and with every other one it touches). Otherwise
+/// it takes a free slot. When all slots are busy, the pair of rectangles
+/// (the new one included) whose union has the smallest area is merged.
+pub fn add_dirty(slots: &mut DirtySlots, rect: DirtyRect) {
+    let mut merged = rect;
+    for slot in slots.iter_mut() {
+        if let Some(d) = *slot {
+            if d.touches(merged) {
+                merged = merged.union(d);
+                *slot = None;
+            }
+        }
+    }
+    if let Some(free) = slots.iter_mut().find(|s| s.is_none()) {
+        *free = Some(merged);
+        return;
+    }
+    // No rectangle was touched, so `merged` is `rect` and every slot is busy.
+    let mut cand = [merged; MAX_DIRTY + 1];
+    for (c, s) in cand.iter_mut().zip(slots.iter()) {
+        *c = s.expect("every slot is busy");
+    }
+    cand[MAX_DIRTY] = merged;
+    let n = cand.len();
+    let (mut bi, mut bj, mut best) = (0, 1, u32::MAX);
+    for i in 0..n {
+        for j in i + 1..n {
+            let area = cand[i].union(cand[j]).area();
+            if area < best {
+                (bi, bj, best) = (i, j, area);
+            }
+        }
+    }
+    let mut out: DirtySlots = [None; MAX_DIRTY];
+    let mut k = 0;
+    for (i, r) in cand.iter().enumerate() {
+        if i != bi && i != bj {
+            out[k] = Some(*r);
+            k += 1;
+        }
+    }
+    out[k] = Some(cand[bi].union(cand[bj]));
+    *slots = out;
 }
 
 struct Page {
@@ -92,8 +155,8 @@ struct Page {
     texture: Option<TextureId>,
     /// The whole page must be (re)uploaded: new page, cleared, or released.
     full: bool,
-    /// Union of the texels written since the last sync (`None` when clean).
-    dirty: Option<DirtyRect>,
+    /// Rectangles written since the last sync (see `add_dirty`).
+    dirty: DirtySlots,
 }
 
 impl Page {
@@ -104,13 +167,12 @@ impl Page {
             next_shelf_y: 0,
             texture: None,
             full: true,
-            dirty: None,
+            dirty: [None; MAX_DIRTY],
         }
     }
 
     fn mark_dirty(&mut self, r: AtlasRegion) {
-        let rect = DirtyRect::of(r);
-        self.dirty = Some(self.dirty.map_or(rect, |d| d.union(rect)));
+        add_dirty(&mut self.dirty, DirtyRect::of(r));
     }
 
     /// Shelf packing: reuse a shelf whose height fits without wasting more
@@ -239,12 +301,12 @@ impl UiAtlas {
         let whole = (size * size * 4) as usize;
         let mut bytes = 0;
         for page in &mut self.pages {
-            if !page.full && page.dirty.is_none() {
+            if !page.full && page.dirty.iter().all(Option::is_none) {
                 continue;
             }
             match page.texture {
                 Some(id) if !page.full => {
-                    if let Some(rect) = page.dirty.and_then(|d| d.clamp_to(size)) {
+                    for rect in page.dirty.iter().flatten().filter_map(|d| d.clamp_to(size)) {
                         backend.update_texture_rect(id, size, size, rect.xywh(), &page.pixels);
                         bytes += rect.bytes();
                     }
@@ -259,7 +321,7 @@ impl UiAtlas {
                 }
             }
             page.full = false;
-            page.dirty = None;
+            page.dirty = [None; MAX_DIRTY];
         }
         bytes
     }
@@ -273,7 +335,7 @@ impl UiAtlas {
             page.shelves.clear();
             page.next_shelf_y = 0;
             page.full = true;
-            page.dirty = None;
+            page.dirty = [None; MAX_DIRTY];
         }
     }
 
@@ -285,7 +347,7 @@ impl UiAtlas {
                 backend.destroy_texture(id);
             }
             page.full = true;
-            page.dirty = None;
+            page.dirty = [None; MAX_DIRTY];
         }
     }
 }
@@ -435,19 +497,120 @@ mod tests {
             vec![("rect", Some([b.x as u32, b.y as u32, 16, 16]))]
         );
 
-        // Two writes in one frame upload their union: `a` and `b` sit side by
-        // side on one shelf (x 1..17 and 19..35, y 1..17), so the union is 34×16.
+        // Two writes in one frame upload two rectangles: `a` and `b` sit side
+        // by side on one shelf (x 1..17 and 19..35) with a gutter between, so
+        // they do not touch and are not merged.
         gpu.calls.clear();
         atlas.write_rgba(a, &[1; 16 * 16 * 4]);
         atlas.write_alpha(b, &[200; 16 * 16]);
-        assert_eq!(atlas.sync(&mut gpu), 34 * 16 * 4);
-        assert_eq!(gpu.calls, vec![("rect", Some([1, 1, 34, 16]))]);
+        assert_eq!(atlas.sync(&mut gpu), 2 * 16 * 16 * 4);
+        assert_eq!(
+            gpu.calls,
+            vec![
+                ("rect", Some([1, 1, 16, 16])),
+                ("rect", Some([19, 1, 16, 16])),
+            ]
+        );
 
         // Clearing forces a whole-page upload again.
         gpu.calls.clear();
         atlas.clear();
         assert_eq!(atlas.sync(&mut gpu), 128 * 128 * 4);
         assert_eq!(gpu.calls, vec![("update", None)]);
+    }
+
+    fn rect(x0: u32, y0: u32, x1: u32, y1: u32) -> DirtyRect {
+        DirtyRect { x0, y0, x1, y1 }
+    }
+
+    fn kept(slots: &DirtySlots) -> Vec<DirtyRect> {
+        let mut v: Vec<DirtyRect> = slots.iter().flatten().copied().collect();
+        v.sort_by_key(|r| (r.x0, r.y0, r.x1, r.y1));
+        v
+    }
+
+    #[test]
+    fn overlapping_or_touching_rects_merge() {
+        let mut s: DirtySlots = [None; MAX_DIRTY];
+        add_dirty(&mut s, rect(0, 0, 10, 10));
+        // Overlaps.
+        add_dirty(&mut s, rect(5, 5, 20, 20));
+        assert_eq!(kept(&s), vec![rect(0, 0, 20, 20)]);
+        // Shares an edge (x 20 .. 30 starts where the first ends).
+        add_dirty(&mut s, rect(20, 0, 30, 20));
+        assert_eq!(kept(&s), vec![rect(0, 0, 30, 20)]);
+        // A gap of one texel is not touching: it takes a slot of its own.
+        add_dirty(&mut s, rect(31, 0, 40, 20));
+        assert_eq!(kept(&s), vec![rect(0, 0, 30, 20), rect(31, 0, 40, 20)]);
+    }
+
+    #[test]
+    fn a_bridging_rect_joins_every_rect_it_touches() {
+        let mut s: DirtySlots = [None; MAX_DIRTY];
+        add_dirty(&mut s, rect(0, 0, 10, 10));
+        add_dirty(&mut s, rect(20, 0, 30, 10));
+        add_dirty(&mut s, rect(0, 20, 30, 30));
+        assert_eq!(kept(&s).len(), 3);
+        // Touches the first and the second, not the third: two slots merge.
+        add_dirty(&mut s, rect(10, 0, 20, 10));
+        assert_eq!(kept(&s), vec![rect(0, 0, 30, 10), rect(0, 20, 30, 30)]);
+    }
+
+    #[test]
+    fn four_disjoint_rects_fill_the_slots_then_the_closest_pair_merges() {
+        let mut s: DirtySlots = [None; MAX_DIRTY];
+        // Four well-separated spots; the two at the left are close together.
+        add_dirty(&mut s, rect(0, 0, 4, 4));
+        add_dirty(&mut s, rect(6, 0, 10, 4));
+        add_dirty(&mut s, rect(100, 0, 104, 4));
+        add_dirty(&mut s, rect(200, 100, 204, 104));
+        assert_eq!(kept(&s).len(), MAX_DIRTY);
+        // A fifth far away: the pair whose union is smallest is the two at the
+        // left (union 0..10 × 0..4 = 40 texels), not any pair with the new one.
+        add_dirty(&mut s, rect(300, 300, 304, 304));
+        assert_eq!(
+            kept(&s),
+            vec![
+                rect(0, 0, 10, 4),
+                rect(100, 0, 104, 4),
+                rect(200, 100, 204, 104),
+                rect(300, 300, 304, 304),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_new_rect_can_be_the_one_that_merges() {
+        let mut s: DirtySlots = [None; MAX_DIRTY];
+        add_dirty(&mut s, rect(0, 0, 10, 10));
+        add_dirty(&mut s, rect(500, 0, 510, 10));
+        add_dirty(&mut s, rect(0, 500, 10, 510));
+        add_dirty(&mut s, rect(500, 500, 510, 510));
+        // A new rect two texels right of the first one: their pair has the
+        // smallest union, so that pair merges.
+        add_dirty(&mut s, rect(12, 0, 14, 10));
+        let v = kept(&s);
+        assert_eq!(v.len(), MAX_DIRTY);
+        assert!(v.contains(&rect(0, 0, 14, 10)), "{v:?}");
+    }
+
+    #[test]
+    fn a_frame_with_glyphs_and_thumbnails_uploads_their_bytes_not_a_union() {
+        // A glyph on the first shelf and a thumbnail on the next one: their
+        // union would be a 96-texel-tall strip, two rectangles upload only
+        // the texels that were written.
+        let mut atlas = UiAtlas::new(512);
+        let mut gpu = Recorder::default();
+        let glyph = atlas.alloc(8, 12).unwrap();
+        let thumb = atlas.alloc(96, 96).unwrap();
+        atlas.write_rgba(glyph, &[3; 8 * 12 * 4]);
+        atlas.sync(&mut gpu);
+        gpu.calls.clear();
+        atlas.write_alpha(glyph, &[9; 8 * 12]);
+        atlas.write_rgba(thumb, &[4; 96 * 96 * 4]);
+        let bytes = atlas.sync(&mut gpu);
+        assert_eq!(gpu.calls.len(), 2);
+        assert_eq!(bytes, (8 * 12 + 96 * 96) * 4);
     }
 
     #[test]
