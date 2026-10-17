@@ -934,17 +934,23 @@ pub fn spawn_background_song_loader(
     rx
 }
 
+/// What the stage image loader hands back: the song, its artwork (`None`
+/// when it has none), and the blurred backdrop picture of that artwork
+/// (`beetle_render::backdrop`), computed here so the render thread only copies it.
+pub type StageLoad = (ChartId, Option<ImageBuffer>, Option<Vec<u8>>);
+
 /// Spawns a background thread to load a song's stage image without blocking the UI thread.
-pub fn spawn_background_stage_image_loader(
-    song: &SongMetadata,
-) -> Receiver<(ChartId, Option<ImageBuffer>)> {
+pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<StageLoad> {
     let id = song.id;
     let song_clone = song.clone();
     let (tx, rx) = channel();
 
     thread::spawn(move || {
         let img = load_stage_image(&song_clone);
-        let _ = tx.send((id, img));
+        let backdrop = img
+            .as_ref()
+            .and_then(beetle_render::backdrop::blur_backdrop);
+        let _ = tx.send((id, img, backdrop));
     });
 
     rx

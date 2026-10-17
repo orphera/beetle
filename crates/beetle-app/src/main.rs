@@ -239,6 +239,7 @@ impl ApplicationHandler for BeetleApp {
             playback_cursor: 0,
             start_measure: 0,
             stage_image_cache: std::collections::HashMap::new(),
+            stage_backdrop_cache: std::collections::HashMap::new(),
             bga_bank: std::collections::HashMap::new(),
             bga_cursor: 0,
             current_bga_bmp: None,
@@ -495,7 +496,10 @@ impl ApplicationHandler for BeetleApp {
             AppScreen::SongSelect => {
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
-                    if let Ok((id, img)) = rx.try_recv() {
+                    if let Ok((id, img, backdrop)) = rx.try_recv() {
+                        if let Some(px) = backdrop {
+                            state.stage_backdrop_cache.insert(id, px);
+                        }
                         state.stage_image_cache.insert(id, img);
                         state.stage_image_receiver = None;
                         state.stage_image_loading_id = None;
@@ -603,7 +607,9 @@ impl ApplicationHandler for BeetleApp {
         // nothing else is timed.
         // Song jackets still decoding for the list: keep frames coming so
         // finished thumbnails appear without waiting for input.
-        if state.screen == AppScreen::SongSelect && state.jacket_busy {
+        if state.gpu_ui.ui.backdrop.is_fading(now)
+            || (state.screen == AppScreen::SongSelect && state.jacket_busy)
+        {
             timed = true;
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));

@@ -2,6 +2,7 @@
 //! generated skin — kept consistent with the current UI scale.
 
 use crate::art::Skin;
+use crate::backdrop::BlurBackdrop;
 use crate::backend::GpuBackend;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{self, Hit, HitId};
@@ -32,6 +33,9 @@ pub struct Ui {
     pub clock: f32,
     /// Song jacket thumbnails, in a slot grid of the shared atlas (`jacket`).
     pub jackets: JacketAtlas,
+    /// The blurred jacket backdrop of the menu screens (`backdrop`), two
+    /// slots in the shared atlas with a crossfade between them.
+    pub backdrop: BlurBackdrop,
 }
 
 /// Length of the ambient clock's loop, in seconds. Every decorative period
@@ -60,6 +64,7 @@ impl Ui {
             ime_caret: None,
             clock: 0.0,
             jackets,
+            backdrop: BlurBackdrop::new(),
         }
     }
 
@@ -73,6 +78,7 @@ impl Ui {
             // The reset emptied the atlas: the jacket grid is reserved again
             // and its residents are gone.
             self.jackets = JacketAtlas::new(self.canvas.atlas_mut());
+            self.backdrop.reset();
         }
         self.canvas.begin(width, height);
         self.hits.clear();

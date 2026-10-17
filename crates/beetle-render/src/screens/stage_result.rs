@@ -69,6 +69,7 @@ const HINTS: [widgets::Hint; 4] = [
 pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let art = ui.backdrop.mix(std::time::Instant::now());
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
@@ -78,7 +79,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let (_, lamp_col) = theme::clear_lamp(Some(clear));
     let stage = reveal::reveal_stage(f.elapsed, f.reduce_flashes);
 
-    widgets::backdrop(c, &sk, vp, lamp_col, ui.clock, lite);
+    widgets::backdrop_art(c, &sk, vp, lamp_col, ui.clock, lite, art);
     // The scrim dims the backdrop until the panels are in.
     if stage.dim > 0.0 {
         let a = (theme::ui::SCRIM.a as f32 * stage.dim).round() as u8;

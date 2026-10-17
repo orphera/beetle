@@ -9,7 +9,9 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use beetle_core::{SongMetadata, SortMode};
+use beetle_core::{ChartId, SongMetadata, SortMode};
+use beetle_render::backdrop::placeholder_backdrop;
+use beetle_render::jacket::{jacket_seed, JacketKey};
 use beetle_render::{
     strings, GpuBackend, OptionLine, SettingsFrame, ToastAnchor, ToastFrame, ToastKind, Ui,
 };
@@ -41,6 +43,40 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.gpu_ui.ui.clock = ambient_clock();
     state.gpu_ui.ui.pointer = state.cursor;
     state.gpu_ui.ui.begin(size.width, size.height, scale);
+}
+
+/// Shows a song's blurred jacket as the backdrop of the screen, crossfading
+/// from the one on show. `song` is the song's id and its placeholder seed. A
+/// song whose artwork is still loading, or no song at all (a folder row), keeps
+/// the backdrop on show; a song without artwork gets its placeholder. Lite mode
+/// draws no backdrop.
+fn show_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now: Instant) {
+    let Some((id, seed)) = song else {
+        return;
+    };
+    if state.gpu_ui.ui.lite {
+        return;
+    }
+    let ui = &mut state.gpu_ui.ui;
+    match state.stage_image_cache.get(&id) {
+        Some(Some(_)) => {
+            if let Some(px) = state.stage_backdrop_cache.get(&id) {
+                ui.backdrop
+                    .show(ui.canvas.atlas_mut(), JacketKey::Chart(id), now, || {
+                        px.clone()
+                    });
+            }
+        }
+        Some(None) => {
+            ui.backdrop.show(
+                ui.canvas.atlas_mut(),
+                JacketKey::Placeholder(seed),
+                now,
+                || placeholder_backdrop(seed),
+            );
+        }
+        None => {}
+    }
 }
 
 /// Submits the UI, serves screenshot / devtools capture requests (they read
@@ -334,6 +370,10 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     };
 
     begin(state, size);
+    let backdrop_song = state
+        .current_selected_song()
+        .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
+    show_backdrop(state, backdrop_song, Instant::now());
     let crumbs = crate::folders::crumbs(&state.folder_tree, &state.folder_path);
     let mode_chips: Vec<(&str, bool)> = state
         .present_modes
@@ -579,6 +619,11 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         .as_ref()
         .map_or(0, |song| song.notes_count_for(state.play_ruleset(song).ln));
     begin(state, size);
+    let backdrop_song = state
+        .loading_song
+        .as_ref()
+        .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
+    show_backdrop(state, backdrop_song, Instant::now());
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
             &mut state.gpu_ui.ui,
@@ -597,6 +642,47 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     overlays(state, false);
     finish(state);
+}
+
+/// The backdrop of the result screen: the played chart's artwork, blurred
+/// once (from the stage image the play already holds) and kept in
+/// `stage_backdrop_cache`. A chart without artwork gets its placeholder.
+fn show_result_backdrop(state: &mut AppState, now: Instant) {
+    if state.gpu_ui.ui.lite {
+        return;
+    }
+    let played = state.active_chart_id;
+    if !state.stage_backdrop_cache.contains_key(&played) {
+        let fresh = state
+            .active_bga_image
+            .as_ref()
+            .and_then(beetle_render::backdrop::blur_backdrop);
+        if let Some(px) = fresh {
+            state.stage_backdrop_cache.insert(played, px);
+        }
+    }
+    let ui = &mut state.gpu_ui.ui;
+    if let Some(px) = state.stage_backdrop_cache.get(&played) {
+        ui.backdrop
+            .show(ui.canvas.atlas_mut(), JacketKey::Chart(played), now, || {
+                px.clone()
+            });
+    } else if state.active_bga_image.is_none() {
+        if let Some(chart) = state.active_chart.as_ref() {
+            let title = if chart.header.title.is_empty() {
+                "Unknown Title"
+            } else {
+                chart.header.title.as_str()
+            };
+            let seed = jacket_seed(title, &chart.header.artist);
+            ui.backdrop.show(
+                ui.canvas.atlas_mut(),
+                JacketKey::Placeholder(seed),
+                now,
+                || placeholder_backdrop(seed),
+            );
+        }
+    }
 }
 
 pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
@@ -624,6 +710,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     });
 
     begin(state, size);
+    show_result_backdrop(state, Instant::now());
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
         beetle_render::draw_result(
             &mut state.gpu_ui.ui,

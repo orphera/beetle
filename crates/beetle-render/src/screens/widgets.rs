@@ -3,6 +3,7 @@
 
 use crate::art::sdf::hash_noise;
 use crate::art::Skin;
+use crate::backdrop::Mix;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::skin::ColorRgba;
@@ -93,11 +94,38 @@ pub(crate) fn backdrop(
     time: f32,
     lite: bool,
 ) {
+    backdrop_art(c, sk, vp, ambient, time, lite, Mix::default());
+}
+
+/// Peak opacity of the blurred jacket picture (`crate::backdrop`).
+const ART_ALPHA: f32 = 0.55;
+/// Opacity of the dark scrim laid over the picture, so text keeps its contrast.
+const ART_SCRIM: u8 = 130;
+
+/// `backdrop` with the blurred jacket picture `art` under the glows. The
+/// picture sits on the gradient, under a scrim, and the glows and grain go on
+/// top, as before. Lite mode skips all of it.
+pub(crate) fn backdrop_art(
+    c: &mut Canvas,
+    sk: &Skin,
+    vp: &Viewport,
+    ambient: ColorRgba,
+    time: f32,
+    lite: bool,
+    art: Mix,
+) {
     if lite {
         return; // the frame clear color is the backdrop
     }
     let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
     c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
+    for layer in [art.outgoing, art.incoming].into_iter().flatten() {
+        let a = (255.0 * ART_ALPHA * layer.alpha).round() as u8;
+        c.sprite(layer.region, full, theme::WHITE.with_alpha(a));
+    }
+    if art.incoming.is_some() {
+        c.fill_rect(full, theme::BG.with_alpha(ART_SCRIM));
+    }
     c.set_additive(true);
 
     let (dx, dy) = drift(time, 40.0, 30.0, 0.0);

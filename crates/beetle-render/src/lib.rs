@@ -7,6 +7,7 @@
 //! Also hosts the image decoders and video BGA player the app loads songs with.
 
 pub mod art;
+pub mod backdrop;
 pub mod backend;
 pub mod canvas;
 pub mod hit;
@@ -25,6 +26,7 @@ pub mod view;
 
 pub use art::{Halo, NineSlice, Skin};
 #[cfg(target_os = "windows")]
+pub use backdrop::{BlurBackdrop, Mix};
 pub use backend::D3d11Backend;
 pub use backend::{BlendMode, GpuBackend, TextureId, Vertex2D};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};

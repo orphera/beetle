@@ -7,6 +7,7 @@
 
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, OptionLine, LEFT_RIGHT};
 use crate::art::Skin;
+use crate::backdrop::Mix;
 use crate::canvas::{AtlasRegion, Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::jacket::{jacket_seed, JacketAtlas, THUMB_PX};
@@ -158,6 +159,7 @@ const SELECT_INDENT: f32 = 6.0;
 pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let art = ui.backdrop.mix(std::time::Instant::now());
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
@@ -172,7 +174,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         _ => None,
     };
 
-    backdrop(c, &sk, f, selected, ui.clock, lite);
+    backdrop(c, &sk, f, selected, ui.clock, lite, art);
 
     let content = content_rect(vp);
     let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
@@ -250,10 +252,11 @@ fn backdrop(
     song: Option<&SongMetadata>,
     time: f32,
     lite: bool,
+    art: Mix,
 ) {
     let tier = song.map_or(theme::MAGENTA, |s| theme::level_tier(s.play_level).1);
     let ambient = f.ambient.map_or(tier, |a| theme::vivid(a, tier));
-    widgets::backdrop(c, sk, f.viewport, ambient, time, lite);
+    widgets::backdrop_art(c, sk, f.viewport, ambient, time, lite, art);
 }
 
 // ---------------------------------------------------------------------------

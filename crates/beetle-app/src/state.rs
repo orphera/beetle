@@ -151,6 +151,8 @@ pub struct AppState {
     pub playback_cursor: usize,
     pub start_measure: u32,
     pub stage_image_cache: std::collections::HashMap<ChartId, Option<ImageBuffer>>,
+    /// Blurred backdrop pictures (`beetle_render::backdrop`), made by the stage loader with the artwork.
+    pub stage_backdrop_cache: std::collections::HashMap<ChartId, Vec<u8>>,
     pub bga_bank: std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
     pub bga_cursor: usize,
     pub current_bga_bmp: Option<beetle_core::BmpId>,
@@ -230,7 +232,7 @@ pub struct AppState {
     pub result_sounds: crate::result_reveal::RevealSounds,
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
-    pub stage_image_receiver: Option<Receiver<(ChartId, Option<ImageBuffer>)>>,
+    pub stage_image_receiver: Option<Receiver<crate::loader::StageLoad>>,
     pub stage_image_loading_id: Option<ChartId>,
     /// Jacket thumbnails for the song select list (see `thumbs`).
     pub thumbs: crate::thumbs::ThumbLoader,
@@ -561,6 +563,7 @@ impl AppState {
     /// Re-reads the song folders and tables on a worker (F5). Shows the Boot screen meanwhile.
     pub fn start_rescan(&mut self) {
         self.stage_image_cache.clear();
+        self.stage_backdrop_cache.clear();
         self.stage_image_receiver = None;
         self.stage_image_loading_id = None;
         self.thumbs.reset();

@@ -41,6 +41,7 @@ const ENTER_SECONDS: f64 = 0.35;
 pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
+    let art = ui.backdrop.mix(std::time::Instant::now());
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let jackets = &mut ui.jackets;
     let vp = f.viewport;
@@ -48,13 +49,14 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let song = f.song;
     let (tier, tier_col) = theme::level_tier(song.play_level);
 
-    widgets::backdrop(
+    widgets::backdrop_art(
         c,
         &sk,
         vp,
         f.ambient.map_or(tier_col, |a| theme::vivid(a, tier_col)),
         ui.clock,
         lite,
+        art,
     );
 
     // Entrance: jacket and text slide in and fade up.
@@ -297,5 +299,66 @@ mod tests {
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
         }
+    }
+
+    #[test]
+    fn a_settled_backdrop_adds_one_picture_and_one_scrim_to_the_batch() {
+        let vp = Viewport::new(1280, 720);
+        let song = SongMetadata {
+            id: beetle_core::ChartId::synthetic(3),
+            md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
+            legacy_hash: 3,
+            file_path: String::new(),
+            title: "Backdrop".into(),
+            subtitle: String::new(),
+            artist: "Artist".into(),
+            genre: "GENRE".into(),
+            bpm: 150.0,
+            bpm_min: 150.0,
+            bpm_max: 150.0,
+            play_level: 12,
+            notes_count: 1500,
+            play_mode: PlayMode::Keys7,
+        };
+        let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
+        let mut ui = Ui::new(vp.scale);
+        let draw = |ui: &mut Ui| {
+            ui.begin(1280, 720, vp.scale);
+            draw_loading(
+                ui,
+                &LoadingFrame {
+                    viewport: &vp,
+                    song: &song,
+                    notes: 1500,
+                    jacket: None,
+                    ambient: None,
+                    elapsed: 3.3,
+                    status: strings::LOADING,
+                    option_chips: &chips,
+                    badge: None,
+                },
+            );
+            (
+                ui.canvas.debug_vertices().len(),
+                ui.canvas.debug_batches().len(),
+            )
+        };
+        let (plain, batches) = draw(&mut ui);
+        assert_eq!(batches, 1);
+
+        // A picture shown long enough ago to be fully faded in.
+        let settled = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let key = crate::jacket::JacketKey::Placeholder(1);
+        let picture =
+            vec![90u8; (crate::backdrop::BACKDROP_W * crate::backdrop::BACKDROP_H * 4) as usize];
+        assert!(ui
+            .backdrop
+            .show(ui.canvas.atlas_mut(), key, settled, || picture.clone()));
+        let (with_art, batches) = draw(&mut ui);
+        assert_eq!(batches, 1, "the picture rides in the main batch");
+        // One textured quad for the picture and one fill for the scrim: 4 vertices each.
+        assert_eq!(with_art - plain, 8);
     }
 }
