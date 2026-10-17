@@ -195,7 +195,10 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
 
     let (caret, sort_anchor) = top_bar(c, t, &sk, f, s, &mut hs);
     ui.ime_caret = caret;
-    filter_row(c, t, &sk, f, s, &mut hs);
+    // Nothing to filter in an empty library.
+    if !f.library_empty {
+        filter_row(c, t, &sk, f, s, &mut hs);
+    }
     footer(c, t, &sk, f, s, &mut hs);
     if let Some(menu) = &f.sort_menu {
         sort_menu(c, t, &sk, vp, menu, sort_anchor, s, &mut hs);
@@ -1230,6 +1233,15 @@ fn first_run_guide(
     s: f32,
     hs: &mut HitSink,
 ) {
+    // The panel ends where its content does; a step without a button is a shorter row.
+    let rows = [true, false, true];
+    let content: f32 = rows
+        .iter()
+        .map(|b| if *b { 84.0 } else { 52.0 })
+        .sum::<f32>()
+        + 96.0
+        + 24.0;
+    let area = Rect::new(area.x, area.y, area.w, (content * s).min(area.h));
     c.nine(&sk.panel_lg, area, theme::SURF1.with_alpha(235));
     let inner = area.inset(24.0 * s);
     t.draw(
@@ -1290,10 +1302,11 @@ fn first_run_guide(
                 label,
                 id,
                 key,
+                i == 0,
                 s,
             );
         }
-        y += 84.0 * s;
+        y += if button.is_some() { 84.0 } else { 52.0 } * s;
     }
 }
 
@@ -1308,14 +1321,17 @@ fn guide_button(
     label: &str,
     id: HitId,
     key: Option<&str>,
+    primary: bool,
     s: f32,
 ) {
     hs.add(r, id);
     let hot = hs.hovered(r);
-    chip_frame(c, r, false, hot, false, s);
-    let st = TextStyle::new(12.0 * s)
-        .bold()
-        .color(if hot { theme::TEXT } else { theme::MUTED });
+    chip_frame(c, r, primary, hot, false, s);
+    let st = TextStyle::new(12.0 * s).bold().color(if hot || primary {
+        theme::TEXT
+    } else {
+        theme::TEXT.with_alpha(200)
+    });
     match key {
         None => {
             t.draw_in(c, label, r, Align::Center, &st);

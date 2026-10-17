@@ -2,6 +2,7 @@
 //! packing, downloads and scans. Each task reports progress over a channel
 //! and ends with one message for the status bar.
 
+use crate::josa::{quoted_eul, quoted_eun};
 use bms_package_manager::{
     BgaPackMode, PackOptions, PackProfile, PackageManager, PackageManagerError,
 };
@@ -142,7 +143,10 @@ pub fn add_title(path: &Path) -> Result<String, String> {
     if path.is_dir() {
         Ok(format!("'{name}' 폴더에서 곡 추가하는 중"))
     } else if !path.exists() {
-        Err(format!("'{}'을(를) 찾을 수 없어요", path.display()))
+        Err(format!(
+            "{} 찾을 수 없어요",
+            quoted_eul(&path.display().to_string())
+        ))
     } else if lower.ends_with(".bmsp") {
         Ok(format!("'{name}' 설치하는 중"))
     } else if lower.ends_with(".bmdp") {
@@ -151,7 +155,8 @@ pub fn add_title(path: &Path) -> Result<String, String> {
         Ok(format!("'{name}' 압축을 풀어 곡 추가하는 중"))
     } else {
         Err(format!(
-            "'{name}'은(는) 추가할 수 없는 파일이에요. 곡 폴더, 압축 파일(.zip/.rar/.7z), .bmsp 파일을 넣어 주세요."
+            "{} 추가할 수 없는 파일이에요. 곡 폴더, 압축 파일(.zip/.rar/.7z), .bmsp 파일을 넣어 주세요.",
+            quoted_eun(&name)
         ))
     }
 }
@@ -173,7 +178,7 @@ pub fn add_path(root: PathBuf, path: PathBuf, r: &Reporter) -> Result<String, St
         let installed = manager(&root)?
             .apply_delta(&path)
             .map_err(|e| failed("업데이트 적용", e))?;
-        Ok(format!("'{}'을(를) 업데이트했어요", installed.name))
+        Ok(format!("{} 업데이트했어요", quoted_eul(&installed.name)))
     } else if is_archive(&path) {
         let scratch = std::env::temp_dir().join(format!("bpm-gui-add-{}", std::process::id()));
         let _ = fs::remove_dir_all(&scratch);
@@ -202,7 +207,7 @@ fn install_bmsp(root: &Path, path: &Path, r: &Reporter) -> Result<String, String
     if companion.exists() && mgr.install_bga_companion(&companion).is_ok() {
         extra = " (배경 영상 포함)";
     }
-    Ok(format!("'{}'을(를) 설치했어요{extra}", installed.name))
+    Ok(format!("{} 설치했어요{extra}", quoted_eul(&installed.name)))
 }
 
 /// Imports every song folder under `folder`.
@@ -219,7 +224,7 @@ fn import_folders(root: &Path, folder: &Path, r: &Reporter) -> Result<String, St
         let installed = mgr
             .import_folder_with_progress(&roots[0], None, Some(&r.cancel), r.callback())
             .map_err(|e| failed("곡 추가", e))?;
-        return Ok(format!("'{}'을(를) 추가했어요", installed.name));
+        return Ok(format!("{} 추가했어요", quoted_eul(&installed.name)));
     }
     let total = roots.len();
     let mut added = 0;
@@ -325,7 +330,10 @@ pub fn pack(
         }
     }
     match made.as_slice() {
-        [one] => Ok(format!("'{}'을(를) 만들었어요", one.display())),
+        [one] => Ok(format!(
+            "{} 만들었어요",
+            quoted_eul(&one.display().to_string())
+        )),
         _ => Ok(format!(
             "{total}곡 중 {}곡의 패키지를 '{}'에 만들었어요",
             made.len(),
@@ -344,7 +352,7 @@ pub fn create_delta(base: PathBuf, target: PathBuf) -> Result<String, String> {
         .join(format!("{}.bmdp", file_name(&target)));
     fs::write(&out, bytes).map_err(|e| format!("'{}'에 저장할 수 없어요: {e}", out.display()))?;
     Ok(format!(
-        "업데이트 파일 '{}'을(를) 만들었어요",
-        out.display()
+        "업데이트 파일 {} 만들었어요",
+        quoted_eul(&out.display().to_string())
     ))
 }

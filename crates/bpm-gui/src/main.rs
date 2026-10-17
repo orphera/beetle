@@ -5,6 +5,7 @@ mod clipboard;
 mod dialogs;
 mod file_dialog;
 mod image_draw;
+mod josa;
 mod tables_tab;
 mod tasks;
 mod ui;
@@ -725,7 +726,7 @@ fn library_add(state: &mut AppState, text: &str) {
             )),
             Err(e) => state.err(format!("저장하지 못했어요: {e}")),
         },
-        Ok(abs) => state.info(format!("'{abs}'은(는) 이미 연결된 폴더예요")),
+        Ok(abs) => state.info(format!("{} 이미 연결된 폴더예요", josa::quoted_eun(&abs))),
         Err(e) => state.err(format!("폴더를 찾을 수 없어요: {e}")),
     }
     state.library = list.paths().to_vec();
@@ -1017,7 +1018,7 @@ fn use_version(state: &mut AppState, index: usize) {
     };
     let id = pkg.id.clone();
     match state.manager.set_active(&id, &hash) {
-        Ok(()) => state.ok(format!("이제 게임에서 버전 {}을(를) 써요", index + 1)),
+        Ok(()) => state.ok(format!("이제 게임에서 쓰는 버전: {}번", index + 1)),
         Err(e) => state.err(format!("버전을 바꾸지 못했어요: {e}")),
     }
     state.refresh_packages();
@@ -1044,7 +1045,7 @@ fn uninstall(state: &mut AppState, id: &str, name: &str, one: Option<String>) {
         }
     }
     match result {
-        Ok(()) => state.ok(format!("'{name}'을(를) 삭제했어요")),
+        Ok(()) => state.ok(format!("{} 삭제했어요", josa::quoted_eul(&name))),
         Err(e) => state.err(format!("삭제하지 못했어요: {e}")),
     }
     state.refresh_packages();
@@ -1451,7 +1452,7 @@ fn table_start_get(state: &mut AppState, path: PathBuf) {
             );
             let _ = fs::remove_dir_all(&scratch);
             result
-                .map(|summary| format!("'{}'을(를) 추가했어요 ({summary})", row.title))
+                .map(|summary| format!("{} 추가했어요 ({summary})", josa::quoted_eul(&row.title)))
                 .map_err(|e| format!("추가하지 못했어요: {e}"))
         },
     );

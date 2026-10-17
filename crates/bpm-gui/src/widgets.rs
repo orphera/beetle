@@ -19,7 +19,7 @@ pub mod theme {
     pub const BORDER: ColorRgba = ColorRgba::new(48, 52, 68, 255);
     pub const TEXT: ColorRgba = ColorRgba::new(236, 238, 244, 255);
     pub const TEXT_DIM: ColorRgba = ColorRgba::new(160, 165, 182, 255);
-    pub const TEXT_FAINT: ColorRgba = ColorRgba::new(108, 113, 130, 255);
+    pub const TEXT_FAINT: ColorRgba = ColorRgba::new(123, 130, 153, 255);
     pub const ACCENT: ColorRgba = ColorRgba::new(255, 200, 70, 255);
     pub const ACCENT_TEXT: ColorRgba = ColorRgba::new(28, 22, 6, 255);
     pub const ACCENT_SOFT: ColorRgba = ColorRgba::new(58, 48, 22, 255);

@@ -292,7 +292,7 @@ impl Dialog {
                 } else {
                     v.title = "곡을 삭제할까요?".into();
                     v.body = vec![
-                        format!("'{name}'을(를) 이 컴퓨터에서 삭제해요."),
+                        format!("{} 이 컴퓨터에서 삭제해요.", crate::josa::quoted_eul(&name)),
                         "삭제한 곡은 되돌릴 수 없어요. 다시 쓰려면 다시 추가해야 해요.".into(),
                     ];
                 }

@@ -199,7 +199,7 @@ fn snapshot_screens() {
     );
 
     let mut scene = Scene::new(ActiveTab::Installed, &packages);
-    scene.status = ("'FREEDOM DiVE'을(를) 삭제했어요", StatusKind::Success);
+    scene.status = ("'FREEDOM DiVE'를 삭제했어요", StatusKind::Success);
     scene.dialog = Some(Dialog::new(DialogKind::Advanced));
     render(&mut r, &mut tables, scene, &shot("13-dialog-advanced"));
 }
