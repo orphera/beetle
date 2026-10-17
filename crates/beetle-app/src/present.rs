@@ -629,6 +629,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 previous_best: state.previous_best.as_ref(),
                 update: state.score_update,
                 elapsed,
+                reduce_flashes: state.reduce_flashes,
                 jacket,
                 unsaved_reason: unsaved,
                 ln_label: ln_label.as_deref(),

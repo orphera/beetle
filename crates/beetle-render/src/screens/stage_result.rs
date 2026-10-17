@@ -3,22 +3,23 @@
 //!
 //! Three panels: the outcome (rank, clear lamp, final gauge), the score
 //! (EX score vs. personal best, judge breakdown) and timing (FAST / SLOW,
-//! offset histogram). The rank pops in and the numbers count up during the
-//! first `RESULT_REVEAL_DURATION_SECONDS`.
+//! offset histogram). The reveal is staged on the timeline in `crate::reveal`
+//! (panel slide, count-up, rank stamp, lamp, tags, footer); this file only
+//! draws the stage it is given.
 
 use super::widgets::{self, FOOTER_H, PAD, TOPBAR_H};
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
-use crate::motion::{ease_out_back, ease_out_cubic};
+use crate::motion::ease_out_cubic;
+use crate::reveal::{self, RevealStages};
 use crate::screens::play::{cover_uv, SizedTexture};
 use crate::skin::ColorRgba;
 use crate::strings;
-use crate::text::{Align, TextEngine, TextStyle};
+use crate::text::{Align, Fx, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::Viewport;
-use crate::{RANK_POP_SECONDS, SCORE_COUNT_SECONDS};
 use beetle_core::{
     BmsChart, ClearType, GaugeTrend, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
 };
@@ -32,8 +33,11 @@ pub struct ResultFrame<'a> {
     pub previous_best: Option<&'a ScoreRecord>,
     /// Which of the chart's bests this play beat (all false when nothing was saved).
     pub update: ScoreUpdate,
-    /// Seconds since the screen was entered (drives the reveal).
+    /// Seconds since the screen was entered (drives the reveal; past
+    /// `REVEAL_SECONDS` the screen is in its final state).
     pub elapsed: f64,
+    /// No white flash and no shake; a shorter stamp (`crate::reveal`).
+    pub reduce_flashes: bool,
     pub jacket: Option<SizedTexture>,
     /// Why the score was not saved ("AUTO PLAY", "REPLAY"), if so.
     pub unsaved_reason: Option<&'a str>,
@@ -70,16 +74,29 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let vp = f.viewport;
     let s = vp.scale;
     let clear = f.score.clear_type();
+    let failed = clear == ClearType::Failed;
     let (_, lamp_col) = theme::clear_lamp(Some(clear));
+    let stage = reveal::reveal_stage(f.elapsed, f.reduce_flashes);
 
     widgets::backdrop(c, &sk, vp, lamp_col, ui.clock, lite);
+    // The scrim dims the backdrop until the panels are in.
+    if stage.dim > 0.0 {
+        let a = (theme::ui::SCRIM.a as f32 * stage.dim).round() as u8;
+        c.fill_rect(
+            Rect::new(vp.x, vp.y, vp.width, vp.height),
+            theme::ui::SCRIM.with_alpha(a),
+        );
+    }
 
+    // The stamp shakes the content (not the top bar or the footer).
+    let shake = reveal::shake_px(f.elapsed, failed, f.reduce_flashes) * s;
     let content = Rect::from_ltrb(
         vp.x + PAD * s,
         vp.y + (TOPBAR_H + 24.0) * s,
         vp.x + vp.width - PAD * s,
         vp.y + vp.height - (FOOTER_H + 24.0) * s,
     );
+    let content = Rect::new(content.x, content.y + shake, content.w, content.h);
     let gap = 24.0 * s;
     let hero = Rect::new(content.x, content.y, 400.0 * s, content.h);
     let score_panel = Rect::new(hero.right() + gap, content.y, 392.0 * s, content.h);
@@ -90,12 +107,16 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
         content.bottom(),
     );
 
-    let reveal = ease_out_cubic((f.elapsed / SCORE_COUNT_SECONDS).clamp(0.0, 1.0) as f32);
-    outcome_panel(c, t, &sk, f, clear, hero, s);
-    score_panel_draw(c, t, &sk, f, score_panel, reveal, s);
-    timing_panel(c, t, &sk, f, timing, reveal, s);
+    // The hero panel slides in from the left. Each panel sets its own opacity.
+    let slide = -(1.0 - stage.panel) * 48.0 * s;
+    let hero_at = Rect::new(hero.x + slide, hero.y, hero.w, hero.h);
+    outcome_panel(c, t, &sk, f, clear, hero_at, &stage, s);
+    score_panel_draw(c, t, &sk, f, score_panel, &stage, s);
+    timing_panel(c, t, &sk, f, timing, &stage, s);
+    c.set_opacity(1.0);
 
     widgets::top_bar(c, t, vp, strings::RESULT, s);
+    c.set_opacity(stage.footer);
     let bar = widgets::footer_bar(c, vp, s);
     if let Some(reason) = f.unsaved_reason {
         let st = caption(12.0, s).color(theme::ON_ACCENT);
@@ -112,6 +133,16 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
         );
     }
     widgets::footer_buttons(c, t, &sk, &HINTS, bar, s, &mut hs);
+    c.set_opacity(1.0);
+
+    // The white flash covers the whole screen at the stamp.
+    let flash = reveal::flash_alpha(f.elapsed, failed, f.reduce_flashes);
+    if flash > 0.0 {
+        c.fill_rect(
+            Rect::new(vp.x, vp.y, vp.width, vp.height),
+            theme::WHITE.with_alpha((flash * 255.0).round() as u8),
+        );
+    }
 }
 
 fn panel(c: &mut Canvas, sk: &Skin, r: Rect) {
@@ -158,8 +189,11 @@ fn outcome_panel(
     f: &ResultFrame,
     clear: ClearType,
     p: Rect,
+    stage: &RevealStages,
     s: f32,
 ) {
+    let failed = clear == ClearType::Failed;
+    c.set_opacity(stage.panel);
     panel(c, sk, p);
     let inner = p.inset(24.0 * s);
     let header = &f.chart.header;
@@ -198,30 +232,51 @@ fn outcome_panel(
         theme::LINE,
     );
 
-    // Rank: pops in with a little overshoot.
+    // Rank: slams in at the stamp, with a ring and sparks behind it. A failed
+    // play is tinted red and its burst is dull (no sparks).
     let (rank, rank_col) = result_rank(f.score);
-    let p_rank = (f.elapsed / RANK_POP_SECONDS).clamp(0.0, 1.0) as f32;
-    let pop = 1.0 + 0.5 * (1.0 - ease_out_back(p_rank));
-    let alpha = ease_out_cubic(p_rank);
+    let rank_col = if failed { theme::RED } else { rank_col };
     let cx = inner.x + inner.w / 2.0;
     let baseline = p.y + 284.0 * s;
+    let impact_y = baseline - 44.0 * s;
     c.set_additive(true);
-    c.sprite_centered(
-        sk.glow,
-        cx,
-        baseline - 44.0 * s,
-        340.0 * s,
-        220.0 * s,
-        rank_col.with_alpha((alpha * 90.0) as u8),
-    );
+    if stage.rank_alpha > 0.0 {
+        c.sprite_centered(
+            sk.glow,
+            cx,
+            impact_y,
+            340.0 * s,
+            220.0 * s,
+            rank_col.with_alpha((stage.rank_alpha * 90.0) as u8),
+        );
+    }
+    if stage.burst > 0.0 && stage.burst < 1.0 {
+        stamp_burst(
+            c,
+            sk,
+            (cx, impact_y),
+            rank_col,
+            stage.burst,
+            failed,
+            f.reduce_flashes,
+            s,
+        );
+    }
     c.set_additive(false);
-    let rank_st = TextStyle::new(120.0 * s)
-        .bold()
-        .color(rank_col.with_alpha((alpha * 255.0) as u8));
-    let w = t.measure(c, rank, &rank_st) * pop;
-    t.draw_scaled(c, rank, cx - w / 2.0, baseline, &rank_st, pop);
+    if stage.rank_alpha > 0.0 {
+        let rank_st = TextStyle::new(120.0 * s).bold().color(rank_col);
+        let fx = Fx {
+            outline: Some((theme::BG, 3.0 * s)),
+            gradient: Some((theme::TEXT, rank_col)),
+        };
+        let scale = stage.rank_scale;
+        let w = t.measure(c, rank, &rank_st) * scale;
+        c.set_opacity(stage.rank_alpha * stage.panel);
+        t.draw_fx(c, rank, cx - w / 2.0, baseline, &rank_st, scale, fx);
+        c.set_opacity(stage.panel);
+    }
 
-    // Clear lamp + new record
+    // Clear lamp: a plate that wipes in from the left after the stamp.
     let (_, lamp_col) = theme::clear_lamp(Some(clear));
     let status = clear_title(clear);
     let st = TextStyle::new(18.0 * s)
@@ -229,35 +284,63 @@ fn outcome_panel(
         .tracking(4.0 * s)
         .color(lamp_col);
     let sw = t.measure(c, status, &st);
-    t.draw(c, status, cx - sw / 2.0, baseline + 44.0 * s, &st);
     // Tags say what got better: the lamp ("램프 갱신") and the banner ("신기록").
-    if f.update.lamp {
-        new_tag(
-            c,
-            t,
-            cx + sw / 2.0 + 10.0 * s,
-            baseline + 44.0 * s,
-            strings::NEW_LAMP,
-            s,
-        );
+    let lamp_tag_w = if f.update.lamp {
+        tag_width(c, t, strings::NEW_LAMP, s) + 10.0 * s
+    } else {
+        0.0
+    };
+    let plate_y = baseline + 44.0 * s - 22.0 * s;
+    let plate = Rect::new(
+        cx - sw / 2.0 - 14.0 * s,
+        plate_y,
+        sw + 28.0 * s + lamp_tag_w,
+        30.0 * s,
+    );
+    if stage.lamp > 0.0 {
+        let wipe = Rect::new(plate.x, plate.y, plate.w * stage.lamp, plate.h);
+        c.push_clip(wipe);
+        c.nine(&sk.panel_sm, plate, theme::SURF2);
+        c.stroke_rect(plate, s.max(1.0), lamp_col);
+        t.draw(c, status, cx - sw / 2.0, baseline + 44.0 * s, &st);
+        if f.update.lamp {
+            new_tag(
+                c,
+                t,
+                cx + sw / 2.0 + 10.0 * s,
+                baseline + 44.0 * s,
+                strings::NEW_LAMP,
+                s,
+                stage.tags,
+            );
+        }
+        c.pop_clip();
     }
-    if f.update.any() {
+    if f.update.any() && stage.tags > 0.0 {
         let st = caption(12.0, s).color(theme::WHITE);
         let w = t.measure(c, strings::NEW_RECORD, &st) + 40.0 * s;
         let chip = Rect::new(cx - w / 2.0, baseline + 64.0 * s, w, 28.0 * s);
+        let k = pop_scale(stage.tags);
+        let pop = Rect::new(
+            chip.x + chip.w * (1.0 - k) / 2.0,
+            chip.y + chip.h * (1.0 - k) / 2.0,
+            chip.w * k,
+            chip.h * k,
+        );
         c.set_additive(true);
         c.sprite_centered(
             sk.glow,
             cx,
             chip.y + chip.h / 2.0,
-            w * 1.4,
-            70.0 * s,
-            theme::MAGENTA.with_alpha(70),
+            w * (1.4 + 0.6 * stage.flare),
+            70.0 * s * (1.0 + 0.8 * stage.flare),
+            theme::MAGENTA.with_alpha((70.0 + 110.0 * stage.flare) as u8),
         );
         c.set_additive(false);
-        c.nine(&sk.cut_panel, chip, theme::MAGENTA);
-        t.draw_in(c, strings::NEW_RECORD, chip, Align::Center, &st);
+        c.nine(&sk.cut_panel, pop, theme::MAGENTA);
+        t.draw_in(c, strings::NEW_RECORD, pop, Align::Center, &st);
     }
+    c.set_opacity(stage.panel);
 
     // Final gauge
     let score = f.score;
@@ -324,13 +407,90 @@ fn shows_first_play(unsaved_reason: Option<&str>) -> bool {
 
 /// Small tag beside a label: a best this play beat (`NEW_RECORD`, on the EX
 /// score and the stat labels) or a clear lamp that improved (`NEW_LAMP`).
-/// `baseline` is the label's baseline. All tags share one size.
-fn new_tag(c: &mut Canvas, t: &mut TextEngine, x: f32, baseline: f32, text: &str, s: f32) {
+/// `baseline` is the label's baseline. All tags share one size. `pop` is the
+/// reveal's tag progress (`RevealStages::tags`): 0 draws nothing, and the
+/// tag grows from 40% to full size as it pops in.
+fn new_tag(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    x: f32,
+    baseline: f32,
+    text: &str,
+    s: f32,
+    pop: f32,
+) {
+    if pop <= 0.0 {
+        return;
+    }
     let st = TextStyle::new(11.0 * s).color(theme::WHITE);
     let w = t.measure(c, text, &st) + 10.0 * s;
     let tag = Rect::new(x, baseline - 11.0 * s, w, 14.0 * s);
+    let k = pop_scale(pop);
+    let tag = Rect::new(
+        tag.x + tag.w * (1.0 - k) / 2.0,
+        tag.y + tag.h * (1.0 - k) / 2.0,
+        tag.w * k,
+        tag.h * k,
+    );
     c.fill_rect(tag, theme::MAGENTA);
     t.draw_in(c, text, tag, Align::Center, &st);
+}
+
+/// Width of a tag's box for `text` (the same box `new_tag` draws).
+fn tag_width(c: &mut Canvas, t: &mut TextEngine, text: &str, s: f32) -> f32 {
+    let st = TextStyle::new(11.0 * s).color(theme::WHITE);
+    t.measure(c, text, &st) + 10.0 * s
+}
+
+/// Scale of a pop-in: 40% of full size at the start, full size when settled
+/// (a little more on the overshoot).
+fn pop_scale(pop: f32) -> f32 {
+    0.4 + 0.6 * pop.max(0.0)
+}
+
+/// The rank stamp's burst at `p` (0..1): a ring that spreads and fades, and
+/// eight sparks that fly out from it. A dull failed stamp has the ring only,
+/// and reduced flashes halve its brightness.
+#[allow(clippy::too_many_arguments)]
+fn stamp_burst(
+    c: &mut Canvas,
+    sk: &Skin,
+    (cx, cy): (f32, f32),
+    col: ColorRgba,
+    p: f32,
+    dull: bool,
+    reduce_flashes: bool,
+    s: f32,
+) {
+    let eased = ease_out_cubic(p);
+    let fade = 1.0 - p;
+    let gain = if reduce_flashes { 0.5 } else { 1.0 };
+    let alpha = |a: f32| (a * gain).clamp(0.0, 255.0) as u8;
+    let ring = (240.0 + 320.0 * eased) * s;
+    c.sprite_centered(
+        sk.glow,
+        cx,
+        cy,
+        ring,
+        ring * 0.6,
+        col.with_alpha(alpha(fade * 150.0)),
+    );
+    if dull {
+        return;
+    }
+    let dist = (40.0 + 170.0 * eased) * s;
+    let size = 34.0 * s * (0.6 + 0.4 * fade);
+    for k in 0..8 {
+        let angle = k as f32 * std::f32::consts::TAU / 8.0;
+        c.sprite_centered(
+            sk.glow,
+            cx + angle.cos() * dist,
+            cy + angle.sin() * dist * 0.6,
+            size,
+            size,
+            theme::WHITE.with_alpha(alpha(fade * 220.0)),
+        );
+    }
 }
 
 /// The gauge over the play as a stepped line in `rect`, one step per ~3 px so
@@ -457,9 +617,12 @@ fn score_panel_draw(
     sk: &Skin,
     f: &ResultFrame,
     p: Rect,
-    reveal: f32,
+    stage: &RevealStages,
     s: f32,
 ) {
+    // The numbers count up with `count`; the tags pop with `tags`.
+    let reveal = stage.count;
+    c.set_opacity(stage.side);
     panel(c, sk, p);
     let inner = p.inset(24.0 * s);
     let score = f.score;
@@ -474,6 +637,7 @@ fn score_panel_draw(
             y + 14.0 * s,
             strings::NEW_RECORD,
             s,
+            stage.tags,
         );
     }
     let shown = (score.ex_score as f32 * reveal).round() as u32;
@@ -578,6 +742,7 @@ fn score_panel_draw(
                 y + 152.0 * s,
                 strings::NEW_RECORD,
                 s,
+                stage.tags,
             );
         }
         let vw = t.draw(
@@ -615,23 +780,27 @@ fn score_panel_draw(
     t.draw(c, strings::JUDGE, inner.x, y + 232.0 * s, &caption(12.0, s));
     let row_h = (inner.bottom() - (y + 248.0 * s)) / counts.len() as f32;
     for (i, (g, n)) in counts.iter().enumerate() {
+        // Each row slides in from the right, staggered, and fades in with it.
+        let row = stage.rows[i];
+        c.set_opacity(stage.side * row);
+        let dx = (1.0 - row) * 24.0 * s;
         let ry = y + 248.0 * s + i as f32 * row_h;
         let col = theme::judge_color(*g);
         let mid = ry + row_h / 2.0;
         c.sprite(
             sk.icons.dot,
-            Rect::new(inner.x - 3.0 * s, mid - 6.0 * s, 12.0 * s, 12.0 * s),
+            Rect::new(inner.x - 3.0 * s + dx, mid - 6.0 * s, 12.0 * s, 12.0 * s),
             col,
         );
         t.draw_in(
             c,
             theme::judge_label(*g),
-            Rect::new(inner.x + 14.0 * s, ry, 80.0 * s, row_h),
+            Rect::new(inner.x + 14.0 * s + dx, ry, 80.0 * s, row_h),
             Align::Left,
             &caption(12.0, s).color(theme::MUTED),
         );
         let bar = Rect::new(
-            inner.x + 96.0 * s,
+            inner.x + 96.0 * s + dx,
             mid - 3.0 * s,
             inner.w - 176.0 * s,
             6.0 * s,
@@ -649,11 +818,12 @@ fn score_panel_draw(
         t.draw_in(
             c,
             &thousands(shown),
-            Rect::new(inner.right() - 72.0 * s, ry, 72.0 * s, row_h),
+            Rect::new(inner.right() - 72.0 * s + dx, ry, 72.0 * s, row_h),
             Align::Right,
             &TextStyle::new(16.0 * s).bold().color(theme::TEXT),
         );
     }
+    c.set_opacity(1.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -666,9 +836,11 @@ fn timing_panel(
     sk: &Skin,
     f: &ResultFrame,
     p: Rect,
-    reveal: f32,
+    stage: &RevealStages,
     s: f32,
 ) {
+    let reveal = stage.count;
+    c.set_opacity(stage.side);
     panel(c, sk, p);
     let inner = p.inset(24.0 * s);
     let score = f.score;
@@ -833,24 +1005,37 @@ mod tests {
             combo: true,
             bp: true,
         };
-        for (elapsed, update) in [(0.0, ScoreUpdate::default()), (0.2, beaten), (5.0, beaten)] {
-            ui.begin(1280, 720, vp.scale);
-            draw_result(
-                &mut ui,
-                &ResultFrame {
-                    viewport: &vp,
-                    chart: &chart,
-                    score: &score,
-                    previous_best: None,
-                    update,
-                    elapsed,
-                    jacket: None,
-                    unsaved_reason: Some("AUTO PLAY"),
-                    ln_label: Some("CN (HCN)"),
-                    gauge_trend: &trend,
-                },
-            );
-            assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
+        // Every stage of the reveal (and the final state), with and without reduced flashes.
+        let times = [
+            0.0, 0.2, 0.5, 0.9, 1.2, 1.7, 1.75, 1.85, 2.0, 2.4, 2.8, 3.0, 3.2, 5.0,
+        ];
+        for reduce_flashes in [false, true] {
+            for elapsed in times {
+                for update in [ScoreUpdate::default(), beaten] {
+                    ui.begin(1280, 720, vp.scale);
+                    draw_result(
+                        &mut ui,
+                        &ResultFrame {
+                            viewport: &vp,
+                            chart: &chart,
+                            score: &score,
+                            previous_best: None,
+                            update,
+                            elapsed,
+                            reduce_flashes,
+                            jacket: None,
+                            unsaved_reason: Some("AUTO PLAY"),
+                            ln_label: Some("CN (HCN)"),
+                            gauge_trend: &trend,
+                        },
+                    );
+                    assert_eq!(
+                        ui.canvas.debug_batches().len(),
+                        1,
+                        "elapsed={elapsed} reduce={reduce_flashes}"
+                    );
+                }
+            }
         }
     }
 
@@ -871,6 +1056,7 @@ mod tests {
                 previous_best: None,
                 update: ScoreUpdate::default(),
                 elapsed: 5.0,
+                reduce_flashes: false,
                 jacket: None,
                 unsaved_reason: None,
                 ln_label: None,
