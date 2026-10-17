@@ -1,17 +1,28 @@
-//! Presentation-only polish for the menus (plan U1e): a fade-in after a
-//! screen change and one toast notification at a time. Nothing here reads or
-//! advances the audio clock or the judge (INV-1), and Gameplay never gets an
-//! overlay.
+//! Presentation-only polish for the menus and the Loading -> Gameplay hand-off:
+//! screen transitions (a shutter wipe, or a plain fade under the reduced-motion
+//! style), the reveal over the first Gameplay frames, and one toast at a time.
+//! Nothing here reads or advances the audio clock or the judge (INV-1): these
+//! timings only choose what is drawn over a frame that is already rendered.
+//! The Gameplay reveal never delays gameplay time, READY, judgement or input.
 
 use std::time::{Duration, Instant};
 
-use beetle_render::motion::{ease_out_cubic, ease_out_quad};
 pub use beetle_render::ToastKind;
+use beetle_render::{
+    motion::{ease_out_cubic, ease_out_quad},
+    ShutterPhase,
+};
 
 use crate::state::{AppScreen, AppState};
 
-/// Length of the fade-in from the background after a screen change.
+/// Length of the plain fade-in from the background after a screen change.
 pub const FADE_SECONDS: f32 = 0.2;
+/// Shutter: the panels cover the frame, then uncover it.
+pub const SHUTTER_COVER_SECONDS: f32 = 0.18;
+pub const SHUTTER_REVEAL_SECONDS: f32 = 0.22;
+pub const SHUTTER_SECONDS: f32 = SHUTTER_COVER_SECONDS + SHUTTER_REVEAL_SECONDS;
+/// Loading -> Gameplay: the panels uncover the first frames of Gameplay.
+pub const GAMEPLAY_REVEAL_SECONDS: f32 = 0.25;
 /// Toast: slide and fade in, stay, then fade out.
 const TOAST_IN: f32 = 0.15;
 const TOAST_STAY: f32 = 2.5;
@@ -19,8 +30,39 @@ const TOAST_OUT: f32 = 0.3;
 /// Frame pacing while something animates (about 60 Hz).
 pub const FRAME: Duration = Duration::from_millis(16);
 
+/// How screen changes are presented. `Shutter` is the default; `Fade` is the
+/// plain background fade a future "reduce flashes" option would select.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransitionStyle {
+    #[default]
+    Shutter,
+    // Chosen by the reduce-flashes option, which is not in the config yet.
+    #[allow(dead_code)]
+    Fade,
+}
+
+/// The overlay a screen change plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transition {
+    /// Plain fade-in from the background.
+    Fade,
+    /// Shutter wipe: cover, then reveal.
+    Shutter,
+    /// Reveal only, over the first frames of Gameplay.
+    GameplayReveal,
+}
+
+/// What is drawn over the current frame, if anything.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Overlay {
+    /// Background alpha: 1 covers the frame, 0 is clear.
+    Fade(f32),
+    Shutter(ShutterPhase),
+    GameplayReveal(ShutterPhase),
+}
+
 /// Screens the fade-in plays on. Boot is the first screen and has no fade;
-/// Gameplay never fades (Loading -> Gameplay is a cut).
+/// Gameplay never fades in on its own (its reveal comes from Loading).
 pub fn fades_in(screen: AppScreen) -> bool {
     matches!(
         screen,
@@ -40,6 +82,38 @@ pub fn shows_toasts(screen: AppScreen) -> bool {
     )
 }
 
+/// The overlay for a change from `from` to `to`, or `None` for a plain cut.
+/// The shutter joins SongSelect with Settings, Key Config, Result and Loading
+/// (both ways for the first three). Loading -> Gameplay reveals the first
+/// frames, and under `Fade` that is a plain fade instead. Every other change
+/// keeps the menu fade-in on its destination.
+pub fn transition_for(
+    from: AppScreen,
+    to: AppScreen,
+    style: TransitionStyle,
+) -> Option<Transition> {
+    if from == AppScreen::Loading && to == AppScreen::Gameplay {
+        return Some(match style {
+            TransitionStyle::Shutter => Transition::GameplayReveal,
+            TransitionStyle::Fade => Transition::Fade,
+        });
+    }
+    let shutter_pair = matches!(
+        (from, to),
+        (
+            AppScreen::SongSelect,
+            AppScreen::Settings | AppScreen::KeyConfig | AppScreen::Result | AppScreen::Loading,
+        ) | (
+            AppScreen::Settings | AppScreen::KeyConfig | AppScreen::Result,
+            AppScreen::SongSelect,
+        )
+    );
+    if shutter_pair && style == TransitionStyle::Shutter {
+        return Some(Transition::Shutter);
+    }
+    fades_in(to).then_some(Transition::Fade)
+}
+
 /// Overlay alpha `elapsed` seconds after a fade-in started: 1 (the background
 /// covers the screen) easing to 0, `None` once it is over.
 pub fn fade_alpha_at(elapsed: f32) -> Option<f32> {
@@ -48,6 +122,30 @@ pub fn fade_alpha_at(elapsed: f32) -> Option<f32> {
     }
     let t = (elapsed / FADE_SECONDS).max(0.0);
     Some(1.0 - ease_out_cubic(t))
+}
+
+/// The shutter's phase `elapsed` seconds after it started: covering for the
+/// first `SHUTTER_COVER_SECONDS`, then revealing; `None` once it is over.
+/// Cover ends at 45 % of the whole, where the frame is fully covered.
+pub fn shutter_phase_at(elapsed: f32) -> Option<ShutterPhase> {
+    let elapsed = elapsed.max(0.0);
+    if elapsed < SHUTTER_COVER_SECONDS {
+        Some(ShutterPhase::Cover(elapsed / SHUTTER_COVER_SECONDS))
+    } else if elapsed < SHUTTER_SECONDS {
+        Some(ShutterPhase::Reveal(
+            (elapsed - SHUTTER_COVER_SECONDS) / SHUTTER_REVEAL_SECONDS,
+        ))
+    } else {
+        None
+    }
+}
+
+/// The Gameplay reveal's phase `elapsed` seconds after Gameplay was entered:
+/// starts fully covered and uncovers; `None` once it is over.
+pub fn gameplay_reveal_phase_at(elapsed: f32) -> Option<ShutterPhase> {
+    let elapsed = elapsed.max(0.0);
+    (elapsed < GAMEPLAY_REVEAL_SECONDS)
+        .then(|| ShutterPhase::Reveal(elapsed / GAMEPLAY_REVEAL_SECONDS))
 }
 
 /// Where a toast is in its life.
@@ -85,12 +183,15 @@ pub fn toast_pose(elapsed: f32) -> Option<ToastPose> {
     }
 }
 
-/// The screen the app is on and when it was entered. The only place entry
-/// times are recorded: `sync` notices a changed screen.
+/// The screen the app is on, when it was entered, and the transition that
+/// entry plays. The only place entry times are recorded: `sync` notices a
+/// changed screen.
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenEntry {
     screen: AppScreen,
     entered_at: Instant,
+    transition: Option<Transition>,
+    style: TransitionStyle,
 }
 
 impl ScreenEntry {
@@ -98,6 +199,8 @@ impl ScreenEntry {
         Self {
             screen,
             entered_at: now,
+            transition: None,
+            style: TransitionStyle::default(),
         }
     }
 
@@ -106,17 +209,22 @@ impl ScreenEntry {
         if screen == self.screen {
             return false;
         }
+        self.transition = transition_for(self.screen, screen, self.style);
         self.screen = screen;
         self.entered_at = now;
         true
     }
 
-    /// The fade-in overlay alpha now, if the current screen fades in.
-    pub fn fade_alpha(&self, now: Instant) -> Option<f32> {
-        if !fades_in(self.screen) {
-            return None;
+    /// The overlay to draw on the current frame, if its entry transition is still running.
+    pub fn overlay(&self, now: Instant) -> Option<Overlay> {
+        let elapsed = now.saturating_duration_since(self.entered_at).as_secs_f32();
+        match self.transition? {
+            Transition::Fade => fade_alpha_at(elapsed).map(Overlay::Fade),
+            Transition::Shutter => shutter_phase_at(elapsed).map(Overlay::Shutter),
+            Transition::GameplayReveal => {
+                gameplay_reveal_phase_at(elapsed).map(Overlay::GameplayReveal)
+            }
         }
-        fade_alpha_at(now.saturating_duration_since(self.entered_at).as_secs_f32())
     }
 }
 
@@ -160,9 +268,9 @@ impl AppState {
         toast_pose(now.saturating_duration_since(toast.shown_at).as_secs_f32())
     }
 
-    /// Whether a fade or a toast is on screen now (frames keep coming).
+    /// Whether a transition or a toast is on screen now (frames keep coming).
     pub fn presentation_animating(&self, now: Instant) -> bool {
-        self.screen_entry.fade_alpha(now).is_some() || self.toast_pose_now(now).is_some()
+        self.screen_entry.overlay(now).is_some() || self.toast_pose_now(now).is_some()
     }
 }
 
@@ -197,27 +305,132 @@ mod tests {
     }
 
     #[test]
-    fn fades_play_on_menus_but_never_on_gameplay() {
-        assert!(!fades_in(AppScreen::Gameplay));
-        assert!(!fades_in(AppScreen::Boot));
-        for screen in [
-            AppScreen::SongSelect,
-            AppScreen::KeyConfig,
-            AppScreen::Settings,
-            AppScreen::Loading,
-            AppScreen::Result,
-        ] {
-            assert!(fades_in(screen), "{screen:?} should fade in");
-        }
+    fn shutter_lasts_about_0_4_seconds_and_covers_at_its_midpoint() {
+        assert!((SHUTTER_SECONDS - 0.4).abs() < 1e-6);
+        assert_eq!(shutter_phase_at(0.0), Some(ShutterPhase::Cover(0.0)));
+        // Cover completes at 45 % of the whole: the frame is covered there.
+        let cover_end = shutter_phase_at(SHUTTER_COVER_SECONDS - 1e-4);
+        assert!(matches!(cover_end, Some(ShutterPhase::Cover(t)) if t > 0.999));
+        assert_eq!(
+            shutter_phase_at(SHUTTER_COVER_SECONDS),
+            Some(ShutterPhase::Reveal(0.0))
+        );
+        let ratio = SHUTTER_COVER_SECONDS / SHUTTER_SECONDS;
+        assert!((ratio - 0.45).abs() < 1e-6, "ratio = {ratio}");
+        assert_eq!(shutter_phase_at(SHUTTER_SECONDS), None);
+        assert_eq!(shutter_phase_at(SHUTTER_SECONDS + 1.0), None);
+        // Reveal climbs monotonically from covered to clear.
+        let reveal: Vec<f32> = (0..=20)
+            .map(|i| {
+                let t = SHUTTER_COVER_SECONDS + SHUTTER_REVEAL_SECONDS * i as f32 / 20.0;
+                match shutter_phase_at(t.min(SHUTTER_SECONDS - 1e-4)) {
+                    Some(ShutterPhase::Reveal(v)) => v,
+                    other => panic!("not revealing: {other:?}"),
+                }
+            })
+            .collect();
+        assert!(reveal.windows(2).all(|w| w[1] >= w[0]), "{reveal:?}");
+    }
 
-        // Entering Gameplay: no overlay at any point. Entering Result: covered at once.
+    #[test]
+    fn gameplay_reveal_starts_covered_and_lasts_250_ms() {
+        assert_eq!(
+            gameplay_reveal_phase_at(0.0),
+            Some(ShutterPhase::Reveal(0.0))
+        );
+        assert!(gameplay_reveal_phase_at(GAMEPLAY_REVEAL_SECONDS / 2.0).is_some());
+        assert_eq!(gameplay_reveal_phase_at(GAMEPLAY_REVEAL_SECONDS), None);
+        assert!((GAMEPLAY_REVEAL_SECONDS - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn style_selection_per_screen_pair() {
+        use AppScreen::*;
+        let shutter = TransitionStyle::Shutter;
+        for (from, to) in [
+            (SongSelect, Settings),
+            (SongSelect, KeyConfig),
+            (SongSelect, Result),
+            (SongSelect, Loading),
+            (Settings, SongSelect),
+            (KeyConfig, SongSelect),
+            (Result, SongSelect),
+        ] {
+            assert_eq!(
+                transition_for(from, to, shutter),
+                Some(Transition::Shutter),
+                "{from:?} -> {to:?}"
+            );
+        }
+        assert_eq!(
+            transition_for(Loading, Gameplay, shutter),
+            Some(Transition::GameplayReveal)
+        );
+        // Boot -> SongSelect stays a plain fade; so do the other changes.
+        assert_eq!(
+            transition_for(Boot, SongSelect, shutter),
+            Some(Transition::Fade)
+        );
+        assert_eq!(
+            transition_for(Gameplay, Result, shutter),
+            Some(Transition::Fade)
+        );
+        assert_eq!(
+            transition_for(Result, Loading, shutter),
+            Some(Transition::Fade)
+        );
+        assert_eq!(
+            transition_for(Gameplay, Settings, shutter),
+            Some(Transition::Fade)
+        );
+        // Reduced-motion style: plain fades everywhere a shutter or reveal would play.
+        let fade = TransitionStyle::Fade;
+        assert_eq!(
+            transition_for(SongSelect, Loading, fade),
+            Some(Transition::Fade)
+        );
+        assert_eq!(
+            transition_for(Loading, Gameplay, fade),
+            Some(Transition::Fade)
+        );
+        // A cut where nothing fades in (into Gameplay from a menu).
+        assert_eq!(transition_for(SongSelect, Gameplay, shutter), None);
+    }
+
+    #[test]
+    fn overlays_follow_the_entry_transition() {
         let t0 = Instant::now();
-        let mut entry = ScreenEntry::new(AppScreen::Loading, t0);
+        let mut entry = ScreenEntry::new(AppScreen::SongSelect, t0);
+        assert!(entry.sync(AppScreen::Settings, t0));
+        assert_eq!(
+            entry.overlay(t0),
+            Some(Overlay::Shutter(ShutterPhase::Cover(0.0)))
+        );
+        let end = t0 + Duration::from_secs_f32(SHUTTER_SECONDS + 0.01);
+        assert_eq!(entry.overlay(end), None);
+
+        assert!(entry.sync(AppScreen::Loading, end));
+        assert_eq!(entry.overlay(end), Some(Overlay::Fade(1.0)));
+
+        let t1 = end + Duration::from_secs(1);
+        assert!(entry.sync(AppScreen::Gameplay, t1));
+        assert_eq!(
+            entry.overlay(t1),
+            Some(Overlay::GameplayReveal(ShutterPhase::Reveal(0.0)))
+        );
+        // Gameplay reveal ends; no other overlay ever plays on Gameplay.
+        assert_eq!(entry.overlay(t1 + Duration::from_millis(300)), None);
+    }
+
+    #[test]
+    fn boot_fades_and_gameplay_never_fades_in_on_its_own() {
+        let t0 = Instant::now();
+        let mut entry = ScreenEntry::new(AppScreen::Boot, t0);
+        assert_eq!(entry.overlay(t0), None, "Boot does not fade");
+        assert!(entry.sync(AppScreen::SongSelect, t0));
+        assert_eq!(entry.overlay(t0), Some(Overlay::Fade(1.0)));
         assert!(entry.sync(AppScreen::Gameplay, t0));
-        assert_eq!(entry.fade_alpha(t0), None);
-        assert_eq!(entry.fade_alpha(t0 + Duration::from_millis(5)), None);
-        assert!(entry.sync(AppScreen::Result, t0));
-        assert_eq!(entry.fade_alpha(t0), Some(1.0));
+        assert_eq!(entry.overlay(t0), None);
     }
 
     #[test]
@@ -229,12 +442,15 @@ mod tests {
             !entry.sync(AppScreen::Boot, later),
             "same screen: no change"
         );
-        assert_eq!(entry.fade_alpha(later), None, "Boot does not fade");
+        assert_eq!(entry.overlay(later), None, "Boot does not fade");
         assert!(entry.sync(AppScreen::SongSelect, later));
-        assert_eq!(entry.fade_alpha(later), Some(1.0));
+        assert_eq!(entry.overlay(later), Some(Overlay::Fade(1.0)));
         let mid = later + Duration::from_millis(100);
         assert!(!entry.sync(AppScreen::SongSelect, mid));
-        assert!(entry.fade_alpha(mid).unwrap() < 1.0, "entry time kept");
+        assert!(
+            matches!(entry.overlay(mid), Some(Overlay::Fade(a)) if a < 1.0),
+            "entry time kept"
+        );
     }
 
     #[test]

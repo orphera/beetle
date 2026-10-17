@@ -11,6 +11,8 @@
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
 //! - With `BEETLE_CAPTURE_SCREEN=keyconfig` the app starts on Key Config
 //!   (it is otherwise only reachable by key press).
+//! - `BEETLE_CAPTURE_TRANSITION=<0..1>`: draws the shutter frozen at that
+//!   progress of its length on every frame, so a capture shows a mid-wipe.
 //!
 //! Nothing here runs unless the variables are set.
 
@@ -56,6 +58,17 @@ pub fn log(msg: &str) {
 
 pub fn autoplay_requested() -> bool {
     std::env::var("BEETLE_AUTOPLAY").is_ok_and(|v| v == "1")
+}
+
+/// The frozen shutter progress from `BEETLE_CAPTURE_TRANSITION`, read once.
+pub fn frozen_shutter_progress() -> Option<f32> {
+    static PROGRESS: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *PROGRESS.get_or_init(|| {
+        std::env::var("BEETLE_CAPTURE_TRANSITION")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .map(|p| p.clamp(0.0, 1.0))
+    })
 }
 
 /// Screen to start on instead of song select (only Key Config, which has

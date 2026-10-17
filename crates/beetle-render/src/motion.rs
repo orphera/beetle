@@ -48,6 +48,18 @@ pub fn ease_in_cubic(t: f32) -> f32 {
     t * t * t
 }
 
+/// Slow start and slow finish; for a wipe that must begin and end without a jolt.
+#[inline]
+pub fn ease_in_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        let f = 2.0 - 2.0 * t;
+        1.0 - f * f * f / 2.0
+    }
+}
+
 /// Largest time step (seconds) a menu animation takes in one frame. A stall
 /// (a window drag, a hitch) advances the motion by this much at most.
 pub const MOTION_MAX_DT: f32 = 0.1;

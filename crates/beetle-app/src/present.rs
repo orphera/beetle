@@ -20,7 +20,7 @@ use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
 use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
 use crate::state::{replay_path, AppScreen, AppState, LibraryJob};
-use crate::transition::show_toast;
+use crate::transition::{self, show_toast};
 
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
@@ -66,12 +66,25 @@ fn finish(state: &mut AppState) {
     state.d3d11.end_frame();
 }
 
-/// The layers above a menu frame, drawn last: the fade-in after a screen
-/// change, then the toast (`toasts` is false on Loading). Never on Gameplay.
+/// The layers above a frame, drawn last: the screen-change transition (a
+/// fade, the shutter, or the Gameplay reveal), then the toast (`toasts` is
+/// false on Loading and Gameplay). Overlays record no hits and touch no clock,
+/// so they never change what a screen does with input or judgement.
 fn overlays(state: &mut AppState, toasts: bool) {
     let now = Instant::now();
-    if let Some(alpha) = state.screen_entry.fade_alpha(now) {
-        beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
+    let overlay = match devtools::frozen_shutter_progress() {
+        Some(p) => transition::shutter_phase_at(p * transition::SHUTTER_SECONDS)
+            .map(transition::Overlay::Shutter),
+        None => state.screen_entry.overlay(now),
+    };
+    match overlay {
+        Some(transition::Overlay::Fade(alpha)) => {
+            beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
+        }
+        Some(transition::Overlay::Shutter(phase) | transition::Overlay::GameplayReveal(phase)) => {
+            beetle_render::draw_shutter(&mut state.gpu_ui.ui, &state.view.viewport, phase);
+        }
+        None => {}
     }
     if toasts {
         // Key Config keeps the tabs clear; every other menu uses the footer strip.
@@ -210,6 +223,9 @@ pub fn gameplay(
             },
         );
     }
+    // The Loading -> Gameplay reveal: drawn over this frame only. Gameplay
+    // time, READY and judgement were already advanced above.
+    overlays(state, false);
     finish(state);
 }
 
