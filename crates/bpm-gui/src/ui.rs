@@ -1020,11 +1020,16 @@ impl GuiRenderer {
             dh += 4.0;
         }
         dh += d.cards.len() as f32 * 76.0;
+        // A form field group is label + control + 20 px before the next group; a
+        // field after the cards gets the same gap above its label.
+        if !d.cards.is_empty() && !d.fields.is_empty() {
+            dh += 10.0;
+        }
         for field in &d.fields {
-            dh += if field.label.is_empty() { 0.0 } else { 24.0 } + 48.0;
+            dh += if field.label.is_empty() { 0.0 } else { 24.0 } + 56.0;
         }
         for choice in &d.choices {
-            dh += 24.0 + 42.0 + if choice.note.is_empty() { 0.0 } else { 22.0 } + 8.0;
+            dh += 24.0 + 42.0 + if choice.note.is_empty() { 0.0 } else { 22.0 } + 16.0;
         }
         let list_rows = d.list.len().min(6);
         if !d.list.is_empty() || !d.list_empty.is_empty() {
@@ -1126,6 +1131,9 @@ impl GuiRenderer {
             cy += 76.0;
         }
 
+        if !d.cards.is_empty() && !d.fields.is_empty() {
+            cy += 10.0;
+        }
         for (i, field) in d.fields.iter().enumerate() {
             if !field.label.is_empty() {
                 self.text(&field.label, lx, cy, PX_SMALL, theme::TEXT_DIM);
@@ -1141,7 +1149,7 @@ impl GuiRenderer {
                 UiAction::DialogFocus(i),
                 field.browse.then_some(UiAction::DialogBrowse(i)),
             );
-            cy += 48.0;
+            cy += 56.0;
         }
 
         for (gi, choice) in d.choices.iter().enumerate() {
@@ -1184,7 +1192,7 @@ impl GuiRenderer {
                 );
                 cy += 22.0;
             }
-            cy += 8.0;
+            cy += 16.0;
         }
 
         if !d.list.is_empty() || !d.list_empty.is_empty() {

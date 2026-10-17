@@ -234,7 +234,7 @@ impl Dialog {
                 v.choices = vec![
                     ChoiceView {
                         label: "형식".into(),
-                        options: vec!["일반", "빠른 로딩 (Turbo)"],
+                        options: vec!["일반", "빠른 로딩"],
                         selected: *turbo as usize,
                         note: if *turbo {
                             "소리를 미리 풀어서 담아 게임 로딩이 빨라져요. 대신 파일이 커져요."
