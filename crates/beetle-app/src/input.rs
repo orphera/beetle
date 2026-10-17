@@ -322,7 +322,7 @@ impl InputConfig {
         match source {
             Source::Key(code) => self.map_key(PhysicalKey::Code(code)),
             Source::Pad { slot, button } => self.pad_bindings.get(&(slot, button)).copied(),
-            Source::Turntable => Some(Lane::Scratch),
+            Source::TurntableCw | Source::TurntableCcw => Some(Lane::Scratch),
         }
     }
 
@@ -377,7 +377,7 @@ impl InputConfig {
             .map(|source| match source {
                 Source::Key(code) => key_code_to_str(code),
                 Source::Pad { button, .. } => pad_label(button),
-                Source::Turntable => "TT",
+                Source::TurntableCw | Source::TurntableCcw => "TT",
             })
             .collect()
     }
@@ -487,7 +487,10 @@ pub enum Source {
         slot: u8,
         button: u8,
     },
-    Turntable,
+    /// The turntable turning up / down. Both are the scratch lane, so a
+    /// reversal is a release of one and a press of the other.
+    TurntableCw,
+    TurntableCcw,
 }
 
 /// Turns a lane key event into a lane press / release, given the keys held
@@ -1443,7 +1446,8 @@ mod pad_binding_tests {
     #[test]
     fn the_turntable_is_the_scratch_lane_and_labels_say_pad() {
         let config = InputConfig::default();
-        assert_eq!(config.map_source(Source::Turntable), Some(Lane::Scratch));
+        assert_eq!(config.map_source(Source::TurntableCw), Some(Lane::Scratch));
+        assert_eq!(config.map_source(Source::TurntableCcw), Some(Lane::Scratch));
         assert_eq!(pad_label(3), strings::fill(strings::PAD_BUTTON(), &["3"]));
         assert!(pad_label(12).ends_with("12"));
     }

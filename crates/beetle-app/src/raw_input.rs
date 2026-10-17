@@ -32,7 +32,7 @@ use winit::window::Window;
 use crate::hid::{self, Edges};
 use crate::input::Source;
 use crate::lane_logic::{LaneEvent, LaneSession, LogicCommand, TICK_MILLIS};
-use crate::turntable::Turntable;
+use crate::turntable::{Change, Dir, Turntable};
 
 /// Key changes held for the game; far more than come in between two frames.
 const QUEUE_CAPACITY: usize = 1024;
@@ -230,8 +230,8 @@ impl Thread {
                 // The turntable's press lets go after its last move.
                 if self.session.is_some() {
                     let release = self.turntable.as_mut().and_then(|(_, tt)| tt.tick(now));
-                    if let Some(down) = release {
-                        self.key(Source::Turntable, down, now);
+                    if let Some(dir) = release {
+                        self.key(turn_source(dir), false, now);
                     }
                 }
             }
@@ -310,12 +310,20 @@ impl Thread {
         if self.session.is_none() {
             return;
         }
-        let event = self
-            .turntable
-            .as_mut()
-            .and_then(|(_, tt)| tt.report(raw, bits, at));
-        if let Some(down) = event {
-            self.key(Source::Turntable, down, at);
+        let Some((_, tt)) = self.turntable.as_mut() else {
+            return;
+        };
+        let change = tt.report(raw, bits, at);
+        self.turntable_change(change, at);
+    }
+
+    /// The presses and releases of one turntable reading, release first.
+    fn turntable_change(&mut self, change: Change, at: Instant) {
+        if let Some(dir) = change.release {
+            self.key(turn_source(dir), false, at);
+        }
+        if let Some(dir) = change.press {
+            self.key(turn_source(dir), true, at);
         }
     }
 
@@ -407,6 +415,14 @@ impl Thread {
                 }
             }
         }
+    }
+}
+
+/// The lane source of a turntable direction.
+fn turn_source(dir: Dir) -> Source {
+    match dir {
+        Dir::Cw => Source::TurntableCw,
+        Dir::Ccw => Source::TurntableCcw,
     }
 }
 
