@@ -25,8 +25,8 @@ pub mod video;
 pub mod view;
 
 pub use art::{Halo, NineSlice, Skin};
-#[cfg(target_os = "windows")]
 pub use backdrop::{BlurBackdrop, Mix};
+#[cfg(target_os = "windows")]
 pub use backend::D3d11Backend;
 pub use backend::{BlendMode, GpuBackend, TextureId, Vertex2D};
 pub use canvas::{AtlasRegion, Canvas, Insets, Rect};
