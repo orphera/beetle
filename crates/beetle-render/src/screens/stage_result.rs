@@ -1063,8 +1063,17 @@ mod tests {
 
     #[test]
     fn footer_buttons_are_recorded_inside_the_footer() {
+        footer_buttons_inside_the_footer_at(100);
+    }
+
+    #[test]
+    fn at_150_percent_ui_scale_the_footer_buttons_stay_inside_the_footer() {
+        footer_buttons_inside_the_footer_at(150);
+    }
+
+    fn footer_buttons_inside_the_footer_at(ui_percent: u32) {
         use crate::hit::{hit_at, HitId};
-        let vp = Viewport::new(1280, 720);
+        let vp = Viewport::new(1280, 720).with_ui_scale(ui_percent);
         let chart = BmsChart::default();
         let score = ScoreTracker::new(500, 260.0, GaugeType::Groove);
         let mut ui = Ui::new(vp.scale);

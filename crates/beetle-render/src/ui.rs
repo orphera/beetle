@@ -51,7 +51,7 @@ pub fn ambient_time(app_elapsed_secs: f64) -> f32 {
 impl Ui {
     /// Builds the atlas, fonts and skin for `scale` (viewport height / 720).
     pub fn new(scale: f32) -> Self {
-        let mut canvas = Canvas::default();
+        let mut canvas = Canvas::new(crate::canvas::atlas_page_size_for_scale(scale));
         let skin = Skin::generate(canvas.atlas_mut(), scale);
         let jackets = JacketAtlas::new(canvas.atlas_mut());
         Self {
@@ -72,7 +72,7 @@ impl Ui {
     /// rebuilt so sprites and glyphs stay pixel-exact at the new size.
     pub fn begin(&mut self, width: u32, height: u32, scale: f32) {
         if (scale - self.skin.scale).abs() > 0.01 {
-            self.canvas.reset_atlas();
+            self.canvas.reset_atlas_for_scale(scale);
             self.text.clear_cache();
             self.skin = Skin::generate(self.canvas.atlas_mut(), scale);
             // The reset emptied the atlas: the jacket grid is reserved again
@@ -107,6 +107,7 @@ impl Ui {
 mod tests {
     use super::*;
     use crate::jacket::{JacketKey, THUMB_PX};
+    use crate::view::{UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP};
 
     #[test]
     fn scale_change_regenerates_without_leaking_atlas_space() {
@@ -138,10 +139,20 @@ mod tests {
 
     #[test]
     fn jacket_grid_and_twelve_thumbs_stay_on_page_zero_at_every_ui_scale() {
-        // 0.75 to 3.0 in steps of 0.25: the grid is reserved on page 0, the
+        // Window scale 0.75 to 3.0 (steps of 0.25) times UI scale 80 % to
+        // 150 % (steps of 10 %): the grid is reserved on page 0, the
         // placeholders and the text land there too, so no draw splits.
-        for step in 0..=9 {
-            let scale = 0.75 + 0.25 * step as f32;
+        for window_step in 0..=9 {
+            for ui_percent in (UI_SCALE_MIN..=UI_SCALE_MAX).step_by(UI_SCALE_STEP as usize) {
+                let window = 0.75 + 0.25 * window_step as f32;
+                let scale = window * ui_percent as f32 / 100.0;
+                check_thumbs_on_page_zero(scale);
+            }
+        }
+    }
+
+    fn check_thumbs_on_page_zero(scale: f32) {
+        {
             let mut ui = Ui::new(scale);
             ui.begin(1280, 720, scale);
             assert_eq!(ui.jackets.page(), Some(0), "grid at scale {scale}");

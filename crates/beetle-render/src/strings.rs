@@ -1043,6 +1043,16 @@ table! {
         ko "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.",
         en "Reduces the red warning flash, judge lights, and the banner's light rays and shaking. Judgement and sound stay the same.",
         ja "赤い警告の点滅、判定の光、バナーの光条と揺れを抑えます。判定と音は変わりません。";
+
+    pub ROW_UI_SCALE =
+        ko "UI 크기",
+        en "UI Scale",
+        ja "UIの大きさ";
+
+    pub HELP_UI_SCALE =
+        ko "메뉴와 설정 화면의 글자와 버튼 크기를 80%~150%로 조절해요. 바로 적용돼요.",
+        en "Sets the size of menu text and controls, from 80% to 150%. Applies at once.",
+        ja "メニューの文字とボタンの大きさを80%～150%で調整します。すぐに反映されます。";
     pub HELP_PLAYFIELD =
         ko "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.",
         en "Places the playfield in the center, on the left, or on the right of the screen.",

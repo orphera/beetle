@@ -52,7 +52,10 @@ pub use skin::{
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::{ambient_time, Ui, AMBIENT_LOOP_SECS};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
-pub use view::{HitBurst, JudgeMark, ViewState, Viewport, JUDGE_TIMELINE_SECONDS};
+pub use view::{
+    snap_ui_scale, HitBurst, JudgeMark, ViewState, Viewport, JUDGE_TIMELINE_SECONDS,
+    UI_SCALE_DEFAULT, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP,
+};
 
 /// Length of the Result screen's staged reveal (see `reveal`). Callers (the
 /// app's render loop) use this to know how long to keep forcing redraws past

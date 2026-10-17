@@ -271,6 +271,37 @@ mod tests {
     }
 
     #[test]
+    fn at_150_percent_every_row_and_the_back_button_hit_and_draw_in_one_batch() {
+        let vp = Viewport::new(1280, 720).with_ui_scale(150);
+        let mut ui = Ui::new(vp.scale);
+        let lines = lines();
+        ui.begin(1280, 720, vp.scale);
+        draw_settings(
+            &mut ui,
+            &SettingsFrame {
+                viewport: &vp,
+                lines: &lines,
+                selected: 2,
+                help: "help",
+                scroll: [0.0; 2],
+            },
+        );
+        assert_eq!(ui.canvas.debug_batches().len(), 1);
+        let back = ui
+            .hits
+            .iter()
+            .find(|h| h.id == HitId::SettingsBack)
+            .expect("back")
+            .rect;
+        assert!(
+            back.bottom() <= vp.y + vp.height + 0.5,
+            "back stays on screen"
+        );
+        let (x, y) = (back.x + back.w / 2.0, back.y + back.h / 2.0);
+        assert_eq!(hit_at(&ui.hits, x, y), Some(HitId::SettingsBack));
+    }
+
+    #[test]
     fn screen_is_one_batch() {
         let vp = Viewport::new(1280, 720);
         let mut ui = Ui::new(vp.scale);

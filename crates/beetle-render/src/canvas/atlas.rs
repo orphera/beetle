@@ -202,6 +202,9 @@ impl Page {
 pub struct UiAtlas {
     size: u32,
     pages: Vec<Page>,
+    /// GPU textures of pages that a page-size change dropped; freed by the
+    /// next `sync` or `release`, which are the calls that hold the backend.
+    retired: Vec<TextureId>,
 }
 
 impl UiAtlas {
@@ -209,7 +212,24 @@ impl UiAtlas {
         Self {
             size: page_size,
             pages: Vec::new(),
+            retired: Vec::new(),
         }
+    }
+
+    /// Empties the atlas and makes its pages `page_size` texels square. A
+    /// different size drops the pages (their textures are freed on the next
+    /// `sync`); the same size is a plain `clear`.
+    pub fn set_page_size(&mut self, page_size: u32) {
+        if page_size == self.size {
+            self.clear();
+            return;
+        }
+        for page in self.pages.drain(..) {
+            if let Some(id) = page.texture {
+                self.retired.push(id);
+            }
+        }
+        self.size = page_size;
     }
 
     pub fn page_size(&self) -> u32 {
@@ -310,6 +330,9 @@ impl UiAtlas {
     /// referencing the atlas is submitted. Returns the bytes handed to the
     /// backend.
     pub fn sync(&mut self, backend: &mut dyn GpuBackend) -> usize {
+        for id in self.retired.drain(..) {
+            backend.destroy_texture(id);
+        }
         let size = self.size;
         let whole = (size * size * 4) as usize;
         let mut bytes = 0;
@@ -355,6 +378,9 @@ impl UiAtlas {
     /// Frees GPU textures (e.g. before the backend is dropped or recreated).
     /// Pages are marked for a full upload so the next `sync` re-creates them.
     pub fn release(&mut self, backend: &mut dyn GpuBackend) {
+        for id in self.retired.drain(..) {
+            backend.destroy_texture(id);
+        }
         for page in &mut self.pages {
             if let Some(id) = page.texture.take() {
                 backend.destroy_texture(id);

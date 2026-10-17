@@ -179,7 +179,8 @@ impl ApplicationHandler for BeetleApp {
             judge_position: saved_config.judge_position,
             ..Default::default()
         };
-        let view = ViewState::new(size.width, size.height, skin);
+        let mut view = ViewState::new(size.width, size.height, skin);
+        view.set_ui_scale(saved_config.ui_scale);
 
         // Direct3D 11 is the only renderer (ADR-026); without it there is
         // nothing to draw with.
@@ -191,7 +192,7 @@ impl ApplicationHandler for BeetleApp {
                 return;
             }
         };
-        let gpu_ui = gpu_ui::GpuUi::new(view.viewport.scale);
+        let gpu_ui = gpu_ui::GpuUi::new(view.ui.scale);
 
         // Lane keys are read on their own thread (see `raw_input`). Raw
         // input has one target per process, so winit's is switched off first.

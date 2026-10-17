@@ -78,6 +78,29 @@ impl Viewport {
     pub fn is_pillarboxed(&self) -> bool {
         self.x > 0.5
     }
+
+    /// The same 16:9 rectangle with the scale multiplied by the UI scale
+    /// (`percent`, 100 = no change). Menus draw with this; gameplay keeps the
+    /// window scale.
+    pub fn with_ui_scale(self, percent: u32) -> Self {
+        let factor = percent.clamp(UI_SCALE_MIN, UI_SCALE_MAX) as f32 / 100.0;
+        Self {
+            scale: self.scale * factor,
+            ..self
+        }
+    }
+}
+
+/// The UI scale option, in percent: 80 to 150 in steps of 10 (100 = default).
+pub const UI_SCALE_MIN: u32 = 80;
+pub const UI_SCALE_MAX: u32 = 150;
+pub const UI_SCALE_STEP: u32 = 10;
+pub const UI_SCALE_DEFAULT: u32 = 100;
+
+/// Snaps a UI scale percent onto the option's steps and range.
+pub fn snap_ui_scale(percent: u32) -> u32 {
+    let steps = (percent + UI_SCALE_STEP / 2) / UI_SCALE_STEP * UI_SCALE_STEP;
+    steps.clamp(UI_SCALE_MIN, UI_SCALE_MAX)
 }
 
 /// Total number of `Lane` variants (see `beetle_core::Lane`); sizes every
@@ -100,7 +123,12 @@ pub struct JudgeMark {
 
 /// Viewport + lane layout + gameplay feedback, owned by the app.
 pub struct ViewState {
+    /// The window's 16:9 rectangle at the window scale: gameplay draws with it.
     pub viewport: Viewport,
+    /// The same rectangle with the UI scale applied: every menu draws with it.
+    pub ui: Viewport,
+    /// The UI scale in percent (`UI_SCALE_MIN..=UI_SCALE_MAX`).
+    pub ui_scale: u32,
     pub skin: SkinConfig,
     key_pressed: [bool; LANE_COUNT],
     /// (grade, time in seconds, delta in ms)
@@ -116,6 +144,8 @@ impl ViewState {
         skin.update_layout(&viewport);
         Self {
             viewport,
+            ui: viewport.with_ui_scale(UI_SCALE_DEFAULT),
+            ui_scale: UI_SCALE_DEFAULT,
             skin,
             key_pressed: [false; LANE_COUNT],
             last_judge: None,
@@ -128,7 +158,25 @@ impl ViewState {
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.viewport = Viewport::new(width, height);
+            self.ui = self.viewport.with_ui_scale(self.ui_scale);
             self.skin.update_layout(&self.viewport);
+        }
+    }
+
+    /// Sets the UI scale (percent, snapped to the option's steps). Applies
+    /// from the next frame: the UI rebuilds its atlas when the scale changes.
+    pub fn set_ui_scale(&mut self, percent: u32) {
+        self.ui_scale = snap_ui_scale(percent);
+        self.ui = self.viewport.with_ui_scale(self.ui_scale);
+    }
+
+    /// The rectangle a frame draws with: the window scale in gameplay, the UI
+    /// scale on every other screen.
+    pub fn frame_viewport(&self, gameplay: bool) -> Viewport {
+        if gameplay {
+            self.viewport
+        } else {
+            self.ui
         }
     }
 
@@ -245,6 +293,39 @@ mod tests {
         assert_eq!(view.hit_bursts().len(), 1);
         view.clean_expired_hit_bursts(2.0);
         assert!(view.hit_bursts().is_empty());
+    }
+
+    #[test]
+    fn ui_scale_applies_to_menus_and_leaves_the_window_scale_for_gameplay() {
+        let mut view = ViewState::new(1280, 720, SkinConfig::default());
+        view.set_ui_scale(150);
+        assert_eq!(view.ui_scale, 150);
+        assert!((view.ui.scale - 1.5).abs() < 1e-6);
+        assert!(
+            (view.viewport.scale - 1.0).abs() < 1e-6,
+            "gameplay keeps 1.0"
+        );
+        assert_eq!(view.frame_viewport(true), view.viewport);
+        assert_eq!(view.frame_viewport(false), view.ui);
+        // A resize keeps the chosen UI scale on the new window.
+        view.resize(1920, 1080);
+        assert!((view.ui.scale - 2.25).abs() < 1e-6);
+        // Off-range and off-step values are snapped onto the option.
+        view.set_ui_scale(200);
+        assert_eq!(view.ui_scale, UI_SCALE_MAX);
+        view.set_ui_scale(84);
+        assert_eq!(view.ui_scale, 80);
+        view.set_ui_scale(86);
+        assert_eq!(view.ui_scale, 90);
+    }
+
+    #[test]
+    fn ui_scale_snaps_to_ten_percent_steps_inside_the_range() {
+        assert_eq!(snap_ui_scale(0), UI_SCALE_MIN);
+        assert_eq!(snap_ui_scale(100), 100);
+        assert_eq!(snap_ui_scale(114), 110);
+        assert_eq!(snap_ui_scale(116), 120);
+        assert_eq!(snap_ui_scale(999), UI_SCALE_MAX);
     }
 
     #[test]

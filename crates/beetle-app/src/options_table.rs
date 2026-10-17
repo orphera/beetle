@@ -8,8 +8,8 @@ use std::sync::OnceLock;
 
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
 use beetle_render::{
-    scratch_side_applies, strings, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
-    NOTE_SIZE_MIN, NOTE_SIZE_STEP,
+    scratch_side_applies, snap_ui_scale, strings, FieldPosition, JudgePosition, ScratchSide,
+    NOTE_SIZE_MAX, NOTE_SIZE_MIN, NOTE_SIZE_STEP, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP,
 };
 
 use crate::config::{
@@ -52,6 +52,7 @@ pub enum OptionId {
     Graphics,
     TargetFps,
     ReduceFlashes,
+    UiScale,
     MasterVolume,
     BgmVolume,
     KeyVolume,
@@ -196,6 +197,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_REDUCE_FLASHES(),
             help: strings::HELP_REDUCE_FLASHES(),
+        },
+        OptionDesc {
+            id: OptionId::UiScale,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_UI_SCALE(),
+            help: strings::HELP_UI_SCALE(),
         },
         OptionDesc {
             id: OptionId::MasterVolume,
@@ -374,6 +382,17 @@ pub fn note_size_next(v: f32, forward: bool) -> f32 {
     (v + step).clamp(NOTE_SIZE_MIN, NOTE_SIZE_MAX)
 }
 
+/// UI scale percent: steps of `UI_SCALE_STEP` clamped to 80 to 150 (no wrap).
+/// A hand-edited value off the steps snaps first, then moves one step.
+pub fn ui_scale_next(v: u32, forward: bool) -> u32 {
+    let v = snap_ui_scale(v);
+    if forward {
+        (v + UI_SCALE_STEP).min(UI_SCALE_MAX)
+    } else {
+        v.saturating_sub(UI_SCALE_STEP).max(UI_SCALE_MIN)
+    }
+}
+
 /// A bus volume (BGM, key sounds, UI sounds): 5 % steps between 0 and 100 %.
 pub fn bus_volume_next(v: f32, forward: bool) -> f32 {
     (v + if forward { 0.05 } else { -0.05 }).clamp(0.0, 1.0)
@@ -468,6 +487,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::JudgePosition => judge_position_label(state.view.skin.judge_position).to_string(),
         OptionId::NoteSize => format!("{:.0}%", state.view.skin.note_size * 100.0),
         OptionId::ReduceFlashes => on_off(state.reduce_flashes).to_string(),
+        OptionId::UiScale => format!("{}%", state.view.ui_scale),
         OptionId::Playfield => field_label(state.view.skin.field_position).to_string(),
         OptionId::Scratch => {
             let mode = state.key_config_mode();
@@ -587,6 +607,10 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.view.skin.set_note_size(size);
         }
         OptionId::ReduceFlashes => state.reduce_flashes = !state.reduce_flashes,
+        OptionId::UiScale => {
+            let percent = ui_scale_next(state.view.ui_scale, forward);
+            state.view.set_ui_scale(percent);
+        }
         OptionId::Playfield => {
             let skin = &mut state.view.skin;
             let position = if forward {
@@ -880,6 +904,20 @@ mod tests {
         assert_eq!(cycle(&[1, 2, 3], 3, true), 1);
         assert_eq!(cycle(&[1, 2, 3], 1, false), 3);
         assert_eq!(cycle(&[60, 120, 144, 240, 360, 0], 75, true), 360);
+    }
+
+    #[test]
+    fn ui_scale_steps_ten_percent_and_clamps_without_wrapping() {
+        assert_eq!(ui_scale_next(100, true), 110);
+        assert_eq!(ui_scale_next(100, false), 90);
+        assert_eq!(ui_scale_next(150, true), 150, "clamps at the top");
+        assert_eq!(ui_scale_next(80, false), 80, "clamps at the bottom");
+        assert_eq!(
+            ui_scale_next(85, true),
+            100,
+            "an off-step value snaps first"
+        );
+        assert_eq!(ui_scale_next(7, false), 80);
     }
 
     #[test]

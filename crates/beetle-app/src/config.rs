@@ -4,8 +4,8 @@ use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
 use beetle_render::strings::Lang;
 use beetle_render::{
-    px_per_sec_to_green_ms, EightKForm, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
-    NOTE_SIZE_MIN,
+    px_per_sec_to_green_ms, snap_ui_scale, EightKForm, FieldPosition, JudgePosition, ScratchSide,
+    NOTE_SIZE_MAX, NOTE_SIZE_MIN, UI_SCALE_DEFAULT,
 };
 use std::fs;
 use std::path::Path;
@@ -306,6 +306,8 @@ pub struct AppConfig {
     pub judge_position: JudgePosition,
     /// No full-field danger flash, dimmer hit bursts, no banner sweep or shake.
     pub reduce_flashes: bool,
+    /// Menu UI scale in percent (`ui_scale=80..=150`, steps of 10; 100 = default).
+    pub ui_scale: u32,
     /// The language picked in Settings (`language=KO|EN|JA`). `None` until the
     /// player picks one: the Windows UI language is used then.
     pub language: Option<Lang>,
@@ -343,6 +345,7 @@ impl Default for AppConfig {
             note_size: 1.0,
             judge_position: JudgePosition::Upper,
             reduce_flashes: false,
+            ui_scale: UI_SCALE_DEFAULT,
             language: None,
             turntable_axis: None,
         }
@@ -537,6 +540,11 @@ impl AppConfig {
                 }
                 "judge_position" => config.judge_position = JudgePosition::from_name(val),
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
+                "ui_scale" => {
+                    if let Ok(v) = val.parse::<u32>() {
+                        config.ui_scale = snap_ui_scale(v);
+                    }
+                }
                 "language" => config.language = Lang::from_code(val),
                 "turntable_axis" => {
                     config.turntable_axis = val
@@ -576,7 +584,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\nvisual_offset_ms={:.1}\nnote_size={:.2}\njudge_position={}\nreduce_flashes={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\nvisual_offset_ms={:.1}\nnote_size={:.2}\njudge_position={}\nreduce_flashes={}\nui_scale={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -606,6 +614,7 @@ impl AppConfig {
             self.note_size,
             self.judge_position.as_str(),
             if self.reduce_flashes { "ON" } else { "OFF" },
+            self.ui_scale,
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -953,6 +962,22 @@ green_ms=530
         let low = AppConfig::parse_str("visual_offset_ms=-900\nnote_size=0.1\n");
         assert_eq!(low.visual_offset_ms, -100.0);
         assert_eq!(low.note_size, NOTE_SIZE_MIN);
+    }
+
+    #[test]
+    fn ui_scale_round_trips_snaps_and_an_old_file_reads_100() {
+        assert_eq!(AppConfig::parse_str("master_volume=0.70\n").ui_scale, 100);
+        let saved = AppConfig {
+            ui_scale: 130,
+            ..Default::default()
+        };
+        let text = saved.serialize_str();
+        assert!(text.contains("ui_scale=130\n"));
+        assert_eq!(AppConfig::parse_str(&text).ui_scale, 130);
+        assert_eq!(AppConfig::parse_str("ui_scale=85\n").ui_scale, 90);
+        assert_eq!(AppConfig::parse_str("ui_scale=400\n").ui_scale, 150);
+        assert_eq!(AppConfig::parse_str("ui_scale=40\n").ui_scale, 80);
+        assert_eq!(AppConfig::parse_str("ui_scale=big\n").ui_scale, 100);
     }
 
     #[test]

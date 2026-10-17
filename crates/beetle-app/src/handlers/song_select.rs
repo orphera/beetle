@@ -380,7 +380,7 @@ fn sound_if_moved(state: &mut AppState, before: usize) {
 /// Centres the list on the cursor. Keyboard moves call it, so the cursor stays
 /// in the middle as before. A click or the wheel never does (see `scroll_list`).
 pub fn centre_list(state: &mut AppState) {
-    let rows = beetle_render::visible_rows(&state.view.viewport);
+    let rows = beetle_render::visible_rows(&state.view.ui);
     state.list_scroll =
         beetle_render::centred_start(state.selected_entry, state.entries.len(), rows);
 }
@@ -389,7 +389,7 @@ pub fn centre_list(state: &mut AppState) {
 /// without re-centring; the cursor moves only when it would leave the view, so
 /// the rows never jump under the pointer.
 pub fn scroll_list(state: &mut AppState, delta: isize) {
-    let rows = beetle_render::visible_rows(&state.view.viewport);
+    let rows = beetle_render::visible_rows(&state.view.ui);
     let total = state.entries.len();
     if total == 0 {
         return;

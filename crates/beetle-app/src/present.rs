@@ -35,7 +35,10 @@ fn ambient_clock() -> f32 {
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.sync_screen_entry();
-    let scale = state.view.viewport.scale;
+    let scale = state
+        .view
+        .frame_viewport(state.screen == AppScreen::Gameplay)
+        .scale;
     state
         .d3d11
         .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
@@ -156,7 +159,13 @@ fn overlays(state: &mut AppState, toasts: bool) {
             beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
         }
         Some(transition::Overlay::Shutter(phase) | transition::Overlay::GameplayReveal(phase)) => {
-            beetle_render::draw_shutter(&mut state.gpu_ui.ui, &state.view.viewport, phase);
+            beetle_render::draw_shutter(
+                &mut state.gpu_ui.ui,
+                &state
+                    .view
+                    .frame_viewport(state.screen == AppScreen::Gameplay),
+                phase,
+            );
         }
         None => {}
     }
@@ -170,7 +179,9 @@ fn overlays(state: &mut AppState, toasts: bool) {
         if let (Some(pose), Some(toast)) = (state.toast_pose_now(now), state.toast.as_ref()) {
             beetle_render::draw_toast(
                 &mut state.gpu_ui.ui,
-                &state.view.viewport,
+                &state
+                    .view
+                    .frame_viewport(state.screen == AppScreen::Gameplay),
                 &ToastFrame {
                     text: &toast.text,
                     kind: toast.kind,
@@ -435,7 +446,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     });
     let motion = state.song_select_motion(Instant::now());
     // Jacket thumbnails for the rows near the list (see `thumbs`).
-    let visible = beetle_render::visible_rows(&state.view.viewport);
+    let visible = beetle_render::visible_rows(&state.view.ui);
     let settled = state.cursor_settle_time.elapsed() >= crate::thumbs::SETTLE;
     state.jacket_busy = crate::thumbs::pump(state, motion.scroll, visible, settled);
     let rows: Vec<beetle_render::SelectRow> = state
@@ -467,7 +478,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             },
         })
         .collect();
-    let vp = state.view.viewport;
+    let vp = state.view.ui;
     let ui: &mut Ui = &mut state.gpu_ui.ui;
     beetle_render::draw_song_select(
         ui,
@@ -527,18 +538,14 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     let lines = option_lines(state, settings_options());
     let row = state.settings_row.min(settings_options().len() - 1);
-    let scroll = beetle_render::follow_settings_scroll(
-        &state.view.viewport,
-        &lines,
-        row,
-        state.settings_scroll,
-    );
+    let scroll =
+        beetle_render::follow_settings_scroll(&state.view.ui, &lines, row, state.settings_scroll);
     state.settings_scroll = scroll;
     begin(state, size);
     beetle_render::draw_settings(
         &mut state.gpu_ui.ui,
         &SettingsFrame {
-            viewport: &state.view.viewport,
+            viewport: &state.view.ui,
             lines: &lines,
             selected: row,
             help: settings_options()[row].help,
@@ -584,7 +591,7 @@ fn calibrate(state: &mut AppState, size: PhysicalSize<u32>) {
     beetle_render::draw_calibrate(
         &mut state.gpu_ui.ui,
         &beetle_render::CalibrateFrame {
-            viewport: &state.view.viewport,
+            viewport: &state.view.ui,
             phase,
             pulse,
             required: crate::calibration::REQUIRED_PRESSES,
@@ -604,7 +611,7 @@ fn calibrate(state: &mut AppState, size: PhysicalSize<u32>) {
 /// when it is open.
 pub fn title(state: &mut AppState, size: PhysicalSize<u32>) {
     begin(state, size);
-    let vp = state.view.viewport;
+    let vp = state.view.ui;
     beetle_render::draw_title(
         &mut state.gpu_ui.ui,
         &beetle_render::TitleFrame {
@@ -634,7 +641,7 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
     beetle_render::draw_boot(
         &mut state.gpu_ui.ui,
         &beetle_render::BootFrame {
-            viewport: &state.view.viewport,
+            viewport: &state.view.ui,
             elapsed: state.library_started_at.elapsed().as_secs_f64(),
             title,
             status,
@@ -685,7 +692,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         beetle_render::draw_loading(
             &mut state.gpu_ui.ui,
             &beetle_render::LoadingFrame {
-                viewport: &state.view.viewport,
+                viewport: &state.view.ui,
                 song,
                 notes,
                 jacket,
@@ -774,7 +781,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
         beetle_render::draw_result(
             &mut state.gpu_ui.ui,
             &beetle_render::ResultFrame {
-                viewport: &state.view.viewport,
+                viewport: &state.view.ui,
                 chart,
                 score: judge.score(),
                 previous_best: state.previous_best.as_ref(),
@@ -797,7 +804,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
         let d = &play_options()[row];
         beetle_render::draw_options_panel(
             &mut state.gpu_ui.ui,
-            &state.view.viewport,
+            &state.view.ui,
             &lines,
             row,
             (d.label, d.help),
@@ -834,7 +841,7 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
     beetle_render::draw_key_config(
         &mut state.gpu_ui.ui,
         &beetle_render::KeyConfigFrame {
-            viewport: &state.view.viewport,
+            viewport: &state.view.ui,
             mode,
             lanes: &lanes,
             selected: state.selected_key_idx,

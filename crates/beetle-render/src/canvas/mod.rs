@@ -27,6 +27,22 @@ const MAX_BATCH_INDICES: usize = 12288;
 /// Default atlas page edge (texels). 2048 is within feature level 10_0's
 /// 8192 limit and leaves room for skin sprites plus several font sizes.
 pub const DEFAULT_ATLAS_PAGE_SIZE: u32 = 2048;
+/// Page edge for the large UI scales. Above `LARGE_PAGE_SCALE` the skin
+/// sprites, glyphs and the jacket grid no longer fit one 2048 page (a 4K window
+/// at a 150 % UI scale), so the pages are 4096 texels (64 MB each, CPU copy and
+/// GPU texture) and the grid stays on page 0.
+pub const LARGE_ATLAS_PAGE_SIZE: u32 = 4096;
+/// Window-times-UI scale above which the atlas pages are `LARGE_ATLAS_PAGE_SIZE`.
+pub const LARGE_PAGE_SCALE: f32 = 3.75;
+
+/// The atlas page edge a UI at `scale` (viewport height / 720, UI scale included) uses.
+pub fn atlas_page_size_for_scale(scale: f32) -> u32 {
+    if scale > LARGE_PAGE_SCALE {
+        LARGE_ATLAS_PAGE_SIZE
+    } else {
+        DEFAULT_ATLAS_PAGE_SIZE
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TexSlot {
@@ -130,6 +146,13 @@ impl Canvas {
     /// Callers must regenerate sprites and drop glyph caches.
     pub fn reset_atlas(&mut self) {
         self.atlas.clear();
+        self.white_uv = Self::alloc_white(&mut self.atlas);
+    }
+
+    /// `reset_atlas` for a UI at `scale`, switching the page size when the
+    /// scale crosses `LARGE_PAGE_SCALE`.
+    pub fn reset_atlas_for_scale(&mut self, scale: f32) {
+        self.atlas.set_page_size(atlas_page_size_for_scale(scale));
         self.white_uv = Self::alloc_white(&mut self.atlas);
     }
 

@@ -3374,7 +3374,16 @@ mod tests {
 
     #[test]
     fn screen_and_modals_are_one_batch() {
-        let vp = Viewport::new(1280, 720);
+        screen_and_modals_are_one_batch_at(100);
+    }
+
+    #[test]
+    fn at_150_percent_ui_scale_the_screen_and_modals_are_one_batch() {
+        screen_and_modals_are_one_batch_at(150);
+    }
+
+    fn screen_and_modals_are_one_batch_at(ui_percent: u32) {
+        let vp = Viewport::new(1280, 720).with_ui_scale(ui_percent);
         let songs: Vec<_> = (0..40).map(song).collect();
         let tables = TableIndex::default();
         let mut scores = ScoreStore::default();

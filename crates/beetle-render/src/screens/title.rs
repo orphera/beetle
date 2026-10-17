@@ -74,9 +74,20 @@ pub fn prompt_alpha(time: f32) -> f32 {
     PROMPT_MIN + (1.0 - PROMPT_MIN) * wave(time, PROMPT_SECS)
 }
 
+/// Bottom of the last menu row in 720-unit layout space (`menu_rects`).
+const MENU_BOTTOM_UNITS: f32 = 592.0;
+
+/// The scale the title layout is drawn at: the viewport scale, shrunk when
+/// the wordmark and the menu would run off the bottom at a large UI scale
+/// (the layout is anchored in 720-unit space, so at 150 % on a 720p window
+/// it fits at about 1.09 instead of 1.5). The UI scale still changes the text.
+pub fn title_scale(vp: &Viewport) -> f32 {
+    vp.scale.min(vp.height * 0.9 / MENU_BOTTOM_UNITS)
+}
+
 /// The four menu rows in viewport pixels, top to bottom.
 pub fn menu_rects(vp: &Viewport) -> [Rect; 4] {
-    let s = vp.scale;
+    let s = title_scale(vp);
     let (w, h, pitch) = (300.0 * s, 40.0 * s, 50.0 * s);
     let x = vp.x + (vp.width - w) / 2.0;
     let top = vp.y + 402.0 * s;
@@ -89,7 +100,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
     let lite = ui.lite;
     let time = ui.clock;
     let vp = f.viewport;
-    let s = vp.scale;
+    let s = title_scale(vp);
     let cx = vp.x + vp.width / 2.0;
 
     // Hover and hits are read before the canvas and text are borrowed.
@@ -348,6 +359,25 @@ mod tests {
         ui.begin(1280, 720, vp.scale);
         draw_title(&mut ui, &frame(&vp, 1, true));
         assert_eq!(ui.canvas.debug_batches().len(), 1);
+    }
+
+    #[test]
+    fn at_150_percent_ui_scale_the_menu_fits_and_draws_in_one_batch() {
+        let vp = Viewport::new(1280, 720).with_ui_scale(150);
+        let rows = menu_rects(&vp);
+        for r in &rows {
+            assert!(r.x >= vp.x && r.right() <= vp.x + vp.width, "row x");
+            assert!(r.y >= vp.y && r.bottom() <= vp.y + vp.height, "row y");
+        }
+        let mut ui = Ui::new(vp.scale);
+        ui.begin(1280, 720, vp.scale);
+        draw_title(&mut ui, &frame(&vp, 0, false));
+        assert_eq!(ui.canvas.debug_batches().len(), 1);
+        for (i, r) in rows.iter().enumerate() {
+            let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+            let hit = crate::hit::hit_at(&ui.hits, x, y);
+            assert_eq!(hit, Some(HitId::TitleItem(i)), "row {i} hit region");
+        }
     }
 
     #[test]

@@ -294,7 +294,7 @@ impl AppState {
     /// The first visible row the list should settle on: `list_scroll` moved
     /// only as far as needed to show the highlight.
     fn list_window_target(&self) -> f32 {
-        let rows = beetle_render::visible_rows(&self.view.viewport);
+        let rows = beetle_render::visible_rows(&self.view.ui);
         beetle_render::window_start(
             self.list_scroll,
             self.selected_entry,
@@ -518,6 +518,7 @@ impl AppState {
             note_size: self.view.skin.note_size,
             judge_position: self.view.skin.judge_position,
             reduce_flashes: self.reduce_flashes,
+            ui_scale: self.view.ui_scale,
             display_mode: self.display_mode,
             language: self.language,
             turntable_axis: self.turntable_axis,
