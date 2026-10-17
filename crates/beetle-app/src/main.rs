@@ -260,6 +260,9 @@ impl ApplicationHandler for BeetleApp {
             key_config_edit_mode: beetle_core::PlayMode::Keys7,
             held_keys: Vec::new(),
             master_volume: saved_config.master_volume,
+            bgm_volume: saved_config.bgm_volume,
+            key_volume: saved_config.key_volume,
+            sfx_volume: saved_config.sfx_volume,
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,
@@ -492,11 +495,10 @@ impl ApplicationHandler for BeetleApp {
                 let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
                 let selected_id = selected_song.as_ref().map(|s| s.id);
-                let preview_wait = state.preview.update(
-                    selected_song.as_ref(),
-                    Instant::now(),
-                    state.master_volume,
-                );
+                let preview_wait =
+                    state
+                        .preview
+                        .update(selected_song.as_ref(), Instant::now(), state.bgm_level());
 
                 if !is_settled {
                     timed = true;

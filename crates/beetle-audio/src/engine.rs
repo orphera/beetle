@@ -1,5 +1,5 @@
 use crate::clock::AudioClock;
-use crate::command::AudioCommand;
+use crate::command::{AudioCommand, Bus};
 use crate::mixer::Mixer;
 use crate::sample::SampleBank;
 use beetle_core::WavId;
@@ -165,5 +165,10 @@ impl AudioEngine {
     /// Set master volume multiplier (0.0 ~ 2.0).
     pub fn set_master_volume(&mut self, vol: f32) -> Result<(), AudioCommand> {
         self.send_command(AudioCommand::SetMasterVolume(vol))
+    }
+
+    /// Set one bus's gain (0.0 ~ 1.0), on top of the master volume.
+    pub fn set_bus_volume(&mut self, bus: Bus, vol: f32) -> Result<(), AudioCommand> {
+        self.send_command(AudioCommand::SetBusVolume { bus, volume: vol })
     }
 }

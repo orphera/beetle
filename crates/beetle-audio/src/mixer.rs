@@ -1,5 +1,5 @@
 use crate::clock::AudioClock;
-use crate::command::AudioCommand;
+use crate::command::{AudioCommand, Bus, BUS_COUNT};
 use crate::sample::SampleBank;
 use beetle_core::WavId;
 use rtrb::Consumer;
@@ -22,6 +22,8 @@ pub struct ActiveVoice {
     pub is_active: bool,
     /// Silent frames left before the voice starts (a start inside a buffer).
     pub delay: u32,
+    /// The bus whose gain this voice follows.
+    pub bus: Bus,
 }
 
 impl Default for ActiveVoice {
@@ -33,6 +35,7 @@ impl Default for ActiveVoice {
             volume_right: 1.0,
             is_active: false,
             delay: 0,
+            bus: Bus::Key,
         }
     }
 }
@@ -44,6 +47,7 @@ struct ScheduledStart {
     start_sample: u64,
     volume: f32,
     pan: f32,
+    bus: Bus,
     is_set: bool,
 }
 
@@ -54,6 +58,7 @@ impl Default for ScheduledStart {
             start_sample: 0,
             volume: 1.0,
             pan: 0.0,
+            bus: Bus::Key,
             is_set: false,
         }
     }
@@ -72,6 +77,8 @@ pub struct Mixer {
     visual_levels: Arc<[AtomicU32; 16]>,
     output_sample_rate: u32,
     master_volume: f32,
+    /// Gain of each bus (`Bus as usize`), 0..=1, on top of the master volume.
+    bus_gain: [f32; BUS_COUNT],
     is_paused: bool,
 }
 
@@ -92,6 +99,7 @@ impl Mixer {
             visual_levels,
             output_sample_rate: clock.sample_rate().max(1),
             master_volume: 1.0,
+            bus_gain: [1.0; BUS_COUNT],
             is_paused: false,
         }
     }
@@ -122,7 +130,7 @@ impl Mixer {
                     volume,
                     pan,
                 } => {
-                    self.spawn_voice(sample_id, volume, pan, 0);
+                    self.spawn_voice(sample_id, volume, pan, 0, Bus::Key);
                 }
                 AudioCommand::PlaySampleAt {
                     sample_id,
@@ -130,7 +138,7 @@ impl Mixer {
                     volume,
                     pan,
                 } => {
-                    self.schedule(sample_id, start_sample, volume, pan);
+                    self.schedule(sample_id, start_sample, volume, pan, Bus::Bgm);
                 }
                 AudioCommand::StopSample { sample_id } => {
                     self.kill_voice(sample_id);
@@ -151,6 +159,9 @@ impl Mixer {
                 }
                 AudioCommand::SetMasterVolume(vol) => {
                     self.master_volume = vol.clamp(0.0, 2.0);
+                }
+                AudioCommand::SetBusVolume { bus, volume } => {
+                    self.bus_gain[bus as usize] = volume.clamp(0.0, 1.0);
                 }
                 AudioCommand::ResetClock => {
                     // Pending frames counted from the old zero mean nothing now.
@@ -187,7 +198,7 @@ impl Mixer {
             if s.is_set && s.start_sample < end {
                 self.scheduled[i].is_set = false;
                 let delay = s.start_sample.saturating_sub(first) as u32;
-                self.spawn_voice(s.sample_id, s.volume, s.pan, delay);
+                self.spawn_voice(s.sample_id, s.volume, s.pan, delay, s.bus);
             }
         }
 
@@ -218,8 +229,9 @@ impl Mixer {
             voice.delay = 0;
 
             let step = pcm.sample_rate as f64 / out_sr;
-            let vol_l = voice.volume_left * self.master_volume;
-            let vol_r = voice.volume_right * self.master_volume;
+            let gain = self.master_volume * self.bus_gain[voice.bus as usize];
+            let vol_l = voice.volume_left * gain;
+            let vol_r = voice.volume_right * gain;
 
             for i in start..frame_count {
                 let frame_idx = voice.cursor;
@@ -282,7 +294,7 @@ impl Mixer {
     }
 
     /// Holds a start for its frame; with every slot taken it starts at once.
-    fn schedule(&mut self, sample_id: WavId, start_sample: u64, volume: f32, pan: f32) {
+    fn schedule(&mut self, sample_id: WavId, start_sample: u64, volume: f32, pan: f32, bus: Bus) {
         if self.sample_bank.get(sample_id).is_none() {
             return;
         }
@@ -293,14 +305,15 @@ impl Mixer {
                     start_sample,
                     volume,
                     pan,
+                    bus,
                     is_set: true,
                 }
             }
-            None => self.spawn_voice(sample_id, volume, pan, 0),
+            None => self.spawn_voice(sample_id, volume, pan, 0, bus),
         }
     }
 
-    fn spawn_voice(&mut self, sample_id: WavId, volume: f32, pan: f32, delay: u32) {
+    fn spawn_voice(&mut self, sample_id: WavId, volume: f32, pan: f32, delay: u32, bus: Bus) {
         if self.sample_bank.get(sample_id).is_none() {
             return;
         }
@@ -319,6 +332,7 @@ impl Mixer {
                     volume_right: vol_r,
                     is_active: true,
                     delay,
+                    bus,
                 };
                 return;
             }
@@ -341,6 +355,7 @@ impl Mixer {
             volume_right: vol_r,
             is_active: true,
             delay,
+            bus,
         };
     }
 
@@ -605,5 +620,88 @@ mod tests {
             .unwrap();
         mix(&mut mixer, 2);
         assert_eq!(mixer.active_voice_count(), 1);
+    }
+
+    fn set_bus(producer: &mut rtrb::Producer<AudioCommand>, bus: Bus, volume: f32) {
+        producer
+            .push(AudioCommand::SetBusVolume { bus, volume })
+            .unwrap();
+    }
+
+    fn play_key(producer: &mut rtrb::Producer<AudioCommand>) {
+        producer
+            .push(AudioCommand::PlaySample {
+                sample_id: WavId(1),
+                volume: 1.0,
+                pan: 0.0,
+            })
+            .unwrap();
+    }
+
+    fn stop_all(producer: &mut rtrb::Producer<AudioCommand>) {
+        producer.push(AudioCommand::StopAll).unwrap();
+    }
+
+    #[test]
+    fn the_bgm_bus_gain_scales_chart_sounds() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        set_bus(&mut producer, Bus::Bgm, 0.5);
+        play_at(&mut producer, 0);
+        assert_eq!(mix(&mut mixer, 2), [0.5, 0.5]);
+    }
+
+    #[test]
+    fn the_bgm_gain_leaves_key_sounds_alone() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        set_bus(&mut producer, Bus::Bgm, 0.0);
+        play_key(&mut producer);
+        assert_eq!(mix(&mut mixer, 2), [1.0, 1.0]);
+    }
+
+    #[test]
+    fn the_key_bus_gain_scales_key_sounds_and_leaves_chart_sounds_alone() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        set_bus(&mut producer, Bus::Key, 0.25);
+        play_key(&mut producer);
+        assert_eq!(mix(&mut mixer, 2), [0.25, 0.25]);
+
+        stop_all(&mut producer);
+        play_at(&mut producer, 0);
+        assert_eq!(mix(&mut mixer, 2), [1.0, 1.0]);
+    }
+
+    #[test]
+    fn bus_gains_stack_with_the_master_volume() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        producer.push(AudioCommand::SetMasterVolume(0.8)).unwrap();
+        set_bus(&mut producer, Bus::Key, 0.5);
+        set_bus(&mut producer, Bus::Bgm, 0.25);
+        play_key(&mut producer);
+        assert!((mix(&mut mixer, 2)[0] - 0.4).abs() < 1e-6);
+
+        stop_all(&mut producer);
+        play_at(&mut producer, 0);
+        assert!((mix(&mut mixer, 2)[0] - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_bus_gain_is_clamped_to_zero_through_one() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        set_bus(&mut producer, Bus::Key, 3.0);
+        play_key(&mut producer);
+        assert_eq!(mix(&mut mixer, 1), [1.0]);
+
+        stop_all(&mut producer);
+        set_bus(&mut producer, Bus::Key, -1.0);
+        play_key(&mut producer);
+        assert_eq!(mix(&mut mixer, 1), [0.0]);
+    }
+
+    #[test]
+    fn a_pending_bgm_start_follows_the_bgm_gain_when_it_begins() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        play_at(&mut producer, 3);
+        set_bus(&mut producer, Bus::Bgm, 0.5);
+        assert_eq!(mix(&mut mixer, 6), [0.0, 0.0, 0.0, 0.5, 0.5, 0.5]);
     }
 }

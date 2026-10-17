@@ -15,7 +15,7 @@ pub use atlas::{
     resample_to_44k_stereo, SoundAtlasBuilder,
 };
 pub use clock::AudioClock;
-pub use command::AudioCommand;
+pub use command::{AudioCommand, Bus, BUS_COUNT};
 pub use engine::{AudioEngine, AudioEngineError, SampleTrigger};
 pub use mixer::Mixer;
 pub use sample::{AudioDecodeError, PcmBuffer, SampleBank};

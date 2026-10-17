@@ -46,6 +46,9 @@ pub enum OptionId {
     Graphics,
     TargetFps,
     MasterVolume,
+    BgmVolume,
+    KeyVolume,
+    SfxVolume,
     JudgeOffset,
     Playfield,
     Scratch,
@@ -159,6 +162,27 @@ pub const SETTINGS: &[OptionDesc] = &[
         help: strings::HELP_MASTER_VOLUME,
     },
     OptionDesc {
+        id: OptionId::BgmVolume,
+        group: strings::GROUP_AUDIO,
+        column: 0,
+        label: strings::ROW_BGM_VOLUME,
+        help: strings::HELP_BGM_VOLUME,
+    },
+    OptionDesc {
+        id: OptionId::KeyVolume,
+        group: strings::GROUP_AUDIO,
+        column: 0,
+        label: strings::ROW_KEY_VOLUME,
+        help: strings::HELP_KEY_VOLUME,
+    },
+    OptionDesc {
+        id: OptionId::SfxVolume,
+        group: strings::GROUP_AUDIO,
+        column: 0,
+        label: strings::ROW_SFX_VOLUME,
+        help: strings::HELP_SFX_VOLUME,
+    },
+    OptionDesc {
         id: OptionId::JudgeOffset,
         group: strings::GROUP_JUDGE,
         column: 0,
@@ -259,6 +283,11 @@ pub fn volume_next(v: f32, forward: bool) -> f32 {
     (v + if forward { 0.05 } else { -0.05 }).clamp(0.0, 2.0)
 }
 
+/// A bus volume (BGM, key sounds, UI sounds): 5 % steps between 0 and 100 %.
+pub fn bus_volume_next(v: f32, forward: bool) -> f32 {
+    (v + if forward { 0.05 } else { -0.05 }).clamp(0.0, 1.0)
+}
+
 /// Judge offset in ms: steps of `JUDGE_OFFSET_STEP_MS` within the range.
 pub fn judge_offset_next(v: f64, forward: bool) -> f64 {
     let step = if forward {
@@ -339,6 +368,9 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             }
         }
         OptionId::MasterVolume => format!("{:.0}%", state.master_volume * 100.0),
+        OptionId::BgmVolume => format!("{:.0}%", state.bgm_volume * 100.0),
+        OptionId::KeyVolume => format!("{:.0}%", state.key_volume * 100.0),
+        OptionId::SfxVolume => format!("{:.0}%", state.sfx_volume * 100.0),
         OptionId::JudgeOffset => format!("{:+.0} ms", o.judge_offset_ms),
         OptionId::Playfield => field_label(state.view.skin.field_position).to_string(),
         OptionId::Scratch => {
@@ -412,10 +444,24 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         OptionId::MasterVolume => {
             state.master_volume = volume_next(state.master_volume, forward);
-            state.menu_audio.set_volume(state.master_volume);
+            // The UI sounds and the preview follow the master, so the menu
+            // stream gets the master times its own bus.
+            state.menu_audio.set_volume(state.sfx_level());
             if let Some(audio) = &mut state.audio_engine {
                 let _ = audio.set_master_volume(state.master_volume);
             }
+        }
+        // The buses are read when a play starts (`gameplay::queue_start_gameplay`)
+        // and the preview reads `bgm_level` each frame; the menu stream follows the SFX bus.
+        OptionId::BgmVolume => {
+            state.bgm_volume = bus_volume_next(state.bgm_volume, forward);
+        }
+        OptionId::KeyVolume => {
+            state.key_volume = bus_volume_next(state.key_volume, forward);
+        }
+        OptionId::SfxVolume => {
+            state.sfx_volume = bus_volume_next(state.sfx_volume, forward);
+            state.menu_audio.set_volume(state.sfx_level());
         }
         OptionId::JudgeOffset => {
             let o = &mut state.play_options;
@@ -621,6 +667,40 @@ mod tests {
         assert_eq!(judge_offset_next(1.0, false), 0.0);
         assert_eq!(judge_offset_next(100.0, true), 100.0);
         assert_eq!(judge_offset_next(-100.0, false), -100.0);
+    }
+
+    #[test]
+    fn bus_volumes_step_by_five_percent_and_clamp_to_the_unit_range() {
+        let mut v = 0.0;
+        for _ in 0..30 {
+            v = bus_volume_next(v, true);
+        }
+        assert!((v - 1.0).abs() < 1e-6, "top is 100 %, got {v}");
+        assert!((bus_volume_next(v, false) - 0.95).abs() < 1e-6);
+        assert!(bus_volume_next(0.0, false).abs() < 1e-6);
+        let start = 0.4;
+        assert!((bus_volume_next(bus_volume_next(start, true), false) - start).abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_settings_row_is_reachable_with_the_arrows() {
+        // Down from the first row visits every row once, in table order, and
+        // stops at the last one; up walks back the same way.
+        let mut row = 0;
+        let mut seen = vec![row];
+        for _ in 0..SETTINGS.len() {
+            crate::handlers::options::move_row(&mut row, SETTINGS.len(), true);
+            seen.push(row);
+        }
+        assert_eq!(
+            seen[..SETTINGS.len()],
+            (0..SETTINGS.len()).collect::<Vec<_>>()[..]
+        );
+        assert_eq!(row, SETTINGS.len() - 1);
+        for _ in 0..SETTINGS.len() {
+            crate::handlers::options::move_row(&mut row, SETTINGS.len(), false);
+        }
+        assert_eq!(row, 0);
     }
 
     #[test]

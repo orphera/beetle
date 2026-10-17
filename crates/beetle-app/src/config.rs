@@ -224,6 +224,11 @@ pub fn green_ms_from_hi_speed(px_per_sec: f32, lane_cover: f32) -> u32 {
     (((ms / 10.0).round() as u32) * 10).clamp(GREEN_MS_MIN, GREEN_MS_MAX)
 }
 
+/// A 0..=1 volume read from a file; a value that is not a number keeps `keep`.
+fn parse_unit(val: &str, keep: f32) -> f32 {
+    val.parse::<f32>().map_or(keep, |v| v.clamp(0.0, 1.0))
+}
+
 /// Persistent application configuration.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -249,6 +254,11 @@ pub struct AppConfig {
     /// (`key_preset` / `custom_key_bindings`); read only for migration.
     pub legacy_key_layout: Option<SavedLayout>,
     pub master_volume: f32,
+    /// Chart BGM, player key sounds and UI sounds, each 0..=1 on top of
+    /// `master_volume` (the mixer's bus gains).
+    pub bgm_volume: f32,
+    pub key_volume: f32,
+    pub sfx_volume: f32,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub window_width: u32,
@@ -275,6 +285,9 @@ impl Default for AppConfig {
             key_layouts: Default::default(),
             legacy_key_layout: None,
             master_volume: 1.0,
+            bgm_volume: 1.0,
+            key_volume: 1.0,
+            sfx_volume: 1.0,
             display_mode: DisplayMode::Windowed,
             gpu_backend: GpuBackendSetting::Auto,
             window_width: 1280,
@@ -418,6 +431,9 @@ impl AppConfig {
                         config.master_volume = v.clamp(0.0, 2.0);
                     }
                 }
+                "bgm_volume" => config.bgm_volume = parse_unit(val, config.bgm_volume),
+                "key_volume" => config.key_volume = parse_unit(val, config.key_volume),
+                "sfx_volume" => config.sfx_volume = parse_unit(val, config.sfx_volume),
                 "display_mode" => {
                     config.display_mode = match val {
                         "BORDERLESS" => DisplayMode::Borderless,
@@ -492,7 +508,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -502,6 +518,9 @@ impl AppConfig {
             self.sort_mode.as_str(),
             self.folder_path.to_config_string(),
             self.master_volume,
+            self.bgm_volume,
+            self.key_volume,
+            self.sfx_volume,
             self.display_mode.as_str(),
             self.gpu_backend.as_str(),
             self.window_width,
@@ -612,6 +631,9 @@ mod tests {
             ],
             legacy_key_layout: None,
             master_volume: 0.85,
+            bgm_volume: 0.4,
+            key_volume: 0.75,
+            sfx_volume: 0.5,
             display_mode: DisplayMode::Borderless,
             gpu_backend: GpuBackendSetting::Warp,
             window_width: 1920,
@@ -645,6 +667,9 @@ mod tests {
         assert_eq!(config.key_layouts, parsed.key_layouts);
         assert_eq!(parsed.legacy_key_layout, None);
         assert_eq!(config.master_volume, parsed.master_volume);
+        assert_eq!(config.bgm_volume, parsed.bgm_volume);
+        assert_eq!(config.key_volume, parsed.key_volume);
+        assert_eq!(config.sfx_volume, parsed.sfx_volume);
         assert_eq!(config.display_mode, parsed.display_mode);
         assert_eq!(config.gpu_backend, parsed.gpu_backend);
         assert_eq!(config.window_width, parsed.window_width);
@@ -813,5 +838,37 @@ green_ms=530
         );
         assert!(!text.contains("hi_speed"));
         assert_eq!(AppConfig::parse_str(&text).play_options.green_ms, 530);
+    }
+
+    #[test]
+    fn a_file_from_before_the_bus_volumes_reads_them_as_full() {
+        // The file an older build wrote: no bus volume lines at all.
+        let parsed = AppConfig::parse_str("master_volume=0.70\nsort_mode=TITLE\n");
+        assert_eq!(parsed.master_volume, 0.70);
+        assert_eq!(parsed.bgm_volume, 1.0);
+        assert_eq!(parsed.key_volume, 1.0);
+        assert_eq!(parsed.sfx_volume, 1.0);
+    }
+
+    #[test]
+    fn bus_volumes_are_clamped_to_zero_through_one_and_bad_values_keep_the_default() {
+        let parsed = AppConfig::parse_str("bgm_volume=3.5\nkey_volume=-2\nsfx_volume=loud\n");
+        assert_eq!(parsed.bgm_volume, 1.0);
+        assert_eq!(parsed.key_volume, 0.0);
+        assert_eq!(parsed.sfx_volume, 1.0);
+    }
+
+    #[test]
+    fn bus_volumes_written_at_the_five_percent_step_read_back_exactly() {
+        let config = AppConfig {
+            bgm_volume: 0.35,
+            key_volume: 0.0,
+            sfx_volume: 1.0,
+            ..AppConfig::default()
+        };
+        let parsed = AppConfig::parse_str(&config.serialize_str());
+        assert!((parsed.bgm_volume - 0.35).abs() < 1e-6);
+        assert_eq!(parsed.key_volume, 0.0);
+        assert_eq!(parsed.sfx_volume, 1.0);
     }
 }

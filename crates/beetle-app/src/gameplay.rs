@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use beetle_audio::{AudioCommand, AudioEngine, SampleBank, UiSound};
+use beetle_audio::{AudioCommand, AudioEngine, Bus, SampleBank, UiSound};
 use beetle_core::{
     apply_lane_modifier, BmsChart, ClearType, GaugeTrend, JudgeEngine, JudgeGrade, JudgeWindow,
     PlayResult, ReplayData, ScoreUpdate, SongMetadata, TimingModel,
@@ -213,6 +213,8 @@ pub fn finalize_start_gameplay(
     }
     if let Some(audio) = &mut audio_engine {
         let _ = audio.set_master_volume(state.master_volume);
+        let _ = audio.set_bus_volume(Bus::Bgm, state.bgm_volume);
+        let _ = audio.set_bus_volume(Bus::Key, state.key_volume);
     }
 
     state.active_chart = Some(play_chart);
@@ -348,7 +350,7 @@ pub fn finish_gameplay(state: &mut AppState) {
     record_play(state);
     let audio_time = audio_time_now(state);
     state.audio_engine = None;
-    state.menu_audio.open(state.master_volume);
+    state.menu_audio.open(state.sfx_level());
     state.menu_audio.play(end_jingle(lamp));
     state.gameplay_end = Some(GameplayEnd {
         lamp,

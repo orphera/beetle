@@ -179,6 +179,10 @@ pub struct AppState {
     /// released only when the last of them is.
     pub held_keys: Vec<(winit::keyboard::KeyCode, Lane)>,
     pub master_volume: f32,
+    /// Chart BGM, player key sounds and UI sounds, each on top of the master.
+    pub bgm_volume: f32,
+    pub key_volume: f32,
+    pub sfx_volume: f32,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
@@ -433,6 +437,16 @@ impl AppState {
         );
     }
 
+    /// The menu sound stream's level: the master times the UI sound bus.
+    pub fn sfx_level(&self) -> f32 {
+        self.master_volume * self.sfx_volume
+    }
+
+    /// The song preview's level: the master times the BGM bus.
+    pub fn bgm_level(&self) -> f32 {
+        self.master_volume * self.bgm_volume
+    }
+
     pub fn save_config(&self) {
         let size = self.window.inner_size();
         let app_config = AppConfig {
@@ -448,6 +462,9 @@ impl AppState {
             key_layouts: self.key_bindings.to_saved().map(Some),
             legacy_key_layout: None,
             master_volume: self.master_volume,
+            bgm_volume: self.bgm_volume,
+            key_volume: self.key_volume,
+            sfx_volume: self.sfx_volume,
             display_mode: self.display_mode,
             gpu_backend: self.gpu_backend,
             window_width: size.width.max(640),

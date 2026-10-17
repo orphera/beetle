@@ -228,6 +228,9 @@ table! {
     pub ROW_START_MEASURE = "시작 마디";
     pub ROW_JUDGE_OFFSET = "판정 오프셋";
     pub ROW_MASTER_VOLUME = "전체 볼륨";
+    pub ROW_BGM_VOLUME = "배경음 볼륨";
+    pub ROW_KEY_VOLUME = "키음 볼륨";
+    pub ROW_SFX_VOLUME = "효과음 볼륨";
     pub ROW_PLAYFIELD = "플레이필드";
     pub ROW_SCRATCH = "스크래치";
     pub ROW_BGA = "BGA";
@@ -290,7 +293,10 @@ table! {
     pub HELP_RESOLUTION = "창 크기나 전체 화면 해상도를 골라요. 창 모드는 16:9 크기만 고를 수 있어요.";
     pub HELP_GRAPHICS = "그림을 그리는 장치예요. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그려요. 바꾸면 재시작 후 적용돼요.";
     pub HELP_TARGET_FPS = "플레이 화면의 최대 프레임이에요. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춰요.";
-    pub HELP_MASTER_VOLUME = "키음과 배경음을 포함한 전체 소리 크기예요. 최대 200%까지 올릴 수 있어요.";
+    pub HELP_MASTER_VOLUME = "모든 소리의 전체 크기예요. 아래 세 볼륨에 곱해지며, 최대 200%까지 올릴 수 있어요.";
+    pub HELP_BGM_VOLUME = "곡의 배경음 크기예요. 채보에 들어 있는 자동 재생 소리가 여기에 해당해요. 전체 볼륨과 함께 적용돼요.";
+    pub HELP_KEY_VOLUME = "플레이 중 내가 누른 키의 소리 크기예요. 판정된 노트의 소리도 여기에 해당해요. 자동 플레이 소리는 배경음이에요.";
+    pub HELP_SFX_VOLUME = "메뉴 효과음과 징글의 크기예요. 곡 미리듣기는 배경음 볼륨을 따라요.";
     pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮겨요. 범위는 -100에서 +100 ms예요. ENTER로 박자에 맞춰 측정할 수 있어요.";
     pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.";
     pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.";

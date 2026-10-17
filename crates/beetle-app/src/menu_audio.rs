@@ -15,7 +15,7 @@ use crate::state::{AppScreen, AppState};
 
 /// Rate the sounds are synthesized at; the mixer resamples them to the device.
 const SYNTH_RATE: u32 = 48_000;
-/// Menu sounds are secondary to the song preview: they play at this share of the master volume.
+/// The UI sounds sit under the SFX bus at this share (the stream is their own mixer).
 const SFX_GAIN: f32 = 0.6;
 /// Fastest repeat of `Move` (held arrow keys) and of `Tick`.
 const MOVE_GAP: Duration = Duration::from_millis(35);
@@ -40,13 +40,13 @@ pub struct MenuAudio {
 }
 
 impl MenuAudio {
-    /// Opens the output stream at `master` volume (the Settings value). If a
+    /// Opens the output stream at `volume`, the master times the SFX bus (see `AppState::sfx_level`). If a
     /// stream is already open only the volume changes. When no device can be
     /// opened the menus stay silent; nothing is reported, and the device is not
     /// tried again for `RETRY_GAP`.
-    pub fn open(&mut self, master: f32) {
+    pub fn open(&mut self, volume: f32) {
         if self.engine.is_some() {
-            self.set_volume(master);
+            self.set_volume(volume);
             return;
         }
         let now = Instant::now();
@@ -58,15 +58,15 @@ impl MenuAudio {
             return;
         };
         self.last_failure = None;
-        let _ = engine.set_master_volume(master * SFX_GAIN);
+        let _ = engine.set_master_volume(volume * SFX_GAIN);
         self.trigger = engine.take_trigger();
         self.engine = Some(engine);
     }
 
-    /// Follows a change of the master volume (`master`, not yet scaled).
-    pub fn set_volume(&mut self, master: f32) {
+    /// Follows a change of the master or the SFX bus (`volume`, not yet scaled).
+    pub fn set_volume(&mut self, volume: f32) {
         if let Some(engine) = self.engine.as_mut() {
-            let _ = engine.set_master_volume(master * SFX_GAIN);
+            let _ = engine.set_master_volume(volume * SFX_GAIN);
         }
     }
 
@@ -141,7 +141,7 @@ fn stream_policy(screen: AppScreen) -> Option<bool> {
 /// Called when the screen changes, and once at start-up.
 pub fn sync_with_screen(state: &mut AppState) {
     match stream_policy(state.screen) {
-        Some(true) => state.menu_audio.open(state.master_volume),
+        Some(true) => state.menu_audio.open(state.sfx_level()),
         Some(false) => state.menu_audio.close(),
         None => {}
     }

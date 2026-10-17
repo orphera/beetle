@@ -50,7 +50,7 @@ fn change_setting(state: &mut AppState, row: usize, forward: bool) {
 pub fn open_calibration(state: &mut AppState) {
     if state.calibration.is_none() {
         play_ui(state, UiSound::Open);
-        state.calibration = Some(Session::open(state.master_volume));
+        state.calibration = Some(Session::open(state.sfx_level()));
     }
 }
 
