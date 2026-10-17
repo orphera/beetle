@@ -2,14 +2,17 @@
 //! GPU/shader dependency — see AGENTS.md §3 for the scoped dependency
 //! exception and docs/plans/2026-10-03-pulse-redesign.md for the history).
 //!
-//! Three embedded, pre-subsetted font files cover the UI's actual script
+//! Two embedded, pre-subsetted font files cover the UI's actual script
 //! range (not full Unicode — see the asset README for the subsetting
 //! recipe that keeps these small):
-//!   - JetBrains Mono (Latin, OFL-1.1): Basic Latin only, Regular + Bold.
 //!   - Noto Sans JP (joyo-kanji + kana, OFL-1.1): the ~2137 Japanese
 //!     "common use" kanji plus hiragana/katakana/CJK punctuation.
 //!   - Noto Sans KR (OFL-1.1): the 2,350 KS X 1001 "common use" Hangul
-//!     syllables plus compatibility jamo.
+//!     syllables plus compatibility jamo, and Basic Latin. One family draws
+//!     Latin and Hangul alike, so a line never mixes two typefaces.
+//!
+//! Bold is synthetic (the same outlines, dilated), like the beetle-app text
+//! engine, so every script gets the same weight.
 //!
 //! Glyphs are rasterized at their real pixel size (the em size the caller
 //! asks for) and advance by their true width, like the beetle-app text
@@ -22,34 +25,29 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use tiny_skia::PixmapMut;
 
-const LATIN_REGULAR_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
-const LATIN_BOLD_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf");
+/// Synthetic bold stroke growth, as a fraction of the em size (as in beetle-render).
+const BOLD_STRENGTH: f32 = 0.04;
 // Shared with the new text engine so the font data is embedded only once.
 const JAPANESE_BYTES: &[u8] = beetle_render::text::JP_BYTES;
 const KOREAN_BYTES: &[u8] = beetle_render::text::KR_BYTES;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum FontTag {
-    LatinRegular,
-    LatinBold,
     Japanese,
+    /// Hangul and Basic Latin.
     Korean,
 }
 
 /// Picks which embedded font should render a given character.
-fn font_for_char(c: char, bold: bool) -> FontTag {
+fn font_for_char(c: char) -> FontTag {
     let code = c as u32;
-    if (0xAC00..=0xD7A3).contains(&code) || (0x3131..=0x318F).contains(&code) {
-        FontTag::Korean
-    } else if (0x3000..=0x30FF).contains(&code)
+    if (0x3000..=0x30FF).contains(&code)
         || (0x4E00..=0x9FFF).contains(&code)
         || (0xFF00..=0xFFEF).contains(&code)
     {
         FontTag::Japanese
-    } else if bold {
-        FontTag::LatinBold
     } else {
-        FontTag::LatinRegular
+        FontTag::Korean
     }
 }
 
@@ -64,20 +62,16 @@ struct CachedGlyph {
 }
 
 struct GlyphCache {
-    latin_regular: Font,
-    latin_bold: Font,
     japanese: Font,
     korean: Font,
     // Keyed by (font, char, em px) — one rasterization per glyph per size.
-    cache: HashMap<(FontTag, char, u16), Option<CachedGlyph>>,
+    cache: HashMap<(FontTag, char, u16, bool), Option<CachedGlyph>>,
 }
 
 impl GlyphCache {
     fn new() -> Option<Self> {
         let settings = FontSettings::default();
         Some(Self {
-            latin_regular: Font::from_bytes(LATIN_REGULAR_BYTES, settings).ok()?,
-            latin_bold: Font::from_bytes(LATIN_BOLD_BYTES, settings).ok()?,
             japanese: Font::from_bytes(JAPANESE_BYTES, settings).ok()?,
             korean: Font::from_bytes(KOREAN_BYTES, settings).ok()?,
             cache: HashMap::new(),
@@ -86,20 +80,24 @@ impl GlyphCache {
 
     fn font(&self, tag: FontTag) -> &Font {
         match tag {
-            FontTag::LatinRegular => &self.latin_regular,
-            FontTag::LatinBold => &self.latin_bold,
             FontTag::Japanese => &self.japanese,
             FontTag::Korean => &self.korean,
         }
     }
 
-    fn get_or_rasterize(&mut self, tag: FontTag, c: char, px: u16) -> Option<&CachedGlyph> {
-        let key = (tag, c, px);
+    fn get_or_rasterize(
+        &mut self,
+        tag: FontTag,
+        c: char,
+        px: u16,
+        bold: bool,
+    ) -> Option<&CachedGlyph> {
+        let key = (tag, c, px, bold);
         if !self.cache.contains_key(&key) {
             let font = self.font(tag);
             let glyph = if font.has_glyph(c) {
                 let (m, bitmap) = font.rasterize(c, px as f32);
-                Some(CachedGlyph {
+                let mut g = CachedGlyph {
                     coverage: bitmap,
                     w: m.width as i32,
                     h: m.height as i32,
@@ -108,7 +106,11 @@ impl GlyphCache {
                     // for descenders), so its top is `ymin + height` above.
                     y_off: -(m.ymin + m.height as i32),
                     advance: m.advance_width,
-                })
+                };
+                if bold {
+                    embolden(&mut g, px as f32 * BOLD_STRENGTH);
+                }
+                Some(g)
             } else {
                 None
             };
@@ -138,7 +140,7 @@ fn with_cache<R>(f: impl FnOnce(&mut GlyphCache) -> Option<R>) -> Option<R> {
 pub fn advance(c: char, px: u16, bold: bool) -> Option<f32> {
     with_cache(|cache| {
         cache
-            .get_or_rasterize(font_for_char(c, bold), c, px)
+            .get_or_rasterize(font_for_char(c), c, px, bold)
             .map(|g| g.advance)
     })
 }
@@ -148,7 +150,7 @@ pub fn advance(c: char, px: u16, bold: bool) -> Option<f32> {
 /// text share a capital-height top edge.
 pub fn cap_height(px: u16) -> i32 {
     with_cache(|cache| {
-        let m = cache.latin_regular.metrics('H', px as f32);
+        let m = cache.korean.metrics('H', px as f32);
         Some(m.ymin + m.height as i32)
     })
     .unwrap_or(px as i32 * 3 / 4)
@@ -171,11 +173,43 @@ pub fn draw_char(
         return true;
     }
     with_cache(|cache| {
-        let glyph = cache.get_or_rasterize(font_for_char(c, bold), c, px)?;
+        let glyph = cache.get_or_rasterize(font_for_char(c), c, px, bold)?;
         blit_coverage(pixmap, glyph, x, baseline, color);
         Some(())
     })
     .is_some()
+}
+
+/// Synthetic bold: smears the coverage right by `r` px (the fractional part
+/// blended) and widens the advance to match, keeping the left bearing and baseline.
+fn embolden(g: &mut CachedGlyph, r: f32) {
+    g.advance += r;
+    if g.w == 0 || g.h == 0 || r <= 0.0 {
+        return;
+    }
+    let full = r.floor() as i32;
+    let frac = r - full as f32;
+    let ext = r.ceil() as i32;
+    let (w, nw) = (g.w, g.w + ext);
+    let mut out = vec![0u8; (nw * g.h) as usize];
+    for y in 0..g.h {
+        let row = &g.coverage[(y * w) as usize..((y + 1) * w) as usize];
+        for x in 0..nw {
+            let at = |dx: i32| -> f32 {
+                let sx = x - dx;
+                if (0..w).contains(&sx) {
+                    row[sx as usize] as f32
+                } else {
+                    0.0
+                }
+            };
+            let mut v = (0..=full).map(at).fold(0.0, f32::max);
+            v = v.max(at(full + 1) * frac);
+            out[(y * nw + x) as usize] = v as u8;
+        }
+    }
+    g.coverage = out;
+    g.w = nw;
 }
 
 /// Alpha-blends a glyph's coverage mask onto the pixmap at its pen position.
@@ -253,9 +287,28 @@ mod tests {
     fn test_advance_is_proportional_to_em() {
         // Hangul is roughly a full em wide; Latin is narrower than that.
         let hangul = advance('가', 13, false).unwrap();
-        let latin = advance('W', 13, false).unwrap();
+        let latin = advance('i', 13, false).unwrap();
         assert!(hangul > 11.0 && hangul < 14.0, "{hangul}");
-        assert!(latin > 6.0 && latin < 9.0, "{latin}");
+        assert!(latin > 2.0 && latin < 6.0, "{latin}");
+    }
+
+    #[test]
+    fn bold_is_wider_with_more_ink() {
+        let plain = advance('가', 18, false).unwrap();
+        let bold = advance('가', 18, true).unwrap();
+        assert!(bold > plain);
+        let ink = |bold| {
+            let mut pixmap = Pixmap::new(40, 40).unwrap();
+            pixmap.fill(Color::BLACK);
+            let white = ColorRgba::new(255, 255, 255, 255);
+            draw_char(&mut pixmap.as_mut(), 'E', 5, 30, 18, bold, white);
+            pixmap
+                .data()
+                .chunks_exact(4)
+                .map(|p| p[0] as u32)
+                .sum::<u32>()
+        };
+        assert!(ink(true) > ink(false));
     }
 
     #[test]
