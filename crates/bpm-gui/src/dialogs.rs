@@ -153,10 +153,15 @@ impl Dialog {
                 v.body = vec![
                     "Beetle 게임에서 플레이할 곡을 넣고 정리하는 프로그램이에요.".into(),
                     "BMS란? 리듬게임용 곡 형식이에요. 곡 하나는 음악, 효과음과 채보 파일(.bms 등)이 든 폴더 하나예요.".into(),
-                    "[내 곡] 갖고 있는 곡을 보고 지워요. 곡 폴더나 압축 파일을 창에 끌어다 놓으면 추가돼요.".into(),
-                    "[난이도표] 커뮤니티 추천 곡 목록에서 아직 없는 곡을 찾아 받아요. 처음이라면 여기서 시작하세요.".into(),
+                    "## 내 곡".into(),
+                    "갖고 있는 곡을 보고 지워요. 곡 폴더나 압축 파일을 창에 끌어다 놓으면 추가돼요.".into(),
+                    "## 난이도표".into(),
+                    "커뮤니티 추천 곡 목록에서 아직 없는 곡을 찾아 받아요. 처음이라면 여기서 시작하세요.".into(),
                 ];
-                v.footnote = "단축키: Tab 탭 이동 · 위/아래 화살표 선택 · / 검색 · Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기".into();
+                v.footnote = "단축키
+Tab 탭 이동 · 위/아래 화살표 선택 · / 검색
+Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
+                    .into();
                 v.buttons = vec![button("알겠어요", Btn::Primary, UiAction::DialogConfirm)];
             }
             DialogKind::Add => {
@@ -202,7 +207,7 @@ impl Dialog {
                     "연결할 폴더",
                     "폴더 경로 (찾아보기로 고르면 바로 연결돼요)",
                 )];
-                v.footnote = "바뀐 내용은 게임을 다시 시작하면 반영돼요.".into();
+                v.footnote = "바뀐 내용은 Beetle 창으로 돌아가면 반영돼요.".into();
                 v.buttons = vec![
                     button("닫기", Btn::Ghost, UiAction::DialogCancel),
                     button("연결", Btn::Primary, UiAction::DialogConfirm),

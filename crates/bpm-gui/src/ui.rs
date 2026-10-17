@@ -1004,10 +1004,11 @@ impl GuiRenderer {
         let body: Vec<Vec<String>> = d
             .body
             .iter()
-            .map(|line| wrap(line, inner, PX_BODY))
+            .map(|line| wrap(line.strip_prefix("## ").unwrap_or(line), inner, PX_BODY))
             .collect();
         let body_lines: usize = body.iter().map(Vec::len).sum();
-        let mut dh = 28.0 + 34.0 + body_lines as f32 * 23.0 + body.len() as f32 * 6.0;
+        let gaps = d.body.iter().filter(|p| !p.starts_with("## ")).count();
+        let mut dh = 28.0 + 34.0 + body_lines as f32 * 23.0 + gaps as f32 * 6.0;
         if !body.is_empty() {
             dh += 4.0;
         }
@@ -1030,7 +1031,10 @@ impl GuiRenderer {
         let foot: Vec<String> = if d.footnote.is_empty() {
             Vec::new()
         } else {
-            wrap(&d.footnote, inner, PX_SMALL)
+            d.footnote
+                .split('\n')
+                .flat_map(|line| wrap(line, inner, PX_SMALL))
+                .collect()
         };
         dh += foot.len() as f32 * 19.0 + if foot.is_empty() { 0.0 } else { 6.0 };
         dh += 8.0 + 40.0 + 24.0;
@@ -1060,12 +1064,18 @@ impl GuiRenderer {
             theme::TEXT,
         );
         cy += 34.0;
-        for paragraph in &body {
+        for (paragraph, source) in body.iter().zip(&d.body) {
+            // "## " marks a heading: bold and bright, tight against what follows.
+            let heading = source.starts_with("## ");
             for line in paragraph {
-                self.text(line, lx, cy, PX_BODY, theme::TEXT_DIM);
+                if heading {
+                    self.text_bold(line, lx, cy, PX_BODY, theme::TEXT);
+                } else {
+                    self.text(line, lx, cy, PX_BODY, theme::TEXT_DIM);
+                }
                 cy += 23.0;
             }
-            cy += 6.0;
+            cy += if heading { 0.0 } else { 6.0 };
         }
         if !body.is_empty() {
             cy += 4.0;
