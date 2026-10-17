@@ -69,6 +69,18 @@ table! {
     /// `{}` is the layout name (key mode and preset).
     pub TOAST_LAYOUT_RESET = "키 배치를 {} 프리셋으로 되돌렸어요";
 
+    // ---- Title (the first screen after the library is read) -----------
+    /// Under the wordmark; `{}` is the app version.
+    pub TITLE_TAGLINE = "BMS Player  v{}";
+    /// `{}` is the number of songs in the library.
+    pub TITLE_SONGS = "곡 {}개";
+    /// The first menu entry: song select. Also the label after the prompt's keycap.
+    pub TITLE_START = "시작";
+    /// The prompt before its keycap: PRESS [ENTER] 시작.
+    pub TITLE_PRESS = "PRESS";
+    /// The keycap of the prompt (the key's own name).
+    pub TITLE_ENTER = "ENTER";
+
     // ---- Boot ---------------------------------------------------------
     pub BOOT_TITLE_STARTUP = "시작하는 중";
     pub BOOT_TITLE_RESCAN = "서재를 다시 읽는 중";

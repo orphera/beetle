@@ -51,6 +51,8 @@ pub enum HitId {
     Auto,
     /// Opens the key configuration screen.
     KeyConfig,
+    /// A title menu entry (its index in `title::MENU_LABELS`).
+    TitleItem(usize),
     /// Opens (or the overlay's own close) the help overlay (the footer `?`).
     Help,
     /// The first-run guide: open the song manager, open the songs folder, rescan.

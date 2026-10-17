@@ -9,6 +9,7 @@ pub mod play;
 pub mod select;
 pub mod settings;
 pub mod stage_result;
+pub mod title;
 mod widgets;
 
 pub use boot::{draw_boot, BootFrame};
@@ -28,12 +29,14 @@ pub use select::{
 };
 pub use settings::{draw_settings, follow_settings_scroll, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
+pub use title::{draw_title, TitleFrame, MENU_LABELS as TITLE_MENU_LABELS};
 pub use widgets::OptionLine;
 
 #[cfg(test)]
 mod tests {
     /// Every screen source file. Text and colors are drawn only here.
-    const SCREENS: [(&str, &str); 10] = [
+    const SCREENS: [(&str, &str); 11] = [
+        ("title.rs", include_str!("title.rs")),
         ("play.rs", include_str!("play.rs")),
         ("select.rs", include_str!("select.rs")),
         ("stage_result.rs", include_str!("stage_result.rs")),
