@@ -245,7 +245,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
         gpu_ui,
         ..
     } = state;
-    let ui = &mut gpu_ui.ui;
+    let ui = gpu_ui.ui.menu();
 
     for (id, pixels) in thumbs.take_ready(UPLOADS_PER_FRAME) {
         match pixels {

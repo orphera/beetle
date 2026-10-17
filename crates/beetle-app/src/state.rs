@@ -626,7 +626,7 @@ impl AppState {
         self.stage_image_receiver = None;
         self.stage_image_loading_id = None;
         self.thumbs.reset();
-        self.gpu_ui.ui.jackets.clear();
+        self.gpu_ui.ui.menu().jackets.clear();
         self.library_job = LibraryJob::Rescan;
         self.library_started_at = Instant::now();
         self.library_receiver = Some(spawn_library_rescan());

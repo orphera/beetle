@@ -35,23 +35,29 @@ fn ambient_clock() -> f32 {
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.sync_screen_entry();
-    let scale = state
-        .view
-        .frame_viewport(state.screen == AppScreen::Gameplay)
-        .scale;
     state
         .d3d11
         .begin_frame(size.width, size.height, beetle_render::theme::clear_color());
-    state.gpu_ui.ui.lite = state.d3d11.is_warp();
+    // Menus draw at the UI scale, gameplay at the window scale; each has its own UI.
+    let gameplay = state.screen == AppScreen::Gameplay;
+    let warp = state.d3d11.is_warp();
     // Reduce Motion freezes the decorative clock at 0: the backdrop drift,
     // particles, light band and title sweep all read it.
-    state.gpu_ui.ui.clock = if state.reduce_motion {
+    let clock = if state.reduce_motion {
         0.0
     } else {
         ambient_clock()
     };
-    state.gpu_ui.ui.pointer = state.cursor;
-    state.gpu_ui.ui.begin(size.width, size.height, scale);
+    let ui = state.gpu_ui.ui.begin(
+        gameplay,
+        size.width,
+        size.height,
+        state.view.ui.scale,
+        state.view.viewport.scale,
+    );
+    ui.lite = warp;
+    ui.clock = clock;
+    ui.pointer = state.cursor;
 }
 
 /// Shows a song's blurred jacket as the backdrop of the screen, crossfading
@@ -63,10 +69,10 @@ fn show_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now: Instan
     let Some((id, seed)) = song else {
         return;
     };
-    if state.gpu_ui.ui.lite {
+    if state.gpu_ui.ui.current().lite {
         return;
     }
-    let ui = &mut state.gpu_ui.ui;
+    let ui = state.gpu_ui.ui.current();
     match state.stage_image_cache.get(&id) {
         Some(Some(_)) => {
             if let Some(px) = state.stage_backdrop_cache.get(&id) {
@@ -95,10 +101,10 @@ fn show_loading_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now
     let Some((id, seed)) = song else {
         return;
     };
-    if state.gpu_ui.ui.lite {
+    if state.gpu_ui.ui.current().lite {
         return;
     }
-    let ui = &mut state.gpu_ui.ui;
+    let ui = state.gpu_ui.ui.current();
     match state.stage_backdrop_cache.get(&id) {
         Some(px) => {
             ui.backdrop
@@ -120,7 +126,7 @@ fn show_loading_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now
 /// Submits the UI, serves screenshot / devtools capture requests (they read
 /// the backbuffer, so before present) and presents.
 fn finish(state: &mut AppState) {
-    state.gpu_ui.ui.end(&mut state.d3d11);
+    state.gpu_ui.ui.current().end(&mut state.d3d11);
     if let Some(path) = state.pending_screenshot.take() {
         match devtools::save_backbuffer(&mut state.d3d11, &path) {
             Ok(_) => {
@@ -162,11 +168,11 @@ fn overlays(state: &mut AppState, toasts: bool) {
     };
     match overlay {
         Some(transition::Overlay::Fade(alpha)) => {
-            beetle_render::draw_screen_fade(&mut state.gpu_ui.ui, alpha);
+            beetle_render::draw_screen_fade(state.gpu_ui.ui.current(), alpha);
         }
         Some(transition::Overlay::Shutter(phase) | transition::Overlay::GameplayReveal(phase)) => {
             beetle_render::draw_shutter(
-                &mut state.gpu_ui.ui,
+                state.gpu_ui.ui.current(),
                 &state
                     .view
                     .frame_viewport(state.screen == AppScreen::Gameplay),
@@ -184,7 +190,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
         };
         if let (Some(pose), Some(toast)) = (state.toast_pose_now(now), state.toast.as_ref()) {
             beetle_render::draw_toast(
-                &mut state.gpu_ui.ui,
+                state.gpu_ui.ui.current(),
                 &state
                     .view
                     .frame_viewport(state.screen == AppScreen::Gameplay),
@@ -268,7 +274,7 @@ pub fn gameplay(
         &state.active_timing,
     ) {
         beetle_render::draw_gameplay(
-            &mut state.gpu_ui.ui,
+            state.gpu_ui.ui.current(),
             &beetle_render::PlayFrame {
                 first_note: state.first_note_time,
                 viewport: &state.view.viewport,
@@ -486,7 +492,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         })
         .collect();
     let vp = state.view.ui;
-    let ui: &mut Ui = &mut state.gpu_ui.ui;
+    let ui: &mut Ui = state.gpu_ui.ui.current();
     beetle_render::draw_song_select(
         ui,
         &beetle_render::SelectFrame {
@@ -550,7 +556,7 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
     state.settings_scroll = scroll;
     begin(state, size);
     beetle_render::draw_settings(
-        &mut state.gpu_ui.ui,
+        state.gpu_ui.ui.current(),
         &SettingsFrame {
             viewport: &state.view.ui,
             lines: &lines,
@@ -596,7 +602,7 @@ fn calibrate(state: &mut AppState, size: PhysicalSize<u32>) {
 
     begin(state, size);
     beetle_render::draw_calibrate(
-        &mut state.gpu_ui.ui,
+        state.gpu_ui.ui.current(),
         &beetle_render::CalibrateFrame {
             viewport: &state.view.ui,
             phase,
@@ -620,7 +626,7 @@ pub fn title(state: &mut AppState, size: PhysicalSize<u32>) {
     begin(state, size);
     let vp = state.view.ui;
     beetle_render::draw_title(
-        &mut state.gpu_ui.ui,
+        state.gpu_ui.ui.current(),
         &beetle_render::TitleFrame {
             viewport: &vp,
             selected: state.title_row,
@@ -630,7 +636,7 @@ pub fn title(state: &mut AppState, size: PhysicalSize<u32>) {
         },
     );
     if state.show_exit_modal {
-        beetle_render::draw_exit_modal(&mut state.gpu_ui.ui, &vp);
+        beetle_render::draw_exit_modal(state.gpu_ui.ui.current(), &vp);
     }
     overlays(state, false);
     finish(state);
@@ -646,7 +652,7 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
     };
     begin(state, size);
     beetle_render::draw_boot(
-        &mut state.gpu_ui.ui,
+        state.gpu_ui.ui.current(),
         &beetle_render::BootFrame {
             viewport: &state.view.ui,
             elapsed: state.library_started_at.elapsed().as_secs_f64(),
@@ -697,7 +703,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     show_loading_backdrop(state, backdrop_song, now);
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
-            &mut state.gpu_ui.ui,
+            state.gpu_ui.ui.current(),
             &beetle_render::LoadingFrame {
                 viewport: &state.view.ui,
                 song,
@@ -720,7 +726,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
 /// once (from the stage image the play already holds) and kept in
 /// `stage_backdrop_cache`. A chart without artwork gets its placeholder.
 fn show_result_backdrop(state: &mut AppState, now: Instant) {
-    if state.gpu_ui.ui.lite {
+    if state.gpu_ui.ui.current().lite {
         return;
     }
     let played = state.active_chart_id;
@@ -733,7 +739,7 @@ fn show_result_backdrop(state: &mut AppState, now: Instant) {
             state.stage_backdrop_cache.insert(played, px);
         }
     }
-    let ui = &mut state.gpu_ui.ui;
+    let ui = state.gpu_ui.ui.current();
     if let Some(px) = state.stage_backdrop_cache.get(&played) {
         ui.backdrop
             .show(ui.canvas.atlas_mut(), JacketKey::Chart(played), now, || {
@@ -786,7 +792,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     show_result_backdrop(state, now);
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
         beetle_render::draw_result(
-            &mut state.gpu_ui.ui,
+            state.gpu_ui.ui.current(),
             &beetle_render::ResultFrame {
                 viewport: &state.view.ui,
                 chart,
@@ -811,7 +817,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
         let row = state.modal_row.min(play_options().len() - 1);
         let d = &play_options()[row];
         beetle_render::draw_options_panel(
-            &mut state.gpu_ui.ui,
+            state.gpu_ui.ui.current(),
             &state.view.ui,
             &lines,
             row,
@@ -847,7 +853,7 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
 
     begin(state, size);
     beetle_render::draw_key_config(
-        &mut state.gpu_ui.ui,
+        state.gpu_ui.ui.current(),
         &beetle_render::KeyConfigFrame {
             viewport: &state.view.ui,
             mode,

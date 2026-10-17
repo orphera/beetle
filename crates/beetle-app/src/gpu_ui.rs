@@ -8,7 +8,7 @@
 use crate::config::GpuBackendSetting;
 use beetle_core::{BmpId, ChartId};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
-use beetle_render::{BgaVideoPlayer, D3d11Backend, GpuBackend, ImageBuffer, SizedTexture, Ui};
+use beetle_render::{BgaVideoPlayer, D3d11Backend, GpuBackend, ImageBuffer, SizedTexture, UiSet};
 use std::collections::HashMap;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
@@ -44,7 +44,7 @@ struct VideoTexture {
 }
 
 pub struct GpuUi {
-    pub ui: Ui,
+    pub ui: UiSet,
     images: HashMap<ImageKey, SizedTexture>,
     videos: HashMap<(BmpId, bool), VideoTexture>,
 }
@@ -67,7 +67,7 @@ fn premultiplied(img: &ImageBuffer, color_key_black: bool) -> Vec<u8> {
 impl GpuUi {
     pub fn new(scale: f32) -> Self {
         Self {
-            ui: Ui::new(scale),
+            ui: UiSet::new(scale),
             images: HashMap::new(),
             videos: HashMap::new(),
         }

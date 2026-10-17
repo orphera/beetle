@@ -36,6 +36,8 @@ pub struct Ui {
     /// The blurred jacket backdrop of the menu screens (`backdrop`), two
     /// slots in the shared atlas with a crossfade between them.
     pub backdrop: BlurBackdrop,
+    /// How many times `begin` rebuilt the atlas for a new scale.
+    pub rebuilds: u32,
 }
 
 /// Length of the ambient clock's loop, in seconds. Every decorative period
@@ -65,6 +67,7 @@ impl Ui {
             clock: 0.0,
             jackets,
             backdrop: BlurBackdrop::new(),
+            rebuilds: 0,
         }
     }
 
@@ -72,6 +75,7 @@ impl Ui {
     /// rebuilt so sprites and glyphs stay pixel-exact at the new size.
     pub fn begin(&mut self, width: u32, height: u32, scale: f32) {
         if (scale - self.skin.scale).abs() > 0.01 {
+            self.rebuilds += 1;
             self.canvas.reset_atlas_for_scale(scale);
             self.text.clear_cache();
             self.skin = Skin::generate(self.canvas.atlas_mut(), scale);
@@ -103,10 +107,109 @@ impl Ui {
     }
 }
 
+/// The app's UIs: one for the menus and, when its scale differs, one for
+/// gameplay. Menus draw at the window scale times the UI scale, gameplay at the
+/// window scale alone, so a single atlas would be rebuilt on every move between
+/// them (skin, glyph cache, jacket grid, and possibly the page size). Each
+/// keeps its own atlas instead, so a screen change rebuilds nothing; only a
+/// resize or a UI scale change does. When the scales match, gameplay draws with
+/// the menu UI and there is one atlas, as before.
+pub struct UiSet {
+    menu: Ui,
+    play: Option<Ui>,
+    in_play: bool,
+}
+
+impl UiSet {
+    /// The menu UI at `menu_scale`; the gameplay UI is made on first use.
+    pub fn new(menu_scale: f32) -> Self {
+        Self {
+            menu: Ui::new(menu_scale),
+            play: None,
+            in_play: false,
+        }
+    }
+
+    /// Starts a frame on the UI of the screen kind and returns it. `menu_scale`
+    /// and `play_scale` are the scales the menus and gameplay draw at.
+    pub fn begin(
+        &mut self,
+        gameplay: bool,
+        width: u32,
+        height: u32,
+        menu_scale: f32,
+        play_scale: f32,
+    ) -> &mut Ui {
+        self.in_play = gameplay && (play_scale - menu_scale).abs() > 0.01;
+        if self.in_play {
+            let play = self.play.get_or_insert_with(|| Ui::new(play_scale));
+            play.begin(width, height, play_scale);
+            play
+        } else {
+            self.menu.begin(width, height, menu_scale);
+            &mut self.menu
+        }
+    }
+
+    /// The UI of the frame in progress, or of the last frame.
+    pub fn current(&mut self) -> &mut Ui {
+        match (self.in_play, self.play.as_mut()) {
+            (true, Some(play)) => play,
+            _ => &mut self.menu,
+        }
+    }
+
+    /// The menu UI, whatever the frame is: jacket and backdrop state belongs to it.
+    pub fn menu(&mut self) -> &mut Ui {
+        &mut self.menu
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::jacket::{JacketKey, THUMB_PX};
+
+    #[test]
+    fn switching_between_menus_and_gameplay_rebuilds_no_atlas() {
+        // UI 120 percent in a 1280x720 window: menus draw at 1.2, gameplay at 1.0.
+        let mut set = UiSet::new(1.2);
+        for _ in 0..5 {
+            set.begin(false, 1280, 720, 1.2, 1.0);
+            set.begin(true, 1280, 720, 1.2, 1.0);
+        }
+        assert_eq!(set.menu().rebuilds, 0);
+        assert_eq!(set.play.as_ref().map(|p| p.rebuilds), Some(0));
+
+        // The same frames on one shared UI rebuild on every switch, which is
+        // what the separate gameplay UI avoids.
+        let mut shared = Ui::new(1.2);
+        for _ in 0..5 {
+            shared.begin(1280, 720, 1.2);
+            shared.begin(1280, 720, 1.0);
+        }
+        // The first call matches the starting scale; each of the other nine switches.
+        assert_eq!(shared.rebuilds, 9);
+    }
+
+    #[test]
+    fn a_ui_scale_change_rebuilds_only_the_menu_atlas() {
+        let mut set = UiSet::new(1.2);
+        set.begin(true, 1280, 720, 1.2, 1.0);
+        set.begin(false, 1280, 720, 1.5, 1.0);
+        set.begin(true, 1280, 720, 1.5, 1.0);
+        assert_eq!(set.menu().rebuilds, 1);
+        assert_eq!(set.play.as_ref().map(|p| p.rebuilds), Some(0));
+    }
+
+    #[test]
+    fn matching_scales_share_one_atlas() {
+        let mut set = UiSet::new(1.0);
+        set.begin(true, 1280, 720, 1.0, 1.0);
+        set.begin(false, 1280, 720, 1.0, 1.0);
+        assert!(set.play.is_none(), "no second atlas at equal scales");
+        assert_eq!(set.menu().rebuilds, 0);
+    }
     use crate::view::{UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP};
 
     #[test]

@@ -638,7 +638,7 @@ impl ApplicationHandler for BeetleApp {
         // nothing else is timed.
         // Song jackets still decoding for the list: keep frames coming so
         // finished thumbnails appear without waiting for input.
-        if state.gpu_ui.ui.backdrop.is_fading(now)
+        if state.gpu_ui.ui.menu().backdrop.is_fading(now)
             || (state.screen == AppScreen::SongSelect && state.jacket_busy)
         {
             timed = true;

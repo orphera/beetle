@@ -53,7 +53,7 @@ pub fn handle_press(state: &mut AppState) {
             let Some((x, y)) = state.cursor else {
                 return;
             };
-            let id = hit_at(&state.gpu_ui.ui.hits, x, y);
+            let id = hit_at(&state.gpu_ui.ui.current().hits, x, y);
             // Clicking anywhere but the search box ends the search.
             if state.screen == AppScreen::SongSelect
                 && state.is_search_active
@@ -69,7 +69,7 @@ pub fn handle_press(state: &mut AppState) {
             let Some((x, y)) = state.cursor else {
                 return;
             };
-            if let Some(HitId::PauseRow(i)) = hit_at(&state.gpu_ui.ui.hits, x, y) {
+            if let Some(HitId::PauseRow(i)) = hit_at(&state.gpu_ui.ui.current().hits, x, y) {
                 state.pause_selected_option = i;
                 super::gameplay::activate_pause_option(state, i);
             }
