@@ -34,6 +34,48 @@ const HINTS: [Hint; 4] = [
     ("ESC", strings::BACK, Some(HitId::SettingsBack)),
 ];
 
+/// Where one row of a Settings column sits, from the column's top before
+/// it scrolls.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RowSlot {
+    /// Index into the screen's lines.
+    index: usize,
+    /// Top of the section header above the row, if the row starts a section.
+    header: Option<f32>,
+    /// Top of the row.
+    top: f32,
+}
+
+/// The rows of `column`, stacked from the top in table order.
+fn column_slots(lines: &[OptionLine], column: usize, s: f32) -> Vec<RowSlot> {
+    let mut y = 0.0;
+    let mut slots = Vec::new();
+    for (index, line) in lines.iter().enumerate().filter(|(_, l)| l.column == column) {
+        let header = line.section.map(|_| {
+            let top = y;
+            y += SECTION_H * s;
+            top
+        });
+        slots.push(RowSlot {
+            index,
+            header,
+            top: y,
+        });
+        y += ROW_H * s;
+    }
+    slots
+}
+
+/// How far a column scrolls so that the selected row (when it is in this
+/// column) is its bottom row in view. Stateless: it follows the cursor, and
+/// it is 0 while the whole column fits.
+fn scroll_for(slots: &[RowSlot], selected: usize, height: f32, s: f32) -> f32 {
+    slots
+        .iter()
+        .find(|slot| slot.index == selected)
+        .map_or(0.0, |slot| (slot.top + (ROW_H - 4.0) * s - height).max(0.0))
+}
+
 pub fn draw_settings(ui: &mut Ui, f: &SettingsFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
@@ -66,31 +108,36 @@ pub fn draw_settings(ui: &mut Ui, f: &SettingsFrame) {
             col_w,
             area.h,
         );
-        let mut y = col.y;
-        for (i, line) in f
-            .lines
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| l.column == column)
-        {
-            if let Some(section) = line.section {
-                widgets::section_header(c, t, section, col.x, y, col.w, s);
-                y += SECTION_H * s;
+        let slots = column_slots(f.lines, column, s);
+        let scroll = scroll_for(&slots, f.selected, col.h, s);
+        for slot in &slots {
+            let Some(line) = f.lines.get(slot.index) else {
+                continue;
+            };
+            // A row that is not wholly in the column is not drawn (nor hit).
+            let top = slot.top - scroll;
+            if top < 0.0 || top + ROW_H * s - 4.0 * s > col.h {
+                continue;
             }
-            let row = Rect::new(col.x, y, col.w, (ROW_H - 4.0) * s);
+            if let (Some(section), Some(header)) = (line.section, slot.header) {
+                let hy = header - scroll;
+                if hy >= 0.0 {
+                    widgets::section_header(c, t, section, col.x, col.y + hy, col.w, s);
+                }
+            }
+            let row = Rect::new(col.x, col.y + top, col.w, (ROW_H - 4.0) * s);
             widgets::option_row(
                 c,
                 t,
                 &sk,
                 &mut hs,
                 row,
-                i,
+                slot.index,
                 line,
-                i == f.selected,
+                slot.index == f.selected,
                 LABEL_W * s,
                 s,
             );
-            y += ROW_H * s;
         }
     }
 
@@ -188,6 +235,80 @@ mod tests {
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "selected {selected}");
+        }
+    }
+
+    fn long_column(n: usize) -> Vec<OptionLine<'static>> {
+        (0..n)
+            .map(|i| OptionLine {
+                column: 0,
+                section: (i % 5 == 0).then_some("분류"),
+                label: "항목",
+                value: "값".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scroll_is_zero_while_the_column_fits_and_the_selection_is_the_bottom_row_otherwise() {
+        let s = 1.0;
+        let short = column_slots(&long_column(4), 0, s);
+        assert_eq!(scroll_for(&short, 3, 464.0, s), 0.0);
+
+        let long = column_slots(&long_column(14), 0, s);
+        let bottom = long[13].top + (ROW_H - 4.0) * s;
+        let scroll = scroll_for(&long, 13, 464.0, s);
+        assert!(scroll > 0.0);
+        assert!(
+            (bottom - scroll - 464.0).abs() < 1e-3,
+            "bottom row ends at the column bottom"
+        );
+        // Moving up keeps the selected row inside the window.
+        for i in 0..14 {
+            let scroll = scroll_for(&long, i, 464.0, s);
+            assert!(long[i].top - scroll >= 0.0, "row {i} above the window");
+            assert!(
+                long[i].top + (ROW_H - 4.0) * s - scroll <= 464.0 + 1e-3,
+                "row {i} below"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_column_draws_and_hits_only_rows_inside_the_column() {
+        let vp = Viewport::new(1280, 720);
+        let lines = long_column(14);
+        let mut ui = Ui::new(vp.scale);
+        let s = vp.scale;
+        let top = vp.y + (widgets::TOPBAR_H + 24.0) * s;
+        let bottom =
+            vp.y + vp.height - (widgets::FOOTER_H + 24.0) * s - widgets::HELP_CARD_H * s - 16.0 * s;
+        for selected in 0..lines.len() {
+            ui.begin(1280, 720, vp.scale);
+            draw_settings(
+                &mut ui,
+                &SettingsFrame {
+                    viewport: &vp,
+                    lines: &lines,
+                    selected,
+                    help: "help",
+                },
+            );
+            assert!(
+                ui.hits.iter().any(|h| h.id == HitId::OptionRow(selected)),
+                "selected {selected} is not drawn"
+            );
+            for h in ui
+                .hits
+                .iter()
+                .filter(|h| matches!(h.id, HitId::OptionRow(_)))
+            {
+                assert!(
+                    h.rect.y >= top - 0.5 && h.rect.bottom() <= bottom + 0.5,
+                    "{:?}",
+                    h.id
+                );
+            }
         }
     }
 }

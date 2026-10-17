@@ -2,14 +2,15 @@
 //! screenshots of the real app (used to review UI changes):
 //!
 //! - `BEETLE_CAPTURE=<file.bmp>`: write one backbuffer capture to this path.
-//! - `BEETLE_CAPTURE_SCREEN=boot|songselect|loading|gameplay|result|keyconfig`
+//! - `BEETLE_CAPTURE_SCREEN=boot|songselect|loading|gameplay|result|keyconfig|settings`
 //!   (default `songselect`): screen to capture.
 //! - `BEETLE_CAPTURE_DELAY=<seconds>` (default 2): wall time after entering
 //!   that screen.
 //! - `BEETLE_CAPTURE_EXIT=1`: quit right after capturing.
+//! - `BEETLE_CAPTURE_ROW=<index>`: with the Settings screen, start on that row.
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
-//! - With `BEETLE_CAPTURE_SCREEN=keyconfig` the app starts on Key Config
+//! - With `BEETLE_CAPTURE_SCREEN=keyconfig` or `settings` the app starts there
 //!   (it is otherwise only reachable by key press).
 //! - `BEETLE_CAPTURE_TRANSITION=<0..1>`: draws the shutter frozen at that
 //!   progress of its length on every frame, so a capture shows a mid-wipe.
@@ -98,14 +99,20 @@ pub fn banner_lamp_override() -> Option<beetle_core::ClearType> {
     })
 }
 
-/// Screen to start on instead of song select (only Key Config, which has
+/// Screen to start on instead of song select (only Key Config and Settings, which have
 /// no other automatic way in).
 pub fn start_screen() -> Option<AppScreen> {
     std::env::var("BEETLE_CAPTURE")
         .ok()
         .and_then(|_| std::env::var("BEETLE_CAPTURE_SCREEN").ok())
         .and_then(|s| parse_screen(&s))
-        .filter(|s| *s == AppScreen::KeyConfig)
+        .filter(|s| matches!(s, AppScreen::KeyConfig | AppScreen::Settings))
+}
+
+/// The Settings row the capture starts on (`BEETLE_CAPTURE_ROW=<index>`), so a
+/// capture can show a scrolled column without key input.
+pub fn start_settings_row() -> Option<usize> {
+    std::env::var("BEETLE_CAPTURE_ROW").ok()?.parse().ok()
 }
 
 /// Song select modal to open at startup: (options, exit).

@@ -526,6 +526,11 @@ impl AppState {
         if self.screen == AppScreen::Boot {
             self.screen = crate::devtools::start_screen().unwrap_or(AppScreen::SongSelect);
             self.key_config_edit_mode = self.key_config_mode();
+            if self.screen == AppScreen::Settings {
+                if let Some(row) = crate::devtools::start_settings_row() {
+                    self.settings_row = row.min(crate::options_table::SETTINGS.len() - 1);
+                }
+            }
         }
         // Once per load, and only when song select is the screen that shows.
         if self.screen == AppScreen::SongSelect {
