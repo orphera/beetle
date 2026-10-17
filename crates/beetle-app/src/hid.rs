@@ -333,15 +333,17 @@ impl Device {
             .map(|s| s.bits)
     }
 
-    /// Decodes one report. `None` for a report that is too short, too long
-    /// or that hid.dll rejects; nothing is changed then.
+    /// Decodes one report against the device's previous snapshot (`prev`, set
+    /// by the caller after each report). `None` for a report that is too
+    /// short, too long, or that cannot be decoded at all. Items hid.dll does
+    /// not decode in this report (a report ID it does not carry, a failed
+    /// buttons read) keep their previous values: see [`merge_report`].
     pub fn snapshot(&mut self, report: &[u8]) -> Option<PadSnapshot> {
         if report.len() > MAX_REPORT || report.len() < self.report_len || report.is_empty() {
             return None;
         }
         let pre = self.preparsed.as_mut_ptr().cast::<c_void>();
-        let mut snap = PadSnapshot::default();
-        if self.has_buttons {
+        let buttons: Option<usize> = if self.has_buttons {
             let mut count = self.usages.len() as u32;
             let status = unsafe {
                 HidP_GetUsages(
@@ -355,16 +357,12 @@ impl Device {
                     report.len() as u32,
                 )
             };
-            if status != HIDP_STATUS_SUCCESS {
-                return None;
-            }
-            for &usage in &self.usages[..count as usize] {
-                if let Some(bit) = usage_bit(usage) {
-                    snap.buttons |= 1 << bit;
-                }
-            }
-        }
-        for slot in &self.slots {
+            (status == HIDP_STATUS_SUCCESS).then_some(count as usize)
+        } else {
+            Some(0)
+        };
+        let usages = buttons.map(|n| &self.usages[..n.min(self.usages.len())]);
+        let snap = merge_report(self.prev, &self.slots, usages, |slot| {
             let mut value = 0u32;
             let status = unsafe {
                 HidP_GetUsageValue(
@@ -378,22 +376,46 @@ impl Device {
                     report.len() as u32,
                 )
             };
-            if status != HIDP_STATUS_SUCCESS {
-                continue;
-            }
-            let axis = usize::from(slot.axis);
-            let bits = slot.bits;
-            let raw = if bits < 32 {
-                value & ((1u32 << bits) - 1)
-            } else {
-                value
-            };
-            snap.raw[axis] = raw;
-            let logical = logical_value(raw, bits, slot.min);
-            snap.axes[axis] = normalise(logical, slot.min, slot.max);
-        }
+            (status == HIDP_STATUS_SUCCESS).then_some(value)
+        });
         Some(snap)
     }
+}
+
+/// One report's snapshot from the previous one: the buttons are `usages`
+/// when they decoded (`None` keeps the previous buttons), and each axis is
+/// `read(slot)` when that decodes (`None` keeps the previous value of that
+/// axis). Nothing is zeroed by a failed read, so a report of another report
+/// ID leaves the axes it does not carry as they were.
+pub fn merge_report(
+    prev: PadSnapshot,
+    slots: &[Slot],
+    usages: Option<&[u16]>,
+    mut read: impl FnMut(&Slot) -> Option<u32>,
+) -> PadSnapshot {
+    let mut snap = prev;
+    if let Some(usages) = usages {
+        snap.buttons = usages
+            .iter()
+            .filter_map(|&usage| usage_bit(usage))
+            .fold(0u64, |bits, bit| bits | (1u64 << bit));
+    }
+    for slot in slots {
+        let Some(value) = read(slot) else {
+            continue;
+        };
+        let axis = usize::from(slot.axis);
+        let bits = slot.bits;
+        let raw = if bits < 32 {
+            value & ((1u32 << bits) - 1)
+        } else {
+            value
+        };
+        snap.raw[axis] = raw;
+        let logical = logical_value(raw, bits, slot.min);
+        snap.axes[axis] = normalise(logical, slot.min, slot.max);
+    }
+    snap
 }
 
 // --- hid.dll / user32 / kernel32 -----------------------------------------
@@ -596,6 +618,73 @@ mod tests {
         let mut other = b;
         other.usage_page = 0x0C;
         assert_eq!(button_usage_ranges(&[b, other]), vec![(1, 32)]);
+    }
+
+    fn axis_slot(axis: u8, bits: u8) -> Slot {
+        Slot {
+            usage_page: 0x01,
+            usage: 0x30 + u16::from(axis),
+            bits,
+            min: 0,
+            max: (1 << bits) - 1,
+            axis,
+        }
+    }
+
+    #[test]
+    fn a_report_of_another_report_id_keeps_the_axes_it_does_not_carry() {
+        // Two report IDs: report 1 carries buttons only, report 2 the axis.
+        // The axis read fails for report 1 (hid.dll: incompatible report ID).
+        let slots = [axis_slot(0, 8)];
+        let prev = merge_report(PadSnapshot::default(), &slots, Some(&[1]), |_| Some(200));
+        assert_eq!(prev.raw[0], 200);
+
+        let after_report_1 = merge_report(prev, &slots, Some(&[1, 2]), |_| None);
+        assert_eq!(after_report_1.raw[0], 200, "axis must not be zeroed");
+        assert_eq!(after_report_1.axes[0], prev.axes[0]);
+        assert_eq!(after_report_1.buttons, 0b11);
+        // The next report 2 moves by 3 from the kept value, not from zero.
+        let moved = merge_report(after_report_1, &slots, Some(&[1, 2]), |_| Some(203));
+        assert_eq!(wrap_delta(after_report_1.raw[0], moved.raw[0], 8), 3);
+    }
+
+    #[test]
+    fn a_failed_buttons_decode_keeps_the_buttons_and_the_axes() {
+        let slots = [axis_slot(0, 16)];
+        let prev = PadSnapshot {
+            buttons: 0b101,
+            axes: [0; MAX_AXES],
+            raw: {
+                let mut raw = [0u32; MAX_AXES];
+                raw[0] = 4000;
+                raw
+            },
+        };
+        let now = merge_report(prev, &slots, None, |_| Some(4010));
+        assert_eq!(now.buttons, 0b101, "no button edges from a failed read");
+        assert_eq!(now.raw[0], 4010, "the axis still decodes");
+        assert_eq!(edges(prev.buttons, now.buttons), Edges::default());
+    }
+
+    #[test]
+    fn decoded_buttons_replace_the_previous_set() {
+        let prev = PadSnapshot {
+            buttons: 0b1111,
+            ..PadSnapshot::default()
+        };
+        // Usages 2 and 64 are read; 0 and 65 are outside the button range.
+        let now = merge_report(prev, &[], Some(&[2, 64, 0, 65]), |_| None);
+        assert_eq!(now.buttons, (1 << 1) | (1 << 63));
+    }
+
+    #[test]
+    fn a_failed_axis_read_leaves_only_that_axis() {
+        let slots = [axis_slot(0, 8), axis_slot(1, 8)];
+        let prev = merge_report(PadSnapshot::default(), &slots, Some(&[]), |s| {
+            Some(if s.axis == 0 { 10 } else { 20 })
+        });
+        let now = merge_report(prev, &slots, Some(&[]), |s| (s.axis == 1).then_some(25));
+        assert_eq!(now.raw, [10, 25, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
