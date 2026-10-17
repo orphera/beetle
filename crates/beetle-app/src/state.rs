@@ -227,6 +227,9 @@ pub struct AppState {
     /// The song library being read on a worker thread (`AppScreen::Boot`).
     pub library_receiver: Option<Receiver<LibraryLoad>>,
     pub library_job: LibraryJob,
+    /// The screen the last rescan was started from; the rescan goes back to it
+    /// when it is a menu (see `rescan_return_screen`).
+    pub rescan_return: AppScreen,
     pub library_started_at: Instant,
     pub loading_song: Option<SongMetadata>,
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
@@ -549,10 +552,10 @@ impl AppState {
         }
         self.cursor_settle_time = Instant::now();
         if self.screen == AppScreen::Boot {
-            // A rescan (F5) comes from song select and goes back there.
             let after_boot = match self.library_job {
                 LibraryJob::Startup if self.title_on_boot => AppScreen::Title,
-                _ => AppScreen::SongSelect,
+                LibraryJob::Startup => AppScreen::SongSelect,
+                LibraryJob::Rescan => rescan_return_screen(self.rescan_return),
             };
             self.screen = crate::devtools::start_screen().unwrap_or(after_boot);
             self.key_config_edit_mode = self.key_config_mode();
@@ -568,14 +571,18 @@ impl AppState {
                 crate::transition::show_toast(self, beetle_render::ToastKind::Info, text);
             }
         }
-        // Remember the mtime so focus-regain knows whether a rescan is needed.
-        let now = std::time::SystemTime::now();
-        self.last_library_mtime = Some(now);
+        // Remember the folders' mtime (after the read, so the cache write it may
+        // have made is part of it) so focus-regain knows whether a rescan is needed.
+        self.last_library_mtime = Some(crate::handlers::song_select::library_mtime());
         self.window.request_redraw();
     }
 
-    /// Re-reads the song folders and tables on a worker (F5). Shows the Boot screen meanwhile.
+    /// Re-reads the song folders and tables on a worker (F5 or focus regain).
+    /// Shows the Boot screen meanwhile; the read returns to the current menu.
     pub fn start_rescan(&mut self) {
+        if self.screen != AppScreen::Boot {
+            self.rescan_return = self.screen;
+        }
         self.stage_image_cache.clear();
         self.stage_backdrop_cache.clear();
         self.stage_image_receiver = None;
@@ -966,6 +973,16 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
     rx
 }
 
+/// The screen a rescan goes back to: the menus that can start one stay where
+/// they were; anything else (song select, or a screen that cannot have started
+/// the rescan) lands on song select.
+pub fn rescan_return_screen(from: AppScreen) -> AppScreen {
+    match from {
+        AppScreen::Title | AppScreen::Settings | AppScreen::KeyConfig => from,
+        _ => AppScreen::SongSelect,
+    }
+}
+
 /// Forces a rescan of the song folders on a worker thread. Sorting and score
 /// key migration are left to `poll_library`, which owns the scores.
 pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
@@ -1008,6 +1025,32 @@ fn rescan_songs() -> Vec<SongMetadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rescan_returns_to_the_menu_that_started_it() {
+        assert_eq!(rescan_return_screen(AppScreen::Title), AppScreen::Title);
+        assert_eq!(
+            rescan_return_screen(AppScreen::Settings),
+            AppScreen::Settings
+        );
+        assert_eq!(
+            rescan_return_screen(AppScreen::KeyConfig),
+            AppScreen::KeyConfig
+        );
+        assert_eq!(
+            rescan_return_screen(AppScreen::SongSelect),
+            AppScreen::SongSelect
+        );
+        assert_eq!(
+            rescan_return_screen(AppScreen::Result),
+            AppScreen::SongSelect
+        );
+        assert_eq!(
+            rescan_return_screen(AppScreen::Loading),
+            AppScreen::SongSelect
+        );
+        assert_eq!(rescan_return_screen(AppScreen::Boot), AppScreen::SongSelect);
+    }
 
     #[test]
     fn detail_alpha_never_drops_below_the_floor_and_reaches_full() {

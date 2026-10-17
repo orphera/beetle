@@ -221,17 +221,22 @@ pub fn rescan(state: &mut AppState) {
     state.start_rescan();
 }
 
-/// The song manager (`bpm-gui.exe`) that ships next to the running app.
+/// Called when the window gains focus: a song manager or Explorer change to the
+/// library since the last read starts a rescan, which returns to this screen.
 pub fn check_autofocus_rescan(state: &mut AppState) {
-    let now = library_mtime();
-    if state.last_library_mtime.is_some_and(|last| last == now) {
-        return;
+    if rescan_needed(state.last_library_mtime, library_mtime()) {
+        state.start_rescan();
     }
-    state.last_library_mtime = Some(now);
-    state.start_rescan();
 }
 
-fn library_mtime() -> std::time::SystemTime {
+/// Whether the library folders moved on since the last read. Without a
+/// baseline (nothing read yet) there is nothing to compare, so no rescan.
+pub fn rescan_needed(last: Option<std::time::SystemTime>, now: std::time::SystemTime) -> bool {
+    last.is_some_and(|last| last != now)
+}
+
+/// The newest mtime of `songs/`, `packages/registry.json` and `library.dat`.
+pub fn library_mtime() -> std::time::SystemTime {
     let songs_dir = std::path::Path::new(DEFAULT_SONGS_DIR);
     let registry = std::env::current_dir()
         .ok()
@@ -708,6 +713,15 @@ pub fn start_replay(state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_focus_change_rescans_only_when_the_library_moved() {
+        let t0 = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        let t1 = t0 + std::time::Duration::from_secs(1);
+        assert!(!rescan_needed(None, t0));
+        assert!(!rescan_needed(Some(t0), t0));
+        assert!(rescan_needed(Some(t0), t1));
+    }
 
     #[test]
     fn song_manager_is_the_file_next_to_the_app() {

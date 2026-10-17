@@ -290,6 +290,7 @@ impl ApplicationHandler for BeetleApp {
             autoplay_sound_until: f64::NEG_INFINITY,
             library_receiver: Some(library_receiver),
             library_job: LibraryJob::Startup,
+            rescan_return: AppScreen::SongSelect,
             library_started_at: Instant::now(),
             loading_song: None,
             loading_receiver: None,
@@ -675,11 +676,12 @@ impl ApplicationHandler for BeetleApp {
                 state.drop_hover = false;
                 state.window.request_redraw();
             }
-            WindowEvent::Focused(_focused) => {
+            WindowEvent::Focused(true) => {
                 if is_menu_screen(state.screen) {
                     crate::handlers::song_select::check_autofocus_rescan(state);
                 }
             }
+            WindowEvent::Focused(false) => {}
             WindowEvent::DroppedFile(path) => {
                 state.drop_hover = false;
                 open_dropped_file(state, &path);
