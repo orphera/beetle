@@ -13,7 +13,7 @@ use beetle_render::strings;
 use beetle_render::{
     draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_options_modal, draw_screen_fade,
     draw_song_select, draw_toast, D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame,
-    SelectRow, SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
+    SelectMotion, SelectRow, SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{assert_repeatable, write_bmp, HiddenWindow};
 
@@ -304,7 +304,7 @@ fn render_ex(
             songs: &songs,
             rows: &rows,
             selected,
-            scroll: 0,
+            motion: SelectMotion::at_rest(0),
             scores: &scores,
             tables: &tables,
             ln_option: beetle_core::LnOption::Auto,

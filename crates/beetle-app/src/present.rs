@@ -342,6 +342,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             .unwrap_or(0),
         highlight,
     });
+    let motion = state.song_select_motion(Instant::now());
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()
@@ -380,7 +381,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             songs: &state.songs,
             rows: &rows,
             selected: state.selected_entry,
-            scroll: state.list_scroll,
+            motion,
             library_empty: crate::folders::is_first_run(&state.songs),
             scores: &state.score_store,
             tables: &state.tables,

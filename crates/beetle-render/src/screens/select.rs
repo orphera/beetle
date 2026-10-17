@@ -86,9 +86,8 @@ pub struct SelectFrame<'a> {
     pub rows: &'a [SelectRow<'a>],
     /// Cursor position within `rows`.
     pub selected: usize,
-    /// First visible row of the list. Clamped and moved only as far as needed
-    /// to show `selected` (see `window_start`), so a click never moves the rows.
-    pub scroll: usize,
+    /// Where the list and the selection are, between animation steps.
+    pub motion: SelectMotion,
     /// The library has no songs: the list shows the first-run guide.
     pub library_empty: bool,
     pub scores: &'a ScoreStore,
@@ -123,11 +122,37 @@ pub struct SelectFrame<'a> {
     pub show_help: bool,
 }
 
+/// The animated part of the song select screen, eased by the app between
+/// frames. `SelectMotion::at_rest` is the settled state.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelectMotion {
+    /// First visible row, fractional: the rows are drawn from this position
+    /// (the app eases it toward the window start, see `window_start`).
+    pub scroll: f32,
+    /// 0..=1 progress of the selected row's indent since it was selected.
+    pub emphasis: f32,
+    /// 0..=1 opacity of the detail panel since the selection changed.
+    pub detail: f32,
+}
+
+impl SelectMotion {
+    /// Nothing moving: the list shows `start` as its first row.
+    pub fn at_rest(start: usize) -> Self {
+        Self {
+            scroll: start as f32,
+            emphasis: 1.0,
+            detail: 1.0,
+        }
+    }
+}
+
 // Layout grid (1280×720 units).
 use super::widgets::{FOOTER_H, PAD, TOPBAR_H};
 const LIST_W: f32 = 640.0;
 const ROW_H: f32 = 52.0;
 const ROW_GAP: f32 = 6.0;
+/// How far the selected row is indented once it is picked up.
+const SELECT_INDENT: f32 = 6.0;
 
 pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let sk = ui.skin;
@@ -177,6 +202,8 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             }),
             _ => None,
         };
+        // The detail panel fades in whenever the selection changes.
+        c.set_opacity(f.motion.detail);
         match (f.rows.get(f.selected), selected) {
             (Some(SelectRow::Song(_) | SelectRow::Group { .. }), Some(song)) => {
                 detail_panel(c, t, &sk, f, song, detail, tabs, s, &mut hs)
@@ -191,6 +218,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             ) => folder_panel(c, t, &sk, label, count, &lamps, detail, s),
             _ => {}
         }
+        c.set_opacity(1.0);
     }
 
     let (caret, sort_anchor) = top_bar(c, t, &sk, f, s, &mut hs);
@@ -578,24 +606,46 @@ fn song_list(
     let step = (ROW_H + ROW_GAP) * s;
     let rows = visible_rows(f.viewport);
     let total = f.rows.len();
-    let start = window_start(f.scroll, f.selected, total, rows);
+    // Fractional first visible row: rows are drawn at their offset from it.
+    let pos = f
+        .motion
+        .scroll
+        .clamp(0.0, total.saturating_sub(rows) as f32);
     let row_w = list.w - 16.0 * s;
 
-    for (slot, entry) in f.rows.iter().enumerate().skip(start).take(rows) {
-        let row = Rect::new(
+    // Rows straddling either edge of the list are cut by its clip rect.
+    c.push_clip(list);
+    for (slot, entry) in f
+        .rows
+        .iter()
+        .enumerate()
+        .skip(pos.floor() as usize)
+        .take(rows + 1)
+    {
+        let mut row = Rect::new(
             list.x,
-            list.y + (slot - start) as f32 * step,
+            list.y + (slot as f32 - pos) * step,
             row_w,
             ROW_H * s,
         );
         let on = slot == f.selected;
-        let hot = !on && hs.hovered(row);
+        if on {
+            // The selected row indents as it is picked up.
+            let indent = SELECT_INDENT * s * f.motion.emphasis;
+            row.x += indent;
+            row.w -= indent;
+        }
+        // The visible part of the row: its hit region and hover area.
+        let Some(view) = row.intersect(&list) else {
+            continue;
+        };
+        let hot = !on && hs.hovered(view);
         match *entry {
             SelectRow::Song(idx) => {
                 let Some(song) = f.songs.get(idx) else {
                     continue;
                 };
-                hs.add(row, HitId::ListRow(slot));
+                hs.add(view, HitId::ListRow(slot));
                 let chip = f.tables.chip(song.id);
                 song_row(
                     c,
@@ -611,7 +661,7 @@ fn song_list(
                 );
             }
             SelectRow::Folder { label, count, .. } => {
-                hs.add(row, HitId::ListRow(slot));
+                hs.add(view, HitId::ListRow(slot));
                 folder_row(c, t, sk, label, count, row, on, hot, s);
             }
             SelectRow::Group {
@@ -620,13 +670,14 @@ fn song_list(
                 selected,
                 labels,
             } => {
-                hs.add(row, HitId::ListRow(slot));
+                hs.add(view, HitId::ListRow(slot));
                 group_row(
-                    c, t, sk, f, title, charts, labels, selected, slot, row, on, hot, s, hs,
+                    c, t, sk, f, title, charts, labels, selected, slot, row, view, on, hot, s, hs,
                 );
             }
         }
     }
+    c.pop_clip();
 
     // Scrollbar
     if total > rows {
@@ -638,7 +689,7 @@ fn song_list(
         );
         c.nine(&sk.panel_sm, track, theme::SURF2);
         let thumb_h = (track.h * rows as f32 / total as f32).max(24.0 * s);
-        let thumb_y = track.y + (track.h - thumb_h) * start as f32 / (total - rows) as f32;
+        let thumb_y = track.y + (track.h - thumb_h) * pos / (total - rows) as f32;
         c.nine(
             &sk.panel_sm,
             Rect::new(track.x, thumb_y, track.w, thumb_h),
@@ -871,6 +922,7 @@ fn group_row(
     selected: usize,
     slot: usize,
     row: Rect,
+    view: Rect,
     on: bool,
     hot: bool,
     s: f32,
@@ -896,10 +948,10 @@ fn group_row(
         };
         let (_, col) = theme::level_tier(chart.play_level);
         let w = chart_chip(c, t, text, ax, base, col, pos == selected, s);
-        hs.add(
-            Rect::new(ax, base - 12.0 * s, w, 16.0 * s),
-            HitId::ChartTab { row: slot, pos },
-        );
+        // A chip cut off by the list's edge takes no clicks.
+        if let Some(visible) = Rect::new(ax, base - 12.0 * s, w, 16.0 * s).intersect(&view) {
+            hs.add(visible, HitId::ChartTab { row: slot, pos });
+        }
         ax += w + 6.0 * s;
     }
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
@@ -2862,7 +2914,12 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected,
-            scroll,
+            motion: SelectMotion::at_rest(window_start(
+                scroll,
+                selected,
+                rows.len(),
+                visible_rows(&vp),
+            )),
             library_empty: false,
             scores: &scores,
             crumbs: &crumbs,
@@ -2902,6 +2959,135 @@ mod tests {
         assert_eq!(hit_at(&ui.hits, point.0, point.1), Some(HitId::ListRow(k)));
     }
 
+    /// A 60-song list at 1280×720 with `selected` and `motion`, the rest at rest.
+    fn motion_frame<'a>(
+        vp: &'a Viewport,
+        songs: &'a [SongMetadata],
+        rows: &'a [SelectRow<'a>],
+        tables: &'a TableIndex,
+        scores: &'a ScoreStore,
+        chips: &'a [String],
+        crumbs: &'a [String],
+        selected: usize,
+        motion: SelectMotion,
+    ) -> SelectFrame<'a> {
+        SelectFrame {
+            viewport: vp,
+            songs,
+            tables,
+            ln_option: LnOption::Auto,
+            rows,
+            selected,
+            motion,
+            library_empty: false,
+            scores,
+            crumbs,
+            sort: "TITLE",
+            search: "",
+            search_active: false,
+            preedit: "",
+            jacket: None,
+            ambient: None,
+            option_chips: chips,
+            auto_play: false,
+            has_replay: false,
+            preview_secs: None,
+            filter: FilterBar::default(),
+            result_count: None,
+            sort_menu: None,
+            show_help: false,
+        }
+    }
+
+    #[test]
+    fn eased_list_and_fades_are_one_batch() {
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..60).map(song).collect();
+        let rows: Vec<SelectRow> = (0..60).map(SelectRow::Song).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
+        let mut ui = Ui::new(vp.scale);
+        let moving = [
+            SelectMotion {
+                scroll: 3.4,
+                emphasis: 0.3,
+                detail: 0.5,
+            },
+            // Halfway through a scroll that ends past the last window start.
+            SelectMotion {
+                scroll: 50.9,
+                emphasis: 0.0,
+                detail: 0.0,
+            },
+            SelectMotion::at_rest(7),
+        ];
+        for motion in moving {
+            ui.begin(1280, 720, vp.scale);
+            let frame = motion_frame(
+                &vp, &songs, &rows, &tables, &scores, &chips, &crumbs, 8, motion,
+            );
+            draw_song_select(&mut ui, &frame);
+            assert_eq!(ui.canvas.debug_batches().len(), 1, "motion={motion:?}");
+        }
+    }
+
+    #[test]
+    fn hit_rects_follow_the_fractional_scroll() {
+        use crate::hit::{hit_at, HitId};
+        let vp = Viewport::new(1280, 720);
+        let songs: Vec<_> = (0..60).map(song).collect();
+        let rows: Vec<SelectRow> = (0..60).map(SelectRow::Song).collect();
+        let tables = TableIndex::default();
+        let scores = ScoreStore::default();
+        let chips: Vec<String> = Vec::new();
+        let crumbs = vec!["전체".to_string(), "전체 곡".to_string()];
+        let mut ui = Ui::new(vp.scale);
+        let motion = SelectMotion {
+            scroll: 3.25,
+            emphasis: 1.0,
+            detail: 1.0,
+        };
+        ui.begin(1280, 720, vp.scale);
+        let frame = motion_frame(
+            &vp, &songs, &rows, &tables, &scores, &chips, &crumbs, 5, motion,
+        );
+        draw_song_select(&mut ui, &frame);
+
+        let s = vp.scale;
+        let step = (ROW_H + ROW_GAP) * s;
+        let list_top = content_rect(&vp).y;
+        let rect_of = |i: usize| {
+            ui.hits
+                .iter()
+                .find(|h| h.id == HitId::ListRow(i))
+                .expect("row is on screen")
+                .rect
+        };
+        // Row 4 is whole: its top sits three-quarters of a row below the list's top.
+        let r4 = rect_of(4);
+        assert!((r4.y - (list_top + 0.75 * step)).abs() < 0.01, "y={}", r4.y);
+        assert!((r4.h - ROW_H * s).abs() < 0.01, "h={}", r4.h);
+        let (cx, cy) = (r4.x + r4.w / 2.0, r4.y + r4.h / 2.0);
+        assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::ListRow(4)));
+
+        // Row 3 is cut by the list's top edge: its hit covers only the visible part.
+        let r3 = rect_of(3);
+        assert!((r3.y - list_top).abs() < 0.01, "y={}", r3.y);
+        let visible_h = ROW_H * s - 0.25 * step;
+        assert!((r3.h - visible_h).abs() < 0.01, "h={}", r3.h);
+        assert_eq!(
+            hit_at(&ui.hits, r3.x + 40.0, r3.y + 1.0),
+            Some(HitId::ListRow(3))
+        );
+        // Above the list there is no row to hit.
+        assert_ne!(
+            hit_at(&ui.hits, r3.x + 40.0, list_top - 1.0),
+            Some(HitId::ListRow(3))
+        );
+    }
+
     #[test]
     fn hit_regions_follow_the_drawn_layout() {
         use crate::hit::{hit_at, HitId};
@@ -2919,7 +3105,7 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected: 5,
-            scroll: 0,
+            motion: SelectMotion::at_rest(0),
             library_empty: false,
             scores: &scores,
             crumbs: &["전체".to_string(), "전체 곡".to_string()],
@@ -3080,7 +3266,7 @@ mod tests {
                 ln_option: LnOption::Auto,
                 rows: &rows,
                 selected,
-                scroll: 0,
+                motion: SelectMotion::at_rest(0),
                 library_empty: false,
                 scores: &scores,
                 crumbs: &["전체".to_string(), "전체 곡".to_string()],
@@ -3128,7 +3314,7 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected: 0,
-            scroll: 0,
+            motion: SelectMotion::at_rest(0),
             library_empty: true,
             scores: &scores,
             crumbs: &crumbs,
@@ -3249,7 +3435,7 @@ mod tests {
             ln_option: LnOption::Auto,
             rows: &rows,
             selected: 0,
-            scroll: 0,
+            motion: SelectMotion::at_rest(0),
             library_empty: false,
             scores: &scores,
             crumbs: &crumbs,

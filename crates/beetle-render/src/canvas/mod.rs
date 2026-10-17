@@ -81,6 +81,8 @@ pub struct Canvas {
     batches: Vec<Batch>,
     clip_stack: Vec<Rect>,
     additive: bool,
+    /// Multiplies the alpha of every color drawn while it is set (0..=1).
+    opacity: f32,
     width: u32,
     height: u32,
     last_draw_calls: usize,
@@ -106,6 +108,7 @@ impl Canvas {
             batches: Vec::with_capacity(8),
             clip_stack: Vec::with_capacity(8),
             additive: false,
+            opacity: 1.0,
             width: 1,
             height: 1,
             last_draw_calls: 0,
@@ -161,6 +164,7 @@ impl Canvas {
         self.batches.clear();
         self.clip_stack.clear();
         self.additive = false;
+        self.opacity = 1.0;
     }
 
     /// Uploads dirty atlas pages, then submits every recorded batch.
@@ -211,6 +215,13 @@ impl Canvas {
     /// While on, every draw adds light instead of covering (glows, beams).
     pub fn set_additive(&mut self, on: bool) {
         self.additive = on;
+    }
+
+    /// Scales the alpha of everything drawn after it (1.0 = as given, 0.0 =
+    /// invisible). Used for fades of a whole panel; a draw never changes
+    /// batching, so the cost is one multiply per vertex color.
+    pub fn set_opacity(&mut self, opacity: f32) {
+        self.opacity = opacity.clamp(0.0, 1.0);
     }
 
     /// Restricts subsequent draws to `rect` ∩ current clip.
@@ -408,7 +419,7 @@ impl Canvas {
     /// Straight-alpha 8-bit color → premultiplied float, alpha zeroed when
     /// additive.
     fn pm(&self, c: ColorRgba) -> [f32; 4] {
-        let a = c.a as f32 / 255.0;
+        let a = c.a as f32 / 255.0 * self.opacity;
         let k = a / 255.0;
         [
             c.r as f32 * k,

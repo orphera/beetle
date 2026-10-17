@@ -196,6 +196,10 @@ impl ApplicationHandler for BeetleApp {
             entries: Vec::new(),
             selected_entry: 0,
             list_scroll: 0,
+            list_scroll_visual: 0.0,
+            motion_time: Instant::now(),
+            motion_selection: None,
+            selected_since: None,
             chart_choice: saved_config.chart_choices.clone(),
             filter: saved_config.filter.clone(),
             filter_focus: None,
@@ -548,12 +552,13 @@ impl ApplicationHandler for BeetleApp {
             }
         }
 
-        // Fade-ins and toasts animate on the menus; once they end, one more
-        // frame draws the cleared state before the loop sleeps again.
+        // Fade-ins, toasts and the song list's easing animate on the menus;
+        // once they end, one more frame draws the settled state before the
+        // loop sleeps again.
         let now = Instant::now();
         // The screen may have changed in the match above (library poll).
         state.sync_screen_entry();
-        if state.presentation_animating(now) {
+        if state.presentation_animating(now) || state.song_select_motion_active(now) {
             state.anim_tail = true;
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));

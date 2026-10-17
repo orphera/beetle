@@ -10,7 +10,8 @@ use beetle_core::{
     ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex,
     TimingModel,
 };
-use beetle_render::{strings, EightKForm, ImageBuffer, Rect, ViewState};
+use beetle_render::motion::{self, DETAIL_FADE_SECS, SELECT_EMPHASIS_SECS, SNAP_EPSILON};
+use beetle_render::{strings, EightKForm, ImageBuffer, Rect, SelectMotion, ViewState};
 use winit::window::Window;
 
 use crate::config::{AppConfig, DisplayMode, GpuBackendSetting};
@@ -64,6 +65,15 @@ pub struct AppState {
     pub selected_entry: usize,
     /// First visible row of the song list (see `beetle_render::window_start`). Keys re-centre it; clicks and the wheel do not.
     pub list_scroll: usize,
+    /// The list's first visible row as drawn: eased toward the window start
+    /// `list_scroll` asks for (fractional rows, see `song_select_motion`).
+    pub list_scroll_visual: f32,
+    /// When the song select motion last stepped (the frame's real time base).
+    pub motion_time: Instant,
+    /// The selection the motion last drew: the highlighted row and its chart.
+    pub motion_selection: Option<(usize, Option<ChartId>)>,
+    /// When the highlighted row last changed; `None` once nothing is animating.
+    pub selected_since: Option<Instant>,
     /// The chart each group shows when it is not the first one (saved in `config.dat`).
     pub chart_choice: crate::folders::ChartChoices,
     /// The song list filter (see `filters.rs`), saved in `config.dat`.
@@ -223,6 +233,68 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The first visible row the list should settle on: `list_scroll` moved
+    /// only as far as needed to show the highlight.
+    fn list_window_target(&self) -> f32 {
+        let rows = beetle_render::visible_rows(&self.view.viewport);
+        beetle_render::window_start(
+            self.list_scroll,
+            self.selected_entry,
+            self.entries.len(),
+            rows,
+        ) as f32
+    }
+
+    /// The song select motion for the frame drawn at `now`: steps the list's
+    /// scroll by the real time since the last step, and restarts the row
+    /// indent and the detail fade when the highlight moves.
+    pub fn song_select_motion(&mut self, now: Instant) -> SelectMotion {
+        let target = self.list_window_target();
+        let dt = now
+            .saturating_duration_since(self.motion_time)
+            .as_secs_f32();
+        self.motion_time = now;
+        let selection = (
+            self.selected_entry,
+            self.current_selected_song().map(|s| s.id),
+        );
+        match self.motion_selection {
+            // The first frame shows the list where it is, without easing in.
+            None => self.list_scroll_visual = target,
+            Some(seen) if seen != selection => self.selected_since = Some(now),
+            Some(_) => {}
+        }
+        self.motion_selection = Some(selection);
+        self.list_scroll_visual = motion::list_scroll_step(self.list_scroll_visual, target, dt);
+
+        let since = self
+            .selected_since
+            .map(|t| now.saturating_duration_since(t).as_secs_f32());
+        SelectMotion {
+            scroll: self.list_scroll_visual,
+            emphasis: since.map_or(1.0, |e| {
+                motion::ease_out_cubic(motion::span_progress(e, SELECT_EMPHASIS_SECS))
+            }),
+            detail: since.map_or(1.0, |e| {
+                motion::ease_out_quad(motion::span_progress(e, DETAIL_FADE_SECS))
+            }),
+        }
+    }
+
+    /// Whether the song select motion is still moving at `now`, so frames
+    /// keep coming until it settles.
+    pub fn song_select_motion_active(&self, now: Instant) -> bool {
+        if self.screen != AppScreen::SongSelect {
+            return false;
+        }
+        if (self.list_scroll_visual - self.list_window_target()).abs() > SNAP_EPSILON {
+            return true;
+        }
+        let span = SELECT_EMPHASIS_SECS.max(DETAIL_FADE_SECS);
+        self.selected_since
+            .is_some_and(|t| now.saturating_duration_since(t).as_secs_f32() < span)
+    }
+
     pub fn apply_display_mode(&mut self) {
         match self.display_mode {
             DisplayMode::Windowed => {
