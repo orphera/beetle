@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -305,6 +306,21 @@ fn load_videos_from_package_archive(
     }
 }
 
+/// Writes an artwork cache file by renaming a temp file over it, so no reader
+/// (or a second decoder of the same image) sees a half-written file. The temp
+/// name is unique to each write, so two writers never share one. Failures are
+/// ignored: the cache is only a speed-up.
+fn write_cache_file(path: &Path, bytes: &[u8]) {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    if fs::write(&tmp, bytes).is_err() || fs::rename(&tmp, path).is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+}
+
 /// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     // 1. Check persistent on-disk artwork cache first (fastest)
@@ -368,7 +384,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                             {
                                 if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
                                     let _ = fs::create_dir_all(cache_dir);
-                                    let _ = fs::write(&cache_file, &img_bytes);
+                                    write_cache_file(&cache_file, &img_bytes);
                                     return Some(img);
                                 }
                             }
@@ -439,7 +455,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                                 {
                                     let _ = fs::create_dir_all(cache_dir);
                                     let bmp_bytes = img.encode_bmp_bytes();
-                                    let _ = fs::write(&cache_file, &bmp_bytes);
+                                    write_cache_file(&cache_file, &bmp_bytes);
                                     return Some(img);
                                 }
                             }
@@ -457,7 +473,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                             if let Ok(img_bytes) = pkg.read_entry(&path) {
                                 if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
                                     let _ = fs::create_dir_all(cache_dir);
-                                    let _ = fs::write(&cache_file, &img_bytes);
+                                    write_cache_file(&cache_file, &img_bytes);
                                     return Some(img);
                                 }
                             }
@@ -468,7 +484,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                             if let Ok(img_bytes) = pkg.read_entry(&path) {
                                 if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
                                     let _ = fs::create_dir_all(cache_dir);
-                                    let _ = fs::write(&cache_file, &img_bytes);
+                                    write_cache_file(&cache_file, &img_bytes);
                                     return Some(img);
                                 }
                             }
@@ -482,7 +498,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
                     if let Ok(img_bytes) = pkg.read_entry(&path) {
                         if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
                             let _ = fs::create_dir_all(cache_dir);
-                            let _ = fs::write(&cache_file, &img_bytes);
+                            write_cache_file(&cache_file, &img_bytes);
                             return Some(img);
                         }
                     }
@@ -522,7 +538,7 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
         if let Some(img) = ImageBuffer::load_from_file(&p) {
             if let Ok(data) = fs::read(&p) {
                 let _ = fs::create_dir_all(cache_dir);
-                let _ = fs::write(&cache_file, data);
+                write_cache_file(&cache_file, &data);
             }
             return Some(img);
         }
@@ -959,6 +975,28 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_artwork_cache_write_replaces_the_file_whole_and_leaves_no_temp() {
+        let dir = std::env::temp_dir().join(format!("beetle-art-cache-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.bmp");
+        write_cache_file(&path, b"a longer first version");
+        write_cache_file(&path, b"second");
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        let temps = fs::read_dir(&dir)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")
+            })
+            .count();
+        assert_eq!(temps, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_bmsp_in_memory_video_loading() {
