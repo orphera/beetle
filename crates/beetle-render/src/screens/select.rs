@@ -154,6 +154,11 @@ impl SelectMotion {
 // Layout grid (1280×720 units).
 use super::widgets::{FOOTER_H, PAD, TOPBAR_H};
 const LIST_W: f32 = 640.0;
+/// The detail panel is laid out 544 wide at 1x on a 1280 screen. The list
+/// gives way to it at a large UI scale, but the detail is never narrower than
+/// `DETAIL_MIN` (the panel then shrinks to fit, see `draw_select`).
+const DETAIL_W: f32 = 544.0;
+const DETAIL_MIN: f32 = 380.0;
 const ROW_H: f32 = 52.0;
 const ROW_GAP: f32 = 6.0;
 /// How far the selected row is indented once it is picked up.
@@ -180,7 +185,8 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     backdrop(c, &sk, f, selected, ui.clock, lite, art);
 
     let content = content_rect(vp);
-    let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
+    let list_w = (LIST_W * s).min(content.w - (PAD + DETAIL_MIN) * s);
+    let list = Rect::new(content.x, content.y, list_w, content.h);
     if f.library_empty {
         // No songs at all: the guide takes the list area and there is no detail.
         first_run_guide(c, t, &sk, list, s, &mut hs);
@@ -194,6 +200,9 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
             content.right(),
             content.bottom(),
         );
+        // The panel's own parts scale down with its width, so a large UI
+        // scale on a narrow window keeps the jacket and the text inside it.
+        let detail_s = s.min(detail.w / DETAIL_W);
         let tabs = match f.rows.get(f.selected) {
             Some(&SelectRow::Group {
                 charts,
@@ -219,7 +228,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                 song,
                 detail,
                 tabs,
-                s,
+                detail_s,
                 &mut hs,
                 &mut ui.jackets,
             ),
@@ -230,7 +239,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                     lamps,
                 }),
                 _,
-            ) => folder_panel(c, t, &sk, label, count, &lamps, detail, s),
+            ) => folder_panel(c, t, &sk, label, count, &lamps, detail, detail_s),
             _ => {}
         }
         c.set_opacity(1.0);
