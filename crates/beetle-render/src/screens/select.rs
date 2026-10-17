@@ -553,6 +553,13 @@ fn content_rect(vp: &Viewport) -> Rect {
     )
 }
 
+/// Whether a list row is shown whole (`view` is its visible part). A row cut
+/// by the list's top or bottom edge takes no clicks: a click on it would select
+/// it and scroll the list by a row, so it could never be double-clicked to play.
+fn takes_clicks(view: Rect, row: Rect) -> bool {
+    view.h + 0.5 >= row.h
+}
+
 /// How many song rows fit in the list at this viewport (at least one).
 pub fn visible_rows(vp: &Viewport) -> usize {
     let s = vp.scale;
@@ -642,17 +649,20 @@ fn song_list(
             row.x += indent;
             row.w -= indent;
         }
-        // The visible part of the row: its hit region and hover area.
+        // The visible part of the row: its hover area.
         let Some(view) = row.intersect(&list) else {
             continue;
         };
+        let whole = takes_clicks(view, row);
         let hot = !on && hs.hovered(view);
         match *entry {
             SelectRow::Song(idx) => {
                 let Some(song) = f.songs.get(idx) else {
                     continue;
                 };
-                hs.add(view, HitId::ListRow(slot));
+                if whole {
+                    hs.add(view, HitId::ListRow(slot));
+                }
                 let chip = f.tables.chip(song.id);
                 song_row(
                     c,
@@ -668,7 +678,9 @@ fn song_list(
                 );
             }
             SelectRow::Folder { label, count, .. } => {
-                hs.add(view, HitId::ListRow(slot));
+                if whole {
+                    hs.add(view, HitId::ListRow(slot));
+                }
                 folder_row(c, t, sk, label, count, row, on, hot, s);
             }
             SelectRow::Group {
@@ -677,7 +689,9 @@ fn song_list(
                 selected,
                 labels,
             } => {
-                hs.add(view, HitId::ListRow(slot));
+                if whole {
+                    hs.add(view, HitId::ListRow(slot));
+                }
                 group_row(
                     c, t, sk, f, title, charts, labels, selected, slot, row, view, on, hot, s, hs,
                 );
@@ -955,9 +969,11 @@ fn group_row(
         };
         let (_, col) = theme::level_tier(chart.play_level);
         let w = chart_chip(c, t, text, ax, base, col, pos == selected, s);
-        // A chip cut off by the list's edge takes no clicks.
-        if let Some(visible) = Rect::new(ax, base - 12.0 * s, w, 16.0 * s).intersect(&view) {
-            hs.add(visible, HitId::ChartTab { row: slot, pos });
+        // Chips take clicks only when the whole row is shown (see `takes_clicks`).
+        if takes_clicks(view, row) {
+            if let Some(visible) = Rect::new(ax, base - 12.0 * s, w, 16.0 * s).intersect(&view) {
+                hs.add(visible, HitId::ChartTab { row: slot, pos });
+            }
         }
         ax += w + 6.0 * s;
     }
@@ -3079,19 +3095,32 @@ mod tests {
         let (cx, cy) = (r4.x + r4.w / 2.0, r4.y + r4.h / 2.0);
         assert_eq!(hit_at(&ui.hits, cx, cy), Some(HitId::ListRow(4)));
 
-        // Row 3 is cut by the list's top edge: its hit covers only the visible part.
-        let r3 = rect_of(3);
-        assert!((r3.y - list_top).abs() < 0.01, "y={}", r3.y);
-        let visible_h = ROW_H * s - 0.25 * step;
-        assert!((r3.h - visible_h).abs() < 0.01, "h={}", r3.h);
-        assert_eq!(
-            hit_at(&ui.hits, r3.x + 40.0, r3.y + 1.0),
+        // Row 3 is cut by the list's top edge: it is drawn but takes no clicks.
+        let drawn_row = |i: usize| ui.hits.iter().any(|h| h.id == HitId::ListRow(i));
+        assert!(!drawn_row(3), "a row cut by the top edge must not be hit");
+        let top_cut_x = 40.0;
+        assert_ne!(
+            hit_at(&ui.hits, top_cut_x, list_top + 1.0),
             Some(HitId::ListRow(3))
         );
-        // Above the list there is no row to hit.
-        assert_ne!(
-            hit_at(&ui.hits, r3.x + 40.0, list_top - 1.0),
-            Some(HitId::ListRow(3))
+        // The row past the bottom edge is cut too: no hit, while the rows
+        // above it still get one.
+        let list = content_rect(&vp);
+        let bottom = list.y + list.h;
+        let bottom_cut = (3..=12).find(|&i| {
+            let y = list.y + (i as f32 - 3.25) * step;
+            y < bottom && y + ROW_H * s > bottom
+        });
+        assert_eq!(bottom_cut, Some(12), "row 12 is the one cut at the bottom");
+        assert!(
+            !drawn_row(12),
+            "a row cut by the bottom edge must not be hit"
+        );
+        assert!(drawn_row(11), "the last whole row keeps its hit");
+        let r11 = rect_of(11);
+        assert_eq!(
+            hit_at(&ui.hits, r11.x + r11.w / 2.0, r11.y + r11.h / 2.0),
+            Some(HitId::ListRow(11))
         );
     }
 
