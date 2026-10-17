@@ -91,7 +91,11 @@ pub fn normalise(value: i32, min: i32, max: i32) -> i32 {
     if max <= min {
         return 0;
     }
-    let scaled = i64::from(value.clamp(min, max) - min) * 65535 / i64::from(max - min);
+    // Widened first: `max - min` and `value - min` overflow i32 over the full
+    // i32 range (a panic in the input thread would abort the process).
+    let (min, max) = (i64::from(min), i64::from(max));
+    let value = i64::from(value).clamp(min, max);
+    let scaled = (value - min) * 65535 / (max - min);
     scaled as i32
 }
 
@@ -532,6 +536,17 @@ mod tests {
         assert!((normalise(0, -32768, 32767) - 32768).abs() <= 1);
         // Degenerate ranges read as 0.
         assert_eq!(normalise(5, 7, 7), 0);
+    }
+
+    #[test]
+    fn normalise_does_not_overflow_over_the_full_i32_range() {
+        // `max - min` and `value - min` would overflow i32 here.
+        assert_eq!(normalise(i32::MIN, i32::MIN, i32::MAX), 0);
+        assert_eq!(normalise(i32::MAX, i32::MIN, i32::MAX), 65535);
+        assert_eq!(normalise(0, i32::MIN, i32::MAX), 32767);
+        assert_eq!(normalise(i32::MAX, 0, i32::MAX), 65535);
+        assert_eq!(normalise(-1, i32::MIN, -1), 65535);
+        assert_eq!(normalise(i32::MIN, -5, i32::MAX), 0);
     }
 
     #[test]
