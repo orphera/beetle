@@ -44,7 +44,7 @@ pub struct PlayFrame<'a> {
     /// Base BGA (already resolved: poor > video > image) and layer BGA.
     pub bga: Option<SizedTexture>,
     pub layer: Option<SizedTexture>,
-    /// Opacity of the BGA drawn underneath the playfield (0 = off).
+    /// Opacity of the BGA backdrop behind the whole screen (0 = off).
     pub track_bga_opacity: f32,
     pub key_pressed: &'a [bool; LANE_COUNT],
     pub hit_bursts: &'a [HitBurst],
@@ -55,8 +55,7 @@ pub struct PlayFrame<'a> {
     pub badge: Option<&'a str>,
     /// `Some(selected option)` while the pause menu is open.
     pub pause: Option<usize>,
-    /// The chart has BGA events or a video, so the BGA box is part of the
-    /// layout. Without it the box is replaced by the judge timeline.
+    /// The chart has BGA events or a video.
     pub has_bga: bool,
     /// Opacity of the key hint line (0 = hidden).
     pub key_hint_alpha: f32,
@@ -95,18 +94,18 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     );
     let danger = is_danger(f.score) && (f.audio_time * 6.0).sin() > 0.0;
 
-    let sides = sides(f, field, s);
+    let hud = hud_layout(f.viewport, field, l.effective_position(), s);
 
     backdrop(c, &sk, f, lite);
     playfield(c, &sk, f, field, danger, s);
-    gauge(c, t, &sk, f, sides.gauge, danger, s);
+    gauge(c, t, &sk, f, hud.gauge, danger, s);
     ready(c, t, &sk, f, field, s);
     // The end banner replaces the combo and the last judgement.
     if f.banner.is_none() {
         combo_and_judge(c, t, &sk, f, field, s);
     }
     readout(c, t, &sk, f, field, s);
-    hud(c, t, &sk, f, &sides, s);
+    hud_panels(c, t, &sk, f, &hud, s);
     end_banner(c, t, &sk, f, field, s);
     if let Some(selected) = f.pause {
         let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
@@ -165,45 +164,83 @@ fn is_danger(score: &ScoreTracker) -> bool {
     }
 }
 
-/// Where the gauge and the HUD columns go around the playfield.
-struct Sides {
-    gauge: Rect,
-    /// Song header and score panel.
-    info: Rect,
-    /// BGA, spectrum and key hint: a column of their own on the other side
-    /// of a centered playfield, otherwise under the info in its column.
-    media: Option<Rect>,
+/// Where the gauge and the HUD sit around the playfield (screen pixels).
+///
+/// The HUD is two slim blocks: `song` (title, level, progress) and `score`
+/// (EX score, judgement pills, timeline, spectrum). A centred playfield puts
+/// `song` on the left and `score` on the right; a playfield at either edge
+/// puts both in one column on the opposite side, `song` on top. `hint` is the
+/// key hint, along the bottom of whichever column holds `song`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Hud {
+    pub gauge: Rect,
+    pub song: Rect,
+    pub score: Rect,
+    pub hint: Rect,
 }
 
-fn sides(f: &PlayFrame, field: Rect, s: f32) -> Sides {
-    let vp = f.viewport;
-    let (left, right) = (vp.x + 24.0 * s, vp.x + vp.width - 24.0 * s);
-    let column = |x0: f32, x1: f32| Rect::from_ltrb(x0, field.y, x1.max(x0), field.bottom());
-    let gauge_at = |x: f32| Rect::new(x, field.y + 18.0 * s, 18.0 * s, field.h - 52.0 * s);
-    let gauge_right = gauge_at(field.right() + 16.0 * s);
-    match f.layout.effective_position() {
-        FieldPosition::Left => Sides {
-            gauge: gauge_right,
-            info: column(field.right() + 56.0 * s, right),
-            media: None,
+/// Widest a HUD column gets, in 720p pixels: slim, so the field stays the focus.
+const HUD_COLUMN_MAX: f32 = 300.0;
+/// Space between the playfield (or its gauge) and a HUD column (720p pixels).
+const HUD_GAP: f32 = 48.0;
+/// Margin between the viewport edge and a HUD column (720p pixels).
+const HUD_EDGE: f32 = 24.0;
+/// Height of the song block, from its top (720p pixels).
+const HUD_SONG_H: f32 = 110.0;
+/// Height of the key hint strip along the bottom (720p pixels).
+const HUD_HINT_H: f32 = 36.0;
+/// Space between the song block and the score block when they share a column.
+const HUD_STACK_GAP: f32 = 14.0;
+
+/// Pure layout of the HUD for a playfield `field` inside `vp` (the 16:9
+/// viewport, so letterboxed and pillarboxed windows get the same design).
+/// `position` is the playfield's effective position (Double Play is `Left`).
+pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s: f32) -> Hud {
+    let gauge_x = match position {
+        FieldPosition::Right => field.x - 34.0 * s,
+        _ => field.right() + 16.0 * s,
+    };
+    let gauge = Rect::new(gauge_x, field.y + 18.0 * s, 18.0 * s, field.h - 52.0 * s);
+
+    let max_w = HUD_COLUMN_MAX * s;
+    let left_edge = vp.x + HUD_EDGE * s;
+    let right_edge = vp.x + vp.width - HUD_EDGE * s;
+    // Columns beside the field, from the field's own edge outwards.
+    let left_col = |x1: f32| {
+        let x0 = (x1 - max_w).max(left_edge);
+        (x0, (x1 - x0).max(0.0))
+    };
+    let right_col = |x0: f32| {
+        let x1 = (x0 + max_w).min(right_edge);
+        (x0, (x1 - x0).max(0.0))
+    };
+    let (left_x, left_w) = left_col(field.x - HUD_GAP * s);
+    let (right_x, right_w) = right_col(field.right() + HUD_GAP * s);
+
+    let song_h = HUD_SONG_H * s;
+    let hint_h = HUD_HINT_H * s;
+    match position {
+        FieldPosition::Center => Hud {
+            gauge,
+            song: Rect::new(left_x, field.y, left_w, song_h),
+            hint: Rect::new(left_x, field.bottom() - hint_h, left_w, hint_h),
+            score: Rect::new(right_x, field.y, right_w, field.h),
         },
-        FieldPosition::Right => Sides {
-            gauge: gauge_at(field.x - 34.0 * s),
-            info: column(left, field.x - 56.0 * s),
-            media: None,
-        },
-        // Without a BGA the info column takes the whole left side (header,
-        // score panel, timeline) and the right side keeps only the gauge.
-        FieldPosition::Center if f.has_bga => Sides {
-            gauge: gauge_right,
-            info: column(left, field.x - 56.0 * s),
-            media: Some(column(field.right() + 56.0 * s, right)),
-        },
-        FieldPosition::Center => Sides {
-            gauge: gauge_right,
-            info: column(left, field.x - 56.0 * s),
-            media: None,
-        },
+        // The field is at one edge: every HUD piece in one column on the other side.
+        FieldPosition::Left | FieldPosition::Right => {
+            let (x, w) = match position {
+                FieldPosition::Right => (left_x, left_w),
+                _ => (right_x, right_w),
+            };
+            let score_y = field.y + song_h + HUD_STACK_GAP * s;
+            let score_bottom = field.bottom() - hint_h - HUD_STACK_GAP * s;
+            Hud {
+                gauge,
+                song: Rect::new(x, field.y, w, song_h),
+                score: Rect::new(x, score_y, w, (score_bottom - score_y).max(0.0)),
+                hint: Rect::new(x, field.bottom() - hint_h, w, hint_h),
+            }
+        }
     }
 }
 
@@ -220,13 +257,51 @@ pub(crate) fn cover_uv(tex: SizedTexture, dst: Rect) -> [f32; 4] {
     }
 }
 
+/// Whether the chart's BGA is drawn behind the playfield (a dimmed,
+/// cover-fitted backdrop at the track BGA opacity, so the lanes sit over it).
+fn bga_backdrop_visible(f: &PlayFrame) -> bool {
+    f.track_bga_opacity > 0.0 && f.bga.is_some()
+}
+
+/// The chart's BGA (and layer) over `full` at `alpha`.
+fn draw_bga(c: &mut Canvas, f: &PlayFrame, full: Rect, alpha: f32) {
+    let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    for tex in [f.bga, f.layer].into_iter().flatten() {
+        c.image(
+            tex.id,
+            full,
+            cover_uv(tex, full),
+            theme::WHITE.with_alpha(a),
+        );
+    }
+}
+
 fn backdrop(c: &mut Canvas, sk: &Skin, f: &PlayFrame, lite: bool) {
     let vp = f.viewport;
+    let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
+    let opacity = f.track_bga_opacity.clamp(0.0, 1.0);
+    // The BGA is the chart's content, not a decoration, so it stays under
+    // `lite` too (one quad). Without a BGA the generated backdrop shows.
     if lite {
+        if bga_backdrop_visible(f) {
+            draw_bga(c, f, full, opacity);
+        }
         return; // the frame clear color is the backdrop
     }
-    let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
-    c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
+    if bga_backdrop_visible(f) {
+        // The BGA goes down opaque, then the gradient over it at the rest of
+        // the opacity: the BGA shows at the track opacity over the backdrop,
+        // and the frame stays at one batch per texture (BGA, then atlas).
+        draw_bga(c, f, full, 1.0);
+        let veil = ((1.0 - opacity) * 255.0) as u8;
+        c.fill_rect_vgradient(
+            full,
+            theme::BG.with_alpha(veil),
+            theme::SURF1.with_alpha(veil),
+        );
+    } else {
+        c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
+    }
     // Decorative full-screen layers: each costs a full-screen of fill, which
     // the WARP fallback cannot afford (see `Ui::lite`).
     c.set_additive(true);
@@ -253,19 +328,10 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     let judge_y = l.judge_line_y;
     let hair = s.max(1.0);
 
-    // Field body, optional BGA underlay, top fade.
-    c.fill_rect(field, theme::PLAYFIELD.with_alpha(238));
-    if f.track_bga_opacity > 0.0 {
-        let a = (f.track_bga_opacity.clamp(0.0, 1.0) * 255.0) as u8;
-        for tex in [f.bga, f.layer].into_iter().flatten() {
-            c.image(
-                tex.id,
-                field,
-                cover_uv(tex, field),
-                theme::WHITE.with_alpha(a),
-            );
-        }
-    }
+    // Field body (see-through over a BGA, so the notes stay readable on the
+    // dark lanes), then the top fade.
+    let body_alpha = if bga_backdrop_visible(f) { 196 } else { 238 };
+    c.fill_rect(field, theme::PLAYFIELD.with_alpha(body_alpha));
     c.fill_rect_vgradient(
         Rect::new(field.x, field.y, field.w, 160.0 * s),
         theme::PLAYFIELD,
@@ -906,69 +972,62 @@ fn combo_and_judge(
 /// How long the milestone ring of `combo_and_judge` lasts (audio seconds).
 const MILESTONE_SECONDS: f64 = 0.6;
 
-fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, sides: &Sides, s: f32) {
+/// Draws the song and score blocks and the key hint, each if its column is
+/// wide enough to read.
+fn hud_panels(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, hud: &Hud, s: f32) {
     let min_w = 160.0 * s;
-    let info = sides.info;
-    if info.w >= min_w {
-        let bottom = info_column(c, t, sk, f, info, sides.media.is_some(), s);
-        if sides.media.is_none() {
-            media_column(
-                c,
-                t,
-                sk,
-                f,
-                Rect::from_ltrb(info.x, bottom, info.right(), info.bottom()),
-                s,
+    // A dark see-through scrim behind the text (no border), so the HUD still
+    // reads over a bright BGA.
+    let pad = 8.0 * s;
+    for r in [hud.song, hud.score] {
+        if r.w >= min_w {
+            c.fill_rect(
+                Rect::new(r.x - pad, r.y - pad, r.w + 2.0 * pad, r.h + 2.0 * pad),
+                theme::BG.with_alpha(150),
             );
         }
     }
-    if let Some(media) = sides.media.filter(|m| m.w >= min_w) {
-        media_column(c, t, sk, f, media, s);
+    if hud.song.w >= min_w {
+        song_block(c, t, sk, f, hud.song, s);
+    }
+    if hud.score.w >= min_w {
+        score_block(c, t, sk, f, hud.score, s);
+    }
+    if hud.hint.w >= min_w && f.key_hint_alpha > 0.0 {
+        key_hint(c, t, f, hud.hint, s);
     }
 }
 
-/// Song header and score panel from the top of `col`; returns where they end.
-#[allow(clippy::too_many_arguments)]
-fn info_column(
-    c: &mut Canvas,
-    t: &mut TextEngine,
-    sk: &Skin,
-    f: &PlayFrame,
-    col: Rect,
-    score_at_bottom: bool,
-    s: f32,
-) -> f32 {
-    let (x, w, right) = (col.x, col.w, col.right());
-    let score = f.score;
+/// Difficulty chip, title, artist and BPM, and the song progress bar with its
+/// clock. The badge (AUTO PLAY, REPLAY) sits at the right end of the top row.
+fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: Rect, s: f32) {
     let header = &f.chart.header;
-    let mut y = col.y;
-
-    // Song header
     let (tier, tier_col) = theme::level_tier(header.play_level);
-    let tier_txt = format!("{tier}  {}", header.play_level);
-    t.draw(
-        c,
-        &tier_txt,
-        x,
-        y + 14.0 * s,
-        &caption(12.0, s).color(tier_col),
-    );
+    let chip_txt = format!("{tier}  {}", header.play_level);
+    let chip_st = TextStyle::new(12.0 * s).bold().color(theme::ON_ACCENT);
+    let chip_w = t.measure(c, &chip_txt, &chip_st) + 16.0 * s;
+    let chip = Rect::new(r.x, r.y, chip_w, 20.0 * s);
+    c.nine(&sk.panel_lg, chip, tier_col);
+    t.draw_in(c, &chip_txt, chip, Align::Center, &chip_st);
+
     if let Some(badge) = f.badge {
         let st = caption(12.0, s).color(theme::ON_ACCENT);
-        let bw = t.measure(c, badge, &st) + 20.0 * s;
-        let chip = Rect::new(right - bw, y, bw, 20.0 * s);
-        c.nine(&sk.panel_lg, chip, theme::CYAN);
-        t.draw_in(c, badge, chip, Align::Center, &st);
+        let badge = t.fit(c, badge, r.w * 0.5, &st).into_owned();
+        let bw = t.measure(c, &badge, &st) + 16.0 * s;
+        let at = Rect::new(r.right() - bw, r.y, bw, 20.0 * s);
+        c.nine(&sk.panel_lg, at, theme::CYAN);
+        t.draw_in(c, &badge, at, Align::Center, &st);
     }
-    let title_st = TextStyle::new(24.0 * s).bold().color(theme::TEXT);
-    let title = t.fit(c, &header.title, w, &title_st).into_owned();
-    t.draw(c, &title, x, y + 44.0 * s, &title_st);
+
+    let title_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
+    let title = t.fit(c, &header.title, r.w, &title_st).into_owned();
+    t.draw(c, &title, r.x, r.y + 36.0 * s, &title_st);
     let sub = format!("{}  /  BPM {}", header.artist, header.bpm.round());
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
-    let sub = t.fit(c, &sub, w, &sub_st).into_owned();
-    t.draw(c, &sub, x, y + 66.0 * s, &sub_st);
-    // Song progress
-    let prog = Rect::new(x, y + 80.0 * s, w, 3.0 * s);
+    let sub = t.fit(c, &sub, r.w, &sub_st).into_owned();
+    t.draw(c, &sub, r.x, r.y + 60.0 * s, &sub_st);
+
+    let prog = Rect::new(r.x, r.y + 82.0 * s, r.w, 3.0 * s);
     c.fill_rect(prog, theme::LINE);
     let ratio = if f.song_length > 0.0 {
         (f.audio_time / f.song_length).clamp(0.0, 1.0) as f32
@@ -980,90 +1039,112 @@ fn info_column(
         theme::CYAN,
         theme::MAGENTA,
     );
-    // Alone in its column (centered playfield) the score panel sits at the
-    // bottom, level with the judge line; otherwise it follows the header.
-    // Without a BGA the panel is taller and the judge legend more spread out:
-    // the timeline below takes the room the BGA box would have had.
-    let roomy = !f.has_bga;
-    let panel_h = if roomy { 236.0 * s } else { 196.0 * s };
-    y = if score_at_bottom {
-        col.bottom() - panel_h
-    } else {
-        y + 104.0 * s
-    };
-
-    // Score panel
-    let panel = Rect::new(x, y, w, panel_h);
-    c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(170));
-    c.nine(&sk.cut_panel, panel, theme::SURF1.with_alpha(240));
-    c.nine(&sk.cut_outline, panel, theme::LINE);
-    let inner = panel.inset(20.0 * s);
-    t.draw(
-        c,
-        "EX SCORE",
-        inner.x,
-        inner.y + 10.0 * s,
-        &caption(12.0, s),
+    let clock = format!(
+        "{} / {}",
+        theme::clock(f.audio_time),
+        theme::clock(f.song_length)
     );
-    let ex = thousands(score.ex_score);
-    let ex_st = TextStyle::new(if roomy { 52.0 } else { 44.0 } * s)
-        .bold()
-        .color(theme::TEXT);
-    let ex_w = t.draw(c, &ex, inner.x, inner.y + 56.0 * s, &ex_st);
-    let max = format!("/ {}", thousands(score.max_ex_score()));
-    t.draw(
+    t.draw_in(
         c,
-        &max,
-        inner.x + ex_w + 10.0 * s,
-        inner.y + 56.0 * s,
-        &TextStyle::new(13.0 * s).color(theme::MUTED2),
+        &clock,
+        Rect::new(r.x, r.y + 90.0 * s, r.w, 16.0 * s),
+        Align::Right,
+        &caption(12.0, s).color(theme::MUTED),
     );
+}
 
-    // Rank, accuracy and pacemaker are all relative to the notes judged so
-    // far (ScoreTracker::accuracy_rate divides by the whole chart, which
-    // would show "F" for most of a perfect run).
+/// The EX score with the rank and the pace, the judgement counts as coloured
+/// pills, the judgement timeline and the spectrum along the bottom. No boxes:
+/// the numbers sit on the field's own dark.
+fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: Rect, s: f32) {
+    let score = f.score;
     let judged = score.pgreat_count
         + score.great_count
         + score.good_count
         + score.bad_count
         + score.poor_count
         + score.miss_count;
+    // Rank, accuracy and pacemaker are all relative to the notes judged so
+    // far (ScoreTracker::accuracy_rate divides by the whole chart, which
+    // would show "F" for most of a perfect run).
     let acc = if judged > 0 {
         score.ex_score as f64 / (judged as f64 * 2.0) * 100.0
     } else {
         100.0
     };
     let (rank, rank_col) = theme::rank(acc);
-    let rank_box = Rect::new(inner.right() - 110.0 * s, inner.y, 110.0 * s, 60.0 * s);
-    t.draw_in(
+
+    // Caption row: the label, and the next rank's name with the EX still needed.
+    t.draw(c, "EX SCORE", r.x, r.y + 14.0 * s, &caption(12.0, s));
+    if let Some((name, need)) = next_rank(score.ex_score, judged) {
+        let next = strings::fill(strings::NEXT_RANK, &[&format!("{name} +{need}")]);
+        t.draw_in(
+            c,
+            &next,
+            Rect::new(r.x, r.y, r.w, 16.0 * s),
+            Align::Right,
+            &TextStyle::new(12.0 * s).bold().color(theme::CYAN),
+        );
+    }
+
+    // The score itself, with the maximum beside it.
+    let ex = thousands(score.ex_score);
+    let ex_w = t.draw(
+        c,
+        &ex,
+        r.x,
+        r.y + 50.0 * s,
+        &TextStyle::new(46.0 * s).bold().color(theme::TEXT),
+    );
+    let max = format!("/ {}", thousands(score.max_ex_score()));
+    t.draw(
+        c,
+        &max,
+        r.x + ex_w + 8.0 * s,
+        r.y + 50.0 * s,
+        &TextStyle::new(13.0 * s).color(theme::MUTED2),
+    );
+
+    // Rank letter, then the pacemaker difference and the accuracy.
+    let rank_w = t.draw(
         c,
         rank,
-        rank_box,
-        Align::Right,
-        &TextStyle::new(38.0 * s).bold().color(rank_col),
+        r.x,
+        r.y + 84.0 * s,
+        &TextStyle::new(30.0 * s).bold().color(rank_col),
     );
     let target = (judged as f64 * 2.0 * 8.0 / 9.0).round() as i64;
     let diff = score.ex_score as i64 - target;
-    let pace = format!(
-        "AAA {}{}   {:.2}%",
-        if diff >= 0 { "+" } else { "" },
-        diff,
-        acc
+    let pace_x = r.x + rank_w + 12.0 * s;
+    let pace_w = t.draw(
+        c,
+        strings::PACE,
+        pace_x,
+        r.y + 84.0 * s,
+        &caption(12.0, s).color(theme::MUTED),
     );
+    let diff_txt = format!("{}{}", if diff >= 0 { "+" } else { "" }, diff);
     t.draw(
         c,
-        &pace,
-        inner.x,
-        inner.y + 80.0 * s,
+        &diff_txt,
+        pace_x + pace_w + 6.0 * s,
+        r.y + 84.0 * s,
         &TextStyle::new(13.0 * s).bold().color(if diff >= 0 {
             theme::CYAN
         } else {
             theme::MAGENTA
         }),
     );
+    t.draw_in(
+        c,
+        &format!("{acc:.2}%"),
+        Rect::new(r.x, r.y + 78.0 * s, r.w, 18.0 * s),
+        Align::Right,
+        &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
+    );
 
-    // Judge distribution bar + legend
-    let bar = Rect::new(inner.x, inner.y + 94.0 * s, inner.w, 6.0 * s);
+    // Judgement counts: a thin distribution bar, then a 2×3 grid of pills.
+    let bar = Rect::new(r.x, r.y + 96.0 * s, r.w, 4.0 * s);
     let counts = [
         (JudgeGrade::PerfectGreat, score.pgreat_count),
         (JudgeGrade::Great, score.great_count),
@@ -1087,103 +1168,130 @@ fn info_column(
             bx += sw;
         }
     }
-    let cols = if inner.w > 360.0 * s { 3 } else { 2 };
-    let col_w = inner.w / cols as f32;
-    let (legend_gap, row_gap) = if roomy { (34.0, 30.0) } else { (24.0, 22.0) };
+    let gap = 6.0 * s;
+    let pill_h = 26.0 * s;
+    let pill_w = (r.w - gap) / 2.0;
+    let grid_y = r.y + 110.0 * s;
     for (i, (g, n)) in counts.iter().enumerate() {
-        let lx = inner.x + (i % cols) as f32 * col_w;
-        let ly = bar.bottom() + legend_gap * s + (i / cols) as f32 * row_gap * s;
-        let dot = 12.0 * s;
+        let pill = Rect::new(
+            r.x + (i % 2) as f32 * (pill_w + gap),
+            grid_y + (i / 2) as f32 * (pill_h + gap),
+            pill_w,
+            pill_h,
+        );
+        let col = theme::judge_color(*g);
+        c.nine(&sk.panel_sm, pill, col.with_alpha(40));
         c.sprite(
             sk.icons.dot,
-            Rect::new(lx - 3.0 * s, ly - 10.0 * s, dot, dot),
-            theme::judge_color(*g),
+            Rect::new(
+                pill.x + 8.0 * s,
+                pill.y + (pill_h - 8.0 * s) / 2.0,
+                8.0 * s,
+                8.0 * s,
+            ),
+            col,
         );
-        t.draw(
+        t.draw_in(
             c,
             theme::judge_label(*g),
-            lx + 12.0 * s,
-            ly,
+            Rect::new(pill.x + 22.0 * s, pill.y, pill.w - 30.0 * s, pill_h),
+            Align::Left,
             &caption(12.0, s).color(theme::MUTED),
         );
         t.draw_in(
             c,
             &thousands(*n),
-            Rect::new(lx, ly - 13.0 * s, col_w - 16.0 * s, 16.0 * s),
+            Rect::new(pill.x, pill.y, pill.w - 8.0 * s, pill_h),
             Align::Right,
             &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
         );
     }
-    panel.bottom() + 20.0 * s
+
+    // The timeline is quiet: a caption and a hairline, no box. It only shows
+    // when the column is tall enough to keep it clear of the spectrum.
+    let strip_y = r.y + 226.0 * s;
+    let vis_h = 32.0 * s;
+    if strip_y + 44.0 * s <= r.bottom() - vis_h - 8.0 * s {
+        t.draw(
+            c,
+            strings::TIMELINE_TITLE,
+            r.x,
+            strip_y,
+            &caption(12.0, s).color(theme::MUTED),
+        );
+        t.draw_in(
+            c,
+            strings::TIMELINE_RANGE,
+            Rect::new(r.x, strip_y - 12.0 * s, r.w, 14.0 * s),
+            Align::Right,
+            &caption(12.0, s).color(theme::MUTED2),
+        );
+        judge_strip(
+            c,
+            f,
+            Rect::from_ltrb(r.x, strip_y + 10.0 * s, r.right(), strip_y + 44.0 * s),
+            s,
+        );
+    }
+
+    if r.h >= vis_h {
+        spectrum(c, f, Rect::new(r.x, r.bottom() - vis_h, r.w, vis_h), s);
+    }
 }
 
-/// BGA + visualizer filling `col`, with the key hint along its bottom. With
-/// no BGA the judge timeline takes the place of the BGA box.
-fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, col: Rect, s: f32) {
-    let (x, w) = (col.x, col.w);
-    let mut y = col.y;
-    // Room for the key hint on two lines (a narrow column wraps it).
-    let hint_h = 36.0 * s;
-    let vis_h = 40.0 * s;
-    let avail_h = (col.bottom() - hint_h - vis_h - 12.0 * s - y).max(0.0);
-    let frame = if f.has_bga {
-        let bga_h = (w * 9.0 / 16.0).min(avail_h);
-        let bga_w = bga_h * 16.0 / 9.0;
-        Rect::new(x + (w - bga_w) / 2.0, y, bga_w, bga_h)
-    } else {
-        Rect::new(x, y, w, avail_h)
-    };
-    if frame.h > 40.0 * s {
-        if f.has_bga {
-            c.nine(&sk.panel, frame.inset(-s), theme::LINE);
-            c.fill_rect(frame, theme::BG);
-            match f.bga {
-                Some(tex) => c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE),
-                None => {
-                    t.draw_in(
-                        c,
-                        strings::NO_BGA,
-                        frame,
-                        Align::Center,
-                        &caption(12.0, s).color(theme::MUTED2),
-                    );
-                }
-            }
-            if let Some(tex) = f.layer {
-                c.image(tex.id, frame, cover_uv(tex, frame), theme::WHITE);
-            }
+/// The judgements of the last `JUDGE_TIMELINE_SECONDS` on `plot`. Time runs
+/// right to left; the vertical position is the timing (early above the line,
+/// late below it, at the edges for 150 ms).
+fn judge_strip(c: &mut Canvas, f: &PlayFrame, plot: Rect, s: f32) {
+    let mid = plot.y + plot.h / 2.0;
+    let half = plot.h / 2.0 - 4.0 * s;
+    c.fill_rect(Rect::new(plot.x, mid, plot.w, s.max(1.0)), theme::LINE);
+    // Slim ticks: a judgement is a thin mark, so a run of them reads as a
+    // timeline and not as a bar.
+    let (tw, th) = (2.5 * s, 8.0 * s);
+    for m in f.judge_marks {
+        let e = f.audio_time - m.time;
+        if !(0.0..JUDGE_TIMELINE_SECONDS).contains(&e) {
+            continue;
+        }
+        let x = plot.x + plot.w * (1.0 - e / JUDGE_TIMELINE_SECONDS) as f32;
+        let offset = (m.delta_ms / 150.0).clamp(-1.0, 1.0) as f32;
+        let y = mid + offset * half;
+        c.fill_rect(
+            Rect::new(x - tw / 2.0, y - th / 2.0, tw, th),
+            theme::judge_color(m.grade),
+        );
+    }
+}
+
+/// The visualizer bars filling `r`, one per level.
+fn spectrum(c: &mut Canvas, f: &PlayFrame, r: Rect, s: f32) {
+    let n = f.visual_levels.len() as f32;
+    let gap = 3.0 * s;
+    let bw = (r.w - gap * (n - 1.0)) / n;
+    c.set_additive(true);
+    for (i, &lvl) in f.visual_levels.iter().enumerate() {
+        let lvl = lvl.clamp(0.0, 1.0);
+        let h = (r.h * lvl).max(2.0 * s);
+        let bx = r.x + i as f32 * (bw + gap);
+        let col = if lvl > 0.8 {
+            theme::MAGENTA
         } else {
-            judge_timeline(c, t, sk, f, frame, s);
-        }
-        y = frame.bottom() + 12.0 * s;
-
-        // Spectrum
-        let n = f.visual_levels.len() as f32;
-        let gap = 3.0 * s;
-        let bw = (frame.w - gap * (n - 1.0)) / n;
-        c.set_additive(true);
-        for (i, &lvl) in f.visual_levels.iter().enumerate() {
-            let lvl = lvl.clamp(0.0, 1.0);
-            let h = (vis_h * lvl).max(2.0 * s);
-            let bx = frame.x + i as f32 * (bw + gap);
-            let col = if lvl > 0.8 {
-                theme::MAGENTA
-            } else {
-                theme::CYAN
-            };
-            c.fill_rect_vgradient(
-                Rect::new(bx, y + vis_h - h, bw, h),
-                col.with_alpha(200),
-                col.with_alpha(30),
-            );
-        }
-        c.set_additive(false);
+            theme::CYAN
+        };
+        c.fill_rect_vgradient(
+            Rect::new(bx, r.bottom() - h, bw, h),
+            col.with_alpha(160),
+            col.with_alpha(20),
+        );
     }
+    c.set_additive(false);
+}
 
-    // The key hint fades out on its own schedule (see `key_hint_alpha`).
-    if f.key_hint_alpha <= 0.0 {
-        return;
-    }
+/// The key hint along the bottom of `col`, broken between its groups when a
+/// narrow column cannot hold it on one line.
+fn key_hint(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, col: Rect, s: f32) {
+    let (x, w) = (col.x, col.w);
     let hint_st = TextStyle::new(11.0 * s)
         .color(theme::MUTED2.with_alpha((f.key_hint_alpha.min(1.0) * 255.0) as u8));
     // Too long for a narrow column: break between the hint's groups (they
@@ -1215,89 +1323,29 @@ fn media_column(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, co
     }
 }
 
-/// The judgements of the last `JUDGE_TIMELINE_SECONDS` inside `frame`. Time
-/// runs right to left; the vertical position is the timing (early above the
-/// line, late below it, at the edges for 150 ms). A stage image, when there
-/// is one, sits dimmed behind the plot.
-fn judge_timeline(
-    c: &mut Canvas,
-    t: &mut TextEngine,
-    sk: &Skin,
-    f: &PlayFrame,
-    frame: Rect,
-    s: f32,
-) {
-    c.nine(&sk.panel, frame.inset(-s), theme::LINE);
-    c.fill_rect(frame, theme::BG);
-    if let Some(tex) = f.bga {
-        c.image(
-            tex.id,
-            frame,
-            cover_uv(tex, frame),
-            theme::WHITE.with_alpha(110),
-        );
-        c.fill_rect(frame, theme::BG.with_alpha(170));
+/// The rank above the one `ex` EX score earns over `judged` notes, and the EX
+/// score still needed for it. `None` with no notes judged, or at AAA. Uses the
+/// same IIDX ninths as `theme::rank`: a rank is reached at `ex * 9 >= n * max`.
+pub(crate) fn next_rank(ex: u32, judged: u32) -> Option<(&'static str, u32)> {
+    if judged == 0 {
+        return None;
     }
-    t.draw(
-        c,
-        strings::TIMELINE_TITLE,
-        frame.x + 12.0 * s,
-        frame.y + 14.0 * s,
-        &caption(12.0, s).color(theme::MUTED),
-    );
-    t.draw_in(
-        c,
-        strings::TIMELINE_RANGE,
-        Rect::new(
-            frame.x + 12.0 * s,
-            frame.y + 14.0 * s,
-            frame.w - 24.0 * s,
-            16.0 * s,
-        ),
-        Align::Right,
-        &caption(12.0, s).color(theme::MUTED2),
-    );
-    let plot = Rect::from_ltrb(
-        frame.x + 12.0 * s,
-        frame.y + 34.0 * s,
-        frame.right() - 12.0 * s,
-        frame.bottom() - 12.0 * s,
-    );
-    if plot.h < 24.0 * s || plot.w < 40.0 * s {
-        return;
-    }
-    let mid = plot.y + plot.h / 2.0;
-    let half = plot.h / 2.0 - 8.0 * s;
-    c.fill_rect(Rect::new(plot.x, mid, plot.w, s.max(1.0)), theme::LINE);
-    t.draw(
-        c,
-        strings::TIMING_FAST,
-        plot.x,
-        plot.y,
-        &caption(12.0, s).color(theme::FAST),
-    );
-    t.draw(
-        c,
-        strings::TIMING_SLOW,
-        plot.x,
-        plot.bottom() - 12.0 * s,
-        &caption(12.0, s).color(theme::SLOW),
-    );
-
-    let sq = 6.0 * s;
-    for m in f.judge_marks {
-        let e = f.audio_time - m.time;
-        if !(0.0..JUDGE_TIMELINE_SECONDS).contains(&e) {
-            continue;
-        }
-        let x = plot.x + plot.w * (1.0 - e / JUDGE_TIMELINE_SECONDS) as f32;
-        let offset = (m.delta_ms / 150.0).clamp(-1.0, 1.0) as f32;
-        let y = mid + offset * half;
-        c.fill_rect(
-            Rect::new(x - sq / 2.0, y - sq / 2.0, sq, sq),
-            theme::judge_color(m.grade),
-        );
-    }
+    // (ninths, rank name), from D up to AAA.
+    const LADDER: [(u64, &str); 6] = [
+        (3, "D"),
+        (4, "C"),
+        (5, "B"),
+        (6, "A"),
+        (7, "AA"),
+        (8, "AAA"),
+    ];
+    let max = judged as u64 * 2;
+    let ex = ex as u64;
+    LADDER.iter().find_map(|&(n, name)| {
+        // The smallest EX score with `ex * 9 >= n * max`, rounded up.
+        let need = (n * max + 8) / 9;
+        (ex < need).then(|| (name, (need - ex) as u32))
+    })
 }
 
 /// READY over the lane before the first note (see `ready_alpha`).
@@ -1803,5 +1851,192 @@ mod tests {
         let uv = cover_uv(tex, Rect::new(0.0, 0.0, 160.0, 90.0));
         assert!((uv[0] - 0.0).abs() < 1e-6 && (uv[2] - 1.0).abs() < 1e-6);
         assert!((uv[3] - uv[1] - 0.5625).abs() < 1e-4);
+    }
+
+    /// The viewport, the playfield and the HUD for a single play or Double
+    /// Play at `w`×`h` (the viewport is letterboxed or pillarboxed to 16:9).
+    fn placed(w: u32, h: u32, mode: PlayMode, position: FieldPosition) -> (Viewport, Rect, Hud) {
+        let vp = Viewport::new(w, h);
+        let mut skin = SkinConfig::default();
+        skin.update_layout(&vp);
+        skin.set_play_mode(mode);
+        skin.set_field_layout(position, crate::skin::ScratchSide::Left);
+        let field = Rect::new(
+            skin.playfield_x,
+            skin.playfield_y,
+            skin.playfield_width,
+            skin.playfield_height,
+        );
+        let hud = hud_layout(&vp, field, skin.effective_position(), vp.scale);
+        (vp, field, hud)
+    }
+
+    const SIZES: [(u32, u32); 4] = [(1280, 720), (1920, 1080), (2560, 1080), (1024, 768)];
+
+    fn overlaps(a: Rect, b: Rect) -> bool {
+        a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+    }
+
+    fn inside(r: Rect, vp: &Viewport) -> bool {
+        const EPS: f32 = 0.01;
+        r.x >= vp.x - EPS
+            && r.y >= vp.y - EPS
+            && r.right() <= vp.x + vp.width + EPS
+            && r.bottom() <= vp.y + vp.height + EPS
+    }
+
+    #[test]
+    fn hud_never_overlaps_the_playfield_or_itself() {
+        for (w, h) in SIZES {
+            for position in [
+                FieldPosition::Left,
+                FieldPosition::Center,
+                FieldPosition::Right,
+            ] {
+                for mode in [PlayMode::Keys7, PlayMode::Keys14] {
+                    let (vp, field, hud) = placed(w, h, mode, position);
+                    let case = format!("{w}x{h} {position:?} {mode:?}");
+                    let rects = [hud.gauge, hud.song, hud.score, hud.hint];
+                    for r in rects {
+                        assert!(inside(r, &vp), "{case}: {r:?} leaves the viewport");
+                        assert!(!overlaps(r, field), "{case}: {r:?} covers the playfield");
+                    }
+                    for (i, a) in rects.iter().enumerate() {
+                        for b in &rects[i + 1..] {
+                            assert!(!overlaps(*a, *b), "{case}: {a:?} overlaps {b:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hud_columns_are_wide_enough_to_read_at_every_size() {
+        for (w, h) in SIZES {
+            for position in [
+                FieldPosition::Left,
+                FieldPosition::Center,
+                FieldPosition::Right,
+            ] {
+                let (vp, _, hud) = placed(w, h, PlayMode::Keys7, position);
+                let min = 160.0 * vp.scale;
+                assert!(
+                    hud.song.w >= min,
+                    "{w}x{h} {position:?}: song {}",
+                    hud.song.w
+                );
+                assert!(
+                    hud.score.w >= min,
+                    "{w}x{h} {position:?}: score {}",
+                    hud.score.w
+                );
+                assert!(hud.score.h >= 330.0 * vp.scale, "{w}x{h} {position:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn centred_playfield_is_about_38_percent_with_hud_on_both_sides() {
+        for (w, h) in SIZES {
+            let (vp, field, hud) = placed(w, h, PlayMode::Keys7, FieldPosition::Center);
+            let share = field.w / vp.width;
+            assert!((0.36..=0.40).contains(&share), "{w}x{h}: {share}");
+            let centre = field.x + field.w / 2.0;
+            assert!((centre - (vp.x + vp.width / 2.0)).abs() < 1.0, "{w}x{h}");
+            assert!(hud.song.right() <= field.x, "{w}x{h}: song on the left");
+            assert!(hud.score.x >= field.right(), "{w}x{h}: score on the right");
+            assert!(hud.gauge.x >= field.right(), "{w}x{h}: gauge stays right");
+        }
+    }
+
+    #[test]
+    fn an_edge_playfield_moves_every_hud_piece_to_the_other_side() {
+        for (w, h) in SIZES {
+            let (_, field, hud) = placed(w, h, PlayMode::Keys7, FieldPosition::Left);
+            for r in [hud.song, hud.score, hud.hint] {
+                assert!(r.x >= field.right(), "{w}x{h} LEFT: {r:?}");
+            }
+            assert!(hud.gauge.x >= field.right(), "{w}x{h} LEFT gauge");
+
+            let (_, field, hud) = placed(w, h, PlayMode::Keys7, FieldPosition::Right);
+            for r in [hud.song, hud.score, hud.hint] {
+                assert!(r.right() <= field.x, "{w}x{h} RIGHT: {r:?}");
+            }
+            assert!(hud.gauge.right() <= field.x, "{w}x{h} RIGHT gauge");
+        }
+    }
+
+    #[test]
+    fn a_long_title_is_fitted_into_the_song_column() {
+        let (vp, _, hud) = placed(1024, 768, PlayMode::Keys7, FieldPosition::Center);
+        let mut ui = Ui::new(vp.scale);
+        ui.begin(1024, 768, vp.scale);
+        let st = TextStyle::new(22.0 * vp.scale).bold();
+        let title = "Extremely long song title for the fitting test ".repeat(8);
+        let fitted = ui
+            .text
+            .fit(&mut ui.canvas, &title, hud.song.w, &st)
+            .into_owned();
+        assert!(fitted.len() < title.len(), "the title was shortened");
+        let w = ui.text.measure(&mut ui.canvas, &fitted, &st);
+        assert!(w <= hud.song.w + 0.5, "{w} > {}", hud.song.w);
+    }
+
+    #[test]
+    fn next_rank_is_the_first_rank_not_yet_reached() {
+        assert_eq!(next_rank(0, 0), None);
+        // 10 notes judged: a rank needs `ex * 9 >= n * 20`.
+        assert_eq!(next_rank(0, 10), Some(("D", 7)));
+        assert_eq!(next_rank(7, 10), Some(("C", 2)));
+        assert_eq!(next_rank(17, 10), Some(("AAA", 1)));
+        assert_eq!(next_rank(20, 10), None);
+    }
+
+    #[test]
+    fn busy_frame_with_a_bga_is_at_most_two_batches() {
+        let fx = fixture();
+        let notes: Vec<PlayNote> = (0..200u32)
+            .map(|i| play_note(1.0 + i as f64 * 0.05, 1.0 + i as f64 * 0.05))
+            .collect();
+        let bga = SizedTexture {
+            id: TextureId(7),
+            width: 320,
+            height: 180,
+        };
+        let mut ui = Ui::new(fx.vp.scale);
+        ui.begin(1280, 720, fx.vp.scale);
+        draw_gameplay(
+            &mut ui,
+            &PlayFrame {
+                viewport: &fx.vp,
+                layout: &fx.layout,
+                chart: &fx.chart,
+                notes: &notes,
+                timing: &fx.timing,
+                score: &fx.score,
+                audio_time: 2.0,
+                song_length: 120.0,
+                visual_levels: &[0.5; 16],
+                bga: Some(bga),
+                layer: None,
+                track_bga_opacity: 0.5,
+                key_pressed: &[false; LANE_COUNT],
+                hit_bursts: &[],
+                last_judge: None,
+                hint: "ESC 일시정지",
+                badge: None,
+                pause: None,
+                has_bga: true,
+                key_hint_alpha: 1.0,
+                readout: None,
+                banner: None,
+                judge_marks: &[],
+            },
+        );
+        // The backdrop image is one batch, the frame the other.
+        assert!(ui.canvas.debug_batches().len() <= 2);
+        let verts = ui.canvas.debug_vertices().len();
+        assert!(verts < 8192, "{verts} vertices fit one batch");
     }
 }

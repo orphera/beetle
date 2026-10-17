@@ -357,6 +357,10 @@ table! {
     pub TIMELINE_RANGE = "최근 8초";
     pub TIMING_FAST = "FAST";
     pub TIMING_SLOW = "SLOW";
+    /// Label before the pacemaker difference (EX score against the AAA pace).
+    pub PACE = "PACE";
+    /// The next rank and the EX score still needed for it; `{}` = "AA +123".
+    pub NEXT_RANK = "NEXT {}";
 
     // ---- Result -------------------------------------------------------
     pub RESULT = "결과";
