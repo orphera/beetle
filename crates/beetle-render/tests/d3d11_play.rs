@@ -125,6 +125,10 @@ struct Extra {
     banner: Option<(ClearType, f32)>,
     marks: bool,
     hint_alpha: Option<f32>,
+    /// Overrides the last judgement: its grade and timing in ms (shown 0.1 s ago).
+    judge: Option<(JudgeGrade, f64)>,
+    /// Combo of exactly 100 (a milestone), with the last judgement just made.
+    milestone: bool,
 }
 
 fn render(
@@ -160,7 +164,8 @@ fn render_with(
     let timing = TimingModel::from_chart(&chart);
     let judge = JudgeEngine::new(&chart, &timing, GaugeType::Groove, beetle_core::Ruleset::CN);
     let mut score = ScoreTracker::new(chart.total_notes_count as u32, 260.0, GaugeType::Groove);
-    for i in 0..412 {
+    let hits = if extra.milestone { 100 } else { 412 };
+    for i in 0..hits {
         score.record_hit(match i % 23 {
             0 => JudgeGrade::Great,
             7 => JudgeGrade::Good,
@@ -238,7 +243,10 @@ fn render_with(
             track_bga_opacity: 0.0,
             key_pressed: &keys,
             hit_bursts: &bursts,
-            last_judge: Some((JudgeGrade::PerfectGreat, audio_time - 0.05, -3.0)),
+            last_judge: Some(match extra.judge {
+                Some((grade, delta)) => (grade, audio_time - 0.1, delta),
+                None => (JudgeGrade::PerfectGreat, audio_time - 0.05, -3.0),
+            }),
             hint: "키  Shift+S D F Space J K L    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
             badge: None,
             pause,
@@ -474,6 +482,29 @@ fn gameplay_hud_variants() {
         "7k-hint-off",
         Extra {
             hint_alpha: Some(0.0),
+            ..Default::default()
+        },
+    );
+    // Judgement effects: a FAST tag beside PERFECT GREAT (gradient fill), and
+    // the ring that a combo of 100 flashes out of the number.
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-judge-fast-pgreat",
+        Extra {
+            judge: Some((JudgeGrade::PerfectGreat, -12.0)),
+            ..Default::default()
+        },
+    );
+    draw(
+        &mut gpu,
+        &mut ui,
+        LEFT,
+        "7k-combo-milestone",
+        Extra {
+            judge: Some((JudgeGrade::PerfectGreat, 2.0)),
+            milestone: true,
             ..Default::default()
         },
     );

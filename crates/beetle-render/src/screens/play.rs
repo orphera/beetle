@@ -13,7 +13,7 @@ use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{is_side_track, ColorRgba, FieldPosition, SkinConfig};
 use crate::strings;
-use crate::text::{Align, TextEngine, TextStyle};
+use crate::text::{Align, Fx, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::{lane_index, HitBurst, JudgeMark, Viewport, JUDGE_TIMELINE_SECONDS, LANE_COUNT};
@@ -367,8 +367,10 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     }
     c.set_additive(false);
 
-    // Notes.
+    // Notes. Long-note stripes flow at two periods per beat; the beat comes
+    // from the timing model, so the flow follows the audio clock (INV-1).
     let note_h = sk.note.region.h as f32;
+    let flow_phase = (now_beat * 2.0).rem_euclid(1.0) as f32;
     let visible_beats = (judge_y - field.y + 100.0 * s) as f64 / px_per_beat.max(1.0);
     let first = first_visible_note(f.notes, f.audio_time - 2.0);
     // The 8K trigger form's side-track notes are wide bars over half the
@@ -384,18 +386,28 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                 continue;
             }
             let (x, w) = (l.lane_x(lane) + 2.0 * hair, l.lane_width(lane) - 4.0 * hair);
+            // Scratch heads run a little wider than the lane, like the bar they are.
+            let (x, w, head_kind) = if is_scratch_lane(lane) {
+                (x - 2.0 * s, w + 4.0 * s, Head::Scratch)
+            } else {
+                (x, w, Head::Key)
+            };
             let col = l.lane_color(lane);
             let head_y = y_at(note.target_time_seconds);
             match note.note_event.note_type {
                 // A judged note is gone: it does not linger on the line while it scrolls past.
-                NoteType::Tap if !note.is_judged => {
-                    draw_note(c, sk, x, head_y - note_h, w, note_h, col)
-                }
+                NoteType::Tap if !note.is_judged => draw_head(
+                    c,
+                    sk,
+                    head_kind,
+                    Rect::new(x, head_y - note_h, w, note_h),
+                    col,
+                ),
                 // A mine: a slim red bar with a dark core, gone once it has gone off.
                 NoteType::Landmine if !note.is_judged => {
                     let h = note_h * 0.7;
                     let y = head_y - (note_h + h) / 2.0;
-                    draw_note(c, sk, x, y, w, h, theme::RED);
+                    draw_head(c, sk, Head::Key, Rect::new(x, y, w, h), theme::RED);
                     c.fill_rect(
                         Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3),
                         theme::BG.with_alpha(200),
@@ -415,28 +427,28 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                     }
                     let head_edge = if broken { head_y } else { head_y.min(judge_y) };
                     let (top, bottom) = (tail_y.max(field.y), head_edge.min(judge_y));
-                    let body_col = if broken {
-                        col.with_alpha(40)
-                    } else {
-                        col.with_alpha(120)
-                    };
+                    let body = Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom);
                     if bottom > top {
-                        c.nine(
-                            &sk.ln_body,
-                            Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom),
-                            body_col,
-                        );
+                        if broken {
+                            c.nine(&sk.ln_body, body, col.with_alpha(40));
+                        } else {
+                            ln_body(c, sk, body, col, held, flow_phase);
+                        }
                     }
                     if !broken {
-                        draw_note(c, sk, x, head_edge - note_h, w, note_h, col);
+                        draw_head(
+                            c,
+                            sk,
+                            head_kind,
+                            Rect::new(x, head_edge - note_h, w, note_h),
+                            col,
+                        );
                     }
-                    draw_note(
+                    draw_head(
                         c,
                         sk,
-                        x,
-                        tail_y - note_h,
-                        w,
-                        note_h,
+                        Head::Tail,
+                        Rect::new(x, tail_y - note_h, w, note_h),
                         if broken { col.with_alpha(70) } else { col },
                     );
                 }
@@ -457,23 +469,31 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         );
     }
 
-    // Judge line + glow.
+    // Judge line: a bright core with a hot top edge, and a glow that swells
+    // a little on each beat. The pulse only touches the additive glow, so it
+    // never covers a note.
     let line_col = match f.score.current_combo {
         c if c >= 200 => theme::GOLD,
         c if c >= 50 => theme::CYAN,
         _ => theme::MAGENTA,
     };
+    let pulse = beat_pulse(now_beat);
     c.fill_rect(Rect::new(field.x, judge_y, field.w, 3.0 * hair), line_col);
+    c.fill_rect(
+        Rect::new(field.x, judge_y, field.w, hair),
+        theme::WHITE.with_alpha(230),
+    );
+    let glow_h = 27.0 * s * (1.0 + 0.25 * pulse);
     c.set_additive(true);
     c.sprite(
         sk.glow,
         Rect::new(
             field.x - 16.0 * s,
-            judge_y - 12.0 * s,
+            judge_y + 1.5 * hair - glow_h / 2.0,
             field.w + 32.0 * s,
-            27.0 * s,
+            glow_h,
         ),
-        line_col.with_alpha(80),
+        line_col.with_alpha((80.0 + 70.0 * pulse) as u8),
     );
     c.set_additive(false);
 
@@ -537,12 +557,86 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     hit_bursts(c, sk, f, judge_y, s);
 }
 
-fn draw_note(c: &mut Canvas, sk: &Skin, x: f32, y: f32, w: f32, h: f32, col: ColorRgba) {
-    let r = Rect::new(x, y, w, h);
-    c.nine(&sk.note, r, col);
-    c.set_additive(true);
-    c.nine(&sk.note_gloss, r, theme::WHITE);
-    c.set_additive(false);
+/// Which note head sprite a playfield note uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Head {
+    Key,
+    Scratch,
+    Tail,
+}
+
+fn is_scratch_lane(lane: Lane) -> bool {
+    matches!(lane, Lane::Scratch | Lane::P2Scratch)
+}
+
+/// Judge-line pulse at `beat` (a beat position from the timing model, so
+/// it follows the audio clock and every BPM change). Full on each beat and
+/// decaying to nothing before the next, so it reads as a soft beat, not a
+/// flash. Always in 0..=1.
+pub(crate) fn beat_pulse(beat: f64) -> f32 {
+    let phase = beat.rem_euclid(1.0) as f32;
+    (1.0 - phase).powi(4)
+}
+
+/// One note head: the shape for `head`, a gloss on the keys and scratch, and
+/// the chevron mark on a scratch. The tail cap is lit from below and has no
+/// gloss, so it reads as an end.
+fn draw_head(c: &mut Canvas, sk: &Skin, head: Head, r: Rect, col: ColorRgba) {
+    let shape = match head {
+        Head::Key => &sk.note,
+        Head::Scratch => &sk.note_scratch,
+        Head::Tail => &sk.note_tail,
+    };
+    c.nine(shape, r, col);
+    if head != Head::Tail {
+        c.set_additive(true);
+        c.nine(&sk.note_gloss, r, theme::WHITE);
+        c.set_additive(false);
+    }
+    if head == Head::Scratch {
+        c.sprite_centered(
+            sk.scratch_mark,
+            r.x + r.w / 2.0,
+            r.y + r.h / 2.0,
+            sk.scratch_mark.w as f32,
+            sk.scratch_mark.h as f32,
+            theme::WHITE.with_alpha(190),
+        );
+    }
+}
+
+/// Long-note body: the crisp rails of `ln_body`, then the flowing stripes
+/// tiled down the body. `phase` (0..1, one period per tile) moves the
+/// stripes; a held body is brighter and gets an additive glow over it.
+fn ln_body(c: &mut Canvas, sk: &Skin, body: Rect, col: ColorRgba, held: bool, phase: f32) {
+    let base = if held { 200 } else { 140 };
+    c.nine(&sk.ln_body, body, col.with_alpha(base));
+    let tile = sk.ln_flow.h as f32;
+    // Tiles in [body.y - tile, body.bottom]; `phase` shifts them down one tile per period.
+    let mut top = body.y + phase * tile - tile;
+    c.push_clip(body);
+    while top < body.bottom() {
+        c.sprite(
+            sk.ln_flow,
+            Rect::new(body.x, top, body.w, tile),
+            col.with_alpha(base),
+        );
+        top += tile;
+    }
+    if held {
+        c.set_additive(true);
+        let mut top = body.y + phase * tile - tile;
+        while top < body.bottom() {
+            c.sprite(
+                sk.ln_flow,
+                Rect::new(body.x, top, body.w, tile),
+                col.with_alpha(90),
+            );
+            top += tile;
+        }
+        c.set_additive(false);
+    }
+    c.pop_clip();
 }
 
 fn hit_bursts(c: &mut Canvas, sk: &Skin, f: &PlayFrame, judge_y: f32, s: f32) {
@@ -686,6 +780,38 @@ fn combo_and_judge(
         );
     }
 
+    // Every 100th combo flashes a ring out from the number: a brief extra
+    // glow, not a new state (a miss resets the combo, so it cannot linger).
+    if let Some((grade, at, _)) = f.last_judge {
+        let e = f.audio_time - at;
+        let milestone = f.score.current_combo > 0
+            && f.score.current_combo % 100 == 0
+            && !matches!(grade, JudgeGrade::Miss | JudgeGrade::Poor);
+        if milestone && (0.0..MILESTONE_SECONDS).contains(&e) {
+            let p = (e / MILESTONE_SECONDS) as f32;
+            let size = lerp(90.0, 280.0, ease_out_cubic(p)) * s;
+            let a = ((1.0 - p).powi(2) * 230.0) as u8;
+            c.set_additive(true);
+            c.sprite_centered(
+                sk.ring,
+                cx,
+                anchor + 22.0 * s,
+                size,
+                size,
+                theme::GOLD.with_alpha(a),
+            );
+            c.sprite_centered(
+                sk.flare,
+                cx,
+                anchor + 22.0 * s,
+                size * 0.8,
+                size * 0.8,
+                theme::WHITE.with_alpha(a / 2),
+            );
+            c.set_additive(false);
+        }
+    }
+
     if f.score.current_combo > 0 {
         let pulse = match since {
             Some(e) if (0.0..0.12).contains(&e) => {
@@ -696,7 +822,11 @@ fn combo_and_judge(
         let txt = thousands(f.score.current_combo);
         let st = TextStyle::new(52.0 * s).bold().color(theme::TEXT);
         let w = t.measure(c, &txt, &st) * pulse;
-        t.draw_scaled(c, &txt, cx - w / 2.0, anchor, &st, pulse);
+        let fx = Fx {
+            outline: Some((theme::BLACK, 2.0 * s)),
+            gradient: None,
+        };
+        t.draw_fx(c, &txt, cx - w / 2.0, anchor, &st, pulse, fx);
         let cap = caption(12.0, s).color(theme::MUTED);
         let cw = t.measure(c, strings::COMBO, &cap);
         t.draw(c, strings::COMBO, cx - cw / 2.0, anchor + 18.0 * s, &cap);
@@ -725,6 +855,10 @@ fn combo_and_judge(
         .tracking(3.0 * s)
         .color(col.with_alpha(a));
     let w = t.measure(c, label, &st) * pop;
+    // PERFECT GREAT is the one grade with a gradient fill (gold on top,
+    // white at the foot); the others are one judgement color.
+    let gradient = (grade == JudgeGrade::PerfectGreat)
+        .then(|| (theme::GOLD.with_alpha(a), theme::WHITE.with_alpha(a)));
     if grade == JudgeGrade::PerfectGreat {
         c.set_additive(true);
         c.sprite_centered(
@@ -733,28 +867,44 @@ fn combo_and_judge(
             y - 12.0 * s,
             w * 1.5,
             80.0 * s,
-            theme::CYAN.with_alpha((alpha * 110.0) as u8),
+            theme::GOLD.with_alpha((alpha * 90.0) as u8),
         );
         c.set_additive(false);
     }
-    let st = if grade == JudgeGrade::PerfectGreat {
-        st.color(theme::WHITE.with_alpha(a))
-    } else {
-        st
+    let fx = Fx {
+        outline: Some((theme::BLACK.with_alpha(a), 2.0 * s)),
+        gradient,
     };
-    t.draw_scaled(c, label, cx - w / 2.0, y, &st, pop);
+    t.draw_fx(c, label, cx - w / 2.0, y, &st, pop, fx);
 
+    // FAST / SLOW: a small horizontal tag right of the judgement word.
     if grade != JudgeGrade::Miss && delta_ms.abs() >= 4.0 {
         let (txt, fs_col) = if delta_ms < 0.0 {
             (format!("FAST {:.0}ms", delta_ms.abs()), theme::FAST)
         } else {
             (format!("SLOW {:.0}ms", delta_ms), theme::SLOW)
         };
-        let st = caption(12.0, s).color(fs_col.with_alpha(a));
-        let w = t.measure(c, &txt, &st);
-        t.draw(c, &txt, cx - w / 2.0, y + 22.0 * s, &st);
+        let st = TextStyle::new(12.0 * s).bold().color(fs_col.with_alpha(a));
+        let tw = t.measure(c, &txt, &st);
+        let pad = 8.0 * s;
+        let tag = Rect::new(
+            cx + w / 2.0 + 8.0 * s,
+            y - 22.0 * s,
+            tw + 2.0 * pad,
+            18.0 * s,
+        );
+        c.nine(
+            &sk.panel_sm,
+            tag,
+            theme::BLACK.with_alpha((alpha * 150.0) as u8),
+        );
+        c.nine(&sk.panel_outline, tag, fs_col.with_alpha(a));
+        t.draw_in(c, &txt, tag, Align::Center, &st);
     }
 }
+
+/// How long the milestone ring of `combo_and_judge` lasts (audio seconds).
+const MILESTONE_SECONDS: f64 = 0.6;
 
 fn hud(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, sides: &Sides, s: f32) {
     let min_w = 160.0 * s;
@@ -1476,6 +1626,105 @@ mod tests {
                 1,
                 "pause={pause:?} busy={busy}"
             );
+        }
+    }
+
+    #[test]
+    fn busy_frame_with_many_notes_and_a_milestone_is_one_batch() {
+        let fx = fixture();
+        let lanes = [
+            Lane::Scratch,
+            Lane::Key1,
+            Lane::Key2,
+            Lane::Key3,
+            Lane::Key4,
+            Lane::Key5,
+            Lane::Key6,
+            Lane::Key7,
+        ];
+        // Dense: a note every 45 ms over 8 lanes, every fourth one a long note,
+        // and a few long notes held.
+        let notes: Vec<PlayNote> = (0..400u32)
+            .map(|i| {
+                let t0 = 1.0 + i as f64 * 0.045;
+                let mut n = play_note(t0, t0);
+                n.note_event.lane = lanes[(i % 8) as usize];
+                if i % 4 == 0 {
+                    n.note_event.note_type = NoteType::LongNoteStart;
+                    n.end_target_time_seconds = t0 + 0.5;
+                    n.is_holding = i % 8 == 0;
+                }
+                n
+            })
+            .collect();
+        // 100 PERFECT GREATs in a row: combo 100 is a milestone.
+        let mut score = ScoreTracker::new(100, 200.0, GaugeType::Groove);
+        for _ in 0..100 {
+            score.record_hit(JudgeGrade::PerfectGreat);
+        }
+        let keys = [true; LANE_COUNT];
+        let marks: Vec<JudgeMark> = (0..12)
+            .map(|i| JudgeMark {
+                time: 0.5 + i as f64 * 0.04,
+                grade: JudgeGrade::Great,
+                delta_ms: i as f64 - 6.0,
+            })
+            .collect();
+        let bursts: Vec<HitBurst> = lanes
+            .iter()
+            .map(|&lane| HitBurst {
+                lane,
+                spawn_time: 1.9,
+                grade: JudgeGrade::PerfectGreat,
+            })
+            .collect();
+        let mut ui = Ui::new(fx.vp.scale);
+        for lite in [false, true] {
+            ui.lite = lite;
+            ui.begin(1280, 720, fx.vp.scale);
+            draw_gameplay(
+                &mut ui,
+                &PlayFrame {
+                    viewport: &fx.vp,
+                    layout: &fx.layout,
+                    chart: &fx.chart,
+                    notes: &notes,
+                    timing: &fx.timing,
+                    score: &score,
+                    audio_time: 2.0,
+                    song_length: 120.0,
+                    visual_levels: &[0.5; 16],
+                    bga: None,
+                    layer: None,
+                    track_bga_opacity: 0.0,
+                    key_pressed: &keys,
+                    hit_bursts: &bursts,
+                    last_judge: Some((JudgeGrade::PerfectGreat, 1.98, -6.0)),
+                    hint: "ESC 일시정지",
+                    badge: None,
+                    pause: None,
+                    has_bga: false,
+                    key_hint_alpha: 1.0,
+                    readout: None,
+                    banner: None,
+                    judge_marks: &marks,
+                },
+            );
+            assert_eq!(ui.canvas.debug_batches().len(), 1, "lite={lite}");
+            let verts = ui.canvas.debug_vertices().len();
+            assert!(verts < 8192, "lite={lite}: {verts} vertices fit one batch");
+        }
+    }
+
+    #[test]
+    fn beat_pulse_peaks_on_the_beat_and_decays_between_beats() {
+        assert_eq!(beat_pulse(3.0), 1.0);
+        assert_eq!(beat_pulse(4.0), 1.0, "every beat, not only the first");
+        assert!(beat_pulse(3.5) < 0.1);
+        assert!(beat_pulse(3.9) < beat_pulse(3.5));
+        for k in 0..200 {
+            let v = beat_pulse(k as f64 * 0.0371 - 2.0);
+            assert!((0.0..=1.0).contains(&v), "{v}");
         }
     }
 
