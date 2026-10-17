@@ -26,7 +26,7 @@ pub use select::{
     visible_rows, window_start, FilterBar, FilterItem, OptionsFooter, SelectFrame, SelectMotion,
     SelectRow, SortMenu, LAMP_COUNT,
 };
-pub use settings::{draw_settings, SettingsFrame};
+pub use settings::{draw_settings, follow_settings_scroll, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
 pub use widgets::OptionLine;
 

@@ -452,6 +452,13 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     let lines = option_lines(state, SETTINGS);
     let row = state.settings_row.min(SETTINGS.len() - 1);
+    let scroll = beetle_render::follow_settings_scroll(
+        &state.view.viewport,
+        &lines,
+        row,
+        state.settings_scroll,
+    );
+    state.settings_scroll = scroll;
     begin(state, size);
     beetle_render::draw_settings(
         &mut state.gpu_ui.ui,
@@ -460,6 +467,7 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
             lines: &lines,
             selected: row,
             help: SETTINGS[row].help,
+            scroll,
         },
     );
     overlays(state, true);

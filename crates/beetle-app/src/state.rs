@@ -125,6 +125,9 @@ pub struct AppState {
     pub modal_row: usize,
     /// Highlighted row of the Settings screen.
     pub settings_row: usize,
+    /// Scroll of each Settings column in device px, kept between frames so a
+    /// column moves only when its selected row leaves the window.
+    pub settings_scroll: [f32; 2],
     /// Keys from the raw input thread, stamped on arrival. `None` when it
     /// could not start; lane keys then come from winit's key events.
     pub raw_keys: Option<crate::raw_input::RawKeyboard>,

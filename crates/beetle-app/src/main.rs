@@ -222,6 +222,7 @@ impl ApplicationHandler for BeetleApp {
             should_exit_app: false,
             modal_row: 0,
             settings_row: 0,
+            settings_scroll: [0.0; 2],
             calibration: None,
             key_config_return: AppScreen::SongSelect,
             selected_key_idx: 0,

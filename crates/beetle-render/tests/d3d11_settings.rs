@@ -120,6 +120,7 @@ fn render(
             lines: &lines,
             selected,
             help: helps()[selected],
+            scroll: [0.0; 2],
         },
     );
     let calls = ui.end(gpu);
