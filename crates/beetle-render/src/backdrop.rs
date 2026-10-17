@@ -234,6 +234,9 @@ pub struct BlurBackdrop {
     front: usize,
     /// When `front` last changed.
     changed: Option<Instant>,
+    /// Set by `reset`: the next `show` draws its picture at once, without the
+    /// fade, because the atlas was rebuilt (a resize) and not the song changed.
+    skip_fade: bool,
 }
 
 impl BlurBackdrop {
@@ -274,14 +277,23 @@ impl BlurBackdrop {
             self.keys[back] = Some(key);
         }
         self.front = back;
-        self.changed = Some(now);
+        // After a reset the picture was already on screen before the rebuild,
+        // so it starts fully shown; the fade is for a change of song only.
+        let skip = std::mem::take(&mut self.skip_fade);
+        self.changed = Some(match now.checked_sub(FADE) {
+            Some(past) if skip => past,
+            _ => now,
+        });
         true
     }
 
     /// Forgets the slots (their pixels are gone after an atlas reset). The
-    /// next `show` allocates them again.
+    /// next `show` allocates them again and draws without a fade.
     pub fn reset(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            skip_fade: true,
+            ..Self::default()
+        };
     }
 
     /// The layers to draw at `now`.
@@ -563,6 +575,25 @@ mod tests {
         assert!(done.outgoing.is_none());
         assert_eq!(done.incoming.map(|l| l.alpha), Some(1.0));
         assert!(!bd.is_fading(t0 + FADE));
+    }
+
+    #[test]
+    fn the_first_show_after_a_reset_draws_at_once_without_a_fade() {
+        let (mut atlas, mut bd) = atlas_with_backdrop();
+        let t0 = Instant::now();
+        let px = || vec![5u8; (BACKDROP_W * BACKDROP_H * 4) as usize];
+        bd.show(&mut atlas, JacketKey::Placeholder(1), t0, px);
+        // The atlas is rebuilt on a resize; the same song is shown again.
+        bd.reset();
+        let mut rebuilt = UiAtlas::new(256);
+        assert!(bd.show(&mut rebuilt, JacketKey::Placeholder(1), t0, px));
+        let mix = bd.mix(t0);
+        assert!(mix.outgoing.is_none());
+        assert_eq!(mix.incoming.map(|l| l.alpha), Some(1.0));
+        assert!(!bd.is_fading(t0));
+        // A change of song after that still fades.
+        assert!(bd.show(&mut rebuilt, JacketKey::Placeholder(2), t0, px));
+        assert!(bd.is_fading(t0));
     }
 
     #[test]

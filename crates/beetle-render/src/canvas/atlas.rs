@@ -265,6 +265,19 @@ impl UiAtlas {
         page.mark_dirty(r);
     }
 
+    /// The premultiplied RGBA8 texels of `r`, as `write_rgba` stored them.
+    pub fn read_rgba(&self, r: AtlasRegion) -> Vec<u8> {
+        let size = self.size as usize;
+        let page = &self.pages[r.page as usize];
+        let row = r.w as usize * 4;
+        let mut out = Vec::with_capacity(row * r.h as usize);
+        for j in 0..r.h as usize {
+            let src = ((r.y as usize + j) * size + r.x as usize) * 4;
+            out.extend_from_slice(&page.pixels[src..src + row]);
+        }
+        out
+    }
+
     /// Writes a coverage mask as premultiplied white (`a,a,a,a`) — glyphs and
     /// single-color shapes, tinted by the vertex color when drawn.
     pub fn write_alpha(&mut self, r: AtlasRegion, coverage: &[u8]) {

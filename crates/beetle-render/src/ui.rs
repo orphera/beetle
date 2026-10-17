@@ -76,8 +76,10 @@ impl Ui {
             self.text.clear_cache();
             self.skin = Skin::generate(self.canvas.atlas_mut(), scale);
             // The reset emptied the atlas: the jacket grid is reserved again
-            // and its residents are gone.
+            // and its residents are uploaded again from their CPU copies.
+            let residents = self.jackets.residents();
             self.jackets = JacketAtlas::new(self.canvas.atlas_mut());
+            self.jackets.restore(self.canvas.atlas_mut(), residents);
             self.backdrop.reset();
         }
         self.canvas.begin(width, height);
@@ -104,7 +106,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jacket::JacketKey;
+    use crate::jacket::{JacketKey, THUMB_PX};
 
     #[test]
     fn scale_change_regenerates_without_leaking_atlas_space() {
@@ -118,6 +120,20 @@ mod tests {
         }
         assert_eq!(ui.canvas.atlas().page_count(), 1);
         assert_eq!(ui.skin.scale, 1.5);
+    }
+
+    #[test]
+    fn a_rebuild_uploads_the_resident_thumbnails_again_without_a_decode() {
+        let mut ui = Ui::new(1.0);
+        ui.begin(1280, 720, 1.0);
+        let key = JacketKey::Chart(beetle_core::ChartId::synthetic(5));
+        let n = (THUMB_PX * THUMB_PX * 4) as usize;
+        let px: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
+        assert!(ui.jackets.insert(ui.canvas.atlas_mut(), key, &px));
+        // A resize rebuilds the atlas: the thumbnail is still there, same pixels.
+        ui.begin(1920, 1080, 1.5);
+        let r = ui.jackets.get(key).expect("still resident");
+        assert_eq!(ui.canvas.atlas().read_rgba(r), px);
     }
 
     #[test]

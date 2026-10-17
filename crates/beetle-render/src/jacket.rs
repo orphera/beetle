@@ -99,6 +99,14 @@ impl<K: Copy + Eq + Hash> SlotLru<K> {
         self.index.clear();
     }
 
+    /// Each occupied slot with its key.
+    pub fn iter(&self) -> impl Iterator<Item = (usize, K)> + '_ {
+        self.keys
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, k)| k.map(|k| (slot, k)))
+    }
+
     pub fn len(&self) -> usize {
         self.index.len()
     }
@@ -112,6 +120,9 @@ impl<K: Copy + Eq + Hash> SlotLru<K> {
 pub struct JacketAtlas {
     base: Option<AtlasRegion>,
     lru: SlotLru<JacketKey>,
+    /// CPU copy of each slot's pixels, so the grid can be re-uploaded after
+    /// the atlas is rebuilt without decoding the songs again.
+    copies: Vec<Option<Vec<u8>>>,
 }
 
 impl JacketAtlas {
@@ -121,6 +132,23 @@ impl JacketAtlas {
         Self {
             base: atlas.alloc(COLS * PITCH, ROWS * PITCH),
             lru: SlotLru::new(SLOTS),
+            copies: vec![None; SLOTS],
+        }
+    }
+
+    /// The resident thumbnails with their pixels, for `restore`.
+    pub fn residents(&self) -> Vec<(JacketKey, Vec<u8>)> {
+        self.lru
+            .iter()
+            .filter_map(|(slot, key)| self.copies[slot].clone().map(|px| (key, px)))
+            .collect()
+    }
+
+    /// Puts `residents` (from `residents` of the old grid) back into this
+    /// freshly reserved grid, uploading them again without a decode.
+    pub fn restore(&mut self, atlas: &mut UiAtlas, residents: Vec<(JacketKey, Vec<u8>)>) {
+        for (key, px) in residents {
+            self.insert(atlas, key, &px);
         }
     }
 
@@ -166,6 +194,10 @@ impl JacketAtlas {
             None => self.lru.insert(key).0,
         };
         atlas.write_rgba(Self::slot_region(base, slot), pixels);
+        match &mut self.copies[slot] {
+            Some(copy) => copy.copy_from_slice(pixels),
+            None => self.copies[slot] = Some(pixels.to_vec()),
+        }
         true
     }
 
@@ -191,6 +223,7 @@ impl JacketAtlas {
     /// their slots are reused).
     pub fn clear(&mut self) {
         self.lru.clear();
+        self.copies.iter_mut().for_each(|c| *c = None);
     }
 }
 
