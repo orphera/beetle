@@ -568,7 +568,11 @@ impl ApplicationHandler for BeetleApp {
         let now = Instant::now();
         // The screen may have changed in the match above (library poll).
         state.sync_screen_entry();
-        if state.presentation_animating(now) || state.song_select_motion_active(now) {
+        // Gameplay keeps its own pacing (it redraws every frame), so the
+        // Gameplay reveal does not override it with a 16 ms timer.
+        let presentation_timed =
+            state.screen != AppScreen::Gameplay && state.presentation_animating(now);
+        if presentation_timed || state.song_select_motion_active(now) {
             state.anim_tail = true;
             timed = true;
             state.window.request_redraw();
