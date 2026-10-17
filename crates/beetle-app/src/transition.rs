@@ -66,7 +66,8 @@ pub enum Overlay {
 pub fn fades_in(screen: AppScreen) -> bool {
     matches!(
         screen,
-        AppScreen::SongSelect
+        AppScreen::Title
+            | AppScreen::SongSelect
             | AppScreen::KeyConfig
             | AppScreen::Settings
             | AppScreen::Loading
@@ -84,7 +85,8 @@ pub fn shows_toasts(screen: AppScreen) -> bool {
 
 /// The overlay for a change from `from` to `to`, or `None` for a plain cut.
 /// The shutter joins SongSelect with Settings, Key Config, Result and Loading
-/// (both ways for the first three). Loading -> Gameplay reveals the first
+/// (both ways for the first three), and the title with SongSelect, Settings
+/// and Key Config (both ways). Loading -> Gameplay reveals the first
 /// frames, and under `Fade` that is a plain fade instead. Every other change
 /// keeps the menu fade-in on its destination.
 pub fn transition_for(
@@ -104,9 +106,12 @@ pub fn transition_for(
             AppScreen::SongSelect,
             AppScreen::Settings | AppScreen::KeyConfig | AppScreen::Result | AppScreen::Loading,
         ) | (
+            AppScreen::Title,
+            AppScreen::SongSelect | AppScreen::Settings | AppScreen::KeyConfig,
+        ) | (
             AppScreen::Settings | AppScreen::KeyConfig | AppScreen::Result,
             AppScreen::SongSelect,
-        )
+        ) | (AppScreen::Settings | AppScreen::KeyConfig, AppScreen::Title,)
     );
     if shutter_pair && style == TransitionStyle::Shutter {
         return Some(Transition::Shutter);
@@ -340,6 +345,11 @@ mod tests {
             (Settings, SongSelect),
             (KeyConfig, SongSelect),
             (Result, SongSelect),
+            (Title, SongSelect),
+            (Title, Settings),
+            (Title, KeyConfig),
+            (Settings, Title),
+            (KeyConfig, Title),
         ] {
             assert_eq!(
                 transition_for(from, to, shutter),
@@ -347,6 +357,13 @@ mod tests {
                 "{from:?} -> {to:?}"
             );
         }
+        // Boot -> Title fades in like the other menus; Title -> Gameplay is not a pair.
+        assert_eq!(transition_for(Boot, Title, shutter), Some(Transition::Fade));
+        assert_eq!(
+            transition_for(Title, Result, shutter),
+            Some(Transition::Fade)
+        );
+        assert!(fades_in(Title));
         assert_eq!(
             transition_for(Loading, Gameplay, shutter),
             Some(Transition::GameplayReveal)

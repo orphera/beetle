@@ -2,8 +2,9 @@
 //! screenshots of the real app (used to review UI changes):
 //!
 //! - `BEETLE_CAPTURE=<file.bmp>`: write one backbuffer capture to this path.
-//! - `BEETLE_CAPTURE_SCREEN=boot|songselect|loading|gameplay|result|keyconfig|settings`
-//!   (default `songselect`): screen to capture.
+//! - `BEETLE_CAPTURE_SCREEN=boot|title|songselect|loading|gameplay|result|keyconfig|settings`
+//!   (default `songselect`): screen to capture. `title` also keeps the title
+//!   screen after the library read (any other capture variable skips it).
 //! - `BEETLE_CAPTURE_DELAY=<seconds>` (default 2): wall time after entering
 //!   that screen.
 //! - `BEETLE_CAPTURE_EXIT=1`: quit right after capturing.
@@ -38,6 +39,7 @@ pub struct Capture {
 fn parse_screen(s: &str) -> Option<AppScreen> {
     Some(match s.to_ascii_lowercase().as_str() {
         "boot" => AppScreen::Boot,
+        "title" => AppScreen::Title,
         "songselect" => AppScreen::SongSelect,
         "loading" => AppScreen::Loading,
         "gameplay" => AppScreen::Gameplay,
@@ -113,6 +115,26 @@ pub fn frozen_reveal_seconds() -> Option<f64> {
             .filter(|t| t.is_finite())
             .map(|t| t.max(0.0))
     })
+}
+
+/// Whether the title screen follows the library read at startup. A chart path
+/// on the command line skips it, and so does every dev capture or autoplay
+/// variable, so those runs start as they did before the title existed.
+/// `BEETLE_CAPTURE_SCREEN=title` keeps it.
+pub fn title_after_boot(cli_chart: bool) -> bool {
+    boot_shows_title(cli_chart, |key| std::env::var(key).ok())
+}
+
+fn boot_shows_title(cli_chart: bool, var: impl Fn(&str) -> Option<String>) -> bool {
+    if cli_chart {
+        return false;
+    }
+    if var("BEETLE_CAPTURE_SCREEN").is_some_and(|s| parse_screen(&s) == Some(AppScreen::Title)) {
+        return true;
+    }
+    ["BEETLE_CAPTURE", "BEETLE_CAPTURE_SCREEN", "BEETLE_AUTOPLAY"]
+        .iter()
+        .all(|key| var(key).is_none())
 }
 
 /// Screen to start on instead of song select (only Key Config and Settings, which have
@@ -226,4 +248,60 @@ pub fn save_backbuffer(backend: &mut dyn GpuBackend, path: &str) -> std::io::Res
     }
     std::fs::write(path, img.encode_bmp_bytes())?;
     Ok((w, h))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn a_plain_start_shows_the_title() {
+        assert!(boot_shows_title(false, env(&[])));
+    }
+
+    #[test]
+    fn a_chart_path_skips_the_title() {
+        assert!(!boot_shows_title(true, env(&[])));
+        assert!(!boot_shows_title(
+            true,
+            env(&[("BEETLE_CAPTURE_SCREEN", "title")])
+        ));
+    }
+
+    #[test]
+    fn dev_capture_and_autoplay_skip_the_title() {
+        for key in ["BEETLE_CAPTURE", "BEETLE_CAPTURE_SCREEN", "BEETLE_AUTOPLAY"] {
+            assert!(!boot_shows_title(false, env(&[(key, "1")])), "{key}");
+        }
+        assert!(!boot_shows_title(
+            false,
+            env(&[("BEETLE_AUTOPLAY", "1"), ("BEETLE_CAPTURE", "x.bmp")])
+        ));
+    }
+
+    #[test]
+    fn capture_screen_title_keeps_it_and_parses() {
+        assert!(boot_shows_title(
+            false,
+            env(&[
+                ("BEETLE_CAPTURE", "x.bmp"),
+                ("BEETLE_CAPTURE_SCREEN", "title")
+            ])
+        ));
+        assert_eq!(parse_screen("title"), Some(AppScreen::Title));
+        assert_eq!(parse_screen("TITLE"), Some(AppScreen::Title));
+        assert!(!boot_shows_title(
+            false,
+            env(&[("BEETLE_CAPTURE_SCREEN", "songselect")])
+        ));
+    }
 }

@@ -569,6 +569,28 @@ fn calibrate(state: &mut AppState, size: PhysicalSize<u32>) {
     finish(state);
 }
 
+/// The title screen: the menu over the living backdrop, and the quit prompt
+/// when it is open.
+pub fn title(state: &mut AppState, size: PhysicalSize<u32>) {
+    begin(state, size);
+    let vp = state.view.viewport;
+    beetle_render::draw_title(
+        &mut state.gpu_ui.ui,
+        &beetle_render::TitleFrame {
+            viewport: &vp,
+            selected: state.title_row,
+            songs: state.songs.len(),
+            version: env!("CARGO_PKG_VERSION"),
+            modal: state.show_exit_modal,
+        },
+    );
+    if state.show_exit_modal {
+        beetle_render::draw_exit_modal(&mut state.gpu_ui.ui, &vp);
+    }
+    overlays(state, false);
+    finish(state);
+}
+
 pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
     let (title, status) = match state.library_job {
         LibraryJob::Startup => (strings::BOOT_TITLE_STARTUP, strings::BOOT_STATUS_STARTUP),

@@ -15,19 +15,22 @@ use crate::options_table::{self, activation, SETTINGS};
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
 
-/// Opens the Settings screen (F4, or the SETTINGS button).
+/// Opens the Settings screen (F4, or the SETTINGS button, or the title menu).
+/// Back returns to the screen it was opened from.
 pub fn open_settings(state: &mut AppState) {
     play_ui(state, UiSound::Open);
+    state.settings_return = state.screen;
     state.screen = AppScreen::Settings;
     state.settings_row = 0;
     state.show_option_modal = false;
 }
 
-/// Back to song select (ESC, or the footer button). Saves the settings, and
-/// says so when a value only applies after a restart.
+/// Back to the screen Settings was opened from (ESC, or the footer button):
+/// song select or the title. Saves the settings, and says so when a value only
+/// applies after a restart.
 pub fn leave_settings(state: &mut AppState) {
     play_ui(state, UiSound::Cancel);
-    state.screen = AppScreen::SongSelect;
+    state.screen = state.settings_return;
     state.calibration = None;
     state.save_config();
     if state.gpu_backend != state.gpu_backend_at_start {

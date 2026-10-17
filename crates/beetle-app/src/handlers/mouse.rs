@@ -25,6 +25,7 @@ use crate::handlers::song_select::{
     open_song_manager, open_songs_folder, pick_sort, rescan, scroll_list, start_replay,
     step_filter_level, toggle_auto, toggle_sort_menu,
 };
+use crate::handlers::title::title_click;
 use crate::ime::set_search_active;
 use crate::menu_audio::play_ui;
 use crate::options_table::SETTINGS;
@@ -44,7 +45,11 @@ pub fn handle_press(state: &mut AppState) {
     match state.screen {
         // A click anywhere cancels a pending key bind, as ESC does.
         AppScreen::KeyConfig if state.rebinding.is_some() => state.rebinding = None,
-        AppScreen::SongSelect | AppScreen::KeyConfig | AppScreen::Result | AppScreen::Settings => {
+        AppScreen::Title
+        | AppScreen::SongSelect
+        | AppScreen::KeyConfig
+        | AppScreen::Result
+        | AppScreen::Settings => {
             let Some((x, y)) = state.cursor else {
                 return;
             };
@@ -76,6 +81,7 @@ pub fn handle_press(state: &mut AppState) {
 /// Runs the action of a clicked region on the current screen.
 pub fn handle_click(state: &mut AppState, id: HitId) {
     match state.screen {
+        AppScreen::Title => title_click(state, id),
         AppScreen::SongSelect => song_select_click(state, id),
         AppScreen::Result => result_click(state, id),
         AppScreen::KeyConfig => key_config_click(state, id),

@@ -192,6 +192,7 @@ mod tests {
 
     #[test]
     fn the_stream_policy_follows_the_screen() {
+        assert_eq!(stream_policy(AppScreen::Title), Some(true));
         assert_eq!(stream_policy(AppScreen::SongSelect), Some(true));
         assert_eq!(stream_policy(AppScreen::Result), Some(true));
         assert_eq!(stream_policy(AppScreen::Settings), Some(true));

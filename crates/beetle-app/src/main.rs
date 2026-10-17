@@ -227,6 +227,9 @@ impl ApplicationHandler for BeetleApp {
             settings_scroll: [0.0; 2],
             calibration: None,
             key_config_return: AppScreen::SongSelect,
+            settings_return: AppScreen::SongSelect,
+            title_row: 0,
+            title_on_boot: devtools::title_after_boot(self.cli_bms_path.is_some()),
             selected_key_idx: 0,
             score_store: beetle_core::ScoreStore::new(),
             play_options: saved_config.play_options,
@@ -787,6 +790,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                     AppScreen::Boot => present::boot(state, size),
+                    AppScreen::Title => present::title(state, size),
                     AppScreen::SongSelect => present::song_select(state, size),
                     AppScreen::Loading => present::loading(state, size),
                     AppScreen::Result => {
@@ -964,7 +968,11 @@ fn sync_lane_session(state: &mut AppState) {
 fn is_menu_screen(screen: AppScreen) -> bool {
     matches!(
         screen,
-        AppScreen::SongSelect | AppScreen::Result | AppScreen::KeyConfig | AppScreen::Settings
+        AppScreen::Title
+            | AppScreen::SongSelect
+            | AppScreen::Result
+            | AppScreen::KeyConfig
+            | AppScreen::Settings
     )
 }
 
@@ -1066,6 +1074,7 @@ fn handle_keyboard_input(
     match state.screen {
         // Nothing to do until the library is read; the window can still be closed.
         AppScreen::Boot => {}
+        AppScreen::Title => handlers::handle_title_input(state, key_state, code),
         AppScreen::SongSelect => handle_song_select_input(state, key_state, code, text),
         AppScreen::Loading => {
             if key_state == ElementState::Pressed && code == KeyCode::Escape {
@@ -1114,6 +1123,7 @@ mod tests {
     fn ambient_drift_runs_only_on_focused_full_quality_menus() {
         let step = Some(AMBIENT_FRAME);
         for screen in [
+            AppScreen::Title,
             AppScreen::SongSelect,
             AppScreen::Result,
             AppScreen::KeyConfig,

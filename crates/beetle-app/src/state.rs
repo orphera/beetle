@@ -53,6 +53,8 @@ pub struct LaneSessionSync {
 pub enum AppScreen {
     /// Reading the song library in the background (startup and F5 rescan).
     Boot,
+    /// The title menu after a startup read (see `devtools::title_after_boot`).
+    Title,
     SongSelect,
     Loading,
     Gameplay,
@@ -137,8 +139,15 @@ pub struct AppState {
     pub lane_session_seq: u32,
     /// The judge offset calibration (a sub-screen of Settings), while open.
     pub calibration: Option<crate::calibration::Session>,
-    /// The screen Key Configuration returns to (song select or Settings).
+    /// The screen Key Configuration returns to (song select, Settings or the title).
     pub key_config_return: AppScreen,
+    /// The screen Settings returns to (song select or the title).
+    pub settings_return: AppScreen,
+    /// Highlighted entry of the title menu.
+    pub title_row: usize,
+    /// Whether the library read at startup leads to the title screen (see
+    /// `devtools::title_after_boot`); otherwise it leads to song select.
+    pub title_on_boot: bool,
     pub selected_key_idx: usize,
     pub score_store: ScoreStore,
     pub play_options: PlayOptions,
@@ -540,7 +549,12 @@ impl AppState {
         }
         self.cursor_settle_time = Instant::now();
         if self.screen == AppScreen::Boot {
-            self.screen = crate::devtools::start_screen().unwrap_or(AppScreen::SongSelect);
+            // A rescan (F5) comes from song select and goes back there.
+            let after_boot = match self.library_job {
+                LibraryJob::Startup if self.title_on_boot => AppScreen::Title,
+                _ => AppScreen::SongSelect,
+            };
+            self.screen = crate::devtools::start_screen().unwrap_or(after_boot);
             self.key_config_edit_mode = self.key_config_mode();
             if self.screen == AppScreen::Settings {
                 if let Some(row) = crate::devtools::start_settings_row() {
