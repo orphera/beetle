@@ -145,7 +145,7 @@ table! {
     /// `{}` is the number of songs read.
     pub TOAST_RESCAN_DONE =
         ko "곡 {}개를 읽었어요",
-        en "Found {} songs",
+        en "Songs found: {}",
         ja "{}曲を読み込みました";
     /// `{}` is the file name of the saved screenshot.
     pub TOAST_SCREENSHOT_SAVED =
@@ -174,7 +174,7 @@ table! {
     /// The first `{}` is the count, the second the first file name.
     pub TOAST_UNINSTALLED_MANY =
         ko "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요",
-        en "{} packages not installed ({} and more) / install with bpm install",
+        en "{} packages not installed ({} and others) / install with bpm install",
         ja "未インストールのパッケージ {}件（{} ほか） / bpm install でインストールしてください";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED =
@@ -206,7 +206,7 @@ table! {
     /// `{}` is the number of songs in the library.
     pub TITLE_SONGS =
         ko "곡 {}개",
-        en "{} songs",
+        en "Songs: {}",
         ja "{}曲";
     /// The first menu entry: song select. Also the label after the prompt's keycap.
     pub TITLE_START =
@@ -231,7 +231,7 @@ table! {
         ja "起動しています";
     pub BOOT_TITLE_RESCAN =
         ko "서재를 다시 읽는 중",
-        en "Reading the library again",
+        en "Rescanning library",
         ja "ライブラリを再読み込みしています";
     pub BOOT_STATUS_STARTUP =
         ko "곡 목록을 읽는 중",
@@ -239,7 +239,7 @@ table! {
         ja "曲リストを読み込んでいます";
     pub BOOT_STATUS_RESCAN =
         ko "곡 폴더를 검색하는 중",
-        en "Searching the song folders",
+        en "Scanning song folders",
         ja "曲フォルダを検索しています";
 
     // ---- Song select --------------------------------------------------
@@ -271,8 +271,8 @@ table! {
     /// Row tag for a chart with no score yet.
     pub NO_PLAY =
         ko "기록 없음",
-        en "No plays",
-        ja "プレイ記録なし";
+        en "No record",
+        ja "記録なし";
     pub EMPTY_FOLDER =
         ko "이 폴더에 곡이 없어요.",
         en "No songs in this folder.",
@@ -289,7 +289,7 @@ table! {
     pub SEARCH_HINT =
         ko "/ 키로 검색어를 고치고, Esc로 지워요.",
         en "Press / to edit the search, Esc to clear it.",
-        ja "/ キーで検索語を修正し、Esc で消去します。";
+        ja "検索語を編集、Esc でクリア";
     pub PERSONAL_BEST =
         ko "최고 기록",
         en "Personal best",
@@ -310,12 +310,12 @@ table! {
     /// `{}` is the play count.
     pub PLAY_COUNT =
         ko "{}회 플레이",
-        en "{} plays",
+        en "Plays: {}",
         ja "{}回プレイ";
     pub ACCURACY =
         ko "정확도",
-        en "Accuracy",
-        ja "正確性";
+        en "Score Rate",
+        ja "スコアレート";
     pub MAX_COMBO =
         ko "최대 콤보",
         en "Max Combo",
@@ -402,12 +402,12 @@ table! {
     /// Detail panel and footer count of a folder: `{}` is the song count.
     pub FOLDER_SONGS =
         ko "{} 곡",
-        en "{} songs",
+        en "Songs: {}",
         ja "{}曲";
     /// Footer count while the list is folders only: `{}` is the folder count.
     pub FOLDER_COUNT =
         ko "{} 폴더",
-        en "{} folders",
+        en "Folders: {}",
         ja "{}フォルダ";
     pub FOLDER_OPEN_HINT =
         ko "ENTER로 열고, BKSP로 위 폴더로 나가요.",
@@ -429,12 +429,12 @@ table! {
         ja "レベル";
     pub SORT_CLEAR_LAMP =
         ko "클리어",
-        en "Clear",
-        ja "クリア";
+        en "Clear Lamp",
+        ja "クリアランプ";
     pub SORT_SCORE_RATE =
         ko "정확도",
-        en "Accuracy",
-        ja "正確性";
+        en "Score Rate",
+        ja "スコアレート";
     pub SORT_BPM =
         ko "BPM",
         en "BPM",
@@ -482,7 +482,7 @@ table! {
     /// `{}` is the number of songs found.
     pub RESULT_COUNT =
         ko "{}곡 찾음",
-        en "{} songs found",
+        en "Matches: {}",
         ja "{}曲見つかりました";
 
     // Help overlay (song select, ? key). Keys stay English keycaps.
@@ -581,7 +581,7 @@ table! {
     pub HELP_SONG_CHART =
         ko "묶음 행의 채보를 바꿔요",
         en "Change the chart of a grouped row",
-        ja "まとめ行の譜面を切り替えます";
+        ja "グループ行の譜面を切り替えます";
     pub HELP_MOUSE_AGAIN =
         ko "고른 줄을 다시 누르면 재생",
         en "Click the selected row again to play",
@@ -596,7 +596,7 @@ table! {
         ja "設定画面を開きます";
     pub HELP_KEYS =
         ko "키 설정을 열어요",
-        en "Open key config",
+        en "Open Key Config",
         ja "キー設定を開きます";
     pub HELP_MOUSE_BUTTONS =
         ko "상단의 옵션, 설정 버튼",
@@ -624,7 +624,7 @@ table! {
         ja "一つ上の階層へ。最上位では終了します";
     pub HELP_RESCAN =
         ko "곡 목록을 다시 읽어요",
-        en "Read the song list again",
+        en "Rescan the song list",
         ja "曲リストを再読み込みします";
     pub HELP_HELP =
         ko "도움말을 열고 닫아요",
@@ -633,7 +633,7 @@ table! {
     pub HELP_DROP =
         ko "파일을 끌어다 놓으면 곡을 열어요",
         en "Drop a file here to open the song",
-        ja "ファイルをドラッグすると曲を開きます";
+        ja "ファイルをドロップすると曲を開きます";
 
     // First run: the library has no songs. The guide lists three ways to add songs.
     pub GUIDE_TITLE =
@@ -651,7 +651,7 @@ table! {
     pub GUIDE_DROP =
         ko "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓아요.",
         en "Drag song files (.bmsp, .bms) or folders into this window.",
-        ja "曲ファイル（.bmsp, .bms）やフォルダをウィンドウにドラッグします。";
+        ja "曲ファイル（.bmsp, .bms）やフォルダをウィンドウにドラッグ&ドロップします。";
     pub GUIDE_FOLDER =
         ko "곡 파일을 songs 폴더에 넣어요.",
         en "Put song files in the songs folder.",
@@ -669,17 +669,17 @@ table! {
     pub DROP_TITLE =
         ko "여기에 놓으면 곡을 열어요",
         en "Drop here to open the song",
-        ja "ここに置くと曲を開きます";
+        ja "ここにドロップして曲を開く";
     pub DROP_NOTE =
         ko ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.",
         en "Drop a .bmsp package or .bms chart to open it at once.",
-        ja ".bmsp パッケージや .bms 譜面を置くと、すぐに開きます。";
+        ja ".bmsp パッケージや .bms 譜面をドロップすると、すぐに開きます。";
 
     // Opening the song manager or the songs folder failed.
     pub TOAST_MANAGER_OPENED =
         ko "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요",
         en "Come back to this window after adding songs to refresh the list",
-        ja "曲を追加したらこのウィンドウに戻ると一覧が更新されます";
+        ja "曲を追加してからこのウィンドウに戻ると、一覧が更新されます";
     pub TOAST_MANAGER_MISSING =
         ko "곡 관리자(bpm-gui.exe)를 찾지 못했어요",
         en "Could not find the Song Manager (bpm-gui.exe)",
@@ -725,7 +725,7 @@ table! {
     pub ROW_GREEN =
         ko "그린 넘버",
         en "Green Number",
-        ja "グリーンナンバー";
+        ja "緑数字";
     pub ROW_LANE_COVER =
         ko "레인 커버",
         en "Lane Cover",
@@ -733,7 +733,7 @@ table! {
     pub ROW_MODIFIER =
         ko "모디파이어",
         en "Modifier",
-        ja "モディファイア";
+        ja "配置オプション";
     pub ROW_GAUGE =
         ko "게이지",
         en "Gauge",
@@ -757,7 +757,7 @@ table! {
     pub ROW_MASTER_VOLUME =
         ko "전체 볼륨",
         en "Master Volume",
-        ja "全体音量";
+        ja "マスター音量";
     pub ROW_BGM_VOLUME =
         ko "배경음 볼륨",
         en "BGM Volume",
@@ -765,11 +765,11 @@ table! {
     pub ROW_KEY_VOLUME =
         ko "키음 볼륨",
         en "Key Volume",
-        ja "キー音量";
+        ja "キー音の音量";
     pub ROW_SFX_VOLUME =
         ko "효과음 볼륨",
         en "SFX Volume",
-        ja "効果音量";
+        ja "効果音の音量";
     pub ROW_VISUAL_OFFSET =
         ko "비주얼 오프셋",
         en "Visual Offset",
@@ -875,11 +875,11 @@ table! {
     pub RESOLUTION_CUSTOM =
         ko "사용자 지정",
         en "Custom",
-        ja "ユーザー指定";
+        ja "カスタム";
     pub DISPLAY_WINDOWED =
         ko "창 모드",
         en "Windowed",
-        ja "ウィンドウ";
+        ja "ウィンドウモード";
     pub DISPLAY_BORDERLESS =
         ko "테두리 없는 창",
         en "Borderless Window",
@@ -986,9 +986,9 @@ table! {
         en "Plays the song to the end without key presses. Auto Play results are not saved as records.",
         ja "キー入力なしで最後まで演奏します。オートプレイの結果は記録に保存されません。";
     pub HELP_START_MEASURE =
-        ko "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 기록되지 않아요.",
-        en "Starts the song at this measure. 0 starts from the beginning. Any other value is not saved as a play.",
-        ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときはプレイとして記録されません。";
+        ko "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 처리되어 기록되지 않아요.",
+        en "Starts the song at this measure. 0 starts from the beginning. Any other value counts as practice and is not saved.",
+        ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときは練習扱いとなり記録されません。";
 
     // Settings screen (its title is SETTINGS above).
     pub HELP_DISPLAY_MODE =
@@ -1042,32 +1042,32 @@ table! {
     pub HELP_REDUCE_FLASHES =
         ko "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.",
         en "Reduces the red warning flash, judge lights, and the banner's light rays and shaking. Judgement and sound stay the same.",
-        ja "赤い警告の点滅、判定の光、バナーの光条と揺れを抑えます。判定と音は変わりません。";
+        ja "赤い警告の点滅、判定の光、バナーの光の筋と揺れを抑えます。判定と音は変わりません。";
 
     pub ROW_REDUCE_MOTION =
         ko "모션 줄이기",
         en "Reduce Motion",
-        ja "モーションを抑える";
+        ja "アニメーションを減らす";
 
     pub HELP_REDUCE_MOTION =
         ko "화면 전환을 페이드로 바꾸고, 배경의 움직임과 제목 효과를 멈추고, 목록 스크롤을 바로 옮겨요. 기능은 그대로예요.",
-        en "Uses a plain fade between screens, stops the moving backgrounds and title effects, and snaps list scrolling. Every function stays.",
-        ja "画面の切り替えをフェードにし、背景の動きとタイトルの演出を止め、リストのスクロールを即座に移動します。機能は変わりません。";
+        en "Uses a plain fade between screens, stops the moving backgrounds and title effects, and snaps list scrolling. Gameplay is unaffected.",
+        ja "画面の切り替えをフェードにし、背景の動きとタイトルの演出を止め、スクロールのアニメーションをなくします。機能は変わりません。";
 
     pub ROW_HIGH_CONTRAST =
         ko "노트 대비 높이기",
         en "High-Contrast Notes",
-        ja "ノートのコントラスト";
+        ja "ハイコントラストノーツ";
 
     pub HELP_HIGH_CONTRAST =
-        ko "노트를 더 밝고 선명한 색과 굵은 테두리로 그려요. 판정선은 두껍게, 흔들림 없이 그려져요.",
-        en "Draws notes in stronger colours with a thick outline, a thicker judge line that does not pulse, and brighter lane dividers.",
-        ja "ノートを濃い色と太い縁取りで描きます。判定線は太く、脈動しません。レーンの区切りも明るくなります。";
+        ko "노트를 더 밝고 선명한 색과 굵은 테두리로 그려요. 판정선은 두껍게, 흔들림 없이 그려지고, 레인 구분선도 더 밝게 그려져요.",
+        en "Draws notes in stronger colors with a thick outline, a thicker judge line that does not pulse, and brighter lane dividers.",
+        ja "ノーツを濃い色と太い縁取りで描きます。判定ラインは太く、脈動しません。レーンの区切りも明るくなります。";
 
     pub ROW_UI_SCALE =
         ko "UI 크기",
         en "UI Scale",
-        ja "UIの大きさ";
+        ja "UIサイズ";
 
     pub HELP_UI_SCALE =
         ko "메뉴와 설정 화면의 글자와 버튼 크기를 80%~150%로 조절해요. 바로 적용돼요.",
@@ -1095,7 +1095,7 @@ table! {
         ja "背景の動画と画像をプレイフィールドの後ろにどれだけ濃く映すかを決めます。オフなら表示しません。";
     pub HELP_KEY_LAYOUT =
         ko "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.",
-        en "Chooses the key layout for the selected song's key mode. Press ENTER to open key config.",
+        en "Chooses the key layout for the selected song's key mode. Press ENTER to open Key Config.",
         ja "選んだ曲のキーモードで使うキー配置を選びます。ENTER でキー設定画面を開きます。";
 
     // Judge offset calibration (a Settings sub-screen).
@@ -1126,7 +1126,7 @@ table! {
     pub CALIBRATE_PROGRESS =
         ko "진행",
         en "Progress",
-        ja "進行";
+        ja "進捗";
     pub CALIBRATE_MEAN =
         ko "평균",
         en "Mean",
@@ -1157,8 +1157,8 @@ table! {
         ja "準備の4拍の後から入力を16回数えます。1拍に1回だけ数え、150 ms より離れた入力は無視します。";
     pub CALIBRATE_HELP_DONE =
         ko "제안값은 평균 차이의 반대 값이에요. 적용하면 판정 오프셋이 이 값이 돼요.",
-        en "The suggestion is the opposite of the mean difference. Applying it sets the judge offset to this value.",
-        ja "推奨値は平均のずれの反対の値です。適用すると判定オフセットがこの値になります。";
+        en "The suggestion is the mean offset with its sign flipped. Applying it sets the judge offset to this value.",
+        ja "推奨値は平均のずれを打ち消す値です。適用すると判定オフセットがこの値になります。";
     pub CALIBRATE_HELP_NO_AUDIO =
         ko "설정은 바뀌지 않았어요. ESC로 설정 화면에 돌아가세요.",
         en "Settings were not changed. Press ESC to return to Settings.",
@@ -1178,7 +1178,7 @@ table! {
     pub CALIBRATE_HINT_TAP =
         ko "누르기",
         en "Tap",
-        ja "タップ";
+        ja "入力";
     pub TOAST_CALIBRATE_APPLIED =
         ko "판정 오프셋을 {} ms로 맞췄어요",
         en "Judge offset set to {} ms",
@@ -1240,22 +1240,22 @@ table! {
     /// Key hint line during a replay or auto play.
     pub HUD_BACK_TO_SELECT =
         ko "ESC  곡 선택으로",
-        en "ESC  Back to song select",
+        en "ESC  Back to Song Select",
         ja "ESC  曲選択に戻る";
     /// Key hint line while playing; `{}` is the key layout.
     pub HUD_KEYS =
         ko "키  {}    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
         en "Keys  {}    1/2 Green Number    F10/F11 Cover    ESC Pause",
-        ja "キー  {}    1/2 グリーンナンバー    F10/F11 カバー    ESC 一時停止";
+        ja "キー  {}    1/2 緑数字    F10/F11 カバー    ESC 一時停止";
     /// Same, for layouts without cover keys (double play).
     pub HUD_KEYS_NO_COVER =
         ko "키  {}    1/2 그린 넘버    ESC 일시정지",
         en "Keys  {}    1/2 Green Number    ESC Pause",
-        ja "キー  {}    1/2 グリーンナンバー    ESC 一時停止";
+        ja "キー  {}    1/2 緑数字    ESC 一時停止";
     pub KEYS_CUSTOM =
         ko "사용자 배치",
         en "Custom layout",
-        ja "ユーザー配置";
+        ja "カスタム配置";
     /// Shown from the song start until a second before the first note.
     pub READY =
         ko "READY",
@@ -1269,7 +1269,7 @@ table! {
     pub READY_HINT =
         ko "F3/F4 그린 넘버 / F10/F11 레인 커버",
         en "F3/F4 Green Number / F10/F11 Lane Cover",
-        ja "F3/F4 グリーンナンバー / F10/F11 レーンカバー";
+        ja "F3/F4 緑数字 / F10/F11 レーンカバー";
     /// Readout over the lane after a green number change (`{}` = ms).
     pub READOUT_GREEN =
         ko "{} ms",
@@ -1356,7 +1356,7 @@ table! {
     /// Tag next to the clear lamp when the lamp got better.
     pub NEW_LAMP =
         ko "램프 갱신",
-        en "Lamp up",
+        en "Lamp Update",
         ja "ランプ更新";
     /// Clear banners. Kept in English next to the clear lamps (FULL COMBO, FAILED).
     pub STAGE_CLEAR =
@@ -1388,7 +1388,7 @@ table! {
     pub BEST_EX =
         ko "최고 {}",
         en "Best {}",
-        ja "最高 {}";
+        ja "ベスト {}";
     pub FIRST_PLAY =
         ko "첫 플레이",
         en "First play",
@@ -1428,9 +1428,9 @@ table! {
         en "Add Key",
         ja "キーを追加";
     pub CLEAR_LANE =
-        ko "비우기",
-        en "Clear",
-        ja "消去";
+        ko "연결 해제",
+        en "Unbind",
+        ja "割り当て解除";
     pub PRESET =
         ko "프리셋",
         en "Preset",
@@ -1483,7 +1483,7 @@ table! {
     /// `{}` is the scratch side.
     pub LAYOUT_8K =
         ko "키 8개를 한 줄로, 스크래치는 {} (F2: 교체, F3: 키 6개 + 트리거)",
-        en "Eight keys in a row, scratch on the {} (F2: swap, F3: six keys and triggers)",
+        en "Eight keys in a row, scratch: {} (F2: swap, F3: six keys and triggers)",
         ja "8つのキーを一列に並べ、スクラッチは{}（F2: 入れ替え、F3: キー6つ + トリガー）";
     pub LAYOUT_STRAIGHT =
         ko "키를 한 줄로 배치",
@@ -1492,20 +1492,20 @@ table! {
     /// `{}` is the scratch side.
     pub LAYOUT_SCRATCH =
         ko "스크래치는 {} (F2: 교체)",
-        en "Scratch on the {} (F2: swap)",
+        en "Scratch: {} (F2: swap)",
         ja "スクラッチは{}（F2: 入れ替え）";
     pub LAYOUT_PER_MODE =
         ko "키 모드마다 배치를 따로 저장",
         en "Each key mode saves its own layout",
         ja "配置はキーモードごとに別々に保存されます";
     pub REBIND_REPLACE =
-        ko "이 레인에 쓸 키를 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨져요.",
-        en "Press the key for this lane. It replaces the lane's current key, and a key used elsewhere moves here.",
-        ja "このレーンに使うキーを押してください。レーンの既存のキーと置き換わり、他で使っていたキーはここに移ります。";
+        ko "이 레인에 쓸 키나 패드 버튼을 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨져요.",
+        en "Press a key or pad button for this lane. It replaces the lane's current key, and a key used elsewhere moves here.",
+        ja "このレーンに使うキーかパッドのボタンを押してください。レーンの既存のキーと置き換わり、他で使っていたキーはここに移ります。";
     pub REBIND_ADD =
-        ko "이 레인에 다른 키를 하나 더 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨져요.",
-        en "Press another key for this lane. A key used by another lane moves here.",
-        ja "このレーンに別のキーを押してください。他のレーンが使っていたキーはここに移ります。";
+        ko "이 레인에 추가할 키나 패드 버튼을 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨져요.",
+        en "Press another key or pad button for this lane. A key used by another lane moves here.",
+        ja "追加するキーかパッドのボタンを押してください。他のレーンが使っていたキーはここに移ります。";
     pub REBIND_SELECTED =
         ko "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비워요.",
         en "Enter binds a key, A adds one more, Backspace clears the lane.",
@@ -1657,6 +1657,17 @@ mod tests {
         assert_eq!(Lang::Ko.next(), Lang::En);
         assert_eq!(Lang::Ja.next(), Lang::Ko);
         assert_eq!(Lang::Ko.prev(), Lang::Ja);
+    }
+
+    #[test]
+    fn every_template_has_the_same_placeholders_in_every_language() {
+        for (name, texts) in ALL {
+            let counts: Vec<usize> = texts.iter().map(|t| t.matches("{}").count()).collect();
+            assert!(
+                counts.iter().all(|&n| n == counts[0]),
+                "{name}: placeholder counts differ {counts:?}"
+            );
+        }
     }
 
     #[test]
