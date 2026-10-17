@@ -133,6 +133,7 @@ fn loading_frame(
         ui,
         &LoadingFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             song: &song,
             notes: 1500,
             jacket: None,
@@ -178,6 +179,7 @@ fn select_draw(
         ui,
         &SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &songs,
             rows: &rows,
             selected: 0,

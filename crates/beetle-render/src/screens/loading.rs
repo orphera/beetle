@@ -18,9 +18,12 @@ use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::Viewport;
 use beetle_core::SongMetadata;
+use std::time::Instant;
 
 pub struct LoadingFrame<'a> {
     pub viewport: &'a Viewport,
+    /// The frame time: the backdrop crossfade is measured against it.
+    pub now: Instant,
     pub song: &'a SongMetadata,
     /// Notes under the rule the play is judged under (what the HUD and result count).
     pub notes: usize,
@@ -41,7 +44,7 @@ const ENTER_SECONDS: f64 = 0.35;
 pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
-    let art = ui.backdrop.mix(std::time::Instant::now());
+    let art = ui.backdrop.mix(f.now);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let jackets = &mut ui.jackets;
     let vp = f.viewport;
@@ -287,6 +290,7 @@ mod tests {
                 &mut ui,
                 &LoadingFrame {
                     viewport: &vp,
+                    now: std::time::Instant::now(),
                     song: &song,
                     notes: 1500,
                     jacket: None,
@@ -330,6 +334,7 @@ mod tests {
                 ui,
                 &LoadingFrame {
                     viewport: &vp,
+                    now: std::time::Instant::now(),
                     song: &song,
                     notes: 1500,
                     jacket: None,

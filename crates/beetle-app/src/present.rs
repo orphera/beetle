@@ -402,7 +402,8 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let backdrop_song = state
         .current_selected_song()
         .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
-    show_backdrop(state, backdrop_song, Instant::now());
+    let now = Instant::now();
+    show_backdrop(state, backdrop_song, now);
     let crumbs = crate::folders::crumbs(&state.folder_tree, &state.folder_path);
     let mode_chips: Vec<(&str, bool)> = state
         .present_modes
@@ -495,6 +496,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             result_count: state.result_count,
             sort_menu,
             show_help: state.show_help,
+            now,
         },
     );
     if let Some(lines) = &option_panel {
@@ -674,7 +676,8 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         .loading_song
         .as_ref()
         .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
-    show_loading_backdrop(state, backdrop_song, Instant::now());
+    let now = Instant::now();
+    show_loading_backdrop(state, backdrop_song, now);
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
             &mut state.gpu_ui.ui,
@@ -688,6 +691,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
                 status: strings::LOADING_STATUS,
                 option_chips: &chips,
                 badge,
+                now,
             },
         );
     }
@@ -761,7 +765,8 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     });
 
     begin(state, size);
-    show_result_backdrop(state, Instant::now());
+    let now = Instant::now();
+    show_result_backdrop(state, now);
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
         beetle_render::draw_result(
             &mut state.gpu_ui.ui,
@@ -777,6 +782,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 unsaved_reason: unsaved,
                 ln_label: ln_label.as_deref(),
                 gauge_trend: &state.gauge_trend,
+                now,
             },
         );
     }

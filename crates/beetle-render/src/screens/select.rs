@@ -21,6 +21,7 @@ use crate::view::Viewport;
 use beetle_core::{
     ClearType, LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex,
 };
+use std::time::Instant;
 
 /// Everything the song select screen shows for one frame.
 /// One row of the list: a song (an index into `SelectFrame::songs`), a folder
@@ -82,6 +83,8 @@ const LAMP_ROWS: [Option<ClearType>; LAMP_COUNT] = [
 
 pub struct SelectFrame<'a> {
     pub viewport: &'a Viewport,
+    /// The frame time: the backdrop crossfade is measured against it.
+    pub now: Instant,
     /// The whole library; `Song` rows index into it.
     pub songs: &'a [SongMetadata],
     /// The rows of the current folder, in order.
@@ -159,7 +162,7 @@ const SELECT_INDENT: f32 = 6.0;
 pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
-    let art = ui.backdrop.mix(std::time::Instant::now());
+    let art = ui.backdrop.mix(f.now);
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
@@ -3017,6 +3020,7 @@ mod tests {
         assert!(visible < 60, "the list must be longer than the window");
         let frame = |selected: usize, scroll: usize| SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &songs,
             tables: &tables,
             ln_option: LnOption::Auto,
@@ -3081,6 +3085,7 @@ mod tests {
     ) -> SelectFrame<'a> {
         SelectFrame {
             viewport: vp,
+            now: std::time::Instant::now(),
             songs,
             tables,
             ln_option: LnOption::Auto,
@@ -3221,6 +3226,7 @@ mod tests {
         let mut ui = Ui::new(vp.scale);
         let frame = SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &songs,
             tables: &tables,
             ln_option: LnOption::Auto,
@@ -3382,6 +3388,7 @@ mod tests {
             ui.begin(1280, 720, vp.scale);
             let frame = SelectFrame {
                 viewport: &vp,
+                now: std::time::Instant::now(),
                 songs: &songs,
                 tables: &tables,
                 ln_option: LnOption::Auto,
@@ -3430,6 +3437,7 @@ mod tests {
         let rows: Vec<SelectRow> = Vec::new();
         let guide = SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &[],
             tables: &tables,
             ln_option: LnOption::Auto,
@@ -3551,6 +3559,7 @@ mod tests {
         let mut ui = Ui::new(vp.scale);
         let frame = |search: &'static str, preedit: &'static str, active: bool| SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &songs,
             tables: &tables,
             ln_option: LnOption::Auto,
@@ -3658,6 +3667,7 @@ mod jacket_tests {
         }
         let frame = SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs,
             tables: &tables,
             ln_option: LnOption::Auto,

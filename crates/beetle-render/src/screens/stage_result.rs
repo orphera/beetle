@@ -23,10 +23,13 @@ use crate::view::Viewport;
 use beetle_core::{
     BmsChart, ClearType, GaugeTrend, GaugeType, JudgeGrade, ScoreRecord, ScoreTracker, ScoreUpdate,
 };
+use std::time::Instant;
 
 /// Everything the result screen shows for one frame.
 pub struct ResultFrame<'a> {
     pub viewport: &'a Viewport,
+    /// The frame time: the backdrop crossfade is measured against it.
+    pub now: Instant,
     pub chart: &'a BmsChart,
     pub score: &'a ScoreTracker,
     /// Best record before this play (`None` = first play).
@@ -69,7 +72,7 @@ const HINTS: [widgets::Hint; 4] = [
 pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let sk = ui.skin;
     let lite = ui.lite;
-    let art = ui.backdrop.mix(std::time::Instant::now());
+    let art = ui.backdrop.mix(f.now);
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let vp = f.viewport;
@@ -1018,6 +1021,7 @@ mod tests {
                         &mut ui,
                         &ResultFrame {
                             viewport: &vp,
+                            now: std::time::Instant::now(),
                             chart: &chart,
                             score: &score,
                             previous_best: None,
@@ -1052,6 +1056,7 @@ mod tests {
             &mut ui,
             &ResultFrame {
                 viewport: &vp,
+                now: std::time::Instant::now(),
                 chart: &chart,
                 score: &score,
                 previous_best: None,

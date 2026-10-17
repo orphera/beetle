@@ -44,6 +44,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         ui,
         &LoadingFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             song: &song,
             notes: 1873,
             jacket: None,

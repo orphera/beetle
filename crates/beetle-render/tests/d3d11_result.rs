@@ -104,6 +104,7 @@ fn render(
         ui,
         &ResultFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             chart: &chart,
             score,
             previous_best: best,
@@ -278,6 +279,7 @@ fn options_panel_over_the_result() {
         &mut ui,
         &ResultFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             chart: &chart,
             score: &clear,
             previous_best: None,

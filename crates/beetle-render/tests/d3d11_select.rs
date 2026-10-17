@@ -301,6 +301,7 @@ fn render_ex(
         ui,
         &SelectFrame {
             viewport: &vp,
+            now: std::time::Instant::now(),
             songs: &songs,
             rows: &rows,
             selected,
