@@ -14,6 +14,8 @@
 //!   (it is otherwise only reachable by key press).
 //! - `BEETLE_CAPTURE_TRANSITION=<0..1>`: draws the shutter frozen at that
 //!   progress of its length on every frame, so a capture shows a mid-wipe.
+//! - `BEETLE_CAPTURE_REVEAL=<seconds>`: freezes the Stage Result reveal at
+//!   that time (0 to 3.2), for captures of each stage.
 //! - `BEETLE_CAPTURE_LAMP=<failed|easy|clear|hard|fullcombo|perfect>`: the
 //!   end banner shows this lamp instead of the play's real one (display only).
 //!
@@ -96,6 +98,20 @@ pub fn banner_lamp_override() -> Option<beetle_core::ClearType> {
             "perfect" => Some(ClearType::Perfect),
             _ => None,
         }
+    })
+}
+
+/// The reveal clock frozen at `BEETLE_CAPTURE_REVEAL=<seconds>`, so a capture
+/// shows one stage of the Stage Result reveal. Read once.
+pub fn frozen_reveal_seconds() -> Option<f64> {
+    static REVEAL: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
+    *REVEAL.get_or_init(|| {
+        std::env::var("BEETLE_CAPTURE_REVEAL")
+            .ok()?
+            .parse::<f64>()
+            .ok()
+            .filter(|t| t.is_finite())
+            .map(|t| t.max(0.0))
     })
 }
 

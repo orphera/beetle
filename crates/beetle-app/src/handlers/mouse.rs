@@ -37,6 +37,10 @@ const MAX_NOTCHES: i32 = 8;
 
 /// A left button press at the cursor position.
 pub fn handle_press(state: &mut AppState) {
+    // A click during the Stage Result reveal only skips it.
+    if state.screen == AppScreen::Result && crate::result_reveal::skip(state) {
+        return;
+    }
     match state.screen {
         // A click anywhere cancels a pending key bind, as ESC does.
         AppScreen::KeyConfig if state.rebinding.is_some() => state.rebinding = None,

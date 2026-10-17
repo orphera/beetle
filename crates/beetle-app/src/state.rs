@@ -224,6 +224,10 @@ pub struct AppState {
     pub loading_started_at: Instant,
     pub loading_anim_time: Instant,
     pub result_entered_at: Instant,
+    /// The reveal was skipped (a key or a click): the final state from now on.
+    pub result_reveal_skipped: bool,
+    /// Which of the reveal's sounds have played (see `result_reveal`).
+    pub result_sounds: crate::result_reveal::RevealSounds,
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(ChartId, Option<ImageBuffer>)>>,

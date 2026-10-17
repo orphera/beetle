@@ -17,6 +17,7 @@ mod options_table;
 mod present;
 mod preview;
 mod raw_input;
+mod result_reveal;
 mod scanner;
 mod state;
 mod tables;
@@ -291,6 +292,8 @@ impl ApplicationHandler for BeetleApp {
             loading_anim_time: Instant::now(),
             loading_started_at: Instant::now(),
             result_entered_at: Instant::now(),
+            result_reveal_skipped: false,
+            result_sounds: result_reveal::RevealSounds::default(),
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
@@ -552,9 +555,8 @@ impl ApplicationHandler for BeetleApp {
                 // way SongSelect's background-loader polling above does —
                 // relying on `request_redraw()` alone to escape
                 // ControlFlow::Wait proved unreliable here.
-                let result_animating = state.screen == AppScreen::Result
-                    && state.result_entered_at.elapsed().as_secs_f64()
-                        < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
+                let result_animating =
+                    state.screen == AppScreen::Result && result_reveal::running(state);
                 let calibrating = state.calibration.as_ref().is_some_and(|c| c.is_running());
                 // A preview fading out after leaving song select needs ticks
                 // until its stream is closed.
@@ -773,10 +775,8 @@ impl ApplicationHandler for BeetleApp {
                     AppScreen::Loading => present::loading(state, size),
                     AppScreen::Result => {
                         present::result(state, size);
-                        // Keep frames coming while the reveal animation runs.
-                        if state.result_entered_at.elapsed().as_secs_f64()
-                            < beetle_render::RESULT_REVEAL_DURATION_SECONDS
-                        {
+                        // Keep frames coming while the reveal runs (60 fps), then idle.
+                        if result_reveal::running(state) {
                             state.window.request_redraw();
                         }
                     }

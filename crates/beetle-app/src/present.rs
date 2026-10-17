@@ -596,7 +596,8 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
 }
 
 pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
-    let elapsed = state.result_entered_at.elapsed().as_secs_f64();
+    crate::result_reveal::advance(state);
+    let elapsed = crate::result_reveal::reveal_time(state);
     let unsaved = if state.is_replay_playback {
         Some(strings::REPLAY)
     } else if state.is_auto_play {

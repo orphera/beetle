@@ -13,6 +13,10 @@ pub fn handle_result_input(state: &mut AppState, key_state: ElementState, code: 
     if key_state != ElementState::Pressed {
         return;
     }
+    // Any key during the reveal only skips it to the final state.
+    if crate::result_reveal::skip(state) {
+        return;
+    }
 
     if state.show_option_modal {
         handle_result_options_input(state, code);

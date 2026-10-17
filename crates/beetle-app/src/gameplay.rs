@@ -383,7 +383,7 @@ pub fn leave_gameplay(state: &mut AppState) {
     state.video_players.clear();
     state.video_start_times.clear();
     state.screen = AppScreen::Result;
-    state.result_entered_at = Instant::now();
+    crate::result_reveal::begin(state);
     state.window.request_redraw();
 }
 
