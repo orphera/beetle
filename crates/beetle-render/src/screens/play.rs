@@ -77,6 +77,13 @@ const READY_LEAD: f64 = 1.0;
 const READY_FADE: f64 = 0.5;
 /// A first note sooner than this gets no READY label at all.
 const READY_MIN_FIRST_NOTE: f64 = 1.5;
+/// The count-in (3-2-1) needs a first note at least this late, and the three
+/// beats it fills must fit after the song start.
+const COUNT_MIN_FIRST_NOTE: f64 = 2.0;
+/// The count-in fills this many beats before the first note: one number a beat.
+const COUNT_BEATS: f64 = 3.0;
+/// GO! flashes from the first note and fades over this long (audio seconds).
+const GO_SECONDS: f64 = 0.6;
 /// The readout stays this long; its last 0.3 s fade out.
 pub const READOUT_SECONDS: f64 = 1.0;
 
@@ -122,6 +129,129 @@ pub(crate) fn ready_alpha(audio_time: f64, first_note: f64) -> f32 {
         return 0.0;
     }
     ((first_note - READY_LEAD - audio_time) / READY_FADE).clamp(0.0, 1.0) as f32
+}
+
+/// What the start cue shows over the lane at one audio time. The cue is a
+/// pure function of the audio clock and the first note (INV-1): it never
+/// moves a note or delays the song.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum StartCue {
+    /// Nothing: no notes, a first note too soon, or before the song.
+    None,
+    /// Short lead-in: READY at this opacity (it fades out before the note).
+    Ready(f32),
+    /// Count-in: the number (3, 2 or 1) and its progress through its beat (0..1).
+    Count { number: u8, progress: f32 },
+    /// GO! at the first note; progress through its flash (0..1).
+    Go(f32),
+}
+
+/// The start cue at `audio_time`, given the first note and the beat length in
+/// seconds (from the chart's opening tempo).
+///
+/// A long enough lead-in gets the count-in: 3, 2, 1 over the last three beats,
+/// one number a beat, then GO! on the note. A shorter one (or a tempo that
+/// makes three beats too long for it) falls back to READY, then GO!. A first
+/// note sooner than `READY_MIN_FIRST_NOTE` gets nothing at all.
+pub(crate) fn start_cue(audio_time: f64, first_note: f64, beat_seconds: f64) -> StartCue {
+    if first_note < READY_MIN_FIRST_NOTE || audio_time < 0.0 {
+        return StartCue::None;
+    }
+    if audio_time >= first_note {
+        let e = audio_time - first_note;
+        return if e < GO_SECONDS {
+            StartCue::Go((e / GO_SECONDS) as f32)
+        } else {
+            StartCue::None
+        };
+    }
+    let beat_ok = beat_seconds.is_finite() && beat_seconds > 0.0;
+    let count_fits =
+        beat_ok && first_note >= COUNT_MIN_FIRST_NOTE && first_note >= COUNT_BEATS * beat_seconds;
+    if !count_fits {
+        let a = ready_alpha(audio_time, first_note);
+        return if a > 0.0 {
+            StartCue::Ready(a)
+        } else {
+            StartCue::None
+        };
+    }
+    let window_start = first_note - COUNT_BEATS * beat_seconds;
+    if audio_time < window_start {
+        return StartCue::None;
+    }
+    let beats = (audio_time - window_start) / beat_seconds;
+    let beat = (beats.floor() as usize).min(2);
+    StartCue::Count {
+        number: 3 - beat as u8,
+        progress: (beats - beat as f64).clamp(0.0, 1.0) as f32,
+    }
+}
+
+/// Scale of a punch-in at progress `p` through its `span` (0..1): starts
+/// `amount` bigger and settles to 1 with a small overshoot.
+pub(crate) fn punch(p: f32, amount: f32, span: f32) -> f32 {
+    1.0 + amount * (1.0 - ease_out_back((p / span).clamp(0.0, 1.0)))
+}
+
+/// Opacity of a count-in number at progress `p` through its beat: full, then
+/// fading out over the last 30% so the next number takes over cleanly.
+pub(crate) fn count_alpha(p: f32) -> f32 {
+    let p = p.clamp(0.0, 1.0);
+    if p < 0.7 {
+        1.0
+    } else {
+        1.0 - ease_in_cubic((p - 0.7) / 0.3)
+    }
+}
+
+/// Vertical offset (before the screen scale) of the FAILED banner at progress
+/// `p`: a fast shake that eases out to exactly 0 at the end of the banner.
+pub(crate) fn fail_shake(p: f32) -> f32 {
+    let p = p.clamp(0.0, 1.0);
+    shake_envelope(p) * (p * 52.0).sin()
+}
+
+/// The largest shake `fail_shake` makes at progress `p` (it decays cubically).
+pub(crate) fn shake_envelope(p: f32) -> f32 {
+    let inv = 1.0 - p.clamp(0.0, 1.0);
+    16.0 * inv * inv * inv
+}
+
+/// Darkening over the playfield behind a FAILED banner (0..=0.6), easing in.
+pub(crate) fn fail_vignette(p: f32) -> f32 {
+    0.6 * ease_out_quad((p / 0.3).clamp(0.0, 1.0))
+}
+
+/// Position 0..1 of the light sweep across a FULL COMBO / PERFECT banner, or
+/// `None` before and after it (it crosses the banner's middle part only).
+pub(crate) fn banner_sweep(p: f32) -> Option<f32> {
+    (0.18..=0.68)
+        .contains(&p)
+        .then(|| ((p - 0.18) / 0.5).clamp(0.0, 1.0))
+}
+
+/// Overall opacity of the end banner at progress `p`: it pops in over the
+/// first fifth, holds, and fades over the last quarter.
+pub(crate) fn banner_fade(p: f32) -> f32 {
+    let p = p.clamp(0.0, 1.0);
+    if p < 0.2 {
+        p / 0.2
+    } else if p > 0.75 {
+        1.0 - (p - 0.75) / 0.25
+    } else {
+        1.0
+    }
+}
+
+/// Fill colour of the end banner for a clear lamp: gold for the top clears,
+/// red for FAILED, cyan for every other clear.
+pub(crate) fn banner_color(lamp: ClearType) -> ColorRgba {
+    match lamp {
+        ClearType::Failed => theme::RED,
+        ClearType::Perfect | ClearType::FullCombo => theme::GOLD,
+        _ => theme::CYAN,
+    }
 }
 
 /// The earliest note the player has to hit (landmines and long-note ends
@@ -1348,17 +1478,25 @@ pub(crate) fn next_rank(ex: u32, judged: u32) -> Option<(&'static str, u32)> {
     })
 }
 
-/// READY over the lane before the first note (see `ready_alpha`).
+/// The start cue over the lane before the first note (see `start_cue`).
 fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
     let Some(first) = first_note_seconds(f.notes) else {
         return;
     };
-    let a = ready_alpha(f.audio_time, first);
-    if a <= 0.0 {
-        return;
+    // The chart's opening tempo: the count-in is three of its beats.
+    let beat = 60.0 / f.timing.initial_bpm().max(1.0);
+    match start_cue(f.audio_time, first, beat) {
+        StartCue::None => {}
+        StartCue::Ready(a) => ready_label(c, t, sk, field, a, s),
+        StartCue::Count { number, progress } => count_in(c, t, sk, field, number, progress, s),
+        StartCue::Go(p) => go_flash(c, t, sk, field, p, s),
     }
+}
+
+/// READY with its hint, in the upper third of the lane (the notes and the
+/// combo are below it), at opacity `a`.
+fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, a: f32, s: f32) {
     let cx = field.x + field.w / 2.0;
-    // Upper third of the lane: the notes and the combo are below it.
     let y = field.y + field.h * 0.22;
     let alpha = (a * 255.0) as u8;
     c.sprite_centered(
@@ -1378,6 +1516,92 @@ fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Re
     let hint = caption(13.0, s).color(theme::MUTED.with_alpha(alpha));
     let hw = t.measure(c, strings::READY_HINT, &hint);
     t.draw(c, strings::READY_HINT, cx - hw / 2.0, y + 52.0 * s, &hint);
+}
+
+/// One count-in number in the middle of the field: it punches in and fades
+/// over its beat, and a soft ring swells out behind it.
+fn count_in(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    field: Rect,
+    number: u8,
+    p: f32,
+    s: f32,
+) {
+    let cx = field.x + field.w / 2.0;
+    let cy = field.y + field.h * 0.4;
+    let alpha = count_alpha(p);
+    // The ring: starts at the number and swells, fading as it goes.
+    let ring = lerp(70.0, 230.0, ease_out_cubic(p)) * s;
+    c.set_additive(true);
+    c.sprite_centered(
+        sk.ring,
+        cx,
+        cy,
+        ring,
+        ring,
+        theme::CYAN.with_alpha(((1.0 - p).powi(2) * 170.0) as u8),
+    );
+    c.set_additive(false);
+    c.sprite_centered(
+        sk.glow,
+        cx,
+        cy,
+        field.w * 0.6,
+        200.0 * s,
+        theme::BLACK.with_alpha((alpha * 120.0) as u8),
+    );
+    let text = number.to_string();
+    let size = 150.0 * s;
+    let pop = punch(p, 0.45, 0.18);
+    let a = (alpha * 255.0) as u8;
+    let st = TextStyle::new(size).bold().color(theme::TEXT.with_alpha(a));
+    let fx = Fx {
+        outline: Some((theme::BLACK.with_alpha(a), 4.0 * s)),
+        gradient: Some((theme::WHITE.with_alpha(a), theme::CYAN.with_alpha(a))),
+    };
+    let w = t.measure(c, &text, &st) * pop;
+    t.draw_fx(c, &text, cx - w / 2.0, cy - size * 0.5 * pop, &st, pop, fx);
+}
+
+/// GO! at the first note: it punches in and fades over `GO_SECONDS`.
+fn go_flash(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, p: f32, s: f32) {
+    let cx = field.x + field.w / 2.0;
+    let cy = field.y + field.h * 0.4;
+    let alpha = 1.0 - ease_in_cubic(p.clamp(0.0, 1.0));
+    let ring = lerp(90.0, 300.0, ease_out_cubic(p)) * s;
+    c.set_additive(true);
+    c.sprite_centered(
+        sk.ring,
+        cx,
+        cy,
+        ring,
+        ring,
+        theme::GOLD.with_alpha(((1.0 - p).powi(2) * 200.0) as u8),
+    );
+    c.set_additive(false);
+    let pop = punch(p, 0.3, 0.3);
+    let a = (alpha * 255.0) as u8;
+    let size = 110.0 * s;
+    let st = TextStyle::new(size)
+        .bold()
+        .tracking(4.0 * s)
+        .color(theme::TEXT.with_alpha(a));
+    let fx = Fx {
+        outline: Some((theme::BLACK.with_alpha(a), 4.0 * s)),
+        gradient: Some((theme::GOLD.with_alpha(a), theme::WHITE.with_alpha(a))),
+    };
+    let w = t.measure(c, strings::GO, &st) * pop;
+    t.draw_fx(
+        c,
+        strings::GO,
+        cx - w / 2.0,
+        cy - size * 0.5 * pop,
+        &st,
+        pop,
+        fx,
+    );
 }
 
 /// The value the player just changed, near the top of the lane.
@@ -1413,29 +1637,34 @@ fn readout(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: 
 }
 
 /// The end banner over the middle of the playfield: the clear lamp of the
-/// finished play (`ClearType::as_str`). It pops in over the first fifth,
-/// holds, and fades over the last quarter.
+/// finished play (`ClearType::as_str`), in `banner_color`. It pops in, holds,
+/// and fades (`banner_fade`). FULL COMBO and PERFECT add a gold burst and a
+/// light sweep; FAILED shakes and darkens the field behind it.
 fn end_banner(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
     let Some((lamp, progress)) = f.banner else {
         return;
     };
     let p = progress.clamp(0.0, 1.0);
-    let alpha = if p < 0.2 {
-        p / 0.2
-    } else if p > 0.75 {
-        1.0 - (p - 0.75) / 0.25
-    } else {
-        1.0
-    };
-    let pop = 1.0 + 0.3 * (1.0 - ease_out_back((p / 0.2).min(1.0)));
-    let color = match lamp {
-        ClearType::Failed => theme::MAGENTA,
-        ClearType::Perfect | ClearType::FullCombo => theme::GOLD,
-        _ => theme::CYAN,
-    };
+    let alpha = banner_fade(p);
     let a = (alpha * 255.0) as u8;
+    let color = banner_color(lamp);
     let cx = field.x + field.w / 2.0;
-    let cy = field.y + field.h * 0.5;
+    let failed = lamp == ClearType::Failed;
+    let mut cy = field.y + field.h * 0.5;
+    if failed {
+        // Darken the playfield edges, and shake the banner down the lane.
+        c.sprite(
+            sk.vignette,
+            field,
+            theme::BLACK.with_alpha((fail_vignette(p) * alpha * 255.0) as u8),
+        );
+        c.fill_rect(
+            field,
+            theme::BLACK.with_alpha((fail_vignette(p) * 0.5 * alpha * 255.0) as u8),
+        );
+        cy += fail_shake(p) * s;
+    }
+    let top = matches!(lamp, ClearType::FullCombo | ClearType::Perfect);
     c.sprite_centered(
         sk.glow,
         cx,
@@ -1444,13 +1673,58 @@ fn end_banner(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, fiel
         160.0 * s,
         theme::BLACK.with_alpha((alpha * 170.0) as u8),
     );
+    if top {
+        c.set_additive(true);
+        // A ring of gold sparks flies out from the word once, over the middle of the banner.
+        let q = ((p - 0.2) / 0.4).clamp(0.0, 1.0);
+        if (0.0..1.0).contains(&q) {
+            let dist = ease_out_quad(q) * 190.0 * s;
+            let size = (16.0 - 10.0 * q) * s;
+            let col = theme::GOLD.with_alpha(((1.0 - q) * alpha * 255.0) as u8);
+            for k in 0..12 {
+                let ang = std::f32::consts::TAU * k as f32 / 12.0;
+                c.sprite_centered(
+                    sk.glow,
+                    cx + ang.cos() * dist * 1.8,
+                    cy - ang.sin() * dist * 0.5,
+                    size,
+                    size,
+                    col,
+                );
+            }
+        }
+        // A light sweep crosses the word from left to right.
+        if let Some(u) = banner_sweep(p) {
+            let x = field.x - 0.1 * field.w + u * 1.2 * field.w;
+            let peak = (u * std::f32::consts::PI).sin();
+            c.sprite_centered(
+                sk.glow,
+                x,
+                cy,
+                90.0 * s,
+                150.0 * s,
+                theme::WHITE.with_alpha((peak * alpha * 230.0) as u8),
+            );
+        }
+        c.set_additive(false);
+    }
+    let pop = punch(p, 0.3, 0.2);
+    let size = if top { 60.0 } else { 44.0 } * s;
     let text = lamp.as_str();
-    let st = TextStyle::new(44.0 * s)
+    let st = TextStyle::new(size)
         .bold()
         .tracking(4.0 * s)
         .color(color.with_alpha(a));
-    let w = t.measure(c, text, &st) * pop;
-    t.draw_scaled(c, text, cx - w / 2.0, cy - 30.0 * s, &st, pop);
+    // The word never runs past the playfield: it shrinks to fit the lane.
+    let natural = t.measure(c, text, &st).max(1.0);
+    let scale = pop.min(field.w * 0.94 / natural);
+    let w = natural * scale;
+    let fx = Fx {
+        outline: Some((theme::BLACK.with_alpha(a), 2.0 * s)),
+        gradient: (lamp == ClearType::FullCombo)
+            .then(|| (theme::GOLD.with_alpha(a), theme::WHITE.with_alpha(a))),
+    };
+    t.draw_fx(c, text, cx - w / 2.0, cy - 30.0 * s, &st, scale, fx);
 }
 
 fn pause_menu(
@@ -2038,5 +2312,235 @@ mod tests {
         assert!(ui.canvas.debug_batches().len() <= 2);
         let verts = ui.canvas.debug_vertices().len();
         assert!(verts < 8192, "{verts} vertices fit one batch");
+    }
+
+    #[test]
+    fn count_in_runs_over_the_last_three_beats() {
+        // First note at 4 s, 120 BPM (a beat is 0.5 s): 3, 2, 1, then GO!.
+        let (first, beat) = (4.0, 0.5);
+        assert_eq!(start_cue(2.49, first, beat), StartCue::None);
+        assert_eq!(
+            start_cue(2.5, first, beat),
+            StartCue::Count {
+                number: 3,
+                progress: 0.0
+            }
+        );
+        assert_eq!(
+            start_cue(3.25, first, beat),
+            StartCue::Count {
+                number: 2,
+                progress: 0.5
+            }
+        );
+        assert!(matches!(
+            start_cue(3.75, first, beat),
+            StartCue::Count { number: 1, .. }
+        ));
+        assert_eq!(start_cue(4.0, first, beat), StartCue::Go(0.0));
+        assert_eq!(
+            start_cue(4.0 + GO_SECONDS + 0.01, first, beat),
+            StartCue::None
+        );
+    }
+
+    #[test]
+    fn a_very_long_lead_in_is_silent_until_its_last_three_beats() {
+        assert_eq!(start_cue(0.0, 60.0, 0.5), StartCue::None);
+        assert_eq!(start_cue(30.0, 60.0, 0.5), StartCue::None);
+        assert!(matches!(
+            start_cue(58.75, 60.0, 0.5),
+            StartCue::Count { number: 3, .. }
+        ));
+    }
+
+    #[test]
+    fn a_short_lead_in_falls_back_to_ready_then_go() {
+        // 1.8 s to the first note is under the 2.0 s floor for numbers, so
+        // READY fades out and GO! lands on the note (no numbers).
+        assert_eq!(start_cue(0.0, 1.8, 0.5), StartCue::Ready(1.0));
+        assert_eq!(start_cue(1.2, 1.8, 0.5), StartCue::None);
+        assert_eq!(start_cue(1.8, 1.8, 0.5), StartCue::Go(0.0));
+        // Two seconds with 60 BPM: three beats (3 s) do not fit, so READY.
+        assert_eq!(start_cue(0.0, 2.0, 1.0), StartCue::Ready(1.0));
+    }
+
+    #[test]
+    fn no_cue_for_a_first_note_too_soon_or_before_the_song() {
+        assert_eq!(start_cue(0.0, 0.0, 0.5), StartCue::None);
+        assert_eq!(start_cue(0.0, 1.4, 0.5), StartCue::None);
+        assert_eq!(start_cue(-1.0, 4.0, 0.5), StartCue::None);
+        // A broken tempo never panics or counts: it falls back to READY.
+        assert_eq!(start_cue(0.0, 4.0, 0.0), StartCue::Ready(1.0));
+        assert_eq!(start_cue(0.0, 4.0, f64::NAN), StartCue::Ready(1.0));
+    }
+
+    #[test]
+    fn the_start_cue_never_goes_back() {
+        for &(first, beat) in &[(4.0, 0.5), (2.0, 0.5), (1.8, 0.5), (60.0, 0.5), (2.5, 1.0)] {
+            let mut last = 0;
+            for k in 0..(first * 200.0) as u32 + 100 {
+                let rank = match start_cue(k as f64 * 0.005, first, beat) {
+                    StartCue::None => continue,
+                    StartCue::Ready(_) | StartCue::Count { number: 3, .. } => 1,
+                    StartCue::Count { number: 2, .. } => 2,
+                    StartCue::Count { .. } => 3,
+                    StartCue::Go(_) => 4,
+                };
+                assert!(rank >= last, "first {first}, beat {beat}: went back at {k}");
+                last = rank;
+            }
+            assert_eq!(last, 4, "first {first}: ends on GO!");
+        }
+    }
+
+    #[test]
+    fn count_alpha_holds_then_fades() {
+        assert_eq!(count_alpha(0.0), 1.0);
+        assert_eq!(count_alpha(0.7), 1.0);
+        assert!(count_alpha(0.85) < 1.0);
+        assert!(count_alpha(1.0) < 0.001);
+        let mut prev = 1.0;
+        for k in 0..=100 {
+            let v = count_alpha(k as f32 / 100.0);
+            assert!(v <= prev + 1e-6 && (0.0..=1.0).contains(&v));
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn punch_starts_big_and_settles_to_one() {
+        assert!((punch(0.0, 0.3, 0.2) - 1.3).abs() < 1e-5);
+        assert!((punch(0.2, 0.3, 0.2) - 1.0).abs() < 1e-5);
+        assert!((punch(0.9, 0.3, 0.2) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_fail_shake_decays_to_nothing() {
+        assert_eq!(fail_shake(0.0), 0.0);
+        assert_eq!(fail_shake(1.0), 0.0);
+        assert!(shake_envelope(0.0) > shake_envelope(0.5));
+        assert!(shake_envelope(0.5) > shake_envelope(1.0));
+        assert_eq!(shake_envelope(1.0), 0.0);
+        for k in 0..=200 {
+            let p = k as f32 / 200.0;
+            assert!(fail_shake(p).abs() <= shake_envelope(p) + 1e-4, "p={p}");
+        }
+        assert!(fail_shake(0.95).abs() < 0.1);
+    }
+
+    #[test]
+    fn banner_fades_in_holds_and_fades_out() {
+        assert_eq!(banner_fade(0.0), 0.0);
+        assert!((banner_fade(0.1) - 0.5).abs() < 1e-6);
+        assert_eq!(banner_fade(0.5), 1.0);
+        assert_eq!(banner_fade(1.0), 0.0);
+        assert_eq!(banner_fade(2.0), 0.0, "clamped past the end");
+    }
+
+    #[test]
+    fn the_banner_sweep_crosses_the_middle_only() {
+        assert_eq!(banner_sweep(0.1), None);
+        assert_eq!(banner_sweep(0.18), Some(0.0));
+        assert_eq!(banner_sweep(0.68), Some(1.0));
+        assert_eq!(banner_sweep(0.7), None);
+    }
+
+    #[test]
+    fn fail_vignette_darkens_and_stays_bounded() {
+        assert_eq!(fail_vignette(0.0), 0.0);
+        let mut prev = 0.0;
+        for k in 0..=100 {
+            let v = fail_vignette(k as f32 / 100.0);
+            assert!((0.0..=0.6).contains(&v) && v + 1e-6 >= prev);
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn each_lamp_has_its_banner_colour() {
+        assert_eq!(banner_color(ClearType::Failed), theme::RED);
+        assert_eq!(banner_color(ClearType::FullCombo), theme::GOLD);
+        assert_eq!(banner_color(ClearType::Perfect), theme::GOLD);
+        for lamp in [ClearType::Clear, ClearType::Easy, ClearType::Hard] {
+            assert_eq!(banner_color(lamp), theme::CYAN, "{lamp:?}");
+        }
+    }
+
+    /// One frame with the notes and the banner at `audio_time`: asserts it is
+    /// one batch and returns its vertex count.
+    fn one_frame(
+        ui: &mut Ui,
+        fx: &Fixture,
+        notes: &[PlayNote],
+        audio_time: f64,
+        banner: Option<(ClearType, f32)>,
+    ) -> usize {
+        ui.begin(1280, 720, fx.vp.scale);
+        draw_gameplay(
+            ui,
+            &PlayFrame {
+                viewport: &fx.vp,
+                layout: &fx.layout,
+                chart: &fx.chart,
+                notes,
+                timing: &fx.timing,
+                score: &fx.score,
+                audio_time,
+                song_length: 120.0,
+                visual_levels: &[0.0; 16],
+                bga: None,
+                layer: None,
+                track_bga_opacity: 0.0,
+                key_pressed: &[false; LANE_COUNT],
+                hit_bursts: &[],
+                last_judge: None,
+                hint: "ESC 일시정지",
+                badge: None,
+                pause: None,
+                has_bga: false,
+                key_hint_alpha: 1.0,
+                readout: None,
+                banner,
+                judge_marks: &[],
+            },
+        );
+        assert_eq!(ui.canvas.debug_batches().len(), 1, "t={audio_time}");
+        ui.canvas.debug_vertices().len()
+    }
+
+    #[test]
+    fn start_cues_and_end_banners_are_one_batch_each() {
+        let fx = fixture();
+        let mut ui = Ui::new(fx.vp.scale);
+        let late = [play_note(4.0, 4.0)];
+        let short = [play_note(1.8, 1.8)];
+        let mut max = 0;
+        // Count-in 3, 2, 1, GO!, then the READY fallback, with nothing on top.
+        for (notes, t) in [
+            (&late[..], 2.9),
+            (&late[..], 3.3),
+            (&late[..], 3.7),
+            (&late[..], 4.1),
+            (&short[..], 0.3),
+            (&short[..], 1.9),
+        ] {
+            max = max.max(one_frame(&mut ui, &fx, notes, t, None));
+        }
+        // Every end lamp, early, mid and late in the banner.
+        for lamp in [
+            ClearType::Failed,
+            ClearType::Easy,
+            ClearType::Clear,
+            ClearType::Hard,
+            ClearType::FullCombo,
+            ClearType::Perfect,
+        ] {
+            for p in [0.05, 0.4, 0.9] {
+                max = max.max(one_frame(&mut ui, &fx, &late, 9.0, Some((lamp, p))));
+            }
+        }
+        eprintln!("start cue and end banner frames: max {max} vertices");
+        assert!(max < 8192, "{max} vertices fit one batch");
     }
 }

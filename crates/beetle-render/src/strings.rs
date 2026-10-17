@@ -348,6 +348,8 @@ table! {
     pub KEYS_CUSTOM = "사용자 배치";
     /// Shown from the song start until a second before the first note.
     pub READY = "READY";
+    /// Flashes on the first note (after the count-in, or after READY).
+    pub GO = "GO!";
     pub READY_HINT = "F3/F4 그린 넘버 / F10/F11 레인 커버";
     /// Readout over the lane after a green number change (`{}` = ms).
     pub READOUT_GREEN = "{} ms";
