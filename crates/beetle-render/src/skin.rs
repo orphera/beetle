@@ -179,6 +179,8 @@ fn side_slot(mode: PlayMode) -> usize {
 pub const FIELD_TOP_720: f32 = 24.0;
 pub const FIELD_HEIGHT_720: f32 = 672.0;
 pub const JUDGE_LINE_720: f32 = 616.0;
+/// Lane width of a single play, relative to the 720p reference lanes (see `SkinConfig::size_lanes`).
+const SINGLE_PLAY_LANE_SCALE: f32 = 1.15;
 /// Largest lane cover the renderer draws.
 pub const MAX_LANE_COVER: f32 = 0.85;
 
@@ -222,6 +224,9 @@ pub struct SkinConfig {
     pub scratch_lane_width: f32,
     pub hi_speed: f32,
     pub lane_cover_ratio: f32,
+    /// Lane width of a single play, relative to the 720p reference lanes
+    /// (see `size_lanes`). Double Play always uses 1.0.
+    pub single_play_lane_scale: f32,
     pub white_key_color: ColorRgba,
     pub blue_key_color: ColorRgba,
     pub scratch_key_color: ColorRgba,
@@ -235,7 +240,7 @@ impl Default for SkinConfig {
 
         Self {
             play_mode: PlayMode::Keys7,
-            field_position: FieldPosition::Left,
+            field_position: FieldPosition::Center,
             scratch_sides: [ScratchSide::Left; 3],
             eight_k_form: EightKForm::Inline,
             area_x: 0.0,
@@ -250,6 +255,7 @@ impl Default for SkinConfig {
             scratch_lane_width: scratch_w,
             hi_speed: 400.0, // Pixels per second
             lane_cover_ratio: 0.0,
+            single_play_lane_scale: SINGLE_PLAY_LANE_SCALE,
             white_key_color: crate::theme::NOTE_WHITE,
             blue_key_color: crate::theme::NOTE_BLUE,
             scratch_key_color: crate::theme::NOTE_SCRATCH,
@@ -318,9 +324,22 @@ impl SkinConfig {
         self.playfield_height = FIELD_HEIGHT_720 * s;
         self.judge_line_y = vp.y + JUDGE_LINE_720 * s;
 
-        self.scratch_lane_width = 72.0 * s;
-        self.lane_width = 50.0 * s;
+        self.size_lanes();
         self.place_field();
+    }
+
+    /// Lane widths for the current mode and viewport scale. A single play is
+    /// drawn `SINGLE_PLAY_LANE_SCALE` times the 720p reference, so the
+    /// playfield fills about 38% of the width; Double Play keeps the reference
+    /// size, because two playfields are already the widest thing on screen.
+    fn size_lanes(&mut self) {
+        let lane_scale = match self.play_mode {
+            PlayMode::Keys10 | PlayMode::Keys14 => 1.0,
+            _ => self.single_play_lane_scale,
+        };
+        let k = self.area_scale * lane_scale;
+        self.scratch_lane_width = 72.0 * k;
+        self.lane_width = 50.0 * k;
     }
 
     /// Sets `playfield_width` for the play mode and `playfield_x` for the
@@ -473,6 +492,7 @@ impl SkinConfig {
     /// Sets play mode and updates playfield geometry accordingly.
     pub fn set_play_mode(&mut self, mode: PlayMode) {
         self.play_mode = mode;
+        self.size_lanes();
         self.place_field();
     }
 
@@ -627,14 +647,28 @@ mod tests {
     use super::*;
     use crate::view::Viewport;
 
-    /// Skin with fixed, un-scaled lane dimensions (no Viewport needed) so
-    /// expected pixel values are simple arithmetic.
+    /// Skin with the reference lane dimensions (50 / 72 px at 720p, no
+    /// single-play enlargement) so expected pixel values are simple arithmetic.
     fn test_skin() -> SkinConfig {
         SkinConfig {
             lane_width: 50.0,
             scratch_lane_width: 72.0,
+            single_play_lane_scale: 1.0,
             ..SkinConfig::default()
         }
+    }
+
+    #[test]
+    fn single_play_lanes_are_enlarged_but_double_play_is_not() {
+        let mut skin = SkinConfig::default();
+        skin.update_layout(&Viewport::new(1280, 720));
+        assert!((skin.lane_width - 50.0 * SINGLE_PLAY_LANE_SCALE).abs() < 1e-3);
+        skin.set_play_mode(PlayMode::Keys14);
+        assert!((skin.lane_width - 50.0).abs() < 1e-3);
+        skin.set_play_mode(PlayMode::Keys7);
+        assert!((skin.lane_width - 50.0 * SINGLE_PLAY_LANE_SCALE).abs() < 1e-3);
+        // The 720p reference width of a single play: about 38% of the 16:9 viewport.
+        assert!((skin.playfield_width / 1280.0 - 0.377).abs() < 0.005);
     }
 
     #[test]

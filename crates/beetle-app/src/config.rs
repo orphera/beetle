@@ -265,7 +265,7 @@ impl Default for AppConfig {
         Self {
             play_options: PlayOptions::default(),
             lane_cover_ratio: 0.0,
-            field_position: FieldPosition::Left,
+            field_position: FieldPosition::Center,
             scratch_sides: [ScratchSide::Left; 3],
             eight_k_form: EightKForm::Inline,
             sort_mode: SortMode::Title,
@@ -280,7 +280,7 @@ impl Default for AppConfig {
             window_width: 1280,
             window_height: 720,
             target_fps: 240,
-            track_bga: TrackBgaSetting::Off,
+            track_bga: TrackBgaSetting::Medium,
             bga_enabled: true,
             key_hint: KeyHintSetting::FirstSeconds,
         }
