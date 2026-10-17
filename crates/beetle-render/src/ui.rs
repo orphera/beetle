@@ -74,7 +74,10 @@ impl Ui {
     /// Starts a frame. If the UI scale changed (window resized), the atlas is
     /// rebuilt so sprites and glyphs stay pixel-exact at the new size.
     pub fn begin(&mut self, width: u32, height: u32, scale: f32) {
-        if (scale - self.skin.scale).abs() > 0.01 {
+        // A new scale, or a page size the canvas no longer wants (the backend
+        // refused a large page), rebuilds everything at the page size it wants.
+        let page_changed = self.canvas.page_size_for(scale) != self.canvas.atlas().page_size();
+        if (scale - self.skin.scale).abs() > 0.01 || page_changed {
             self.rebuilds += 1;
             self.canvas.reset_atlas_for_scale(scale);
             self.text.clear_cache();
@@ -169,6 +172,68 @@ impl UiSet {
 mod tests {
     use super::*;
     use crate::jacket::{JacketKey, THUMB_PX};
+
+    /// A backend that refuses page textures wider than `max` texels.
+    struct SizeLimited {
+        max: u32,
+    }
+
+    impl GpuBackend for SizeLimited {
+        fn begin_frame(&mut self, _: u32, _: u32, _: [f32; 4]) {}
+        fn create_texture(
+            &mut self,
+            w: u32,
+            _: u32,
+            _: &[u8],
+        ) -> Option<crate::backend::TextureId> {
+            (w <= self.max).then_some(crate::backend::TextureId(1))
+        }
+        fn update_texture(&mut self, _: crate::backend::TextureId, _: u32, _: u32, _: &[u8]) {}
+        fn update_texture_rect(
+            &mut self,
+            _: crate::backend::TextureId,
+            _: u32,
+            _: u32,
+            _: [u32; 4],
+            _: &[u8],
+        ) {
+        }
+        fn destroy_texture(&mut self, _: crate::backend::TextureId) {}
+        fn draw_batch(
+            &mut self,
+            _: &[crate::backend::Vertex2D],
+            _: &[u16],
+            _: Option<crate::backend::TextureId>,
+            _: crate::backend::BlendMode,
+        ) {
+        }
+        fn end_frame(&mut self) {}
+        fn resize(&mut self, _: u32, _: u32) {}
+        fn backend_name(&self) -> &'static str {
+            "size-limited"
+        }
+    }
+
+    #[test]
+    fn a_refused_large_page_falls_back_to_the_default_size() {
+        // Scale 4.0 is above LARGE_PAGE_SCALE: the UI starts on 4096 pages.
+        let mut ui = Ui::new(4.0);
+        assert_eq!(ui.canvas.atlas().page_size(), 4096);
+        let mut gpu = SizeLimited { max: 2048 };
+
+        ui.begin(1280, 720, 4.0);
+        ui.canvas
+            .fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), crate::theme::WHITE);
+        assert_eq!(ui.end(&mut gpu), 0, "the refused frame draws nothing");
+
+        // The next frame rebuilds at the default page size and draws.
+        ui.begin(1280, 720, 4.0);
+        assert_eq!(ui.canvas.atlas().page_size(), 2048);
+        assert_eq!(ui.rebuilds, 1);
+        ui.canvas
+            .fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), crate::theme::WHITE);
+        assert!(ui.end(&mut gpu) > 0, "the fallback frame draws");
+    }
 
     #[test]
     fn switching_between_menus_and_gameplay_rebuilds_no_atlas() {

@@ -104,6 +104,9 @@ pub struct Canvas {
     last_draw_calls: usize,
     scratch_a: Vec<V>,
     scratch_b: Vec<V>,
+    /// The largest atlas page this canvas uses; lowered once the backend
+    /// refuses a large page (see `end`).
+    page_cap: u32,
 }
 
 impl Default for Canvas {
@@ -130,6 +133,7 @@ impl Canvas {
             last_draw_calls: 0,
             scratch_a: Vec::with_capacity(16),
             scratch_b: Vec::with_capacity(16),
+            page_cap: LARGE_ATLAS_PAGE_SIZE,
         }
     }
 
@@ -152,8 +156,14 @@ impl Canvas {
     /// `reset_atlas` for a UI at `scale`, switching the page size when the
     /// scale crosses `LARGE_PAGE_SCALE`.
     pub fn reset_atlas_for_scale(&mut self, scale: f32) {
-        self.atlas.set_page_size(atlas_page_size_for_scale(scale));
+        self.atlas.set_page_size(self.page_size_for(scale));
         self.white_uv = Self::alloc_white(&mut self.atlas);
+    }
+
+    /// The page size a UI at `scale` uses: the scale's own size, or the default
+    /// once a large page has been refused (see `end`).
+    pub fn page_size_for(&self, scale: f32) -> u32 {
+        atlas_page_size_for_scale(scale).min(self.page_cap)
     }
 
     pub fn atlas(&self) -> &UiAtlas {
@@ -194,6 +204,23 @@ impl Canvas {
     /// Returns the number of draw calls issued.
     pub fn end(&mut self, backend: &mut dyn GpuBackend) -> usize {
         self.atlas.sync(backend);
+        if self.atlas.take_create_failed() {
+            // The batches would name a page with no texture, so this frame draws
+            // nothing. A large page is replaced by the default size on the next
+            // `Ui::begin`; the default size itself is simply tried again.
+            if self.atlas.page_size() > DEFAULT_ATLAS_PAGE_SIZE {
+                self.page_cap = DEFAULT_ATLAS_PAGE_SIZE;
+                static WARN: std::sync::Once = std::sync::Once::new();
+                WARN.call_once(|| {
+                    eprintln!(
+                        "beetle: the backend refused a {0}x{0} UI atlas page; using {1}x{1}",
+                        LARGE_ATLAS_PAGE_SIZE, DEFAULT_ATLAS_PAGE_SIZE
+                    );
+                });
+            }
+            self.last_draw_calls = 0;
+            return 0;
+        }
         let mut calls = 0;
         for (i, b) in self.batches.iter().enumerate() {
             let (vtx_end, idx_end) = match self.batches.get(i + 1) {

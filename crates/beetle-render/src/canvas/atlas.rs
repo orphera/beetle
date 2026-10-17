@@ -205,6 +205,9 @@ pub struct UiAtlas {
     /// GPU textures of pages that a page-size change dropped; freed by the
     /// next `sync` or `release`, which are the calls that hold the backend.
     retired: Vec<TextureId>,
+    /// Set by `sync` when the backend refused a page texture (out of GPU
+    /// memory, say); the page stays due and is tried again on the next sync.
+    create_failed: bool,
 }
 
 impl UiAtlas {
@@ -213,7 +216,14 @@ impl UiAtlas {
             size: page_size,
             pages: Vec::new(),
             retired: Vec::new(),
+            create_failed: false,
         }
+    }
+
+    /// Whether a page texture could not be created since the last call; the
+    /// flag is cleared by reading it.
+    pub fn take_create_failed(&mut self) -> bool {
+        std::mem::take(&mut self.create_failed)
     }
 
     /// Empties the atlas and makes its pages `page_size` texels square. A
@@ -336,6 +346,7 @@ impl UiAtlas {
         let size = self.size;
         let whole = (size * size * 4) as usize;
         let mut bytes = 0;
+        let mut failed = false;
         for page in &mut self.pages {
             if !page.full && page.dirty.iter().all(Option::is_none) {
                 continue;
@@ -351,14 +362,23 @@ impl UiAtlas {
                     backend.update_texture(id, size, size, &page.pixels);
                     bytes += whole;
                 }
-                None => {
-                    page.texture = backend.create_texture(size, size, &page.pixels);
-                    bytes += whole;
-                }
+                None => match backend.create_texture(size, size, &page.pixels) {
+                    Some(id) => {
+                        page.texture = Some(id);
+                        bytes += whole;
+                    }
+                    None => {
+                        // The page stays due (`full` is still set), so the next
+                        // sync tries again instead of skipping it for good.
+                        failed = true;
+                        continue;
+                    }
+                },
             }
             page.full = false;
             page.dirty = [None; MAX_DIRTY];
         }
+        self.create_failed |= failed;
         bytes
     }
 
@@ -650,6 +670,62 @@ mod tests {
         let bytes = atlas.sync(&mut gpu);
         assert_eq!(gpu.calls.len(), 2);
         assert_eq!(bytes, (8 * 12 + 96 * 96) * 4);
+    }
+
+    /// A backend that refuses textures larger than `max` texels a side, the
+    /// way a GPU short of memory refuses a large page.
+    struct SmallTextures {
+        max: u32,
+        attempts: u32,
+    }
+
+    impl GpuBackend for SmallTextures {
+        fn begin_frame(&mut self, _: u32, _: u32, _: [f32; 4]) {}
+        fn create_texture(&mut self, w: u32, _: u32, _: &[u8]) -> Option<TextureId> {
+            self.attempts += 1;
+            (w <= self.max).then_some(TextureId(self.attempts))
+        }
+        fn update_texture(&mut self, _: TextureId, _: u32, _: u32, _: &[u8]) {}
+        fn update_texture_rect(&mut self, _: TextureId, _: u32, _: u32, _: [u32; 4], _: &[u8]) {}
+        fn destroy_texture(&mut self, _: TextureId) {}
+        fn draw_batch(
+            &mut self,
+            _: &[crate::backend::Vertex2D],
+            _: &[u16],
+            _: Option<TextureId>,
+            _: crate::backend::BlendMode,
+        ) {
+        }
+        fn end_frame(&mut self) {}
+        fn resize(&mut self, _: u32, _: u32) {}
+        fn backend_name(&self) -> &'static str {
+            "small-textures"
+        }
+    }
+
+    #[test]
+    fn a_refused_page_texture_is_retried_until_the_backend_takes_it() {
+        let mut atlas = UiAtlas::new(1024);
+        atlas.alloc(16, 16).expect("room");
+        let mut backend = SmallTextures {
+            max: 512,
+            attempts: 0,
+        };
+        assert_eq!(atlas.sync(&mut backend), 0, "nothing uploaded");
+        assert!(atlas.take_create_failed());
+        assert!(!atlas.take_create_failed(), "the flag clears once read");
+        assert!(atlas.page_texture(0).is_none());
+
+        // Still refused: the page stays due and is asked for again.
+        atlas.sync(&mut backend);
+        assert_eq!(backend.attempts, 2);
+        assert!(atlas.take_create_failed());
+
+        // Once the backend takes it, the whole page is uploaded.
+        backend.max = 1024;
+        assert!(atlas.sync(&mut backend) > 0);
+        assert!(atlas.page_texture(0).is_some());
+        assert!(!atlas.take_create_failed());
     }
 
     #[test]
