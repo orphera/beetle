@@ -86,7 +86,7 @@ table! {
     pub WINDOW_TITLE =
         ko "Beetle - BMS 리듬 엔진",
         en "Beetle - BMS Rhythm Game",
-        ja "Beetle - BMS 리듬 엔진";
+        ja "Beetle - BMS リズムゲーム";
     /// Caption of the error dialog.
     pub APP_NAME =
         ko "Beetle",
@@ -96,75 +96,75 @@ table! {
     pub FATAL_D3D11 =
         ko "Beetle이 Direct3D 11(하드웨어 또는 WARP)을 시작하지 못했어요.\n\n{}",
         en "Beetle could not start Direct3D 11 (hardware or WARP).\n\n{}",
-        ja "Beetle이 Direct3D 11(하드웨어 또는 WARP)을 시작하지 못했어요.\n\n{}";
+        ja "Beetle は Direct3D 11（ハードウェアまたは WARP）を起動できませんでした。\n\n{}";
     pub CANCEL =
         ko "취소",
         en "Cancel",
-        ja "취소";
+        ja "キャンセル";
     pub BACK =
         ko "뒤로",
         en "Back",
-        ja "뒤로";
+        ja "戻る";
     pub LOADING =
         ko "불러오는 중",
         en "Loading",
-        ja "불러오는 중";
+        ja "読み込み中";
 
     // ---- Toasts (short notices over the menus) ------------------------
     /// `{}` is the number of songs read.
     pub TOAST_RESCAN_DONE =
         ko "곡 {}개를 읽었어요",
         en "Found {} songs",
-        ja "곡 {}개를 읽었어요";
+        ja "{}曲を読み込みました";
     /// `{}` is the file name of the saved screenshot.
     pub TOAST_SCREENSHOT_SAVED =
         ko "스크린샷을 저장했어요: {}",
         en "Screenshot saved: {}",
-        ja "스크린샷을 저장했어요: {}";
+        ja "スクリーンショットを保存しました: {}";
     /// `{}` is the error.
     pub TOAST_SCREENSHOT_FAILED =
         ko "스크린샷을 저장하지 못했어요: {}",
         en "Could not save the screenshot: {}",
-        ja "스크린샷을 저장하지 못했어요: {}";
+        ja "スクリーンショットを保存できませんでした: {}";
     /// Shown when leaving Settings with a value that only applies after a restart.
     pub TOAST_RESTART_NEEDED =
         ko "재시작 후 적용돼요",
         en "Takes effect after restart",
-        ja "재시작 후 적용돼요";
+        ja "再起動後に反映されます";
     pub TOAST_UNSUPPORTED_FILE =
         ko "지원하지 않는 파일이에요 (.bmsp, .bms, .bme, .bml, .pms)",
         en "Unsupported file (.bmsp, .bms, .bme, .bml, .pms)",
-        ja "지원하지 않는 파일이에요 (.bmsp, .bms, .bme, .bml, .pms)";
+        ja "対応していないファイルです (.bmsp, .bms, .bme, .bml, .pms)";
     /// `{}` is the file name of the package.
     pub TOAST_UNINSTALLED_ONE =
         ko "설치되지 않은 패키지: {} / bpm install로 설치하세요",
         en "Package not installed: {} / install with bpm install",
-        ja "설치되지 않은 패키지: {} / bpm install로 설치하세요";
+        ja "未インストールのパッケージ: {} / bpm install でインストールしてください";
     /// The first `{}` is the count, the second the first file name.
     pub TOAST_UNINSTALLED_MANY =
         ko "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요",
         en "{} packages not installed ({} and more) / install with bpm install",
-        ja "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요";
+        ja "未インストールのパッケージ {}件（{} ほか） / bpm install でインストールしてください";
     /// `{}` is the file name.
     pub TOAST_OPEN_FAILED =
         ko "곡을 열지 못했어요: {}",
         en "Could not open the song: {}",
-        ja "곡을 열지 못했어요: {}";
+        ja "曲を開けませんでした: {}";
     /// `{}` is the chart file name. Shown when a chart cannot be read or parsed; nothing plays.
     pub TOAST_CHART_LOAD_FAILED =
         ko "채보를 불러오지 못했어요: {}",
         en "Could not load the chart: {}",
-        ja "채보를 불러오지 못했어요: {}";
+        ja "譜面を読み込めませんでした: {}";
     /// `{}` is the layout name (key mode and preset, e.g. "7K HomeRow (...)").
     pub TOAST_PRESET =
         ko "키 배치: {} 프리셋",
         en "Key layout: {} preset",
-        ja "키 배치: {} 프리셋";
+        ja "キー配置: {} プリセット";
     /// `{}` is the layout name (key mode and preset).
     pub TOAST_LAYOUT_RESET =
         ko "키 배치를 {} 프리셋으로 되돌렸어요",
         en "Key layout reset to the {} preset",
-        ja "키 배치를 {} 프리셋으로 되돌렸어요";
+        ja "キー配置を {} プリセットに戻しました";
 
     // ---- Title (the first screen after the library is read) -----------
     /// Under the wordmark; `{}` is the app version.
@@ -176,12 +176,12 @@ table! {
     pub TITLE_SONGS =
         ko "곡 {}개",
         en "{} songs",
-        ja "곡 {}개";
+        ja "{}曲";
     /// The first menu entry: song select. Also the label after the prompt's keycap.
     pub TITLE_START =
         ko "시작",
         en "Start",
-        ja "시작";
+        ja "スタート";
     /// The prompt before its keycap: PRESS [ENTER] 시작.
     pub TITLE_PRESS =
         ko "PRESS",
@@ -197,98 +197,98 @@ table! {
     pub BOOT_TITLE_STARTUP =
         ko "시작하는 중",
         en "Starting up",
-        ja "시작하는 중";
+        ja "起動しています";
     pub BOOT_TITLE_RESCAN =
         ko "서재를 다시 읽는 중",
         en "Reading the library again",
-        ja "서재를 다시 읽는 중";
+        ja "ライブラリを再読み込みしています";
     pub BOOT_STATUS_STARTUP =
         ko "곡 목록을 읽는 중",
         en "Reading the song list",
-        ja "곡 목록을 읽는 중";
+        ja "曲リストを読み込んでいます";
     pub BOOT_STATUS_RESCAN =
         ko "곡 폴더를 검색하는 중",
         en "Searching the song folders",
-        ja "곡 폴더를 검색하는 중";
+        ja "曲フォルダを検索しています";
 
     // ---- Song select --------------------------------------------------
     pub FOLDER =
         ko "폴더",
         en "Folder",
-        ja "폴더";
+        ja "フォルダ";
     pub SORT =
         ko "정렬",
         en "Sort",
-        ja "정렬";
+        ja "並べ替え";
     pub OPTIONS =
         ko "옵션",
         en "Options",
-        ja "옵션";
+        ja "オプション";
     /// Top bar button for the Settings screen (F4).
     pub SETTINGS =
         ko "설정",
         en "Settings",
-        ja "설정";
+        ja "設定";
     pub SEARCH_PLACEHOLDER =
         ko "제목, 아티스트 검색",
         en "Search title or artist",
-        ja "제목, 아티스트 검색";
+        ja "タイトル、アーティストで検索";
     pub PREVIEW =
         ko "미리듣기",
         en "Preview",
-        ja "미리듣기";
+        ja "試聴";
     /// Row tag for a chart with no score yet.
     pub NO_PLAY =
         ko "기록 없음",
         en "No plays",
-        ja "기록 없음";
+        ja "プレイ記録なし";
     pub EMPTY_FOLDER =
         ko "이 폴더에 곡이 없어요.",
         en "No songs in this folder.",
-        ja "이 폴더에 곡이 없어요.";
+        ja "このフォルダに曲がありません。";
     pub EMPTY_HINT =
         ko "곡 파일(.bms, .bme, .bmsp)을 songs 폴더에 넣고 F5를 눌러 다시 읽으세요.",
         en "Put song files (.bms, .bme, .bmsp) in the songs folder and press F5 to reload.",
-        ja "곡 파일(.bms, .bme, .bmsp)을 songs 폴더에 넣고 F5를 눌러 다시 읽으세요.";
+        ja "曲ファイル（.bms, .bme, .bmsp）を songs フォルダに入れ、F5 で再読み込みしてください。";
     /// `{}` is the search text.
     pub NO_MATCH =
         ko "\"{}\"에 맞는 곡이 없어요.",
         en "No songs match \"{}\".",
-        ja "\"{}\"에 맞는 곡이 없어요.";
+        ja "「{}」に一致する曲がありません。";
     pub SEARCH_HINT =
         ko "/ 키로 검색어를 고치고, Esc로 지워요.",
         en "Press / to edit the search, Esc to clear it.",
-        ja "/ 키로 검색어를 고치고, Esc로 지워요.";
+        ja "/ キーで検索語を修正し、Esc で消去します。";
     pub PERSONAL_BEST =
         ko "최고 기록",
         en "Personal best",
-        ja "최고 기록";
+        ja "自己ベスト";
     pub NOT_PLAYED =
         ko "아직 플레이하지 않음",
         en "Not played yet",
-        ja "아직 플레이하지 않음";
+        ja "未プレイ";
     pub CLEAR_TO_RECORD =
         ko "이 채보를 클리어하면 기록이 남아요.",
         en "Clear this chart to save a record.",
-        ja "이 채보를 클리어하면 기록이 남아요.";
+        ja "この譜面をクリアすると記録が残ります。";
     /// `{}` is the gauge name (GROOVE, HARD, ...).
     pub GAUGE_NAME =
         ko "{} 게이지",
         en "{} gauge",
-        ja "{} 게이지";
+        ja "{}ゲージ";
     /// `{}` is the play count.
     pub PLAY_COUNT =
         ko "{}회 플레이",
         en "{} plays",
-        ja "{}회 플레이";
+        ja "{}回プレイ";
     pub ACCURACY =
         ko "정확도",
         en "Accuracy",
-        ja "정확도";
+        ja "正確性";
     pub MAX_COMBO =
         ko "최대 콤보",
         en "Max Combo",
-        ja "최대 콤보";
+        ja "最大コンボ";
     pub MIN_BP =
         ko "MIN BP",
         en "MIN BP",
@@ -296,20 +296,20 @@ table! {
     pub PLAY =
         ko "플레이",
         en "Play",
-        ja "플레이";
+        ja "プレイ";
     pub REPLAY =
         ko "리플레이",
         en "Replay",
-        ja "리플레이";
+        ja "リプレイ";
     pub AUTO_PLAY =
         ko "자동 플레이",
         en "Auto Play",
-        ja "자동 플레이";
+        ja "オートプレイ";
     /// Shown after the folder's song count: `{}` is the count.
     pub SONGS_TOTAL =
         ko " / {} 곡",
         en " / {} songs",
-        ja " / {} 곡";
+        ja " / {}曲";
     pub BPM =
         ko "BPM",
         en "BPM",
@@ -317,93 +317,93 @@ table! {
     pub NOTES =
         ko "노트",
         en "Notes",
-        ja "노트";
+        ja "ノーツ";
     pub MODE =
         ko "모드",
         en "Mode",
-        ja "모드";
+        ja "モード";
 
     // Footer key captions (keycaps keep their English key names).
     pub FOOTER_MOVE =
         ko "이동",
         en "Move",
-        ja "이동";
+        ja "移動";
     pub FOOTER_PLAY =
         ko "플레이",
         en "Play",
-        ja "플레이";
+        ja "プレイ";
     pub FOOTER_HELP =
         ko "도움말",
         en "Help",
-        ja "도움말";
+        ja "ヘルプ";
 
     // Folder tree (song select). Mode tags (7K) and lamp names (PERFECT) stay in English.
     /// The root of the breadcrumb, above the top-level folders.
     pub FOLDER_ROOT =
         ko "전체",
         en "Top",
-        ja "전체";
+        ja "最上位";
     pub FOLDER_ALL =
         ko "전체 곡",
         en "All Songs",
-        ja "전체 곡";
+        ja "全曲";
     pub FOLDER_MODE =
         ko "키 모드",
         en "Key Mode",
-        ja "키 모드";
+        ja "キーモード";
     pub FOLDER_LEVEL =
         ko "레벨",
         en "Level",
-        ja "레벨";
+        ja "レベル";
     pub FOLDER_LAMP =
         ko "클리어 램프",
         en "Clear Lamp",
-        ja "클리어 램프";
+        ja "クリアランプ";
     pub FOLDER_TABLE =
         ko "난이도표",
         en "Difficulty Table",
-        ja "난이도표";
+        ja "難易度表";
     /// The first folder of 난이도표: every song in any table.
     pub FOLDER_TABLE_ALL =
         ko "전곡",
         en "All Songs",
-        ja "전곡";
+        ja "全曲";
     /// Detail panel and footer count of a folder: `{}` is the song count.
     pub FOLDER_SONGS =
         ko "{} 곡",
         en "{} songs",
-        ja "{} 곡";
+        ja "{}曲";
     /// Footer count while the list is folders only: `{}` is the folder count.
     pub FOLDER_COUNT =
         ko "{} 폴더",
         en "{} folders",
-        ja "{} 폴더";
+        ja "{}フォルダ";
     pub FOLDER_OPEN_HINT =
         ko "ENTER로 열고, BKSP로 위 폴더로 나가요.",
         en "Press ENTER to open, BKSP to go up a folder.",
-        ja "ENTER로 열고, BKSP로 위 폴더로 나가요.";
+        ja "ENTER で開き、BKSP で上のフォルダに戻ります。";
     pub FOOTER_OPEN =
         ko "열기",
         en "Open",
-        ja "열기";
+        ja "開く";
 
     // Sort names.
     pub SORT_TITLE =
         ko "제목",
         en "Title",
-        ja "제목";
+        ja "タイトル";
     pub SORT_LEVEL =
         ko "레벨",
         en "Level",
-        ja "레벨";
+        ja "レベル";
     pub SORT_CLEAR_LAMP =
         ko "클리어",
         en "Clear",
-        ja "클리어";
+        ja "クリア";
     pub SORT_SCORE_RATE =
         ko "정확도",
         en "Accuracy",
-        ja "정확도";
+        ja "正確性";
     pub SORT_BPM =
         ko "BPM",
         en "BPM",
@@ -413,368 +413,368 @@ table! {
     pub FILTER =
         ko "필터",
         en "Filter",
-        ja "필터";
+        ja "フィルター";
     pub FILTER_LEVEL =
         ko "레벨",
         en "Level",
-        ja "레벨";
+        ja "レベル";
     /// The level bounds while they are not set.
     pub FILTER_LEVEL_MIN_ANY =
         ko "최소",
         en "Min",
-        ja "최소";
+        ja "最小";
     pub FILTER_LEVEL_MAX_ANY =
         ko "최대",
         en "Max",
-        ja "최대";
+        ja "最大";
     pub FILTER_UNPLAYED =
         ko "미플레이만",
         en "Unplayed only",
-        ja "미플레이만";
+        ja "未プレイのみ";
     pub FILTER_UNCLEARED =
         ko "미클리어만",
         en "Uncleared only",
-        ja "미클리어만";
+        ja "未クリアのみ";
     pub FILTER_RESET =
         ko "초기화",
         en "Reset",
-        ja "초기화";
+        ja "リセット";
     /// Empty list while a filter is on and there is no search.
     pub FILTER_NO_MATCH =
         ko "필터에 맞는 곡이 없어요.",
         en "No songs match the filter.",
-        ja "필터에 맞는 곡이 없어요.";
+        ja "フィルターに一致する曲がありません。";
     pub FILTER_EMPTY_HINT =
         ko "필터를 바꾸거나 초기화하세요.",
         en "Change or reset the filter.",
-        ja "필터를 바꾸거나 초기화하세요.";
+        ja "フィルターを変更するかリセットしてください。";
     /// `{}` is the number of songs found.
     pub RESULT_COUNT =
         ko "{}곡 찾음",
         en "{} songs found",
-        ja "{}곡 찾음";
+        ja "{}曲見つかりました";
 
     // Help overlay (song select, ? key). Keys stay English keycaps.
     pub HELP_TITLE =
         ko "도움말",
         en "Help",
-        ja "도움말";
+        ja "ヘルプ";
     pub HELP_CLOSE =
         ko "? 또는 ESC로 닫아요",
         en "Press ? or ESC to close",
-        ja "? 또는 ESC로 닫아요";
+        ja "? または ESC で閉じます";
     pub HELP_GROUP_MOVE =
         ko "이동",
         en "Move",
-        ja "이동";
+        ja "移動";
     pub HELP_GROUP_FOLDER =
         ko "폴더",
         en "Folders",
-        ja "폴더";
+        ja "フォルダ";
     pub HELP_GROUP_SONG =
         ko "곡",
         en "Songs",
-        ja "곡";
+        ja "曲";
     pub HELP_GROUP_OPTIONS =
         ko "옵션과 설정",
         en "Options and Settings",
-        ja "옵션과 설정";
+        ja "オプションと設定";
     pub HELP_GROUP_FILTER =
         ko "필터와 정렬",
         en "Filter and Sort",
-        ja "필터와 정렬";
+        ja "フィルターと並べ替え";
     pub HELP_GROUP_MISC =
         ko "기타",
         en "Other",
-        ja "기타";
+        ja "その他";
     pub HELP_CAP_MOUSE =
         ko "마우스",
         en "Mouse",
-        ja "마우스";
+        ja "マウス";
     pub HELP_CAP_DROP =
         ko "끌어다 놓기",
         en "Drag and drop",
-        ja "끌어다 놓기";
+        ja "ドラッグ&ドロップ";
     pub HELP_MOVE_ONE =
         ko "한 줄씩 움직여요",
         en "Move one row at a time",
-        ja "한 줄씩 움직여요";
+        ja "1行ずつ移動します";
     pub HELP_MOVE_PAGE =
         ko "10줄씩 움직여요",
         en "Move ten rows at a time",
-        ja "10줄씩 움직여요";
+        ja "10行ずつ移動します";
     pub HELP_MOVE_ENDS =
         ko "처음과 끝으로 가요",
         en "Jump to the first or last row",
-        ja "처음과 끝으로 가요";
+        ja "先頭と末尾に移動します";
     pub HELP_MOUSE_WHEEL =
         ko "휠로 목록을 굴려요",
         en "Scroll the list with the wheel",
-        ja "휠로 목록을 굴려요";
+        ja "ホイールで一覧をスクロールします";
     pub HELP_MOUSE_ROW =
         ko "줄을 누르면 골라요",
         en "Click a row to pick it",
-        ja "줄을 누르면 골라요";
+        ja "行をクリックして選びます";
     pub HELP_FOLDER_UP =
         ko "한 단계 위 폴더로 가요",
         en "Go up one folder level",
-        ja "한 단계 위 폴더로 가요";
+        ja "一つ上のフォルダに戻ります";
     pub HELP_FOLDER_OPEN =
         ko "폴더는 열고 곡은 재생해요",
         en "Open a folder, or play a song",
-        ja "폴더는 열고 곡은 재생해요";
+        ja "フォルダは開き、曲はプレイします";
     pub HELP_FOLDER_SIDE =
         ko "같은 단계의 이전과 다음 폴더",
         en "Previous and next folder at the same level",
-        ja "같은 단계의 이전과 다음 폴더";
+        ja "同じ階層の前後のフォルダ";
     pub HELP_MOUSE_SIDE =
         ko "상단 < > 버튼으로 옆 폴더",
         en "Top < > buttons: adjacent folder",
-        ja "상단 < > 버튼으로 옆 폴더";
+        ja "上部の < > ボタンで隣のフォルダ";
     pub HELP_MOUSE_CRUMB =
         ko "빵부스러기를 누르면 그 폴더",
         en "Click a breadcrumb to go to that folder",
-        ja "빵부스러기를 누르면 그 폴더";
+        ja "パンくずをクリックするとそのフォルダに移動します";
     pub HELP_SONG_PLAY =
         ko "선택한 곡을 플레이해요",
         en "Play the selected song",
-        ja "선택한 곡을 플레이해요";
+        ja "選んだ曲をプレイします";
     pub HELP_SONG_AUTO =
         ko "자동 플레이를 켜고 꺼요",
         en "Turn Auto Play on or off",
-        ja "자동 플레이를 켜고 꺼요";
+        ja "オートプレイのオン・オフを切り替えます";
     pub HELP_SONG_REPLAY =
         ko "저장된 리플레이를 재생해요",
         en "Play a saved replay",
-        ja "저장된 리플레이를 재생해요";
+        ja "保存されたリプレイを再生します";
     pub HELP_SONG_CHART =
         ko "묶음 행의 채보를 바꿔요",
         en "Change the chart of a grouped row",
-        ja "묶음 행의 채보를 바꿔요";
+        ja "まとめ行の譜面を切り替えます";
     pub HELP_MOUSE_AGAIN =
         ko "고른 줄을 다시 누르면 재생",
         en "Click the selected row again to play",
-        ja "고른 줄을 다시 누르면 재생";
+        ja "選んだ行をもう一度クリックするとプレイします";
     pub HELP_OPTIONS =
         ko "플레이 옵션을 열어요",
         en "Open play options",
-        ja "플레이 옵션을 열어요";
+        ja "プレイオプションを開きます";
     pub HELP_SETTINGS =
         ko "설정 화면을 열어요",
         en "Open the Settings screen",
-        ja "설정 화면을 열어요";
+        ja "設定画面を開きます";
     pub HELP_KEYS =
         ko "키 설정을 열어요",
         en "Open key config",
-        ja "키 설정을 열어요";
+        ja "キー設定を開きます";
     pub HELP_MOUSE_BUTTONS =
         ko "상단의 옵션, 설정 버튼",
         en "Options and Settings buttons at the top",
-        ja "상단의 옵션, 설정 버튼";
+        ja "上部のオプション、設定ボタン";
     pub HELP_SEARCH =
         ko "검색창을 열어요",
         en "Open search",
-        ja "검색창을 열어요";
+        ja "検索欄を開きます";
     pub HELP_SORT =
         ko "정렬 기준을 바꿔요",
         en "Change the sort order",
-        ja "정렬 기준을 바꿔요";
+        ja "並べ替えの基準を変更します";
     pub HELP_FILTER =
         ko "필터 줄에 초점을 줘요",
         en "Move focus to the filter row",
-        ja "필터 줄에 초점을 줘요";
+        ja "フィルター行にフォーカスを移します";
     pub HELP_MOUSE_FILTER =
         ko "정렬, 필터 칩, 검색창 누르기",
         en "Click sort, filter chips, or the search box",
-        ja "정렬, 필터 칩, 검색창 누르기";
+        ja "並べ替え、フィルターチップ、検索欄をクリック";
     pub HELP_BACK_QUIT =
         ko "한 단계 위, 루트에서는 종료",
         en "Go up one level; quit at the top level",
-        ja "한 단계 위, 루트에서는 종료";
+        ja "一つ上の階層へ。最上位では終了します";
     pub HELP_RESCAN =
         ko "곡 목록을 다시 읽어요",
         en "Read the song list again",
-        ja "곡 목록을 다시 읽어요";
+        ja "曲リストを再読み込みします";
     pub HELP_HELP =
         ko "도움말을 열고 닫아요",
         en "Open or close help",
-        ja "도움말을 열고 닫아요";
+        ja "ヘルプを開閉します";
     pub HELP_DROP =
         ko "파일을 끌어다 놓으면 곡을 열어요",
         en "Drop a file here to open the song",
-        ja "파일을 끌어다 놓으면 곡을 열어요";
+        ja "ファイルをドラッグすると曲を開きます";
 
     // First run: the library has no songs. The guide lists three ways to add songs.
     pub GUIDE_TITLE =
         ko "아직 곡이 없어요",
         en "No songs yet",
-        ja "아직 곡이 없어요";
+        ja "まだ曲がありません";
     pub GUIDE_LEAD =
         ko "곡을 넣는 방법은 세 가지예요.",
         en "There are three ways to add songs.",
-        ja "곡을 넣는 방법은 세 가지예요.";
+        ja "曲を追加する方法は3つあります。";
     pub GUIDE_MANAGER =
         ko "곡 관리자로 곡 패키지(.bmsp)를 설치해요.",
         en "Install song packages (.bmsp) with the Song Manager.",
-        ja "곡 관리자로 곡 패키지(.bmsp)를 설치해요.";
+        ja "曲管理ツールで曲パッケージ（.bmsp）をインストールします。";
     pub GUIDE_DROP =
         ko "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓아요.",
         en "Drag song files (.bmsp, .bms) or folders into this window.",
-        ja "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓아요.";
+        ja "曲ファイル（.bmsp, .bms）やフォルダをウィンドウにドラッグします。";
     pub GUIDE_FOLDER =
         ko "곡 파일을 songs 폴더에 넣어요.",
         en "Put song files in the songs folder.",
-        ja "곡 파일을 songs 폴더에 넣어요.";
+        ja "曲ファイルを songs フォルダに入れます。";
     pub GUIDE_BTN_MANAGER =
         ko "곡 관리자 열기",
         en "Open Song Manager",
-        ja "곡 관리자 열기";
+        ja "曲管理ツールを開く";
     pub GUIDE_BTN_FOLDER =
         ko "songs 폴더 열기",
         en "Open songs folder",
-        ja "songs 폴더 열기";
+        ja "songs フォルダを開く";
 
     // Drag overlay: a file is dragged over the window (song select).
     pub DROP_TITLE =
         ko "여기에 놓으면 곡을 열어요",
         en "Drop here to open the song",
-        ja "여기에 놓으면 곡을 열어요";
+        ja "ここに置くと曲を開きます";
     pub DROP_NOTE =
         ko ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.",
         en "Drop a .bmsp package or .bms chart to open it at once.",
-        ja ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.";
+        ja ".bmsp パッケージや .bms 譜面を置くと、すぐに開きます。";
 
     // Opening the song manager or the songs folder failed.
     pub TOAST_MANAGER_OPENED =
         ko "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요",
         en "Come back to this window after adding songs to refresh the list",
-        ja "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요";
+        ja "曲を追加したらこのウィンドウに戻ると一覧が更新されます";
     pub TOAST_MANAGER_MISSING =
         ko "곡 관리자(bpm-gui.exe)를 찾지 못했어요",
         en "Could not find the Song Manager (bpm-gui.exe)",
-        ja "곡 관리자(bpm-gui.exe)를 찾지 못했어요";
+        ja "曲管理ツール（bpm-gui.exe）が見つかりませんでした";
     pub TOAST_FOLDER_FAILED =
         ko "songs 폴더를 열지 못했어요",
         en "Could not open the songs folder",
-        ja "songs 폴더를 열지 못했어요";
+        ja "songs フォルダを開けませんでした";
 
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS =
         ko "플레이 옵션",
         en "Play Options",
-        ja "플레이 옵션";
+        ja "プレイオプション";
     pub GROUP_PLAY =
         ko "플레이",
         en "Play",
-        ja "플레이";
+        ja "プレイ";
     pub GROUP_SESSION =
         ko "세션",
         en "Session",
-        ja "세션";
+        ja "セッション";
     pub GROUP_DISPLAY =
         ko "화면",
         en "Display",
-        ja "화면";
+        ja "画面";
     pub GROUP_AUDIO =
         ko "소리",
         en "Sound",
-        ja "소리";
+        ja "サウンド";
     pub GROUP_JUDGE =
         ko "판정",
         en "Judge",
-        ja "판정";
+        ja "判定";
     pub GROUP_LAYOUT =
         ko "레이아웃",
         en "Layout",
-        ja "레이아웃";
+        ja "レイアウト";
     pub GROUP_INPUT =
         ko "입력",
         en "Input",
-        ja "입력";
+        ja "入力";
     pub ROW_GREEN =
         ko "그린 넘버",
         en "Green Number",
-        ja "그린 넘버";
+        ja "グリーンナンバー";
     pub ROW_LANE_COVER =
         ko "레인 커버",
         en "Lane Cover",
-        ja "레인 커버";
+        ja "レーンカバー";
     pub ROW_MODIFIER =
         ko "모디파이어",
         en "Modifier",
-        ja "모디파이어";
+        ja "モディファイア";
     pub ROW_GAUGE =
         ko "게이지",
         en "Gauge",
-        ja "게이지";
+        ja "ゲージ";
     pub ROW_LN_MODE =
         ko "LN 모드",
         en "LN Mode",
-        ja "LN 모드";
+        ja "LN モード";
     pub ROW_AUTO_PLAY =
         ko "자동 플레이",
         en "Auto Play",
-        ja "자동 플레이";
+        ja "オートプレイ";
     pub ROW_START_MEASURE =
         ko "시작 마디",
         en "Start Measure",
-        ja "시작 마디";
+        ja "開始小節";
     pub ROW_JUDGE_OFFSET =
         ko "판정 오프셋",
         en "Judge Offset",
-        ja "판정 오프셋";
+        ja "判定オフセット";
     pub ROW_MASTER_VOLUME =
         ko "전체 볼륨",
         en "Master Volume",
-        ja "전체 볼륨";
+        ja "全体音量";
     pub ROW_BGM_VOLUME =
         ko "배경음 볼륨",
         en "BGM Volume",
-        ja "배경음 볼륨";
+        ja "BGM 音量";
     pub ROW_KEY_VOLUME =
         ko "키음 볼륨",
         en "Key Volume",
-        ja "키음 볼륨";
+        ja "キー音量";
     pub ROW_SFX_VOLUME =
         ko "효과음 볼륨",
         en "SFX Volume",
-        ja "효과음 볼륨";
+        ja "効果音量";
     pub ROW_VISUAL_OFFSET =
         ko "비주얼 오프셋",
         en "Visual Offset",
-        ja "비주얼 오프셋";
+        ja "表示オフセット";
     pub ROW_JUDGE_POSITION =
         ko "판정 표시 위치",
         en "Judge Position",
-        ja "판정 표시 위치";
+        ja "判定表示位置";
     pub JUDGE_POS_UPPER =
         ko "위",
         en "Upper",
-        ja "위";
+        ja "上";
     pub JUDGE_POS_MIDDLE =
         ko "가운데",
         en "Middle",
-        ja "가운데";
+        ja "中央";
     pub JUDGE_POS_LOWER =
         ko "아래",
         en "Lower",
-        ja "아래";
+        ja "下";
     pub ROW_NOTE_SIZE =
         ko "노트 크기",
         en "Note Size",
-        ja "노트 크기";
+        ja "ノーツサイズ";
     pub ROW_REDUCE_FLASHES =
         ko "플래시 줄이기",
         en "Reduce Flashes",
-        ja "플래시 줄이기";
+        ja "フラッシュを抑える";
     pub ROW_PLAYFIELD =
         ko "플레이필드",
         en "Playfield",
-        ja "플레이필드";
+        ja "プレイフィールド";
     pub ROW_SCRATCH =
         ko "스크래치",
         en "Scratch",
-        ja "스크래치";
+        ja "スクラッチ";
     pub ROW_BGA =
         ko "BGA",
         en "BGA",
@@ -782,85 +782,85 @@ table! {
     pub ROW_TRACK_BGA =
         ko "트랙 BGA",
         en "Track BGA",
-        ja "트랙 BGA";
+        ja "トラック BGA";
     pub ROW_KEY_HINT =
         ko "플레이 중 키 안내",
         en "Key Hints While Playing",
-        ja "플레이 중 키 안내";
+        ja "プレイ中のキーヒント";
     pub KEY_HINT_FIRST =
         ko "처음 3초만",
         en "First 3 seconds",
-        ja "처음 3초만";
+        ja "最初の3秒だけ";
     pub KEY_HINT_ALWAYS =
         ko "항상",
         en "Always",
-        ja "항상";
+        ja "常に";
     pub KEY_HINT_OFF =
         ko "끄기",
         en "Off",
-        ja "끄기";
+        ja "オフ";
     pub ROW_DISPLAY_MODE =
         ko "화면 모드",
         en "Display Mode",
-        ja "화면 모드";
+        ja "画面モード";
     pub ROW_RESOLUTION =
         ko "해상도",
         en "Resolution",
-        ja "해상도";
+        ja "解像度";
     pub ROW_GRAPHICS =
         ko "그래픽",
         en "Graphics",
-        ja "그래픽";
+        ja "描画方式";
     pub ROW_TARGET_FPS =
         ko "목표 FPS",
         en "Target FPS",
-        ja "목표 FPS";
+        ja "目標 FPS";
     pub ROW_KEY_LAYOUT =
         ko "키 배치",
         en "Key Layout",
-        ja "키 배치";
+        ja "キー配置";
     pub VALUE_ON =
         ko "켜짐",
         en "On",
-        ja "켜짐";
+        ja "オン";
     pub VALUE_OFF =
         ko "꺼짐",
         en "Off",
-        ja "꺼짐";
+        ja "オフ";
     pub VALUE_UNLIMITED =
         ko "무제한",
         en "Unlimited",
-        ja "무제한";
+        ja "無制限";
     pub VALUE_CENTER =
         ko "가운데",
         en "Center",
-        ja "가운데";
+        ja "中央";
     /// A row that does not apply to the selected song's key mode.
     pub VALUE_NOT_APPLICABLE =
         ko "해당 없음",
         en "N/A",
-        ja "해당 없음";
+        ja "対象外";
     /// Resolution label when the window size matches no preset.
     pub RESOLUTION_CUSTOM =
         ko "사용자 지정",
         en "Custom",
-        ja "사용자 지정";
+        ja "ユーザー指定";
     pub DISPLAY_WINDOWED =
         ko "창 모드",
         en "Windowed",
-        ja "창 모드";
+        ja "ウィンドウ";
     pub DISPLAY_BORDERLESS =
         ko "테두리 없는 창",
         en "Borderless Window",
-        ja "테두리 없는 창";
+        ja "ボーダーレスウィンドウ";
     pub DISPLAY_FULLSCREEN =
         ko "전체 화면",
         en "Fullscreen",
-        ja "전체 화면";
+        ja "フルスクリーン";
     pub GPU_AUTO =
         ko "자동",
         en "Auto",
-        ja "자동";
+        ja "自動";
     /// Backend name, kept in English.
     pub GPU_WARP =
         ko "WARP (CPU)",
@@ -869,24 +869,24 @@ table! {
     pub TRACK_BGA_OFF =
         ko "꺼짐 (0%)",
         en "Off (0%)",
-        ja "꺼짐 (0%)";
+        ja "オフ (0%)";
     pub TRACK_BGA_LOW =
         ko "낮음 (25%)",
         en "Low (25%)",
-        ja "낮음 (25%)";
+        ja "低 (25%)";
     pub TRACK_BGA_MEDIUM =
         ko "보통 (50%)",
         en "Medium (50%)",
-        ja "보통 (50%)";
+        ja "中 (50%)";
     pub TRACK_BGA_HIGH =
         ko "높음 (75%)",
         en "High (75%)",
-        ja "높음 (75%)";
+        ja "高 (75%)";
     /// `{}` is the graphics backend; the note follows it.
     pub VALUE_AFTER_RESTART =
         ko "{} (재시작 후 적용)",
         en "{} (applies after restart)",
-        ja "{} (재시작 후 적용)";
+        ja "{}（再起動後に適用）";
     /// `{}` is the FPS number.
     pub VALUE_FPS =
         ko "{} FPS",
@@ -896,7 +896,7 @@ table! {
     pub VALUE_AUTO_RESOLVED =
         ko "자동 ({})",
         en "Auto ({})",
-        ja "자동 ({})";
+        ja "自動 ({})";
     /// `{}` is the green number in milliseconds.
     pub VALUE_MS =
         ko "{} ms",
@@ -911,290 +911,290 @@ table! {
     pub HINT_MOVE =
         ko "이동",
         en "Move",
-        ja "이동";
+        ja "移動";
     pub HINT_CHANGE =
         ko "변경",
         en "Change",
-        ja "변경";
+        ja "変更";
     pub HINT_CLOSE =
         ko "닫기",
         en "Close",
-        ja "닫기";
+        ja "閉じる";
     pub HINT_START =
         ko "시작",
         en "Start",
-        ja "시작";
+        ja "開始";
     pub HINT_SELECT =
         ko "선택",
         en "Select",
-        ja "선택";
+        ja "選択";
 
     // Help sentences: one line under the highlighted row (plain Korean).
     pub HELP_GREEN =
         ko "노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.",
         en "Time from a note appearing on screen to reaching the judge line. Lower is faster. It stays the same when the lane cover changes.",
-        ja "노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.";
+        ja "ノーツが画面に現れてから判定ラインに届くまでの時間です。小さいほど速くなります。レーンカバーを変えても保たれます。";
     pub HELP_LANE_COVER =
         ko "레인 위쪽을 가려 노트가 보이는 구간을 줄여요. 0%는 가리지 않아요. 플레이 중 F10, F11로도 바꿀 수 있어요.",
         en "Hides the top of the lane to shorten the visible note area. 0% hides nothing. You can also change it while playing with F10 and F11.",
-        ja "레인 위쪽을 가려 노트가 보이는 구간을 줄여요. 0%는 가리지 않아요. 플레이 중 F10, F11로도 바꿀 수 있어요.";
+        ja "レーン上部を隠して、ノーツが見える範囲を短くします。0% は隠しません。プレイ中に F10、F11 でも変えられます。";
     pub HELP_MODIFIER =
         ko "노트 배치를 바꿔요. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞어요.",
         en "Changes the note arrangement. Mirror flips left and right; random types shuffle the lane order.",
-        ja "노트 배치를 바꿔요. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞어요.";
+        ja "ノーツの並びを変えます。ミラーは左右を反転し、ランダム系はレーンの順番を入れ替えます。";
     pub HELP_GAUGE =
         ko "점수 게이지의 방식이에요. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격해요.",
         en "The score gauge style. EASY and GROOVE are forgiving; HARD and HAZARD punish mistakes.",
-        ja "점수 게이지의 방식이에요. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격해요.";
+        ja "スコアゲージの方式です。EASY と GROOVE は寛容で、HARD と HAZARD はミスに厳しくなります。";
     pub HELP_LN_MODE =
         ko "롱노트 판정 방식이에요. AUTO는 곡 데이터에 맞추고, LN과 CN은 어떤 곡이든 그 방식으로 고정해요.",
         en "How long notes are judged. AUTO follows the chart; LN and CN lock every chart to that style.",
-        ja "롱노트 판정 방식이에요. AUTO는 곡 데이터에 맞추고, LN과 CN은 어떤 곡이든 그 방식으로 고정해요.";
+        ja "ロングノーツの判定方式です。AUTO は譜面に従い、LN と CN はどの譜面でもその方式に固定します。";
     pub HELP_AUTO_PLAY =
         ko "켜면 키를 누르지 않아도 곡이 끝까지 연주돼요. 자동 플레이 결과는 기록으로 저장되지 않아요.",
         en "Plays the song to the end without key presses. Auto Play results are not saved as records.",
-        ja "켜면 키를 누르지 않아도 곡이 끝까지 연주돼요. 자동 플레이 결과는 기록으로 저장되지 않아요.";
+        ja "キー入力なしで最後まで演奏します。オートプレイの結果は記録に保存されません。";
     pub HELP_START_MEASURE =
         ko "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 기록되지 않아요.",
         en "Starts the song at this measure. 0 starts from the beginning. Any other value is not saved as a play.",
-        ja "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 기록되지 않아요.";
+        ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときはプレイとして記録されません。";
 
     // Settings screen (its title is SETTINGS above).
     pub HELP_DISPLAY_MODE =
         ko "창 모드, 테두리 없는 창, 전체 화면 중에서 골라요. 바로 적용돼요.",
         en "Choose windowed, borderless window, or fullscreen. Applies immediately.",
-        ja "창 모드, 테두리 없는 창, 전체 화면 중에서 골라요. 바로 적용돼요.";
+        ja "ウィンドウ、ボーダーレスウィンドウ、フルスクリーンから選びます。すぐに反映されます。";
     pub HELP_RESOLUTION =
         ko "창 크기나 전체 화면 해상도를 골라요. 창 모드는 16:9 크기만 고를 수 있어요.",
         en "Choose the window size or the fullscreen resolution. Windowed mode only offers 16:9 sizes.",
-        ja "창 크기나 전체 화면 해상도를 골라요. 창 모드는 16:9 크기만 고를 수 있어요.";
+        ja "ウィンドウサイズまたはフルスクリーンの解像度を選びます。ウィンドウでは 16:9 のサイズだけ選べます。";
     pub HELP_GRAPHICS =
         ko "그림을 그리는 장치예요. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그려요. 바꾸면 재시작 후 적용돼요.",
         en "The drawing device. Auto uses the graphics card; WARP draws on the CPU. Applies after restart when changed.",
-        ja "그림을 그리는 장치예요. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그려요. 바꾸면 재시작 후 적용돼요.";
+        ja "描画に使う装置です。自動はグラフィックカードを使い、WARP は CPU で描画します。変更すると再起動後に反映されます。";
     pub HELP_TARGET_FPS =
         ko "플레이 화면의 최대 프레임이에요. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춰요.",
         en "Maximum frame rate of the play screen. Unlimited does not cap it; 60 matches the display refresh rate.",
-        ja "플레이 화면의 최대 프레임이에요. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춰요.";
+        ja "プレイ画面の最大フレームレートです。無制限は制限せず、60 はディスプレイの更新レートに合わせます。";
     pub HELP_MASTER_VOLUME =
         ko "모든 소리의 전체 크기예요. 아래 세 볼륨에 곱해지며, 최대 200%까지 올릴 수 있어요.",
         en "Overall volume for all sound. It multiplies the three volumes below and can go up to 200%.",
-        ja "모든 소리의 전체 크기예요. 아래 세 볼륨에 곱해지며, 최대 200%까지 올릴 수 있어요.";
+        ja "すべての音をまとめた音量です。下の 3 つの音量に掛けられ、200% まで上げられます。";
     pub HELP_BGM_VOLUME =
         ko "곡의 배경음 크기예요. 채보에 들어 있는 자동 재생 소리가 여기에 해당해요. 전체 볼륨과 함께 적용돼요.",
         en "Volume of the song's background audio, including the sounds the chart plays automatically. Applies together with Master Volume.",
-        ja "곡의 배경음 크기예요. 채보에 들어 있는 자동 재생 소리가 여기에 해당해요. 전체 볼륨과 함께 적용돼요.";
+        ja "曲の BGM の音量です。譜面に含まれる自動再生の音がこれにあたります。全体音量と合わせて適用されます。";
     pub HELP_KEY_VOLUME =
         ko "플레이 중 내가 누른 키의 소리 크기예요. 판정된 노트의 소리도 여기에 해당해요. 자동 플레이 소리는 배경음이에요.",
         en "Volume of the key sounds you play during a song, including the sounds of notes you hit. Auto Play sounds count as background audio.",
-        ja "플레이 중 내가 누른 키의 소리 크기예요. 판정된 노트의 소리도 여기에 해당해요. 자동 플레이 소리는 배경음이에요.";
+        ja "プレイ中に押したキーの音量です。判定されたノーツの音もここに含まれます。オートプレイの音は BGM 扱いです。";
     pub HELP_SFX_VOLUME =
         ko "메뉴 효과음과 징글의 크기예요. 곡 미리듣기는 배경음 볼륨을 따라요.",
         en "Volume of menu sound effects and jingles. Song preview follows the BGM volume.",
-        ja "메뉴 효과음과 징글의 크기예요. 곡 미리듣기는 배경음 볼륨을 따라요.";
+        ja "メニューの効果音とジングルの音量です。曲の試聴は BGM 音量に従います。";
     pub HELP_JUDGE_OFFSET =
         ko "판정 시각을 앞뒤로 옮겨서 판정 결과가 바뀌어요. 범위는 -100에서 +100 ms예요. 화면만 옮기려면 비주얼 오프셋을 써요.",
         en "Shifts judge timing earlier or later, which changes judge results. Range is -100 to +100 ms. To move only the picture, use Visual Offset.",
-        ja "판정 시각을 앞뒤로 옮겨서 판정 결과가 바뀌어요. 범위는 -100에서 +100 ms예요. 화면만 옮기려면 비주얼 오프셋을 써요.";
+        ja "判定の時刻を前後にずらし、判定結果を変えます。範囲は -100 から +100 ms です。映像だけをずらすには表示オフセットを使います。";
     pub HELP_VISUAL_OFFSET =
         ko "노트를 그리는 위치만 앞뒤로 옮겨요. 양수면 노트가 더 일찍 보여요. 판정과 소리 타이밍은 바뀌지 않아요.",
         en "Shifts only where notes are drawn. A positive value shows notes sooner. Judge and sound timing do not change.",
-        ja "노트를 그리는 위치만 앞뒤로 옮겨요. 양수면 노트가 더 일찍 보여요. 판정과 소리 타이밍은 바뀌지 않아요.";
+        ja "ノーツを描く位置だけを前後にずらします。プラスにするとノーツが早く見えます。判定と音のタイミングは変わりません。";
     pub HELP_JUDGE_POSITION =
         ko "판정과 콤보 글자가 판정선에서 얼마나 떨어져 보일지 정해요. 위가 기본이에요.",
         en "How far the judge and combo text sit from the judge line. Upper is the default.",
-        ja "판정과 콤보 글자가 판정선에서 얼마나 떨어져 보일지 정해요. 위가 기본이에요.";
+        ja "判定とコンボの文字が判定ラインからどれだけ離れて見えるかを決めます。既定は上です。";
     pub HELP_NOTE_SIZE =
         ko "싱글 플레이의 레인 너비를 90%에서 120%까지 바꿔요. 더블 플레이는 그대로예요.",
         en "Changes the lane width in single play from 90% to 120%. Double play does not change.",
-        ja "싱글 플레이의 레인 너비를 90%에서 120%까지 바꿔요. 더블 플레이는 그대로예요.";
+        ja "シングルプレイのレーン幅を 90% から 120% の間で変えます。ダブルプレイは変わりません。";
     pub HELP_REDUCE_FLASHES =
         ko "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.",
         en "Reduces the red warning flash, judge lights, and the banner's light rays and shaking. Judgement and sound stay the same.",
-        ja "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.";
+        ja "赤い警告の点滅、判定の光、バナーの光条と揺れを抑えます。判定と音は変わりません。";
     pub HELP_PLAYFIELD =
         ko "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.",
         en "Places the playfield in the center, on the left, or on the right of the screen.",
-        ja "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.";
+        ja "プレイフィールドを画面の中央、左、右のどこに置くか決めます。";
     pub HELP_SCRATCH =
         ko "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.",
         en "Puts the scratch lane on the left or right edge. Applies only to 5K, 7K and 8K.",
-        ja "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.";
+        ja "スクラッチレーンを左右の端のどちらに置くか決めます。5K、7K、8K でのみ適用されます。";
     pub HELP_BGA =
         ko "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.",
         en "Shows the song's background movies and images. Off skips reading these files, saving memory and CPU.",
-        ja "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.";
+        ja "曲の背景動画と画像を表示します。オフにするとこれらのファイルを読まないため、メモリと CPU を節約できます。";
     pub HELP_KEY_HINT =
         ko "플레이 화면 아래의 키 안내 줄을 정해요. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라져요.",
         en "Sets the key hint line under the play screen. First 3 seconds shows it for three seconds after the start, then hides it.",
-        ja "플레이 화면 아래의 키 안내 줄을 정해요. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라져요.";
+        ja "プレイ画面の下に出すキーヒントの表示を決めます。最初の3秒だけは、開始後3秒間だけ表示して消えます。";
     pub HELP_TRACK_BGA =
         ko "배경 영상과 이미지를 화면 배경에 얼마나 진하게 비출지 정해요. 꺼짐이면 보이지 않아요.",
         en "How strongly the background movie and images show behind the playfield. Off hides them.",
-        ja "배경 영상과 이미지를 화면 배경에 얼마나 진하게 비출지 정해요. 꺼짐이면 보이지 않아요.";
+        ja "背景の動画と画像をプレイフィールドの後ろにどれだけ濃く映すかを決めます。オフなら表示しません。";
     pub HELP_KEY_LAYOUT =
         ko "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.",
         en "Chooses the key layout for the selected song's key mode. Press ENTER to open key config.",
-        ja "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.";
+        ja "選んだ曲のキーモードで使うキー配置を選びます。ENTER でキー設定画面を開きます。";
 
     // Judge offset calibration (a Settings sub-screen).
     pub CALIBRATE_TITLE =
         ko "판정 오프셋 측정",
         en "Judge Offset Calibration",
-        ja "판정 오프셋 측정";
+        ja "判定オフセットの測定";
     pub CALIBRATE_INSTRUCTION =
         ko "소리에 맞춰 스페이스를 누르세요",
         en "Press Space in time with the sound",
-        ja "소리에 맞춰 스페이스를 누르세요";
+        ja "音に合わせて Space を押してください";
     pub CALIBRATE_DONE_TITLE =
         ko "측정이 끝났어요",
         en "Calibration complete",
-        ja "측정이 끝났어요";
+        ja "測定が終わりました";
     pub CALIBRATE_NO_AUDIO =
         ko "오디오 출력 장치를 열지 못해 측정할 수 없어요",
         en "Could not open an audio output device, so calibration is unavailable",
-        ja "오디오 출력 장치를 열지 못해 측정할 수 없어요";
+        ja "オーディオ出力デバイスを開けないため、測定できません";
     pub CALIBRATE_COUNT_IN =
         ko "준비",
         en "Get ready",
-        ja "준비";
+        ja "準備";
     pub CALIBRATE_MEASURING =
         ko "측정 중",
         en "Measuring",
-        ja "측정 중";
+        ja "測定中";
     pub CALIBRATE_PROGRESS =
         ko "진행",
         en "Progress",
-        ja "진행";
+        ja "進行";
     pub CALIBRATE_MEAN =
         ko "평균",
         en "Mean",
-        ja "평균";
+        ja "平均";
     pub CALIBRATE_SPREAD =
         ko "편차",
         en "Spread",
-        ja "편차";
+        ja "ばらつき";
     pub CALIBRATE_SUGGEST =
         ko "제안값",
         en "Suggested",
-        ja "제안값";
+        ja "推奨値";
     pub CALIBRATE_EARLY =
         ko "빠름",
         en "Early",
-        ja "빠름";
+        ja "早い";
     pub CALIBRATE_LATE =
         ko "늦음",
         en "Late",
-        ja "늦음";
+        ja "遅い";
     pub CALIBRATE_EXCLUDED =
         ko "제외된 입력은 흐리게 표시해요",
         en "Excluded inputs are shown faded",
-        ja "제외된 입력은 흐리게 표시해요";
+        ja "除外された入力は薄く表示されます";
     pub CALIBRATE_HELP =
         ko "준비 박 네 개 뒤부터 입력을 16번 세어요. 한 박에 한 번만 세고, 150 ms보다 멀리 떨어진 입력은 무시해요.",
         en "Counts 16 presses after four count-in beats. Counts one press per beat and ignores presses more than 150 ms away.",
-        ja "준비 박 네 개 뒤부터 입력을 16번 세어요. 한 박에 한 번만 세고, 150 ms보다 멀리 떨어진 입력은 무시해요.";
+        ja "準備の4拍の後から入力を16回数えます。1拍に1回だけ数え、150 ms より離れた入力は無視します。";
     pub CALIBRATE_HELP_DONE =
         ko "제안값은 평균 차이의 반대 값이에요. 적용하면 판정 오프셋이 이 값이 돼요.",
         en "The suggestion is the opposite of the mean difference. Applying it sets the judge offset to this value.",
-        ja "제안값은 평균 차이의 반대 값이에요. 적용하면 판정 오프셋이 이 값이 돼요.";
+        ja "推奨値は平均のずれの反対の値です。適用すると判定オフセットがこの値になります。";
     pub CALIBRATE_HELP_NO_AUDIO =
         ko "설정은 바뀌지 않았어요. ESC로 설정 화면에 돌아가세요.",
         en "Settings were not changed. Press ESC to return to Settings.",
-        ja "설정은 바뀌지 않았어요. ESC로 설정 화면에 돌아가세요.";
+        ja "設定は変わっていません。ESC で設定画面に戻ってください。";
     pub CALIBRATE_APPLY =
         ko "적용",
         en "Apply",
-        ja "적용";
+        ja "適用";
     pub CALIBRATE_RETRY =
         ko "다시",
         en "Retry",
-        ja "다시";
+        ja "やり直し";
     pub CALIBRATE_CANCEL =
         ko "취소",
         en "Cancel",
-        ja "취소";
+        ja "キャンセル";
     pub CALIBRATE_HINT_TAP =
         ko "누르기",
         en "Tap",
-        ja "누르기";
+        ja "タップ";
     pub TOAST_CALIBRATE_APPLIED =
         ko "판정 오프셋을 {} ms로 맞췄어요",
         en "Judge offset set to {} ms",
-        ja "판정 오프셋을 {} ms로 맞췄어요";
+        ja "判定オフセットを {} ms に設定しました";
 
     // Quit confirmation.
     pub QUIT_TITLE =
         ko "BEETLE을 종료할까요?",
         en "Quit BEETLE?",
-        ja "BEETLE을 종료할까요?";
+        ja "BEETLE を終了しますか？";
     pub QUIT_NOTE =
         ko "기록과 설정은 이미 저장되어 있어요.",
         en "Your records and settings are already saved.",
-        ja "기록과 설정은 이미 저장되어 있어요.";
+        ja "記録と設定は保存済みです。";
     pub QUIT =
         ko "종료",
         en "Quit",
-        ja "종료";
+        ja "終了";
 
     // ---- Loading ------------------------------------------------------
     pub LOADING_STATUS =
         ko "키음을 디코딩하고 오디오를 준비하는 중",
         en "Decoding key sounds and preparing audio",
-        ja "키음을 디코딩하고 오디오를 준비하는 중";
+        ja "キー音をデコードし、オーディオを準備しています";
     pub PRACTICE =
         ko "연습",
         en "Practice",
-        ja "연습";
+        ja "練習";
 
     // ---- Gameplay -----------------------------------------------------
     pub COMBO =
         ko "콤보",
         en "Combo",
-        ja "콤보";
+        ja "コンボ";
     pub NO_BGA =
         ko "BGA 없음",
         en "No BGA",
-        ja "BGA 없음";
+        ja "BGA なし";
     pub PAUSED =
         ko "일시정지",
         en "Paused",
-        ja "일시정지";
+        ja "一時停止";
     pub PAUSE_RESUME =
         ko "계속하기",
         en "Resume",
-        ja "계속하기";
+        ja "再開";
     pub PAUSE_RESTART =
         ko "처음부터",
         en "Restart",
-        ja "처음부터";
+        ja "最初から";
     pub PAUSE_QUIT =
         ko "곡 선택으로",
         en "Back to Song Select",
-        ja "곡 선택으로";
+        ja "曲選択に戻る";
     pub PAUSE_HINT =
         ko "위아래 이동   ENTER 확인   R 처음부터",
         en "Up/Down move   ENTER confirm   R restart",
-        ja "위아래 이동   ENTER 확인   R 처음부터";
+        ja "上下 移動   ENTER 決定   R 最初から";
     /// Key hint line during a replay or auto play.
     pub HUD_BACK_TO_SELECT =
         ko "ESC  곡 선택으로",
         en "ESC  Back to song select",
-        ja "ESC  곡 선택으로";
+        ja "ESC  曲選択に戻る";
     /// Key hint line while playing; `{}` is the key layout.
     pub HUD_KEYS =
         ko "키  {}    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
         en "Keys  {}    1/2 Green Number    F10/F11 Cover    ESC Pause",
-        ja "키  {}    1/2 그린 넘버    F10/F11 커버    ESC 일시정지";
+        ja "キー  {}    1/2 グリーンナンバー    F10/F11 カバー    ESC 一時停止";
     /// Same, for layouts without cover keys (double play).
     pub HUD_KEYS_NO_COVER =
         ko "키  {}    1/2 그린 넘버    ESC 일시정지",
         en "Keys  {}    1/2 Green Number    ESC Pause",
-        ja "키  {}    1/2 그린 넘버    ESC 일시정지";
+        ja "キー  {}    1/2 グリーンナンバー    ESC 一時停止";
     pub KEYS_CUSTOM =
         ko "사용자 배치",
         en "Custom layout",
-        ja "사용자 배치";
+        ja "ユーザー配置";
     /// Shown from the song start until a second before the first note.
     pub READY =
         ko "READY",
@@ -1208,7 +1208,7 @@ table! {
     pub READY_HINT =
         ko "F3/F4 그린 넘버 / F10/F11 레인 커버",
         en "F3/F4 Green Number / F10/F11 Lane Cover",
-        ja "F3/F4 그린 넘버 / F10/F11 레인 커버";
+        ja "F3/F4 グリーンナンバー / F10/F11 レーンカバー";
     /// Readout over the lane after a green number change (`{}` = ms).
     pub READOUT_GREEN =
         ko "{} ms",
@@ -1218,15 +1218,15 @@ table! {
     pub READOUT_COVER =
         ko "커버 {}%",
         en "Cover {}%",
-        ja "커버 {}%";
+        ja "カバー {}%";
     pub TIMELINE_TITLE =
         ko "판정 타임라인",
         en "Judge Timeline",
-        ja "판정 타임라인";
+        ja "判定タイムライン";
     pub TIMELINE_RANGE =
         ko "최근 8초",
         en "Last 8 seconds",
-        ja "최근 8초";
+        ja "直近8秒";
     pub TIMING_FAST =
         ko "FAST",
         en "FAST",
@@ -1250,43 +1250,43 @@ table! {
     pub RESULT =
         ko "결과",
         en "Result",
-        ja "결과";
+        ja "リザルト";
     pub RESULT_SONG_SELECT =
         ko "곡 선택",
         en "Song Select",
-        ja "곡 선택";
+        ja "曲選択";
     pub RESULT_RETRY =
         ko "다시 하기",
         en "Retry",
-        ja "다시 하기";
+        ja "もう一度";
     pub RESULT_RETRY_OPTIONS =
         ko "옵션 바꿔 다시 하기",
         en "Retry with Options",
-        ja "옵션 바꿔 다시 하기";
+        ja "オプションを変えてもう一度";
     pub RESULT_SCREENSHOT =
         ko "스크린샷",
         en "Screenshot",
-        ja "스크린샷";
+        ja "スクリーンショット";
     pub SCORE_NOT_SAVED =
         ko "기록이 저장되지 않음",
         en "Score not saved",
-        ja "기록이 저장되지 않음";
+        ja "記録は保存されません";
     /// The button of the play options panel opened from the result: play
     /// again with the options as changed (ENTER).
     pub RESULT_OPTIONS_START =
         ko "새 옵션으로 다시 하기",
         en "Retry with New Options",
-        ja "새 옵션으로 다시 하기";
+        ja "新しいオプションでもう一度";
     /// Trend graph: the clear line (`{}` = gauge percent) and the fail line of
     /// the HARD / HAZARD gauges, which fail at 0.
     pub GRAPH_CLEAR_LINE =
         ko "클리어 {}%",
         en "Clear {}%",
-        ja "클리어 {}%";
+        ja "クリア {}%";
     pub GRAPH_FAIL_LINE =
         ko "실패 0%",
         en "Fail 0%",
-        ja "실패 0%";
+        ja "失敗 0%";
     /// Marks the point where the stage failed on the trend graph.
     pub GRAPH_FAILED =
         ko "FAILED",
@@ -1296,7 +1296,7 @@ table! {
     pub NEW_LAMP =
         ko "램프 갱신",
         en "Lamp up",
-        ja "램프 갱신";
+        ja "ランプ更新";
     /// Clear banners. Kept in English next to the clear lamps (FULL COMBO, FAILED).
     pub STAGE_CLEAR =
         ko "STAGE CLEAR",
@@ -1317,139 +1317,139 @@ table! {
     pub NEW_RECORD =
         ko "신기록",
         en "New Record",
-        ja "신기록";
+        ja "新記録";
     /// `{}` is the gauge name; `{}` is the rule note (e.g. "LN").
     pub GAUGE_NAME_RULE =
         ko "{} 게이지 / {}",
         en "{} gauge / {}",
-        ja "{} 게이지 / {}";
+        ja "{}ゲージ / {}";
     /// `{}` is the best EX score.
     pub BEST_EX =
         ko "최고 {}",
         en "Best {}",
-        ja "최고 {}";
+        ja "最高 {}";
     pub FIRST_PLAY =
         ko "첫 플레이",
         en "First play",
-        ja "첫 플레이";
+        ja "初プレイ";
     pub JUDGE =
         ko "판정",
         en "Judge",
-        ja "판정";
+        ja "判定";
     pub TIMING =
         ko "타이밍",
         en "Timing",
-        ja "타이밍";
+        ja "タイミング";
     pub OFFSET =
         ko "오프셋",
         en "Offset",
-        ja "오프셋";
+        ja "オフセット";
     pub MISS_COUNT =
         ko "MISS 수",
         en "MISS count",
-        ja "MISS 수";
+        ja "MISS 数";
 
     // ---- Key config ---------------------------------------------------
     pub KEY_CONFIG =
         ko "키 설정",
         en "Key Config",
-        ja "키 설정";
+        ja "キー設定";
     pub KEY_LANE =
         ko "레인",
         en "Lane",
-        ja "레인";
+        ja "レーン";
     pub SET_KEY =
         ko "키 지정",
         en "Set Key",
-        ja "키 지정";
+        ja "キーを設定";
     pub ADD_KEY =
         ko "키 추가",
         en "Add Key",
-        ja "키 추가";
+        ja "キーを追加";
     pub CLEAR_LANE =
         ko "비우기",
         en "Clear",
-        ja "비우기";
+        ja "消去";
     pub PRESET =
         ko "프리셋",
         en "Preset",
-        ja "프리셋";
+        ja "プリセット";
     pub SCRATCH =
         ko "스크래치",
         en "Scratch",
-        ja "스크래치";
+        ja "スクラッチ";
     pub FORM_8K =
         ko "8K 형태",
         en "8K Layout",
-        ja "8K 형태";
+        ja "8K 配置";
     pub RESET =
         ko "초기화",
         en "Reset",
-        ja "초기화";
+        ja "リセット";
     pub ANY_KEY =
         ko "아무 키",
         en "Any Key",
-        ja "아무 키";
+        ja "任意のキー";
     pub BIND =
         ko "지정",
         en "Bind",
-        ja "지정";
+        ja "割り当て";
     pub SELECTED_LANE =
         ko "선택한 레인",
         en "Selected Lane",
-        ja "선택한 레인";
+        ja "選択中のレーン";
     pub KEYS_CAPTION =
         ko "키",
         en "Keys",
-        ja "키";
+        ja "キー";
     pub SIDE_LEFT =
         ko "왼쪽",
         en "Left",
-        ja "왼쪽";
+        ja "左";
     pub SIDE_RIGHT =
         ko "오른쪽",
         en "Right",
-        ja "오른쪽";
+        ja "右";
     pub LAYOUT_TRIGGERS =
         ko "왼쪽, 오른쪽 트리거 사이에 키 6개 (F3: 일자 배치)",
         en "Six keys between the left and right triggers (F3: straight layout)",
-        ja "왼쪽, 오른쪽 트리거 사이에 키 6개 (F3: 일자 배치)";
+        ja "左右のトリガーの間に6つのキー（F3: 一列配置）";
     /// `{}` is the scratch side.
     pub LAYOUT_8K =
         ko "키 8개를 한 줄로, 스크래치는 {} (F2: 교체, F3: 키 6개 + 트리거)",
         en "Eight keys in a row, scratch on the {} (F2: swap, F3: six keys and triggers)",
-        ja "키 8개를 한 줄로, 스크래치는 {} (F2: 교체, F3: 키 6개 + 트리거)";
+        ja "8つのキーを一列に並べ、スクラッチは{}（F2: 入れ替え、F3: キー6つ + トリガー）";
     pub LAYOUT_STRAIGHT =
         ko "키를 한 줄로 배치",
         en "Keys in a single row",
-        ja "키를 한 줄로 배치";
+        ja "キーを一列に配置";
     /// `{}` is the scratch side.
     pub LAYOUT_SCRATCH =
         ko "스크래치는 {} (F2: 교체)",
         en "Scratch on the {} (F2: swap)",
-        ja "스크래치는 {} (F2: 교체)";
+        ja "スクラッチは{}（F2: 入れ替え）";
     pub LAYOUT_PER_MODE =
         ko "키 모드마다 배치를 따로 저장",
         en "Each key mode saves its own layout",
-        ja "키 모드마다 배치를 따로 저장";
+        ja "配置はキーモードごとに別々に保存されます";
     pub REBIND_REPLACE =
         ko "이 레인에 쓸 키를 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨져요.",
         en "Press the key for this lane. It replaces the lane's current key, and a key used elsewhere moves here.",
-        ja "이 레인에 쓸 키를 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨져요.";
+        ja "このレーンに使うキーを押してください。レーンの既存のキーと置き換わり、他で使っていたキーはここに移ります。";
     pub REBIND_ADD =
         ko "이 레인에 다른 키를 하나 더 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨져요.",
         en "Press another key for this lane. A key used by another lane moves here.",
-        ja "이 레인에 다른 키를 하나 더 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨져요.";
+        ja "このレーンに別のキーを押してください。他のレーンが使っていたキーはここに移ります。";
     pub REBIND_SELECTED =
         ko "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비워요.",
         en "Enter binds a key, A adds one more, Backspace clears the lane.",
-        ja "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비워요.";
+        ja "Enter でキーを割り当て、A で追加、Backspace でレーンを消去します。";
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::text::KR_BYTES;
+    use crate::text::{JP_BYTES, KR_BYTES};
     use fontdue::{Font, FontSettings};
 
     /// Every character of every string must be in the embedded KR font, or
@@ -1476,6 +1476,35 @@ mod tests {
             missing.is_empty(),
             "glyphs missing from the KR font:\n{}",
             missing.join("\n")
+        );
+    }
+
+    /// Every Japanese character must be in the embedded JP font, or in the KR
+    /// font (Latin, punctuation the KR font has). The text engine tries JP
+    /// first and then KR for the same characters.
+    #[test]
+    fn every_japanese_character_is_in_an_embedded_font() {
+        let kr = Font::from_bytes(KR_BYTES, FontSettings::default()).expect("KR font");
+        let jp = Font::from_bytes(JP_BYTES, FontSettings::default()).expect("JP font");
+        let mut missing = Vec::new();
+        for (name, texts) in ALL {
+            for c in texts[Lang::Ja as usize].chars() {
+                if c.is_control() || c == ' ' {
+                    continue;
+                }
+                if jp.lookup_glyph_index(c) == 0 && kr.lookup_glyph_index(c) == 0 {
+                    missing.push(format!("{name}: {c:?} (U+{:04X})", c as u32));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "glyphs missing from the JP and KR fonts:
+{}",
+            missing.join(
+                "
+"
+            )
         );
     }
 
