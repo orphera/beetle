@@ -213,7 +213,8 @@ pub fn fade_progress(elapsed: Duration) -> f32 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layer {
     pub region: AtlasRegion,
-    /// 0..=1; the two layers of a crossfade sum to 1.
+    /// 0..=1. During a crossfade the outgoing layer stays at full opacity and
+    /// the incoming one fades in over it, so the picture never dips in between.
     pub alpha: f32,
 }
 
@@ -315,10 +316,7 @@ impl BlurBackdrop {
         let t = fade_progress(elapsed);
         let back = 1 - self.front;
         let outgoing = match (self.regions[back], self.keys[back]) {
-            (Some(region), Some(_)) => Some(Layer {
-                region,
-                alpha: 1.0 - t,
-            }),
+            (Some(region), Some(_)) => Some(Layer { region, alpha: 1.0 }),
             _ => None,
         };
         Mix {
@@ -566,7 +564,10 @@ mod tests {
 
         let mid = bd.mix(t0 + FADE / 2);
         let (out, inc) = (mid.outgoing.unwrap(), mid.incoming.unwrap());
-        assert!((out.alpha + inc.alpha - 1.0).abs() < 1e-6);
+        assert!(
+            (out.alpha - 1.0).abs() < 1e-6,
+            "the old picture stays opaque"
+        );
         assert!((inc.alpha - 0.5).abs() < 1e-6);
         assert_ne!(out.region, inc.region);
         assert!(bd.is_fading(t0 + FADE / 2));
