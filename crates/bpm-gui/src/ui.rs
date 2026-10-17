@@ -138,7 +138,7 @@ impl GuiRenderer {
         self.draw_status(w, h, f.status, f.status_kind, f.task.is_some());
 
         if let Some(task) = &f.task {
-            self.draw_task(w, task);
+            self.draw_task(w, h, task);
         }
         if let Some(dialog) = f.dialog {
             self.set_hover_enabled(true);
@@ -150,7 +150,7 @@ impl GuiRenderer {
     }
 
     fn draw_drop_hint(&mut self, w: f32, h: f32) {
-        self.fill(0.0, 0.0, w, h, ColorRgba::new(10, 10, 14, 200));
+        self.fill(0.0, 0.0, w, h, ColorRgba::new(10, 10, 14, 238));
         self.outline(24.0, 24.0, w - 48.0, h - 48.0, 18.0, theme::ACCENT, true);
         self.text_centered(
             "여기에 놓으면 곡을 추가해요",
@@ -921,11 +921,12 @@ impl GuiRenderer {
         }
     }
 
-    fn draw_task(&mut self, w: f32, task: &TaskProgressInfo) {
+    fn draw_task(&mut self, w: f32, h: f32, task: &TaskProgressInfo) {
         let cw = (w - 40.0).min(560.0);
         let ch = 108.0;
-        let x = ((w - cw) / 2.0).round();
-        let y = HEADER_H + 10.0;
+        // Docked bottom-right above the status bar, so it never covers the page header.
+        let x = (w - cw - 20.0).max(20.0).round();
+        let y = (h - STATUS_H - 16.0 - ch).round();
         self.round(
             x - 1.0,
             y - 1.0,
@@ -959,13 +960,16 @@ impl GuiRenderer {
         } else {
             task.phase
         };
-        self.text(
-            &fit(phase, cw - bw - 52.0, PX_SMALL, false),
-            x + 20.0,
-            y + 40.0,
-            PX_SMALL,
-            theme::TEXT_DIM,
-        );
+        // The phase repeats the title when the title already says it ("… 내려받는 중").
+        if !task.title.contains(phase.trim_end_matches('.')) {
+            self.text(
+                &fit(phase, cw - bw - 52.0, PX_SMALL, false),
+                x + 20.0,
+                y + 40.0,
+                PX_SMALL,
+                theme::TEXT_DIM,
+            );
+        }
 
         // Progress bar: filled when the total is known, a moving band otherwise.
         let (bx, by, bw2, bh) = (x + 20.0, y + 64.0, cw - 40.0, 8.0);

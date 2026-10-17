@@ -339,12 +339,10 @@ impl Dialog {
                     } else {
                         "채보(차분)"
                     };
-                    body.push(format!("{what}: {url}"));
+                    body.push(format!("{what}: {}", shorten_url(url)));
                 }
                 if *others > 0 {
-                    body.push(format!(
-                        "zip이 아니라서 받지 않는 링크 {others}개는 브라우저로 열 수 있어요."
-                    ));
+                    body.push(format!("zip이 아닌 링크 {others}개는 받지 않아요."));
                 }
                 body.push(format!("저장 위치: {}", folder.display()));
                 v.body = body;
@@ -379,4 +377,32 @@ impl Dialog {
 /// A path as typed or pasted: trimmed, without surrounding quotes.
 pub fn clean_path(text: &str) -> String {
     text.trim().trim_matches('"').trim().to_string()
+}
+
+/// A link short enough to read in a dialog: the host stays whole and a long
+/// path is cut in the middle, so the file name at the end is still visible.
+fn shorten_url(url: &str) -> String {
+    const MAX: usize = 52;
+    let chars: Vec<char> = url.chars().collect();
+    if chars.len() <= MAX {
+        return url.to_string();
+    }
+    let head: String = chars[..MAX / 2 - 2].iter().collect();
+    let tail: String = chars[chars.len() - (MAX / 2 - 2)..].iter().collect();
+    format!("{head}...{tail}")
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::shorten_url;
+
+    #[test]
+    fn long_links_keep_both_ends() {
+        let url = "https://dl.dropboxusercontent.com/s/abcdefghijklmnop/some_long_chart_name.zip";
+        let short = shorten_url(url);
+        assert!(short.starts_with("https://dl.dropbox"));
+        assert!(short.ends_with("chart_name.zip"));
+        assert!(short.chars().count() < url.chars().count());
+        assert_eq!(shorten_url("https://a.b/c.zip"), "https://a.b/c.zip");
+    }
 }
