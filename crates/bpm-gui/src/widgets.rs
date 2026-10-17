@@ -136,6 +136,8 @@ pub enum Btn {
     Secondary,
     Danger,
     Ghost,
+    /// Not available yet (a required field is empty): dimmed, and a click does nothing.
+    Disabled,
 }
 
 /// Cap height of text at `px`, for centering text in a box.
@@ -470,6 +472,7 @@ impl GuiRenderer {
                 ColorRgba::new(255, 150, 150, 255),
                 Some(ColorRgba::new(110, 50, 54, 255)),
             ),
+            Btn::Disabled => (theme::SURFACE_2, theme::TEXT_FAINT, None),
             Btn::Ghost => (
                 if hover {
                     theme::SURFACE_2
@@ -493,6 +496,11 @@ impl GuiRenderer {
         } else {
             self.text(&shown, tx, ty, PX_BODY, fg);
         }
+        let action = if style == Btn::Disabled {
+            UiAction::None
+        } else {
+            action
+        };
         self.hit(x, y, w, h, action);
     }
 

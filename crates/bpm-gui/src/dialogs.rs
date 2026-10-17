@@ -370,6 +370,14 @@ impl Dialog {
                 v.buttons = cancel_ok("추가");
             }
         }
+        // A form cannot be confirmed while a field is empty.
+        if self.fields.iter().any(|f| f.trim().is_empty()) {
+            for b in &mut v.buttons {
+                if b.action == UiAction::DialogConfirm {
+                    b.style = Btn::Disabled;
+                }
+            }
+        }
         v
     }
 }
