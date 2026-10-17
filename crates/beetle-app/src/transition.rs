@@ -17,10 +17,10 @@ use crate::state::{AppScreen, AppState};
 
 /// Length of the plain fade-in from the background after a screen change.
 pub const FADE_SECONDS: f32 = 0.2;
-/// Shutter: the panels cover the frame, then uncover it.
-pub const SHUTTER_COVER_SECONDS: f32 = 0.18;
-pub const SHUTTER_REVEAL_SECONDS: f32 = 0.22;
-pub const SHUTTER_SECONDS: f32 = SHUTTER_COVER_SECONDS + SHUTTER_REVEAL_SECONDS;
+/// Shutter: the panels cover the new screen from its first frame and open over
+/// this long (reveal only, like the Gameplay reveal, so the destination never
+/// shows uncovered).
+pub const SHUTTER_SECONDS: f32 = 0.35;
 /// Loading -> Gameplay: the panels uncover the first frames of Gameplay.
 pub const GAMEPLAY_REVEAL_SECONDS: f32 = 0.25;
 /// Toast: slide and fade in, stay, then fade out.
@@ -46,7 +46,7 @@ pub enum TransitionStyle {
 pub enum Transition {
     /// Plain fade-in from the background.
     Fade,
-    /// Shutter wipe: cover, then reveal.
+    /// Shutter wipe: the panels start covering the new screen and open.
     Shutter,
     /// Reveal only, over the first frames of Gameplay.
     GameplayReveal,
@@ -124,20 +124,13 @@ pub fn fade_alpha_at(elapsed: f32) -> Option<f32> {
     Some(1.0 - ease_out_cubic(t))
 }
 
-/// The shutter's phase `elapsed` seconds after it started: covering for the
-/// first `SHUTTER_COVER_SECONDS`, then revealing; `None` once it is over.
-/// Cover ends at 45 % of the whole, where the frame is fully covered.
+/// The shutter's phase `elapsed` seconds after the screen was entered: fully
+/// covered at the start, then opening; `None` once it is over. There is no
+/// cover-out pass, because the overlay is drawn after the new screen is already
+/// rendered.
 pub fn shutter_phase_at(elapsed: f32) -> Option<ShutterPhase> {
     let elapsed = elapsed.max(0.0);
-    if elapsed < SHUTTER_COVER_SECONDS {
-        Some(ShutterPhase::Cover(elapsed / SHUTTER_COVER_SECONDS))
-    } else if elapsed < SHUTTER_SECONDS {
-        Some(ShutterPhase::Reveal(
-            (elapsed - SHUTTER_COVER_SECONDS) / SHUTTER_REVEAL_SECONDS,
-        ))
-    } else {
-        None
-    }
+    (elapsed < SHUTTER_SECONDS).then(|| ShutterPhase::Reveal(elapsed / SHUTTER_SECONDS))
 }
 
 /// The Gameplay reveal's phase `elapsed` seconds after Gameplay was entered:
@@ -305,24 +298,16 @@ mod tests {
     }
 
     #[test]
-    fn shutter_lasts_about_0_4_seconds_and_covers_at_its_midpoint() {
-        assert!((SHUTTER_SECONDS - 0.4).abs() < 1e-6);
-        assert_eq!(shutter_phase_at(0.0), Some(ShutterPhase::Cover(0.0)));
-        // Cover completes at 45 % of the whole: the frame is covered there.
-        let cover_end = shutter_phase_at(SHUTTER_COVER_SECONDS - 1e-4);
-        assert!(matches!(cover_end, Some(ShutterPhase::Cover(t)) if t > 0.999));
-        assert_eq!(
-            shutter_phase_at(SHUTTER_COVER_SECONDS),
-            Some(ShutterPhase::Reveal(0.0))
-        );
-        let ratio = SHUTTER_COVER_SECONDS / SHUTTER_SECONDS;
-        assert!((ratio - 0.45).abs() < 1e-6, "ratio = {ratio}");
+    fn shutter_is_reveal_only_and_starts_covered() {
+        assert!((SHUTTER_SECONDS - 0.35).abs() < 1e-6);
+        // Entry is fully covered: the destination never shows before the panels open.
+        assert_eq!(shutter_phase_at(0.0), Some(ShutterPhase::Reveal(0.0)));
         assert_eq!(shutter_phase_at(SHUTTER_SECONDS), None);
         assert_eq!(shutter_phase_at(SHUTTER_SECONDS + 1.0), None);
-        // Reveal climbs monotonically from covered to clear.
-        let reveal: Vec<f32> = (0..=20)
+        // Opens monotonically from covered to clear and never cover again.
+        let reveal: Vec<f32> = (0..=40)
             .map(|i| {
-                let t = SHUTTER_COVER_SECONDS + SHUTTER_REVEAL_SECONDS * i as f32 / 20.0;
+                let t = SHUTTER_SECONDS * i as f32 / 40.0;
                 match shutter_phase_at(t.min(SHUTTER_SECONDS - 1e-4)) {
                     Some(ShutterPhase::Reveal(v)) => v,
                     other => panic!("not revealing: {other:?}"),
@@ -404,7 +389,7 @@ mod tests {
         assert!(entry.sync(AppScreen::Settings, t0));
         assert_eq!(
             entry.overlay(t0),
-            Some(Overlay::Shutter(ShutterPhase::Cover(0.0)))
+            Some(Overlay::Shutter(ShutterPhase::Reveal(0.0)))
         );
         let end = t0 + Duration::from_secs_f32(SHUTTER_SECONDS + 0.01);
         assert_eq!(entry.overlay(end), None);
