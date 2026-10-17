@@ -229,7 +229,13 @@ pub fn green_ms_from_hi_speed(px_per_sec: f32, lane_cover: f32) -> u32 {
 
 /// A 0..=1 volume read from a file; a value that is not a number keeps `keep`.
 fn parse_unit(val: &str, keep: f32) -> f32 {
-    val.parse::<f32>().map_or(keep, |v| v.clamp(0.0, 1.0))
+    parse_finite(val).map_or(keep, |v| v.clamp(0.0, 1.0))
+}
+
+/// A number from config text, unless it is not finite (NaN, infinity): those
+/// would reach the mixer as a gain, so the caller keeps its current value.
+fn parse_finite(val: &str) -> Option<f32> {
+    val.parse::<f32>().ok().filter(|v| v.is_finite())
 }
 
 /// Persistent application configuration.
@@ -441,7 +447,7 @@ impl AppConfig {
                 "key_preset" => legacy_preset = KeyPreset::from_id(val),
                 "custom_key_bindings" => legacy_bindings = val.to_string(),
                 "master_volume" => {
-                    if let Ok(v) = val.parse::<f32>() {
+                    if let Some(v) = parse_finite(val) {
                         config.master_volume = v.clamp(0.0, 2.0);
                     }
                 }
@@ -919,6 +925,20 @@ green_ms=530
         assert_eq!(parsed.bgm_volume, 1.0);
         assert_eq!(parsed.key_volume, 0.0);
         assert_eq!(parsed.sfx_volume, 1.0);
+    }
+
+    #[test]
+    fn a_non_finite_volume_in_the_config_keeps_the_default() {
+        // "NaN" and "inf" parse as floats; they must not reach the mixer.
+        let parsed = AppConfig::parse_str(
+            "master_volume=NaN\nbgm_volume=inf\nkey_volume=-inf\nsfx_volume=NaN\n",
+        );
+        let default = AppConfig::default();
+        assert_eq!(parsed.master_volume, default.master_volume);
+        assert_eq!(parsed.bgm_volume, default.bgm_volume);
+        assert_eq!(parsed.key_volume, default.key_volume);
+        assert_eq!(parsed.sfx_volume, default.sfx_volume);
+        assert!(parsed.master_volume.is_finite());
     }
 
     #[test]

@@ -157,11 +157,17 @@ impl Mixer {
                 AudioCommand::Resume => {
                     self.is_paused = false;
                 }
+                // A NaN or infinite level would reach every output sample, so
+                // a non-finite command is ignored and the last good level stays.
                 AudioCommand::SetMasterVolume(vol) => {
-                    self.master_volume = vol.clamp(0.0, 2.0);
+                    if vol.is_finite() {
+                        self.master_volume = vol.clamp(0.0, 2.0);
+                    }
                 }
                 AudioCommand::SetBusVolume { bus, volume } => {
-                    self.bus_gain[bus as usize] = volume.clamp(0.0, 1.0);
+                    if volume.is_finite() {
+                        self.bus_gain[bus as usize] = volume.clamp(0.0, 1.0);
+                    }
                 }
                 AudioCommand::ResetClock => {
                     // Pending frames counted from the old zero mean nothing now.
@@ -682,6 +688,20 @@ mod tests {
         stop_all(&mut producer);
         play_at(&mut producer, 0);
         assert!((mix(&mut mixer, 2)[0] - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_non_finite_volume_command_is_ignored() {
+        let (mut mixer, mut producer, _) = scheduling_mixer(100);
+        set_bus(&mut producer, Bus::Key, 0.5);
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            set_bus(&mut producer, Bus::Key, bad);
+            producer.push(AudioCommand::SetMasterVolume(bad)).unwrap();
+        }
+        play_key(&mut producer);
+        let out = mix(&mut mixer, 2);
+        assert!(out.iter().all(|s| s.is_finite()), "{out:?}");
+        assert_eq!(out, [0.5, 0.5]);
     }
 
     #[test]
