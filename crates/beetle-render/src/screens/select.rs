@@ -268,6 +268,13 @@ fn backdrop(
 
 /// A labeled top bar button with a keycap for its key; records `id`.
 #[allow(clippy::too_many_arguments)]
+/// The width a top bar button needs for its label and keycap, with the same
+/// margins as `bar_button` draws them.
+fn bar_button_width(c: &mut Canvas, t: &mut TextEngine, label: &str, key: &str, s: f32) -> f32 {
+    let label_st = TextStyle::new(12.0 * s).bold();
+    t.measure(c, label, &label_st) + keycap_width(c, t, key, s) + 10.0 * s + 2.0 * 14.0 * s
+}
+
 fn bar_button(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -457,28 +464,34 @@ fn top_bar(
     let auto_label = if f.auto_play {
         strings::AUTO_PLAY()
     } else {
-        "자동"
+        strings::BUTTON_AUTO()
     };
     // (label, keycap, hit, gap to the button on the right)
     let buttons: [(&str, &str, HitId, f32); 5] = [
         (strings::QUIT(), "ESC", HitId::ExitQuit, 0.0),
         (strings::SETTINGS(), "F4", HitId::OpenSettings, far),
-        ("키 설정", "F12", HitId::KeyConfig, near),
+        (strings::KEY_CONFIG(), "F12", HitId::KeyConfig, near),
         (strings::OPTIONS(), "TAB", HitId::PlayOptions, far),
         (auto_label, "A", HitId::Auto, near),
     ];
     let mut right = vp.x + vp.width - PAD * s;
     let mut left_edge = right;
+    // Extra width the buttons take over the usual one, which the search box gives up.
+    let mut bar_extra = 0.0;
     for (label, key, id, gap) in buttons {
-        let r = Rect::new(right - gap - btn_w, bar_top, btn_w, bar_h);
+        // A label in a longer language may need a wider button than the rest.
+        let w = bar_button_width(c, t, label, key, s).max(btn_w);
+        bar_extra += w - btn_w;
+        let r = Rect::new(right - gap - w, bar_top, w, bar_h);
         bar_button(c, t, sk, hs, r, label, key, id, s);
         right = r.x;
         left_edge = r.x;
     }
     let auto_btn = Rect::new(left_edge, bar_top, btn_w, bar_h);
 
-    // Search box
-    let search = Rect::new(auto_btn.x - (12.0 + 264.0) * s, bar_top, 264.0 * s, bar_h);
+    // Search box: its left edge stays where it is, so it never reaches the sort label.
+    let search_w = (264.0 * s - bar_extra).max(160.0 * s);
+    let search = Rect::new(auto_btn.x - 12.0 * s - search_w, bar_top, search_w, bar_h);
     hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,

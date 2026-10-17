@@ -1507,6 +1507,18 @@ table! {
         ko "日本語",
         en "日本語",
         ja "日本語";
+
+    // ---- Found after the first capture review ----
+    /// Top bar button for Auto Play while it is off.
+    pub BUTTON_AUTO =
+        ko "자동",
+        en "Auto",
+        ja "自動";
+    /// Error toast when the play cannot open an audio device.
+    pub TOAST_NO_AUDIO_DEVICE =
+        ko "오디오 장치를 찾지 못했어요",
+        en "No audio device found",
+        ja "オーディオデバイスが見つかりませんでした";
 }
 
 #[cfg(test)]
