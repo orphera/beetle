@@ -1,4 +1,4 @@
-use super::ImageBuffer;
+use super::{within_pixel_limit, ImageBuffer};
 use crate::skin::ColorRgba;
 
 /// Decodes a 1-bit, 4-bit, 8-bit paletted, 24-bit, or 32-bit uncompressed Windows BMP image without external crates.
@@ -48,7 +48,21 @@ pub fn decode_bmp(data: &[u8]) -> Option<ImageBuffer> {
         return None;
     }
 
-    if data.len() < data_offset {
+    // Size checks before any allocation: the pixel count (64-bit, so the product
+    // cannot wrap), then the bytes the header promises must be in the file.
+    if !within_pixel_limit(u64::from(width), u64::from(height)) {
+        return None;
+    }
+    let row_stride = match bpp {
+        1 => (width as usize).div_ceil(32) * 4,
+        4 => (width as usize * 4).div_ceil(32) * 4,
+        8 => (width as usize).div_ceil(4) * 4,
+        24 => (width as usize * 3).div_ceil(4) * 4,
+        32 => width as usize * 4,
+        _ => return None,
+    };
+    let pixel_bytes = row_stride.checked_mul(height as usize)?;
+    if data.len() < data_offset.checked_add(pixel_bytes)? {
         return None;
     }
 
@@ -85,18 +99,8 @@ pub fn decode_bmp(data: &[u8]) -> Option<ImageBuffer> {
         }
     }
 
-    let mut pixels = vec![ColorRgba::transparent(); (width * height) as usize];
+    let mut pixels = vec![ColorRgba::transparent(); width as usize * height as usize];
     let raw_pixels = &data[data_offset..];
-
-    // Calculate row stride padded to 4-byte boundary
-    let row_stride = match bpp {
-        1 => (width as usize).div_ceil(32) * 4,
-        4 => (width as usize * 4).div_ceil(32) * 4,
-        8 => (width as usize).div_ceil(4) * 4,
-        24 => (width as usize * 3).div_ceil(4) * 4,
-        32 => width as usize * 4,
-        _ => return None,
-    };
 
     for y in 0..height as usize {
         let src_y = if is_top_down {
@@ -231,4 +235,48 @@ pub fn encode_bmp(image: &ImageBuffer) -> Vec<u8> {
     }
 
     data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 54-byte header for a 32-bit uncompressed image, with no pixel data.
+    fn header(width: i32, height: i32, file_len: u32) -> Vec<u8> {
+        let mut h = vec![0u8; 54];
+        h[0..2].copy_from_slice(b"BM");
+        h[2..6].copy_from_slice(&file_len.to_le_bytes());
+        h[10..14].copy_from_slice(&54u32.to_le_bytes());
+        h[14..18].copy_from_slice(&40u32.to_le_bytes());
+        h[18..22].copy_from_slice(&width.to_le_bytes());
+        h[22..26].copy_from_slice(&height.to_le_bytes());
+        h[26..28].copy_from_slice(&1u16.to_le_bytes());
+        h[28..30].copy_from_slice(&32u16.to_le_bytes());
+        h
+    }
+
+    #[test]
+    fn an_absurd_header_is_refused_before_any_pixel_buffer() {
+        // 65535 x 65535 would need about 17 GB of pixels; the file is the header alone.
+        assert!(decode_bmp(&header(65535, 65535, 54)).is_none());
+    }
+
+    #[test]
+    fn a_header_promising_more_pixels_than_the_file_holds_is_refused() {
+        // A 4 x 4 image at 32 bpp needs 64 bytes after the header.
+        assert!(decode_bmp(&header(4, 4, 54)).is_none());
+    }
+
+    #[test]
+    fn a_complete_bmp_decodes_and_a_truncated_one_does_not() {
+        let image = ImageBuffer {
+            width: 3,
+            height: 2,
+            pixels: vec![ColorRgba::new(1, 2, 3, 255); 6],
+        };
+        let bytes = encode_bmp(&image);
+        let decoded = decode_bmp(&bytes).expect("a complete file decodes");
+        assert_eq!((decoded.width, decoded.height), (3, 2));
+        assert!(decode_bmp(&bytes[..bytes.len() - 1]).is_none());
+    }
 }

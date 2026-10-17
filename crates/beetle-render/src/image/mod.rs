@@ -14,6 +14,16 @@ pub use jpeg::decode_jpeg;
 #[cfg(feature = "bga-enhanced")]
 pub use png::decode_png;
 
+/// The most pixels a decoded image may have. A header that claims more is
+/// refused before any buffer is allocated for it.
+pub const MAX_IMAGE_PIXELS: u64 = 4096 * 4096;
+
+/// Whether a `width` x `height` image is within `MAX_IMAGE_PIXELS`. Both sides
+/// are widened to 64 bits first, so the product cannot wrap.
+pub fn within_pixel_limit(width: u64, height: u64) -> bool {
+    width * height <= MAX_IMAGE_PIXELS
+}
+
 /// Decoded RGBA image buffer.
 #[derive(Debug, Clone)]
 pub struct ImageBuffer {

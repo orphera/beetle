@@ -1,5 +1,5 @@
 #[cfg(feature = "bga-enhanced")]
-use super::ImageBuffer;
+use super::{within_pixel_limit, ImageBuffer};
 #[cfg(feature = "bga-enhanced")]
 use crate::skin::ColorRgba;
 
@@ -7,6 +7,13 @@ use crate::skin::ColorRgba;
 /// Decodes a JPEG image from byte slice (requires bga-enhanced feature).
 pub fn decode_jpeg(data: &[u8]) -> Option<ImageBuffer> {
     let mut decoder = jpeg_decoder::Decoder::new(data);
+    // The header alone gives the size; refuse an oversized image before the
+    // decoder allocates its output buffer for it.
+    decoder.read_info().ok()?;
+    let header = decoder.info()?;
+    if !within_pixel_limit(u64::from(header.width), u64::from(header.height)) {
+        return None;
+    }
     let pixels_raw = decoder.decode().ok()?;
     let metadata = decoder.info()?;
     let width = metadata.width as u32;

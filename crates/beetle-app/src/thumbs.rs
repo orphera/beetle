@@ -178,10 +178,26 @@ fn next_request(shared: &SharedPair) -> Option<Request> {
 
 fn worker(shared: Arc<SharedPair>, done: Sender<Done>) {
     while let Some(req) = next_request(&shared) {
-        let pixels = load_stage_image(&req.song).and_then(|img| thumb_pixels(&img));
-        let _ = done.send((req.id, pixels));
-        lock(&shared.0).in_flight.remove(&req.id);
+        finish_job(&shared, &done, req.id, || {
+            load_stage_image(&req.song).and_then(|img| thumb_pixels(&img))
+        });
     }
+}
+
+/// Runs one decode and reports it. A panic counts as "no artwork" (the song is
+/// then remembered as missing), and the id always leaves `in_flight`, so a bad
+/// file cannot leave its row stuck or take the worker down.
+fn finish_job(
+    shared: &SharedPair,
+    done: &Sender<Done>,
+    id: ChartId,
+    job: impl FnOnce() -> Option<Vec<u8>>,
+) {
+    let pixels = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job))
+        .ok()
+        .flatten();
+    let _ = done.send((id, pixels));
+    lock(&shared.0).in_flight.remove(&id);
 }
 
 /// The song a list row shows (a group shows its chosen chart).
@@ -257,6 +273,28 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panicking_decode_reports_missing_and_leaves_nothing_in_flight() {
+        let shared: Arc<SharedPair> = Arc::new((Mutex::new(Shared::default()), Condvar::new()));
+        let (tx, rx) = channel();
+        let id = ChartId::default();
+        lock(&shared.0).in_flight.insert(id);
+        finish_job(&shared, &tx, id, || panic!("broken artwork"));
+        assert!(lock(&shared.0).in_flight.is_empty());
+        assert!(matches!(rx.try_recv(), Ok((got, None)) if got == id));
+    }
+
+    #[test]
+    fn a_finished_decode_reports_its_pixels_and_clears_in_flight() {
+        let shared: Arc<SharedPair> = Arc::new((Mutex::new(Shared::default()), Condvar::new()));
+        let (tx, rx) = channel();
+        let id = ChartId::default();
+        lock(&shared.0).in_flight.insert(id);
+        finish_job(&shared, &tx, id, || Some(vec![1, 2, 3, 4]));
+        assert!(lock(&shared.0).in_flight.is_empty());
+        assert!(matches!(rx.try_recv(), Ok((got, Some(px))) if got == id && px == [1, 2, 3, 4]));
+    }
 
     #[test]
     fn prefetch_covers_the_window_plus_six_rows_each_side() {
