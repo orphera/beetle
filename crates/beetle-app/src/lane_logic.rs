@@ -14,11 +14,11 @@ use beetle_audio::{AudioClock, SampleTrigger};
 #[cfg(test)]
 use beetle_core::{parse_bms, GaugeType, JudgeWindow, Ruleset, TimingModel};
 use beetle_core::{JudgeEngine, Lane, NoteType, WavId};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::KeyCode;
 
 use crate::calibration::judged_time;
 use crate::handlers::gameplay::is_gameplay_hotkey;
-use crate::input::{lane_transition, InputConfig};
+use crate::input::{lane_transition, InputConfig, Source};
 
 /// How often the input thread checks for misses during a play.
 pub const TICK_MILLIS: u32 = 4;
@@ -65,7 +65,7 @@ pub struct LaneSession {
     trigger: Option<SampleTrigger>,
     offset_ms: f64,
     paused: bool,
-    held: Vec<(KeyCode, Lane)>,
+    held: Vec<(Source, Lane)>,
     /// Hidden (freezone) samples by time, for a press with no note near.
     freezone: Vec<(f64, WavId)>,
     poor_ms: f64,
@@ -111,8 +111,8 @@ impl LaneSession {
     }
 
     /// A key that arrived at `audio_time`: judged, its sound started.
-    pub fn key(&mut self, code: KeyCode, down: bool, audio_time: f64) -> Option<LaneEvent> {
-        let (event, sound) = self.judge_key(code, down, audio_time)?;
+    pub fn key(&mut self, source: Source, down: bool, audio_time: f64) -> Option<LaneEvent> {
+        let (event, sound) = self.judge_key(source, down, audio_time)?;
         if let (Some(id), Some(trigger)) = (sound, &mut self.trigger) {
             trigger.play(id);
         }
@@ -135,22 +135,23 @@ impl LaneSession {
     /// The judgment of a key and the sound it starts, without playing it.
     fn judge_key(
         &mut self,
-        code: KeyCode,
+        source: Source,
         down: bool,
         audio_time: f64,
     ) -> Option<(LaneEvent, Option<WavId>)> {
-        if is_gameplay_hotkey(code) {
+        // Hotkeys (ESC, F3/F4, ...) are never lanes; a pad or turntable is not a key.
+        if matches!(source, Source::Key(code) if is_gameplay_hotkey(code)) {
             return None;
         }
         // Paused: no presses, but a release still lets go of the key.
         if self.paused {
             if !down {
-                self.held.retain(|&(k, _)| k != code);
+                self.held.retain(|&(k, _)| k != source);
             }
             return None;
         }
-        let lane = self.bindings.map_key(PhysicalKey::Code(code))?;
-        lane_transition(&mut self.held, code, lane, down)?;
+        let lane = self.bindings.map_source(source)?;
+        lane_transition(&mut self.held, source, lane, down)?;
         let judge_time = judged_time(audio_time, self.offset_ms);
         let sound = if down {
             match self.judge.handle_key_down(lane, judge_time) {
@@ -242,8 +243,8 @@ mod tests {
     }
 
     /// The first key bound to key 1.
-    fn key1(s: &LaneSession) -> KeyCode {
-        s.bindings.keys_for_lane(Lane::Key1)[0]
+    fn key1(s: &LaneSession) -> Source {
+        Source::Key(s.bindings.keys_for_lane(Lane::Key1)[0])
     }
 
     #[test]
@@ -283,8 +284,10 @@ mod tests {
         let k = key1(&s);
         assert!(s.judge_key(k, true, 1.0).is_some());
         assert!(s.judge_key(k, true, 1.1).is_none());
-        assert!(s.judge_key(KeyCode::Escape, true, 1.2).is_none());
-        assert!(s.judge_key(KeyCode::F12, true, 1.3).is_none());
+        assert!(s
+            .judge_key(Source::Key(KeyCode::Escape), true, 1.2)
+            .is_none());
+        assert!(s.judge_key(Source::Key(KeyCode::F12), true, 1.3).is_none());
     }
 
     #[test]

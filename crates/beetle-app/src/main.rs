@@ -8,6 +8,7 @@ mod folders;
 mod gameplay;
 mod gpu_ui;
 mod handlers;
+mod hid;
 mod ime;
 mod input;
 mod lane_logic;
@@ -47,7 +48,7 @@ use handlers::{
     handle_calibration_input, handle_gameplay_input, handle_key_config_input, handle_result_input,
     handle_settings_input, handle_song_select_input,
 };
-use input::KeyBindings;
+use input::{KeyBindings, Source};
 use loader::spawn_background_stage_image_loader;
 use state::{spawn_library_load, AppScreen, AppState, LibraryJob};
 use winit::application::ApplicationHandler;
@@ -914,12 +915,18 @@ fn start_dropped_package(state: &mut AppState, path: &Path) -> bool {
 fn drain_raw_keys(state: &mut AppState) {
     while let Some(key) = state.raw_keys.as_mut().and_then(|r| r.pop()) {
         match state.screen {
-            AppScreen::Gameplay if !handlers::gameplay::is_gameplay_hotkey(key.code) => {
-                let audio_time = gameplay::audio_time_at(state, key.at);
-                handlers::gameplay::handle_lane_key(state, key.code, key.down, audio_time);
+            AppScreen::Gameplay => {
+                let hotkey = matches!(key.source, Source::Key(code)
+                    if handlers::gameplay::is_gameplay_hotkey(code));
+                if !hotkey {
+                    let audio_time = gameplay::audio_time_at(state, key.at);
+                    handlers::gameplay::handle_lane_key(state, key.source, key.down, audio_time);
+                }
             }
             AppScreen::Settings if key.down && state.calibration.is_some() => {
-                handlers::settings::calibration_tap(state, key.code, key.at);
+                if let Source::Key(code) = key.source {
+                    handlers::settings::calibration_tap(state, code, key.at);
+                }
             }
             _ => {}
         }

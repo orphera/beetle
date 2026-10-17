@@ -6,6 +6,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::calibration::judged_time;
 use crate::gameplay::{audio_time_now, leave_gameplay, queue_start_gameplay};
+use crate::input::Source;
 use crate::lane_logic::transparent_sound;
 use crate::options_table::green_ms_next;
 use crate::state::{AppScreen, AppState};
@@ -104,7 +105,12 @@ pub fn handle_gameplay_input(
     if state.raw_keys.is_none() {
         if let PhysicalKey::Code(code) = physical_key {
             let audio_time = audio_time_now(state);
-            handle_lane_key(state, code, key_state == ElementState::Pressed, audio_time);
+            handle_lane_key(
+                state,
+                Source::Key(code),
+                key_state == ElementState::Pressed,
+                audio_time,
+            );
         }
     }
 }
@@ -132,7 +138,7 @@ pub fn is_gameplay_hotkey(code: KeyCode) -> bool {
 
 /// A lane key going down or up at `audio_time` on the audio clock (the
 /// moment it arrived, not when it is handled).
-pub fn handle_lane_key(state: &mut AppState, code: KeyCode, pressed: bool, audio_time: f64) {
+pub fn handle_lane_key(state: &mut AppState, source: Source, pressed: bool, audio_time: f64) {
     if state.gameplay_end.is_some() {
         return;
     }
@@ -140,21 +146,17 @@ pub fn handle_lane_key(state: &mut AppState, code: KeyCode, pressed: bool, audio
     // releases, so a key let go while paused is not considered held later).
     if state.is_gameplay_paused || state.is_auto_play || state.is_replay_playback {
         if !pressed {
-            state.held_keys.retain(|&(k, _)| k != code);
+            state.held_keys.retain(|&(k, _)| k != source);
         }
         return;
     }
 
     // The layout of the chart's key mode (set when the song starts).
     let mode = state.view.skin.play_mode;
-    let Some(lane) = state
-        .key_bindings
-        .get(mode)
-        .map_key(PhysicalKey::Code(code))
-    else {
+    let Some(lane) = state.key_bindings.get(mode).map_source(source) else {
         return;
     };
-    if crate::input::lane_transition(&mut state.held_keys, code, lane, pressed).is_none() {
+    if crate::input::lane_transition(&mut state.held_keys, source, lane, pressed).is_none() {
         return;
     }
     let judge_time = judged_time(audio_time, state.play_options.judge_offset_ms);

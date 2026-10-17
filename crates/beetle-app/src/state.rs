@@ -196,7 +196,7 @@ pub struct AppState {
     pub key_config_edit_mode: PlayMode,
     /// Lane keys held during gameplay. A lane can have several keys; it is
     /// released only when the last of them is.
-    pub held_keys: Vec<(winit::keyboard::KeyCode, Lane)>,
+    pub held_keys: Vec<(crate::input::Source, Lane)>,
     pub master_volume: f32,
     /// Chart BGM, player key sounds and UI sounds, each on top of the master.
     pub bgm_volume: f32,

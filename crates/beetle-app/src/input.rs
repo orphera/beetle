@@ -295,6 +295,14 @@ impl InputConfig {
         }
     }
 
+    /// The lane a source presses. Pads and the turntable are not bound yet.
+    pub fn map_source(&self, source: Source) -> Option<Lane> {
+        match source {
+            Source::Key(code) => self.map_key(PhysicalKey::Code(code)),
+            Source::Pad { .. } | Source::Turntable => None,
+        }
+    }
+
     /// Keys bound to `lane`, in a stable order (preset order, or by name for
     /// custom bindings).
     pub fn keys_for_lane(&self, lane: Lane) -> Vec<KeyCode> {
@@ -367,14 +375,28 @@ impl InputConfig {
     }
 }
 
+/// Where a lane press comes from: a keyboard key, a controller button, or
+/// the turntable (a scratch axis, see `turntable`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Source {
+    Key(KeyCode),
+    /// Button `button` (its HID usage, 1..=64) of controller `slot`. The
+    /// game has no per-device identity yet, so every controller is slot 0.
+    Pad {
+        slot: u8,
+        button: u8,
+    },
+    Turntable,
+}
+
 /// Turns a lane key event into a lane press / release, given the keys held
 /// so far (updated here). A lane can have several keys: every new key press
 /// presses the lane (two keys can alternate on the turntable), OS key repeat
 /// is ignored, and the lane is released only with its last held key.
 /// Returns `Some(true)` = press, `Some(false)` = release, `None` = nothing.
 pub fn lane_transition(
-    held: &mut Vec<(KeyCode, Lane)>,
-    key: KeyCode,
+    held: &mut Vec<(Source, Lane)>,
+    key: Source,
     lane: Lane,
     pressed: bool,
 ) -> Option<bool> {
@@ -1145,31 +1167,31 @@ mod tests {
         let mut held = Vec::new();
         let (shift, ctrl) = (KeyCode::ShiftLeft, KeyCode::ControlLeft);
         assert_eq!(
-            lane_transition(&mut held, shift, Lane::Scratch, true),
+            lane_transition(&mut held, Source::Key(shift), Lane::Scratch, true),
             Some(true)
         );
         assert_eq!(
-            lane_transition(&mut held, shift, Lane::Scratch, true),
+            lane_transition(&mut held, Source::Key(shift), Lane::Scratch, true),
             None,
             "key repeat"
         );
         // Second key on the same lane is a new press...
         assert_eq!(
-            lane_transition(&mut held, ctrl, Lane::Scratch, true),
+            lane_transition(&mut held, Source::Key(ctrl), Lane::Scratch, true),
             Some(true)
         );
         // ...and letting go of one key keeps the lane held (long notes survive).
         assert_eq!(
-            lane_transition(&mut held, shift, Lane::Scratch, false),
+            lane_transition(&mut held, Source::Key(shift), Lane::Scratch, false),
             None
         );
         assert_eq!(
-            lane_transition(&mut held, ctrl, Lane::Scratch, false),
+            lane_transition(&mut held, Source::Key(ctrl), Lane::Scratch, false),
             Some(false)
         );
         // A release without a press (e.g. pressed before the song) does nothing.
         assert_eq!(
-            lane_transition(&mut held, KeyCode::KeyS, Lane::Key1, false),
+            lane_transition(&mut held, Source::Key(KeyCode::KeyS), Lane::Key1, false),
             None
         );
     }
