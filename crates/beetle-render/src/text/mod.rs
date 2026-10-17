@@ -99,6 +99,30 @@ impl TextStyle {
     }
 }
 
+/// Paint on top of a `TextStyle` (see `TextEngine::draw_fx`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fx {
+    /// Outline color and offset in pixels: the text is drawn four times,
+    /// shifted left, right, up and down, before the fill. Four offsets rather
+    /// than eight keeps the vertex cost at five glyph copies per run.
+    pub outline: Option<(ColorRgba, f32)>,
+    /// Top and bottom colors of a vertical gradient over the capital height,
+    /// used instead of `TextStyle::color` for the fill.
+    pub gradient: Option<(ColorRgba, ColorRgba)>,
+}
+
+impl Fx {
+    pub const NONE: Fx = Fx {
+        outline: None,
+        gradient: None,
+    };
+}
+
+fn mix(a: ColorRgba, b: ColorRgba, t: f32) -> ColorRgba {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    ColorRgba::new(l(a.r, b.r), l(a.g, b.g), l(a.b, b.b), l(a.a, b.a))
+}
+
 /// Vertical metrics for a size, in pixels (y down; ascent > 0, descent > 0).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FontMetrics {
@@ -318,7 +342,7 @@ impl TextEngine {
 
     /// Width of `text` in pixels (including tracking between glyphs).
     pub fn measure(&mut self, canvas: &mut Canvas, text: &str, style: &TextStyle) -> f32 {
-        self.run(canvas, text, 0.0, 0.0, style, 1.0, false)
+        self.run(canvas, text, 0.0, 0.0, style, 1.0, false, Fx::NONE)
     }
 
     /// Draws `text` with its baseline at `y`, starting at `x`. Returns the advance.
@@ -330,7 +354,7 @@ impl TextEngine {
         y: f32,
         style: &TextStyle,
     ) -> f32 {
-        self.run(canvas, text, x, y, style, 1.0, true)
+        self.run(canvas, text, x, y, style, 1.0, true, Fx::NONE)
     }
 
     /// Draws text rasterized at `style.size` but scaled by `scale` around
@@ -345,7 +369,41 @@ impl TextEngine {
         style: &TextStyle,
         scale: f32,
     ) -> f32 {
-        self.run(canvas, text, x, y, style, scale, true)
+        self.run(canvas, text, x, y, style, scale, true, Fx::NONE)
+    }
+
+    /// `draw_scaled` with paint: an outline behind the fill and/or a vertical
+    /// gradient fill (see `Fx`). Returns the advance, like `draw`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_fx(
+        &mut self,
+        canvas: &mut Canvas,
+        text: &str,
+        x: f32,
+        y: f32,
+        style: &TextStyle,
+        scale: f32,
+        fx: Fx,
+    ) -> f32 {
+        if let Some((color, off)) = fx.outline {
+            let dark = TextStyle { color, ..*style };
+            for (dx, dy) in [(-off, 0.0), (off, 0.0), (0.0, -off), (0.0, off)] {
+                self.run(canvas, text, x + dx, y + dy, &dark, scale, true, Fx::NONE);
+            }
+        }
+        self.run(
+            canvas,
+            text,
+            x,
+            y,
+            style,
+            scale,
+            true,
+            Fx {
+                outline: None,
+                ..fx
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -358,6 +416,7 @@ impl TextEngine {
         style: &TextStyle,
         scale: f32,
         draw: bool,
+        fx: Fx,
     ) -> f32 {
         let px = Self::px(style.size);
         let pxf = px as f32;
@@ -383,11 +442,24 @@ impl TextEngine {
                     (x + (pen + g.left as f32) * scale, y + g.top as f32 * scale)
                 };
                 match g.region {
-                    Some(r) => canvas.sprite(
-                        r,
-                        Rect::new(gx, gy, r.w as f32 * scale, r.h as f32 * scale),
-                        style.color,
-                    ),
+                    Some(r) => {
+                        let dst = Rect::new(gx, gy, r.w as f32 * scale, r.h as f32 * scale);
+                        match fx.gradient {
+                            Some((top, bottom)) => {
+                                // The band is the capital height on the baseline.
+                                let cap = self.metrics(pxf).cap_height * scale;
+                                let band =
+                                    |py: f32| ((py - (y - cap)) / cap.max(1.0)).clamp(0.0, 1.0);
+                                canvas.sprite_vgradient(
+                                    r,
+                                    dst,
+                                    mix(top, bottom, band(dst.y)),
+                                    mix(top, bottom, band(dst.bottom())),
+                                );
+                            }
+                            None => canvas.sprite(r, dst, style.color),
+                        }
+                    }
                     None if g.source == Source::Missing => {
                         let m = self.metrics(pxf);
                         let w = g.advance * 0.8 * scale;

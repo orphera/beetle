@@ -341,6 +341,26 @@ impl Canvas {
         self.textured_rect(TexSlot::Atlas(region.page), dst, uv, tint);
     }
 
+    /// Draws a whole atlas region into `dst` with a vertical gradient: `top`
+    /// at the top edge, `bottom` at the bottom edge (glyph gradient fills).
+    pub fn sprite_vgradient(
+        &mut self,
+        region: AtlasRegion,
+        dst: Rect,
+        top: ColorRgba,
+        bottom: ColorRgba,
+    ) {
+        let uv = self
+            .atlas
+            .uv(region, 0.0, 0.0, region.w as f32, region.h as f32);
+        self.textured_rect_colors(
+            TexSlot::Atlas(region.page),
+            dst,
+            uv,
+            [top, top, bottom, bottom],
+        );
+    }
+
     /// 9-slice: corners keep their size (`src_border` texels × `scale`), edges
     /// stretch along one axis, the center stretches both ways. Borders shrink
     /// proportionally if `dst` is smaller than their sum.
