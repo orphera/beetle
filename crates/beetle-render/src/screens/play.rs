@@ -630,6 +630,9 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                 (x, w, Head::Key)
             };
             let col = l.lane_color(lane);
+            // High-contrast colours of this lane's heads, bodies and tails: `Some`
+            // with the scratch flag when the setting is on.
+            let contrast = f.high_contrast.then_some(head_kind == Head::Scratch);
             let head_y = y_at(note.target_time_seconds);
             match note.note_event.note_type {
                 // A judged note is gone: it does not linger on the line while it scrolls past.
@@ -639,13 +642,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                     head_kind,
                     Rect::new(x, head_y - note_h, w, note_h),
                     col,
-                    f.high_contrast,
+                    contrast,
                 ),
                 // A mine: a slim red bar with a dark core, gone once it has gone off.
                 NoteType::Landmine if !note.is_judged => {
                     let h = note_h * 0.7;
                     let y = head_y - (note_h + h) / 2.0;
-                    draw_head(c, sk, Head::Key, Rect::new(x, y, w, h), theme::RED, false);
+                    draw_head(c, sk, Head::Key, Rect::new(x, y, w, h), theme::RED, None);
                     c.fill_rect(
                         Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3),
                         theme::BG.with_alpha(200),
@@ -666,11 +669,16 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                     let head_edge = if broken { head_y } else { head_y.min(judge_y) };
                     let (top, bottom) = (tail_y.max(field.y), head_edge.min(judge_y));
                     let body = Rect::from_ltrb(x + 3.0 * s, top, x + w - 3.0 * s, bottom);
+                    // Bodies and tails take the heads' high-contrast colours too.
+                    let body_col = match contrast {
+                        Some(scratch) => high_contrast_note(col, scratch).0,
+                        None => col,
+                    };
                     if bottom > top {
                         if broken {
-                            c.nine(&sk.ln_body, body, col.with_alpha(40));
+                            c.nine(&sk.ln_body, body, body_col.with_alpha(40));
                         } else {
-                            ln_body(c, sk, body, col, held, flow_phase);
+                            ln_body(c, sk, body, body_col, held, flow_phase);
                         }
                     }
                     if !broken {
@@ -680,7 +688,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                             head_kind,
                             Rect::new(x, head_edge - note_h, w, note_h),
                             col,
-                            f.high_contrast,
+                            contrast,
                         );
                     }
                     draw_head(
@@ -689,7 +697,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                         Head::Tail,
                         Rect::new(x, tail_y - note_h, w, note_h),
                         if broken { col.with_alpha(70) } else { col },
-                        false,
+                        contrast,
                     );
                 }
                 _ => {}
@@ -842,14 +850,14 @@ pub(crate) fn beat_pulse(beat: f64) -> f32 {
 const HC_OUTLINE_PX: f32 = 3.0;
 
 /// The high-contrast body and outline colours for a note of colour `col`:
-/// pure white with a dark outline on the white keys, a saturated sky blue
+/// pale grey with a white outline on the white keys, a saturated sky blue
 /// on the blue keys and a saturated magenta on the scratch, each with a
 /// bright outline. Judgement and hit effects keep their own colours.
 pub(crate) fn high_contrast_note(col: ColorRgba, scratch: bool) -> (ColorRgba, ColorRgba) {
     if scratch {
         (theme::NOTE_SCRATCH_CONTRAST, theme::WHITE)
     } else if u16::from(col.r) + u16::from(col.g) + u16::from(col.b) > 600 {
-        (theme::WHITE, theme::BLACK)
+        (theme::NOTE_WHITE_CONTRAST, theme::WHITE)
     } else {
         (theme::NOTE_BLUE_CONTRAST, theme::WHITE)
     }
@@ -857,22 +865,31 @@ pub(crate) fn high_contrast_note(col: ColorRgba, scratch: bool) -> (ColorRgba, C
 
 /// One note head: the shape for `head`, a gloss on the keys and scratch, and
 /// the chevron mark on a scratch. The tail cap is lit from below and has no
-/// gloss, so it reads as an end.
-fn draw_head(c: &mut Canvas, sk: &Skin, head: Head, r: Rect, col: ColorRgba, contrast: bool) {
+/// gloss, so it reads as an end. `contrast` is `Some(scratch)` for the
+/// high-contrast colours of a note in that lane kind.
+fn draw_head(
+    c: &mut Canvas,
+    sk: &Skin,
+    head: Head,
+    r: Rect,
+    col: ColorRgba,
+    contrast: Option<bool>,
+) {
     let shape = match head {
         Head::Key => &sk.note,
         Head::Scratch => &sk.note_scratch,
         Head::Tail => &sk.note_tail,
     };
-    let col = if contrast {
-        let (body, outline) = high_contrast_note(col, head == Head::Scratch);
-        // A thick outline behind the head: a dark one on the white keys, so
-        // they read against the white field, and a white one on the rest.
-        let w = HC_OUTLINE_PX * sk.scale;
-        c.nine(shape, r.inset(-w), outline);
-        body
-    } else {
-        col
+    // The outline is a ring inside the lane: it takes the outer HC_OUTLINE_PX of
+    // the head's rectangle, so it never reaches into the next lane.
+    let (r, col) = match contrast {
+        Some(scratch) => {
+            let (body, outline) = high_contrast_note(col, scratch);
+            let w = HC_OUTLINE_PX * sk.scale;
+            c.nine(shape, r, outline.with_alpha(col.a));
+            (r.inset(w), body.with_alpha(col.a))
+        }
+        None => (r, col),
     };
     c.nine(shape, r, col);
     if head != Head::Tail {
@@ -2055,8 +2072,11 @@ mod tests {
     #[test]
     fn high_contrast_colours_differ_from_the_default_ones() {
         let (body, outline) = high_contrast_note(theme::NOTE_WHITE, false);
-        assert_eq!(body, theme::WHITE);
-        assert_eq!(outline, theme::BLACK, "white keys get a dark outline");
+        assert_eq!(
+            (body, outline),
+            (theme::NOTE_WHITE_CONTRAST, theme::WHITE),
+            "white keys: pale body, white outline"
+        );
         assert_ne!(body, theme::NOTE_WHITE);
         let (body, outline) = high_contrast_note(theme::NOTE_BLUE, false);
         assert_eq!((body, outline), (theme::NOTE_BLUE_CONTRAST, theme::WHITE));

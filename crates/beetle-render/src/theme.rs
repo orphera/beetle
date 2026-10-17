@@ -48,9 +48,12 @@ pub const NOTE_WHITE: ColorRgba = rgb(0xf2f4fa);
 pub const NOTE_BLUE: ColorRgba = BLUE;
 pub const NOTE_SCRATCH: ColorRgba = MAGENTA;
 /// High-contrast notes (Settings, High Contrast Notes): a saturated sky blue
-/// and a saturated magenta scratch, apart from the default pair.
+/// and a saturated magenta scratch, apart from the default pair. The white
+/// keys get a pale grey body so the white outline around them shows on the dark
+/// field.
 pub const NOTE_BLUE_CONTRAST: ColorRgba = rgb(0x00b4ff);
 pub const NOTE_SCRATCH_CONTRAST: ColorRgba = rgb(0xff1ccf);
+pub const NOTE_WHITE_CONTRAST: ColorRgba = rgb(0xb4bccb);
 
 /// Chrome tokens both apps share: Beetle's panels and bpm-gui draw from the
 /// same palette, so the two windows read as one product. Cyan is the accent;
@@ -89,9 +92,10 @@ pub mod ui {
 }
 
 /// The frame clear colour, which is what the letterbox and pillarbox bars
-/// show: the backdrop's own dark, so the bars match the screen behind them.
-pub fn clear_color() -> [f32; 4] {
-    let c = BG;
+/// show. Menus use the backdrop's own dark, so the bars match the screen behind
+/// them; gameplay uses black, so the bars do not take a tint from the play.
+pub fn clear_color(gameplay: bool) -> [f32; 4] {
+    let c = if gameplay { BLACK } else { BG };
     [
         c.r as f32 / 255.0,
         c.g as f32 / 255.0,
@@ -237,5 +241,13 @@ mod tests {
         assert_eq!(rank(8.0 / 9.0 * 100.0).0, "AAA");
         assert_eq!(rank(88.0).0, "AA");
         assert_eq!(rank(0.0).0, "F");
+    }
+
+    #[test]
+    fn the_letterbox_is_black_in_gameplay_and_the_backdrop_dark_in_menus() {
+        assert_eq!(clear_color(true), [0.0, 0.0, 0.0, 1.0]);
+        let bg = clear_color(false);
+        assert_eq!(bg[0], BG.r as f32 / 255.0);
+        assert_eq!(bg[2], BG.b as f32 / 255.0);
     }
 }

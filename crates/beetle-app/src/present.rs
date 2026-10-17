@@ -35,9 +35,11 @@ fn ambient_clock() -> f32 {
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.sync_screen_entry();
-    state
-        .d3d11
-        .begin_frame(size.width, size.height, beetle_render::theme::clear_color());
+    state.d3d11.begin_frame(
+        size.width,
+        size.height,
+        beetle_render::theme::clear_color(state.screen == AppScreen::Gameplay),
+    );
     // Menus draw at the UI scale, gameplay at the window scale; each has its own UI.
     let gameplay = state.screen == AppScreen::Gameplay;
     let warp = state.d3d11.is_warp();
