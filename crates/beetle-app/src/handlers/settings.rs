@@ -50,7 +50,10 @@ fn change_setting(state: &mut AppState, row: usize, forward: bool) {
 pub fn open_calibration(state: &mut AppState) {
     if state.calibration.is_none() {
         play_ui(state, UiSound::Open);
-        state.calibration = Some(Session::open(state.sfx_level()));
+        // The test clicks follow the master volume only: neither the UI sound
+        // bus nor the key bus may silence them, or the test cannot be done
+        // (SFX or key volume at 0% must not block calibration).
+        state.calibration = Some(Session::open(state.master_volume));
     }
 }
 
