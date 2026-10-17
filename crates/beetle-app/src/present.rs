@@ -364,6 +364,10 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         highlight,
     });
     let motion = state.song_select_motion(Instant::now());
+    // Jacket thumbnails for the rows near the list (see `thumbs`).
+    let visible = beetle_render::visible_rows(&state.view.viewport);
+    let settled = state.cursor_settle_time.elapsed() >= crate::thumbs::SETTLE;
+    state.jacket_busy = crate::thumbs::pump(state, motion.scroll, visible, settled);
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()

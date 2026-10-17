@@ -21,6 +21,7 @@ mod result_reveal;
 mod scanner;
 mod state;
 mod tables;
+mod thumbs;
 mod transition;
 
 #[cfg(not(target_os = "windows"))]
@@ -298,6 +299,8 @@ impl ApplicationHandler for BeetleApp {
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
             stage_image_loading_id: None,
+            thumbs: thumbs::ThumbLoader::new(),
+            jacket_busy: false,
             preview: preview::Preview::default(),
             menu_audio: menu_audio::MenuAudio::default(),
             gpu_ui,
@@ -598,6 +601,13 @@ impl ApplicationHandler for BeetleApp {
         // Menu backdrops drift on a capped timer while focused. Existing
         // animations keep their own cadence, so the drift only fills in where
         // nothing else is timed.
+        // Song jackets still decoding for the list: keep frames coming so
+        // finished thumbnails appear without waiting for input.
+        if state.screen == AppScreen::SongSelect && state.jacket_busy {
+            timed = true;
+            state.window.request_redraw();
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
+        }
         if !timed {
             let focused = state.window.has_focus();
             let minimized = state.window.is_minimized().unwrap_or(false);

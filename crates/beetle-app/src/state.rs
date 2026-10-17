@@ -232,6 +232,10 @@ pub struct AppState {
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<(ChartId, Option<ImageBuffer>)>>,
     pub stage_image_loading_id: Option<ChartId>,
+    /// Jacket thumbnails for the song select list (see `thumbs`).
+    pub thumbs: crate::thumbs::ThumbLoader,
+    /// Some visible row is still waiting for its jacket: the loop keeps redrawing.
+    pub jacket_busy: bool,
     /// Song-select audio preview (`#PREVIEW`).
     pub preview: crate::preview::Preview,
     /// Menu sound effects (see `menu_audio.rs`); silent while closed.
@@ -559,6 +563,8 @@ impl AppState {
         self.stage_image_cache.clear();
         self.stage_image_receiver = None;
         self.stage_image_loading_id = None;
+        self.thumbs.reset();
+        self.gpu_ui.ui.jackets.clear();
         self.library_job = LibraryJob::Rescan;
         self.library_started_at = Instant::now();
         self.library_receiver = Some(spawn_library_rescan());
