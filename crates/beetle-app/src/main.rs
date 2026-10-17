@@ -727,8 +727,8 @@ impl ApplicationHandler for BeetleApp {
                         // tick below can count its note as missed.
                         drain_lane_events(state);
                         drain_raw_keys(state);
-                        // The end banner has closed the gameplay device, so its
-                        // frame stays on the song's last audio time.
+                        // The banner freezes the frame on the song's last audio
+                        // time (the clock keeps running while the tails play).
                         let audio_time = match state.gameplay_end {
                             Some(end) => end.audio_time,
                             None => state

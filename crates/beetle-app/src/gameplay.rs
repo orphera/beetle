@@ -274,8 +274,8 @@ pub const END_BANNER_SECONDS: f64 = 1.5;
 pub struct GameplayEnd {
     pub lamp: ClearType,
     pub started: Instant,
-    /// The audio clock's time when the song ended. The gameplay device is
-    /// closed for the banner (the jingle needs it), so the frame stays on this.
+    /// The audio clock's time when the song ended. The banner's frame stays on
+    /// this, so the song's last moment is not drawn past its end.
     pub audio_time: f64,
 }
 
@@ -334,10 +334,19 @@ impl PlayEndGuard {
 /// Calling it again during the banner, or after the banner was skipped, does
 /// nothing (see `PlayEndGuard`).
 ///
-/// The banner is the last thing the play does with the audio, so the gameplay
-/// device is closed here (nothing is judged any more, and the song is over or
-/// stopped), and the end jingle plays on the menu stream instead. Judging ends
-/// with the banner: `sync_lane_session` sends the input thread its End.
+/// Whether a play's end releases the gameplay device. A failed play stops the
+/// song, so its device goes. A cleared play keeps the device alive: the song's
+/// outro and cymbal tails are still sounding when `SongFinished` fires, and the
+/// engine is only replaced when the next play starts (as it was before P1).
+pub fn releases_gameplay_device(lamp: ClearType) -> bool {
+    lamp == ClearType::Failed
+}
+
+/// The song is over (played out, or the stage failed). Saves the play once
+/// and starts the end banner; the result screen follows in `leave_gameplay`.
+/// Judging ends with the banner: `sync_lane_session` sends the input thread
+/// its End. The end jingle plays on the menu stream, which coexists with the
+/// gameplay engine in shared mode.
 pub fn finish_gameplay(state: &mut AppState) {
     if !state.play_end.take() {
         return;
@@ -349,7 +358,9 @@ pub fn finish_gameplay(state: &mut AppState) {
     let lamp = crate::devtools::banner_lamp_override().unwrap_or(real);
     record_play(state);
     let audio_time = audio_time_now(state);
-    state.audio_engine = None;
+    if releases_gameplay_device(lamp) {
+        state.audio_engine = None;
+    }
     state.menu_audio.open(state.sfx_level());
     state.menu_audio.play(end_jingle(lamp));
     state.gameplay_end = Some(GameplayEnd {
@@ -634,6 +645,20 @@ mod tests {
         guard.reset();
         assert!(guard.take());
         assert!(!guard.take());
+    }
+
+    #[test]
+    fn only_a_failed_play_releases_the_gameplay_device() {
+        assert!(releases_gameplay_device(ClearType::Failed));
+        for lamp in [
+            ClearType::FullCombo,
+            ClearType::Perfect,
+            ClearType::Clear,
+            ClearType::Easy,
+            ClearType::Hard,
+        ] {
+            assert!(!releases_gameplay_device(lamp), "{lamp:?} keeps the outro");
+        }
     }
 
     #[test]
