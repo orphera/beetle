@@ -19,5 +19,5 @@ python scripts/add-latin-kern.py crates/beetle-render/assets/fonts/NotoSansKR-Co
 Characters missing from both subsets are rasterized on demand through
 Windows GDI (`src/text/gdi.rs`), so subsets only need to cover common text.
 
-`JetBrainsMono-*.ttf` moved to `crates/bpm-gui/assets/fonts` together with the
-software bitmap font (only `bpm-gui` still renders on the CPU).
+`bpm-gui` draws Latin with the same Noto Sans KR subset (synthetic bold), so no
+separate Latin font is embedded any more (JetBrains Mono was removed 2026-10-17).
