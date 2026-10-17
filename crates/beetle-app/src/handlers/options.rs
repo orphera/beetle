@@ -1,18 +1,22 @@
+use beetle_audio::UiSound;
 use winit::keyboard::KeyCode;
 
 use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::settings::open_calibration;
+use crate::menu_audio::play_ui;
 use crate::options_table::{self, OptionDesc, PLAY_OPTIONS};
 use crate::state::{AppScreen, AppState};
 
 /// Opens the play options panel (TAB, O, or the OPTIONS button).
 pub fn open_options(state: &mut AppState) {
+    play_ui(state, UiSound::Open);
     state.show_option_modal = true;
     state.modal_row = 0;
 }
 
 /// Closes the play options panel and saves the options.
 pub fn close_options(state: &mut AppState) {
+    play_ui(state, UiSound::Close);
     state.show_option_modal = false;
     state.save_config();
 }
@@ -48,6 +52,7 @@ pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
 /// Changes the value of row `row` of the play options one step and saves.
 pub fn change_option(state: &mut AppState, row: usize, forward: bool) {
     if let Some(desc) = PLAY_OPTIONS.get(row) {
+        play_ui(state, UiSound::Move);
         options_table::step(state, desc.id, forward);
         state.save_config();
     }
@@ -76,6 +81,7 @@ pub fn enter_row(
             true
         }
         None => {
+            play_ui(state, UiSound::Move);
             options_table::step(state, desc.id, true);
             state.save_config();
             false

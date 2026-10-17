@@ -6,6 +6,7 @@
 
 use std::time::Instant;
 
+use beetle_audio::UiSound;
 use beetle_render::{hit_at, HitId, Rebind, KEY_MODES};
 use winit::event::MouseScrollDelta;
 
@@ -25,6 +26,7 @@ use crate::handlers::song_select::{
     step_filter_level, toggle_auto, toggle_sort_menu,
 };
 use crate::ime::set_search_active;
+use crate::menu_audio::play_ui;
 use crate::options_table::SETTINGS;
 use crate::state::{AppScreen, AppState};
 
@@ -89,7 +91,10 @@ fn song_select_click(state: &mut AppState, id: HitId) {
     if state.show_exit_modal {
         match id {
             HitId::ExitQuit => state.should_exit_app = true,
-            HitId::ExitCancel | HitId::Blocker => state.show_exit_modal = false,
+            HitId::ExitCancel | HitId::Blocker => {
+                play_ui(state, UiSound::Close);
+                state.show_exit_modal = false;
+            }
             _ => (),
         }
         return;
@@ -123,6 +128,7 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         // The first click selects a row; a click on the selected row plays it.
         HitId::ListRow(i) if i == state.selected_entry => activate_selected(state),
         HitId::ListRow(i) => {
+            play_ui(state, UiSound::Move);
             state.selected_entry = i;
             state.cursor_settle_time = Instant::now();
         }

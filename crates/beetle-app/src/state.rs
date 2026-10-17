@@ -193,6 +193,8 @@ pub struct AppState {
     pub stage_image_loading_id: Option<ChartId>,
     /// Song-select audio preview (`#PREVIEW`).
     pub preview: crate::preview::Preview,
+    /// Menu sound effects (see `menu_audio.rs`); silent while closed.
+    pub menu_audio: crate::menu_audio::MenuAudio,
     /// Canvas UI + song textures.
     pub gpu_ui: crate::gpu_ui::GpuUi,
     /// Env-driven screenshot hook (see devtools.rs); `None` normally.

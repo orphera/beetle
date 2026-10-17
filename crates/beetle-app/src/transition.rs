@@ -146,7 +146,9 @@ pub fn show_toast(state: &mut AppState, kind: ToastKind, text: impl Into<String>
 impl AppState {
     /// Records a change of screen. Called before drawing and every loop turn.
     pub fn sync_screen_entry(&mut self) {
-        self.screen_entry.sync(self.screen, Instant::now());
+        if self.screen_entry.sync(self.screen, Instant::now()) {
+            crate::menu_audio::sync_with_screen(self);
+        }
     }
 
     /// The toast's pose now, if a toast is showing on the current screen.

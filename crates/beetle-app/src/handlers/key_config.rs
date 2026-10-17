@@ -1,9 +1,11 @@
+use beetle_audio::UiSound;
 use beetle_core::{Lane, PlayMode};
 use beetle_render::{scratch_side_applies, Rebind, KEY_MODES};
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
 use crate::input::{lanes_for, screen_lanes_for, KeyPreset};
+use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
 use beetle_render::{strings, ToastKind};
@@ -72,6 +74,7 @@ fn selected_lane(state: &AppState) -> Option<Lane> {
 /// Opens the key configuration for the selected song's mode. `from` is the
 /// screen Back returns to (song select, or the Settings screen).
 pub fn open_key_config_from(state: &mut AppState, from: AppScreen) {
+    play_ui(state, UiSound::Open);
     state.key_config_return = from;
     state.screen = AppScreen::KeyConfig;
     state.key_config_edit_mode = state.key_config_mode();
@@ -80,6 +83,7 @@ pub fn open_key_config_from(state: &mut AppState, from: AppScreen) {
 
 /// Back to the screen Key Configuration was opened from (ESC, or the footer button).
 pub fn leave_key_config(state: &mut AppState) {
+    play_ui(state, UiSound::Cancel);
     state.screen = state.key_config_return;
     state.save_config();
 }
@@ -121,6 +125,7 @@ pub fn cycle_key_preset(state: &mut AppState) {
     }
     state.save_config();
     let layout = state.key_bindings.get(mode).preset.layout_name(mode);
+    play_ui(state, UiSound::Toast);
     show_toast(
         state,
         ToastKind::Info,
@@ -168,6 +173,7 @@ pub fn reset_key_layout(state: &mut AppState) {
     let preset = KeyPreset::default_for(mode);
     state.key_bindings.get_mut(mode).reset_to_preset(preset);
     state.save_config();
+    play_ui(state, UiSound::Toast);
     show_toast(
         state,
         ToastKind::Info,

@@ -412,6 +412,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         OptionId::MasterVolume => {
             state.master_volume = volume_next(state.master_volume, forward);
+            state.menu_audio.set_volume(state.master_volume);
             if let Some(audio) = &mut state.audio_engine {
                 let _ = audio.set_master_volume(state.master_volume);
             }

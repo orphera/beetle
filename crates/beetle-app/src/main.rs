@@ -12,6 +12,7 @@ mod ime;
 mod input;
 mod lane_logic;
 mod loader;
+mod menu_audio;
 mod options_table;
 mod present;
 mod preview;
@@ -282,6 +283,7 @@ impl ApplicationHandler for BeetleApp {
             stage_image_receiver: None,
             stage_image_loading_id: None,
             preview: preview::Preview::default(),
+            menu_audio: menu_audio::MenuAudio::default(),
             gpu_ui,
             capture: devtools::Capture::from_env(),
             pending_screenshot: None,
@@ -301,6 +303,7 @@ impl ApplicationHandler for BeetleApp {
         }
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
+        menu_audio::sync_with_screen(&mut app_state);
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {

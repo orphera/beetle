@@ -3,18 +3,21 @@
 //! offset calibration is a sub-state of this screen: while it is open, keys
 //! and clicks go to it instead of the rows.
 
+use beetle_audio::UiSound;
 use beetle_render::{strings, HitId, ToastKind};
 use winit::event::ElementState;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::calibration::Session;
 use crate::handlers::options::{enter_row, move_row};
+use crate::menu_audio::play_ui;
 use crate::options_table::{self, activation, SETTINGS};
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
 
 /// Opens the Settings screen (F4, or the SETTINGS button).
 pub fn open_settings(state: &mut AppState) {
+    play_ui(state, UiSound::Open);
     state.screen = AppScreen::Settings;
     state.settings_row = 0;
     state.show_option_modal = false;
@@ -23,10 +26,12 @@ pub fn open_settings(state: &mut AppState) {
 /// Back to song select (ESC, or the footer button). Saves the settings, and
 /// says so when a value only applies after a restart.
 pub fn leave_settings(state: &mut AppState) {
+    play_ui(state, UiSound::Cancel);
     state.screen = AppScreen::SongSelect;
     state.calibration = None;
     state.save_config();
     if state.gpu_backend != state.gpu_backend_at_start {
+        play_ui(state, UiSound::Toast);
         show_toast(state, ToastKind::Info, strings::TOAST_RESTART_NEEDED);
     }
 }
@@ -34,6 +39,7 @@ pub fn leave_settings(state: &mut AppState) {
 /// Changes the value of Settings row `row` one step and saves.
 fn change_setting(state: &mut AppState, row: usize, forward: bool) {
     if let Some(desc) = SETTINGS.get(row) {
+        play_ui(state, UiSound::Move);
         options_table::step(state, desc.id, forward);
         state.save_config();
     }
@@ -43,6 +49,7 @@ fn change_setting(state: &mut AppState, row: usize, forward: bool) {
 /// judge offset row). Does nothing when it is already open.
 pub fn open_calibration(state: &mut AppState) {
     if state.calibration.is_none() {
+        play_ui(state, UiSound::Open);
         state.calibration = Some(Session::open(state.master_volume));
     }
 }
@@ -151,9 +158,11 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
     match code {
         KeyCode::Escape => leave_settings(state),
         KeyCode::ArrowUp | KeyCode::KeyK => {
+            play_ui(state, UiSound::Move);
             move_row(&mut state.settings_row, SETTINGS.len(), false)
         }
         KeyCode::ArrowDown | KeyCode::KeyJ => {
+            play_ui(state, UiSound::Move);
             move_row(&mut state.settings_row, SETTINGS.len(), true)
         }
         KeyCode::ArrowLeft | KeyCode::KeyH => change_setting(state, row, false),

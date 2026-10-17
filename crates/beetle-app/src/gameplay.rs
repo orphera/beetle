@@ -199,6 +199,8 @@ pub fn finalize_start_gameplay(
     state.view.skin.set_play_mode(play_mode);
     state.sync_hi_speed();
 
+    // The menu stream would share the device with the gameplay engine.
+    state.menu_audio.close();
     let mut audio_engine = AudioEngine::new(soundbank).ok();
     if audio_engine.is_none() {
         state.screen = AppScreen::SongSelect;

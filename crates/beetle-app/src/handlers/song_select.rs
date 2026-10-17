@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use std::time::Instant;
 
+use beetle_audio::UiSound;
 use beetle_core::{sort_songs, ReplayData, SortMode};
 use beetle_render::{filter_items, strings, FilterItem, ToastKind};
 use winit::event::ElementState;
@@ -14,6 +15,7 @@ use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::options::{handle_option_modal_input, open_options};
 use crate::handlers::settings::open_settings;
 use crate::ime::{append_text, backspace, key_text_to_append, set_search_active};
+use crate::menu_audio::play_ui;
 use crate::scanner::DEFAULT_SONGS_DIR;
 use crate::state::{replay_path, AppScreen, AppState};
 use crate::transition;
@@ -74,9 +76,11 @@ pub fn handle_song_select_input(
     if state.show_exit_modal {
         match code {
             KeyCode::Enter | KeyCode::KeyY => {
+                play_ui(state, UiSound::Confirm);
                 state.should_exit_app = true;
             }
             KeyCode::Escape | KeyCode::KeyN => {
+                play_ui(state, UiSound::Close);
                 state.show_exit_modal = false;
             }
             _ => (),
@@ -144,6 +148,7 @@ pub fn handle_song_select_input(
         }
         KeyCode::Backspace => go_up(state),
         KeyCode::PageUp => {
+            play_ui(state, UiSound::Move);
             if !state.entries.is_empty() {
                 state.selected_entry = state.selected_entry.saturating_sub(10);
             }
@@ -151,6 +156,7 @@ pub fn handle_song_select_input(
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::PageDown => {
+            play_ui(state, UiSound::Move);
             if !state.entries.is_empty() {
                 state.selected_entry = (state.selected_entry + 10).min(state.entries.len() - 1);
             }
@@ -158,11 +164,13 @@ pub fn handle_song_select_input(
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Home => {
+            play_ui(state, UiSound::Move);
             state.selected_entry = 0;
             centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::End => {
+            play_ui(state, UiSound::Move);
             if !state.entries.is_empty() {
                 state.selected_entry = state.entries.len() - 1;
             }
@@ -183,6 +191,7 @@ pub fn handle_song_select_input(
 
 /// Shows the quit prompt (ESC, or the footer button).
 pub fn open_exit_prompt(state: &mut AppState) {
+    play_ui(state, UiSound::Open);
     state.show_exit_modal = true;
 }
 
@@ -194,11 +203,13 @@ fn is_help_key(code: KeyCode, text: Option<&str>) -> bool {
 
 /// Shows the help overlay (?, or the footer button).
 pub fn open_help(state: &mut AppState) {
+    play_ui(state, UiSound::Open);
     state.show_help = true;
 }
 
 /// Closes the help overlay (?, ESC, or a click outside it).
 pub fn close_help(state: &mut AppState) {
+    play_ui(state, UiSound::Close);
     state.show_help = false;
 }
 
@@ -258,8 +269,10 @@ pub fn open_song_manager(state: &mut AppState) {
         .filter(|path| path.is_file());
     let started = manager.is_some_and(|path| shell_open("open", &path));
     if started {
+        play_ui(state, UiSound::Toast);
         transition::show_toast(state, ToastKind::Info, strings::TOAST_MANAGER_OPENED);
     } else {
+        play_ui(state, UiSound::Toast);
         transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING);
     }
 }
@@ -272,6 +285,7 @@ pub fn open_songs_folder(state: &mut AppState) {
         .map(|cwd| cwd.join(DEFAULT_SONGS_DIR))
         .is_some_and(|dir| fs::create_dir_all(&dir).is_ok() && shell_open("explore", &dir));
     if !opened {
+        play_ui(state, UiSound::Toast);
         transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED);
     }
 }
@@ -331,6 +345,7 @@ pub fn open_key_config(state: &mut AppState) {
 /// Moves the highlight one row down or up, wrapping at the ends of the list.
 /// Keeps the cursor still for the preview / jacket loader while it moves.
 pub fn move_selection(state: &mut AppState, down: bool) {
+    play_ui(state, UiSound::Move);
     let len = state.entries.len();
     if len > 0 {
         state.selected_entry = if down {
@@ -456,6 +471,7 @@ pub fn go_to_crumb(state: &mut AppState, depth: usize) {
 /// Moves to the next (or previous) folder at the same depth, wrapping.
 pub fn cycle_folder(state: &mut AppState, forward: bool) {
     if let Some(next) = folders::sibling(&state.folder_tree, &state.folder_path, forward) {
+        play_ui(state, UiSound::Move);
         set_folder(state, next, None);
     }
 }
@@ -497,6 +513,7 @@ fn sort_index(mode: SortMode) -> usize {
 
 /// Opens the sort menu with the mode in use highlighted.
 pub fn open_sort_menu(state: &mut AppState) {
+    play_ui(state, UiSound::Open);
     state.sort_menu = Some(sort_index(state.sort_mode));
 }
 
@@ -511,11 +528,13 @@ pub fn toggle_sort_menu(state: &mut AppState) {
 
 /// Closes the sort menu without changing the sort (ESC, or a click outside).
 pub fn close_sort_menu(state: &mut AppState) {
+    play_ui(state, UiSound::Close);
     state.sort_menu = None;
 }
 
 /// Moves the menu's highlight one option down or up, wrapping.
 pub fn move_sort_highlight(state: &mut AppState, down: bool) {
+    play_ui(state, UiSound::Move);
     let n = SortMode::ALL.len();
     if let Some(highlight) = state.sort_menu.as_mut() {
         *highlight = if down {
@@ -528,6 +547,7 @@ pub fn move_sort_highlight(state: &mut AppState, down: bool) {
 
 /// Picks the sort option at `index` (a click, or ENTER on the highlight) and closes the menu.
 pub fn pick_sort(state: &mut AppState, index: usize) {
+    play_ui(state, UiSound::Confirm);
     state.sort_menu = None;
     if let Some(&mode) = SortMode::ALL.get(index) {
         set_sort(state, mode);
@@ -648,6 +668,7 @@ fn filter_key(state: &mut AppState, code: KeyCode) -> bool {
 /// Plays the highlighted song (ENTER, or a click on the selected row).
 pub fn start_selected(state: &mut AppState) {
     if let Some(song) = state.current_selected_song().cloned() {
+        play_ui(state, UiSound::Confirm);
         state.is_replay_playback = false;
         queue_start_gameplay(state, &song);
     }
@@ -659,6 +680,7 @@ pub fn start_replay(state: &mut AppState) {
         let path_str = replay_path(song.id, song.score_rule(state.ln_option()));
         if let Ok(rep_str) = fs::read_to_string(&path_str) {
             if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
+                play_ui(state, UiSound::Confirm);
                 state.is_replay_playback = true;
                 state.playback_replay = Some(replay);
                 state.playback_cursor = 0;

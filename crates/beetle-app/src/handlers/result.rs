@@ -1,8 +1,10 @@
+use beetle_audio::UiSound;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
 use crate::handlers::options::{change_option, close_options, move_option_row, open_options};
+use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 
 /// Handles keyboard input on the Stage Result screen. While the play options
@@ -44,12 +46,14 @@ pub fn handle_result_options_input(state: &mut AppState, code: KeyCode) {
 
 /// Back to the song list (ENTER, ESC, or the footer button).
 pub fn to_song_select(state: &mut AppState) {
+    play_ui(state, UiSound::Cancel);
     state.screen = AppScreen::SongSelect;
 }
 
 /// Plays the song just played again (R, or the footer button).
 pub fn retry_song(state: &mut AppState) {
     if let Some(song) = state.current_selected_song().cloned() {
+        play_ui(state, UiSound::Confirm);
         queue_start_gameplay(state, &song);
     }
 }
