@@ -188,6 +188,7 @@ pub fn gameplay(
         beetle_render::draw_gameplay(
             &mut state.gpu_ui.ui,
             &beetle_render::PlayFrame {
+                first_note: state.first_note_time,
                 viewport: &state.view.viewport,
                 layout: &state.view.skin,
                 chart,

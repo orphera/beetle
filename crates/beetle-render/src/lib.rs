@@ -32,11 +32,11 @@ pub use screens::{
     centred_start, clamp_into_window, draw_boot, draw_calibrate, draw_exit_modal, draw_gameplay,
     draw_key_config, draw_loading, draw_options_modal, draw_options_panel, draw_result,
     draw_screen_fade, draw_settings, draw_shutter, draw_song_select, draw_toast, filter_items,
-    scroll_by, shutter_geometry, visible_rows, window_start, BootFrame, CalibrateFrame,
-    CalibratePhase, FilterBar, FilterItem, KeyBinding, KeyConfigFrame, LoadingFrame, OptionLine,
-    OptionsFooter, PlayFrame, Rebind, ResultFrame, SelectFrame, SelectMotion, SelectRow,
-    SettingsFrame, ShutterGeometry, ShutterPanel, ShutterPhase, SizedTexture, SortMenu,
-    ToastAnchor, ToastFrame, ToastKind, KEY_MODES,
+    first_note_time, scroll_by, shutter_geometry, visible_rows, window_start, BootFrame,
+    CalibrateFrame, CalibratePhase, FilterBar, FilterItem, KeyBinding, KeyConfigFrame,
+    LoadingFrame, OptionLine, OptionsFooter, PlayFrame, Rebind, ResultFrame, SelectFrame,
+    SelectMotion, SelectRow, SettingsFrame, ShutterGeometry, ShutterPanel, ShutterPhase,
+    SizedTexture, SortMenu, ToastAnchor, ToastFrame, ToastKind, KEY_MODES,
 };
 pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT};
 pub use skin::{

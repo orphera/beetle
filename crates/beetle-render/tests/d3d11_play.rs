@@ -227,6 +227,7 @@ fn render_with(
     draw_gameplay(
         ui,
         &PlayFrame {
+            first_note: None,
             viewport: &vp,
             layout: &layout,
             chart: &chart,

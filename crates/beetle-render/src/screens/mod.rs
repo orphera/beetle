@@ -19,7 +19,7 @@ pub use overlay::{
     draw_screen_fade, draw_shutter, draw_toast, shutter_geometry, ShutterGeometry, ShutterPanel,
     ShutterPhase, ToastAnchor, ToastFrame, ToastKind,
 };
-pub use play::{draw_gameplay, PlayFrame, SizedTexture};
+pub use play::{draw_gameplay, first_note_time, PlayFrame, SizedTexture};
 pub use select::{
     centred_start, clamp_into_window, draw_drop_overlay, draw_exit_modal, draw_help_overlay,
     draw_options_modal, draw_options_panel, draw_song_select, filter_items, scroll_by,

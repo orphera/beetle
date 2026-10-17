@@ -57,6 +57,9 @@ pub struct PlayFrame<'a> {
     pub badge: Option<&'a str>,
     /// `Some(selected option)` while the pause menu is open.
     pub pause: Option<usize>,
+    /// The first note to hit, in audio seconds (`first_note_time`), or `None`
+    /// when the play has none. Fixed when the play starts.
+    pub first_note: Option<f64>,
     /// Opacity of the key hint line (0 = hidden).
     pub key_hint_alpha: f32,
     /// Readout over the lane top (for example "그린 500 ms") and the audio
@@ -153,14 +156,33 @@ pub(crate) enum StartCue {
     Go(f32),
 }
 
-/// The start cue at `audio_time`, given the first note and the beat length in
-/// seconds (from the chart's opening tempo).
+/// The start cue at `audio_time` for a first note at `first_note` seconds, on
+/// the chart's timing (see `start_cue`).
+pub(crate) fn start_cue_on(timing: &TimingModel, audio_time: f64, first_note: f64) -> StartCue {
+    start_cue(
+        audio_time,
+        first_note,
+        timing.time_to_beat_position(first_note),
+        timing.time_to_beat_position(audio_time),
+    )
+}
+
+/// The start cue at `audio_time`, given the first note in audio seconds and
+/// both moments as beat positions on the chart (`first_beat` for the note,
+/// `now_beat` for the audio clock).
 ///
-/// A long enough lead-in gets the count-in: 3, 2, 1 over the last three beats,
-/// one number a beat, then GO! on the note. A shorter one (or a tempo that
-/// makes three beats too long for it) falls back to READY, then GO!. A first
-/// note sooner than `READY_MIN_FIRST_NOTE` gets nothing at all.
-pub(crate) fn start_cue(audio_time: f64, first_note: f64, beat_seconds: f64) -> StartCue {
+/// The count-in is counted in beats, so a tempo change or a STOP before the
+/// note moves it with the chart: 3, 2, 1 over the last three beats before the
+/// note, one number a beat, then GO! on the note (GO! itself follows the
+/// audio seconds, INV-1). A shorter lead-in, or one under three beats in,
+/// falls back to READY, then GO!. A first note sooner than
+/// `READY_MIN_FIRST_NOTE` gets nothing at all.
+pub(crate) fn start_cue(
+    audio_time: f64,
+    first_note: f64,
+    first_beat: f64,
+    now_beat: f64,
+) -> StartCue {
     if first_note < READY_MIN_FIRST_NOTE || audio_time < 0.0 {
         return StartCue::None;
     }
@@ -172,9 +194,8 @@ pub(crate) fn start_cue(audio_time: f64, first_note: f64, beat_seconds: f64) -> 
             StartCue::None
         };
     }
-    let beat_ok = beat_seconds.is_finite() && beat_seconds > 0.0;
     let count_fits =
-        beat_ok && first_note >= COUNT_MIN_FIRST_NOTE && first_note >= COUNT_BEATS * beat_seconds;
+        first_beat.is_finite() && first_beat >= COUNT_BEATS && first_note >= COUNT_MIN_FIRST_NOTE;
     if !count_fits {
         let a = ready_alpha(audio_time, first_note);
         return if a > 0.0 {
@@ -183,11 +204,12 @@ pub(crate) fn start_cue(audio_time: f64, first_note: f64, beat_seconds: f64) -> 
             StartCue::None
         };
     }
-    let window_start = first_note - COUNT_BEATS * beat_seconds;
-    if audio_time < window_start {
+    let window_start = first_beat - COUNT_BEATS;
+    // NaN fails this test too: a broken clock shows nothing rather than a count.
+    if !(now_beat >= window_start) {
         return StartCue::None;
     }
-    let beats = (audio_time - window_start) / beat_seconds;
+    let beats = now_beat - window_start;
     let beat = (beats.floor() as usize).min(2);
     StartCue::Count {
         number: 3 - beat as u8,
@@ -261,11 +283,16 @@ pub(crate) fn banner_color(lamp: ClearType) -> ColorRgba {
     }
 }
 
-/// The earliest note the player has to hit (landmines and long-note ends
-/// do not count).
-pub(crate) fn first_note_seconds(notes: &[PlayNote]) -> Option<f64> {
+/// The earliest note the player has to hit: not yet judged (a practice start
+/// skips the notes before its measure), and not a landmine or a long-note end.
+///
+/// Called once when a play starts, after the practice fast-forward; the result
+/// is kept on the play (`PlayFrame::first_note`), so it does not move to the
+/// next note once this one is hit.
+pub fn first_note_time(notes: &[PlayNote]) -> Option<f64> {
     notes
         .iter()
+        .filter(|n| !n.is_judged)
         .filter(|n| {
             !matches!(
                 n.note_event.note_type,
@@ -1511,12 +1538,10 @@ pub(crate) fn next_rank(ex: u32, judged: u32) -> Option<(&'static str, u32)> {
 
 /// The start cue over the lane before the first note (see `start_cue`).
 fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
-    let Some(first) = first_note_seconds(f.notes) else {
+    let Some(first) = f.first_note else {
         return;
     };
-    // The chart's opening tempo: the count-in is three of its beats.
-    let beat = 60.0 / f.timing.initial_bpm().max(1.0);
-    match start_cue(f.audio_time, first, beat) {
+    match start_cue_on(f.timing, f.audio_time, first) {
         StartCue::None => {}
         StartCue::Ready(a) => ready_label(c, t, sk, field, a, s),
         StartCue::Count { number, progress } => count_in(c, t, sk, field, number, progress, s),
@@ -1951,6 +1976,7 @@ mod tests {
             draw_gameplay(
                 &mut ui,
                 &PlayFrame {
+                    first_note: None,
                     viewport: &fx.vp,
                     layout: &fx.layout,
                     chart: &fx.chart,
@@ -2041,6 +2067,7 @@ mod tests {
             draw_gameplay(
                 &mut ui,
                 &PlayFrame {
+                    first_note: None,
                     viewport: &fx.vp,
                     layout: &fx.layout,
                     chart: &fx.chart,
@@ -2100,7 +2127,30 @@ mod tests {
 
     #[test]
     fn first_note_ignores_landmines_and_long_note_ends() {
-        assert_eq!(first_note_seconds(&[]), None);
+        assert_eq!(first_note_time(&[]), None);
+        let mut landmine = play_note(1.0, 1.0);
+        landmine.note_event.note_type = NoteType::Landmine;
+        let mut ln_end = play_note(1.5, 1.5);
+        ln_end.note_event.note_type = NoteType::LongNoteEnd;
+        assert_eq!(first_note_time(&[landmine, ln_end]), None);
+        let tap = play_note(3.0, 3.0);
+        assert_eq!(first_note_time(&[tap]), Some(3.0));
+    }
+
+    #[test]
+    fn first_note_skips_notes_a_practice_start_already_passed() {
+        // A practice start judged everything before 5 s: the first note left is 5 s.
+        let mut passed = play_note(2.0, 2.0);
+        passed.is_judged = true;
+        let mut judged_later = play_note(4.0, 4.0);
+        judged_later.is_judged = true;
+        let notes = [
+            passed,
+            judged_later,
+            play_note(5.0, 5.0),
+            play_note(6.0, 6.0),
+        ];
+        assert_eq!(first_note_time(&notes), Some(5.0));
     }
 
     /// A note at `head` seconds that ends at `end` (a tap when they are equal).
@@ -2380,6 +2430,7 @@ mod tests {
         draw_gameplay(
             &mut ui,
             &PlayFrame {
+                first_note: None,
                 viewport: &fx.vp,
                 layout: &fx.layout,
                 chart: &fx.chart,
@@ -2410,6 +2461,123 @@ mod tests {
         assert!(ui.canvas.debug_batches().len() <= 2);
         let verts = ui.canvas.debug_vertices().len();
         assert!(verts < 8192, "{verts} vertices fit one batch");
+    }
+
+    /// `start_cue` at a constant tempo: a beat is `beat_seconds`, so beat
+    /// positions are the times divided by it.
+    fn start_cue(audio_time: f64, first: f64, beat_seconds: f64) -> StartCue {
+        super::start_cue(
+            audio_time,
+            first,
+            first / beat_seconds,
+            audio_time / beat_seconds,
+        )
+    }
+
+    /// A chart whose opening tempo is `bpm` and whose timing events are `events`.
+    fn timing_of(bpm: f64, events: Vec<beetle_core::bms::TimingEvent>) -> TimingModel {
+        let chart = beetle_core::BmsChart {
+            header: BmsHeader {
+                bpm,
+                ..Default::default()
+            },
+            timing_events: events,
+            ..Default::default()
+        };
+        TimingModel::from_chart(&chart)
+    }
+
+    #[test]
+    fn the_count_follows_a_tempo_change_before_the_first_note() {
+        use beetle_core::bms::{TimingEvent, TimingEventKind};
+        // 120 BPM for measure 0 (2 s, 4 beats), then 60 BPM: the first note at
+        // measure 2 is beat 8, at 6 s. The count covers beats 5 to 8, which
+        // are 3 s to 6 s, one number a second at 60 BPM.
+        let timing = timing_of(
+            120.0,
+            vec![TimingEvent {
+                measure: 1,
+                fraction: 0.0,
+                kind: TimingEventKind::BpmChange(60.0),
+            }],
+        );
+        let first = timing.beat_to_time_seconds(2, 0.0);
+        assert_eq!(first, 6.0);
+        assert_eq!(start_cue_on(&timing, 2.9, first), StartCue::None);
+        assert_eq!(
+            start_cue_on(&timing, 3.0, first),
+            StartCue::Count {
+                number: 3,
+                progress: 0.0
+            }
+        );
+        assert!(matches!(
+            start_cue_on(&timing, 4.0, first),
+            StartCue::Count { number: 2, .. }
+        ));
+        assert!(matches!(
+            start_cue_on(&timing, 5.0, first),
+            StartCue::Count { number: 1, .. }
+        ));
+        assert_eq!(start_cue_on(&timing, 6.0, first), StartCue::Go(0.0));
+    }
+
+    #[test]
+    fn a_stop_inside_the_count_freezes_its_number() {
+        use beetle_core::bms::{TimingEvent, TimingEventKind};
+        // 120 BPM with a 2 s STOP at beat 6 (time 3 s). The note is at beat 8,
+        // 5 s + 1 s = 6 s. The count starts at beat 5 (2.5 s), and the STOP
+        // holds the beat at 6 until 5 s, so "2" stays up through the STOP.
+        let timing = timing_of(
+            120.0,
+            vec![TimingEvent {
+                measure: 1,
+                fraction: 0.5,
+                kind: TimingEventKind::StopMeasures(1.0),
+            }],
+        );
+        let first = timing.beat_to_time_seconds(2, 0.0);
+        assert_eq!(first, 6.0);
+        assert_eq!(
+            start_cue_on(&timing, 2.5, first),
+            StartCue::Count {
+                number: 3,
+                progress: 0.0
+            }
+        );
+        assert_eq!(
+            start_cue_on(&timing, 3.5, first),
+            StartCue::Count {
+                number: 2,
+                progress: 0.0
+            }
+        );
+        assert_eq!(
+            start_cue_on(&timing, 4.9, first),
+            StartCue::Count {
+                number: 2,
+                progress: 0.0
+            }
+        );
+        assert!(matches!(
+            start_cue_on(&timing, 5.5, first),
+            StartCue::Count { number: 1, .. }
+        ));
+        assert_eq!(start_cue_on(&timing, 6.0, first), StartCue::Go(0.0));
+    }
+
+    #[test]
+    fn the_count_needs_three_beats_before_the_note() {
+        // A note two beats in (2 s at 60 BPM): no count, READY fades instead.
+        let timing = timing_of(60.0, vec![]);
+        assert!(matches!(
+            start_cue_on(&timing, 0.0, 2.0),
+            StartCue::Ready(a) if a > 0.0
+        ));
+        assert!(!matches!(
+            start_cue_on(&timing, 1.0, 2.0),
+            StartCue::Count { .. }
+        ));
     }
 
     #[test]
@@ -2578,6 +2746,7 @@ mod tests {
         draw_gameplay(
             ui,
             &PlayFrame {
+                first_note: None,
                 viewport: &fx.vp,
                 layout: &fx.layout,
                 chart: &fx.chart,

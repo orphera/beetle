@@ -252,6 +252,7 @@ impl ApplicationHandler for BeetleApp {
             active_hcn: false,
             active_judge: None,
             song_end_time: 0.0,
+            first_note_time: None,
             score_update: ScoreUpdate::default(),
             previous_best: None,
             key_bindings: KeyBindings::load(

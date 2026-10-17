@@ -165,6 +165,9 @@ pub struct AppState {
     /// The loaded chart asked for HCN, which is played as CN.
     pub active_hcn: bool,
     pub active_judge: Option<JudgeEngine>,
+    /// The play's first note to hit, in audio seconds, fixed when the play
+    /// starts (after a practice fast-forward); `None` when there is none.
+    pub first_note_time: Option<f64>,
     pub song_end_time: f64,
     /// Which of the chart's bests the last play beat.
     pub score_update: ScoreUpdate,

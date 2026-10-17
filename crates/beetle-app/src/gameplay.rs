@@ -225,6 +225,8 @@ pub fn finalize_start_gameplay(
     state.active_timing = Some(timing);
     state.active_chart_id = song.id;
     state.active_ln = play_chart_has_long_notes.then_some(ruleset.ln);
+    // After the practice fast-forward above: the notes it passed are judged.
+    state.first_note_time = beetle_render::first_note_time(judge_engine.notes());
     state.active_judge = Some(judge_engine);
     state.bga_bank = bga_bank;
     state.bga_cursor = bga_cursor;
