@@ -58,6 +58,22 @@ pub trait GpuBackend {
     /// Updates dynamic texture contents (such as live BGA video frames or animated sprites).
     fn update_texture(&mut self, id: TextureId, width: u32, height: u32, pixels: &[u8]);
 
+    /// Uploads only the `rect` = `(x, y, w, h)` part of a `width`×`height`
+    /// texture. `pixels` is the whole image (`width * 4` bytes per row), so a
+    /// backend can read the sub-box in place. The default uploads everything,
+    /// which is always correct, just slower.
+    fn update_texture_rect(
+        &mut self,
+        id: TextureId,
+        width: u32,
+        height: u32,
+        rect: [u32; 4],
+        pixels: &[u8],
+    ) {
+        let _ = rect;
+        self.update_texture(id, width, height, pixels);
+    }
+
     /// Destroys a texture and reclaims GPU / system memory.
     fn destroy_texture(&mut self, id: TextureId);
 

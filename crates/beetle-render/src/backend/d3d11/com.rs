@@ -196,6 +196,17 @@ pub struct D3D11_SAMPLER_DESC {
     pub MaxLOD: f32,
 }
 
+/// A sub-box of a texture, for `UpdateSubresource` (`D3D11_BOX`).
+#[repr(C)]
+pub struct D3D11_BOX {
+    pub left: u32,
+    pub top: u32,
+    pub front: u32,
+    pub right: u32,
+    pub bottom: u32,
+    pub back: u32,
+}
+
 #[repr(C)]
 pub struct D3D11_INPUT_ELEMENT_DESC {
     pub SemanticName: *const i8,

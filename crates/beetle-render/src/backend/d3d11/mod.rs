@@ -704,6 +704,54 @@ impl GpuBackend for D3d11Backend {
         }
     }
 
+    fn update_texture_rect(
+        &mut self,
+        id: TextureId,
+        width: u32,
+        height: u32,
+        rect: [u32; 4],
+        pixels: &[u8],
+    ) {
+        let [x, y, w, h] = rect;
+        let row = width as usize * 4;
+        let fits = w > 0
+            && h > 0
+            && x as u64 + w as u64 <= width as u64
+            && y as u64 + h as u64 <= height as u64;
+        if !fits || pixels.len() < row * height as usize {
+            return;
+        }
+        let Some(tex) = self.textures.get(&id) else {
+            return;
+        };
+        if tex.width != width || tex.height != height {
+            return;
+        }
+        // The box selects the sub-rectangle; the source pointer starts at its
+        // first texel and the source pitch stays the full texture row.
+        let bx = D3D11_BOX {
+            left: x,
+            top: y,
+            front: 0,
+            right: x + w,
+            bottom: y + h,
+            back: 1,
+        };
+        let first = y as usize * row + x as usize * 4;
+        unsafe {
+            let ctx_vtbl = *(self.context as *mut *mut ID3D11DeviceContextVtbl);
+            ((*ctx_vtbl).UpdateSubresource)(
+                self.context,
+                tex.texture,
+                0,
+                (&bx as *const D3D11_BOX).cast(),
+                pixels[first..].as_ptr() as *const c_void,
+                row as u32,
+                0,
+            );
+        }
+    }
+
     fn destroy_texture(&mut self, id: TextureId) {
         if let Some(tex) = self.textures.remove(&id) {
             unsafe {
