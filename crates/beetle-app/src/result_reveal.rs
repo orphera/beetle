@@ -82,10 +82,16 @@ pub fn running(state: &AppState) -> bool {
     !state.result_reveal_skipped && reveal_time(state) < REVEAL_SECONDS
 }
 
-/// Skips the reveal if it is running. Returns whether it was: the key or the
-/// click that skips does nothing else.
+/// Whether a key or click at reveal time `t` skips the reveal. Only the part
+/// before the footer appears skips; after that the footer's keys work at once.
+pub fn skip_consumes_key(t: f64, skipped: bool) -> bool {
+    !skipped && t < reveal::FOOTER_AT
+}
+
+/// Skips the reveal if the key or click is one that skips it (see
+/// `skip_consumes_key`). Returns whether it did: that input does nothing else.
 pub fn skip(state: &mut AppState) -> bool {
-    if !running(state) {
+    if !skip_consumes_key(reveal_time(state), state.result_reveal_skipped) {
         return false;
     }
     state.result_reveal_skipped = true;
@@ -114,6 +120,16 @@ pub fn advance(state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_skips_the_reveal_only_until_the_footer_appears() {
+        assert!(skip_consumes_key(0.0, false));
+        assert!(skip_consumes_key(reveal::FOOTER_AT - 0.01, false));
+        assert!(!skip_consumes_key(reveal::FOOTER_AT, false));
+        assert!(!skip_consumes_key(REVEAL_SECONDS, false));
+        // Once skipped there is nothing left to skip.
+        assert!(!skip_consumes_key(0.5, true));
+    }
 
     /// Plays one frame at each time in `times`, returning the sounds per frame.
     fn run(times: &[f64], new_best: bool) -> Vec<Due> {

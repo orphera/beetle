@@ -1086,7 +1086,7 @@ fn handle_keyboard_input(
             }
         }
         AppScreen::Gameplay => handle_gameplay_input(state, key_state, code, physical_key),
-        AppScreen::Result => handle_result_input(state, key_state, code),
+        AppScreen::Result => handle_result_input(state, key_state, code, repeat),
         AppScreen::KeyConfig => handle_key_config_input(state, key_state, code),
         AppScreen::Settings if state.calibration.is_some() => {
             handle_calibration_input(state, key_state, code, physical_key, repeat)

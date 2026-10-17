@@ -8,9 +8,15 @@ use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 
 /// Handles keyboard input on the Stage Result screen. While the play options
-/// panel is open over it, the panel takes the keys.
-pub fn handle_result_input(state: &mut AppState, key_state: ElementState, code: KeyCode) {
-    if key_state != ElementState::Pressed {
+/// panel is open over it, the panel takes the keys. Auto-repeats of a held key
+/// are ignored, so holding a key cannot skip the reveal and leave the screen.
+pub fn handle_result_input(
+    state: &mut AppState,
+    key_state: ElementState,
+    code: KeyCode,
+    repeat: bool,
+) {
+    if key_state != ElementState::Pressed || repeat {
         return;
     }
     // Any key during the reveal only skips it to the final state.
