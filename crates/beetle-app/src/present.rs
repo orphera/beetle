@@ -79,6 +79,35 @@ fn show_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now: Instan
     }
 }
 
+/// The Loading screen's backdrop: the song's own blur when it is ready, else its
+/// placeholder. Unlike song select it never keeps the previous song's backdrop
+/// on show. Lite mode draws no backdrop.
+fn show_loading_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now: Instant) {
+    let Some((id, seed)) = song else {
+        return;
+    };
+    if state.gpu_ui.ui.lite {
+        return;
+    }
+    let ui = &mut state.gpu_ui.ui;
+    match state.stage_backdrop_cache.get(&id) {
+        Some(px) => {
+            ui.backdrop
+                .show(ui.canvas.atlas_mut(), JacketKey::Chart(id), now, || {
+                    px.clone()
+                });
+        }
+        None => {
+            ui.backdrop.show(
+                ui.canvas.atlas_mut(),
+                JacketKey::Placeholder(seed),
+                now,
+                || placeholder_backdrop(seed),
+            );
+        }
+    }
+}
+
 /// Submits the UI, serves screenshot / devtools capture requests (they read
 /// the backbuffer, so before present) and presents.
 fn finish(state: &mut AppState) {
@@ -645,7 +674,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         .loading_song
         .as_ref()
         .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
-    show_backdrop(state, backdrop_song, Instant::now());
+    show_loading_backdrop(state, backdrop_song, Instant::now());
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
             &mut state.gpu_ui.ui,

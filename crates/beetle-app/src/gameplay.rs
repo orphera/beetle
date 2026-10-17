@@ -240,7 +240,16 @@ pub fn finalize_start_gameplay(
     state.poor_until_time = 0.0;
     state.video_players = video_players;
     state.video_start_times = video_start_times;
-    state.active_bga_image = load_stage_image(song)
+    // The Result backdrop is blurred from the stage art whether or not the BGA
+    // is shown, so it is made here while the art is at hand.
+    let stage = load_stage_image(song);
+    if let Some(px) = stage
+        .as_ref()
+        .and_then(beetle_render::backdrop::blur_backdrop)
+    {
+        state.stage_backdrop_cache.insert(song.id, px);
+    }
+    state.active_bga_image = stage
         .filter(|_| state.bga_enabled)
         .map(|img| img.create_scaled(320, 180));
     state.song_end_time = total_duration;
