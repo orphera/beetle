@@ -15,7 +15,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
@@ -81,6 +81,9 @@ fn lock(m: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
 pub struct ThumbLoader {
     shared: Arc<SharedPair>,
     done: Receiver<Done>,
+    /// Finished decodes received from the workers and not yet uploaded. A
+    /// song in here is neither requested again nor decoded twice.
+    ready: VecDeque<Done>,
     /// Songs with no artwork on disk or in a package (negative cache).
     pub missing: HashSet<ChartId>,
 }
@@ -94,25 +97,44 @@ impl ThumbLoader {
             let tx = tx.clone();
             thread::spawn(move || worker(shared, tx));
         }
+        Self::with_channel(shared, rx)
+    }
+
+    fn with_channel(shared: Arc<SharedPair>, done: Receiver<Done>) -> Self {
         Self {
             shared,
-            done: rx,
+            done,
+            ready: VecDeque::new(),
             missing: HashSet::new(),
         }
     }
 
+    /// Moves every finished decode the channel holds into `ready`.
+    fn fill_ready(&mut self) {
+        while let Ok(done) = self.done.try_recv() {
+            self.ready.push_back(done);
+        }
+    }
+
     /// Makes the queue hold exactly `wanted` (priority order), minus work
-    /// already in flight. An unchanged queue is left alone.
-    pub fn set_wanted(&self, wanted: &[(ChartId, &SongMetadata)]) {
-        let (m, cv) = &*self.shared;
+    /// already in flight or finished (in `ready`). An unchanged queue is left
+    /// alone.
+    pub fn set_wanted(&mut self, wanted: &[(ChartId, &SongMetadata)]) {
+        let shared = Arc::clone(&self.shared);
+        let (m, cv) = &*shared;
         let mut st = lock(m);
+        // Taken under the lock: a worker sends its result before it removes
+        // the id from `in_flight`, so an id in neither set has its result in
+        // the channel, which this drain moves into `ready`.
+        self.fill_ready();
         let Shared {
             queue, in_flight, ..
         } = &mut *st;
+        let ready = &self.ready;
         let fresh: Vec<(ChartId, &SongMetadata)> = wanted
             .iter()
             .copied()
-            .filter(|(id, _)| !in_flight.contains(id))
+            .filter(|(id, _)| !in_flight.contains(id) && !ready.iter().any(|(r, _)| r == id))
             .take(QUEUE_CAP)
             .collect();
         if queue.len() == fresh.len() && queue.iter().zip(&fresh).all(|(r, (id, _))| r.id == *id) {
@@ -129,22 +151,20 @@ impl ThumbLoader {
         cv.notify_all();
     }
 
-    /// Up to `max` finished decodes, oldest first. `None` pixels mean the
-    /// song has no artwork.
-    pub fn drain(&self, max: usize) -> Vec<Done> {
-        let mut out = Vec::new();
-        while out.len() < max {
-            match self.done.try_recv() {
-                Ok(done) => out.push(done),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
-        }
-        out
+    /// Up to `max` finished decodes, oldest first, after taking in everything
+    /// the workers have sent. `None` pixels mean the song has no artwork. The
+    /// rest stay ready for the next frame.
+    pub fn take_ready(&mut self, max: usize) -> Vec<Done> {
+        self.fill_ready();
+        let n = max.min(self.ready.len());
+        self.ready.drain(..n).collect()
     }
 
-    /// Drops queued work and the negative cache (after a library rescan).
+    /// Drops queued work, finished decodes and the negative cache (after a
+    /// library rescan).
     pub fn reset(&mut self) {
         self.missing.clear();
+        self.ready.clear();
         self.set_wanted(&[]);
     }
 }
@@ -227,7 +247,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
     } = state;
     let ui = &mut gpu_ui.ui;
 
-    for (id, pixels) in thumbs.drain(UPLOADS_PER_FRAME) {
+    for (id, pixels) in thumbs.take_ready(UPLOADS_PER_FRAME) {
         match pixels {
             Some(px) => {
                 ui.jackets
@@ -344,6 +364,72 @@ mod tests {
             QUEUE_CAP,
         );
         assert!(queue.iter().all(|&r| r >= 20));
+    }
+
+    fn song_of(n: u64) -> SongMetadata {
+        SongMetadata {
+            id: ChartId::synthetic(n),
+            md5: [0; 16],
+            ln_count: 0,
+            ln_mode: None,
+            legacy_hash: n,
+            file_path: String::new(),
+            title: format!("Song {n}"),
+            subtitle: String::new(),
+            artist: String::new(),
+            genre: String::new(),
+            bpm: 120.0,
+            bpm_min: 120.0,
+            bpm_max: 120.0,
+            play_level: 1,
+            notes_count: 0,
+            play_mode: beetle_core::PlayMode::Keys7,
+        }
+    }
+
+    #[test]
+    fn a_finished_decode_is_not_requested_again_while_it_waits_to_upload() {
+        let shared: Arc<SharedPair> = Arc::new((Mutex::new(Shared::default()), Condvar::new()));
+        let (tx, rx) = channel();
+        let mut loader = ThumbLoader::with_channel(Arc::clone(&shared), rx);
+        // Five decodes finish between two frames, each sent before it leaves
+        // `in_flight`, as the workers do.
+        let ids: Vec<ChartId> = (1..=5).map(ChartId::synthetic).collect();
+        for &id in &ids {
+            lock(&shared.0).in_flight.insert(id);
+            finish_job(&shared, &tx, id, || Some(vec![1, 2, 3, 4]));
+        }
+        // A frame uploads at most two; the other three wait in `ready`.
+        let first = loader.take_ready(2);
+        assert_eq!(first.iter().map(|d| d.0).collect::<Vec<_>>(), ids[..2]);
+        assert_eq!(loader.ready.len(), 3);
+        // The next frame still wants rows 3..=6 (rows 1 and 2 are uploaded
+        // and resident, so the caller skips them). Rows 3..=5 are waiting in
+        // `ready`: only the new row 6 is queued, nothing is decoded twice.
+        let songs: Vec<SongMetadata> = (3..=6).map(song_of).collect();
+        let wanted: Vec<(ChartId, &SongMetadata)> = songs.iter().map(|s| (s.id, s)).collect();
+        loader.set_wanted(&wanted);
+        let queued: Vec<ChartId> = lock(&shared.0).queue.iter().map(|r| r.id).collect();
+        assert_eq!(queued, vec![ChartId::synthetic(6)]);
+        // Once uploaded they are gone for good, and the rest drains next frame.
+        assert_eq!(loader.take_ready(2).len(), 2);
+        assert_eq!(loader.take_ready(2).len(), 1);
+        assert!(loader.take_ready(2).is_empty());
+    }
+
+    #[test]
+    fn a_result_still_in_the_channel_counts_as_finished_when_wanted_is_set() {
+        let shared: Arc<SharedPair> = Arc::new((Mutex::new(Shared::default()), Condvar::new()));
+        let (tx, rx) = channel();
+        let mut loader = ThumbLoader::with_channel(Arc::clone(&shared), rx);
+        let id = ChartId::synthetic(9);
+        lock(&shared.0).in_flight.insert(id);
+        finish_job(&shared, &tx, id, || None);
+        // Nothing was drained yet, but the worker is done with the id.
+        let song = song_of(9);
+        loader.set_wanted(&[(id, &song)]);
+        assert!(lock(&shared.0).queue.is_empty());
+        assert_eq!(loader.take_ready(2).len(), 1);
     }
 
     #[test]
