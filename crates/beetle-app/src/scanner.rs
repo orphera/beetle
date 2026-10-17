@@ -24,7 +24,7 @@ const SKIP_DIRS: &[&str] = &[".bpm-trash", ".tmp_install"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
 
 /// Where the source list lives for this process, as `bpm library` writes it.
-fn library_file() -> PathBuf {
+pub fn library_file() -> PathBuf {
     std::env::var("BEETLE_LIBRARY_FILE")
         .map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }

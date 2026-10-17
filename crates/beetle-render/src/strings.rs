@@ -206,6 +206,7 @@ table! {
     pub DROP_NOTE = ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.";
 
     // Opening the song manager or the songs folder failed.
+    pub TOAST_MANAGER_OPENED = "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요";
     pub TOAST_MANAGER_MISSING = "곡 관리자(bpm-gui.exe)를 찾지 못했어요";
     pub TOAST_FOLDER_FAILED = "songs 폴더를 열지 못했어요";
 

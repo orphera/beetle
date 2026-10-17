@@ -215,11 +215,6 @@ pub fn check_autofocus_rescan(state: &mut AppState) {
     }
     state.last_library_mtime = Some(now);
     state.start_rescan();
-    transition::show_toast(
-        state,
-        ToastKind::Info,
-        "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요",
-    );
 }
 
 fn library_mtime() -> std::time::SystemTime {
@@ -234,11 +229,13 @@ fn library_mtime() -> std::time::SystemTime {
             latest = m.max(latest);
         }
     }
-    if let Some(p) = registry {
-        if let Ok(meta) = fs::metadata(&p) {
-            if let Ok(m) = meta.modified() {
-                latest = m.max(latest);
-            }
+    // The linked song folders (`library.dat`, written by the song manager).
+    for p in registry
+        .into_iter()
+        .chain(std::iter::once(crate::scanner::library_file()))
+    {
+        if let Ok(m) = fs::metadata(&p).and_then(|meta| meta.modified()) {
+            latest = m.max(latest);
         }
     }
     latest
@@ -260,7 +257,9 @@ pub fn open_song_manager(state: &mut AppState) {
         .map(|exe| manager_beside(&exe))
         .filter(|path| path.is_file());
     let started = manager.is_some_and(|path| shell_open("open", &path));
-    if !started {
+    if started {
+        transition::show_toast(state, ToastKind::Info, strings::TOAST_MANAGER_OPENED);
+    } else {
         transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING);
     }
 }
