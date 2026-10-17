@@ -24,13 +24,16 @@ pub const BACKDROP_H: u32 = 36;
 /// Box-blur passes. Three of a 3-tap box approximate a Gaussian.
 const PASSES: usize = 3;
 /// Saturation multiplier around the luma (1.0 leaves the colours alone).
-const SATURATION: f32 = 1.6;
+const SATURATION: f32 = 1.35;
 /// Mean luma every picture is scaled to (0..=255). The picture keeps its hue
-/// and its contrast, but it cannot brighten the frame it sits in: a bright
-/// jacket and a dark one cover the menu with the same weight.
-pub const BACKDROP_LUMA: f32 = 20.0;
+/// and its contrast, and a bright jacket and a dark one cover the menu with
+/// the same weight. Set high enough that the picture reads on the screen.
+pub const BACKDROP_LUMA: f32 = 56.0;
+/// Luma no single texel may exceed after scaling (0..=255). Keeps a bright
+/// highlight from blowing out to white, and keeps its hue.
+pub const BACKDROP_PEAK_LUMA: f32 = 140.0;
 /// Largest brightening applied to a very dark picture.
-const MAX_GAIN: f32 = 8.0;
+const MAX_GAIN: f32 = 4.0;
 /// Length of one crossfade between two backdrops.
 pub const FADE: Duration = Duration::from_millis(250);
 
@@ -133,7 +136,22 @@ fn finish(mut small: Vec<Rgb>) -> Vec<u8> {
     }
     saturate(&mut small);
     normalise_luma(&mut small, BACKDROP_LUMA);
+    clamp_peak_luma(&mut small, BACKDROP_PEAK_LUMA);
     to_rgba(&small)
+}
+
+/// Scales each texel whose luma is above `peak` down to `peak`, keeping its
+/// hue. Texels at or below `peak` are left alone.
+fn clamp_peak_luma(buf: &mut [Rgb], peak: f32) {
+    for c in buf.iter_mut() {
+        let luma = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        if luma > peak {
+            let k = peak / luma;
+            for v in c.iter_mut() {
+                *v *= k;
+            }
+        }
+    }
 }
 
 /// Scales the picture so its mean luma is `target`. A near-black picture is
@@ -441,6 +459,23 @@ mod tests {
         assert_eq!(a.len(), (BACKDROP_W * BACKDROP_H * 4) as usize);
         assert_ne!(a, placeholder_backdrop(999_999_999));
         assert!(mean_luma(&a) > 0.0);
+    }
+
+    #[test]
+    fn peak_clamp_keeps_hue_and_caps_only_the_bright_texels() {
+        let mut buf = vec![[255.0, 200.0, 100.0], [10.0, 10.0, 10.0]];
+        clamp_peak_luma(&mut buf, BACKDROP_PEAK_LUMA);
+        let luma = |c: Rgb| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        assert!(
+            (luma(buf[0]) - BACKDROP_PEAK_LUMA).abs() < 0.01,
+            "{:?}",
+            buf[0]
+        );
+        assert!(
+            (buf[0][0] / buf[0][1] - 255.0 / 200.0).abs() < 1e-4,
+            "hue kept"
+        );
+        assert_eq!(buf[1], [10.0, 10.0, 10.0]);
     }
 
     #[test]

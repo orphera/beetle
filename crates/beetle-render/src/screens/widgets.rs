@@ -98,9 +98,9 @@ pub(crate) fn backdrop(
 }
 
 /// Peak opacity of the blurred jacket picture (`crate::backdrop`).
-const ART_ALPHA: f32 = 0.55;
+const ART_ALPHA: f32 = 0.85;
 /// Opacity of the dark scrim laid over the picture, so text keeps its contrast.
-const ART_SCRIM: u8 = 130;
+const ART_SCRIM: u8 = 60;
 
 /// `backdrop` with the blurred jacket picture `art` under the glows. The
 /// picture sits on the gradient, under a scrim, and the glows and grain go on
