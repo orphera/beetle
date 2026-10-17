@@ -23,6 +23,7 @@ mod state;
 mod tables;
 mod thumbs;
 mod transition;
+mod xinput;
 
 #[cfg(not(target_os = "windows"))]
 compile_error!("beetle-app is Windows-only: it renders with Direct3D 11 (ADR-026).");
@@ -199,6 +200,7 @@ impl ApplicationHandler for BeetleApp {
             window,
             view,
             raw_keys,
+            pad: xinput::XInputPad::load(),
             lane_session: None,
             lane_session_seq: 0,
             audio_engine: None,
@@ -757,6 +759,7 @@ impl ApplicationHandler for BeetleApp {
                 if size.width == 0 || size.height == 0 {
                     return;
                 }
+                poll_pad(state);
                 match state.screen {
                     AppScreen::Gameplay => {
                         // Every key that arrived so far is judged before the
@@ -921,6 +924,36 @@ fn drain_raw_keys(state: &mut AppState) {
             _ => {}
         }
     }
+}
+
+/// Runs the menu actions of the pad (`xinput`) read this frame, each as the
+/// keyboard action it stands for: a press and its release. Not while the
+/// window is in the background, nor while a key is being rebound (a pad
+/// button must not bind Enter or Escape by accident).
+fn poll_pad(state: &mut AppState) {
+    if state.screen == AppScreen::Boot || state.rebinding.is_some() || !state.window.has_focus() {
+        return;
+    }
+    let Some(pad) = state.pad.as_mut() else {
+        return;
+    };
+    let inputs = pad.poll(std::time::Instant::now());
+    if inputs.is_empty() {
+        return;
+    }
+    let context = match state.screen {
+        AppScreen::Gameplay if state.is_gameplay_paused => xinput::PadContext::PausedPlay,
+        AppScreen::Gameplay => xinput::PadContext::Play,
+        _ => xinput::PadContext::Menu,
+    };
+    for input in inputs {
+        if let Some(code) = xinput::key_for(input, context) {
+            let key = PhysicalKey::Code(code);
+            handle_keyboard_input(state, key, ElementState::Pressed, false, None);
+            handle_keyboard_input(state, key, ElementState::Released, false, None);
+        }
+    }
+    state.window.request_redraw();
 }
 
 /// Makes the judge calls of the input thread's play on the game's engine,

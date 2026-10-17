@@ -133,6 +133,8 @@ pub struct AppState {
     /// Keys from the raw input thread, stamped on arrival. `None` when it
     /// could not start; lane keys then come from winit's key events.
     pub raw_keys: Option<crate::raw_input::RawKeyboard>,
+    /// Xbox-style pad for the menus (`xinput`); `None` without an XInput DLL.
+    pub pad: Option<crate::xinput::XInputPad>,
     /// The play the input thread is judging (`lane_logic`), if any.
     pub lane_session: Option<LaneSessionSync>,
     /// Numbers the plays handed to the input thread.
