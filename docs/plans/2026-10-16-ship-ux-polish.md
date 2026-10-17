@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: verify
     content: 캡처·빈서재 워크스루·DPI 확인·릴리스 크기 기록
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -92,3 +92,9 @@ U3d에서 푸터를 줄인 뒤 `A` / `F12` / `ESC`는 도움말(`?`)에만 있�
 - `cargo test --workspace`, `cargo test -p beetle-render --release --tests`, bpm-gui 스냅샷.
 - 실제 앱 워크스루: 빈 폴더 → 관리자로 `.bmsp` 설치 → Beetle 포커스 → 목록 등장 → 키 안내 → 플레이. 오디오 장치 없음 토스트. 125%/150% DPI에서 bpm-gui 가독성.
 - 릴리스 크기 기록(`beetle-app.exe`, `bpm-gui.exe`).
+
+## 결과 (2026-10-17)
+
+- bpm-gui DPI는 레이아웃 전체에 배율을 곱하는 대신 `논리 크기 = 물리 크기 / scale_factor`로 그린 뒤 쌍선형 확대로 출력한다(`main.rs` `enlarge_into`). 글자가 약간 부드러워지는 대신 UI가 크기에 맞게 커지고 입력 좌표도 같은 배율로 환산한다. 배율 1.0은 기존 복사 경로 그대로.
+- 릴리스 크기: `beetle-app.exe` 3,159,040 B, `bpm-gui.exe` 약 4.83 MB.
+- 실제 곡 설치 워크스루와 오디오 장치 없음 토스트는 직접 확인하지 않음.

@@ -48,6 +48,9 @@ struct AppState {
     _context: Context<Arc<Window>>,
     surface: Surface<Arc<Window>, Arc<Window>>,
     renderer: GuiRenderer,
+    /// Window scale factor (1.0 when the display is not scaled). The UI is drawn at
+    /// `physical / ui_scale` pixels and enlarged on present.
+    ui_scale: f32,
     manager: PackageManager,
     packages: Vec<PackageRecord>,
     filtered_indices: Vec<usize>,
@@ -286,14 +289,16 @@ impl ApplicationHandler for BpmGuiApp {
         let manager =
             PackageManager::new(&packages_dir).expect("Failed to initialize PackageManager");
         let size = window.inner_size();
-        let renderer =
-            GuiRenderer::new(size.width, size.height).expect("Failed to create GuiRenderer");
+        let ui_scale = ui_scale_of(window.scale_factor());
+        let (lw, lh) = logical_size(size.width, size.height, ui_scale);
+        let renderer = GuiRenderer::new(lw, lh).expect("Failed to create GuiRenderer");
 
         let mut app_state = AppState {
             window,
             _context: context,
             surface,
             renderer,
+            ui_scale,
             manager,
             packages: Vec::new(),
             filtered_indices: Vec::new(),
@@ -375,12 +380,23 @@ impl ApplicationHandler for BpmGuiApp {
                     NonZeroU32::new(new_size.height),
                 ) {
                     state.surface.resize(w, h).ok();
-                    state.renderer.resize(new_size.width, new_size.height);
+                    let (lw, lh) = logical_size(new_size.width, new_size.height, state.ui_scale);
+                    state.renderer.resize(lw, lh);
                     state.window.request_redraw();
                 }
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                state.ui_scale = ui_scale_of(scale_factor);
+                let size = state.window.inner_size();
+                let (lw, lh) = logical_size(size.width, size.height, state.ui_scale);
+                state.renderer.resize(lw, lh);
+                state.window.request_redraw();
+            }
             WindowEvent::CursorMoved { position, .. } => {
-                state.cursor_pos = (position.x as f32, position.y as f32);
+                state.cursor_pos = (
+                    position.x as f32 / state.ui_scale,
+                    position.y as f32 / state.ui_scale,
+                );
                 state.renderer.cursor = state.cursor_pos;
                 let hover = state.renderer.hit_at(state.cursor_pos);
                 if hover != state.hover {
@@ -516,14 +532,67 @@ fn redraw(state: &mut AppState) {
     });
 
     if let Ok(mut buffer) = state.surface.buffer_mut() {
-        let data = state.renderer.pixmap.data();
-        for (dst, src) in buffer.iter_mut().zip(data.chunks_exact(4)) {
-            *dst = ((src[3] as u32) << 24)
-                | ((src[0] as u32) << 16)
-                | ((src[1] as u32) << 8)
-                | (src[2] as u32);
+        let pix = &state.renderer.pixmap;
+        if state.ui_scale == 1.0 && buffer.len() == (pix.width() * pix.height()) as usize {
+            for (dst, src) in buffer.iter_mut().zip(pix.data().chunks_exact(4)) {
+                *dst = pack_argb(src);
+            }
+        } else {
+            enlarge_into(&mut buffer, size.width, size.height, pix, state.ui_scale);
         }
         buffer.present().ok();
+    }
+}
+
+/// The window scale factor as the UI scale: unscaled displays stay at exactly 1.0.
+fn ui_scale_of(factor: f64) -> f32 {
+    if factor > 1.05 {
+        factor as f32
+    } else {
+        1.0
+    }
+}
+
+/// The size the UI is drawn at for a physical window size.
+fn logical_size(width: u32, height: u32, scale: f32) -> (u32, u32) {
+    (
+        ((width as f32 / scale).ceil() as u32).max(1),
+        ((height as f32 / scale).ceil() as u32).max(1),
+    )
+}
+
+fn pack_argb(p: &[u8]) -> u32 {
+    ((p[3] as u32) << 24) | ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | (p[2] as u32)
+}
+
+/// Fills the `width` x `height` surface buffer from the smaller UI pixmap with
+/// bilinear sampling, so a scaled display gets a bigger UI instead of a tiny one.
+fn enlarge_into(buf: &mut [u32], width: u32, height: u32, pix: &tiny_skia::Pixmap, scale: f32) {
+    let (pw, ph) = (pix.width() as i32, pix.height() as i32);
+    let data = pix.data();
+    let at = |x: i32, y: i32, c: usize| {
+        data[((y.clamp(0, ph - 1) * pw + x.clamp(0, pw - 1)) * 4) as usize + c] as u32
+    };
+    for y in 0..height {
+        let fy = (y as f32 + 0.5) / scale - 0.5;
+        let y0 = fy.floor();
+        let wy = ((fy - y0) * 256.0) as u32;
+        let y0 = y0 as i32;
+        for x in 0..width {
+            let fx = (x as f32 + 0.5) / scale - 0.5;
+            let x0 = fx.floor();
+            let wx = ((fx - x0) * 256.0) as u32;
+            let x0 = x0 as i32;
+            let mut px = [0u8; 4];
+            for (c, out) in px.iter_mut().enumerate() {
+                let top = at(x0, y0, c) * (256 - wx) + at(x0 + 1, y0, c) * wx;
+                let bot = at(x0, y0 + 1, c) * (256 - wx) + at(x0 + 1, y0 + 1, c) * wx;
+                *out = ((top * (256 - wy) + bot * wy) >> 16) as u8;
+            }
+            if let Some(dst) = buf.get_mut((y * width + x) as usize) {
+                *dst = pack_argb(&px);
+            }
+        }
     }
 }
 
@@ -1413,4 +1482,25 @@ fn main() {
     event_loop
         .run_app(&mut app)
         .expect("Error running event loop");
+}
+
+#[cfg(test)]
+mod scale_tests {
+    use super::*;
+
+    #[test]
+    fn unscaled_displays_stay_at_one() {
+        assert_eq!(ui_scale_of(1.0), 1.0);
+        assert_eq!(ui_scale_of(1.5), 1.5);
+        assert_eq!(logical_size(1620, 1110, 1.5), (1080, 740));
+    }
+
+    #[test]
+    fn enlarging_keeps_a_solid_color_and_covers_the_buffer() {
+        let mut pix = tiny_skia::Pixmap::new(4, 4).unwrap();
+        pix.fill(tiny_skia::Color::from_rgba8(10, 20, 30, 255));
+        let mut buf = vec![0u32; 6 * 6];
+        enlarge_into(&mut buf, 6, 6, &pix, 1.5);
+        assert!(buf.iter().all(|&p| p == 0xFF0A141E), "{buf:x?}");
+    }
 }
