@@ -119,15 +119,24 @@ impl JudgePosition {
     }
 
     /// The judgement's anchor above the judge line, in 720-unit px (the
-    /// `Upper` value is the layout the game has always used).
+    /// `Upper` value is the layout the game has always used). The judgement
+    /// word sits `JUDGE_WORD_BASELINE_720` below the anchor, so `Lower` must
+    /// keep that baseline above the judge line.
     pub fn anchor_720(self) -> f32 {
         match self {
             Self::Upper => 230.0,
             Self::Middle => 130.0,
-            Self::Lower => 50.0,
+            Self::Lower => 110.0,
         }
     }
 }
+
+/// The judgement word's baseline is this far below the combo anchor, in
+/// 720-unit px (see `JudgePosition::anchor_720`).
+pub const JUDGE_WORD_BASELINE_720: f32 = 68.0;
+
+/// Capital height of the 34 px judgement word, in 720-unit px (about 0.72 em).
+pub const JUDGE_WORD_CAP_720: f32 = 25.0;
 
 /// Note size (the single play lane width) range and step, as a multiple of the default.
 pub const NOTE_SIZE_MIN: f32 = 0.90;
@@ -1037,5 +1046,27 @@ mod tests {
         assert!(JudgePosition::Lower.anchor_720() < JudgePosition::Middle.anchor_720());
         assert_eq!(JudgePosition::from_name("LOWER"), JudgePosition::Lower);
         assert_eq!(JudgePosition::from_name("nonsense"), JudgePosition::Upper);
+    }
+
+    #[test]
+    fn the_judgement_word_stays_above_the_judge_line_and_inside_the_playfield() {
+        // Heights above the judge line, in 720-unit px.
+        let field_above_judge = JUDGE_LINE_720 - FIELD_TOP_720;
+        for position in [
+            JudgePosition::Upper,
+            JudgePosition::Middle,
+            JudgePosition::Lower,
+        ] {
+            let baseline = position.anchor_720() - JUDGE_WORD_BASELINE_720;
+            let cap_top = baseline + JUDGE_WORD_CAP_720;
+            assert!(
+                baseline > 0.0,
+                "{position:?}: baseline {baseline} is under the line"
+            );
+            assert!(
+                cap_top < field_above_judge,
+                "{position:?}: the word's top {cap_top} leaves the playfield"
+            );
+        }
     }
 }

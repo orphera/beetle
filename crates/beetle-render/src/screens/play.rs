@@ -11,7 +11,9 @@ use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
-use crate::skin::{is_side_track, ColorRgba, FieldPosition, SkinConfig};
+use crate::skin::{
+    is_side_track, ColorRgba, FieldPosition, JudgePosition, SkinConfig, JUDGE_WORD_BASELINE_720,
+};
 use crate::strings;
 use crate::text::{Align, Fx, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
@@ -989,14 +991,21 @@ fn combo_and_judge(
     let since = f.last_judge.map(|(_, at, _)| f.audio_time - at);
 
     if f.score.current_combo > 0 || since.is_some_and(|e| (0.0..JUDGE_SECONDS).contains(&e)) {
-        // Soft dark pool so text stays legible over notes.
+        // Soft dark pool so text stays legible over notes. Off the Upper
+        // position it sits over the notes just above the judge line, so it is
+        // much fainter there.
+        let pool_alpha = if f.layout.judge_position == JudgePosition::Upper {
+            150
+        } else {
+            60
+        };
         c.sprite_centered(
             sk.glow,
             cx,
             anchor + 30.0 * s,
             field.w * 0.9,
             190.0 * s,
-            theme::BLACK.with_alpha(150),
+            theme::BLACK.with_alpha(pool_alpha),
         );
     }
 
@@ -1069,7 +1078,7 @@ fn combo_and_judge(
     let a = (alpha * 255.0) as u8;
     let col = theme::judge_color(grade);
     let label = theme::judge_label(grade);
-    let y = anchor + 68.0 * s;
+    let y = anchor + JUDGE_WORD_BASELINE_720 * s;
     let st = TextStyle::new(34.0 * s)
         .bold()
         .tracking(3.0 * s)
