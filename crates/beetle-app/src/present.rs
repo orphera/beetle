@@ -6,6 +6,7 @@
 //! `RedrawRequested`; the event loop decides how often that is.
 
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use beetle_core::{SongMetadata, SortMode};
@@ -22,6 +23,13 @@ use crate::options_table::{self, OptionDesc, PLAY_OPTIONS, SETTINGS};
 use crate::state::{replay_path, AppScreen, AppState, LibraryJob};
 use crate::transition::{self, show_toast};
 
+/// The decorative clock for menu backdrops: seconds since the app started,
+/// wrapped into the ambient loop. Purely visual; the audio clock never reads it.
+fn ambient_clock() -> f32 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    beetle_render::ambient_time(START.get_or_init(Instant::now).elapsed().as_secs_f64())
+}
+
 /// Starts a frame on the backbuffer and the UI.
 fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.sync_screen_entry();
@@ -30,6 +38,7 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
         .d3d11
         .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
     state.gpu_ui.ui.lite = state.d3d11.is_warp();
+    state.gpu_ui.ui.clock = ambient_clock();
     state.gpu_ui.ui.pointer = state.cursor;
     state.gpu_ui.ui.begin(size.width, size.height, scale);
 }

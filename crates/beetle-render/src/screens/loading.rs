@@ -51,6 +51,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
         &sk,
         vp,
         f.ambient.map_or(tier_col, |a| theme::vivid(a, tier_col)),
+        ui.clock,
         lite,
     );
 

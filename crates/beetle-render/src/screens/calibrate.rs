@@ -83,7 +83,7 @@ pub fn draw_calibrate(ui: &mut Ui, f: &CalibrateFrame) {
     let vp = f.viewport;
     let s = vp.scale;
 
-    widgets::backdrop(c, &sk, vp, theme::BLUE, lite);
+    widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
     widgets::top_bar(c, t, vp, strings::CALIBRATE_TITLE, s);
 
     let content = Rect::from_ltrb(

@@ -1,6 +1,7 @@
 //! Building blocks shared by the Canvas-UI screens: backdrop, top bar,
 //! footer with keycap hints, score-rate bar.
 
+use crate::art::sdf::hash_noise;
 use crate::art::Skin;
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
@@ -15,34 +16,163 @@ pub(crate) const PAD: f32 = 32.0;
 pub(crate) const TOPBAR_H: f32 = 64.0;
 pub(crate) const FOOTER_H: f32 = 40.0;
 
-/// Menu-screen backdrop: dark gradient, ambient light in `ambient`, grain
-/// and vignette. Skipped in lite mode (see `Ui::lite`).
-pub(crate) fn backdrop(c: &mut Canvas, sk: &Skin, vp: &Viewport, ambient: ColorRgba, lite: bool) {
+/// Every drift, sweep, sway and twinkle period below divides the ambient
+/// loop (`ui::AMBIENT_LOOP_SECS`), so the clock wraps without a visible jump.
+const TAU: f32 = std::f32::consts::TAU;
+/// Seconds for the light band to cross the viewport once.
+const BAND_PERIOD: f32 = 60.0;
+/// Peak alpha of the diagonal light band (additive, so it lifts the
+/// backdrop without covering text).
+const BAND_ALPHA: u8 = 10;
+/// Motes drifting upward behind the menus.
+const MOTES: u32 = 32;
+/// Peak alpha of one mote (additive).
+const MOTE_ALPHA: f32 = 40.0;
+
+/// Center of one drifting glow, as offsets in -1..=1 along a Lissajous
+/// path. Periods are in seconds.
+pub(crate) fn drift(time: f32, period_x: f32, period_y: f32, phase: f32) -> (f32, f32) {
+    (
+        (TAU * time / period_x + phase).sin(),
+        (TAU * time / period_y + phase).cos(),
+    )
+}
+
+/// Horizontal center of the light band, in viewport widths. It starts and
+/// ends just outside the viewport, so the wrap is never visible.
+pub(crate) fn band_center(time: f32) -> f32 {
+    -0.3 + 1.6 * (time / BAND_PERIOD).fract()
+}
+
+/// One mote at a point in time: position in viewport fractions (0..=1,
+/// top-left origin), twinkle and edge fade, both 0..=1.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Mote {
+    pub x: f32,
+    pub y: f32,
+    pub twinkle: f32,
+    pub fade: f32,
+}
+
+/// Mote `i` at `time`. Pure: the same index and time always give the same
+/// mote, so no per-mote state is kept between frames.
+pub(crate) fn mote(i: u32, time: f32) -> Mote {
+    const RISE: [f32; 5] = [12.0, 15.0, 20.0, 24.0, 30.0];
+    const SWAY: [f32; 4] = [6.0, 10.0, 12.0, 15.0];
+    const TWINKLE: [f32; 5] = [4.0, 5.0, 6.0, 8.0, 10.0];
+    // `climb` goes 0 → 1 over one rise period, so the mote travels from
+    // the bottom edge to the top edge.
+    let climb = (time / RISE[(i % 5) as usize] + hash(i, 1)).fract();
+    // Fade in from the bottom edge and out at the top, so no mote pops in.
+    let fade = (climb / 0.12).min((1.0 - climb) / 0.12).clamp(0.0, 1.0);
+    let base = 0.02 + 0.96 * hash(i, 2);
+    let sway = 0.02 * (TAU * time / SWAY[(i % 4) as usize] + hash(i, 3) * TAU).sin();
+    let twinkle = 0.5 + 0.5 * (TAU * time / TWINKLE[(i % 5) as usize] + hash(i, 4) * TAU).sin();
+    Mote {
+        x: base + sway,
+        y: 1.0 - climb,
+        twinkle,
+        fade,
+    }
+}
+
+/// Deterministic per-index value in 0..=1.
+fn hash(i: u32, salt: u32) -> f32 {
+    hash_noise(i, salt, 0xBA5D)
+}
+
+/// Menu-screen backdrop: dark gradient, ambient light in `ambient`, a slow
+/// light band, drifting glows and motes, grain and vignette. `time` is the
+/// ambient clock (`Ui::clock`). Skipped in lite mode (see `Ui::lite`); lite
+/// stays static, whatever `time` is.
+pub(crate) fn backdrop(
+    c: &mut Canvas,
+    sk: &Skin,
+    vp: &Viewport,
+    ambient: ColorRgba,
+    time: f32,
+    lite: bool,
+) {
     if lite {
         return; // the frame clear color is the backdrop
     }
     let full = Rect::new(vp.x, vp.y, vp.width, vp.height);
     c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
     c.set_additive(true);
+
+    let (dx, dy) = drift(time, 40.0, 30.0, 0.0);
     c.sprite_centered(
         sk.glow,
-        vp.x + vp.width * 0.82,
-        vp.y + vp.height * 0.17,
+        vp.x + vp.width * (0.82 + 0.07 * dx),
+        vp.y + vp.height * (0.17 + 0.08 * dy),
         vp.width * 0.86,
         vp.height * 1.05,
         ambient.with_alpha(64),
     );
+    let (dx, dy) = drift(time, 30.0, 20.0, 2.1);
     c.sprite_centered(
         sk.glow,
-        vp.x + vp.width * 0.1,
-        vp.y + vp.height * 0.97,
+        vp.x + vp.width * (0.1 + 0.07 * dx),
+        vp.y + vp.height * (0.97 + 0.08 * dy),
         vp.width * 0.7,
         vp.height * 0.7,
         theme::CYAN.with_alpha(20),
     );
+
+    light_band(c, vp, time);
+    for i in 0..MOTES {
+        let m = mote(i, time);
+        let size = (6.0 + 8.0 * hash(i, 5)) * vp.scale;
+        let alpha = (MOTE_ALPHA * m.twinkle * m.fade) as u8;
+        let tint = if i % 3 == 0 {
+            theme::CYAN
+        } else {
+            theme::WHITE
+        };
+        c.sprite_centered(
+            sk.glow,
+            vp.x + vp.width * m.x,
+            vp.y + vp.height * m.y,
+            size,
+            size,
+            tint.with_alpha(alpha),
+        );
+    }
+
     c.tile(sk.noise, full, theme::WHITE.with_alpha(6));
     c.set_additive(false);
     c.sprite(sk.vignette, full, theme::WHITE.with_alpha(200));
+}
+
+/// A faint slanted band of cyan light sweeping across the viewport, echoing
+/// the slanted motif of the UI. Two quads, each fading from the edges
+/// to the center.
+fn light_band(c: &mut Canvas, vp: &Viewport, time: f32) {
+    let (w, h) = (vp.width, vp.height);
+    let cx = vp.x + w * band_center(time);
+    let half = w * 0.06;
+    let slant = h * 0.35;
+    let (top, bot) = (vp.y, vp.y + h);
+    let edge = theme::CYAN.with_alpha(0);
+    let mid = theme::CYAN.with_alpha(BAND_ALPHA);
+    c.fill_quad(
+        [
+            (cx + slant - half, top),
+            (cx + slant, top),
+            (cx, bot),
+            (cx - half, bot),
+        ],
+        [edge, mid, mid, edge],
+    );
+    c.fill_quad(
+        [
+            (cx + slant, top),
+            (cx + slant + half, top),
+            (cx + half, bot),
+            (cx, bot),
+        ],
+        [mid, edge, edge, mid],
+    );
 }
 
 /// Top bar with a wordmark-style screen title; returns the title's width.
@@ -461,5 +591,100 @@ fn ease_in_out(p: f32) -> f32 {
         4.0 * p * p * p
     } else {
         1.0 - (-2.0 * p + 2.0).powi(3) / 2.0
+    }
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+    use crate::theme::{BLUE, CYAN, MAGENTA};
+    use crate::ui::{Ui, AMBIENT_LOOP_SECS};
+
+    /// Samples across one full ambient loop, including the wrap point.
+    fn samples() -> impl Iterator<Item = f32> {
+        (0..=600).map(|i| i as f32 + 0.37)
+    }
+
+    #[test]
+    fn drift_and_motes_stay_inside_the_viewport() {
+        for t in samples() {
+            let (dx, dy) = drift(t, 40.0, 30.0, 0.0);
+            assert!((-1.0..=1.0).contains(&dx) && (-1.0..=1.0).contains(&dy));
+            for i in 0..MOTES {
+                let m = mote(i, t);
+                assert!((0.0..=1.0).contains(&m.x), "x={} i={i} t={t}", m.x);
+                assert!((0.0..=1.0).contains(&m.y), "y={} i={i} t={t}", m.y);
+                assert!((0.0..=1.0).contains(&m.twinkle));
+                assert!((0.0..=1.0).contains(&m.fade));
+            }
+        }
+    }
+
+    #[test]
+    fn motion_repeats_every_loop() {
+        // The clock wraps at the loop length, so every position must match
+        // itself one loop later (and the band must, too).
+        let loop_len = AMBIENT_LOOP_SECS;
+        for t in samples() {
+            let (ax, ay) = drift(t, 30.0, 20.0, 2.1);
+            let (bx, by) = drift(t + loop_len, 30.0, 20.0, 2.1);
+            assert!((ax - bx).abs() < 1e-3 && (ay - by).abs() < 1e-3, "t={t}");
+            assert!((band_center(t) - band_center(t + loop_len)).abs() < 1e-3);
+            for i in 0..MOTES {
+                let (a, b) = (mote(i, t), mote(i, t + loop_len));
+                assert!((a.x - b.x).abs() < 1e-3, "x i={i} t={t}");
+                assert!((a.y - b.y).abs() < 1e-3, "y i={i} t={t}");
+                assert!((a.twinkle - b.twinkle).abs() < 1e-3);
+                assert!((a.fade - b.fade).abs() < 1e-3);
+            }
+        }
+    }
+
+    #[test]
+    fn motes_rise_over_time() {
+        // Mote 0 rises 12 s per crossing: a later time is higher on screen.
+        let early = mote(0, 1.0).y;
+        let later = mote(0, 2.0).y;
+        assert!(later < early, "early={early} later={later}");
+    }
+
+    #[test]
+    fn backdrop_is_one_batch_at_several_times() {
+        let mut ui = Ui::new(1.0);
+        let vp = Viewport::new(1280, 720);
+        for tint in [CYAN, BLUE, MAGENTA] {
+            for time in [0.0, 1.7, 33.3, 599.9] {
+                ui.begin(1280, 720, vp.scale);
+                backdrop(&mut ui.canvas, &ui.skin, &vp, tint, time, false);
+                assert_eq!(ui.canvas.debug_batches().len(), 1, "time={time}");
+            }
+        }
+    }
+
+    #[test]
+    fn lite_backdrop_is_static_at_every_time() {
+        let mut ui = Ui::new(1.0);
+        let vp = Viewport::new(1280, 720);
+        let mut frames = Vec::new();
+        for time in [0.0, 12.5, 377.0] {
+            ui.begin(1280, 720, vp.scale);
+            backdrop(&mut ui.canvas, &ui.skin, &vp, CYAN, time, true);
+            frames.push(ui.canvas.debug_vertices().len());
+        }
+        assert!(frames.iter().all(|&n| n == 0), "lite drew {frames:?}");
+    }
+
+    #[test]
+    fn full_backdrop_changes_over_time() {
+        let mut ui = Ui::new(1.0);
+        let vp = Viewport::new(1280, 720);
+        ui.begin(1280, 720, vp.scale);
+        backdrop(&mut ui.canvas, &ui.skin, &vp, CYAN, 0.0, false);
+        let a = ui.canvas.debug_vertices().to_vec();
+        ui.begin(1280, 720, vp.scale);
+        backdrop(&mut ui.canvas, &ui.skin, &vp, CYAN, 9.0, false);
+        let b = ui.canvas.debug_vertices().to_vec();
+        assert_ne!(a.len(), 0);
+        assert!(a.len() == b.len() && a.iter().zip(&b).any(|(p, q)| p.position != q.position));
     }
 }

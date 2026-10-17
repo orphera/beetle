@@ -100,7 +100,7 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
     let vp = f.viewport;
     let s = vp.scale;
 
-    widgets::backdrop(c, &sk, vp, theme::BLUE, lite);
+    widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
     let content = Rect::from_ltrb(
         vp.x + PAD * s,
         vp.y + (TOPBAR_H + 24.0) * s,

@@ -74,7 +74,9 @@ pub struct Skin {
     pub ring: AtlasRegion,
     pub spark: AtlasRegion,
     pub flare: AtlasRegion,
-    /// 128×128 grain tile and full-screen vignette.
+    /// 256×256 grain tile and full-screen vignette. The grain is per-pixel
+    /// noise, so a larger tile only lengthens the repeat; it needs a quarter of
+    /// the quads a 128 px tile did, which keeps menu screens within one batch.
     pub noise: AtlasRegion,
     pub vignette: AtlasRegion,
     pub icons: Icons,
@@ -121,7 +123,7 @@ impl Skin {
             ring: ring(atlas, px(96.0 * s), 3.0 * s),
             spark: spark(atlas, px(64.0 * s), px(12.0 * s)),
             flare: flare(atlas, px(96.0 * s)),
-            noise: noise(atlas, 128),
+            noise: noise(atlas, 256),
             vignette: vignette(atlas, 256),
             icons: Icons {
                 play: icon_play(atlas, px(32.0 * s)),

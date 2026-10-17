@@ -42,7 +42,7 @@ pub fn draw_settings(ui: &mut Ui, f: &SettingsFrame) {
     let vp = f.viewport;
     let s = vp.scale;
 
-    widgets::backdrop(c, &sk, vp, theme::BLUE, lite);
+    widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
     widgets::top_bar(c, t, vp, strings::SETTINGS, s);
 
     let content = Rect::from_ltrb(

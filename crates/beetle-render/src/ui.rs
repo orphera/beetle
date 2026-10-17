@@ -25,6 +25,20 @@ pub struct Ui {
     /// search is open, cleared by `begin`). The app passes it to the OS as the
     /// IME candidate position so the candidate list opens under the caret.
     pub ime_caret: Option<Rect>,
+    /// Ambient clock for decorative motion (menu backdrop), in seconds within
+    /// `AMBIENT_LOOP_SECS`. Set by the app before drawing; it is not the audio
+    /// clock and nothing that is judged or timed reads it.
+    pub clock: f32,
+}
+
+/// Length of the ambient clock's loop, in seconds. Every decorative period
+/// divides it, so the wrap is invisible, and f32 keeps full precision
+/// however long the app runs.
+pub const AMBIENT_LOOP_SECS: f32 = 600.0;
+
+/// Maps seconds since the app started onto the ambient loop.
+pub fn ambient_time(app_elapsed_secs: f64) -> f32 {
+    app_elapsed_secs.rem_euclid(AMBIENT_LOOP_SECS as f64) as f32
 }
 
 impl Ui {
@@ -40,6 +54,7 @@ impl Ui {
             hits: Vec::new(),
             pointer: None,
             ime_caret: None,
+            clock: 0.0,
         }
     }
 

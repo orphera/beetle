@@ -44,7 +44,7 @@ pub use skin::{
     FieldPosition, ScratchSide, SkinConfig,
 };
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
-pub use ui::Ui;
+pub use ui::{ambient_time, Ui, AMBIENT_LOOP_SECS};
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
 pub use view::{HitBurst, JudgeMark, ViewState, Viewport, JUDGE_TIMELINE_SECONDS};
 

@@ -72,7 +72,7 @@ pub fn draw_result(ui: &mut Ui, f: &ResultFrame) {
     let clear = f.score.clear_type();
     let (_, lamp_col) = theme::clear_lamp(Some(clear));
 
-    widgets::backdrop(c, &sk, vp, lamp_col, lite);
+    widgets::backdrop(c, &sk, vp, lamp_col, ui.clock, lite);
 
     let content = Rect::from_ltrb(
         vp.x + PAD * s,

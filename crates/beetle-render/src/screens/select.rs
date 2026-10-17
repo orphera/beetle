@@ -171,7 +171,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         _ => None,
     };
 
-    backdrop(c, &sk, f, selected, lite);
+    backdrop(c, &sk, f, selected, ui.clock, lite);
 
     let content = content_rect(vp);
     let list = Rect::new(content.x, content.y, LIST_W * s, content.h);
@@ -233,10 +233,17 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     }
 }
 
-fn backdrop(c: &mut Canvas, sk: &Skin, f: &SelectFrame, song: Option<&SongMetadata>, lite: bool) {
+fn backdrop(
+    c: &mut Canvas,
+    sk: &Skin,
+    f: &SelectFrame,
+    song: Option<&SongMetadata>,
+    time: f32,
+    lite: bool,
+) {
     let tier = song.map_or(theme::MAGENTA, |s| theme::level_tier(s.play_level).1);
     let ambient = f.ambient.map_or(tier, |a| theme::vivid(a, tier));
-    widgets::backdrop(c, sk, f.viewport, ambient, lite);
+    widgets::backdrop(c, sk, f.viewport, ambient, time, lite);
 }
 
 // ---------------------------------------------------------------------------

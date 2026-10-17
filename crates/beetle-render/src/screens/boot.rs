@@ -32,7 +32,7 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
     let vp = f.viewport;
     let s = vp.scale;
 
-    widgets::backdrop(c, &sk, vp, theme::CYAN, lite);
+    widgets::backdrop(c, &sk, vp, theme::CYAN, ui.clock, lite);
 
     let p = ease_out_cubic((f.elapsed / ENTER_SECONDS).clamp(0.0, 1.0) as f32);
     let a = |max: u8| (max as f32 * p) as u8;

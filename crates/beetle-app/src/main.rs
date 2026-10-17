@@ -396,6 +396,9 @@ impl ApplicationHandler for BeetleApp {
 
         state.poll_library();
 
+        // Set by each branch that already wakes on its own frame-rate timer,
+        // so the menu backdrop drift below does not change that cadence.
+        let mut timed = false;
         match state.screen {
             AppScreen::Boot => {
                 state.window.request_redraw();
@@ -496,11 +499,13 @@ impl ApplicationHandler for BeetleApp {
                 );
 
                 if !is_settled {
+                    timed = true;
                     // While holding arrow key or scrolling, don't spawn background threads
                     let rem = Duration::from_millis(150)
                         .saturating_sub(state.cursor_settle_time.elapsed());
                     event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + rem));
                 } else if selected_id.is_some_and(|id| !state.stage_image_cache.contains_key(&id)) {
+                    timed = true;
                     if state.stage_image_loading_id != selected_id {
                         if let Some(song) = selected_song {
                             state.stage_image_loading_id = selected_id;
@@ -512,6 +517,7 @@ impl ApplicationHandler for BeetleApp {
                         Instant::now() + Duration::from_millis(16),
                     ));
                 } else if state.stage_image_receiver.is_some() {
+                    timed = true;
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + Duration::from_millis(16),
                     ));
@@ -542,6 +548,7 @@ impl ApplicationHandler for BeetleApp {
                 // A preview fading out after leaving song select needs ticks
                 // until its stream is closed.
                 if calibrating || result_animating || state.preview.is_fading() {
+                    timed = true;
                     state.window.request_redraw();
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + Duration::from_millis(16),
@@ -560,13 +567,28 @@ impl ApplicationHandler for BeetleApp {
         state.sync_screen_entry();
         if state.presentation_animating(now) || state.song_select_motion_active(now) {
             state.anim_tail = true;
+            timed = true;
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
         } else if state.anim_tail {
             state.anim_tail = false;
             if state.screen != AppScreen::Gameplay {
+                timed = true;
                 state.window.request_redraw();
                 event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
+            }
+        }
+        // Menu backdrops drift on a capped timer while focused. Existing
+        // animations keep their own cadence, so the drift only fills in where
+        // nothing else is timed.
+        if !timed {
+            let focused = state.window.has_focus();
+            let minimized = state.window.is_minimized().unwrap_or(false);
+            if let Some(step) =
+                ambient_frame_step(state.screen, focused, minimized, state.d3d11.is_warp())
+            {
+                state.window.request_redraw();
+                event_loop.set_control_flow(ControlFlow::WaitUntil(now + step));
             }
         }
 
@@ -910,6 +932,22 @@ fn is_menu_screen(screen: AppScreen) -> bool {
     )
 }
 
+/// Redraw interval for the drifting menu backdrop: about 30 fps.
+const AMBIENT_FRAME: Duration = Duration::from_millis(33);
+
+/// The redraw interval the drifting backdrop needs right now, or `None` when
+/// nothing should redraw on a timer. Only focused, visible, full-quality menus
+/// drift. Lite (WARP) is static by design. Boot and Loading already redraw
+/// every 16 ms for their own entrance and spinner, so they are left alone.
+fn ambient_frame_step(
+    screen: AppScreen,
+    focused: bool,
+    minimized: bool,
+    lite: bool,
+) -> Option<Duration> {
+    (is_menu_screen(screen) && focused && !minimized && !lite).then_some(AMBIENT_FRAME)
+}
+
 fn handle_keyboard_input(
     state: &mut AppState,
     physical_key: PhysicalKey,
@@ -1028,6 +1066,27 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ambient_drift_runs_only_on_focused_full_quality_menus() {
+        let step = Some(AMBIENT_FRAME);
+        for screen in [
+            AppScreen::SongSelect,
+            AppScreen::Result,
+            AppScreen::KeyConfig,
+            AppScreen::Settings,
+        ] {
+            assert_eq!(ambient_frame_step(screen, true, false, false), step);
+            assert_eq!(ambient_frame_step(screen, false, false, false), None);
+            assert_eq!(ambient_frame_step(screen, true, true, false), None);
+            assert_eq!(ambient_frame_step(screen, true, false, true), None);
+        }
+        // Boot and Loading keep their own 16 ms cadence; gameplay is paced separately.
+        for screen in [AppScreen::Boot, AppScreen::Loading, AppScreen::Gameplay] {
+            assert_eq!(ambient_frame_step(screen, true, false, false), None);
+        }
+        assert!(AMBIENT_FRAME <= Duration::from_millis(34));
+    }
 
     #[test]
     fn replays_are_named_by_chart_and_long_note_rule() {
