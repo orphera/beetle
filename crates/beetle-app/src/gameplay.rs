@@ -30,6 +30,10 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.loading_spinner_frame = 0;
     state.loading_anim_time = Instant::now();
     state.loading_started_at = Instant::now();
+    // Queued jacket decodes would compete with the song's key sounds for the
+    // loader. Only the song select list asks for thumbnails, so none come back
+    // until the player returns to it.
+    state.thumbs.set_wanted(&[]);
 
     // Cache stage image for loading screen
     state
