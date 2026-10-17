@@ -610,6 +610,9 @@ impl AppState {
         } else if self.selected_entry >= self.entries.len() {
             self.selected_entry = self.entries.len() - 1;
         }
+        // The list's contents changed, so the list snaps to its new target
+        // rather than easing there from the old rows' scroll position.
+        self.motion_selection = None;
     }
 
     /// The song under the highlight: a group's selected chart. `None` when a folder row is highlighted.
