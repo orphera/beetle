@@ -8,6 +8,7 @@ pub mod command;
 pub mod engine;
 pub mod mixer;
 pub mod sample;
+pub mod sfx;
 
 pub use atlas::{
     load_sample_bank_from_sound_atlas, load_sample_bank_from_sound_atlas_for_chart,
@@ -18,3 +19,4 @@ pub use command::AudioCommand;
 pub use engine::{AudioEngine, AudioEngineError, SampleTrigger};
 pub use mixer::Mixer;
 pub use sample::{AudioDecodeError, PcmBuffer, SampleBank};
+pub use sfx::{synthesize as synthesize_ui_sound, ui_sound_bank, UiSound};
