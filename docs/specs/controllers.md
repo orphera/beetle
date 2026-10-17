@@ -2,7 +2,7 @@
 
 Beetle은 두 종류의 컨트롤러를 받는다. 둘 다 새 크레이트 없이 OS DLL을 직접 FFI로 부른다.
 
-- **XInput 패드** (Xbox 계열): 메뉴 조작 전용. `xinput1_4.dll`을 실행 중에 `LoadLibraryW`로 올린다(없으면 `xinput1_3.dll`, `xinput9_1_0.dll`). 링크 시점 의존이 없어서 DLL이 없어도 실행된다.
+- **XInput 패드** (Xbox 계열): 메뉴 조작 전용. `xinput1_4.dll`을 실행 중에 `LoadLibraryExW`(`LOAD_LIBRARY_SEARCH_SYSTEM32`)로 올린다(없으면 `xinput1_3.dll`, `xinput9_1_0.dll`). 시스템 폴더에서만 찾아서, 사용자가 쓸 수 있는 앱 폴더의 DLL은 로드되지 않는다. 링크 시점 의존이 없어서 DLL이 없어도 실행된다.
 - **HID 게임 컨트롤러** (IIDX 컨트롤러, 아케이드 패드, DJ 턴테이블, 버튼이 많은 게임패드): Raw Input(`WM_INPUT`, `RIM_TYPEHID`)으로 받아 `hid.dll`로 해석한다. **레인 입력**이다.
 
 구현은 `crates/beetle-app/src/xinput.rs`(메뉴), `crates/beetle-app/src/hid.rs`(HID 해석), `crates/beetle-app/src/turntable.rs`(턴테이블), `crates/beetle-app/src/raw_input.rs`(입력 스레드)에 있다.

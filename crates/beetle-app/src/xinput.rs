@@ -270,10 +270,11 @@ struct XInputState {
 type GetStateFn = unsafe extern "system" fn(u32, *mut XInputState) -> u32;
 const ERROR_SUCCESS: u32 = 0;
 
-/// The DLLs tried in order, and the ordinal the legacy ones export
-/// `XInputGetState` under when the name is missing.
+/// The DLLs tried in order. They are found in the system directory only:
+/// the app folder is user-writable, and a DLL planted there must not load.
 const DLLS: [&str; 3] = ["xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"];
-const LEGACY_ORDINAL: usize = 5;
+/// `LOAD_LIBRARY_SEARCH_SYSTEM32`: resolve the name in the system directory.
+const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
 
 /// The events a poll hands on: all of them when they are accepted and no
 /// suppression is running at `at`, none otherwise.
@@ -423,18 +424,21 @@ impl XInputPad {
     }
 }
 
-/// Loads the first XInput DLL that exports `XInputGetState`.
+/// Loads the first XInput DLL that exports `XInputGetState` by that name.
+/// The legacy DLLs are looked up by name too: an ordinal is not documented
+/// for them (ordinal 5 is `XInputEnable` in xinput1_3, not `XInputGetState`).
 unsafe fn load_get_state() -> Option<GetStateFn> {
     for name in DLLS {
         let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
-        let module = LoadLibraryW(wide.as_ptr());
+        let module = LoadLibraryExW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        );
         if module.is_null() {
             continue;
         }
-        let mut proc = GetProcAddress(module, c"XInputGetState".as_ptr().cast());
-        if proc.is_null() {
-            proc = GetProcAddress(module, LEGACY_ORDINAL as *const std::ffi::c_char);
-        }
+        let proc = GetProcAddress(module, c"XInputGetState".as_ptr().cast());
         if !proc.is_null() {
             return Some(std::mem::transmute::<*mut c_void, GetStateFn>(proc));
         }
@@ -444,7 +448,7 @@ unsafe fn load_get_state() -> Option<GetStateFn> {
 
 #[link(name = "kernel32")]
 extern "system" {
-    fn LoadLibraryW(name: *const u16) -> *mut c_void;
+    fn LoadLibraryExW(name: *const u16, file: *mut c_void, flags: u32) -> *mut c_void;
     fn GetProcAddress(module: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
 }
 
@@ -469,6 +473,12 @@ mod tests {
             left_y: y,
             ..PadState::default()
         }
+    }
+
+    #[test]
+    fn the_xinput_dll_loads_by_name_from_the_system_directory() {
+        // Windows ships xinput1_3 or later in System32, so a pad is not needed.
+        assert!(XInputPad::load().is_some());
     }
 
     #[test]
