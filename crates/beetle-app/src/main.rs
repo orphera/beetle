@@ -696,6 +696,9 @@ impl ApplicationHandler for BeetleApp {
                 state.window.request_redraw();
             }
             WindowEvent::Focused(true) => {
+                if let Some(pad) = state.pad.as_mut() {
+                    pad.resync();
+                }
                 if is_menu_screen(state.screen) {
                     crate::handlers::song_select::check_autofocus_rescan(state);
                 }
@@ -931,7 +934,7 @@ fn drain_raw_keys(state: &mut AppState) {
             // A pressed controller button answers the "press a key" prompt.
             AppScreen::KeyConfig if state.rebinding.is_some() => {
                 if let (Source::Pad { button, .. }, true) = (key.source, key.down) {
-                    handlers::key_config::set_pad(state, button);
+                    handlers::key_config::set_pad(state, button, key.at);
                 }
             }
             AppScreen::Settings if key.down && state.calibration.is_some() => {
@@ -949,23 +952,24 @@ fn drain_raw_keys(state: &mut AppState) {
 /// window is in the background, nor while a key is being rebound (a pad
 /// button must not bind Enter or Escape by accident).
 fn poll_pad(state: &mut AppState) {
-    if state.screen == AppScreen::Boot || state.rebinding.is_some() || !state.window.has_focus() {
-        return;
-    }
-    let Some(pad) = state.pad.as_mut() else {
-        return;
-    };
+    // The pad is polled every time, so its state stays current; only the
+    // events are dropped where a pad may not act.
+    let accept =
+        state.screen != AppScreen::Boot && state.rebinding.is_none() && state.window.has_focus();
     // A running play takes no menu input, so it does not scan for a pad.
     let scan = !(state.screen == AppScreen::Gameplay && !state.is_gameplay_paused);
-    let inputs = pad.poll(std::time::Instant::now(), scan);
-    if inputs.is_empty() {
-        return;
-    }
     let context = match state.screen {
         AppScreen::Gameplay if state.is_gameplay_paused => xinput::PadContext::PausedPlay,
         AppScreen::Gameplay => xinput::PadContext::Play,
         _ => xinput::PadContext::Menu,
     };
+    let Some(pad) = state.pad.as_mut() else {
+        return;
+    };
+    let inputs = pad.poll(std::time::Instant::now(), scan, accept);
+    if inputs.is_empty() {
+        return;
+    }
     for input in inputs {
         if let Some(code) = xinput::key_for(input, context) {
             let key = PhysicalKey::Code(code);

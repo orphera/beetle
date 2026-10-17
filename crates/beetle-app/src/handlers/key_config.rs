@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use beetle_audio::UiSound;
 use beetle_core::{Lane, PlayMode};
 use beetle_render::{scratch_side_applies, Rebind, KEY_MODES};
@@ -8,6 +10,7 @@ use crate::input::{lanes_for, screen_lanes_for, KeyPreset};
 use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
+use crate::xinput;
 use beetle_render::{strings, ToastKind};
 
 /// Handles keyboard input on the Key Configuration screen.
@@ -66,11 +69,16 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
 
 /// A controller button pressed while a key is being set: it binds the
 /// selected lane the way the key would (replace or add, as the prompt asked),
-/// and keeps the lane's keys. Pressed with no prompt, it does nothing.
-pub fn set_pad(state: &mut AppState, button: u8) {
+/// and keeps the lane's keys. Pressed with no prompt, it does nothing. The
+/// same press reaches XInput too (A is also button 1 there), so the pad's
+/// menu events are dropped for a moment after `at`.
+pub fn set_pad(state: &mut AppState, button: u8, at: Instant) {
     let Some(rebind) = state.rebinding.take() else {
         return;
     };
+    if let Some(pad) = state.pad.as_mut() {
+        pad.suppress_menu_until(at + xinput::BIND_QUIET);
+    }
     if let Some(lane) = selected_lane(state) {
         let mode = state.key_config_edit_mode;
         let layout = state.key_bindings.get_mut(mode);

@@ -40,6 +40,9 @@ pub const REPEAT_FIRST: Duration = Duration::from_millis(350);
 pub const REPEAT_NEXT: Duration = Duration::from_millis(90);
 /// How often an empty set of slots is scanned.
 const SCAN_INTERVAL: Duration = Duration::from_secs(1);
+/// After a pad button binds a key, the pad's menu events are dropped this
+/// long: the same press also reaches XInput, a moment after the raw input.
+pub const BIND_QUIET: Duration = Duration::from_millis(250);
 
 /// The state of one pad, as the menus need it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -272,6 +275,22 @@ const ERROR_SUCCESS: u32 = 0;
 const DLLS: [&str; 3] = ["xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"];
 const LEGACY_ORDINAL: usize = 5;
 
+/// The events a poll hands on: all of them when they are accepted and no
+/// suppression is running at `at`, none otherwise.
+fn keep_events(
+    events: Vec<MenuInput>,
+    accept: bool,
+    suppressed_until: Option<Instant>,
+    at: Instant,
+) -> Vec<MenuInput> {
+    let suppressed = suppressed_until.is_some_and(|until| at < until);
+    if accept && !suppressed {
+        events
+    } else {
+        Vec::new()
+    }
+}
+
 /// Whether an empty-slot scan is due at `at`, given the last one.
 fn scan_due(last_scan: Option<Instant>, at: Instant) -> bool {
     last_scan.is_none_or(|last| at.saturating_duration_since(last) >= SCAN_INTERVAL)
@@ -297,6 +316,8 @@ pub struct XInputPad {
     last_scan: Option<Instant>,
     /// The slot the next empty-slot scan probes.
     next_probe: u32,
+    /// Menu events are dropped until this instant (see `BIND_QUIET`).
+    suppressed_until: Option<Instant>,
 }
 
 impl XInputPad {
@@ -310,13 +331,46 @@ impl XInputPad {
             repeat: MenuRepeat::default(),
             last_scan: None,
             next_probe: 0,
+            suppressed_until: None,
         })
     }
 
+    /// Drops the pad's menu events until `until`. The state keeps following
+    /// the pad, so the press itself is not seen again afterwards.
+    pub fn suppress_menu_until(&mut self, until: Instant) {
+        self.suppressed_until = Some(until);
+    }
+
+    /// Takes the pad's current state as the baseline without events. Called
+    /// when the window gets the focus back: while it had none, the pad was
+    /// not polled, so its changes then are not presses.
+    pub fn resync(&mut self) {
+        self.repeat = MenuRepeat::default();
+        if let Some(slot) = self.slot {
+            match self.read(slot) {
+                Some(now) => self.prev = now,
+                None => {
+                    self.slot = None;
+                    self.prev = PadState::default();
+                }
+            }
+        }
+    }
+
     /// The menu inputs since the last poll, for the pad that is connected.
-    /// With no pad connected, one slot is probed per second when `scan` is
-    /// set (a play passes `false`: an empty slot read can take milliseconds).
-    pub fn poll(&mut self, at: Instant, scan: bool) -> Vec<MenuInput> {
+    ///
+    /// The state always advances, even when `accept` is false (rebinding, an
+    /// unfocused window, a screen that takes no pad), so the next accepted
+    /// poll sees only real changes; the events of the unaccepted polls are
+    /// dropped. With no pad connected, one slot is probed per second when
+    /// `scan` is set (a play passes `false`: an empty slot read can take
+    /// milliseconds).
+    pub fn poll(&mut self, at: Instant, scan: bool, accept: bool) -> Vec<MenuInput> {
+        let events = self.advance(at, scan);
+        keep_events(events, accept, self.suppressed_until, at)
+    }
+
+    fn advance(&mut self, at: Instant, scan: bool) -> Vec<MenuInput> {
         let Some(slot) = self.slot else {
             if scan && scan_due(self.last_scan, at) {
                 self.last_scan = Some(at);
@@ -561,6 +615,36 @@ mod tests {
             pad_to_menu_events(PadState::default(), both, &mut rep, t),
             vec![MenuInput::Left]
         );
+    }
+
+    #[test]
+    fn dropped_events_are_dropped_by_refusal_or_suppression_only() {
+        let t = t0();
+        let events = vec![MenuInput::Confirm];
+        assert_eq!(keep_events(events.clone(), true, None, t), events);
+        assert!(keep_events(events.clone(), false, None, t).is_empty());
+        let until = Some(t + BIND_QUIET);
+        assert!(
+            keep_events(events.clone(), true, until, t + Duration::from_millis(249)).is_empty()
+        );
+        assert_eq!(
+            keep_events(events.clone(), true, until, t + BIND_QUIET),
+            events
+        );
+    }
+
+    #[test]
+    fn a_button_held_through_a_refused_poll_is_not_a_new_press() {
+        // The poll keeps the state current while rebinding: the held A is
+        // seen (and dropped), so when the prompt closes it is not a new press.
+        let t = t0();
+        let mut rep = MenuRepeat::default();
+        let mut prev = PadState::default();
+        let a = pad(BTN_A);
+        let refused = pad_to_menu_events(prev, a, &mut rep, t);
+        assert_eq!(keep_events(refused, false, None, t), Vec::new());
+        prev = a;
+        assert!(pad_to_menu_events(prev, a, &mut rep, t).is_empty());
     }
 
     #[test]
