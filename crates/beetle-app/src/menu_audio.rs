@@ -1,8 +1,8 @@
 //! Menu sound effects: the procedural UI sounds of `beetle_audio::sfx`, played
 //! on their own short-lived audio stream while a menu screen is up.
 //!
-//! The stream is closed on Loading and Gameplay, so the gameplay engine has the
-//! output device to itself, and reopened when a menu screen comes back. Sounds
+//! The stream is closed on Gameplay, so the gameplay engine has the output
+//! device to itself, and reopened when a menu screen comes back. Sounds
 //! go through the engine's lock-free trigger queue only (INV-2 applies to the
 //! audio thread; this module never blocks on it).
 
@@ -102,12 +102,26 @@ pub fn play_ui(state: &mut AppState, sound: UiSound) {
     state.menu_audio.play(sound);
 }
 
-/// Opens the menu stream on a menu screen and closes it on Loading and Gameplay.
+/// What the menu stream does when the screen changes: `Some(true)` opens it (or
+/// only updates its volume when already open), `Some(false)` closes it, and
+/// `None` leaves it as it is. Loading keeps the stream: a Confirm sound is
+/// queued in the same turn that enters Loading, and the gameplay engine closes
+/// the stream itself right before it opens the device.
+fn stream_policy(screen: AppScreen) -> Option<bool> {
+    match screen {
+        AppScreen::Gameplay => Some(false),
+        AppScreen::Loading => None,
+        _ => Some(true),
+    }
+}
+
+/// Opens the menu stream on a menu screen and closes it on Gameplay.
 /// Called when the screen changes, and once at start-up.
 pub fn sync_with_screen(state: &mut AppState) {
-    match state.screen {
-        AppScreen::Loading | AppScreen::Gameplay => state.menu_audio.close(),
-        _ => state.menu_audio.open(state.master_volume),
+    match stream_policy(state.screen) {
+        Some(true) => state.menu_audio.open(state.master_volume),
+        Some(false) => state.menu_audio.close(),
+        None => {}
     }
 }
 
@@ -152,6 +166,20 @@ mod tests {
         menu.play(UiSound::Confirm);
         assert!(menu.last_move.is_none(), "a closed stream records nothing");
         assert!(menu.last_tick.is_none());
+    }
+
+    #[test]
+    fn the_stream_policy_follows_the_screen() {
+        assert_eq!(stream_policy(AppScreen::SongSelect), Some(true));
+        assert_eq!(stream_policy(AppScreen::Result), Some(true));
+        assert_eq!(stream_policy(AppScreen::Settings), Some(true));
+        assert_eq!(stream_policy(AppScreen::KeyConfig), Some(true));
+        assert_eq!(
+            stream_policy(AppScreen::Loading),
+            None,
+            "Loading keeps the stream"
+        );
+        assert_eq!(stream_policy(AppScreen::Gameplay), Some(false));
     }
 
     #[test]

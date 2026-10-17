@@ -76,7 +76,6 @@ pub fn handle_song_select_input(
     if state.show_exit_modal {
         match code {
             KeyCode::Enter | KeyCode::KeyY => {
-                play_ui(state, UiSound::Confirm);
                 state.should_exit_app = true;
             }
             KeyCode::Escape | KeyCode::KeyN => {
