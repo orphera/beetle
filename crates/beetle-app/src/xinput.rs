@@ -272,6 +272,22 @@ const ERROR_SUCCESS: u32 = 0;
 const DLLS: [&str; 3] = ["xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll"];
 const LEGACY_ORDINAL: usize = 5;
 
+/// Whether an empty-slot scan is due at `at`, given the last one.
+fn scan_due(last_scan: Option<Instant>, at: Instant) -> bool {
+    last_scan.is_none_or(|last| at.saturating_duration_since(last) >= SCAN_INTERVAL)
+}
+
+/// The slot probed on this scan tick, and the one after it. Empty slots are
+/// probed one per tick in turn, so a scan costs one `XInputGetState` call.
+fn probe_slot(next: &mut u32) -> u32 {
+    let slot = *next;
+    *next = (slot + 1) % XINPUT_SLOTS;
+    slot
+}
+
+/// The XInput user slots.
+const XINPUT_SLOTS: u32 = 4;
+
 /// Polls the controller slots. Lives on the render thread.
 pub struct XInputPad {
     get_state: GetStateFn,
@@ -279,6 +295,8 @@ pub struct XInputPad {
     prev: PadState,
     repeat: MenuRepeat,
     last_scan: Option<Instant>,
+    /// The slot the next empty-slot scan probes.
+    next_probe: u32,
 }
 
 impl XInputPad {
@@ -291,21 +309,22 @@ impl XInputPad {
             prev: PadState::default(),
             repeat: MenuRepeat::default(),
             last_scan: None,
+            next_probe: 0,
         })
     }
 
     /// The menu inputs since the last poll, for the pad that is connected.
-    pub fn poll(&mut self, at: Instant) -> Vec<MenuInput> {
+    /// With no pad connected, one slot is probed per second when `scan` is
+    /// set (a play passes `false`: an empty slot read can take milliseconds).
+    pub fn poll(&mut self, at: Instant, scan: bool) -> Vec<MenuInput> {
         let Some(slot) = self.slot else {
-            let due = self
-                .last_scan
-                .is_none_or(|last| at.saturating_duration_since(last) >= SCAN_INTERVAL);
-            if due {
+            if scan && scan_due(self.last_scan, at) {
                 self.last_scan = Some(at);
-                self.slot = (0..4).find(|&i| self.read(i).is_some());
-                if let Some(slot) = self.slot {
+                let probe = probe_slot(&mut self.next_probe);
+                if let Some(now) = self.read(probe) {
+                    self.slot = Some(probe);
                     // Buttons already down on connect are not presses.
-                    self.prev = self.read(slot).unwrap_or_default();
+                    self.prev = now;
                 }
             }
             return Vec::new();
@@ -542,6 +561,21 @@ mod tests {
             pad_to_menu_events(PadState::default(), both, &mut rep, t),
             vec![MenuInput::Left]
         );
+    }
+
+    #[test]
+    fn the_empty_slot_scan_is_once_a_second() {
+        let t = t0();
+        assert!(scan_due(None, t));
+        assert!(!scan_due(Some(t), t + Duration::from_millis(999)));
+        assert!(scan_due(Some(t), t + SCAN_INTERVAL));
+    }
+
+    #[test]
+    fn each_scan_tick_probes_the_next_slot_in_turn() {
+        let mut next = 0;
+        let visited: Vec<u32> = (0..6).map(|_| probe_slot(&mut next)).collect();
+        assert_eq!(visited, [0, 1, 2, 3, 0, 1]);
     }
 
     #[test]

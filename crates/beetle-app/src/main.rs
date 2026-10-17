@@ -955,7 +955,9 @@ fn poll_pad(state: &mut AppState) {
     let Some(pad) = state.pad.as_mut() else {
         return;
     };
-    let inputs = pad.poll(std::time::Instant::now());
+    // A running play takes no menu input, so it does not scan for a pad.
+    let scan = !(state.screen == AppScreen::Gameplay && !state.is_gameplay_paused);
+    let inputs = pad.poll(std::time::Instant::now(), scan);
     if inputs.is_empty() {
         return;
     }
