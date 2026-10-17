@@ -118,6 +118,16 @@ impl Fx {
     };
 }
 
+/// The outline's color as drawn. Its four copies stack under the fill, so at
+/// alpha `a` the glyph's interior would be painted about four times over and
+/// a fading word turns grey before it disappears. The outline alpha follows
+/// `a^3` (in 0..=255 terms) instead, so the black behind the glyph is nearly
+/// gone by half fade.
+pub(crate) fn outline_color(color: ColorRgba) -> ColorRgba {
+    let a = color.a as u32;
+    color.with_alpha((a * a * a / (255 * 255)) as u8)
+}
+
 fn mix(a: ColorRgba, b: ColorRgba, t: f32) -> ColorRgba {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     ColorRgba::new(l(a.r, b.r), l(a.g, b.g), l(a.b, b.b), l(a.a, b.a))
@@ -386,7 +396,10 @@ impl TextEngine {
         fx: Fx,
     ) -> f32 {
         if let Some((color, off)) = fx.outline {
-            let dark = TextStyle { color, ..*style };
+            let dark = TextStyle {
+                color: outline_color(color),
+                ..*style
+            };
             for (dx, dy) in [(-off, 0.0), (off, 0.0), (0.0, -off), (0.0, off)] {
                 self.run(canvas, text, x + dx, y + dy, &dark, scale, true, Fx::NONE);
             }
@@ -608,6 +621,18 @@ fn embolden(g: &mut RasterGlyph, strength: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fading_outline_fades_faster_than_linearly() {
+        let black = |a| ColorRgba::new(0, 0, 0, a);
+        assert_eq!(outline_color(black(255)).a, 255);
+        assert_eq!(outline_color(black(0)).a, 0);
+        // At half alpha the outline is well under half of its full alpha.
+        let half = outline_color(black(128)).a;
+        assert!(half < 255 / 2, "half-alpha outline {half} vs full 255");
+        // The colour itself is untouched.
+        assert_eq!(outline_color(ColorRgba::new(10, 20, 30, 128)).r, 10);
+    }
 
     fn setup() -> (TextEngine, Canvas) {
         (TextEngine::new(), Canvas::new(1024))
