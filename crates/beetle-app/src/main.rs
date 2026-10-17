@@ -525,6 +525,9 @@ impl ApplicationHandler for BeetleApp {
                     if state.preview.playing_for().is_some() {
                         state.window.request_redraw();
                     }
+                    // A short preview wait (fade step, loop restart) must not be
+                    // stretched by the ambient frame below.
+                    timed = holds_frame_timer(preview_wait);
                     event_loop.set_control_flow(match preview_wait {
                         Some(wait) => ControlFlow::WaitUntil(Instant::now() + wait),
                         None => ControlFlow::Wait,
@@ -948,6 +951,13 @@ fn ambient_frame_step(
     (is_menu_screen(screen) && focused && !minimized && !lite).then_some(AMBIENT_FRAME)
 }
 
+/// Whether a requested wake-up is short enough that the ambient frame must
+/// leave the timer alone: anything at or under `AMBIENT_FRAME` already keeps the
+/// backdrop drifting, and a longer one is not lengthened by this rule.
+fn holds_frame_timer(wait: Option<Duration>) -> bool {
+    wait.is_some_and(|w| w <= AMBIENT_FRAME)
+}
+
 fn handle_keyboard_input(
     state: &mut AppState,
     physical_key: PhysicalKey,
@@ -1086,6 +1096,14 @@ mod tests {
             assert_eq!(ambient_frame_step(screen, true, false, false), None);
         }
         assert!(AMBIENT_FRAME <= Duration::from_millis(34));
+    }
+
+    #[test]
+    fn a_short_preview_wait_is_not_lengthened_by_the_ambient_frame() {
+        assert!(holds_frame_timer(Some(Duration::from_millis(16))));
+        assert!(holds_frame_timer(Some(AMBIENT_FRAME)));
+        assert!(!holds_frame_timer(Some(Duration::from_millis(500))));
+        assert!(!holds_frame_timer(None));
     }
 
     #[test]
