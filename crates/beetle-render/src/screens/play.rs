@@ -9,6 +9,7 @@ use super::widgets;
 use crate::art::Skin;
 use crate::backend::TextureId;
 use crate::canvas::{Canvas, Rect};
+use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{is_side_track, ColorRgba, FieldPosition, SkinConfig};
 use crate::strings;
@@ -108,7 +109,8 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     hud(c, t, &sk, f, &sides, s);
     end_banner(c, t, &sk, f, field, s);
     if let Some(selected) = f.pause {
-        pause_menu(c, t, &sk, f, selected, s);
+        let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+        pause_menu(c, t, &sk, f, selected, s, &mut hs);
     }
 }
 
@@ -1260,6 +1262,7 @@ fn pause_menu(
     f: &PlayFrame,
     selected: usize,
     s: f32,
+    hs: &mut HitSink,
 ) {
     let vp = f.viewport;
     c.fill_rect(
@@ -1333,7 +1336,8 @@ fn pause_menu(
     let mut y = bar.bottom() + 36.0 * s;
     for (i, label) in options.iter().enumerate() {
         let row = Rect::new(inner.x, y, inner.w, 40.0 * s);
-        let on = i == selected;
+        hs.add(row, HitId::PauseRow(i));
+        let on = i == selected || hs.hovered(row);
         if on {
             c.nine(&sk.panel, row, theme::CYAN.with_alpha(30));
             c.nine(&sk.panel_outline, row, theme::CYAN.with_alpha(200));

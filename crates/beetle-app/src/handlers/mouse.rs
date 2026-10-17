@@ -54,6 +54,15 @@ pub fn handle_press(state: &mut AppState) {
                 handle_click(state, id);
             }
         }
+        AppScreen::Gameplay if state.is_gameplay_paused => {
+            let Some((x, y)) = state.cursor else {
+                return;
+            };
+            if let Some(HitId::PauseRow(i)) = hit_at(&state.gpu_ui.ui.hits, x, y) {
+                state.pause_selected_option = i;
+                super::gameplay::activate_pause_option(state, i);
+            }
+        }
         _ => (),
     }
 }

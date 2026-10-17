@@ -249,31 +249,33 @@ pub fn handle_pause_modal_input(state: &mut AppState, code: KeyCode) {
             state.pause_selected_option = (state.pause_selected_option + 1).min(2);
         }
         KeyCode::Enter | KeyCode::Space => {
-            match state.pause_selected_option {
-                0 => {
-                    // Resume
-                    state.is_gameplay_paused = false;
-                    if let Some(audio) = &mut state.audio_engine {
-                        let _ = audio.resume();
-                    }
-                }
-                1 => {
-                    // Restart
-                    state.is_gameplay_paused = false;
-                    if let Some(song) = state.current_selected_song().cloned() {
-                        queue_start_gameplay(state, &song);
-                    }
-                }
-                2 => {
-                    // Quit to Song Select
-                    state.is_gameplay_paused = false;
-                    state.audio_engine = None;
-                    state.video_players.clear();
-                    state.video_start_times.clear();
-                    state.screen = AppScreen::SongSelect;
-                }
-                _ => (),
+            activate_pause_option(state, state.pause_selected_option)
+        }
+        _ => (),
+    }
+}
+
+/// Runs a pause menu row: 0 resume, 1 restart, 2 quit to song select.
+pub fn activate_pause_option(state: &mut AppState, option: usize) {
+    match option {
+        0 => {
+            state.is_gameplay_paused = false;
+            if let Some(audio) = &mut state.audio_engine {
+                let _ = audio.resume();
             }
+        }
+        1 => {
+            state.is_gameplay_paused = false;
+            if let Some(song) = state.current_selected_song().cloned() {
+                queue_start_gameplay(state, &song);
+            }
+        }
+        2 => {
+            state.is_gameplay_paused = false;
+            state.audio_engine = None;
+            state.video_players.clear();
+            state.video_start_times.clear();
+            state.screen = AppScreen::SongSelect;
         }
         _ => (),
     }

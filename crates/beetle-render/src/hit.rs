@@ -59,6 +59,8 @@ pub enum HitId {
     Rescan,
     /// Opens the quit prompt.
     Quit,
+    /// A row of the pause menu (0 resume, 1 restart, 2 quit to song select).
+    PauseRow(usize),
     /// Result screen footer: back to song select, play again, play again with
     /// the play options changed (opens the options panel), screenshot.
     ResultSongSelect,
