@@ -1,6 +1,7 @@
 use beetle_core::{Lane, PlayMode};
-use beetle_render::{theme::mode_label, SkinConfig};
+use beetle_render::{strings, theme::mode_label, SkinConfig};
 use std::collections::HashMap;
+use std::sync::Mutex;
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 /// Key mapping presets.
@@ -109,6 +110,9 @@ impl KeyPreset {
 pub struct InputConfig {
     pub preset: KeyPreset,
     pub custom_bindings: HashMap<KeyCode, Lane>,
+    /// Controller buttons bound to lanes, by (slot, HID usage). Only in
+    /// Custom layouts: a pad binding always starts from one.
+    pub pad_bindings: HashMap<(u8, u8), Lane>,
 }
 
 impl Default for InputConfig {
@@ -223,6 +227,7 @@ impl InputConfig {
         Self {
             preset,
             custom_bindings: HashMap::new(),
+            pad_bindings: HashMap::new(),
         }
     }
 
@@ -230,7 +235,7 @@ impl InputConfig {
     /// bindings exist), wrapping around.
     pub fn cycle_preset(&mut self, mode: PlayMode) {
         let mut order: Vec<KeyPreset> = KeyPreset::presets_for(mode).to_vec();
-        if !self.custom_bindings.is_empty() {
+        if !self.custom_bindings.is_empty() || !self.pad_bindings.is_empty() {
             order.push(KeyPreset::Custom);
         }
         let next = order
@@ -244,13 +249,14 @@ impl InputConfig {
     pub fn covers(&self, mode: PlayMode) -> bool {
         lanes_for(mode)
             .iter()
-            .all(|&lane| !self.keys_for_lane(lane).is_empty())
+            .all(|&lane| !self.sources_for_lane(lane).is_empty())
     }
 
     /// Resets all bindings to a specific default preset.
     pub fn reset_to_preset(&mut self, preset: KeyPreset) {
         self.preset = preset;
         self.custom_bindings.clear();
+        self.pad_bindings.clear();
     }
 
     /// Editing starts from what is active: switch to Custom, copying the
@@ -279,6 +285,21 @@ impl InputConfig {
     pub fn clear_lane(&mut self, lane: Lane) {
         self.begin_edit();
         self.custom_bindings.retain(|_, &mut l| l != lane);
+        self.pad_bindings.retain(|_, &mut l| l != lane);
+    }
+
+    /// Makes controller `button` the only pad button of `lane`. Keys of the
+    /// lane are kept.
+    pub fn bind_pad(&mut self, button: u8, lane: Lane) {
+        self.begin_edit();
+        self.pad_bindings.retain(|_, &mut l| l != lane);
+        self.pad_bindings.insert((0, button), lane);
+    }
+
+    /// Adds controller `button` to `lane`, keeping its other sources.
+    pub fn add_pad(&mut self, button: u8, lane: Lane) {
+        self.begin_edit();
+        self.pad_bindings.insert((0, button), lane);
     }
 
     /// Maps a winit PhysicalKey to a rhythm game Lane.
@@ -295,12 +316,35 @@ impl InputConfig {
         }
     }
 
-    /// The lane a source presses. Pads and the turntable are not bound yet.
+    /// The lane a source presses. The turntable is always the scratch lane
+    /// (it only produces presses when a turntable axis is configured).
     pub fn map_source(&self, source: Source) -> Option<Lane> {
         match source {
             Source::Key(code) => self.map_key(PhysicalKey::Code(code)),
-            Source::Pad { .. } | Source::Turntable => None,
+            Source::Pad { slot, button } => self.pad_bindings.get(&(slot, button)).copied(),
+            Source::Turntable => Some(Lane::Scratch),
         }
+    }
+
+    /// Sources bound to `lane`: its keys, then its pad buttons by number.
+    pub fn sources_for_lane(&self, lane: Lane) -> Vec<Source> {
+        let mut out: Vec<Source> = self
+            .keys_for_lane(lane)
+            .into_iter()
+            .map(Source::Key)
+            .collect();
+        let mut pads: Vec<(u8, u8)> = self
+            .pad_bindings
+            .iter()
+            .filter(|(_, &l)| l == lane)
+            .map(|(&k, _)| k)
+            .collect();
+        pads.sort_unstable();
+        out.extend(
+            pads.into_iter()
+                .map(|(slot, button)| Source::Pad { slot, button }),
+        );
+        out
     }
 
     /// Keys bound to `lane`, in a stable order (preset order, or by name for
@@ -325,16 +369,23 @@ impl InputConfig {
         }
     }
 
-    /// Display names of the keys bound to `lane` (empty when unbound).
+    /// The labels of the sources bound to `lane` (empty when unbound), as the
+    /// Key Config screen shows them: key names, and "PAD n" for buttons.
     pub fn key_names_for_lane(&self, lane: Lane) -> Vec<&'static str> {
-        self.keys_for_lane(lane)
+        self.sources_for_lane(lane)
             .into_iter()
-            .map(key_code_to_str)
+            .map(|source| match source {
+                Source::Key(code) => key_code_to_str(code),
+                Source::Pad { button, .. } => pad_label(button),
+                Source::Turntable => "TT",
+            })
             .collect()
     }
 
-    /// Serializes custom bindings: "Scratch:ShiftLeft,Scratch:ControlLeft,Key1:KeyS,..."
-    /// (a lane appears once per key; deterministic order).
+    /// Serializes custom bindings: "Scratch:ShiftLeft,Scratch:ControlLeft,Key1:KeyS,Key1:Pad3,..."
+    /// (a lane appears once per source; deterministic order). A pad button is
+    /// `Pad<button>` for slot 0 and `Pad<slot>.<button>` otherwise. Files
+    /// without pad entries read and write exactly as before.
     pub fn serialize_bindings(&self) -> String {
         let mut parts = Vec::new();
         for &lane in &Lane::ALL {
@@ -348,31 +399,81 @@ impl InputConfig {
             for key in keys {
                 parts.push(format!("{}:{}", lane_to_name(lane), key));
             }
+            let mut pads: Vec<(u8, u8)> = self
+                .pad_bindings
+                .iter()
+                .filter(|(_, &l)| l == lane)
+                .map(|(&k, _)| k)
+                .collect();
+            pads.sort_unstable();
+            for (slot, button) in pads {
+                let token = if slot == 0 {
+                    format!("Pad{button}")
+                } else {
+                    format!("Pad{slot}.{button}")
+                };
+                parts.push(format!("{}:{}", lane_to_name(lane), token));
+            }
         }
         parts.join(",")
     }
 
-    /// Restores custom bindings from a compact serialized string.
+    /// Restores custom bindings from a compact serialized string. Unknown
+    /// items are skipped.
     pub fn deserialize_bindings(&mut self, s: &str) {
         if s.trim().is_empty() {
             return;
         }
 
         self.custom_bindings.clear();
+        self.pad_bindings.clear();
         for item in s.split(',') {
             let parts: Vec<&str> = item.splitn(2, ':').collect();
             if parts.len() == 2 {
-                if let (Some(lane), Some(code)) =
-                    (name_to_lane(parts[0]), identifier_to_key_code(parts[1]))
-                {
+                let Some(lane) = name_to_lane(parts[0]) else {
+                    continue;
+                };
+                if let Some(pad) = parse_pad_token(parts[1]) {
+                    if let Source::Pad { slot, button } = pad {
+                        self.pad_bindings.insert((slot, button), lane);
+                    }
+                } else if let Some(code) = identifier_to_key_code(parts[1]) {
                     self.custom_bindings.insert(code, lane);
                 }
             }
         }
-        if !self.custom_bindings.is_empty() {
+        if !self.custom_bindings.is_empty() || !self.pad_bindings.is_empty() {
             self.preset = KeyPreset::Custom;
         }
     }
+}
+
+/// The source of a pad token (`Pad3`, `Pad1.3`), or `None` for anything else
+/// (a key identifier, or a malformed pad token).
+fn parse_pad_token(s: &str) -> Option<Source> {
+    let rest = s.strip_prefix("Pad")?;
+    let (slot, button) = match rest.split_once('.') {
+        Some((slot, button)) => (slot.parse::<u8>().ok()?, button.parse::<u8>().ok()?),
+        None => (0, rest.parse::<u8>().ok()?),
+    };
+    (1..=64)
+        .contains(&button)
+        .then_some(Source::Pad { slot, button })
+}
+
+/// "PAD 3" as the Key Config screen shows button 3 (usage 3), in the current
+/// language. The labels are built once per language and button.
+pub fn pad_label(button: u8) -> &'static str {
+    static LABELS: Mutex<Vec<(strings::Lang, u8, &'static str)>> = Mutex::new(Vec::new());
+    let lang = strings::lang();
+    let mut labels = LABELS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(_, _, label)) = labels.iter().find(|(l, b, _)| *l == lang && *b == button) {
+        return label;
+    }
+    let text = strings::fill(strings::PAD_BUTTON(), &[&button.to_string()]);
+    let label: &'static str = Box::leak(text.into_boxed_str());
+    labels.push((lang, button, label));
+    label
 }
 
 /// Where a lane press comes from: a keyboard key, a controller button, or
@@ -1217,5 +1318,133 @@ mod tests {
             restored.map_key(PhysicalKey::Code(KeyCode::Semicolon)),
             Some(Lane::Key8)
         );
+    }
+}
+
+#[cfg(test)]
+mod pad_binding_tests {
+    use super::*;
+
+    #[test]
+    fn a_pad_button_binds_a_lane_next_to_its_keys() {
+        let mut config = InputConfig::default();
+        config.bind_key(KeyCode::KeyZ, Lane::Key1);
+        config.bind_pad(3, Lane::Key1);
+        // The key stays; the pad joins it.
+        assert_eq!(
+            config.map_source(Source::Key(KeyCode::KeyZ)),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.map_source(Source::Pad { slot: 0, button: 3 }),
+            Some(Lane::Key1)
+        );
+        assert_eq!(
+            config.sources_for_lane(Lane::Key1),
+            vec![
+                Source::Key(KeyCode::KeyZ),
+                Source::Pad { slot: 0, button: 3 }
+            ]
+        );
+        assert_eq!(config.key_names_for_lane(Lane::Key1), ["Z", pad_label(3)]);
+        // Binding a pad replaces only the lane's pad buttons.
+        config.bind_pad(5, Lane::Key1);
+        assert_eq!(config.map_source(Source::Pad { slot: 0, button: 3 }), None);
+        assert_eq!(
+            config.map_source(Source::Key(KeyCode::KeyZ)),
+            Some(Lane::Key1)
+        );
+        // Keys rebound keep the pad.
+        config.bind_key(KeyCode::KeyX, Lane::Key1);
+        assert_eq!(
+            config.map_source(Source::Pad { slot: 0, button: 5 }),
+            Some(Lane::Key1)
+        );
+        assert_eq!(config.map_source(Source::Key(KeyCode::KeyZ)), None);
+    }
+
+    #[test]
+    fn a_lane_can_have_several_pad_buttons_and_clearing_takes_them_all() {
+        let mut config = InputConfig::new(KeyPreset::Custom);
+        config.bind_pad(1, Lane::Key2);
+        config.add_pad(2, Lane::Key2);
+        assert_eq!(config.sources_for_lane(Lane::Key2).len(), 2);
+        config.clear_lane(Lane::Key2);
+        assert!(config.sources_for_lane(Lane::Key2).is_empty());
+        assert!(config.pad_bindings.is_empty());
+    }
+
+    #[test]
+    fn pad_bindings_round_trip_with_key_bindings() {
+        let mut config = InputConfig::new(KeyPreset::Custom);
+        config.bind_key(KeyCode::ShiftLeft, Lane::Scratch);
+        config.bind_pad(3, Lane::Key1);
+        config.add_pad(40, Lane::Key1);
+        config.bind_pad(2, Lane::P2Key7);
+        let text = config.serialize_bindings();
+        assert_eq!(text, "Scratch:ShiftLeft,Key1:Pad3,Key1:Pad40,P2Key7:Pad2");
+        let mut restored = InputConfig::new(KeyPreset::HomeRow);
+        restored.deserialize_bindings(&text);
+        assert_eq!(restored.preset, KeyPreset::Custom);
+        assert_eq!(restored.custom_bindings, config.custom_bindings);
+        assert_eq!(restored.pad_bindings, config.pad_bindings);
+        assert_eq!(restored.serialize_bindings(), text);
+    }
+
+    #[test]
+    fn a_pad_only_layout_is_custom_and_covers_its_lanes() {
+        let mut restored = InputConfig::new(KeyPreset::HomeRow);
+        restored.deserialize_bindings("Key1:Pad1");
+        assert_eq!(restored.preset, KeyPreset::Custom);
+        assert_eq!(
+            restored.map_source(Source::Pad { slot: 0, button: 1 }),
+            Some(Lane::Key1)
+        );
+    }
+
+    #[test]
+    fn old_files_without_pad_entries_load_unchanged() {
+        // The format before pads: keys only, and a garbage item is skipped.
+        let mut old = InputConfig::new(KeyPreset::HomeRow);
+        old.deserialize_bindings("Scratch:ShiftLeft,Key1:KeyZ,Key9:Bogus,Pad0:KeyQ");
+        assert_eq!(
+            old.map_source(Source::Key(KeyCode::ShiftLeft)),
+            Some(Lane::Scratch)
+        );
+        assert_eq!(old.map_source(Source::Key(KeyCode::KeyZ)), Some(Lane::Key1));
+        assert!(old.pad_bindings.is_empty());
+        assert_eq!(old.serialize_bindings(), "Scratch:ShiftLeft,Key1:KeyZ");
+    }
+
+    #[test]
+    fn pad_tokens_are_bounded_to_the_usages() {
+        assert_eq!(
+            parse_pad_token("Pad1"),
+            Some(Source::Pad { slot: 0, button: 1 })
+        );
+        assert_eq!(
+            parse_pad_token("Pad64"),
+            Some(Source::Pad {
+                slot: 0,
+                button: 64
+            })
+        );
+        assert_eq!(parse_pad_token("Pad0"), None);
+        assert_eq!(parse_pad_token("Pad65"), None);
+        assert_eq!(
+            parse_pad_token("Pad2.3"),
+            Some(Source::Pad { slot: 2, button: 3 })
+        );
+        assert_eq!(parse_pad_token("PadX"), None);
+        assert_eq!(parse_pad_token("KeyS"), None);
+        assert_eq!(parse_pad_token("Pad999.1"), None);
+    }
+
+    #[test]
+    fn the_turntable_is_the_scratch_lane_and_labels_say_pad() {
+        let config = InputConfig::default();
+        assert_eq!(config.map_source(Source::Turntable), Some(Lane::Scratch));
+        assert_eq!(pad_label(3), strings::fill(strings::PAD_BUTTON(), &["3"]));
+        assert!(pad_label(12).ends_with("12"));
     }
 }

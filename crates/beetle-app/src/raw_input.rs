@@ -32,6 +32,7 @@ use winit::window::Window;
 use crate::hid::{self, Edges};
 use crate::input::Source;
 use crate::lane_logic::{LaneEvent, LaneSession, LogicCommand, TICK_MILLIS};
+use crate::turntable::Turntable;
 
 /// Key changes held for the game; far more than come in between two frames.
 const QUEUE_CAPACITY: usize = 1024;
@@ -70,7 +71,7 @@ impl RawKeyboard {
     /// only while that window is in front; they always come up, so a key let
     /// go elsewhere is not left held. `None` when raw input cannot be set up
     /// (the game then judges winit's key events as before).
-    pub fn spawn(hwnd: *mut c_void) -> Option<Self> {
+    pub fn spawn(hwnd: *mut c_void, turntable_axis: Option<u8>) -> Option<Self> {
         let (tx, rx) = RingBuffer::new(QUEUE_CAPACITY);
         let (events_tx, events) = RingBuffer::new(EVENT_CAPACITY);
         let (commands, commands_rx) = RingBuffer::new(COMMAND_CAPACITY);
@@ -88,6 +89,7 @@ impl RawKeyboard {
                     held: Held::default(),
                     raw: vec![0; 8],
                     pads: HashMap::new(),
+                    turntable: turntable_axis.map(|axis| (axis, Turntable::default())),
                 };
                 thread.run(ready_tx)
             })
@@ -102,12 +104,12 @@ impl RawKeyboard {
     }
 
     /// [`Self::spawn`] for a winit window.
-    pub fn spawn_for(window: &Window) -> Option<Self> {
+    pub fn spawn_for(window: &Window, turntable_axis: Option<u8>) -> Option<Self> {
         let handle = window.window_handle().ok()?;
         let RawWindowHandle::Win32(win32) = handle.as_raw() else {
             return None;
         };
-        Self::spawn(win32.hwnd.get() as *mut c_void)
+        Self::spawn(win32.hwnd.get() as *mut c_void, turntable_axis)
     }
 
     /// The next key or button change outside a play, oldest first.
@@ -167,6 +169,8 @@ struct Thread {
     /// Controllers by device handle. `None` for one hid.dll does not describe,
     /// so it is not asked again on every report.
     pads: HashMap<usize, Option<hid::Device>>,
+    /// The turntable axis (from the config) and its press state.
+    turntable: Option<(u8, Turntable)>,
 }
 
 impl Thread {
@@ -223,6 +227,13 @@ impl Thread {
                         let _ = self.events.push(event);
                     }
                 }
+                // The turntable's press lets go after its last move.
+                if self.session.is_some() {
+                    let release = self.turntable.as_mut().and_then(|(_, tt)| tt.tick(now));
+                    if let Some(down) = release {
+                        self.key(Source::Turntable, down, now);
+                    }
+                }
             }
         }
     }
@@ -263,15 +274,20 @@ impl Thread {
         }
         for i in 0..count.min(body.len() / size) {
             let report = &body[i * size..(i + 1) * size];
-            if let Some(edges) = self.pad_edges(device, report) {
+            if let Some((edges, turn)) = self.pad_read(device, report) {
                 self.buttons(edges, at);
+                if let Some((raw, bits)) = turn {
+                    self.turn(raw, bits, at);
+                }
             }
         }
     }
 
-    /// The button changes of one report from `device`, or `None` when the
-    /// device is unknown, cannot be read, or the report is rejected.
-    fn pad_edges(&mut self, device: usize, report: &[u8]) -> Option<Edges> {
+    /// Reads one report from `device`: its button changes, and the turntable
+    /// axis (value, bit width) when one is configured and the device has it.
+    /// `None` when the device is unknown, cannot be read, or the report is
+    /// rejected.
+    fn pad_read(&mut self, device: usize, report: &[u8]) -> Option<(Edges, Option<(u32, u8)>)> {
         if !self.pads.contains_key(&device) {
             if self.pads.len() >= hid::MAX_DEVICES {
                 return None;
@@ -279,11 +295,28 @@ impl Thread {
             let opened = unsafe { hid::Device::open(device as *mut c_void) };
             self.pads.insert(device, opened);
         }
+        let axis = self.turntable.map(|(axis, _)| usize::from(axis));
         let pad = self.pads.get_mut(&device)?.as_mut()?;
         let snap = pad.snapshot(report)?;
         let edges = hid::edges(pad.prev.buttons, snap.buttons);
+        let turn = axis.and_then(|a| Some((*snap.raw.get(a)?, pad.axis_bits(a)?)));
         pad.prev = snap;
-        Some(edges)
+        Some((edges, turn))
+    }
+
+    /// One turntable reading (`raw`, `bits` wide). Only a play takes it: the
+    /// press it makes is judged like a key.
+    fn turn(&mut self, raw: u32, bits: u8, at: Instant) {
+        if self.session.is_none() {
+            return;
+        }
+        let event = self
+            .turntable
+            .as_mut()
+            .and_then(|(_, tt)| tt.report(raw, bits, at));
+        if let Some(down) = event {
+            self.key(Source::Turntable, down, at);
+        }
     }
 
     /// Presses and releases of the controller buttons in `edges`, as
@@ -351,8 +384,18 @@ impl Thread {
 
     fn command(&mut self, command: LogicCommand) {
         match command {
-            LogicCommand::Start(session) => self.session = Some(session),
-            LogicCommand::End => self.session = None,
+            LogicCommand::Start(session) => {
+                self.session = Some(session);
+                if let Some((_, tt)) = &mut self.turntable {
+                    tt.reset();
+                }
+            }
+            LogicCommand::End => {
+                self.session = None;
+                if let Some((_, tt)) = &mut self.turntable {
+                    tt.reset();
+                }
+            }
             LogicCommand::Pause(paused) => {
                 if let Some(s) = &mut self.session {
                     s.set_paused(paused);
@@ -753,7 +796,7 @@ mod tests {
     #[test]
     fn the_reading_thread_registers_for_raw_input() {
         // Registration needs no window in front; an empty queue to start.
-        let mut keys = RawKeyboard::spawn(std::ptr::null_mut()).expect("raw input");
+        let mut keys = RawKeyboard::spawn(std::ptr::null_mut(), None).expect("raw input");
         assert_eq!(keys.pop(), None);
     }
 
@@ -771,7 +814,7 @@ mod tests {
 
     #[test]
     fn a_session_checks_for_misses_until_paused_or_ended() {
-        let mut keys = RawKeyboard::spawn(std::ptr::null_mut()).expect("raw input");
+        let mut keys = RawKeyboard::spawn(std::ptr::null_mut(), None).expect("raw input");
         assert!(keys.send(LogicCommand::Start(Box::new(LaneSession::for_test(3)))));
         let event = next_event(&mut keys).expect("a miss check");
         assert_eq!(event.session, 3);

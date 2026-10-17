@@ -309,6 +309,8 @@ pub struct AppConfig {
     /// The language picked in Settings (`language=KO|EN|JA`). `None` until the
     /// player picks one: the Windows UI language is used then.
     pub language: Option<Lang>,
+    /// The controller axis that is a turntable (`turntable_axis=<0..7>`, `OFF` or absent for none).
+    pub turntable_axis: Option<u8>,
 }
 
 impl Default for AppConfig {
@@ -342,6 +344,7 @@ impl Default for AppConfig {
             judge_position: JudgePosition::Upper,
             reduce_flashes: false,
             language: None,
+            turntable_axis: None,
         }
     }
 }
@@ -535,6 +538,12 @@ impl AppConfig {
                 "judge_position" => config.judge_position = JudgePosition::from_name(val),
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
                 "language" => config.language = Lang::from_code(val),
+                "turntable_axis" => {
+                    config.turntable_axis = val
+                        .parse::<u8>()
+                        .ok()
+                        .filter(|&a| usize::from(a) < crate::hid::MAX_AXES);
+                }
                 _ => {
                     for (i, &mode) in MODE_SLOTS.iter().enumerate() {
                         let slot = mode_slot_name(mode);
@@ -632,6 +641,9 @@ filter_uncleared={}
             u8::from(self.filter.only_unplayed),
             u8::from(self.filter.only_uncleared),
         ));
+        if let Some(axis) = self.turntable_axis {
+            out.push_str(&format!("turntable_axis={axis}\n"));
+        }
         if let Some(lang) = self.language {
             out.push_str(&format!(
                 "language={}
@@ -1024,5 +1036,39 @@ mod language_tests {
     #[test]
     fn an_unknown_language_value_is_ignored() {
         assert_eq!(AppConfig::parse_str("language=FR\n").language, None);
+    }
+}
+
+#[cfg(test)]
+mod turntable_axis_tests {
+    use super::*;
+
+    #[test]
+    fn the_turntable_axis_round_trips_and_absent_means_none() {
+        assert_eq!(AppConfig::parse_str("").turntable_axis, None);
+        let mut config = AppConfig::default();
+        config.turntable_axis = Some(2);
+        let text = config.serialize_str();
+        assert!(text.contains("turntable_axis=2\n"));
+        assert_eq!(AppConfig::parse_str(&text).turntable_axis, Some(2));
+        // A config without the line writes none.
+        let plain = AppConfig::default().serialize_str();
+        assert!(!plain.contains("turntable_axis"));
+    }
+
+    #[test]
+    fn an_axis_outside_the_eight_read_is_ignored() {
+        assert_eq!(
+            AppConfig::parse_str("turntable_axis=7\n").turntable_axis,
+            Some(7)
+        );
+        assert_eq!(
+            AppConfig::parse_str("turntable_axis=8\n").turntable_axis,
+            None
+        );
+        assert_eq!(
+            AppConfig::parse_str("turntable_axis=OFF\n").turntable_axis,
+            None
+        );
     }
 }

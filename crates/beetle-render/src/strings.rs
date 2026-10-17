@@ -1433,6 +1433,11 @@ table! {
         ko "키",
         en "Keys",
         ja "キー";
+    /// A controller button in a lane's list ("{}" is its number).
+    pub PAD_BUTTON =
+        ko "패드 {}",
+        en "PAD {}",
+        ja "パッド {}";
     pub SIDE_LEFT =
         ko "왼쪽",
         en "Left",

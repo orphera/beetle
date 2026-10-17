@@ -64,6 +64,24 @@ pub fn handle_key_config_input(state: &mut AppState, key_state: ElementState, co
     }
 }
 
+/// A controller button pressed while a key is being set: it binds the
+/// selected lane the way the key would (replace or add, as the prompt asked),
+/// and keeps the lane's keys. Pressed with no prompt, it does nothing.
+pub fn set_pad(state: &mut AppState, button: u8) {
+    let Some(rebind) = state.rebinding.take() else {
+        return;
+    };
+    if let Some(lane) = selected_lane(state) {
+        let mode = state.key_config_edit_mode;
+        let layout = state.key_bindings.get_mut(mode);
+        match rebind {
+            Rebind::Replace => layout.bind_pad(button, lane),
+            Rebind::Add => layout.add_pad(button, lane),
+        }
+        state.save_config();
+    }
+}
+
 /// The lane under the selection in the edited mode.
 fn selected_lane(state: &AppState) -> Option<Lane> {
     screen_lanes_for(&state.view.skin, state.key_config_edit_mode)

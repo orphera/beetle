@@ -207,6 +207,8 @@ pub struct AppState {
     pub reduce_flashes: bool,
     /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
     pub language: Option<strings::Lang>,
+    /// The controller axis that is a turntable (kept as the config has it).
+    pub turntable_axis: Option<u8>,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
@@ -518,6 +520,7 @@ impl AppState {
             reduce_flashes: self.reduce_flashes,
             display_mode: self.display_mode,
             language: self.language,
+            turntable_axis: self.turntable_axis,
             gpu_backend: self.gpu_backend,
             window_width: size.width.max(640),
             window_height: size.height.max(480),

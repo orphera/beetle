@@ -24,6 +24,7 @@ mod state;
 mod tables;
 mod thumbs;
 mod transition;
+mod turntable;
 mod xinput;
 
 #[cfg(not(target_os = "windows"))]
@@ -195,13 +196,14 @@ impl ApplicationHandler for BeetleApp {
         // Lane keys are read on their own thread (see `raw_input`). Raw
         // input has one target per process, so winit's is switched off first.
         event_loop.listen_device_events(DeviceEvents::Never);
-        let raw_keys = raw_input::RawKeyboard::spawn_for(&window);
+        let raw_keys = raw_input::RawKeyboard::spawn_for(&window, saved_config.turntable_axis);
 
         let mut app_state = AppState {
             window,
             view,
             raw_keys,
             pad: xinput::XInputPad::load(),
+            turntable_axis: saved_config.turntable_axis,
             lane_session: None,
             lane_session_seq: 0,
             audio_engine: None,
@@ -921,6 +923,12 @@ fn drain_raw_keys(state: &mut AppState) {
                 if !hotkey {
                     let audio_time = gameplay::audio_time_at(state, key.at);
                     handlers::gameplay::handle_lane_key(state, key.source, key.down, audio_time);
+                }
+            }
+            // A pressed controller button answers the "press a key" prompt.
+            AppScreen::KeyConfig if state.rebinding.is_some() => {
+                if let (Source::Pad { button, .. }, true) = (key.source, key.down) {
+                    handlers::key_config::set_pad(state, button);
                 }
             }
             AppScreen::Settings if key.down && state.calibration.is_some() => {
