@@ -380,7 +380,7 @@ impl ApplicationHandler for BeetleApp {
         state.d3d11.set_vsync(vsync);
 
         if state.screen != AppScreen::SongSelect {
-            state.preview.stop();
+            state.preview.release(Instant::now());
         }
         // The calibration lives on the Settings screen only.
         if state.screen != AppScreen::Settings {
@@ -485,10 +485,11 @@ impl ApplicationHandler for BeetleApp {
                 let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
                 let selected_id = selected_song.as_ref().map(|s| s.id);
-                let preview_wait =
-                    state
-                        .preview
-                        .update(selected_song.as_ref(), is_settled, state.master_volume);
+                let preview_wait = state.preview.update(
+                    selected_song.as_ref(),
+                    Instant::now(),
+                    state.master_volume,
+                );
 
                 if !is_settled {
                     // While holding arrow key or scrolling, don't spawn background threads
@@ -534,7 +535,9 @@ impl ApplicationHandler for BeetleApp {
                     && state.result_entered_at.elapsed().as_secs_f64()
                         < beetle_render::RESULT_REVEAL_DURATION_SECONDS;
                 let calibrating = state.calibration.as_ref().is_some_and(|c| c.is_running());
-                if calibrating || result_animating {
+                // A preview fading out after leaving song select needs ticks
+                // until its stream is closed.
+                if calibrating || result_animating || state.preview.is_fading() {
                     state.window.request_redraw();
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + Duration::from_millis(16),

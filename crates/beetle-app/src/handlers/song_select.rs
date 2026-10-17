@@ -669,6 +669,7 @@ fn filter_key(state: &mut AppState, code: KeyCode) -> bool {
 pub fn start_selected(state: &mut AppState) {
     if let Some(song) = state.current_selected_song().cloned() {
         play_ui(state, UiSound::Confirm);
+        state.preview.duck();
         state.is_replay_playback = false;
         queue_start_gameplay(state, &song);
     }
@@ -681,6 +682,7 @@ pub fn start_replay(state: &mut AppState) {
         if let Ok(rep_str) = fs::read_to_string(&path_str) {
             if let Some(replay) = ReplayData::parse_from_str(&rep_str) {
                 play_ui(state, UiSound::Confirm);
+                state.preview.duck();
                 state.is_replay_playback = true;
                 state.playback_replay = Some(replay);
                 state.playback_cursor = 0;
