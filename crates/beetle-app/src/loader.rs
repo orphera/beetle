@@ -1896,7 +1896,7 @@ mod tests {
         let meta = meta_at("songs/a/broken.bms");
         assert_eq!(
             chart_load_failure_message(&meta),
-            "채보를 불러오지 못했습니다: broken.bms"
+            "채보를 불러오지 못했어요: broken.bms"
         );
     }
 

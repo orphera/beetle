@@ -218,7 +218,7 @@ pub fn check_autofocus_rescan(state: &mut AppState) {
     transition::show_toast(
         state,
         ToastKind::Info,
-        "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신됩니다",
+        "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요",
     );
 }
 

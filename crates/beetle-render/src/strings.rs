@@ -41,33 +41,33 @@ table! {
     /// Caption of the error dialog.
     pub APP_NAME = "Beetle";
     /// Error dialog when Direct3D 11 cannot start; `{}` is the error.
-    pub FATAL_D3D11 = "Beetle이 Direct3D 11(하드웨어 또는 WARP)을 시작하지 못했습니다.\n\n{}";
+    pub FATAL_D3D11 = "Beetle이 Direct3D 11(하드웨어 또는 WARP)을 시작하지 못했어요.\n\n{}";
     pub CANCEL = "취소";
     pub BACK = "뒤로";
     pub LOADING = "불러오는 중";
 
     // ---- Toasts (short notices over the menus) ------------------------
     /// `{}` is the number of songs read.
-    pub TOAST_RESCAN_DONE = "곡 {}개를 읽었습니다";
+    pub TOAST_RESCAN_DONE = "곡 {}개를 읽었어요";
     /// `{}` is the file name of the saved screenshot.
-    pub TOAST_SCREENSHOT_SAVED = "스크린샷을 저장했습니다: {}";
+    pub TOAST_SCREENSHOT_SAVED = "스크린샷을 저장했어요: {}";
     /// `{}` is the error.
-    pub TOAST_SCREENSHOT_FAILED = "스크린샷을 저장하지 못했습니다: {}";
+    pub TOAST_SCREENSHOT_FAILED = "스크린샷을 저장하지 못했어요: {}";
     /// Shown when leaving Settings with a value that only applies after a restart.
-    pub TOAST_RESTART_NEEDED = "재시작 후 적용됩니다";
-    pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일입니다 (.bmsp, .bms, .bme, .bml, .pms)";
+    pub TOAST_RESTART_NEEDED = "재시작 후 적용돼요";
+    pub TOAST_UNSUPPORTED_FILE = "지원하지 않는 파일이에요 (.bmsp, .bms, .bme, .bml, .pms)";
     /// `{}` is the file name of the package.
     pub TOAST_UNINSTALLED_ONE = "설치되지 않은 패키지: {} / bpm install로 설치하세요";
     /// The first `{}` is the count, the second the first file name.
     pub TOAST_UNINSTALLED_MANY = "설치되지 않은 패키지 {}개 ({} 외) / bpm install로 설치하세요";
     /// `{}` is the file name.
-    pub TOAST_OPEN_FAILED = "곡을 열지 못했습니다: {}";
+    pub TOAST_OPEN_FAILED = "곡을 열지 못했어요: {}";
     /// `{}` is the chart file name. Shown when a chart cannot be read or parsed; nothing plays.
-    pub TOAST_CHART_LOAD_FAILED = "채보를 불러오지 못했습니다: {}";
+    pub TOAST_CHART_LOAD_FAILED = "채보를 불러오지 못했어요: {}";
     /// `{}` is the layout name (key mode and preset, e.g. "7K HomeRow (...)").
     pub TOAST_PRESET = "키 배치: {} 프리셋";
     /// `{}` is the layout name (key mode and preset).
-    pub TOAST_LAYOUT_RESET = "키 배치를 {} 프리셋으로 되돌렸습니다";
+    pub TOAST_LAYOUT_RESET = "키 배치를 {} 프리셋으로 되돌렸어요";
 
     // ---- Boot ---------------------------------------------------------
     pub BOOT_TITLE_STARTUP = "시작하는 중";
@@ -85,14 +85,14 @@ table! {
     pub PREVIEW = "미리듣기";
     /// Row tag for a chart with no score yet.
     pub NO_PLAY = "기록 없음";
-    pub EMPTY_FOLDER = "이 폴더에 곡이 없습니다.";
+    pub EMPTY_FOLDER = "이 폴더에 곡이 없어요.";
     pub EMPTY_HINT = "곡 파일(.bms, .bme, .bmsp)을 songs 폴더에 넣고 F5를 눌러 다시 읽으세요.";
     /// `{}` is the search text.
-    pub NO_MATCH = "\"{}\"에 맞는 곡이 없습니다.";
-    pub SEARCH_HINT = "/ 키로 검색어를 고치고, Esc로 지웁니다.";
+    pub NO_MATCH = "\"{}\"에 맞는 곡이 없어요.";
+    pub SEARCH_HINT = "/ 키로 검색어를 고치고, Esc로 지워요.";
     pub PERSONAL_BEST = "최고 기록";
     pub NOT_PLAYED = "아직 플레이하지 않음";
-    pub CLEAR_TO_RECORD = "이 채보를 클리어하면 기록이 남습니다.";
+    pub CLEAR_TO_RECORD = "이 채보를 클리어하면 기록이 남아요.";
     /// `{}` is the gauge name (GROOVE, HARD, ...).
     pub GAUGE_NAME = "{} 게이지";
     /// `{}` is the play count.
@@ -128,7 +128,7 @@ table! {
     pub FOLDER_SONGS = "{} 곡";
     /// Footer count while the list is folders only: `{}` is the folder count.
     pub FOLDER_COUNT = "{} 폴더";
-    pub FOLDER_OPEN_HINT = "ENTER로 열고, BKSP로 위 폴더로 나갑니다.";
+    pub FOLDER_OPEN_HINT = "ENTER로 열고, BKSP로 위 폴더로 나가요.";
     pub FOOTER_OPEN = "열기";
 
     // Sort names.
@@ -148,14 +148,14 @@ table! {
     pub FILTER_UNCLEARED = "미클리어만";
     pub FILTER_RESET = "초기화";
     /// Empty list while a filter is on and there is no search.
-    pub FILTER_NO_MATCH = "필터에 맞는 곡이 없습니다.";
+    pub FILTER_NO_MATCH = "필터에 맞는 곡이 없어요.";
     pub FILTER_EMPTY_HINT = "필터를 바꾸거나 초기화하세요.";
     /// `{}` is the number of songs found.
     pub RESULT_COUNT = "{}곡 찾음";
 
     // Help overlay (song select, ? key). Keys stay English keycaps.
     pub HELP_TITLE = "도움말";
-    pub HELP_CLOSE = "? 또는 ESC로 닫습니다";
+    pub HELP_CLOSE = "? 또는 ESC로 닫아요";
     pub HELP_GROUP_MOVE = "이동";
     pub HELP_GROUP_FOLDER = "폴더";
     pub HELP_GROUP_SONG = "곡";
@@ -164,50 +164,50 @@ table! {
     pub HELP_GROUP_MISC = "기타";
     pub HELP_CAP_MOUSE = "마우스";
     pub HELP_CAP_DROP = "끌어다 놓기";
-    pub HELP_MOVE_ONE = "한 줄씩 움직입니다";
-    pub HELP_MOVE_PAGE = "10줄씩 움직입니다";
-    pub HELP_MOVE_ENDS = "처음과 끝으로 갑니다";
-    pub HELP_MOUSE_WHEEL = "휠로 목록을 굴립니다";
-    pub HELP_MOUSE_ROW = "줄을 누르면 고릅니다";
-    pub HELP_FOLDER_UP = "한 단계 위 폴더로 갑니다";
-    pub HELP_FOLDER_OPEN = "폴더는 열고 곡은 재생합니다";
+    pub HELP_MOVE_ONE = "한 줄씩 움직여요";
+    pub HELP_MOVE_PAGE = "10줄씩 움직여요";
+    pub HELP_MOVE_ENDS = "처음과 끝으로 가요";
+    pub HELP_MOUSE_WHEEL = "휠로 목록을 굴려요";
+    pub HELP_MOUSE_ROW = "줄을 누르면 골라요";
+    pub HELP_FOLDER_UP = "한 단계 위 폴더로 가요";
+    pub HELP_FOLDER_OPEN = "폴더는 열고 곡은 재생해요";
     pub HELP_FOLDER_SIDE = "같은 단계의 이전과 다음 폴더";
     pub HELP_MOUSE_SIDE = "상단 < > 버튼으로 옆 폴더";
     pub HELP_MOUSE_CRUMB = "빵부스러기를 누르면 그 폴더";
-    pub HELP_SONG_PLAY = "선택한 곡을 플레이합니다";
-    pub HELP_SONG_AUTO = "자동 플레이를 켜고 끕니다";
-    pub HELP_SONG_REPLAY = "저장된 리플레이를 재생합니다";
-    pub HELP_SONG_CHART = "묶음 행의 채보를 바꿉니다";
+    pub HELP_SONG_PLAY = "선택한 곡을 플레이해요";
+    pub HELP_SONG_AUTO = "자동 플레이를 켜고 꺼요";
+    pub HELP_SONG_REPLAY = "저장된 리플레이를 재생해요";
+    pub HELP_SONG_CHART = "묶음 행의 채보를 바꿔요";
     pub HELP_MOUSE_AGAIN = "고른 줄을 다시 누르면 재생";
-    pub HELP_OPTIONS = "플레이 옵션을 엽니다";
-    pub HELP_SETTINGS = "설정 화면을 엽니다";
-    pub HELP_KEYS = "키 설정을 엽니다";
+    pub HELP_OPTIONS = "플레이 옵션을 열어요";
+    pub HELP_SETTINGS = "설정 화면을 열어요";
+    pub HELP_KEYS = "키 설정을 열어요";
     pub HELP_MOUSE_BUTTONS = "상단의 옵션, 설정 버튼";
-    pub HELP_SEARCH = "검색창을 엽니다";
-    pub HELP_SORT = "정렬 기준을 바꿉니다";
-    pub HELP_FILTER = "필터 줄에 초점을 줍니다";
+    pub HELP_SEARCH = "검색창을 열어요";
+    pub HELP_SORT = "정렬 기준을 바꿔요";
+    pub HELP_FILTER = "필터 줄에 초점을 줘요";
     pub HELP_MOUSE_FILTER = "정렬, 필터 칩, 검색창 누르기";
     pub HELP_BACK_QUIT = "한 단계 위, 루트에서는 종료";
-    pub HELP_RESCAN = "곡 목록을 다시 읽습니다";
-    pub HELP_HELP = "도움말을 열고 닫습니다";
-    pub HELP_DROP = "파일을 끌어다 놓으면 곡을 엽니다";
+    pub HELP_RESCAN = "곡 목록을 다시 읽어요";
+    pub HELP_HELP = "도움말을 열고 닫아요";
+    pub HELP_DROP = "파일을 끌어다 놓으면 곡을 열어요";
 
     // First run: the library has no songs. The guide lists three ways to add songs.
-    pub GUIDE_TITLE = "아직 곡이 없습니다";
-    pub GUIDE_LEAD = "곡을 넣는 방법은 세 가지입니다.";
-    pub GUIDE_MANAGER = "곡 관리자로 곡 패키지(.bmsp)를 설치합니다.";
-    pub GUIDE_DROP = "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓습니다.";
-    pub GUIDE_FOLDER = "곡 파일을 songs 폴더에 넣습니다.";
+    pub GUIDE_TITLE = "아직 곡이 없어요";
+    pub GUIDE_LEAD = "곡을 넣는 방법은 세 가지예요.";
+    pub GUIDE_MANAGER = "곡 관리자로 곡 패키지(.bmsp)를 설치해요.";
+    pub GUIDE_DROP = "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓아요.";
+    pub GUIDE_FOLDER = "곡 파일을 songs 폴더에 넣어요.";
     pub GUIDE_BTN_MANAGER = "곡 관리자 열기";
     pub GUIDE_BTN_FOLDER = "songs 폴더 열기";
 
     // Drag overlay: a file is dragged over the window (song select).
-    pub DROP_TITLE = "여기에 놓으면 곡을 엽니다";
-    pub DROP_NOTE = ".bmsp 패키지나 .bms 채보를 놓으면 바로 엽니다.";
+    pub DROP_TITLE = "여기에 놓으면 곡을 열어요";
+    pub DROP_NOTE = ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.";
 
     // Opening the song manager or the songs folder failed.
-    pub TOAST_MANAGER_MISSING = "곡 관리자(bpm-gui.exe)를 찾지 못했습니다";
-    pub TOAST_FOLDER_FAILED = "songs 폴더를 열지 못했습니다";
+    pub TOAST_MANAGER_MISSING = "곡 관리자(bpm-gui.exe)를 찾지 못했어요";
+    pub TOAST_FOLDER_FAILED = "songs 폴더를 열지 못했어요";
 
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS = "플레이 옵션";
@@ -276,33 +276,33 @@ table! {
     pub HINT_SELECT = "선택";
 
     // Help sentences: one line under the highlighted row (plain Korean).
-    pub HELP_GREEN = "노트가 화면에 나타나서 판정선에 닿기까지의 시간입니다. 작을수록 빠릅니다. 레인 커버를 바꿔도 유지됩니다.";
-    pub HELP_LANE_COVER = "레인 위쪽을 가려 노트가 보이는 구간을 줄입니다. 0%는 가리지 않습니다. 플레이 중 F10, F11로도 바꿀 수 있습니다.";
-    pub HELP_MODIFIER = "노트 배치를 바꿉니다. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞습니다.";
-    pub HELP_GAUGE = "점수 게이지의 방식입니다. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격합니다.";
-    pub HELP_LN_MODE = "롱노트 판정 방식입니다. AUTO는 곡 데이터에 맞추고, LN과 CN은 어떤 곡이든 그 방식으로 고정합니다.";
-    pub HELP_AUTO_PLAY = "켜면 키를 누르지 않아도 곡이 끝까지 연주됩니다. 자동 플레이 결과는 기록으로 저장되지 않습니다.";
-    pub HELP_START_MEASURE = "이 마디부터 곡을 시작합니다. 0이면 처음부터입니다. 0이 아니면 연습으로 기록되지 않습니다.";
+    pub HELP_GREEN = "노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.";
+    pub HELP_LANE_COVER = "레인 위쪽을 가려 노트가 보이는 구간을 줄여요. 0%는 가리지 않아요. 플레이 중 F10, F11로도 바꿀 수 있어요.";
+    pub HELP_MODIFIER = "노트 배치를 바꿔요. 미러는 좌우를 뒤집고, 랜덤 계열은 레인 순서를 섞어요.";
+    pub HELP_GAUGE = "점수 게이지의 방식이에요. EASY와 GROOVE는 관대하고, HARD와 HAZARD는 실수에 엄격해요.";
+    pub HELP_LN_MODE = "롱노트 판정 방식이에요. AUTO는 곡 데이터에 맞추고, LN과 CN은 어떤 곡이든 그 방식으로 고정해요.";
+    pub HELP_AUTO_PLAY = "켜면 키를 누르지 않아도 곡이 끝까지 연주돼요. 자동 플레이 결과는 기록으로 저장되지 않아요.";
+    pub HELP_START_MEASURE = "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 기록되지 않아요.";
 
     // Settings screen (its title is SETTINGS above).
-    pub HELP_DISPLAY_MODE = "창 모드, 테두리 없는 창, 전체 화면 중에서 고릅니다. 바로 적용됩니다.";
-    pub HELP_RESOLUTION = "창 크기나 전체 화면 해상도를 고릅니다. 창 모드는 16:9 크기만 고를 수 있습니다.";
-    pub HELP_GRAPHICS = "그림을 그리는 장치입니다. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그립니다. 바꾸면 재시작 후 적용됩니다.";
-    pub HELP_TARGET_FPS = "플레이 화면의 최대 프레임입니다. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춥니다.";
-    pub HELP_MASTER_VOLUME = "키음과 배경음을 포함한 전체 소리 크기입니다. 최대 200%까지 올릴 수 있습니다.";
-    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮깁니다. 범위는 -100에서 +100 ms입니다. ENTER로 박자에 맞춰 측정할 수 있습니다.";
-    pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정합니다.";
-    pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둡니다. 5K, 7K, 8K에서만 적용됩니다.";
-    pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줍니다. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아낍니다.";
-    pub HELP_KEY_HINT = "플레이 화면 아래의 키 안내 줄을 정합니다. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라집니다.";
-    pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정합니다. 꺼짐이면 보이지 않습니다.";
-    pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 고릅니다. ENTER로 키 설정 화면을 엽니다.";
+    pub HELP_DISPLAY_MODE = "창 모드, 테두리 없는 창, 전체 화면 중에서 골라요. 바로 적용돼요.";
+    pub HELP_RESOLUTION = "창 크기나 전체 화면 해상도를 골라요. 창 모드는 16:9 크기만 고를 수 있어요.";
+    pub HELP_GRAPHICS = "그림을 그리는 장치예요. 자동은 그래픽 카드를 쓰고, WARP는 CPU로 그려요. 바꾸면 재시작 후 적용돼요.";
+    pub HELP_TARGET_FPS = "플레이 화면의 최대 프레임이에요. 무제한은 제한하지 않고, 60은 화면 주사율에 맞춰요.";
+    pub HELP_MASTER_VOLUME = "키음과 배경음을 포함한 전체 소리 크기예요. 최대 200%까지 올릴 수 있어요.";
+    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮겨요. 범위는 -100에서 +100 ms예요. ENTER로 박자에 맞춰 측정할 수 있어요.";
+    pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.";
+    pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.";
+    pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.";
+    pub HELP_KEY_HINT = "플레이 화면 아래의 키 안내 줄을 정해요. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라져요.";
+    pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정해요. 꺼짐이면 보이지 않아요.";
+    pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.";
 
     // Judge offset calibration (a Settings sub-screen).
     pub CALIBRATE_TITLE = "판정 오프셋 측정";
     pub CALIBRATE_INSTRUCTION = "소리에 맞춰 스페이스를 누르세요";
-    pub CALIBRATE_DONE_TITLE = "측정이 끝났습니다";
-    pub CALIBRATE_NO_AUDIO = "오디오 출력 장치를 열지 못해 측정할 수 없습니다";
+    pub CALIBRATE_DONE_TITLE = "측정이 끝났어요";
+    pub CALIBRATE_NO_AUDIO = "오디오 출력 장치를 열지 못해 측정할 수 없어요";
     pub CALIBRATE_COUNT_IN = "준비";
     pub CALIBRATE_MEASURING = "측정 중";
     pub CALIBRATE_PROGRESS = "진행";
@@ -311,19 +311,19 @@ table! {
     pub CALIBRATE_SUGGEST = "제안값";
     pub CALIBRATE_EARLY = "빠름";
     pub CALIBRATE_LATE = "늦음";
-    pub CALIBRATE_EXCLUDED = "제외된 입력은 흐리게 표시합니다";
-    pub CALIBRATE_HELP = "준비 박 네 개 뒤부터 입력을 16번 셉니다. 한 박에 한 번만 세고, 150 ms보다 멀리 떨어진 입력은 무시합니다.";
-    pub CALIBRATE_HELP_DONE = "제안값은 평균 차이의 반대 값입니다. 적용하면 판정 오프셋이 이 값이 됩니다.";
-    pub CALIBRATE_HELP_NO_AUDIO = "설정은 바뀌지 않았습니다. ESC로 설정 화면에 돌아가세요.";
+    pub CALIBRATE_EXCLUDED = "제외된 입력은 흐리게 표시해요";
+    pub CALIBRATE_HELP = "준비 박 네 개 뒤부터 입력을 16번 세어요. 한 박에 한 번만 세고, 150 ms보다 멀리 떨어진 입력은 무시해요.";
+    pub CALIBRATE_HELP_DONE = "제안값은 평균 차이의 반대 값이에요. 적용하면 판정 오프셋이 이 값이 돼요.";
+    pub CALIBRATE_HELP_NO_AUDIO = "설정은 바뀌지 않았어요. ESC로 설정 화면에 돌아가세요.";
     pub CALIBRATE_APPLY = "적용";
     pub CALIBRATE_RETRY = "다시";
     pub CALIBRATE_CANCEL = "취소";
     pub CALIBRATE_HINT_TAP = "누르기";
-    pub TOAST_CALIBRATE_APPLIED = "판정 오프셋을 {} ms로 맞췄습니다";
+    pub TOAST_CALIBRATE_APPLIED = "판정 오프셋을 {} ms로 맞췄어요";
 
     // Quit confirmation.
     pub QUIT_TITLE = "BEETLE을 종료할까요?";
-    pub QUIT_NOTE = "기록과 설정은 이미 저장되어 있습니다.";
+    pub QUIT_NOTE = "기록과 설정은 이미 저장되어 있어요.";
     pub QUIT = "종료";
 
     // ---- Loading ------------------------------------------------------
@@ -414,9 +414,9 @@ table! {
     /// `{}` is the scratch side.
     pub LAYOUT_SCRATCH = "스크래치는 {} (F2: 교체)";
     pub LAYOUT_PER_MODE = "키 모드마다 배치를 따로 저장";
-    pub REBIND_REPLACE = "이 레인에 쓸 키를 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨집니다.";
-    pub REBIND_ADD = "이 레인에 다른 키를 하나 더 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨집니다.";
-    pub REBIND_SELECTED = "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비웁니다.";
+    pub REBIND_REPLACE = "이 레인에 쓸 키를 누르세요. 레인의 기존 키를 대신하고, 다른 곳에서 쓰던 키는 여기로 옮겨져요.";
+    pub REBIND_ADD = "이 레인에 다른 키를 하나 더 누르세요. 다른 레인이 쓰던 키는 여기로 옮겨져요.";
+    pub REBIND_SELECTED = "Enter로 키를 지정하고, A로 하나 더 추가하며, Backspace로 레인을 비워요.";
 }
 
 #[cfg(test)]

@@ -205,7 +205,7 @@ pub fn finalize_start_gameplay(
         crate::transition::show_toast(
             state,
             beetle_render::ToastKind::Error,
-            "오디오 장치를 찾지 못했습니다",
+            "오디오 장치를 찾지 못했어요",
         );
         return;
     }
