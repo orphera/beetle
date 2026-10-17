@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use beetle_core::{ChartId, LnOption, PlayMode, ScoreStore, SongMetadata, TableIndex};
 use beetle_render::backdrop::blur_backdrop;
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
-use beetle_render::jacket::JacketKey;
+use beetle_render::jacket::{jacket_seed, JacketKey};
 use beetle_render::skin::ColorRgba;
 use beetle_render::{
     draw_loading, draw_song_select, strings, D3d11Backend, FilterBar, GpuBackend, ImageBuffer,
@@ -147,15 +147,15 @@ fn loading_frame(
     (calls, capture(gpu, name))
 }
 
-/// Draws the song select screen once with a 12-song list. Returns the draw-call
-/// count and the pixels.
-fn select_frame(
+/// Draws the song select screen once at `size` with a 12-song list, every
+/// jacket resident as a placeholder. Returns the draw-call count.
+fn select_draw(
     gpu: &mut D3d11Backend,
     ui: &mut Ui,
+    (w, h): (u32, u32),
     art: Option<&ImageBuffer>,
-    name: &str,
-) -> (usize, Vec<u8>) {
-    let vp = Viewport::new(W, H);
+) -> usize {
+    let vp = Viewport::new(w, h);
     let songs: Vec<SongMetadata> = (1..=12).map(song).collect();
     let rows: Vec<SelectRow> = (0..songs.len()).map(SelectRow::Song).collect();
     let tables = TableIndex::new(Vec::new());
@@ -166,9 +166,13 @@ fn select_frame(
     ];
     let chips = vec![strings::fill(strings::CHIP_GREEN, &["500"])];
     ui.lite = false;
-    gpu.begin_frame(W, H, [0.0, 0.0, 0.0, 1.0]);
+    gpu.begin_frame(w, h, [0.0, 0.0, 0.0, 1.0]);
     ui.backdrop.reset();
-    ui.begin(W, H, vp.scale);
+    ui.begin(w, h, vp.scale);
+    for s in &songs {
+        let seed = jacket_seed(&s.title, &s.artist);
+        assert!(ui.jackets.ensure_placeholder(ui.canvas.atlas_mut(), seed));
+    }
     show_art(ui, JacketKey::Chart(songs[0].id), art);
     draw_song_select(
         ui,
@@ -199,7 +203,17 @@ fn select_frame(
             show_help: false,
         },
     );
-    let calls = ui.end(gpu);
+    ui.end(gpu)
+}
+
+/// `select_draw` at the captured size, with the frame saved to `target`.
+fn select_frame(
+    gpu: &mut D3d11Backend,
+    ui: &mut Ui,
+    art: Option<&ImageBuffer>,
+    name: &str,
+) -> (usize, Vec<u8>) {
+    let calls = select_draw(gpu, ui, (W, H), art);
     (calls, capture(gpu, name))
 }
 
@@ -272,4 +286,40 @@ fn select_backdrop_shows_and_the_list_stays_readable() {
         list_white <= LIST_MAX_LUMA,
         "a white picture lights the list too much: {list_white:.2}"
     );
+}
+
+/// The select frame at every UI scale from 0.75 to 3.0 (step 0.25) is one
+/// batch, with the grid on page 0 and the twelve jackets resident.
+#[test]
+fn select_frame_is_one_batch_with_twelve_jackets_at_every_ui_scale() {
+    let (max_w, max_h) = (3840, 2160);
+    let window = HiddenWindow::with_size(max_w, max_h);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, max_w, max_h, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let white = white_art();
+    for step in 0..=9 {
+        let scale = 0.75 + 0.25 * step as f32;
+        let size = ((W as f32 * scale) as u32, (H as f32 * scale) as u32);
+        let mut ui = Ui::new(scale);
+        let calls = select_draw(&mut gpu, &mut ui, size, Some(&white));
+        gpu.end_frame();
+        eprintln!(
+            "scale {scale}: batches {calls}, pages {}, grid page {:?}",
+            ui.canvas.atlas().page_count(),
+            ui.jackets.page()
+        );
+        assert_eq!(
+            calls, 1,
+            "scale {scale}: the select frame splits into batches"
+        );
+        assert_eq!(ui.jackets.page(), Some(0), "scale {scale}: grid off page 0");
+        for n in 1..=12 {
+            let s = song(n);
+            let seed = jacket_seed(&s.title, &s.artist);
+            assert!(
+                ui.jackets.contains(JacketKey::Placeholder(seed)),
+                "scale {scale}: jacket {n} not resident"
+            );
+        }
+    }
 }

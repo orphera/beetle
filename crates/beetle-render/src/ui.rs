@@ -104,6 +104,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jacket::JacketKey;
 
     #[test]
     fn scale_change_regenerates_without_leaking_atlas_space() {
@@ -117,5 +118,31 @@ mod tests {
         }
         assert_eq!(ui.canvas.atlas().page_count(), 1);
         assert_eq!(ui.skin.scale, 1.5);
+    }
+
+    #[test]
+    fn jacket_grid_and_twelve_thumbs_stay_on_page_zero_at_every_ui_scale() {
+        // 0.75 to 3.0 in steps of 0.25: the grid is reserved on page 0, the
+        // placeholders and the text land there too, so no draw splits.
+        for step in 0..=9 {
+            let scale = 0.75 + 0.25 * step as f32;
+            let mut ui = Ui::new(scale);
+            ui.begin(1280, 720, scale);
+            assert_eq!(ui.jackets.page(), Some(0), "grid at scale {scale}");
+            for seed in 1..=12u64 {
+                assert!(ui.jackets.ensure_placeholder(ui.canvas.atlas_mut(), seed));
+            }
+            let style = crate::text::TextStyle::new(16.0 * scale);
+            let (canvas, text) = (&mut ui.canvas, &mut ui.text);
+            text.draw(canvas, "Beetle 한글 テスト", 0.0, 20.0, &style);
+            for seed in 1..=12u64 {
+                let r = ui
+                    .jackets
+                    .get(JacketKey::Placeholder(seed))
+                    .expect("resident");
+                assert_eq!(r.page, 0, "thumb {seed} at scale {scale}");
+            }
+            assert_eq!(ui.canvas.atlas().page_count(), 1, "scale {scale}");
+        }
     }
 }

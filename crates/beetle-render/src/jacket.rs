@@ -1,6 +1,6 @@
 //! Song jacket thumbnails for the select list (P2-2).
 //!
-//! A fixed grid of 96×96 slots lives in the shared UI atlas, next to the skin
+//! A fixed grid of 80×80 slots lives in the shared UI atlas, next to the skin
 //! sprites and glyphs. Because it is the same atlas page, a row jacket is one
 //! more textured quad in the screen's main batch: thumbnails add no batches.
 //! Slots are handed out by a least-recently-used map (`SlotLru`), so the
@@ -20,14 +20,16 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 /// Edge of one thumbnail, in texels.
-pub const THUMB_PX: u32 = 96;
+pub const THUMB_PX: u32 = 80;
 /// Texels between neighbouring slots, so bilinear sampling never reads the
 /// next thumbnail.
 const GUTTER: u32 = 1;
 const PITCH: u32 = THUMB_PX + 2 * GUTTER;
-/// Slot grid: 12 × 8 = 96 resident thumbnails.
-pub const COLS: u32 = 12;
-pub const ROWS: u32 = 8;
+/// Slot grid: 10 × 6 = 60 resident thumbnails. The grid is about 980×588
+/// texels, so it stays on the first atlas page at every UI scale the app
+/// supports (0.75 to 3.0), and the list's prefetch range fits in it.
+pub const COLS: u32 = 10;
+pub const ROWS: u32 = 6;
 pub const SLOTS: usize = (COLS * ROWS) as usize;
 
 /// What a slot holds: the artwork of one chart, or a procedural placeholder
@@ -142,6 +144,11 @@ impl JacketAtlas {
 
     pub fn contains(&self, key: JacketKey) -> bool {
         self.lru.contains(&key)
+    }
+
+    /// The atlas page the grid sits on (`None` when it could not be reserved).
+    pub fn page(&self) -> Option<u16> {
+        self.base.map(|b| b.page)
     }
 
     /// Stores premultiplied RGBA8 pixels (`THUMB_PX`² × 4 bytes) for `key`,

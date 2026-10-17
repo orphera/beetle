@@ -3,7 +3,7 @@
 //! The render thread asks for the thumbnails of the rows around the list
 //! window. Requests go to a small pool of worker threads, which decode the
 //! stage image (`load_stage_image`, the same source as the detail panel) and
-//! centre-crop it to a 96×96 thumbnail. Finished thumbnails are copied into
+//! centre-crop it to an 80×80 thumbnail. Finished thumbnails are copied into
 //! the jacket slot grid by the render thread, at most `UPLOADS_PER_FRAME` a
 //! frame. Songs with no artwork are remembered in `missing` and get the
 //! procedural placeholder instead; they are never decoded again.
