@@ -6,9 +6,10 @@
 //! go through the engine's lock-free trigger queue only (INV-2 applies to the
 //! audio thread; this module never blocks on it).
 
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use beetle_audio::{ui_sound_bank, AudioEngine, SampleTrigger, UiSound};
+use beetle_audio::{ui_sound_bank, AudioEngine, SampleBank, SampleTrigger, UiSound};
 
 use crate::state::{AppScreen, AppState};
 
@@ -19,6 +20,14 @@ const SFX_GAIN: f32 = 0.6;
 /// Fastest repeat of `Move` (held arrow keys) and of `Tick`.
 const MOVE_GAP: Duration = Duration::from_millis(35);
 const TICK_GAP: Duration = Duration::from_millis(20);
+/// Shortest wait before the output is tried again after a failed open.
+const RETRY_GAP: Duration = Duration::from_secs(5);
+
+/// The UI sounds, synthesized once on first use and cloned into each stream.
+fn sounds() -> &'static SampleBank {
+    static BANK: OnceLock<SampleBank> = OnceLock::new();
+    BANK.get_or_init(|| ui_sound_bank(SYNTH_RATE))
+}
 
 /// The menu's sound effects. Closed (silent) until `open` succeeds.
 #[derive(Default)]
@@ -27,20 +36,28 @@ pub struct MenuAudio {
     trigger: Option<SampleTrigger>,
     last_move: Option<Instant>,
     last_tick: Option<Instant>,
+    last_failure: Option<Instant>,
 }
 
 impl MenuAudio {
     /// Opens the output stream at `master` volume (the Settings value). If a
     /// stream is already open only the volume changes. When no device can be
-    /// opened the menus stay silent; nothing is reported.
+    /// opened the menus stay silent; nothing is reported, and the device is not
+    /// tried again for `RETRY_GAP`.
     pub fn open(&mut self, master: f32) {
         if self.engine.is_some() {
             self.set_volume(master);
             return;
         }
-        let Ok(mut engine) = AudioEngine::new(ui_sound_bank(SYNTH_RATE)) else {
+        let now = Instant::now();
+        if !retry_due(self.last_failure, now) {
+            return;
+        }
+        let Ok(mut engine) = AudioEngine::new(sounds().clone()) else {
+            self.last_failure = Some(now);
             return;
         };
+        self.last_failure = None;
         let _ = engine.set_master_volume(master * SFX_GAIN);
         self.trigger = engine.take_trigger();
         self.engine = Some(engine);
@@ -95,6 +112,11 @@ pub fn allow(last: Option<Instant>, now: Instant, min: Duration) -> bool {
         None => true,
         Some(last) => now.saturating_duration_since(last) >= min,
     }
+}
+
+/// Whether the output may be opened again at `now`, given the last failed open.
+pub fn retry_due(last_failure: Option<Instant>, now: Instant) -> bool {
+    allow(last_failure, now, RETRY_GAP)
 }
 
 /// The one way a call site plays a menu sound.
@@ -180,6 +202,14 @@ mod tests {
             "Loading keeps the stream"
         );
         assert_eq!(stream_policy(AppScreen::Gameplay), Some(false));
+    }
+
+    #[test]
+    fn a_failed_open_is_retried_only_after_the_retry_gap() {
+        let t0 = Instant::now();
+        assert!(retry_due(None, t0));
+        assert!(!retry_due(Some(t0), t0 + Duration::from_secs(4)));
+        assert!(retry_due(Some(t0), t0 + RETRY_GAP));
     }
 
     #[test]
