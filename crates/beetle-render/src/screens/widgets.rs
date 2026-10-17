@@ -3,7 +3,7 @@
 
 use crate::art::sdf::hash_noise;
 use crate::art::Skin;
-use crate::backdrop::Mix;
+use crate::backdrop::{Mix, BACKDROP_H, BACKDROP_W};
 use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::skin::ColorRgba;
@@ -121,7 +121,10 @@ pub(crate) fn backdrop_art(
     c.fill_rect_vgradient(full, theme::BG, theme::SURF1);
     for layer in [art.outgoing, art.incoming].into_iter().flatten() {
         let a = (255.0 * ART_ALPHA * layer.alpha).round() as u8;
-        c.sprite(layer.region, full, theme::WHITE.with_alpha(a));
+        // Sampled from half a texel inside the picture: the bilinear filter
+        // then never reads the transparent gutter, which would dim the edges.
+        let inner = Rect::new(0.5, 0.5, BACKDROP_W as f32 - 1.0, BACKDROP_H as f32 - 1.0);
+        c.sprite_sub(layer.region, inner, full, theme::WHITE.with_alpha(a));
     }
     if art.incoming.is_some() {
         c.fill_rect(full, theme::BG.with_alpha(ART_SCRIM));

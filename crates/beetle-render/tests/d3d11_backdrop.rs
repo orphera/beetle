@@ -325,3 +325,40 @@ fn select_frame_is_one_batch_with_twelve_jackets_at_every_ui_scale() {
         }
     }
 }
+
+/// The picture is stretched over the whole frame, so its outermost texels
+/// meet the frame edge. A white picture must not darken there: the bilinear
+/// filter must not reach the transparent gutter around the picture.
+#[test]
+fn picture_reaches_the_frame_edges_undimmed() {
+    let window = HiddenWindow::with_size(W, H);
+    let mut gpu = D3d11Backend::with_driver_types(window.0, W, H, &[D3D_DRIVER_TYPE_WARP])
+        .expect("WARP device");
+    let mut ui = Ui::new(1.0);
+    let white = white_art();
+    let (_, plain) = loading_frame(&mut gpu, &mut ui, None, "edge-plain");
+    let (_, with_white) = loading_frame(&mut gpu, &mut ui, Some(&white), "edge-white");
+    // What the picture adds at a column, rows 300..420 (clear of the jacket).
+    // The vignette is in both frames, so it cancels out of the difference.
+    let added = |x: usize| {
+        region_luma(&with_white, x, 300, x + 1, 420) - region_luma(&plain, x, 300, x + 1, 420)
+    };
+    // A white picture is flat, so the columns inside it add the same. The
+    // bilinear filter used to pull the first ten columns towards the gutter
+    // (measured before the fix: 9.4 at column 4 against 13.1 at column 12).
+    let right = W as usize - 1;
+    let mut worst = 0.0f64;
+    for d in [4usize, 6, 8] {
+        worst = worst
+            .max((added(d) - added(12)).abs())
+            .max((added(right - d) - added(right - 12)).abs());
+    }
+    eprintln!(
+        "picture added: inner {:.2}, worst edge gap {worst:.2}",
+        added(12)
+    );
+    assert!(
+        worst < 1.5,
+        "the picture dims towards the frame edge: gap {worst:.2}"
+    );
+}
