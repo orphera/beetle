@@ -333,6 +333,7 @@ impl ApplicationHandler for BeetleApp {
             screen_entry: transition::ScreenEntry::new(AppScreen::Boot, Instant::now()),
             toast: None,
             anim_tail: false,
+            ambient_frame_at: Instant::now(),
             d3d11,
             gpu_backend_at_start: saved_config.gpu_backend,
             cursor: None,
@@ -414,6 +415,9 @@ impl ApplicationHandler for BeetleApp {
         drain_lane_events(state);
         sync_lane_session(state);
         drain_raw_keys(state);
+        // The pad is polled here, not on redraw: a menu that sleeps until
+        // input (or a timer) still hears the pad (see the wake-ups below).
+        poll_pad(state);
         ime::close_search_if_unavailable(state);
         state.sync_screen_entry();
 
@@ -438,6 +442,8 @@ impl ApplicationHandler for BeetleApp {
         // Set by each branch that already wakes on its own frame-rate timer,
         // so the menu backdrop drift below does not change that cadence.
         let mut timed = false;
+        // Set by a branch that sleeps until input (no timer of its own).
+        let mut idle = false;
         match state.screen {
             AppScreen::Boot => {
                 state.window.request_redraw();
@@ -569,6 +575,7 @@ impl ApplicationHandler for BeetleApp {
                     // A short preview wait (fade step, loop restart) must not be
                     // stretched by the ambient frame below.
                     timed = holds_frame_timer(preview_wait);
+                    idle = preview_wait.is_none();
                     event_loop.set_control_flow(match preview_wait {
                         Some(wait) => ControlFlow::WaitUntil(Instant::now() + wait),
                         None => ControlFlow::Wait,
@@ -597,6 +604,7 @@ impl ApplicationHandler for BeetleApp {
                         Instant::now() + Duration::from_millis(16),
                     ));
                 } else {
+                    idle = true;
                     event_loop.set_control_flow(ControlFlow::Wait);
                 }
             }
@@ -637,15 +645,33 @@ impl ApplicationHandler for BeetleApp {
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
         }
-        if !timed {
-            let focused = state.window.has_focus();
-            let minimized = state.window.is_minimized().unwrap_or(false);
-            if let Some(step) =
-                ambient_frame_step(state.screen, focused, minimized, state.d3d11.is_warp())
-            {
-                state.window.request_redraw();
-                event_loop.set_control_flow(ControlFlow::WaitUntil(now + step));
+        // The menu's own wake-ups, each only ever shortening the one set above
+        // except the slot scan, which is set only on an idle screen.
+        let focused = state.window.has_focus();
+        let minimized = state.window.is_minimized().unwrap_or(false);
+        let drift =
+            match ambient_frame_step(state.screen, focused, minimized, state.d3d11.is_warp()) {
+                Some(step) if !timed => {
+                    if now >= state.ambient_frame_at {
+                        state.ambient_frame_at = now + step;
+                        state.window.request_redraw();
+                    }
+                    Some(state.ambient_frame_at)
+                }
+                _ => None,
+            };
+        let pad = state.pad.as_ref();
+        let connected = pad.is_some_and(|p| p.is_connected());
+        let scan = match pad {
+            Some(p) if !connected && idle && state.screen != AppScreen::Gameplay => {
+                Some(p.next_scan(now))
             }
+            _ => None,
+        };
+        let menu_focused = is_menu_screen(state.screen) && focused && !minimized;
+        let pad_step = pad_wake(now, connected, menu_focused, scan);
+        if let Some(wake) = soonest(drift, pad_step) {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
         }
 
         // devtools: keep frames coming until a pending capture is taken,
@@ -768,7 +794,6 @@ impl ApplicationHandler for BeetleApp {
                 if size.width == 0 || size.height == 0 {
                     return;
                 }
-                poll_pad(state);
                 match state.screen {
                     AppScreen::Gameplay => {
                         // Every key that arrived so far is judged before the
@@ -980,6 +1005,33 @@ fn poll_pad(state: &mut AppState) {
     state.window.request_redraw();
 }
 
+/// The pad's wake-up for a frame: 16 ms steps while a connected pad is on a
+/// focused menu; the next slot scan while none is connected (`next_scan`,
+/// given only on an idle screen). `None` when the pad needs no wake.
+fn pad_wake(
+    now: Instant,
+    connected: bool,
+    menu_focused: bool,
+    next_scan: Option<Instant>,
+) -> Option<Instant> {
+    if connected {
+        menu_focused.then(|| now + PAD_FRAME)
+    } else {
+        next_scan
+    }
+}
+
+/// The earlier of two wake-ups, where either may be absent.
+fn soonest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// The pad's polling step on a focused menu: the menus' input latency.
+const PAD_FRAME: Duration = Duration::from_millis(16);
+
 /// Makes the judge calls of the input thread's play on the game's engine,
 /// which is what is drawn and scored (`lane_logic`). Their sounds have
 /// already started. Calls of an earlier play, or after this one ended, are
@@ -1188,6 +1240,42 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_connected_pad_steps_every_16_ms_on_a_focused_menu_only() {
+        let now = Instant::now();
+        assert_eq!(pad_wake(now, true, true, None), Some(now + PAD_FRAME));
+        // Not focused, or not a menu: the pad does not need its own wake.
+        assert_eq!(pad_wake(now, true, false, None), None);
+        // A connected pad never scans.
+        assert_eq!(
+            pad_wake(now, true, true, Some(now + Duration::from_secs(1))),
+            Some(now + PAD_FRAME)
+        );
+    }
+
+    #[test]
+    fn with_no_pad_the_only_wake_is_the_slot_scan() {
+        let now = Instant::now();
+        let scan = now + Duration::from_secs(1);
+        assert_eq!(pad_wake(now, false, true, Some(scan)), Some(scan));
+        assert_eq!(pad_wake(now, false, true, None), None);
+    }
+
+    #[test]
+    fn combined_wakes_never_lengthen_an_earlier_one() {
+        let now = Instant::now();
+        let fast = Some(now + PAD_FRAME);
+        let slow = Some(now + Duration::from_millis(500));
+        assert_eq!(soonest(fast, slow), fast);
+        assert_eq!(soonest(slow, fast), fast);
+        assert_eq!(soonest(None, slow), slow);
+        assert_eq!(soonest(None, None), None);
+        // The 16 ms step shortens a long wait (a preview's), and drift at 33 ms
+        // does not lengthen the pad step.
+        let drift = Some(now + AMBIENT_FRAME);
+        assert_eq!(soonest(drift, fast), fast);
+    }
 
     #[test]
     fn ambient_drift_runs_only_on_focused_full_quality_menus() {

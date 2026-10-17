@@ -281,6 +281,8 @@ pub struct AppState {
     /// An animation ended since the last frame: draw one final frame so the
     /// overlays clear, then go back to sleeping.
     pub anim_tail: bool,
+    /// When the menu backdrop next redraws (its own cadence, not the pad's).
+    pub ambient_frame_at: Instant,
     /// The renderer (ADR-026). `gpu_backend` changes apply on restart.
     pub d3d11: beetle_render::D3d11Backend,
     /// `gpu_backend` as it was when `d3d11` was created.

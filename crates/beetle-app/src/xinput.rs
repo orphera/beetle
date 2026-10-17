@@ -335,6 +335,17 @@ impl XInputPad {
         })
     }
 
+    /// Whether a pad is connected (its slot is known).
+    pub fn is_connected(&self) -> bool {
+        self.slot.is_some()
+    }
+
+    /// When the next empty-slot scan is due: `now` when it is overdue.
+    pub fn next_scan(&self, now: Instant) -> Instant {
+        self.last_scan
+            .map_or(now, |last| (last + SCAN_INTERVAL).max(now))
+    }
+
     /// Drops the pad's menu events until `until`. The state keeps following
     /// the pad, so the press itself is not seen again afterwards.
     pub fn suppress_menu_until(&mut self, until: Instant) {
