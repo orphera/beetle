@@ -160,9 +160,9 @@ pub fn shutter_geometry(vp: &Viewport, phase: ShutterPhase) -> ShutterGeometry {
 
     let lead = Some(panel(lead_x, theme::SURF2)).filter(|p| seen(&p.quad.map(|q| q.0)));
     let trail = Some(panel(trail_x, theme::BG)).filter(|p| seen(&p.quad.map(|q| q.0)));
-    // The cyan line is a quad wound like the panels. `Canvas::line` winds its
-    // quad the other way for some directions, and the D3D11 default rasterizer
-    // culls that winding, so the line would silently vanish.
+    // The cyan line is a quad wound like the panels: the D3D11 default
+    // rasterizer culls the other winding, so it would silently vanish. The
+    // same rule holds for `Canvas::line`, which is wound like `fill_rect`.
     let h = SHUTTER_EDGE * vp.scale / 2.0;
     let (xt, xb) = (lead_x + s / 2.0, lead_x - s / 2.0);
     let edge_quad = [

@@ -275,7 +275,9 @@ impl Canvas {
         self.fill_rect(Rect::new(r.right() - t, r.y + t, t, r.h - 2.0 * t), color);
     }
 
-    /// Straight line of `thickness` centered on the segment.
+    /// Straight line of `thickness` centered on the segment. The quad is wound
+    /// like `fill_rect` (clockwise on screen): the default D3D11 rasterizer
+    /// culls the other winding, which would make every line invisible.
     pub fn line(&mut self, p0: (f32, f32), p1: (f32, f32), thickness: f32, color: ColorRgba) {
         let (dx, dy) = (p1.0 - p0.0, p1.1 - p0.1);
         let len = (dx * dx + dy * dy).sqrt();
@@ -285,10 +287,10 @@ impl Canvas {
         let (nx, ny) = (-dy / len * thickness / 2.0, dx / len * thickness / 2.0);
         self.fill_quad(
             [
-                (p0.0 + nx, p0.1 + ny),
-                (p1.0 + nx, p1.1 + ny),
-                (p1.0 - nx, p1.1 - ny),
                 (p0.0 - nx, p0.1 - ny),
+                (p1.0 - nx, p1.1 - ny),
+                (p1.0 + nx, p1.1 + ny),
+                (p0.0 + nx, p0.1 + ny),
             ],
             [color; 4],
         );
@@ -675,6 +677,52 @@ mod tests {
         // premultiplied: 50% white → rgb ≈ 0.5
         let c = draws[0].0[4].color;
         assert!((c[0] - 0.5).abs() < 0.01 && (c[3] - 0.5).abs() < 0.01);
+    }
+
+    /// Signed area of each triangle in `indices` order, from the emitted vertices.
+    fn triangle_areas(verts: &[Vertex2D], indices: &[u16]) -> Vec<f32> {
+        indices
+            .chunks(3)
+            .map(|t| {
+                let p = |i: u16| verts[i as usize].position;
+                let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+            })
+            .collect()
+    }
+
+    #[test]
+    fn line_winds_like_fill_rect_so_back_face_culling_keeps_it() {
+        let mut canvas = Canvas::new(256);
+        let mut gpu = Mock::default();
+        canvas.begin(1280, 720);
+        canvas.fill_rect(Rect::new(0.0, 0.0, 40.0, 10.0), RED);
+        canvas.end(&mut gpu);
+        let rect = gpu.draws();
+        let rect_areas = triangle_areas(rect[0].0, rect[0].1);
+        let visible = rect_areas[0].signum();
+        assert!(rect_areas.iter().all(|a| a.signum() == visible));
+
+        for (p0, p1) in [
+            ((0.0, 0.0), (40.0, 0.0)),
+            ((40.0, 0.0), (0.0, 0.0)),
+            ((0.0, 0.0), (0.0, 40.0)),
+            ((0.0, 40.0), (0.0, 0.0)),
+            ((3.0, 30.0), (40.0, 10.0)),
+            ((40.0, 10.0), (3.0, 30.0)),
+        ] {
+            let mut gpu = Mock::default();
+            canvas.begin(1280, 720);
+            canvas.line(p0, p1, 4.0, RED);
+            canvas.end(&mut gpu);
+            let draws = gpu.draws();
+            let areas = triangle_areas(draws[0].0, draws[0].1);
+            assert_eq!(areas.len(), 2, "a line is one quad");
+            assert!(
+                areas.iter().all(|a| a.signum() == visible && *a != 0.0),
+                "line {p0:?}->{p1:?} winds opposite to fill_rect: {areas:?}"
+            );
+        }
     }
 
     #[test]
