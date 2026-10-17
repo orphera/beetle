@@ -26,6 +26,20 @@ pub const REPLAYS_DIR: &str = "replays";
 /// the lowest frame rate, so the tick never has to catch up.
 pub const SCHEDULE_AHEAD_SECONDS: f64 = 0.1;
 
+/// The lowest alpha the detail panel restarts from on a selection change. A
+/// held arrow key moves the highlight every ~33 ms; starting from 0 each time
+/// would make the panel flicker.
+const DETAIL_MIN: f32 = 0.55;
+
+/// Alpha of the detail panel `elapsed` seconds after the highlight last moved
+/// (`None` when it has not moved). It eases from `DETAIL_MIN` up to 1.0.
+fn detail_alpha(elapsed: Option<f32>) -> f32 {
+    elapsed.map_or(1.0, |e| {
+        DETAIL_MIN
+            + (1.0 - DETAIL_MIN) * motion::ease_out_quad(motion::span_progress(e, DETAIL_FADE_SECS))
+    })
+}
+
 /// A play the input thread judges, and what it was last told.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LaneSessionSync {
@@ -275,9 +289,7 @@ impl AppState {
             emphasis: since.map_or(1.0, |e| {
                 motion::ease_out_cubic(motion::span_progress(e, SELECT_EMPHASIS_SECS))
             }),
-            detail: since.map_or(1.0, |e| {
-                motion::ease_out_quad(motion::span_progress(e, DETAIL_FADE_SECS))
-            }),
+            detail: detail_alpha(since),
         }
     }
 
@@ -920,6 +932,23 @@ fn rescan_songs() -> Vec<SongMetadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detail_alpha_never_drops_below_the_floor_and_reaches_full() {
+        assert_eq!(detail_alpha(None), 1.0);
+        let mut last = detail_alpha(Some(0.0));
+        assert!(
+            (last - DETAIL_MIN).abs() < 1e-6,
+            "starts at the floor: {last}"
+        );
+        for step in 0..=40 {
+            let a = detail_alpha(Some(step as f32 * 0.01));
+            assert!(a >= DETAIL_MIN - 1e-6 && a <= 1.0 + 1e-6, "alpha {a}");
+            assert!(a + 1e-6 >= last, "eases up without dipping");
+            last = a;
+        }
+        assert!((detail_alpha(Some(DETAIL_FADE_SECS * 2.0)) - 1.0).abs() < 1e-6);
+    }
 
     #[test]
     fn uninstalled_toast_names_one_file_or_counts_several() {
