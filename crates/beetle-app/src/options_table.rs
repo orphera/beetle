@@ -5,7 +5,10 @@
 //! numbers the rows.
 
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
-use beetle_render::{scratch_side_applies, strings, FieldPosition, ScratchSide};
+use beetle_render::{
+    scratch_side_applies, strings, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
+    NOTE_SIZE_MIN, NOTE_SIZE_STEP,
+};
 
 use crate::config::{
     DisplayMode, GpuBackendSetting, KeyHintSetting, TrackBgaSetting, GREEN_MS_MAX, GREEN_MS_MIN,
@@ -45,13 +48,17 @@ pub enum OptionId {
     Resolution,
     Graphics,
     TargetFps,
+    ReduceFlashes,
     MasterVolume,
     BgmVolume,
     KeyVolume,
     SfxVolume,
     JudgeOffset,
+    VisualOffset,
+    JudgePosition,
     Playfield,
     Scratch,
+    NoteSize,
     Bga,
     TrackBga,
     KeyHint,
@@ -155,6 +162,13 @@ pub const SETTINGS: &[OptionDesc] = &[
         help: strings::HELP_TARGET_FPS,
     },
     OptionDesc {
+        id: OptionId::ReduceFlashes,
+        group: strings::GROUP_DISPLAY,
+        column: 0,
+        label: strings::ROW_REDUCE_FLASHES,
+        help: strings::HELP_REDUCE_FLASHES,
+    },
+    OptionDesc {
         id: OptionId::MasterVolume,
         group: strings::GROUP_AUDIO,
         column: 0,
@@ -190,6 +204,20 @@ pub const SETTINGS: &[OptionDesc] = &[
         help: strings::HELP_JUDGE_OFFSET,
     },
     OptionDesc {
+        id: OptionId::VisualOffset,
+        group: strings::GROUP_JUDGE,
+        column: 0,
+        label: strings::ROW_VISUAL_OFFSET,
+        help: strings::HELP_VISUAL_OFFSET,
+    },
+    OptionDesc {
+        id: OptionId::JudgePosition,
+        group: strings::GROUP_JUDGE,
+        column: 0,
+        label: strings::ROW_JUDGE_POSITION,
+        help: strings::HELP_JUDGE_POSITION,
+    },
+    OptionDesc {
         id: OptionId::Playfield,
         group: strings::GROUP_LAYOUT,
         column: 1,
@@ -202,6 +230,13 @@ pub const SETTINGS: &[OptionDesc] = &[
         column: 1,
         label: strings::ROW_SCRATCH,
         help: strings::HELP_SCRATCH,
+    },
+    OptionDesc {
+        id: OptionId::NoteSize,
+        group: strings::GROUP_LAYOUT,
+        column: 1,
+        label: strings::ROW_NOTE_SIZE,
+        help: strings::HELP_NOTE_SIZE,
     },
     OptionDesc {
         id: OptionId::Bga,
@@ -281,6 +316,26 @@ pub fn lane_cover_next(ratio: f32, forward: bool) -> f32 {
 /// Master volume: 5 % steps between 0 and 200 %.
 pub fn volume_next(v: f32, forward: bool) -> f32 {
     (v + if forward { 0.05 } else { -0.05 }).clamp(0.0, 2.0)
+}
+
+/// Visual offset in ms: 1 ms steps within the same ±100 ms as the judge offset.
+pub fn visual_offset_next(v: f64, forward: bool) -> f64 {
+    let step = if forward {
+        JUDGE_OFFSET_STEP_MS
+    } else {
+        -JUDGE_OFFSET_STEP_MS
+    };
+    (v + step).clamp(-JUDGE_OFFSET_MAX_MS, JUDGE_OFFSET_MAX_MS)
+}
+
+/// Note size: 5 % steps between 90 % and 120 % of the default lane width.
+pub fn note_size_next(v: f32, forward: bool) -> f32 {
+    let step = if forward {
+        NOTE_SIZE_STEP
+    } else {
+        -NOTE_SIZE_STEP
+    };
+    (v + step).clamp(NOTE_SIZE_MIN, NOTE_SIZE_MAX)
 }
 
 /// A bus volume (BGM, key sounds, UI sounds): 5 % steps between 0 and 100 %.
@@ -372,6 +427,10 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::KeyVolume => format!("{:.0}%", state.key_volume * 100.0),
         OptionId::SfxVolume => format!("{:.0}%", state.sfx_volume * 100.0),
         OptionId::JudgeOffset => format!("{:+.0} ms", o.judge_offset_ms),
+        OptionId::VisualOffset => format!("{:+.0} ms", state.visual_offset_ms),
+        OptionId::JudgePosition => judge_position_label(state.view.skin.judge_position).to_string(),
+        OptionId::NoteSize => format!("{:.0}%", state.view.skin.note_size * 100.0),
+        OptionId::ReduceFlashes => on_off(state.reduce_flashes).to_string(),
         OptionId::Playfield => field_label(state.view.skin.field_position).to_string(),
         OptionId::Scratch => {
             let mode = state.key_config_mode();
@@ -467,6 +526,22 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             let o = &mut state.play_options;
             o.judge_offset_ms = judge_offset_next(o.judge_offset_ms, forward);
         }
+        OptionId::VisualOffset => {
+            state.visual_offset_ms = visual_offset_next(state.visual_offset_ms, forward);
+        }
+        OptionId::JudgePosition => {
+            let skin = &mut state.view.skin;
+            skin.judge_position = if forward {
+                skin.judge_position.next()
+            } else {
+                skin.judge_position.prev()
+            };
+        }
+        OptionId::NoteSize => {
+            let size = note_size_next(state.view.skin.note_size, forward);
+            state.view.skin.set_note_size(size);
+        }
+        OptionId::ReduceFlashes => state.reduce_flashes = !state.reduce_flashes,
         OptionId::Playfield => {
             let skin = &mut state.view.skin;
             let position = if forward {
@@ -524,6 +599,14 @@ fn gpu_label(backend: GpuBackendSetting) -> &'static str {
     match backend {
         GpuBackendSetting::Auto => strings::GPU_AUTO,
         GpuBackendSetting::Warp => strings::GPU_WARP,
+    }
+}
+
+fn judge_position_label(position: JudgePosition) -> &'static str {
+    match position {
+        JudgePosition::Upper => strings::JUDGE_POS_UPPER,
+        JudgePosition::Middle => strings::JUDGE_POS_MIDDLE,
+        JudgePosition::Lower => strings::JUDGE_POS_LOWER,
     }
 }
 
@@ -667,6 +750,29 @@ mod tests {
         assert_eq!(judge_offset_next(1.0, false), 0.0);
         assert_eq!(judge_offset_next(100.0, true), 100.0);
         assert_eq!(judge_offset_next(-100.0, false), -100.0);
+    }
+
+    #[test]
+    fn visual_offset_steps_one_ms_within_100_ms() {
+        assert_eq!(visual_offset_next(0.0, true), 1.0);
+        assert_eq!(visual_offset_next(0.0, false), -1.0);
+        assert_eq!(visual_offset_next(100.0, true), 100.0);
+        assert_eq!(visual_offset_next(-100.0, false), -100.0);
+    }
+
+    #[test]
+    fn note_size_steps_five_percent_from_90_to_120() {
+        let mut v = 1.0;
+        for _ in 0..10 {
+            v = note_size_next(v, true);
+        }
+        assert!((v - NOTE_SIZE_MAX).abs() < 1e-5, "top is 120 %, got {v}");
+        assert!((note_size_next(v, false) - 1.15).abs() < 1e-5);
+        for _ in 0..10 {
+            v = note_size_next(v, false);
+        }
+        assert!((v - NOTE_SIZE_MIN).abs() < 1e-5, "bottom is 90 %, got {v}");
+        assert!((note_size_next(NOTE_SIZE_MIN, false) - NOTE_SIZE_MIN).abs() < 1e-6);
     }
 
     #[test]

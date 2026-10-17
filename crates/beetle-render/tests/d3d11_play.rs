@@ -255,6 +255,8 @@ fn render_with(
             readout: extra.readout,
             banner: extra.banner,
             judge_marks: if extra.marks { &marks } else { &[] },
+            visual_offset_ms: 0.0,
+            reduce_flashes: false,
         },
     );
     let calls = ui.end(gpu);

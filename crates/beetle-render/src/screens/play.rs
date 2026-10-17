@@ -67,6 +67,12 @@ pub struct PlayFrame<'a> {
     pub banner: Option<(ClearType, f32)>,
     /// Judgements of the last few seconds, oldest first.
     pub judge_marks: &'a [JudgeMark],
+    /// Visual offset in ms: where the notes are drawn, not when they are
+    /// judged. It shifts the note clock below and nothing else.
+    pub visual_offset_ms: f64,
+    /// Reduce flashes: no full-field danger flash, dimmer hit bursts, no banner
+    /// light sweep and no FAILED shake.
+    pub reduce_flashes: bool,
 }
 
 const BURST_SECONDS: f64 = 0.28;
@@ -99,7 +105,8 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
         l.playfield_width,
         l.playfield_height,
     );
-    let danger = is_danger(f.score) && (f.audio_time * 6.0).sin() > 0.0;
+    // With flashes reduced the danger stays red but stops blinking.
+    let danger = is_danger(f.score) && (f.reduce_flashes || (f.audio_time * 6.0).sin() > 0.0);
 
     let hud = hud_layout(f.viewport, field, l.effective_position(), s);
 
@@ -509,7 +516,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
             edge,
         );
     }
-    if danger {
+    if danger && !f.reduce_flashes {
         c.set_additive(true);
         for x in [field.x, field.right()] {
             c.sprite_centered(
@@ -528,7 +535,9 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     // BPM, so a BPM change speeds the notes up/down and a STOP freezes them.
     let speed = l.hi_speed * s;
     let px_per_beat = speed as f64 * 60.0 / f.timing.initial_bpm().max(1.0);
-    let now_beat = f.timing.time_to_beat_position(f.audio_time);
+    let now_beat = f
+        .timing
+        .time_to_beat_position(note_clock(f.audio_time, f.visual_offset_ms));
     let y_at_beat = |beat: f64| judge_y - ((beat - now_beat) * px_per_beat) as f32;
     let y_at = |time: f64| y_at_beat(f.timing.time_to_beat_position(time));
 
@@ -765,6 +774,21 @@ fn is_scratch_lane(lane: Lane) -> bool {
     matches!(lane, Lane::Scratch | Lane::P2Scratch)
 }
 
+/// The clock the notes are drawn on: the audio time moved by the visual offset.
+/// Only the drawing reads it. Judgement and the audio clock never do (INV-1).
+pub(crate) fn note_clock(audio_time: f64, visual_offset_ms: f64) -> f64 {
+    audio_time + visual_offset_ms / 1000.0
+}
+
+/// Brightness of a hit burst: half when flashes are reduced.
+pub(crate) fn burst_gain(reduce_flashes: bool) -> f32 {
+    if reduce_flashes {
+        0.5
+    } else {
+        1.0
+    }
+}
+
 /// Judge-line pulse at `beat` (a beat position from the timing model, so
 /// it follows the audio clock and every BPM change). Full on each beat and
 /// decaying to nothing before the next, so it reads as a soft beat, not a
@@ -844,7 +868,7 @@ fn hit_bursts(c: &mut Canvas, sk: &Skin, f: &PlayFrame, judge_y: f32, s: f32) {
             continue;
         }
         let p = (elapsed / BURST_SECONDS) as f32;
-        let fade = 1.0 - ease_in_cubic(p);
+        let fade = (1.0 - ease_in_cubic(p)) * burst_gain(f.reduce_flashes);
         let col = theme::judge_color(burst.grade);
         let (lx, lw) = (l.lane_x(burst.lane), l.lane_width(burst.lane));
         let cx = lx + lw / 2.0;
@@ -961,7 +985,7 @@ fn combo_and_judge(
     s: f32,
 ) {
     let cx = field.x + field.w / 2.0;
-    let anchor = f.layout.judge_line_y - 230.0 * s;
+    let anchor = f.layout.judge_line_y - f.layout.judge_position.anchor_720() * s;
     let since = f.last_judge.map(|(_, at, _)| f.audio_time - at);
 
     if f.score.current_combo > 0 || since.is_some_and(|e| (0.0..JUDGE_SECONDS).contains(&e)) {
@@ -1662,7 +1686,9 @@ fn end_banner(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, fiel
             field,
             theme::BLACK.with_alpha((fail_vignette(p) * 0.5 * alpha * 255.0) as u8),
         );
-        cy += fail_shake(p) * s;
+        if !f.reduce_flashes {
+            cy += fail_shake(p) * s;
+        }
     }
     let top = matches!(lamp, ClearType::FullCombo | ClearType::Perfect);
     c.sprite_centered(
@@ -1694,7 +1720,7 @@ fn end_banner(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, fiel
             }
         }
         // A light sweep crosses the word from left to right.
-        if let Some(u) = banner_sweep(p) {
+        if let Some(u) = banner_sweep(p).filter(|_| !f.reduce_flashes) {
             let x = field.x - 0.1 * field.w + u * 1.2 * field.w;
             let peak = (u * std::f32::consts::PI).sin();
             c.sprite_centered(
@@ -1941,6 +1967,8 @@ mod tests {
                     readout,
                     banner,
                     judge_marks: if busy { &marks } else { &[] },
+                    visual_offset_ms: 0.0,
+                    reduce_flashes: false,
                 },
             );
             assert_eq!(
@@ -2030,6 +2058,8 @@ mod tests {
                     readout: None,
                     banner: None,
                     judge_marks: &marks,
+                    visual_offset_ms: 0.0,
+                    reduce_flashes: false,
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "lite={lite}");
@@ -2186,6 +2216,68 @@ mod tests {
     }
 
     #[test]
+    fn hud_never_overlaps_at_the_largest_note_size() {
+        for (w, h) in SIZES {
+            let vp = Viewport::new(w, h);
+            for position in [
+                FieldPosition::Left,
+                FieldPosition::Center,
+                FieldPosition::Right,
+            ] {
+                for mode in [
+                    PlayMode::Keys5,
+                    PlayMode::Keys7,
+                    PlayMode::Keys8,
+                    PlayMode::Keys9,
+                    PlayMode::Keys14,
+                ] {
+                    let mut skin = SkinConfig::default();
+                    skin.update_layout(&vp);
+                    skin.set_play_mode(mode);
+                    skin.set_note_size(crate::skin::NOTE_SIZE_MAX);
+                    skin.set_field_layout(position, crate::skin::ScratchSide::Left);
+                    let field = Rect::new(
+                        skin.playfield_x,
+                        skin.playfield_y,
+                        skin.playfield_width,
+                        skin.playfield_height,
+                    );
+                    let case = format!("{w}x{h} {position:?} {mode:?} at max note size");
+                    assert!(
+                        inside(field, &vp),
+                        "{case}: field {field:?} leaves the viewport"
+                    );
+                    let hud = hud_layout(&vp, field, skin.effective_position(), vp.scale);
+                    let rects = [hud.gauge, hud.song, hud.score, hud.hint];
+                    for r in rects {
+                        assert!(inside(r, &vp), "{case}: {r:?} leaves the viewport");
+                        assert!(!overlaps(r, field), "{case}: {r:?} covers the playfield");
+                    }
+                    for (i, a) in rects.iter().enumerate() {
+                        for b in &rects[i + 1..] {
+                            assert!(!overlaps(*a, *b), "{case}: {a:?} overlaps {b:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn visual_offset_moves_the_note_clock_and_nothing_else() {
+        // The drawn notes read `note_clock`; judgement and the audio time do not.
+        assert_eq!(note_clock(2.0, 0.0), 2.0);
+        assert!((note_clock(2.0, 50.0) - 2.05).abs() < 1e-12);
+        assert!((note_clock(2.0, -100.0) - 1.9).abs() < 1e-12);
+    }
+
+    #[test]
+    fn reduced_flashes_halve_the_bursts_and_keep_the_danger_red_without_blinking() {
+        assert_eq!(burst_gain(false), 1.0);
+        assert_eq!(burst_gain(true), 0.5);
+    }
+
+    #[test]
     fn hud_columns_are_wide_enough_to_read_at_every_size() {
         for (w, h) in SIZES {
             for position in [
@@ -2306,6 +2398,8 @@ mod tests {
                 readout: None,
                 banner: None,
                 judge_marks: &[],
+                visual_offset_ms: 0.0,
+                reduce_flashes: false,
             },
         );
         // The backdrop image is one batch, the frame the other.
@@ -2503,6 +2597,8 @@ mod tests {
                 readout: None,
                 banner,
                 judge_marks: &[],
+                visual_offset_ms: 0.0,
+                reduce_flashes: false,
             },
         );
         assert_eq!(ui.canvas.debug_batches().len(), 1, "t={audio_time}");

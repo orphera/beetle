@@ -229,6 +229,8 @@ pub fn gameplay(
                     (end.lamp, progress.min(1.0) as f32)
                 }),
                 judge_marks: state.view.judge_marks(),
+                visual_offset_ms: state.visual_offset_ms,
+                reduce_flashes: state.reduce_flashes,
             },
         );
     }

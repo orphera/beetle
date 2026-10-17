@@ -2,7 +2,10 @@ use crate::filters::Filter;
 use crate::folders::{mode_from_id, mode_id, ChartChoices, FolderPath};
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
 use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
-use beetle_render::{px_per_sec_to_green_ms, EightKForm, FieldPosition, ScratchSide};
+use beetle_render::{
+    px_per_sec_to_green_ms, EightKForm, FieldPosition, JudgePosition, ScratchSide, NOTE_SIZE_MAX,
+    NOTE_SIZE_MIN,
+};
 use std::fs;
 use std::path::Path;
 
@@ -268,6 +271,13 @@ pub struct AppConfig {
     /// BGA images and videos: when off they are neither decoded nor drawn.
     pub bga_enabled: bool,
     pub key_hint: KeyHintSetting,
+    /// Where the notes are drawn, in ms (picture only; judgement unchanged).
+    pub visual_offset_ms: f64,
+    /// Single play lane width, as a multiple of the default (see `NOTE_SIZE_MIN`).
+    pub note_size: f32,
+    pub judge_position: JudgePosition,
+    /// No full-field danger flash, dimmer hit bursts, no banner sweep or shake.
+    pub reduce_flashes: bool,
 }
 
 impl Default for AppConfig {
@@ -296,6 +306,10 @@ impl Default for AppConfig {
             track_bga: TrackBgaSetting::Medium,
             bga_enabled: true,
             key_hint: KeyHintSetting::FirstSeconds,
+            visual_offset_ms: 0.0,
+            note_size: 1.0,
+            judge_position: JudgePosition::Upper,
+            reduce_flashes: false,
         }
     }
 }
@@ -476,6 +490,18 @@ impl AppConfig {
                     config.track_bga = TrackBgaSetting::from_str(val);
                 }
                 "play_key_hint" => config.key_hint = KeyHintSetting::from_name(val),
+                "visual_offset_ms" => {
+                    if let Ok(v) = val.parse::<f64>() {
+                        config.visual_offset_ms = v.clamp(-100.0, 100.0);
+                    }
+                }
+                "note_size" => {
+                    if let Ok(v) = val.parse::<f32>() {
+                        config.note_size = v.clamp(NOTE_SIZE_MIN, NOTE_SIZE_MAX);
+                    }
+                }
+                "judge_position" => config.judge_position = JudgePosition::from_name(val),
+                "reduce_flashes" => config.reduce_flashes = val == "ON",
                 _ => {
                     for (i, &mode) in MODE_SLOTS.iter().enumerate() {
                         let slot = mode_slot_name(mode);
@@ -508,7 +534,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\nvisual_offset_ms={:.1}\nnote_size={:.2}\njudge_position={}\nreduce_flashes={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -534,6 +560,10 @@ impl AppConfig {
             self.scratch_sides[2].as_str(),
             self.eight_k_form.id(),
             self.key_hint.as_str(),
+            self.visual_offset_ms,
+            self.note_size,
+            self.judge_position.as_str(),
+            if self.reduce_flashes { "ON" } else { "OFF" },
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -642,6 +672,11 @@ mod tests {
             track_bga: TrackBgaSetting::Medium,
             bga_enabled: false,
             key_hint: KeyHintSetting::Off,
+            visual_offset_ms: -35.0,
+            note_size: 1.15,
+            judge_position: JudgePosition::Lower,
+            reduce_flashes: true,
+            ..AppConfig::default()
         };
 
         let serialized = config.serialize_str();
@@ -677,6 +712,10 @@ mod tests {
         assert_eq!(config.target_fps, parsed.target_fps);
         assert_eq!(config.track_bga, parsed.track_bga);
         assert_eq!(config.key_hint, parsed.key_hint);
+        assert_eq!(config.visual_offset_ms, parsed.visual_offset_ms);
+        assert_eq!(config.note_size, parsed.note_size);
+        assert_eq!(config.judge_position, parsed.judge_position);
+        assert_eq!(config.reduce_flashes, parsed.reduce_flashes);
         assert_eq!(config.bga_enabled, parsed.bga_enabled);
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);
@@ -838,6 +877,30 @@ green_ms=530
         );
         assert!(!text.contains("hi_speed"));
         assert_eq!(AppConfig::parse_str(&text).play_options.green_ms, 530);
+    }
+
+    #[test]
+    fn a_file_from_before_the_display_settings_reads_their_defaults() {
+        // Every new key is missing: the picture and the flashes read as before.
+        let parsed = AppConfig::parse_str("master_volume=0.70\nplay_key_hint=OFF\n");
+        assert_eq!(parsed.visual_offset_ms, 0.0);
+        assert_eq!(parsed.note_size, 1.0);
+        assert_eq!(parsed.judge_position, JudgePosition::Upper);
+        assert!(!parsed.reduce_flashes);
+    }
+
+    #[test]
+    fn display_settings_are_clamped_and_bad_values_fall_back() {
+        let parsed = AppConfig::parse_str(
+            "visual_offset_ms=250\nnote_size=3.0\njudge_position=DIAGONAL\nreduce_flashes=yes\n",
+        );
+        assert_eq!(parsed.visual_offset_ms, 100.0);
+        assert_eq!(parsed.note_size, NOTE_SIZE_MAX);
+        assert_eq!(parsed.judge_position, JudgePosition::Upper);
+        assert!(!parsed.reduce_flashes);
+        let low = AppConfig::parse_str("visual_offset_ms=-900\nnote_size=0.1\n");
+        assert_eq!(low.visual_offset_ms, -100.0);
+        assert_eq!(low.note_size, NOTE_SIZE_MIN);
     }
 
     #[test]

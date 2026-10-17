@@ -161,6 +161,8 @@ impl ApplicationHandler for BeetleApp {
             field_position: saved_config.field_position,
             scratch_sides: saved_config.scratch_sides,
             eight_k_form: saved_config.eight_k_form,
+            note_size: saved_config.note_size,
+            judge_position: saved_config.judge_position,
             ..Default::default()
         };
         let view = ViewState::new(size.width, size.height, skin);
@@ -263,6 +265,8 @@ impl ApplicationHandler for BeetleApp {
             bgm_volume: saved_config.bgm_volume,
             key_volume: saved_config.key_volume,
             sfx_volume: saved_config.sfx_volume,
+            visual_offset_ms: saved_config.visual_offset_ms,
+            reduce_flashes: saved_config.reduce_flashes,
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,
             target_fps: saved_config.target_fps,

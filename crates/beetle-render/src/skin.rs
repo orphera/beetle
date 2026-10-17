@@ -77,6 +77,63 @@ impl FieldPosition {
     }
 }
 
+/// Where the judgement and the combo sit over the playfield, as a height above
+/// the judge line. Render only: the judgement itself is unaffected.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum JudgePosition {
+    /// High above the judge line: the default.
+    #[default]
+    Upper,
+    Middle,
+    /// Just above the judge line, over the keys.
+    Lower,
+}
+
+impl JudgePosition {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Upper => "UPPER",
+            Self::Middle => "MIDDLE",
+            Self::Lower => "LOWER",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Self {
+        match s {
+            "MIDDLE" => Self::Middle,
+            "LOWER" => Self::Lower,
+            _ => Self::Upper,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Upper => Self::Middle,
+            Self::Middle => Self::Lower,
+            Self::Lower => Self::Upper,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        self.next().next()
+    }
+
+    /// The judgement's anchor above the judge line, in 720-unit px (the
+    /// `Upper` value is the layout the game has always used).
+    pub fn anchor_720(self) -> f32 {
+        match self {
+            Self::Upper => 230.0,
+            Self::Middle => 130.0,
+            Self::Lower => 50.0,
+        }
+    }
+}
+
+/// Note size (the single play lane width) range and step, as a multiple of the default.
+pub const NOTE_SIZE_MIN: f32 = 0.90;
+pub const NOTE_SIZE_MAX: f32 = 1.20;
+pub const NOTE_SIZE_STEP: f32 = 0.05;
+
 /// Which edge of a single play playfield (5K / 7K) the scratch lane is on.
 /// Double Play keeps the 1P scratch left and the 2P scratch right.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -227,6 +284,11 @@ pub struct SkinConfig {
     /// Lane width of a single play, relative to the 720p reference lanes
     /// (see `size_lanes`). Double Play always uses 1.0.
     pub single_play_lane_scale: f32,
+    /// The player's note size: multiplies the single play lane width (see
+    /// `NOTE_SIZE_MIN`..`NOTE_SIZE_MAX`). Double Play does not use it.
+    pub note_size: f32,
+    /// Height of the judgement and the combo over the playfield.
+    pub judge_position: JudgePosition,
     pub white_key_color: ColorRgba,
     pub blue_key_color: ColorRgba,
     pub scratch_key_color: ColorRgba,
@@ -256,6 +318,8 @@ impl Default for SkinConfig {
             hi_speed: 400.0, // Pixels per second
             lane_cover_ratio: 0.0,
             single_play_lane_scale: SINGLE_PLAY_LANE_SCALE,
+            note_size: 1.0,
+            judge_position: JudgePosition::Upper,
             white_key_color: crate::theme::NOTE_WHITE,
             blue_key_color: crate::theme::NOTE_BLUE,
             scratch_key_color: crate::theme::NOTE_SCRATCH,
@@ -335,11 +399,18 @@ impl SkinConfig {
     fn size_lanes(&mut self) {
         let lane_scale = match self.play_mode {
             PlayMode::Keys10 | PlayMode::Keys14 => 1.0,
-            _ => self.single_play_lane_scale,
+            _ => self.single_play_lane_scale * self.note_size,
         };
         let k = self.area_scale * lane_scale;
         self.scratch_lane_width = 72.0 * k;
         self.lane_width = 50.0 * k;
+    }
+
+    /// Sets the note size (see `note_size`) and re-lays out the lanes.
+    pub fn set_note_size(&mut self, size: f32) {
+        self.note_size = size.clamp(NOTE_SIZE_MIN, NOTE_SIZE_MAX);
+        self.size_lanes();
+        self.place_field();
     }
 
     /// Sets `playfield_width` for the play mode and `playfield_x` for the
@@ -933,5 +1004,38 @@ mod tests {
         skin.update_layout(&vp);
         assert_eq!(skin.judge_line_y, JUDGE_LINE_720 * vp.scale + vp.y);
         assert_eq!(skin.playfield_height, FIELD_HEIGHT_720 * vp.scale);
+    }
+
+    #[test]
+    fn note_size_scales_a_single_play_lane_and_clamps() {
+        let vp = crate::view::Viewport::new(1280, 720);
+        let mut skin = SkinConfig::default();
+        skin.update_layout(&vp);
+        let base = skin.lane_width;
+
+        skin.set_note_size(1.2);
+        assert!((skin.lane_width - base * 1.2).abs() < 1e-3);
+        skin.set_note_size(5.0);
+        assert_eq!(skin.note_size, NOTE_SIZE_MAX);
+        skin.set_note_size(0.1);
+        assert_eq!(skin.note_size, NOTE_SIZE_MIN);
+
+        // Double Play keeps its size whatever the note size.
+        skin.set_play_mode(PlayMode::Keys14);
+        let dp = skin.lane_width;
+        skin.set_note_size(NOTE_SIZE_MIN);
+        assert!((skin.lane_width - dp).abs() < 1e-3);
+    }
+
+    #[test]
+    fn judge_position_cycles_through_three_heights_and_upper_is_the_old_one() {
+        let first = JudgePosition::Upper;
+        assert_eq!(first.anchor_720(), 230.0);
+        assert_eq!(first.next().next().next(), first);
+        assert_eq!(first.prev(), JudgePosition::Lower);
+        assert!(JudgePosition::Middle.anchor_720() < first.anchor_720());
+        assert!(JudgePosition::Lower.anchor_720() < JudgePosition::Middle.anchor_720());
+        assert_eq!(JudgePosition::from_name("LOWER"), JudgePosition::Lower);
+        assert_eq!(JudgePosition::from_name("nonsense"), JudgePosition::Upper);
     }
 }

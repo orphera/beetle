@@ -41,7 +41,8 @@ pub use screens::{
 pub use screens::{draw_drop_overlay, draw_help_overlay, LAMP_COUNT};
 pub use skin::{
     green_ms_to_px_per_sec, px_per_sec_to_green_ms, scratch_side_applies, ColorRgba, EightKForm,
-    FieldPosition, ScratchSide, SkinConfig,
+    FieldPosition, JudgePosition, ScratchSide, SkinConfig, NOTE_SIZE_MAX, NOTE_SIZE_MIN,
+    NOTE_SIZE_STEP,
 };
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::{ambient_time, Ui, AMBIENT_LOOP_SECS};

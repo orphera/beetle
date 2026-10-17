@@ -231,6 +231,13 @@ table! {
     pub ROW_BGM_VOLUME = "배경음 볼륨";
     pub ROW_KEY_VOLUME = "키음 볼륨";
     pub ROW_SFX_VOLUME = "효과음 볼륨";
+    pub ROW_VISUAL_OFFSET = "비주얼 오프셋";
+    pub ROW_JUDGE_POSITION = "판정 표시 위치";
+    pub JUDGE_POS_UPPER = "위";
+    pub JUDGE_POS_MIDDLE = "가운데";
+    pub JUDGE_POS_LOWER = "아래";
+    pub ROW_NOTE_SIZE = "노트 크기";
+    pub ROW_REDUCE_FLASHES = "플래시 줄이기";
     pub ROW_PLAYFIELD = "플레이필드";
     pub ROW_SCRATCH = "스크래치";
     pub ROW_BGA = "BGA";
@@ -297,7 +304,11 @@ table! {
     pub HELP_BGM_VOLUME = "곡의 배경음 크기예요. 채보에 들어 있는 자동 재생 소리가 여기에 해당해요. 전체 볼륨과 함께 적용돼요.";
     pub HELP_KEY_VOLUME = "플레이 중 내가 누른 키의 소리 크기예요. 판정된 노트의 소리도 여기에 해당해요. 자동 플레이 소리는 배경음이에요.";
     pub HELP_SFX_VOLUME = "메뉴 효과음과 징글의 크기예요. 곡 미리듣기는 배경음 볼륨을 따라요.";
-    pub HELP_JUDGE_OFFSET = "판정 기준 시각을 앞뒤로 옮겨요. 범위는 -100에서 +100 ms예요. ENTER로 박자에 맞춰 측정할 수 있어요.";
+    pub HELP_JUDGE_OFFSET = "판정 시각을 앞뒤로 옮겨서 판정 결과가 바뀌어요. 범위는 -100에서 +100 ms예요. 화면만 옮기려면 비주얼 오프셋을 써요.";
+    pub HELP_VISUAL_OFFSET = "노트를 그리는 위치만 앞뒤로 옮겨요. 양수면 노트가 더 일찍 보여요. 판정과 소리 타이밍은 바뀌지 않아요.";
+    pub HELP_JUDGE_POSITION = "판정과 콤보 글자가 판정선에서 얼마나 떨어져 보일지 정해요. 위가 기본이에요.";
+    pub HELP_NOTE_SIZE = "싱글 플레이의 레인 너비를 90%에서 120%까지 바꿔요. 더블 플레이는 그대로예요.";
+    pub HELP_REDUCE_FLASHES = "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.";
     pub HELP_PLAYFIELD = "플레이필드를 화면 가운데, 왼쪽, 오른쪽 중 어디에 둘지 정해요.";
     pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.";
     pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.";
