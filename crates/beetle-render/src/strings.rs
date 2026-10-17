@@ -313,7 +313,7 @@ table! {
     pub HELP_SCRATCH = "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.";
     pub HELP_BGA = "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.";
     pub HELP_KEY_HINT = "플레이 화면 아래의 키 안내 줄을 정해요. 처음 3초만이면 시작 뒤 3초 동안만 보이고 사라져요.";
-    pub HELP_TRACK_BGA = "배경 영상을 노트 레인 뒤에 얼마나 진하게 비출지 정해요. 꺼짐이면 보이지 않아요.";
+    pub HELP_TRACK_BGA = "배경 영상과 이미지를 화면 배경에 얼마나 진하게 비출지 정해요. 꺼짐이면 보이지 않아요.";
     pub HELP_KEY_LAYOUT = "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.";
 
     // Judge offset calibration (a Settings sub-screen).

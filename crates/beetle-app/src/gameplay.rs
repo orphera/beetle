@@ -45,7 +45,11 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .filter(|_| state.is_replay_playback)
         .and_then(|r| r.random_seed)
         .unwrap_or_else(fresh_seed);
-    state.loading_receiver = Some(spawn_background_song_loader(song, seed, state.bga_enabled));
+    state.loading_receiver = Some(spawn_background_song_loader(
+        song,
+        seed,
+        state.bga_visible(),
+    ));
     state.window.request_redraw();
 }
 

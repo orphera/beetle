@@ -141,8 +141,9 @@ pub fn gameplay(
     audio_time: f64,
     visual_levels: &[f32; 16],
 ) {
-    // BGA OFF: no texture lookups or uploads at all.
-    let bga = state.bga_enabled.then(|| {
+    // BGA not visible (option off, or track BGA at 0%): no texture lookups or
+    // uploads at all.
+    let bga = state.bga_visible().then(|| {
         gameplay_bga_texture(
             &mut state.gpu_ui,
             &mut state.d3d11,
@@ -159,7 +160,7 @@ pub fn gameplay(
     let bga = bga.flatten();
     let layer = state
         .current_layer_bmp
-        .filter(|_| state.bga_enabled)
+        .filter(|_| state.bga_visible())
         .and_then(|id| {
             bga_texture(
                 &mut state.gpu_ui,
@@ -171,13 +172,6 @@ pub fn gameplay(
             )
         });
     state.view.clean_expired_hit_bursts(audio_time);
-    // A song without BGA events or videos has no BGA box: the HUD uses the room.
-    let has_bga = state.bga_enabled
-        && (state
-            .active_chart
-            .as_ref()
-            .is_some_and(|c| !c.bga_events.is_empty())
-            || !state.video_players.is_empty());
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
         state.is_auto_play,
@@ -218,7 +212,6 @@ pub fn gameplay(
                 pause: state
                     .is_gameplay_paused
                     .then_some(state.pause_selected_option),
-                has_bga,
                 key_hint_alpha: state.key_hint.alpha(audio_time),
                 readout: state
                     .gameplay_readout

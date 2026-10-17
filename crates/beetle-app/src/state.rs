@@ -724,8 +724,19 @@ impl AppState {
         }
     }
 
+    /// Whether the chart's BGA can be seen: the BGA option is on and the track
+    /// BGA is above 0%. When not, nothing is looked up, uploaded or advanced.
+    /// The track BGA cannot change during a play, so a play's loader and its
+    /// per-frame checks agree.
+    pub fn bga_visible(&self) -> bool {
+        self.bga_enabled && self.track_bga.opacity() > 0.0
+    }
+
     /// Advances video playback if a video BGA is active.
     pub fn update_video_bga(&mut self, audio_time: f64) {
+        if !self.bga_visible() {
+            return;
+        }
         if let Some(base_id) = self.current_bga_bmp {
             if let Some(player) = self.video_players.get_mut(&base_id) {
                 let start_t = self.video_start_times.get(&base_id).copied().unwrap_or(0.0);

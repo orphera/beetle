@@ -57,8 +57,6 @@ pub struct PlayFrame<'a> {
     pub badge: Option<&'a str>,
     /// `Some(selected option)` while the pause menu is open.
     pub pause: Option<usize>,
-    /// The chart has BGA events or a video.
-    pub has_bga: bool,
     /// Opacity of the key hint line (0 = hidden).
     pub key_hint_alpha: f32,
     /// Readout over the lane top (for example "그린 500 ms") and the audio
@@ -1971,7 +1969,6 @@ mod tests {
                     hint: "ESC 일시정지",
                     badge: Some(strings::AUTO_PLAY),
                     pause,
-                    has_bga: false,
                     key_hint_alpha: if busy { 0.5 } else { 1.0 },
                     readout,
                     banner,
@@ -2062,7 +2059,6 @@ mod tests {
                     hint: "ESC 일시정지",
                     badge: None,
                     pause: None,
-                    has_bga: false,
                     key_hint_alpha: 1.0,
                     readout: None,
                     banner: None,
@@ -2402,7 +2398,6 @@ mod tests {
                 hint: "ESC 일시정지",
                 badge: None,
                 pause: None,
-                has_bga: true,
                 key_hint_alpha: 1.0,
                 readout: None,
                 banner: None,
@@ -2601,7 +2596,6 @@ mod tests {
                 hint: "ESC 일시정지",
                 badge: None,
                 pause: None,
-                has_bga: false,
                 key_hint_alpha: 1.0,
                 readout: None,
                 banner,

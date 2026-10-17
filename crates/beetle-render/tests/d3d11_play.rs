@@ -250,7 +250,6 @@ fn render_with(
             hint: "키  Shift+S D F Space J K L    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
             badge: None,
             pause,
-            has_bga: false,
             key_hint_alpha: extra.hint_alpha.unwrap_or(1.0),
             readout: extra.readout,
             banner: extra.banner,
