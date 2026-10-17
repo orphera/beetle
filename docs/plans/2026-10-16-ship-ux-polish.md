@@ -98,3 +98,6 @@ U3d에서 푸터를 줄인 뒤 `A` / `F12` / `ESC`는 도움말(`?`)에만 있�
 - bpm-gui DPI는 레이아웃 전체에 배율을 곱하는 대신 `논리 크기 = 물리 크기 / scale_factor`로 그린 뒤 쌍선형 확대로 출력한다(`main.rs` `enlarge_into`). 글자가 약간 부드러워지는 대신 UI가 크기에 맞게 커지고 입력 좌표도 같은 배율로 환산한다. 배율 1.0은 기존 복사 경로 그대로.
 - 릴리스 크기: `beetle-app.exe` 3,159,040 B, `bpm-gui.exe` 약 4.83 MB.
 - 실제 곡 설치 워크스루와 오디오 장치 없음 토스트는 직접 확인하지 않음.
+## 공유 디자인 토큰 (2026-10-17)
+
+두 앱의 크롬 색은 `beetle_render::theme::ui`(`crates/beetle-render/src/theme.rs`)에 한 벌로 둔다. bpm-gui의 `widgets::theme`는 이를 그대로 다시 내보낸다. 강조색은 시안(#00e5ff)이고, 금색·초록 등 데이터 색은 크롬에 쓰지 않는다. bpm-gui 폰트는 Noto Sans KR 하나(합성 굵기)로 통일했다(JetBrains Mono 제거).

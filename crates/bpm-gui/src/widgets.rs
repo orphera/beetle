@@ -10,28 +10,7 @@ use tiny_skia::{
 
 /// The window's colors. Every screen draws with these only.
 pub mod theme {
-    use beetle_render::skin::ColorRgba;
-
-    pub const BG: ColorRgba = ColorRgba::new(15, 16, 22, 255);
-    pub const SURFACE: ColorRgba = ColorRgba::new(22, 24, 32, 255);
-    pub const SURFACE_2: ColorRgba = ColorRgba::new(31, 34, 45, 255);
-    pub const SURFACE_3: ColorRgba = ColorRgba::new(42, 46, 60, 255);
-    pub const BORDER: ColorRgba = ColorRgba::new(48, 52, 68, 255);
-    pub const TEXT: ColorRgba = ColorRgba::new(236, 238, 244, 255);
-    pub const TEXT_DIM: ColorRgba = ColorRgba::new(160, 165, 182, 255);
-    pub const TEXT_FAINT: ColorRgba = ColorRgba::new(123, 130, 153, 255);
-    pub const ACCENT: ColorRgba = ColorRgba::new(255, 200, 70, 255);
-    pub const ACCENT_TEXT: ColorRgba = ColorRgba::new(28, 22, 6, 255);
-    pub const ACCENT_SOFT: ColorRgba = ColorRgba::new(58, 48, 22, 255);
-    pub const SELECT: ColorRgba = ColorRgba::new(38, 46, 72, 255);
-    pub const BLUE: ColorRgba = ColorRgba::new(110, 180, 255, 255);
-    pub const GREEN: ColorRgba = ColorRgba::new(96, 212, 146, 255);
-    pub const GREEN_SOFT: ColorRgba = ColorRgba::new(24, 52, 38, 255);
-    pub const WARN: ColorRgba = ColorRgba::new(255, 190, 80, 255);
-    pub const WARN_SOFT: ColorRgba = ColorRgba::new(60, 46, 20, 255);
-    pub const DANGER: ColorRgba = ColorRgba::new(240, 100, 100, 255);
-    pub const DANGER_SOFT: ColorRgba = ColorRgba::new(64, 28, 30, 255);
-    pub const SCRIM: ColorRgba = ColorRgba::new(0, 0, 0, 170);
+    pub use beetle_render::theme::ui::*;
 }
 
 /// Text sizes in px.
@@ -466,7 +445,7 @@ impl GuiRenderer {
         let (bg, fg, border) = match style {
             Btn::Primary => (
                 if hover {
-                    ColorRgba::new(255, 214, 110, 255)
+                    theme::ACCENT_HOVER
                 } else {
                     theme::ACCENT
                 },

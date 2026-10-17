@@ -704,14 +704,14 @@ impl GuiRenderer {
             }
             let level = format!("{symbol}{}", row.level);
             let lw = (text_w(&level, PX_SMALL) + 14.0).max(56.0);
-            self.round(x + 8.0, y + 5.0, lw, 20.0, 10.0, theme::ACCENT_SOFT);
+            self.round(x + 8.0, y + 5.0, lw, 20.0, 10.0, theme::SURFACE_3);
             let lt = text_w(&level, PX_SMALL);
             self.text(
                 &level,
                 x + 8.0 + (lw - lt) / 2.0,
                 y + 5.0 + ((20.0 - cap(PX_SMALL)) / 2.0).round(),
                 PX_SMALL,
-                theme::ACCENT,
+                theme::TEXT_DIM,
             );
             let tx = x + lw + 20.0;
             let mut right = x + rw - 10.0;

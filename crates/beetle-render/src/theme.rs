@@ -48,6 +48,42 @@ pub const NOTE_WHITE: ColorRgba = rgb(0xf2f4fa);
 pub const NOTE_BLUE: ColorRgba = BLUE;
 pub const NOTE_SCRATCH: ColorRgba = MAGENTA;
 
+/// Chrome tokens both apps share: Beetle's panels and bpm-gui draw from the
+/// same palette, so the two windows read as one product. Cyan is the accent;
+/// gold, green and the other data colors above never color chrome.
+pub mod ui {
+    use super::rgb;
+    use crate::skin::ColorRgba;
+
+    pub const BG: ColorRgba = rgb(0x0f1016);
+    pub const SURFACE: ColorRgba = rgb(0x161820);
+    pub const SURFACE_2: ColorRgba = rgb(0x1f222d);
+    pub const SURFACE_3: ColorRgba = rgb(0x2a2e3c);
+    pub const BORDER: ColorRgba = rgb(0x303444);
+    pub const SELECT: ColorRgba = rgb(0x1a2a3a);
+
+    pub const TEXT: ColorRgba = rgb(0xf2f4fa);
+    pub const TEXT_DIM: ColorRgba = rgb(0xa0a5b6);
+    /// Lowest text color for information (about 4.7:1 on `SURFACE`).
+    pub const TEXT_FAINT: ColorRgba = rgb(0x7b8299);
+
+    pub const ACCENT: ColorRgba = rgb(0x00e5ff);
+    pub const ACCENT_HOVER: ColorRgba = rgb(0x40ecff);
+    /// Text on an `ACCENT` fill.
+    pub const ACCENT_TEXT: ColorRgba = rgb(0x05060a);
+    /// `ACCENT` at about 14% over `SURFACE`.
+    pub const ACCENT_SOFT: ColorRgba = rgb(0x133540);
+
+    pub const BLUE: ColorRgba = rgb(0x6eb4ff);
+    pub const GREEN: ColorRgba = rgb(0x60d492);
+    pub const GREEN_SOFT: ColorRgba = rgb(0x183426);
+    pub const WARN: ColorRgba = rgb(0xffbe50);
+    pub const WARN_SOFT: ColorRgba = rgb(0x3c2e14);
+    pub const DANGER: ColorRgba = rgb(0xf06464);
+    pub const DANGER_SOFT: ColorRgba = rgb(0x401c1e);
+    pub const SCRIM: ColorRgba = ColorRgba::new(0, 0, 0, 170);
+}
+
 pub const BLACK: ColorRgba = ColorRgba::new(0, 0, 0, 255);
 pub const WHITE: ColorRgba = ColorRgba::new(255, 255, 255, 255);
 
