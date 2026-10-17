@@ -1044,6 +1044,16 @@ table! {
         en "Reduces the red warning flash, judge lights, and the banner's light rays and shaking. Judgement and sound stay the same.",
         ja "赤い警告の点滅、判定の光、バナーの光条と揺れを抑えます。判定と音は変わりません。";
 
+    pub ROW_REDUCE_MOTION =
+        ko "모션 줄이기",
+        en "Reduce Motion",
+        ja "モーションを抑える";
+
+    pub HELP_REDUCE_MOTION =
+        ko "화면 전환을 페이드로 바꾸고, 배경의 움직임과 제목 효과를 멈추고, 목록 스크롤을 바로 옮겨요. 기능은 그대로예요.",
+        en "Uses a plain fade between screens, stops the moving backgrounds and title effects, and snaps list scrolling. Every function stays.",
+        ja "画面の切り替えをフェードにし、背景の動きとタイトルの演出を止め、リストのスクロールを即座に移動します。機能は変わりません。";
+
     pub ROW_UI_SCALE =
         ko "UI 크기",
         en "UI Scale",

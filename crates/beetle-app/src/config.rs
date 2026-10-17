@@ -306,6 +306,9 @@ pub struct AppConfig {
     pub judge_position: JudgePosition,
     /// No full-field danger flash, dimmer hit bursts, no banner sweep or shake.
     pub reduce_flashes: bool,
+    /// No shutter, no backdrop drift or title sweep, snapping list scroll and no
+    /// result shake (`reduce_motion=ON`). Reduce Flashes is separate.
+    pub reduce_motion: bool,
     /// Menu UI scale in percent (`ui_scale=80..=150`, steps of 10; 100 = default).
     pub ui_scale: u32,
     /// The language picked in Settings (`language=KO|EN|JA`). `None` until the
@@ -345,6 +348,7 @@ impl Default for AppConfig {
             note_size: 1.0,
             judge_position: JudgePosition::Upper,
             reduce_flashes: false,
+            reduce_motion: false,
             ui_scale: UI_SCALE_DEFAULT,
             language: None,
             turntable_axis: None,
@@ -540,6 +544,7 @@ impl AppConfig {
                 }
                 "judge_position" => config.judge_position = JudgePosition::from_name(val),
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
+                "reduce_motion" => config.reduce_motion = val == "ON",
                 "ui_scale" => {
                     if let Ok(v) = val.parse::<u32>() {
                         config.ui_scale = snap_ui_scale(v);
@@ -584,7 +589,7 @@ impl AppConfig {
 
     fn serialize_str(&self) -> String {
         let mut out = format!(
-            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\nvisual_offset_ms={:.1}\nnote_size={:.2}\njudge_position={}\nreduce_flashes={}\nui_scale={}\n",
+            "green_ms={}\nlane_cover_ratio={:.2}\nlane_modifier={}\ngauge_type={}\nln_mode={}\njudge_offset_ms={:.1}\nsort_mode={}\nfolder_path={}\nmaster_volume={:.2}\nbgm_volume={:.2}\nkey_volume={:.2}\nsfx_volume={:.2}\ndisplay_mode={}\ngpu_backend={}\nwindow_width={}\nwindow_height={}\ntarget_fps={}\nbga={}\ntrack_bga={}\nfield_position={}\nscratch_side_5k={}\nscratch_side_7k={}\nscratch_side_8k={}\neight_k_form={}\nplay_key_hint={}\nvisual_offset_ms={:.1}\nnote_size={:.2}\njudge_position={}\nreduce_flashes={}\nui_scale={}\nreduce_motion={}\n",
             self.play_options.green_ms,
             self.lane_cover_ratio,
             self.play_options.lane_modifier.as_str(),
@@ -615,6 +620,7 @@ impl AppConfig {
             self.judge_position.as_str(),
             if self.reduce_flashes { "ON" } else { "OFF" },
             self.ui_scale,
+            if self.reduce_motion { "ON" } else { "OFF" },
         );
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -978,6 +984,19 @@ green_ms=530
         assert_eq!(AppConfig::parse_str("ui_scale=400\n").ui_scale, 150);
         assert_eq!(AppConfig::parse_str("ui_scale=40\n").ui_scale, 80);
         assert_eq!(AppConfig::parse_str("ui_scale=big\n").ui_scale, 100);
+    }
+
+    #[test]
+    fn reduce_motion_round_trips_and_an_old_file_reads_off() {
+        assert!(!AppConfig::parse_str("master_volume=0.70\n").reduce_motion);
+        let saved = AppConfig {
+            reduce_motion: true,
+            ..Default::default()
+        };
+        let text = saved.serialize_str();
+        assert!(text.contains("reduce_motion=ON\n"));
+        assert!(AppConfig::parse_str(&text).reduce_motion);
+        assert!(!AppConfig::parse_str("reduce_motion=yes\n").reduce_motion);
     }
 
     #[test]

@@ -31,14 +31,21 @@ const TOAST_OUT: f32 = 0.3;
 pub const FRAME: Duration = Duration::from_millis(16);
 
 /// How screen changes are presented. `Shutter` is the default; `Fade` is the
-/// plain background fade a future "reduce flashes" option would select.
+/// plain background fade that Reduce Motion selects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransitionStyle {
     #[default]
     Shutter,
-    // Chosen by the reduce-flashes option, which is not in the config yet.
-    #[allow(dead_code)]
     Fade,
+}
+
+/// The transition style for the Reduce Motion setting: the plain fade when on.
+pub fn style_for(reduce_motion: bool) -> TransitionStyle {
+    if reduce_motion {
+        TransitionStyle::Fade
+    } else {
+        TransitionStyle::Shutter
+    }
 }
 
 /// The overlay a screen change plays.
@@ -202,6 +209,11 @@ impl ScreenEntry {
         }
     }
 
+    /// The style the next screen change plays with.
+    pub fn set_style(&mut self, style: TransitionStyle) {
+        self.style = style;
+    }
+
     /// Records `screen` as the current one. Returns `true` when it changed.
     pub fn sync(&mut self, screen: AppScreen, now: Instant) -> bool {
         if screen == self.screen {
@@ -252,6 +264,7 @@ pub fn show_toast(state: &mut AppState, kind: ToastKind, text: impl Into<String>
 impl AppState {
     /// Records a change of screen. Called before drawing and every loop turn.
     pub fn sync_screen_entry(&mut self) {
+        self.screen_entry.set_style(style_for(self.reduce_motion));
         if self.screen_entry.sync(self.screen, Instant::now()) {
             crate::menu_audio::sync_with_screen(self);
             if self.screen == AppScreen::SongSelect {
@@ -402,6 +415,34 @@ mod tests {
         );
         // A cut where nothing fades in (into Gameplay from a menu).
         assert_eq!(transition_for(SongSelect, Gameplay, shutter), None);
+    }
+
+    #[test]
+    fn reduce_motion_swaps_the_shutter_for_the_plain_fade() {
+        use AppScreen::*;
+        assert_eq!(style_for(false), TransitionStyle::Shutter);
+        assert_eq!(style_for(true), TransitionStyle::Fade);
+        // The shutter pairs that the setting turns into a fade.
+        for (from, to) in [
+            (SongSelect, Settings),
+            (Title, SongSelect),
+            (Settings, Title),
+        ] {
+            assert_eq!(
+                transition_for(from, to, style_for(false)),
+                Some(Transition::Shutter),
+                "{from:?} -> {to:?} shutters by default"
+            );
+            assert_eq!(
+                transition_for(from, to, style_for(true)),
+                Some(Transition::Fade),
+                "{from:?} -> {to:?} fades under Reduce Motion"
+            );
+        }
+        assert_eq!(
+            transition_for(Loading, Gameplay, style_for(true)),
+            Some(Transition::Fade)
+        );
     }
 
     #[test]

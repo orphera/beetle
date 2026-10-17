@@ -205,6 +205,9 @@ pub struct AppState {
     /// Where the notes are drawn, in ms. Drawing only: judgement never reads it.
     pub visual_offset_ms: f64,
     pub reduce_flashes: bool,
+    /// Reduce Motion: plain fades, frozen backdrops, snapping list scroll and
+    /// no result shake. Read each frame by the presenter and the song select motion.
+    pub reduce_motion: bool,
     /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
     pub language: Option<strings::Lang>,
     /// The controller axis that is a turntable (kept as the config has it).
@@ -323,7 +326,12 @@ impl AppState {
             Some(_) => {}
         }
         self.motion_selection = Some(selection);
-        self.list_scroll_visual = motion::list_scroll_step(self.list_scroll_visual, target, dt);
+        // Reduce Motion: the list snaps to its target and the row indent does not animate.
+        self.list_scroll_visual = if self.reduce_motion {
+            target
+        } else {
+            motion::list_scroll_step(self.list_scroll_visual, target, dt)
+        };
 
         let since = self
             .selected_since
@@ -331,7 +339,11 @@ impl AppState {
         SelectMotion {
             scroll: self.list_scroll_visual,
             emphasis: since.map_or(1.0, |e| {
-                motion::ease_out_cubic(motion::span_progress(e, SELECT_EMPHASIS_SECS))
+                if self.reduce_motion {
+                    1.0
+                } else {
+                    motion::ease_out_cubic(motion::span_progress(e, SELECT_EMPHASIS_SECS))
+                }
             }),
             detail: detail_alpha(since),
         }
@@ -518,6 +530,7 @@ impl AppState {
             note_size: self.view.skin.note_size,
             judge_position: self.view.skin.judge_position,
             reduce_flashes: self.reduce_flashes,
+            reduce_motion: self.reduce_motion,
             ui_scale: self.view.ui_scale,
             display_mode: self.display_mode,
             language: self.language,

@@ -43,7 +43,13 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
         .d3d11
         .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
     state.gpu_ui.ui.lite = state.d3d11.is_warp();
-    state.gpu_ui.ui.clock = ambient_clock();
+    // Reduce Motion freezes the decorative clock at 0: the backdrop drift,
+    // particles, light band and title sweep all read it.
+    state.gpu_ui.ui.clock = if state.reduce_motion {
+        0.0
+    } else {
+        ambient_clock()
+    };
     state.gpu_ui.ui.pointer = state.cursor;
     state.gpu_ui.ui.begin(size.width, size.height, scale);
 }
@@ -787,7 +793,8 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 previous_best: state.previous_best.as_ref(),
                 update: state.score_update,
                 elapsed,
-                reduce_flashes: state.reduce_flashes,
+                // Reduce Motion implies the flash-free result (shake and flash off).
+                reduce_flashes: state.reduce_flashes || state.reduce_motion,
                 jacket,
                 unsaved_reason: unsaved,
                 ln_label: ln_label.as_deref(),

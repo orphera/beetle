@@ -52,6 +52,7 @@ pub enum OptionId {
     Graphics,
     TargetFps,
     ReduceFlashes,
+    ReduceMotion,
     UiScale,
     MasterVolume,
     BgmVolume,
@@ -197,6 +198,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_REDUCE_FLASHES(),
             help: strings::HELP_REDUCE_FLASHES(),
+        },
+        OptionDesc {
+            id: OptionId::ReduceMotion,
+            group: strings::GROUP_DISPLAY(),
+            column: 0,
+            label: strings::ROW_REDUCE_MOTION(),
+            help: strings::HELP_REDUCE_MOTION(),
         },
         OptionDesc {
             id: OptionId::UiScale,
@@ -487,6 +495,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::JudgePosition => judge_position_label(state.view.skin.judge_position).to_string(),
         OptionId::NoteSize => format!("{:.0}%", state.view.skin.note_size * 100.0),
         OptionId::ReduceFlashes => on_off(state.reduce_flashes).to_string(),
+        OptionId::ReduceMotion => on_off(state.reduce_motion).to_string(),
         OptionId::UiScale => format!("{}%", state.view.ui_scale),
         OptionId::Playfield => field_label(state.view.skin.field_position).to_string(),
         OptionId::Scratch => {
@@ -607,6 +616,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.view.skin.set_note_size(size);
         }
         OptionId::ReduceFlashes => state.reduce_flashes = !state.reduce_flashes,
+        OptionId::ReduceMotion => state.reduce_motion = !state.reduce_motion,
         OptionId::UiScale => {
             let percent = ui_scale_next(state.view.ui_scale, forward);
             state.view.set_ui_scale(percent);
