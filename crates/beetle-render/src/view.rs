@@ -95,6 +95,19 @@ impl Viewport {
             ..self
         }
     }
+
+    /// The same rectangle with the scale capped at what the whole 1280x720
+    /// design fits in: the scale that makes the rectangle exactly 1280 wide
+    /// and 720 tall at most. Screens whose layout is a fixed stack of design
+    /// units (Key Config, Song Select) draw with this, so a UI scale that the
+    /// window cannot hold is capped instead of spilling off the window.
+    pub fn fit_to_design(self) -> Self {
+        let fit = (self.width / Self::BASE_WIDTH).min(self.height / Self::BASE_HEIGHT);
+        Self {
+            scale: self.scale.min(fit),
+            ..self
+        }
+    }
 }
 
 /// The UI scale option, in percent: 80 to 150 in steps of 10 (100 = default).

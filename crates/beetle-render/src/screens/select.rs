@@ -170,7 +170,8 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     let art = ui.backdrop.mix(f.now);
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
-    let vp = f.viewport;
+    let fitted = f.viewport.fit_to_design();
+    let vp = &fitted;
     let s = vp.scale;
     let selected = match f.rows.get(f.selected) {
         Some(SelectRow::Song(i)) => f.songs.get(*i),
@@ -353,23 +354,66 @@ fn top_bar(
     s: f32,
     hs: &mut HitSink,
 ) -> (Option<Rect>, Rect) {
-    let vp = f.viewport;
+    let fitted = f.viewport.fit_to_design();
+    let vp = &fitted;
     let x0 = vp.x + PAD * s;
     let adv = widgets::top_bar(c, t, vp, strings::WORDMARK(), s);
     let bar_top = vp.y + 16.0 * s;
     let bar_h = 32.0 * s;
 
     // Left group: FOLDER ‹ breadcrumb ›, then SORT. The right group (SETTINGS,
-    // OPTIONS, quick buttons, search) is laid out below; its left edge bounds this group.
-    let right_limit = vp.x + vp.width - (PAD + 5.0 * 108.0 + 12.0 + 264.0 + 16.0) * s;
+    // OPTIONS, quick buttons, search) is laid out first: the sort group sits
+    // between the folder group and the search box and never reaches either.
     let icon = 16.0 * s;
     let iy = vp.y + 32.0 * s - icon / 2.0;
     let base = vp.y + 37.0 * s;
     let cap = caption(12.0, s);
     let sort_value_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+
+    // Right edge, left to right: the play group (AUTO, OPTIONS), the setup group
+    // (KEY CONFIG, SETTINGS), then QUIT alone in the corner, where a close
+    // control is expected. Groups are told apart by a wider gap.
+    let btn_w = 96.0 * s;
+    let (near, far) = (8.0 * s, 20.0 * s);
+    let auto_label = if f.auto_play {
+        strings::AUTO_PLAY()
+    } else {
+        strings::BUTTON_AUTO()
+    };
+    // (label, keycap, hit, gap to the button on the right)
+    let buttons: [(&str, &str, HitId, f32); 5] = [
+        (strings::QUIT(), "ESC", HitId::ExitQuit, 0.0),
+        (strings::SETTINGS(), "F4", HitId::OpenSettings, far),
+        (strings::KEY_CONFIG(), "F12", HitId::KeyConfig, near),
+        (strings::OPTIONS(), "TAB", HitId::PlayOptions, far),
+        (auto_label, "A", HitId::Auto, near),
+    ];
+    // A label in a longer language may need a wider button than the rest.
+    let widths: Vec<f32> = buttons
+        .iter()
+        .map(|&(label, key, _, _)| bar_button_width(c, t, label, key, s).max(btn_w))
+        .collect();
+    // Extra width the buttons take over the usual one, which the search box gives up.
+    let bar_extra: f32 = widths.iter().map(|w| w - btn_w).sum();
+    let gaps: f32 = buttons.iter().map(|b| b.3).sum();
+    let left_edge = vp.x + vp.width - PAD * s - gaps - widths.iter().sum::<f32>();
+    // Search box: its left edge stays where it is, so it never reaches the sort group.
+    let search_w = (240.0 * s - bar_extra).max(160.0 * s);
+    let search_x = left_edge - 12.0 * s - search_w;
+
+    // Sort: its right end sits before the search box. Its left end stops at the
+    // folder group's fixed parts (FOLDER and both chevrons); a value that does not
+    // fit the room left is cut.
     let sort_label_w = t.measure(c, strings::SORT(), &cap);
-    let sort_value_w = t.measure(c, f.sort, &sort_value_st);
-    let sort_x = right_limit - (sort_label_w + 12.0 * s + sort_value_w + 32.0 * s);
+    let folder_end =
+        x0 + adv + 48.0 * s + t.measure(c, strings::FOLDER(), &cap) + 2.0 * icon + 26.0 * s;
+    let sort_x_min = folder_end + 24.0 * s;
+    let sort_right = search_x - 12.0 * s;
+    let sort_fixed = sort_label_w + 12.0 * s;
+    let room = (sort_right - sort_x_min - sort_fixed).max(0.0);
+    let sort_value = t.fit(c, f.sort, room, &sort_value_st).into_owned();
+    let sort_value_w = t.measure(c, &sort_value, &sort_value_st);
+    let sort_x = (sort_right - sort_fixed - sort_value_w).max(sort_x_min);
 
     let mut x = x0 + adv + 48.0 * s;
     x += t.draw(c, strings::FOLDER(), x, base, &cap) + 12.0 * s;
@@ -386,7 +430,7 @@ fn top_bar(
 
     // Breadcrumb: keeps its last segments when the bar is too narrow (the
     // dropped ones become "…"). Each segment is a click target.
-    let crumb_avail = (sort_x - 24.0 * s) - x - icon - 8.0 * s;
+    let crumb_avail = ((sort_x - 24.0 * s) - x - icon - 8.0 * s).max(0.0);
     let sep_st = TextStyle::new(12.0 * s).color(theme::MUTED2);
     let seg_st = |hot: bool, current: bool| {
         TextStyle::new(13.0 * s).bold().color(if current || hot {
@@ -453,11 +497,11 @@ fn top_bar(
     // Sort: "LABEL  value", a click opens the sort menu.
     let mut sx = sort_x;
     sx += t.draw(c, strings::SORT(), sx, base, &cap) + 12.0 * s;
-    t.draw(c, f.sort, sx, base, &sort_value_st);
+    t.draw(c, &sort_value, sx, base, &sort_value_st);
     let sort_hit = Rect::new(
         sort_x - 8.0 * s,
         bar_top,
-        sort_label_w + sort_value_w + 28.0 * s + 12.0 * s,
+        sort_label_w + sort_value_w + 28.0 * s,
         bar_h,
     );
     hs.add(sort_hit, HitId::Sort);
@@ -465,42 +509,13 @@ fn top_bar(
         c.stroke_rect(sort_hit, s.max(1.0), theme::CYAN.with_alpha(90));
     }
 
-    // Right edge, left to right: the play group (AUTO, OPTIONS), the setup group
-    // (KEY CONFIG, SETTINGS), then QUIT alone in the corner, where a close
-    // control is expected. Groups are told apart by a wider gap.
-    let btn_w = 96.0 * s;
-    let (near, far) = (8.0 * s, 20.0 * s);
-    let auto_label = if f.auto_play {
-        strings::AUTO_PLAY()
-    } else {
-        strings::BUTTON_AUTO()
-    };
-    // (label, keycap, hit, gap to the button on the right)
-    let buttons: [(&str, &str, HitId, f32); 5] = [
-        (strings::QUIT(), "ESC", HitId::ExitQuit, 0.0),
-        (strings::SETTINGS(), "F4", HitId::OpenSettings, far),
-        (strings::KEY_CONFIG(), "F12", HitId::KeyConfig, near),
-        (strings::OPTIONS(), "TAB", HitId::PlayOptions, far),
-        (auto_label, "A", HitId::Auto, near),
-    ];
     let mut right = vp.x + vp.width - PAD * s;
-    let mut left_edge = right;
-    // Extra width the buttons take over the usual one, which the search box gives up.
-    let mut bar_extra = 0.0;
-    for (label, key, id, gap) in buttons {
-        // A label in a longer language may need a wider button than the rest.
-        let w = bar_button_width(c, t, label, key, s).max(btn_w);
-        bar_extra += w - btn_w;
+    for ((label, key, id, gap), w) in buttons.into_iter().zip(widths) {
         let r = Rect::new(right - gap - w, bar_top, w, bar_h);
         bar_button(c, t, sk, hs, r, label, key, id, s);
         right = r.x;
-        left_edge = r.x;
     }
-    let auto_btn = Rect::new(left_edge, bar_top, btn_w, bar_h);
-
-    // Search box: its left edge stays where it is, so it never reaches the sort label.
-    let search_w = (264.0 * s - bar_extra).max(160.0 * s);
-    let search = Rect::new(auto_btn.x - 12.0 * s - search_w, bar_top, search_w, bar_h);
+    let search = Rect::new(search_x, bar_top, search_w, bar_h);
     hs.add(search, HitId::Search);
     c.nine(
         &sk.panel_lg,
@@ -600,8 +615,9 @@ fn takes_clicks(view: Rect, row: Rect) -> bool {
 
 /// How many song rows fit in the list at this viewport (at least one).
 pub fn visible_rows(vp: &Viewport) -> usize {
+    let vp = vp.fit_to_design();
     let s = vp.scale;
-    let list_h = content_rect(vp).h;
+    let list_h = content_rect(&vp).h;
     let step = (ROW_H + ROW_GAP) * s;
     (((list_h + ROW_GAP * s) / step).floor() as usize).max(1)
 }
@@ -1985,7 +2001,8 @@ fn footer(
     s: f32,
     hs: &mut HitSink,
 ) {
-    let vp = f.viewport;
+    let fitted = f.viewport.fit_to_design();
+    let vp = &fitted;
     let bar = widgets::footer_bar(c, vp, s);
     let base = bar.y + 25.0 * s;
     let count_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
@@ -2146,7 +2163,8 @@ fn filter_row(
     s: f32,
     hs: &mut HitSink,
 ) {
-    let vp = f.viewport;
+    let fitted = f.viewport.fit_to_design();
+    let vp = &fitted;
     let bar = Rect::new(
         vp.x + PAD * s,
         vp.y + FILTER_Y * s,

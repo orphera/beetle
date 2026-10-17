@@ -7,12 +7,14 @@ mod common;
 
 use std::time::Instant;
 
-use beetle_core::{LnOption, ScoreStore, TableIndex};
+use beetle_core::{Lane, LnOption, PlayMode, ScoreStore, TableIndex};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings::{self, Lang};
 use beetle_render::{
-    draw_options_modal, draw_settings, draw_song_select, draw_title, D3d11Backend, FilterBar,
-    GpuBackend, OptionLine, SelectFrame, SelectMotion, SettingsFrame, TitleFrame, Ui, Viewport,
+    draw_key_config, draw_options_modal, draw_settings, draw_song_select, draw_title, D3d11Backend,
+    EightKForm, FilterBar, GpuBackend, Hit, HitId, KeyBinding, KeyConfigFrame, KeyConfigRects,
+    OptionLine, Rebind, Rect, ScratchSide, SelectFrame, SelectMotion, SettingsFrame, SkinConfig,
+    TitleFrame, Ui, Viewport,
 };
 use common::HiddenWindow;
 
@@ -213,6 +215,205 @@ fn main_screens_draw_one_batch_in_every_language() {
             });
             assert_eq!(calls, 1, "song select {at}");
         }
+        ui_scales_keep_the_layout_apart(&mut gpu, &mut ui, (w, h));
     }
     strings::set_lang(Lang::Ko);
+}
+
+/// Whether `r` lies inside the window's 16:9 rectangle.
+fn inside(r: Rect, vp: &Viewport) -> bool {
+    r.x >= vp.x - 0.5
+        && r.y >= vp.y - 0.5
+        && r.right() <= vp.x + vp.width + 0.5
+        && r.bottom() <= vp.y + vp.height + 0.5
+}
+
+/// Whether two rectangles share area.
+fn overlaps(a: Rect, b: Rect) -> bool {
+    a.x < b.right() - 0.5
+        && b.x < a.right() - 0.5
+        && a.y < b.bottom() - 0.5
+        && b.y < a.bottom() - 0.5
+}
+
+/// Every click target picked by `pick` lies in the window and no two overlap.
+fn assert_apart(hits: &[Hit], vp: &Viewport, at: &str, pick: impl Fn(&HitId) -> bool) {
+    let picked: Vec<&Hit> = hits.iter().filter(|h| pick(&h.id)).collect();
+    for (i, a) in picked.iter().enumerate() {
+        assert!(inside(a.rect, vp), "{at}: {:?} leaves the window", a.id);
+        for b in &picked[i + 1..] {
+            assert!(
+                !overlaps(a.rect, b.rect),
+                "{at}: {:?} overlaps {:?}",
+                a.id,
+                b.id
+            );
+        }
+    }
+}
+
+fn hit_rect(hits: &[Hit], id: HitId) -> Rect {
+    hits.iter()
+        .find(|h| h.id == id)
+        .unwrap_or_else(|| panic!("{id:?} not drawn"))
+        .rect
+}
+
+/// Key Config and the Song Select top bar at UI scales 80, 100 and 150 in
+/// every language and both window sizes. Click targets stay inside the window
+/// and do not overlap, the Key Config parts stack in order (tabs, lanes, card,
+/// footer) and the top bar runs left to right (folder, sort, search, buttons).
+fn ui_scales_keep_the_layout_apart(gpu: &mut D3d11Backend, ui: &mut Ui, (w, h): (u32, u32)) {
+    let modes = [
+        (PlayMode::Keys5, ScratchSide::Left, EightKForm::Inline),
+        (PlayMode::Keys7, ScratchSide::Right, EightKForm::Inline),
+        (PlayMode::Keys8, ScratchSide::Left, EightKForm::Triggers),
+    ];
+    for lang in Lang::ALL {
+        strings::set_lang(lang);
+        for percent in [80, 100, 150] {
+            let vp = Viewport::new(w, h).with_ui_scale(percent);
+            let at = format!("{lang:?} {w}x{h} ui {percent}");
+
+            for (mode, scratch, form) in modes {
+                let mut layout = SkinConfig::default();
+                layout.set_play_mode(mode);
+                layout.set_scratch_side(mode, scratch);
+                layout.set_eight_k_form(form);
+                let screen = layout.screen_lanes();
+                let labels: Vec<String> = screen
+                    .iter()
+                    .map(|l| format!("{l:?}").to_uppercase())
+                    .collect();
+                let lanes: Vec<KeyBinding> = screen
+                    .iter()
+                    .zip(&labels)
+                    .map(|(&lane, label)| KeyBinding {
+                        lane,
+                        label,
+                        keys: if lane == Lane::Scratch {
+                            &["LShift"]
+                        } else {
+                            &["S"]
+                        },
+                    })
+                    .collect();
+                let at = format!("{at} {mode:?}");
+                gpu.begin_frame(w, h, [0.0, 0.0, 0.0, 1.0]);
+                ui.begin(w, h, vp.scale);
+                let rects: KeyConfigRects = draw_key_config(
+                    ui,
+                    &KeyConfigFrame {
+                        viewport: &vp,
+                        mode,
+                        lanes: &lanes,
+                        selected: 1,
+                        rebinding: Some(Rebind::Replace),
+                        layout: "HomeRow",
+                        scratch,
+                        form,
+                    },
+                );
+                ui.end(gpu);
+                gpu.end_frame();
+                assert!(
+                    rects.tabs.bottom() <= rects.controllers.y + 0.5,
+                    "tabs/lanes {at}"
+                );
+                assert!(
+                    rects.controllers.bottom() <= rects.card.y + 0.5,
+                    "lanes/card {at}"
+                );
+                assert!(
+                    rects.card.bottom() <= rects.footer.y + 0.5,
+                    "card/footer {at}"
+                );
+                assert!(inside(rects.footer, &vp), "footer {at}");
+                assert_apart(&ui.hits, &vp, &format!("key config {at}"), |id| {
+                    matches!(
+                        id,
+                        HitId::KeyModeTab(_)
+                            | HitId::KeyLane(_)
+                            | HitId::KeySet
+                            | HitId::KeyAdd
+                            | HitId::KeyClear
+                            | HitId::KeyPreset
+                            | HitId::KeyScratch
+                            | HitId::KeyReset
+                            | HitId::KeyBack
+                            | HitId::KeyForm
+                    )
+                });
+                for h in ui.hits.iter().filter(|h| matches!(h.id, HitId::KeyLane(_))) {
+                    let c = rects.controllers;
+                    assert!(
+                        h.rect.x >= c.x - 0.5
+                            && h.rect.right() <= c.right() + 0.5
+                            && h.rect.y >= c.y - 0.5
+                            && h.rect.bottom() <= c.bottom() + 0.5,
+                        "lane {:?} leaves its area {at}",
+                        h.id
+                    );
+                }
+            }
+
+            let crumbs = vec![strings::FOLDER_ROOT().to_string()];
+            let scores = ScoreStore::default();
+            let tables = TableIndex::default();
+            gpu.begin_frame(w, h, [0.0, 0.0, 0.0, 1.0]);
+            ui.begin(w, h, vp.scale);
+            draw_song_select(
+                ui,
+                &SelectFrame {
+                    viewport: &vp,
+                    now: Instant::now(),
+                    songs: &[],
+                    rows: &[],
+                    selected: 0,
+                    motion: SelectMotion::at_rest(0),
+                    library_empty: false,
+                    scores: &scores,
+                    ln_option: LnOption::Auto,
+                    tables: &tables,
+                    crumbs: &crumbs,
+                    sort: strings::SORT_TITLE(),
+                    search: "",
+                    search_active: false,
+                    preedit: "",
+                    jacket: None,
+                    ambient: None,
+                    option_chips: &[],
+                    auto_play: false,
+                    has_replay: false,
+                    preview_secs: None,
+                    filter: FilterBar::default(),
+                    result_count: None,
+                    sort_menu: None,
+                    show_help: false,
+                },
+            );
+            ui.end(gpu);
+            gpu.end_frame();
+            assert_apart(&ui.hits, &vp, &format!("song select {at}"), |id| {
+                matches!(
+                    id,
+                    HitId::FolderNext
+                        | HitId::Sort
+                        | HitId::Search
+                        | HitId::Auto
+                        | HitId::ExitQuit
+                        | HitId::OpenSettings
+                        | HitId::KeyConfig
+                        | HitId::PlayOptions
+                )
+            });
+            let folder_next = hit_rect(&ui.hits, HitId::FolderNext);
+            let sort = hit_rect(&ui.hits, HitId::Sort);
+            let search = hit_rect(&ui.hits, HitId::Search);
+            let auto = hit_rect(&ui.hits, HitId::Auto);
+            assert!(folder_next.right() <= sort.x + 0.5, "folder/sort {at}");
+            assert!(sort.right() <= search.x + 0.5, "sort/search {at}");
+            assert!(search.right() <= auto.x + 0.5, "search/buttons {at}");
+        }
+    }
 }

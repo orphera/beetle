@@ -38,8 +38,8 @@ pub use screens::{
     draw_screen_fade, draw_settings, draw_shutter, draw_song_select, draw_title, draw_toast,
     filter_items, first_note_time, follow_settings_scroll, scroll_by, shutter_geometry,
     visible_rows, window_start, BootFrame, CalibrateFrame, CalibratePhase, FilterBar, FilterItem,
-    KeyBinding, KeyConfigFrame, LoadingFrame, OptionLine, OptionsFooter, PlayFrame, Rebind,
-    ResultFrame, SelectFrame, SelectMotion, SelectRow, SettingsFrame, ShutterGeometry,
+    KeyBinding, KeyConfigFrame, KeyConfigRects, LoadingFrame, OptionLine, OptionsFooter, PlayFrame,
+    Rebind, ResultFrame, SelectFrame, SelectMotion, SelectRow, SettingsFrame, ShutterGeometry,
     ShutterPanel, ShutterPhase, SizedTexture, SortMenu, TitleFrame, ToastAnchor, ToastFrame,
     ToastKind, KEY_MODES,
 };

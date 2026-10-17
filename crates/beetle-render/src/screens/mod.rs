@@ -14,7 +14,9 @@ mod widgets;
 
 pub use boot::{draw_boot, BootFrame};
 pub use calibrate::{draw_calibrate, CalibrateFrame, CalibratePhase};
-pub use key_bind::{draw_key_config, KeyBinding, KeyConfigFrame, Rebind, KEY_MODES};
+pub use key_bind::{
+    draw_key_config, KeyBinding, KeyConfigFrame, KeyConfigRects, Rebind, KEY_MODES,
+};
 pub use loading::{draw_loading, LoadingFrame};
 pub use overlay::{
     draw_screen_fade, draw_shutter, draw_toast, shutter_geometry, ShutterGeometry, ShutterPanel,

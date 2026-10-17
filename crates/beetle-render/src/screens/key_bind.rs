@@ -94,12 +94,27 @@ fn rebind_hints() -> [Hint; 2] {
     ]
 }
 
-pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
+/// Where Key Config drew its main parts, in window pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeyConfigRects {
+    /// The row of mode tabs.
+    pub tabs: Rect,
+    /// The lane buttons and their area.
+    pub controllers: Rect,
+    /// The detail card under the lanes.
+    pub card: Rect,
+    /// The footer strip.
+    pub footer: Rect,
+}
+
+/// Draws the Key Config screen and returns the rects it used.
+pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) -> KeyConfigRects {
     let sk = ui.skin;
     let lite = ui.lite;
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
-    let vp = f.viewport;
+    let fitted = f.viewport.fit_to_design();
+    let vp = &fitted;
     let s = vp.scale;
 
     widgets::backdrop(c, &sk, vp, theme::BLUE, ui.clock, lite);
@@ -110,15 +125,8 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
         vp.y + vp.height - (FOOTER_H + 24.0) * s,
     );
 
-    mode_tabs(
-        c,
-        t,
-        &sk,
-        f.mode,
-        Rect::new(content.x, content.y, content.w, 36.0 * s),
-        s,
-        &mut hs,
-    );
+    let tabs = Rect::new(content.x, content.y, content.w, 36.0 * s);
+    mode_tabs(c, t, &sk, f.mode, tabs, s, &mut hs);
     let sub = layout_summary(f);
     t.draw_in(
         c,
@@ -134,20 +142,13 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
         640.0 * s,
         136.0 * s,
     );
-    controllers(
-        c,
-        t,
-        &sk,
-        f,
-        Rect::from_ltrb(
-            content.x,
-            content.y + 72.0 * s,
-            content.right(),
-            card.y - 16.0 * s,
-        ),
-        s,
-        &mut hs,
+    let controllers_area = Rect::from_ltrb(
+        content.x,
+        content.y + 72.0 * s,
+        content.right(),
+        card.y - 16.0 * s,
     );
+    controllers(c, t, &sk, f, controllers_area, s, &mut hs);
     detail_card(c, t, &sk, f, card, s);
 
     // Top bar: layout chip on the right
@@ -172,6 +173,12 @@ pub fn draw_key_config(ui: &mut Ui, f: &KeyConfigFrame) {
         widgets::footer_buttons(c, t, &sk, &rebind_hints(), bar, s, &mut hs);
     } else {
         widgets::footer_buttons(c, t, &sk, &hints_for(f.mode), bar, s, &mut hs);
+    }
+    KeyConfigRects {
+        tabs,
+        controllers: controllers_area,
+        card,
+        footer: bar,
     }
 }
 
