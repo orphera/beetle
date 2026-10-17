@@ -254,6 +254,11 @@ impl AppState {
     pub fn sync_screen_entry(&mut self) {
         if self.screen_entry.sync(self.screen, Instant::now()) {
             crate::menu_audio::sync_with_screen(self);
+            if self.screen == AppScreen::SongSelect {
+                if let Some(text) = self.pending_uninstalled_toast.take() {
+                    show_toast(self, ToastKind::Info, text);
+                }
+            }
         }
     }
 

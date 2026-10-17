@@ -291,6 +291,7 @@ impl ApplicationHandler for BeetleApp {
             library_receiver: Some(library_receiver),
             library_job: LibraryJob::Startup,
             rescan_return: AppScreen::SongSelect,
+            pending_uninstalled_toast: None,
             library_started_at: Instant::now(),
             loading_song: None,
             loading_receiver: None,

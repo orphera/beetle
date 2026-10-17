@@ -230,6 +230,9 @@ pub struct AppState {
     /// The screen the last rescan was started from; the rescan goes back to it
     /// when it is a menu (see `rescan_return_screen`).
     pub rescan_return: AppScreen,
+    /// The uninstalled-packages notice of the last load, shown the next time
+    /// song select is entered (see `sync_screen_entry`).
+    pub pending_uninstalled_toast: Option<String>,
     pub library_started_at: Instant,
     pub loading_song: Option<SongMetadata>,
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
@@ -565,11 +568,10 @@ impl AppState {
                 }
             }
         }
-        // Once per load, and only when song select is the screen that shows.
-        if self.screen == AppScreen::SongSelect {
-            if let Some(text) = uninstalled_toast_text(&load.uninstalled) {
-                crate::transition::show_toast(self, beetle_render::ToastKind::Info, text);
-            }
+        // Kept until song select is entered, so a boot to the title still shows it.
+        // A load with nothing to report keeps an earlier notice not yet shown.
+        if let Some(text) = uninstalled_toast_text(&load.uninstalled) {
+            self.pending_uninstalled_toast = Some(text);
         }
         // Remember the folders' mtime (after the read, so the cache write it may
         // have made is part of it) so focus-regain knows whether a rescan is needed.
