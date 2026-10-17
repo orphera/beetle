@@ -69,6 +69,12 @@ impl Viewport {
         }
     }
 
+    /// Whether the window pixel (`x`, `y`) lies inside the 16:9 rectangle
+    /// (not in a bar). Window pixels are what the cursor and the hit regions use.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
     /// Checks if this viewport has active letterbox (top/bottom bars)
     pub fn is_letterboxed(&self) -> bool {
         self.y > 0.5
@@ -326,6 +332,37 @@ mod tests {
         assert_eq!(snap_ui_scale(114), 110);
         assert_eq!(snap_ui_scale(116), 120);
         assert_eq!(snap_ui_scale(999), UI_SCALE_MAX);
+    }
+
+    #[test]
+    fn ultrawide_and_4_3_windows_centre_the_16_9_rectangle() {
+        // 21:9 (2560x1080) and 32:9-ish 3440x1440 pillarbox; 4:3 letterboxes.
+        let cases = [
+            (2560, 1080, (1920.0, 1080.0), (320.0, 0.0), 1.5),
+            (3440, 1440, (2560.0, 1440.0), (440.0, 0.0), 2.0),
+            (1024, 768, (1024.0, 576.0), (0.0, 96.0), 0.8),
+        ];
+        for (w, h, (vw, vh), (x, y), scale) in cases {
+            let vp = Viewport::new(w, h);
+            assert_eq!((vp.width, vp.height), (vw, vh), "{w}x{h} size");
+            assert_eq!((vp.x, vp.y), (x, y), "{w}x{h} offset");
+            assert!(
+                (vp.scale - scale).abs() < 1e-6,
+                "{w}x{h} scale {}",
+                vp.scale
+            );
+            // The rectangle is centred in the window.
+            assert_eq!(vp.x * 2.0 + vp.width, w as f32, "{w}x{h} centred across");
+            assert_eq!(vp.y * 2.0 + vp.height, h as f32, "{w}x{h} centred down");
+            // The window's corners are outside the rectangle (bars), its centre inside.
+            assert!(!vp.contains(0.0, 0.0), "{w}x{h} corner is in a bar");
+            assert!(
+                vp.contains(w as f32 / 2.0, h as f32 / 2.0),
+                "{w}x{h} centre"
+            );
+            // Mouse mapping: the rectangle's own top-left pixel is inside.
+            assert!(vp.contains(vp.x, vp.y), "{w}x{h} top-left");
+        }
     }
 
     #[test]

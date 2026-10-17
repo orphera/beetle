@@ -381,6 +381,35 @@ mod tests {
     }
 
     #[test]
+    fn menu_hits_follow_the_pillarbox_and_letterbox_offsets() {
+        // A 21:9 window (pillarbox), a 4:3 one (letterbox): each row's centre
+        // is a hit on that row, and a point in the bars is not.
+        for (w, h) in [(2560, 1080), (1024, 768)] {
+            let vp = Viewport::new(w, h);
+            let mut ui = Ui::new(vp.scale);
+            ui.begin(w, h, vp.scale);
+            draw_title(&mut ui, &frame(&vp, 0, false));
+            for (i, r) in menu_rects(&vp).iter().enumerate() {
+                let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+                assert!(vp.contains(x, y), "{w}x{h} row {i} centre is in the frame");
+                let hit = crate::hit::hit_at(&ui.hits, x, y);
+                assert_eq!(hit, Some(HitId::TitleItem(i)), "{w}x{h} row {i}");
+            }
+            // The bar to the left (pillarbox) or above (letterbox) hits nothing.
+            let bar = if vp.is_pillarboxed() {
+                (vp.x / 2.0, vp.y + vp.height / 2.0)
+            } else {
+                (vp.x + vp.width / 2.0, vp.y / 2.0)
+            };
+            assert_eq!(
+                crate::hit::hit_at(&ui.hits, bar.0, bar.1),
+                None,
+                "{w}x{h} bar"
+            );
+        }
+    }
+
+    #[test]
     fn menu_rows_are_four_disjoint_rects_inside_the_viewport() {
         for (w, h) in SIZES {
             let vp = Viewport::new(w, h);

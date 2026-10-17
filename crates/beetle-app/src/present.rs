@@ -41,7 +41,7 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
         .scale;
     state
         .d3d11
-        .begin_frame(size.width, size.height, [0.0, 0.0, 0.0, 1.0]);
+        .begin_frame(size.width, size.height, beetle_render::theme::clear_color());
     state.gpu_ui.ui.lite = state.d3d11.is_warp();
     // Reduce Motion freezes the decorative clock at 0: the backdrop drift,
     // particles, light band and title sweep all read it.

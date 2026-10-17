@@ -88,6 +88,18 @@ pub mod ui {
     pub const SCRIM: ColorRgba = ColorRgba::new(0, 0, 0, 170);
 }
 
+/// The frame clear colour, which is what the letterbox and pillarbox bars
+/// show: the backdrop's own dark, so the bars match the screen behind them.
+pub fn clear_color() -> [f32; 4] {
+    let c = BG;
+    [
+        c.r as f32 / 255.0,
+        c.g as f32 / 255.0,
+        c.b as f32 / 255.0,
+        1.0,
+    ]
+}
+
 pub const BLACK: ColorRgba = ColorRgba::new(0, 0, 0, 255);
 pub const WHITE: ColorRgba = ColorRgba::new(255, 255, 255, 255);
 
