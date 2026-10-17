@@ -398,64 +398,33 @@ fn top_bar(
         c.stroke_rect(sort_hit, s.max(1.0), theme::CYAN.with_alpha(90));
     }
 
-    // Right edge: SETTINGS (F4), then OPTIONS (TAB); the search box sits to their left.
-    let settings = Rect::new(vp.x + vp.width - (PAD + 96.0) * s, bar_top, 96.0 * s, bar_h);
-    bar_button(
-        c,
-        t,
-        sk,
-        hs,
-        settings,
-        strings::SETTINGS,
-        "F4",
-        HitId::OpenSettings,
-        s,
-    );
-    let options = Rect::new(settings.x - (12.0 + 96.0) * s, bar_top, 96.0 * s, bar_h);
-    bar_button(
-        c,
-        t,
-        sk,
-        hs,
-        options,
-        strings::OPTIONS,
-        "TAB",
-        HitId::PlayOptions,
-        s,
-    );
-
-    // Three quick-action buttons between the options and the search box.
+    // Right edge, left to right: the play group (AUTO, OPTIONS), the setup group
+    // (KEY CONFIG, SETTINGS), then QUIT alone in the corner, where a close
+    // control is expected. Groups are told apart by a wider gap.
     let btn_w = 96.0 * s;
-    let exit_btn = Rect::new(options.x - (12.0 * s + btn_w), bar_top, btn_w, bar_h);
-    bar_button(
-        c,
-        t,
-        sk,
-        hs,
-        exit_btn,
-        strings::QUIT,
-        "ESC",
-        HitId::ExitQuit,
-        s,
-    );
-    let key_btn = Rect::new(exit_btn.x - (12.0 * s + btn_w), bar_top, btn_w, bar_h);
-    bar_button(c, t, sk, hs, key_btn, "키 설정", "F12", HitId::KeyConfig, s);
-    let auto_btn = Rect::new(key_btn.x - (12.0 * s + btn_w), bar_top, btn_w, bar_h);
-    bar_button(
-        c,
-        t,
-        sk,
-        hs,
-        auto_btn,
-        if f.auto_play {
-            strings::AUTO_PLAY
-        } else {
-            "자동"
-        },
-        "A",
-        HitId::Auto,
-        s,
-    );
+    let (near, far) = (8.0 * s, 20.0 * s);
+    let auto_label = if f.auto_play {
+        strings::AUTO_PLAY
+    } else {
+        "자동"
+    };
+    // (label, keycap, hit, gap to the button on the right)
+    let buttons: [(&str, &str, HitId, f32); 5] = [
+        (strings::QUIT, "ESC", HitId::ExitQuit, 0.0),
+        (strings::SETTINGS, "F4", HitId::OpenSettings, far),
+        ("키 설정", "F12", HitId::KeyConfig, near),
+        (strings::OPTIONS, "TAB", HitId::PlayOptions, far),
+        (auto_label, "A", HitId::Auto, near),
+    ];
+    let mut right = vp.x + vp.width - PAD * s;
+    let mut left_edge = right;
+    for (label, key, id, gap) in buttons {
+        let r = Rect::new(right - gap - btn_w, bar_top, btn_w, bar_h);
+        bar_button(c, t, sk, hs, r, label, key, id, s);
+        right = r.x;
+        left_edge = r.x;
+    }
+    let auto_btn = Rect::new(left_edge, bar_top, btn_w, bar_h);
 
     // Search box
     let search = Rect::new(auto_btn.x - (12.0 + 264.0) * s, bar_top, 264.0 * s, bar_h);
