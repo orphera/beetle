@@ -198,10 +198,8 @@ table! {
     pub GUIDE_MANAGER = "곡 관리자로 곡 패키지(.bmsp)를 설치합니다.";
     pub GUIDE_DROP = "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓습니다.";
     pub GUIDE_FOLDER = "곡 파일을 songs 폴더에 넣습니다.";
-    pub GUIDE_RESCAN = "곡을 넣은 뒤 다시 읽습니다.";
     pub GUIDE_BTN_MANAGER = "곡 관리자 열기";
     pub GUIDE_BTN_FOLDER = "songs 폴더 열기";
-    pub GUIDE_BTN_RESCAN = "다시 읽기";
 
     // Drag overlay: a file is dragged over the window (song select).
     pub DROP_TITLE = "여기에 놓으면 곡을 엽니다";

@@ -1220,8 +1220,8 @@ fn empty_state(
 // Detail panel
 // ---------------------------------------------------------------------------
 
-/// The first-run guide, in the list area of an empty library: the three ways to
-/// add songs (the second one is a drop, so it has no button), and the rescan.
+/// The first-run guide, in the list area of an empty library: the ways to add
+/// songs (the second one is a drop, so it has no button). The library rescans on its own when the window regains focus.
 fn first_run_guide(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -1251,7 +1251,7 @@ fn first_run_guide(
         &'static str,
         Option<(&'static str, HitId, Option<&'static str>)>,
     );
-    let steps: [Step; 4] = [
+    let steps: [Step; 3] = [
         (
             strings::GUIDE_MANAGER,
             Some((strings::GUIDE_BTN_MANAGER, HitId::OpenManager, None)),
@@ -1260,10 +1260,6 @@ fn first_run_guide(
         (
             strings::GUIDE_FOLDER,
             Some((strings::GUIDE_BTN_FOLDER, HitId::OpenSongsFolder, None)),
-        ),
-        (
-            strings::GUIDE_RESCAN,
-            Some((strings::GUIDE_BTN_RESCAN, HitId::Rescan, Some("Enter"))),
         ),
     ];
     let mut y = inner.y + 96.0 * s;
@@ -3179,7 +3175,6 @@ mod tests {
         let ids: Vec<HitId> = ui.hits.iter().map(|h| h.id).collect();
         assert!(ids.contains(&HitId::OpenManager));
         assert!(ids.contains(&HitId::OpenSongsFolder));
-        assert!(ids.contains(&HitId::Rescan));
         assert!(
             !ids.contains(&HitId::ListRow(0)),
             "the guide replaces the list"

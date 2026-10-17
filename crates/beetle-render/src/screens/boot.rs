@@ -8,7 +8,7 @@ use super::widgets;
 use crate::canvas::Rect;
 use crate::motion::ease_out_cubic;
 use crate::strings;
-use crate::text::{Align, TextStyle};
+use crate::text::TextStyle;
 use crate::theme::{self, caption};
 use crate::ui::Ui;
 use crate::view::Viewport;
@@ -69,14 +69,6 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
         track.x,
         track.y - 16.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
-    );
-    let elapsed = format!("{:.1}s", f.elapsed);
-    t.draw_in(
-        c,
-        &elapsed,
-        Rect::new(track.x, track.y - 30.0 * s, track.w, 20.0 * s),
-        Align::Right,
-        &TextStyle::new(13.0 * s).bold().color(theme::MUTED2),
     );
 }
 
