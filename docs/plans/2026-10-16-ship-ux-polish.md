@@ -4,22 +4,22 @@ overview: U1–U6에서 화면과 입력 모델은 이미 갖춰져 있으므로
 todos:
   - id: p0-autofocus-rescan
     content: 선곡 창 포커스 복귀 시 songs/registry mtime으로 필요할 때만 재스캔 + 관리자 열기 토스트
-    status: in_progress
+    status: completed
   - id: p0-first-run-copy
     content: 빈 서재 안내를 주 경로(관리자) + 보조로 줄이고, 첫 플레이 전 키 설정 한 번 안내
-    status: pending
+    status: completed
   - id: p0-audio-fail
     content: AudioEngine 생성 실패 시 무음 플레이 대신 선곡 복귀 + 오류 토스트
-    status: pending
+    status: completed
   - id: p1-header-actions
     content: 선곡 상단바에 자동/키설정/종료 버튼, 그린 칩 접두, 도움말 열림 시 드로우콜 1개 유지
-    status: pending
+    status: completed
   - id: p2-bpm-dpi-ime
     content: bpm-gui scale_factor 레이아웃, 검색 IME, 빈 바로설치/추가 완료 후 Beetle 복귀 안내
-    status: pending
+    status: completed
   - id: p3-copy-pause
     content: 부팅 경과시간 제거, 로딩 취소 힌트, 일시정지 마우스 정합
-    status: pending
+    status: completed
   - id: verify
     content: 캡처·빈서재 워크스루·DPI 확인·릴리스 크기 기록
     status: pending

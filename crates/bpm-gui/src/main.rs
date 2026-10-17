@@ -557,6 +557,7 @@ fn poll_task(state: &mut AppState) {
     let kind = state.task.take().map(|t| t.kind).unwrap_or(TaskKind::Other);
     let success = result.is_ok();
     match result {
+        Ok(msg) if kind == TaskKind::Adds => state.ok(format!("{msg} · {RETURN_TO_BEETLE}")),
         Ok(msg) => state.ok(msg),
         Err(msg) => state.err(msg),
     }
@@ -592,6 +593,9 @@ fn poll_task(state: &mut AppState) {
     }
     state.window.request_redraw();
 }
+
+/// Tells where the added songs show up (Beetle rescans when its window regains focus).
+const RETURN_TO_BEETLE: &str = "Beetle 창으로 돌아가면 목록이 갱신돼요";
 
 fn poll_picker(state: &mut AppState) {
     let Some((target, rx)) = &state.picker else {
