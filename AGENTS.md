@@ -90,6 +90,7 @@ cargo check --workspace
 cargo test --workspace
 
 # 릴리스 빌드 (바이너리 크기 최적화)
+# .cargo/config.toml이 MSVC 타깃을 정적 CRT(+crt-static)로 링크하므로 실행 파일은 VCRUNTIME140.dll 등 C++ 런타임 DLL을 가져오지 않습니다 (원칙 2). 이 설정을 지우지 마세요.
 cargo build --release
 
 # 바이너리 파일 크기 확인 (PowerShell)
