@@ -76,6 +76,9 @@ pub struct PlayFrame<'a> {
     /// Reduce flashes: no full-field danger flash, dimmer hit bursts, no banner
     /// light sweep and no FAILED shake.
     pub reduce_flashes: bool,
+    /// High-contrast notes: outlined heads in stronger colours, a thicker
+    /// judge line that does not pulse, and brighter lane dividers.
+    pub high_contrast: bool,
 }
 
 const BURST_SECONDS: f64 = 0.28;
@@ -517,7 +520,9 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     }
 
     // Lane separators and frame.
-    let sep = if f.score.current_combo >= 100 {
+    let sep = if f.high_contrast {
+        theme::MUTED.with_alpha(230)
+    } else if f.score.current_combo >= 100 {
         theme::CYAN.with_alpha(55)
     } else {
         theme::LINE.with_alpha(150)
@@ -634,12 +639,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                     head_kind,
                     Rect::new(x, head_y - note_h, w, note_h),
                     col,
+                    f.high_contrast,
                 ),
                 // A mine: a slim red bar with a dark core, gone once it has gone off.
                 NoteType::Landmine if !note.is_judged => {
                     let h = note_h * 0.7;
                     let y = head_y - (note_h + h) / 2.0;
-                    draw_head(c, sk, Head::Key, Rect::new(x, y, w, h), theme::RED);
+                    draw_head(c, sk, Head::Key, Rect::new(x, y, w, h), theme::RED, false);
                     c.fill_rect(
                         Rect::new(x + w * 0.2, y + h * 0.35, w * 0.6, h * 0.3),
                         theme::BG.with_alpha(200),
@@ -674,6 +680,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                             head_kind,
                             Rect::new(x, head_edge - note_h, w, note_h),
                             col,
+                            f.high_contrast,
                         );
                     }
                     draw_head(
@@ -682,6 +689,7 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
                         Head::Tail,
                         Rect::new(x, tail_y - note_h, w, note_h),
                         if broken { col.with_alpha(70) } else { col },
+                        false,
                     );
                 }
                 _ => {}
@@ -709,8 +717,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         c if c >= 50 => theme::CYAN,
         _ => theme::MAGENTA,
     };
-    let pulse = beat_pulse(now_beat);
-    c.fill_rect(Rect::new(field.x, judge_y, field.w, 3.0 * hair), line_col);
+    // High contrast: a thicker line that does not pulse.
+    let (pulse, core) = if f.high_contrast {
+        (0.0, 5.0)
+    } else {
+        (beat_pulse(now_beat), 3.0)
+    };
+    c.fill_rect(Rect::new(field.x, judge_y, field.w, core * hair), line_col);
     c.fill_rect(
         Rect::new(field.x, judge_y, field.w, hair),
         theme::WHITE.with_alpha(230),
@@ -825,14 +838,41 @@ pub(crate) fn beat_pulse(beat: f64) -> f32 {
     (1.0 - phase).powi(4)
 }
 
+/// Outline width of a high-contrast note head, in 720-unit pixels.
+const HC_OUTLINE_PX: f32 = 3.0;
+
+/// The high-contrast body and outline colours for a note of colour `col`:
+/// pure white with a dark outline on the white keys, a saturated sky blue
+/// on the blue keys and a saturated magenta on the scratch, each with a
+/// bright outline. Judgement and hit effects keep their own colours.
+pub(crate) fn high_contrast_note(col: ColorRgba, scratch: bool) -> (ColorRgba, ColorRgba) {
+    if scratch {
+        (theme::NOTE_SCRATCH_CONTRAST, theme::WHITE)
+    } else if u16::from(col.r) + u16::from(col.g) + u16::from(col.b) > 600 {
+        (theme::WHITE, theme::BLACK)
+    } else {
+        (theme::NOTE_BLUE_CONTRAST, theme::WHITE)
+    }
+}
+
 /// One note head: the shape for `head`, a gloss on the keys and scratch, and
 /// the chevron mark on a scratch. The tail cap is lit from below and has no
 /// gloss, so it reads as an end.
-fn draw_head(c: &mut Canvas, sk: &Skin, head: Head, r: Rect, col: ColorRgba) {
+fn draw_head(c: &mut Canvas, sk: &Skin, head: Head, r: Rect, col: ColorRgba, contrast: bool) {
     let shape = match head {
         Head::Key => &sk.note,
         Head::Scratch => &sk.note_scratch,
         Head::Tail => &sk.note_tail,
+    };
+    let col = if contrast {
+        let (body, outline) = high_contrast_note(col, head == Head::Scratch);
+        // A thick outline behind the head: a dark one on the white keys, so
+        // they read against the white field, and a white one on the rest.
+        let w = HC_OUTLINE_PX * sk.scale;
+        c.nine(shape, r.inset(-w), outline);
+        body
+    } else {
+        col
     };
     c.nine(shape, r, col);
     if head != Head::Tail {
@@ -2001,6 +2041,7 @@ mod tests {
                     judge_marks: if busy { &marks } else { &[] },
                     visual_offset_ms: 0.0,
                     reduce_flashes: false,
+                    high_contrast: false,
                 },
             );
             assert_eq!(
@@ -2009,6 +2050,23 @@ mod tests {
                 "pause={pause:?} busy={busy}"
             );
         }
+    }
+
+    #[test]
+    fn high_contrast_colours_differ_from_the_default_ones() {
+        let (body, outline) = high_contrast_note(theme::NOTE_WHITE, false);
+        assert_eq!(body, theme::WHITE);
+        assert_eq!(outline, theme::BLACK, "white keys get a dark outline");
+        assert_ne!(body, theme::NOTE_WHITE);
+        let (body, outline) = high_contrast_note(theme::NOTE_BLUE, false);
+        assert_eq!((body, outline), (theme::NOTE_BLUE_CONTRAST, theme::WHITE));
+        assert_ne!(body, theme::NOTE_BLUE);
+        let (body, outline) = high_contrast_note(theme::NOTE_SCRATCH, true);
+        assert_eq!(
+            (body, outline),
+            (theme::NOTE_SCRATCH_CONTRAST, theme::WHITE)
+        );
+        assert_ne!(body, theme::NOTE_SCRATCH);
     }
 
     #[test]
@@ -2061,7 +2119,8 @@ mod tests {
             })
             .collect();
         let mut ui = Ui::new(fx.vp.scale);
-        for lite in [false, true] {
+        // Lite (WARP) and high-contrast notes each keep the frame in one batch.
+        for (lite, high_contrast) in [(false, false), (true, false), (false, true)] {
             ui.lite = lite;
             ui.begin(1280, 720, fx.vp.scale);
             draw_gameplay(
@@ -2092,9 +2151,14 @@ mod tests {
                     judge_marks: &marks,
                     visual_offset_ms: 0.0,
                     reduce_flashes: false,
+                    high_contrast,
                 },
             );
-            assert_eq!(ui.canvas.debug_batches().len(), 1, "lite={lite}");
+            assert_eq!(
+                ui.canvas.debug_batches().len(),
+                1,
+                "lite={lite} high_contrast={high_contrast}"
+            );
             let verts = ui.canvas.debug_vertices().len();
             assert!(verts < 8192, "lite={lite}: {verts} vertices fit one batch");
         }
@@ -2455,6 +2519,7 @@ mod tests {
                 judge_marks: &[],
                 visual_offset_ms: 0.0,
                 reduce_flashes: false,
+                high_contrast: false,
             },
         );
         // The backdrop image is one batch, the frame the other.
@@ -2771,6 +2836,7 @@ mod tests {
                 judge_marks: &[],
                 visual_offset_ms: 0.0,
                 reduce_flashes: false,
+                high_contrast: false,
             },
         );
         assert_eq!(ui.canvas.debug_batches().len(), 1, "t={audio_time}");

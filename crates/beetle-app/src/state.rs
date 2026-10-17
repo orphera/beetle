@@ -208,6 +208,8 @@ pub struct AppState {
     /// Reduce Motion: plain fades, frozen backdrops, snapping list scroll and
     /// no result shake. Read each frame by the presenter and the song select motion.
     pub reduce_motion: bool,
+    /// High-contrast notes in gameplay.
+    pub high_contrast: bool,
     /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
     pub language: Option<strings::Lang>,
     /// The controller axis that is a turntable (kept as the config has it).
@@ -531,6 +533,7 @@ impl AppState {
             judge_position: self.view.skin.judge_position,
             reduce_flashes: self.reduce_flashes,
             reduce_motion: self.reduce_motion,
+            high_contrast_notes: self.high_contrast,
             ui_scale: self.view.ui_scale,
             display_mode: self.display_mode,
             language: self.language,

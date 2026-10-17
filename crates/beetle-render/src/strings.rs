@@ -1054,6 +1054,16 @@ table! {
         en "Uses a plain fade between screens, stops the moving backgrounds and title effects, and snaps list scrolling. Every function stays.",
         ja "画面の切り替えをフェードにし、背景の動きとタイトルの演出を止め、リストのスクロールを即座に移動します。機能は変わりません。";
 
+    pub ROW_HIGH_CONTRAST =
+        ko "노트 대비 높이기",
+        en "High-Contrast Notes",
+        ja "ノートのコントラスト";
+
+    pub HELP_HIGH_CONTRAST =
+        ko "노트를 더 밝고 선명한 색과 굵은 테두리로 그려요. 판정선은 두껍게, 흔들림 없이 그려져요.",
+        en "Draws notes in stronger colours with a thick outline, a thicker judge line that does not pulse, and brighter lane dividers.",
+        ja "ノートを濃い色と太い縁取りで描きます。判定線は太く、脈動しません。レーンの区切りも明るくなります。";
+
     pub ROW_UI_SCALE =
         ko "UI 크기",
         en "UI Scale",

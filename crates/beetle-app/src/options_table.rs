@@ -64,6 +64,7 @@ pub enum OptionId {
     Playfield,
     Scratch,
     NoteSize,
+    HighContrast,
     Bga,
     TrackBga,
     KeyHint,
@@ -284,6 +285,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             help: strings::HELP_NOTE_SIZE(),
         },
         OptionDesc {
+            id: OptionId::HighContrast,
+            group: strings::GROUP_LAYOUT(),
+            column: 1,
+            label: strings::ROW_HIGH_CONTRAST(),
+            help: strings::HELP_HIGH_CONTRAST(),
+        },
+        OptionDesc {
             id: OptionId::Bga,
             group: strings::GROUP_LAYOUT(),
             column: 1,
@@ -496,6 +504,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::NoteSize => format!("{:.0}%", state.view.skin.note_size * 100.0),
         OptionId::ReduceFlashes => on_off(state.reduce_flashes).to_string(),
         OptionId::ReduceMotion => on_off(state.reduce_motion).to_string(),
+        OptionId::HighContrast => on_off(state.high_contrast).to_string(),
         OptionId::UiScale => format!("{}%", state.view.ui_scale),
         OptionId::Playfield => field_label(state.view.skin.field_position).to_string(),
         OptionId::Scratch => {
@@ -617,6 +626,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         OptionId::ReduceFlashes => state.reduce_flashes = !state.reduce_flashes,
         OptionId::ReduceMotion => state.reduce_motion = !state.reduce_motion,
+        OptionId::HighContrast => state.high_contrast = !state.high_contrast,
         OptionId::UiScale => {
             let percent = ui_scale_next(state.view.ui_scale, forward);
             state.view.set_ui_scale(percent);

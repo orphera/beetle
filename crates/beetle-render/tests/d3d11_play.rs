@@ -257,6 +257,7 @@ fn render_with(
             judge_marks: if extra.marks { &marks } else { &[] },
             visual_offset_ms: 0.0,
             reduce_flashes: false,
+            high_contrast: false,
         },
     );
     let calls = ui.end(gpu);

@@ -291,6 +291,7 @@ impl ApplicationHandler for BeetleApp {
             visual_offset_ms: saved_config.visual_offset_ms,
             reduce_flashes: saved_config.reduce_flashes,
             reduce_motion: saved_config.reduce_motion,
+            high_contrast: saved_config.high_contrast_notes,
             language: saved_config.language,
             display_mode: saved_config.display_mode,
             gpu_backend: saved_config.gpu_backend,

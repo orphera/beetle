@@ -47,6 +47,10 @@ pub const SLOW: ColorRgba = rgb(0xff8a4a);
 pub const NOTE_WHITE: ColorRgba = rgb(0xf2f4fa);
 pub const NOTE_BLUE: ColorRgba = BLUE;
 pub const NOTE_SCRATCH: ColorRgba = MAGENTA;
+/// High-contrast notes (Settings, High Contrast Notes): a saturated sky blue
+/// and a saturated magenta scratch, apart from the default pair.
+pub const NOTE_BLUE_CONTRAST: ColorRgba = rgb(0x00b4ff);
+pub const NOTE_SCRATCH_CONTRAST: ColorRgba = rgb(0xff1ccf);
 
 /// Chrome tokens both apps share: Beetle's panels and bpm-gui draw from the
 /// same palette, so the two windows read as one product. Cyan is the accent;

@@ -307,6 +307,7 @@ pub fn gameplay(
                 judge_marks: state.view.judge_marks(),
                 visual_offset_ms: state.visual_offset_ms,
                 reduce_flashes: state.reduce_flashes,
+                high_contrast: state.high_contrast,
             },
         );
     }
