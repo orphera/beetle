@@ -148,32 +148,36 @@ pub fn handle_song_select_input(
         }
         KeyCode::Backspace => go_up(state),
         KeyCode::PageUp => {
-            play_ui(state, UiSound::Move);
+            let before = state.selected_entry;
             if !state.entries.is_empty() {
                 state.selected_entry = state.selected_entry.saturating_sub(10);
             }
+            sound_if_moved(state, before);
             centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::PageDown => {
-            play_ui(state, UiSound::Move);
+            let before = state.selected_entry;
             if !state.entries.is_empty() {
                 state.selected_entry = (state.selected_entry + 10).min(state.entries.len() - 1);
             }
+            sound_if_moved(state, before);
             centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::Home => {
-            play_ui(state, UiSound::Move);
+            let before = state.selected_entry;
             state.selected_entry = 0;
+            sound_if_moved(state, before);
             centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
         KeyCode::End => {
-            play_ui(state, UiSound::Move);
+            let before = state.selected_entry;
             if !state.entries.is_empty() {
                 state.selected_entry = state.entries.len() - 1;
             }
+            sound_if_moved(state, before);
             centre_list(state);
             state.cursor_settle_time = std::time::Instant::now();
         }
@@ -345,7 +349,7 @@ pub fn open_key_config(state: &mut AppState) {
 /// Moves the highlight one row down or up, wrapping at the ends of the list.
 /// Keeps the cursor still for the preview / jacket loader while it moves.
 pub fn move_selection(state: &mut AppState, down: bool) {
-    play_ui(state, UiSound::Move);
+    let before = state.selected_entry;
     let len = state.entries.len();
     if len > 0 {
         state.selected_entry = if down {
@@ -356,8 +360,17 @@ pub fn move_selection(state: &mut AppState, down: bool) {
             len - 1
         };
     }
+    sound_if_moved(state, before);
     centre_list(state);
     state.cursor_settle_time = std::time::Instant::now();
+}
+
+/// Plays the move sound when the highlight is no longer on `before`. A key
+/// that changes nothing (an empty list, Home on the top row) stays silent.
+fn sound_if_moved(state: &mut AppState, before: usize) {
+    if state.selected_entry != before {
+        play_ui(state, UiSound::Move);
+    }
 }
 
 /// Centres the list on the cursor. Keyboard moves call it, so the cursor stays
@@ -383,6 +396,7 @@ pub fn scroll_list(state: &mut AppState, delta: isize) {
     if selected != state.selected_entry {
         state.selected_entry = selected;
         state.cursor_settle_time = Instant::now();
+        play_ui(state, UiSound::Move);
     }
     state.list_scroll = start;
 }
