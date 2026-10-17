@@ -466,20 +466,12 @@ impl GuiRenderer {
             for (i, st) in states.iter().enumerate().take(room) {
                 let active = **st == pkg.active_state;
                 self.round(x + 20.0, dy, inner, 36.0, 8.0, theme::SURFACE_2);
-                let short = &st[..st.len().min(8)];
                 self.text(
                     &format!("버전 {}", i + 1),
                     x + 34.0,
                     dy + 11.0,
                     PX_BODY,
                     theme::TEXT,
-                );
-                self.text(
-                    &format!("#{short}"),
-                    x + 100.0,
-                    dy + 12.0,
-                    PX_SMALL,
-                    theme::TEXT_FAINT,
                 );
                 if active {
                     let cw = text_w("사용 중", PX_SMALL) + 14.0;
@@ -497,7 +489,7 @@ impl GuiRenderer {
                         dy + 4.0,
                         28.0,
                         &[
-                            ("삭제", Btn::Ghost, UiAction::AskUninstallVersion(i)),
+                            ("삭제", Btn::Danger, UiAction::AskUninstallVersion(i)),
                             ("이 버전 사용", Btn::Secondary, UiAction::UseVersion(i)),
                         ],
                     );
