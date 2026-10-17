@@ -65,11 +65,24 @@ pub struct Skin {
     pub glow: AtlasRegion,
     /// Key beam: bright at the bottom, fading up, soft sides.
     pub beam: AtlasRegion,
-    /// Note head (shaded) + additive gloss overlay.
+    /// Note head (shaded) + additive gloss overlay. White and blue keys
+    /// share the body shape; the tint is the only difference.
     pub note: NineSlice,
     pub note_gloss: NineSlice,
-    /// Long-note body with crisp edges.
+    /// Scratch head: the body shape with a dark groove across its middle.
+    /// Drawn with `scratch_mark` on top.
+    pub note_scratch: NineSlice,
+    /// Long-note tail cap: the body shape lit from below, so head and tail
+    /// read differently at a glance.
+    pub note_tail: NineSlice,
+    /// Long-note body with crisp edges (rails under `ln_flow`).
     pub ln_body: NineSlice,
+    /// Vertically periodic stripe texture for long-note bodies. One period
+    /// is the region's height, so tiles abut and a phase offset makes the
+    /// stripes flow.
+    pub ln_flow: AtlasRegion,
+    /// Double chevron drawn over a scratch head (white, tinted at draw time).
+    pub scratch_mark: AtlasRegion,
     /// Hit-burst ring, streak spark, cross flare.
     pub ring: AtlasRegion,
     pub spark: AtlasRegion,
@@ -117,9 +130,13 @@ impl Skin {
             cut_outline: cut(atlas, 12.0 * s, Some(s.max(1.0))),
             glow: glow(atlas, px(64.0 * s)),
             beam: beam(atlas, px(32.0 * s), px(160.0 * s)),
-            note: note(atlas, 12.0 * s, 2.5 * s, false),
-            note_gloss: note(atlas, 12.0 * s, 2.5 * s, true),
+            note: head(atlas, 12.0 * s, 3.0 * s, HeadShape::Body, false),
+            note_gloss: head(atlas, 12.0 * s, 3.0 * s, HeadShape::Body, true),
+            note_scratch: head(atlas, 12.0 * s, 3.0 * s, HeadShape::Scratch, false),
+            note_tail: head(atlas, 12.0 * s, 3.0 * s, HeadShape::Tail, false),
             ln_body: ln_body(atlas, s),
+            ln_flow: put(atlas, &ln_flow_bmp(px(24.0 * s))),
+            scratch_mark: put(atlas, &scratch_mark_bmp(px(12.0 * s), px(10.0 * s))),
             ring: ring(atlas, px(96.0 * s), 3.0 * s),
             spark: spark(atlas, px(64.0 * s), px(12.0 * s)),
             flare: flare(atlas, px(96.0 * s)),
@@ -216,43 +233,161 @@ fn glow(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
 fn beam(atlas: &mut UiAtlas, w: u32, h: u32) -> AtlasRegion {
     let (hw, hf) = (w as f32 / 2.0, h as f32);
     let bmp = Bitmap::mask(w, h, |x, y| {
+        // Soft wide body plus a narrow hot core, both fading toward the top.
         let dx = (x - hw) / hw;
         let side = (1.0 - dx * dx).max(0.0).powf(1.5);
+        let core = (1.0 - dx.abs() / 0.3).max(0.0).powi(2);
         let up = (y / hf).powf(1.6);
-        side * up
+        (0.5 * side + 0.9 * core) * up
     });
     put(atlas, &bmp)
 }
 
-/// Note head: rounded bar, height `h`, with a bevel gradient in luminance
-/// (or, for `gloss`, an additive highlight on the upper half).
-fn note(atlas: &mut UiAtlas, h: f32, r: f32, gloss: bool) -> NineSlice {
-    let hp = px(h);
+/// Which note shape a head sprite is drawn as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadShape {
+    /// White and blue keys: bright top rim, darker lower edge.
+    Body,
+    /// Scratch: the body with a dark groove across its middle.
+    Scratch,
+    /// Long-note tail: lit from below, dark top edge.
+    Tail,
+}
+
+/// Head geometry shared by the body and gloss sprites so they 9-slice
+/// identically: the side border in texels and the bitmap width.
+fn head_geometry(r: f32) -> (u32, u32) {
     let b = r.ceil() as u32 + 2;
-    let w = 2 * b + 2;
+    (b, 2 * b + 2)
+}
+
+/// Note head bitmap (luminance shades the tint): a rounded bar of height `h`
+/// with a bevel. A 1-px rim light on the lit edge and a darker 1-px lip on
+/// the other, a gradient across the face, and small dark notches on both
+/// sides at mid height. The notches sit in the fixed-width side border, so
+/// they keep their size when the head is stretched to the lane width.
+pub fn head_bmp(h: f32, r: f32, shape: HeadShape) -> Bitmap {
+    let hp = px(h);
+    let (_, w) = head_geometry(r);
     let (half_w, half_h) = (w as f32 / 2.0, hp as f32 / 2.0);
     let hf = hp as f32;
-    let bmp = Bitmap::from_fn(w, hp, |x, y| {
+    Bitmap::from_fn(w, hp, |x, y| {
         let a = coverage(round_box(x, y, half_w, half_h, half_w, half_h, r));
         let t = y / hf;
-        if gloss {
-            let g = (1.0 - t / 0.5).max(0.0);
-            (1.0, a * g * g * 0.55)
-        } else {
-            let edge_hi = if y < 1.0 { 1.0 } else { 0.0 };
-            let body = if t < 0.5 {
-                lerp(0.98, 0.82, t / 0.5)
-            } else {
-                lerp(0.82, 0.52, (t - 0.5) / 0.5)
-            };
-            (body.max(edge_hi), a)
+        let mut luma = match shape {
+            HeadShape::Tail => {
+                if t < 0.5 {
+                    lerp(0.42, 0.68, t / 0.5)
+                } else {
+                    lerp(0.68, 0.92, (t - 0.5) / 0.5)
+                }
+            }
+            HeadShape::Body | HeadShape::Scratch => {
+                if t < 0.5 {
+                    lerp(0.96, 0.80, t / 0.5)
+                } else {
+                    lerp(0.80, 0.50, (t - 0.5) / 0.5)
+                }
+            }
+        };
+        match shape {
+            HeadShape::Tail => {
+                if y < 1.2 {
+                    luma = 0.30;
+                } else if y > hf - 1.2 {
+                    luma = 1.0;
+                }
+            }
+            HeadShape::Body | HeadShape::Scratch => {
+                // Lit top: a white rim with a softer second row; a dark lip below.
+                if y < 1.2 {
+                    luma = 1.0;
+                } else if y < 2.4 {
+                    luma = luma.max(0.9);
+                } else if y > hf - 1.2 {
+                    luma = 0.25;
+                } else if y > hf - 2.4 {
+                    luma = luma.min(0.5);
+                }
+            }
         }
-    });
+        if shape == HeadShape::Scratch && (y - half_h).abs() < 0.8 {
+            luma *= 0.6;
+        }
+        let notch = (y - half_h).abs() < hf * 0.2 && (x < 1.5 || x > w as f32 - 1.5);
+        if notch {
+            luma *= 0.55;
+        }
+        (luma, a)
+    })
+}
+
+/// Additive highlight for a head: a bright cap on the upper third that
+/// fades out, with a sharper rim line at the very top.
+pub fn head_gloss_bmp(h: f32, r: f32) -> Bitmap {
+    let hp = px(h);
+    let (_, w) = head_geometry(r);
+    let (half_w, half_h) = (w as f32 / 2.0, hp as f32 / 2.0);
+    let hf = hp as f32;
+    Bitmap::from_fn(w, hp, |x, y| {
+        let a = coverage(round_box(x, y, half_w, half_h, half_w, half_h, r));
+        let g = (1.0 - (y / hf) / 0.45).max(0.0);
+        let rim = if y < 1.2 { 0.8 } else { 0.0 };
+        (1.0, a * (g * g * 0.55 + rim))
+    })
+}
+
+fn head(atlas: &mut UiAtlas, h: f32, r: f32, shape: HeadShape, gloss: bool) -> NineSlice {
+    let (b, _) = head_geometry(r);
+    let bmp = if gloss {
+        head_gloss_bmp(h, r)
+    } else {
+        head_bmp(h, r, shape)
+    };
     NineSlice {
         region: put(atlas, &bmp),
         border: Insets::new(b as f32, 0.0, b as f32, 0.0),
         hollow: false,
     }
+}
+
+/// Long-note body texture: `h` texels is one period of diagonal-free
+/// stripes that are bright in the middle of each period and dark between,
+/// with lit rails on both edges. Periodic in y, so tiles abut seamlessly.
+pub fn ln_flow_bmp(h: u32) -> Bitmap {
+    let w = 8u32;
+    let hf = h as f32;
+    let wf = w as f32;
+    Bitmap::from_fn(w, h, |x, y| {
+        // Diagonal stripes: the phase also slides one period across the width,
+        // so the stripes lean. Still periodic in y, so tiles join seamlessly.
+        let phase = std::f32::consts::TAU * (y / hf + x / wf);
+        let v = 0.5 + 0.5 * phase.cos();
+        let rail = x < 1.5 || x > wf - 1.5;
+        let luma = if rail { 1.0 } else { 0.55 + 0.45 * v * v };
+        (luma, 1.0)
+    })
+}
+
+/// Chevron pair pointing up, white, for a scratch head. Symmetric about the
+/// vertical axis.
+pub fn scratch_mark_bmp(w: u32, h: u32) -> Bitmap {
+    let (fw, fh) = (w as f32, h as f32);
+    let th = 0.16 * fh;
+    Bitmap::mask(w, h, |x, y| {
+        let chevron = |top: f32| {
+            segment(x, y, 0.18 * fw, top + 0.36 * fh, 0.5 * fw, top + 0.06 * fh).min(segment(
+                x,
+                y,
+                0.5 * fw,
+                top + 0.06 * fh,
+                0.82 * fw,
+                top + 0.36 * fh,
+            ))
+        };
+        let d = chevron(0.0).min(chevron(0.36 * fh));
+        coverage(d - th / 2.0)
+    })
 }
 
 fn ln_body(atlas: &mut UiAtlas, s: f32) -> NineSlice {
@@ -275,15 +410,22 @@ fn ln_body(atlas: &mut UiAtlas, s: f32) -> NineSlice {
 }
 
 fn ring(atlas: &mut UiAtlas, size: u32, thickness: f32) -> AtlasRegion {
+    put(atlas, &ring_bmp(size, thickness))
+}
+
+/// Ring with a soft halo, centred in a `size` square.
+pub fn ring_bmp(size: u32, thickness: f32) -> Bitmap {
     let half = size as f32 / 2.0;
     let radius = half - thickness * 2.0;
-    let bmp = Bitmap::mask(size, size, |x, y| {
+    Bitmap::mask(size, size, |x, y| {
         let d = sdf::circle(x, y, half, half, radius).abs();
         let core = coverage(d - thickness / 2.0);
         let halo = (-(d * d) / (2.0 * (thickness * 1.5).powi(2))).exp() * 0.45;
-        core.max(halo)
-    });
-    put(atlas, &bmp)
+        // The halo must reach zero before the square's edge, or it draws a box.
+        let from_centre = ((x - half).powi(2) + (y - half).powi(2)).sqrt();
+        let fade = 1.0 - smoothstep(half * 0.8, half, from_centre);
+        core.max(halo * fade)
+    })
 }
 
 fn spark(atlas: &mut UiAtlas, w: u32, h: u32) -> AtlasRegion {
@@ -466,6 +608,131 @@ mod tests {
             // measure release timing in the GPU showcase test.
             assert!(ms < 2000.0, "{scale}x took {ms} ms");
         }
+    }
+
+    fn mirror_equal(v: &[f32], w: u32, h: u32) -> bool {
+        (0..h).all(|y| {
+            (0..w).all(|x| {
+                let a = v[(y * w + x) as usize];
+                let b = v[(y * w + (w - 1 - x)) as usize];
+                (a - b).abs() < 1e-4
+            })
+        })
+    }
+
+    #[test]
+    fn note_heads_are_bevelled_and_left_right_symmetric() {
+        for shape in [HeadShape::Body, HeadShape::Scratch, HeadShape::Tail] {
+            let b = head_bmp(12.0, 3.0, shape);
+            assert_eq!(b.h, 12, "{shape:?} keeps the note height");
+            assert!(
+                b.alpha.iter().all(|a| (0.0..=1.0).contains(a)),
+                "{shape:?} alpha bounded"
+            );
+            assert!(
+                b.luma.iter().all(|l| (0.0..=1.0).contains(l)),
+                "{shape:?} luma bounded"
+            );
+            assert!(
+                b.alpha.iter().any(|&a| a > 0.99),
+                "{shape:?} has a solid face"
+            );
+            assert!(mirror_equal(&b.alpha, b.w, b.h), "{shape:?} alpha mirrors");
+            assert!(mirror_equal(&b.luma, b.w, b.h), "{shape:?} luma mirrors");
+        }
+        let (w, h) = {
+            let b = head_bmp(12.0, 3.0, HeadShape::Body);
+            (b.w, b.h)
+        };
+        let body = head_bmp(12.0, 3.0, HeadShape::Body);
+        let mid = (w / 2) as usize;
+        let top_rim = body.luma[mid];
+        let below_rim = body.luma[w as usize + mid];
+        let bottom_lip = body.luma[((h - 1) * w) as usize + mid];
+        assert_eq!(top_rim, 1.0, "rim light on the top row");
+        assert!(bottom_lip < below_rim, "lower edge darker than the face");
+        // Side notch: the left edge is darker at mid height than a few rows above.
+        let notch_row = (h / 2) as usize * w as usize;
+        let plain_row = 3 * w as usize;
+        assert!(body.luma[notch_row] < body.luma[plain_row], "side notch");
+    }
+
+    #[test]
+    fn scratch_head_has_a_groove_and_tail_is_lit_from_below() {
+        let s = head_bmp(12.0, 3.0, HeadShape::Scratch);
+        let body = head_bmp(12.0, 3.0, HeadShape::Body);
+        let (w, mid) = (s.w as usize, (s.h / 2) as usize);
+        let c = w / 2;
+        assert!(
+            s.luma[mid * w + c] < body.luma[mid * w + c] * 0.8,
+            "scratch groove is darker than the plain body"
+        );
+        let tail = head_bmp(12.0, 3.0, HeadShape::Tail);
+        let last = (tail.h - 1) as usize * w + c;
+        assert!(tail.luma[last] > tail.luma[c], "tail rim is on the bottom");
+    }
+
+    #[test]
+    fn ring_halo_is_gone_at_the_square_edges() {
+        let r = ring_bmp(96, 3.0);
+        let w = r.w as usize;
+        let edge = [(0, 48), (95, 48), (48, 0), (48, 95), (0, 0), (95, 95)];
+        for (x, y) in edge {
+            assert!(
+                r.alpha[y * w + x] < 0.01,
+                "edge pixel ({x},{y}) is {}",
+                r.alpha[y * w + x]
+            );
+        }
+        // The ring itself is still there, halfway out.
+        assert!(r.alpha.iter().any(|&a| a > 0.9));
+    }
+
+    #[test]
+    fn head_gloss_is_brightest_at_the_top_and_fades() {
+        let g = head_gloss_bmp(12.0, 3.0);
+        let w = g.w as usize;
+        let c = w / 2;
+        assert!(g.alpha[c] > g.alpha[(g.h as usize / 2) * w + c]);
+        assert_eq!(g.alpha[(g.h as usize - 1) * w + c], 0.0);
+    }
+
+    #[test]
+    fn ln_flow_tiles_seamlessly_and_has_lit_rails() {
+        let f = ln_flow_bmp(24);
+        let w = f.w as usize;
+        // One period: across the seam (row 23 -> row 0) the step is no larger
+        // than any step inside the tile, so the tiles join without a visible line.
+        let step = |a: usize, b: usize| {
+            (0..w)
+                .map(|x| (f.luma[a * w + x] - f.luma[b * w + x]).abs())
+                .fold(0.0f32, f32::max)
+        };
+        let seam = step(23, 0);
+        let inner = (0..23).map(|y| step(y, y + 1)).fold(0.0f32, f32::max);
+        assert!(seam <= inner + 1e-4, "seam step {seam} vs inner {inner}");
+        assert!(f.luma[0] == 1.0 && f.luma[w - 1] == 1.0, "rails are lit");
+        let l = &f.luma;
+        let interior: Vec<f32> = (0..24)
+            .flat_map(|y| (2..6).map(move |x| l[y * w + x]))
+            .collect();
+        assert!(
+            interior.iter().any(|&l| l > 0.95),
+            "stripe crests are bright"
+        );
+        assert!(interior.iter().any(|&l| l < 0.7), "troughs are darker");
+        // Diagonal: a column near the left differs from one near the right.
+        assert!(
+            (0..24).any(|y| (f.luma[y * w] - f.luma[y * w + 4]).abs() > 0.2),
+            "stripes lean"
+        );
+    }
+
+    #[test]
+    fn scratch_mark_is_symmetric_and_non_empty() {
+        let m = scratch_mark_bmp(12, 10);
+        assert!(m.alpha.iter().any(|&a| a > 0.9), "chevron has solid pixels");
+        assert!(mirror_equal(&m.alpha, m.w, m.h), "chevron mirrors");
     }
 
     #[test]
