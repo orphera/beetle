@@ -12,6 +12,8 @@
 
 use std::ffi::c_void;
 
+use crate::turntable::Turntable;
+
 /// Buttons per device that are read (HID button usages 1..=64).
 pub const MAX_BUTTONS: usize = 64;
 /// Axes per device that are read; further value controls are ignored.
@@ -248,6 +250,9 @@ pub struct Device {
     usages: Vec<u16>,
     /// Snapshot of the last report, for the press / release diff.
     pub prev: PadSnapshot,
+    /// The turntable state of this device alone: another controller's axis
+    /// never feeds it (see `turntable`).
+    pub turntable: Turntable,
 }
 
 impl Device {
@@ -322,7 +327,23 @@ impl Device {
             slots,
             usages: vec![0; MAX_BUTTONS],
             prev: PadSnapshot::default(),
+            turntable: Turntable::default(),
         })
+    }
+
+    /// A device with the given value controls and no hid.dll behind it, for
+    /// tests of the routing above the decoder.
+    #[cfg(test)]
+    pub fn for_test(slots: Vec<Slot>) -> Self {
+        Self {
+            preparsed: Vec::new(),
+            report_len: 0,
+            has_buttons: false,
+            slots,
+            usages: Vec::new(),
+            prev: PadSnapshot::default(),
+            turntable: Turntable::default(),
+        }
     }
 
     /// The bit width of an axis, if the device has it.

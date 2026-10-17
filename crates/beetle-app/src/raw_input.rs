@@ -32,7 +32,7 @@ use winit::window::Window;
 use crate::hid::{self, Edges};
 use crate::input::Source;
 use crate::lane_logic::{LaneEvent, LaneSession, LogicCommand, TICK_MILLIS};
-use crate::turntable::{Change, Dir, Turntable};
+use crate::turntable::{Change, Dir};
 
 /// Key changes held for the game; far more than come in between two frames.
 const QUEUE_CAPACITY: usize = 1024;
@@ -89,7 +89,7 @@ impl RawKeyboard {
                     held: Held::default(),
                     raw: vec![0; 8],
                     pads: HashMap::new(),
-                    turntable: turntable_axis.map(|axis| (axis, Turntable::default())),
+                    turntable_axis,
                 };
                 thread.run(ready_tx)
             })
@@ -167,10 +167,11 @@ struct Thread {
     /// The raw input of the last `WM_INPUT`, reused (grown only when needed).
     raw: Vec<u64>,
     /// Controllers by device handle. `None` for one hid.dll does not describe,
-    /// so it is not asked again on every report.
+    /// so it is not asked again on every report. Each device keeps its own
+    /// turntable state.
     pads: HashMap<usize, Option<hid::Device>>,
-    /// The turntable axis (from the config) and its press state.
-    turntable: Option<(u8, Turntable)>,
+    /// The turntable axis (from the config). Applies to every controller.
+    turntable_axis: Option<u8>,
 }
 
 impl Thread {
@@ -227,12 +228,9 @@ impl Thread {
                         let _ = self.events.push(event);
                     }
                 }
-                // The turntable's press lets go after its last move.
+                // A turntable press lets go after its device's last move.
                 if self.session.is_some() {
-                    let release = self.turntable.as_mut().and_then(|(_, tt)| tt.tick(now));
-                    if let Some(dir) = release {
-                        self.key(turn_source(dir), false, now);
-                    }
+                    self.tick_turntables(now);
                 }
             }
         }
@@ -277,7 +275,7 @@ impl Thread {
             if let Some((edges, turn)) = self.pad_read(device, report) {
                 self.buttons(edges, at);
                 if let Some((raw, bits)) = turn {
-                    self.turn(raw, bits, at);
+                    self.turn(device, raw, bits, at);
                 }
             }
         }
@@ -295,7 +293,7 @@ impl Thread {
             let opened = unsafe { hid::Device::open(device as *mut c_void) };
             self.pads.insert(device, opened);
         }
-        let axis = self.turntable.map(|(axis, _)| usize::from(axis));
+        let axis = self.turntable_axis.map(usize::from);
         let pad = self.pads.get_mut(&device)?.as_mut()?;
         let snap = pad.snapshot(report)?;
         let edges = hid::edges(pad.prev.buttons, snap.buttons);
@@ -304,16 +302,13 @@ impl Thread {
         Some((edges, turn))
     }
 
-    /// One turntable reading (`raw`, `bits` wide). Only a play takes it: the
-    /// press it makes is judged like a key.
-    fn turn(&mut self, raw: u32, bits: u8, at: Instant) {
+    /// One turntable reading (`raw`, `bits` wide) of `device`. Only a play
+    /// takes it: the press it makes is judged like a key.
+    fn turn(&mut self, device: usize, raw: u32, bits: u8, at: Instant) {
         if self.session.is_none() {
             return;
         }
-        let Some((_, tt)) = self.turntable.as_mut() else {
-            return;
-        };
-        let change = tt.report(raw, bits, at);
+        let change = turntable_reading(&mut self.pads, device, raw, bits, at);
         self.turntable_change(change, at);
     }
 
@@ -324,6 +319,30 @@ impl Thread {
         }
         if let Some(dir) = change.press {
             self.key(turn_source(dir), true, at);
+        }
+    }
+
+    /// The release timers of every controller's turntable.
+    fn tick_turntables(&mut self, now: Instant) {
+        let mut releases = [None::<Dir>; hid::MAX_DEVICES];
+        let mut count = 0;
+        for pad in self.pads.values_mut().flatten() {
+            if let Some(dir) = pad.turntable.tick(now) {
+                if let Some(slot) = releases.get_mut(count) {
+                    *slot = Some(dir);
+                    count += 1;
+                }
+            }
+        }
+        for dir in releases.into_iter().flatten() {
+            self.key(turn_source(dir), false, now);
+        }
+    }
+
+    /// Every controller's turntable starts from rest (a new play, or none).
+    fn reset_turntables(&mut self) {
+        for pad in self.pads.values_mut().flatten() {
+            pad.turntable.reset();
         }
     }
 
@@ -369,6 +388,9 @@ impl Thread {
                 },
                 at,
             );
+            if let Some(dir) = pad.turntable.held() {
+                self.key(turn_source(dir), false, at);
+            }
         }
     }
 
@@ -394,15 +416,11 @@ impl Thread {
         match command {
             LogicCommand::Start(session) => {
                 self.session = Some(session);
-                if let Some((_, tt)) = &mut self.turntable {
-                    tt.reset();
-                }
+                self.reset_turntables();
             }
             LogicCommand::End => {
                 self.session = None;
-                if let Some((_, tt)) = &mut self.turntable {
-                    tt.reset();
-                }
+                self.reset_turntables();
             }
             LogicCommand::Pause(paused) => {
                 if let Some(s) = &mut self.session {
@@ -423,6 +441,22 @@ fn turn_source(dir: Dir) -> Source {
     match dir {
         Dir::Cw => Source::TurntableCw,
         Dir::Ccw => Source::TurntableCcw,
+    }
+}
+
+/// One turntable reading of `device`, taken by that device's own state. A
+/// reading of another device never reaches it, so two controllers on the
+/// same axis index cannot feed each other's counts.
+fn turntable_reading(
+    pads: &mut HashMap<usize, Option<hid::Device>>,
+    device: usize,
+    raw: u32,
+    bits: u8,
+    at: Instant,
+) -> Change {
+    match pads.get_mut(&device) {
+        Some(Some(pad)) => pad.turntable.report(raw, bits, at),
+        _ => Change::default(),
     }
 }
 
@@ -851,6 +885,49 @@ mod tests {
             assert_eq!(keys.pop_event(), None, "checks while {label}");
             assert!(keys.send(LogicCommand::Pause(false)));
         }
+    }
+
+    #[test]
+    fn two_controllers_on_one_axis_index_keep_separate_turntables() {
+        let axis = || hid::Slot {
+            usage_page: 0x01,
+            usage: 0x30,
+            bits: 8,
+            min: 0,
+            max: 255,
+            axis: 0,
+        };
+        let t = Instant::now();
+        // A slow turn on one controller, and a stick on the same axis index
+        // that jumps about. Each must read as it does alone from rest.
+        let a = [100u32, 101, 102, 103, 104];
+        let b = [30u32, 200, 31, 201, 32];
+        let alone = |raws: &[u32]| -> Vec<Change> {
+            let mut tt = crate::turntable::Turntable::default();
+            raws.iter()
+                .enumerate()
+                .map(|(i, &raw)| tt.report(raw, 8, t + Duration::from_millis(i as u64)))
+                .collect()
+        };
+        let (alone_a, alone_b) = (alone(&a), alone(&b));
+
+        let mut pads = HashMap::new();
+        pads.insert(1, Some(hid::Device::for_test(vec![axis()])));
+        pads.insert(2, Some(hid::Device::for_test(vec![axis()])));
+        let mut got_a = Vec::new();
+        let mut got_b = Vec::new();
+        for i in 0..a.len() {
+            let at_a = t + Duration::from_millis(2 * i as u64);
+            let at_b = t + Duration::from_millis(2 * i as u64 + 1);
+            got_a.push(turntable_reading(&mut pads, 1, a[i], 8, at_a));
+            got_b.push(turntable_reading(&mut pads, 2, b[i], 8, at_b));
+        }
+        assert_eq!(got_a, alone_a);
+        assert_eq!(got_b, alone_b);
+        // The slow turn presses on its second count, untouched by the stick.
+        assert_eq!(got_a[2].press, Some(Dir::Cw));
+        // A device that is not known reads nothing.
+        assert_eq!(turntable_reading(&mut pads, 9, 5, 8, t), Change::default());
     }
 
     #[test]
