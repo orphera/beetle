@@ -315,6 +315,13 @@ fn outcome_panel(
 // Score: EX score, vs best, stats, judge breakdown
 // ---------------------------------------------------------------------------
 
+/// The "first play" tag marks a chart's first saved play. A run whose score was
+/// not saved (autoplay, replay, practice) has no record to be first in, so it
+/// never gets the tag.
+fn shows_first_play(unsaved_reason: Option<&str>) -> bool {
+    unsaved_reason.is_none()
+}
+
 /// Small tag beside a label: a best this play beat (`NEW_RECORD`, on the EX
 /// score and the stat labels) or a clear lamp that improved (`NEW_LAMP`).
 /// `baseline` is the label's baseline. All tags share one size.
@@ -513,13 +520,15 @@ fn score_panel_draw(
             );
         }
         None => {
-            t.draw_in(
-                c,
-                strings::FIRST_PLAY,
-                Rect::new(right.x, y + 36.0 * s, right.w, 24.0 * s),
-                Align::Right,
-                &caption(12.0, s).color(theme::CYAN),
-            );
+            if shows_first_play(f.unsaved_reason) {
+                t.draw_in(
+                    c,
+                    strings::FIRST_PLAY,
+                    Rect::new(right.x, y + 36.0 * s, right.w, 24.0 * s),
+                    Align::Right,
+                    &caption(12.0, s).color(theme::CYAN),
+                );
+            }
         }
     }
 
@@ -892,6 +901,14 @@ mod tests {
             4,
             "the result screen has only its footer buttons"
         );
+    }
+
+    #[test]
+    fn first_play_tag_skips_unsaved_runs() {
+        assert!(shows_first_play(None));
+        assert!(!shows_first_play(Some(strings::AUTO_PLAY)));
+        assert!(!shows_first_play(Some(strings::REPLAY)));
+        assert!(!shows_first_play(Some(strings::PRACTICE)));
     }
 
     #[test]

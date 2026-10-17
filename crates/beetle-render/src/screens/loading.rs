@@ -232,15 +232,6 @@ fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: 
         track.y - 16.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED),
     );
-    let elapsed = format!("{:.1}s", f.elapsed);
-    t.draw_in(
-        c,
-        &elapsed,
-        Rect::new(track.x, track.y - 30.0 * s, track.w, 20.0 * s),
-        Align::Right,
-        &TextStyle::new(13.0 * s).bold().color(theme::MUTED2),
-    );
-
     let bar = widgets::footer_bar(c, vp, s);
     widgets::footer_hints(c, t, sk, &[("ESC", strings::CANCEL)], bar, s);
 }
