@@ -132,6 +132,22 @@ pub fn in_polygon(x: f32, y: f32, pts: &[(f32, f32)]) -> bool {
     inside
 }
 
+/// Signed distance to a closed polygon (negative inside).
+pub fn polygon(x: f32, y: f32, pts: &[(f32, f32)]) -> f32 {
+    let mut d = f32::MAX;
+    let mut j = pts.len() - 1;
+    for i in 0..pts.len() {
+        let ((ax, ay), (bx, by)) = (pts[j], pts[i]);
+        d = d.min(segment(x, y, ax, ay, bx, by));
+        j = i;
+    }
+    if in_polygon(x, y, pts) {
+        -d
+    } else {
+        d
+    }
+}
+
 /// Deterministic per-pixel hash noise in 0..1.
 pub fn hash_noise(x: u32, y: u32, seed: u32) -> f32 {
     let mut h =
@@ -169,6 +185,13 @@ mod tests {
             cut_box(19.5, 0.5, 0.0, 0.0, 20.0, 20.0, 6.0) < 0.0,
             "TR corner kept"
         );
+    }
+
+    #[test]
+    fn polygon_distance_is_signed() {
+        let tri = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)];
+        assert!((polygon(1.0, 1.0, &tri) + 1.0).abs() < 1e-5, "inside");
+        assert!((polygon(-2.0, 5.0, &tri) - 2.0).abs() < 1e-5, "outside");
     }
 
     #[test]

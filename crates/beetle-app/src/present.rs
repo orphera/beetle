@@ -495,6 +495,11 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         .collect();
     let vp = state.view.ui;
     let ui: &mut Ui = state.gpu_ui.ui.current();
+    if let Some(r) = devtools::capture_hover()
+        .and_then(|i| beetle_render::top_bar_buttons(ui, &vp).get(i).copied())
+    {
+        ui.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+    }
     beetle_render::draw_song_select(
         ui,
         &beetle_render::SelectFrame {

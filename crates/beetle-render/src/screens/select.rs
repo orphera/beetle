@@ -6,7 +6,7 @@
 //! Visual reference: the menu composition in `tests/d3d11_skin.rs`.
 
 use super::widgets::{self, hint_row, keycap, keycap_width, wrap2, OptionLine, LEFT_RIGHT};
-use crate::art::Skin;
+use crate::art::{Skin, BAR_ICON};
 use crate::backdrop::Mix;
 use crate::canvas::{AtlasRegion, Canvas, Rect};
 use crate::hit::{HitId, HitSink};
@@ -280,62 +280,153 @@ fn backdrop(
 // Top bar: wordmark, folder / sort selectors, search box
 // ---------------------------------------------------------------------------
 
-/// An icon-only top bar button: the icon, and its key as small text. Records `id`.
-/// Returns whether the pointer is over it.
-#[allow(clippy::too_many_arguments)]
-fn bar_button(
+/// Top bar button cells sit in rounded pills, one pill per group, the same
+/// height and radius as the search box beside them. A cell is the icon and its
+/// key with fixed padding: `BAR_PAD_L` icon `BAR_ICON_GAP` key `BAR_PAD_R`.
+const BAR_H: f32 = 32.0;
+const BAR_PAD_L: f32 = 11.0;
+const BAR_ICON_GAP: f32 = 5.0;
+const BAR_PAD_R: f32 = 12.0;
+/// Between two pills.
+const BAR_GROUP_GAP: f32 = 8.0;
+/// Left to right: auto, play options | key config, settings | quit. `true`
+/// where a cell starts a new pill.
+const BAR_NEW_GROUP: [bool; 5] = [true, false, true, false, true];
+/// The key each cell shows, in the same order.
+const BAR_KEYS: [&str; 5] = ["A", "TAB", "F12", "F4", "ESC"];
+
+fn bar_key_style(s: f32) -> TextStyle {
+    TextStyle::new(11.0 * s).bold()
+}
+
+/// The top bar buttons' cells, left to right: auto, play options, key config,
+/// settings, quit. Edges are on whole pixels.
+pub fn top_bar_buttons(ui: &mut Ui, viewport: &Viewport) -> [Rect; 5] {
+    bar_cells(&mut ui.canvas, &mut ui.text, viewport)
+}
+
+fn bar_cells(c: &mut Canvas, t: &mut TextEngine, viewport: &Viewport) -> [Rect; 5] {
+    let vp = viewport.fit_to_design();
+    let s = vp.scale;
+    let fixed = ((BAR_PAD_L + BAR_ICON_GAP + BAR_PAD_R) * s).round() + px_round(BAR_ICON * s);
+    let widths = BAR_KEYS.map(|k| fixed + t.measure(c, k, &bar_key_style(s)).round());
+    let gap = (BAR_GROUP_GAP * s).round();
+    let (y, h) = ((vp.y + 16.0 * s).round(), (BAR_H * s).round());
+    let groups = BAR_NEW_GROUP.iter().filter(|&&g| g).count();
+    let total = widths.iter().sum::<f32>() + gap * (groups - 1) as f32;
+    let mut x = (vp.x + vp.width - PAD * s).round() - total;
+    let mut out = [Rect::default(); 5];
+    for (i, r) in out.iter_mut().enumerate() {
+        if i > 0 && BAR_NEW_GROUP[i] {
+            x += gap;
+        }
+        *r = Rect::new(x, y, widths[i], h);
+        x += widths[i];
+    }
+    out
+}
+
+/// A sprite size in whole pixels, as the skin rounds it.
+fn px_round(v: f32) -> f32 {
+    v.round().max(1.0)
+}
+
+/// What a top bar cell shows.
+struct BarButton {
+    icon: AtlasRegion,
+    lit: bool,
+    id: HitId,
+    name: &'static str,
+    info: &'static str,
+}
+
+/// Draws the top bar buttons in their pills and records their hits. Returns
+/// the bubble of the hovered one.
+fn bar_buttons(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
     hs: &mut HitSink,
-    r: Rect,
-    icon: AtlasRegion,
-    lit: bool,
-    key: &str,
-    id: HitId,
+    cells: &[Rect; 5],
+    buttons: &[BarButton; 5],
     s: f32,
-) -> bool {
-    let hot = hs.hovered(r);
-    hs.add(r, id);
-    c.nine(
-        &sk.cut_panel,
-        r,
-        if hot { theme::SURF3 } else { theme::SURF2 },
-    );
-    c.nine(
-        &sk.cut_outline,
-        r,
-        if hot || lit {
-            theme::CYAN.with_alpha(200)
+) -> Option<BarTip> {
+    // Pills under the cells, one per group.
+    let mut start = 0;
+    for i in 1..=cells.len() {
+        if i == cells.len() || BAR_NEW_GROUP[i] {
+            let pill = Rect::from_ltrb(
+                cells[start].x,
+                cells[start].y,
+                cells[i - 1].right(),
+                cells[i - 1].bottom(),
+            );
+            c.nine(&sk.panel_lg, pill, theme::SURF2);
+            start = i;
+        }
+    }
+    let hot = cells.map(|r| hs.hovered(r));
+    let key_st = bar_key_style(s);
+    let line = s.max(1.0).round();
+    let mut tip = None;
+    for (i, (&r, b)) in cells.iter().zip(buttons).enumerate() {
+        let key = BAR_KEYS[i];
+        hs.add(r, b.id);
+        // A chip inside the pill marks the hovered and the active cell.
+        let chip = match (b.lit, hot[i]) {
+            (true, true) => Some(theme::CYAN.with_alpha(44)),
+            (true, false) => Some(theme::CYAN.with_alpha(30)),
+            (false, true) => Some(theme::WHITE.with_alpha(14)),
+            (false, false) => None,
+        };
+        if let Some(col) = chip {
+            c.nine(&sk.panel_lg, r, col);
+        }
+        // A hairline between two quiet cells of the same pill.
+        let quiet = |j: usize| !hot[j] && !buttons[j].lit;
+        if i > 0 && !BAR_NEW_GROUP[i] && quiet(i) && quiet(i - 1) {
+            let dh = (14.0 * s).round();
+            c.fill_rect(
+                Rect::new(r.x, r.y + ((r.h - dh) / 2.0).round(), line, dh),
+                theme::LINE,
+            );
+        }
+        let (icon_col, key_col) = if b.lit {
+            (theme::CYAN, theme::CYAN.with_alpha(170))
+        } else if hot[i] {
+            (theme::TEXT, theme::MUTED)
         } else {
-            theme::LINE
-        },
-    );
-    let col = if lit {
-        theme::CYAN
-    } else if hot {
-        theme::TEXT
-    } else {
-        theme::MUTED
-    };
-    let size = 18.0 * s;
-    c.sprite(
-        icon,
-        Rect::new(r.x + 9.0 * s, r.y + (r.h - size) / 2.0, size, size),
-        col,
-    );
-    t.draw_in(
-        c,
-        key,
-        Rect::new(r.x + 30.0 * s, r.y + 1.0 * s, r.w - 34.0 * s, r.h),
-        Align::Center,
-        &TextStyle::new(10.0 * s).bold().color(theme::MUTED2),
-    );
-    hot
+            (theme::MUTED, theme::MUTED2)
+        };
+        // Icon, then its key centred on the icon's middle. The icon is drawn
+        // at its texel size, on whole pixels.
+        let size = b.icon.w as f32;
+        let x = r.x + (BAR_PAD_L * s).round();
+        let y = (r.y + (r.h - size) / 2.0).round();
+        c.sprite(b.icon, Rect::new(x, y, size, size), icon_col);
+        let kx = x + size + (BAR_ICON_GAP * s).round();
+        t.draw_in(
+            c,
+            key,
+            Rect::new(kx, y, r.right() - kx, size),
+            Align::Left,
+            &key_st.color(key_col),
+        );
+        if hot[i] {
+            tip = Some(BarTip {
+                anchor: r,
+                name: b.name,
+                key,
+                info: b.info,
+            });
+        }
+    }
+    tip
 }
 
-/// A hover bubble under a top bar button, right-aligned to `anchor` and kept
-/// inside the viewport: the name with its key, then the detail line.
+/// A tooltip under a top bar button: a rounded panel with an arrow pointing
+/// at the button, the name with its keycap on the first line and the detail
+/// on the second. Centered under the button and kept inside the viewport.
 fn bar_tip(
     c: &mut Canvas,
     t: &mut TextEngine,
@@ -347,25 +438,45 @@ fn bar_tip(
 ) {
     let name_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
     let info_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+    let (pad_x, pad_y) = (14.0 * s, 10.0 * s);
+    let (key_h, info_h, row_gap) = (20.0 * s, 16.0 * s, 4.0 * s);
     let kw = keycap_width(c, t, tip.key, s);
-    let name_w = t.measure(c, tip.name, &name_st) + 8.0 * s + kw;
-    let w = name_w.max(t.measure(c, tip.info, &info_st)) + 24.0 * s;
-    let h = 58.0 * s;
-    let x = (anchor.right() - w).clamp(vp.x + 8.0 * s, vp.x + vp.width - w - 8.0 * s);
-    let r = Rect::new(x, anchor.bottom() + 8.0 * s, w, h);
+    let name_w = t.measure(c, tip.name, &name_st);
+    let info_w = t.measure(c, tip.info, &info_st);
+    let w = ((name_w + 20.0 * s + kw).max(info_w) + 2.0 * pad_x).ceil();
+    let h = (2.0 * pad_y + key_h + row_gap + info_h).round();
+    let notch = sk.icons.notch;
+    let (nw, nh) = (notch.w as f32, notch.h as f32);
+    let cx = anchor.x + anchor.w / 2.0;
+    let margin = 8.0 * s;
+    let x = (cx - w / 2.0)
+        .min(vp.x + vp.width - margin - w)
+        .max(vp.x + margin)
+        .round();
+    let r = Rect::new(x, (anchor.bottom() + 4.0 * s + nh).round(), w, h);
+    c.halo(&sk.shadow, r, theme::WHITE.with_alpha(150));
     c.nine(&sk.panel, r, theme::SURF3);
     c.nine(&sk.panel_outline, r, theme::LINE);
-    let nx = r.x + 12.0 * s;
-    let nw = t.draw(c, tip.name, nx, r.y + 22.0 * s, &name_st);
+    // The arrow: an outline-coloured triangle, then the panel colour one
+    // pixel lower, which also covers the panel's outline under it.
+    let nx = (cx - nw / 2.0)
+        .clamp(r.x + 10.0 * s, r.right() - 10.0 * s - nw)
+        .round();
+    let line = s.max(1.0).round();
+    c.sprite(notch, Rect::new(nx, r.y - nh, nw, nh), theme::LINE);
+    c.sprite(notch, Rect::new(nx, r.y - nh + line, nw, nh), theme::SURF3);
+    let row1 = Rect::new(r.x + pad_x, r.y + pad_y, w - 2.0 * pad_x, key_h);
+    t.draw_in(c, tip.name, row1, Align::Left, &name_st);
     keycap(
         c,
         t,
         sk,
         tip.key,
-        Rect::new(nx + nw + 8.0 * s, r.y + 8.0 * s, kw, 20.0 * s),
+        Rect::new(row1.right() - kw, row1.y, kw, key_h),
         s,
     );
-    t.draw(c, tip.info, nx, r.y + 44.0 * s, &info_st);
+    let row2 = Rect::new(row1.x, row1.bottom() + row_gap, row1.w, info_h);
+    t.draw_in(c, tip.info, row2, Align::Left, &info_st);
 }
 
 /// The hover bubble to draw once the whole screen is drawn.
@@ -393,8 +504,8 @@ fn top_bar(
     let vp = &fitted;
     let x0 = vp.x + PAD * s;
     let adv = widgets::top_bar(c, t, vp, strings::WORDMARK(), s);
-    let bar_top = vp.y + 16.0 * s;
-    let bar_h = 32.0 * s;
+    let cells = bar_cells(c, t, f.viewport);
+    let (bar_top, bar_h) = (cells[0].y, cells[0].h);
 
     // Left group: FOLDER ‹ breadcrumb ›, then SORT. The right group (SETTINGS,
     // OPTIONS, quick buttons, search) is laid out first: the sort group sits
@@ -405,67 +516,58 @@ fn top_bar(
     let cap = caption(12.0, s);
     let sort_value_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
 
-    // Right edge, left to right: the play group (AUTO, OPTIONS), the setup group
+    // Right edge, left to right: the play pill (AUTO, OPTIONS), the setup pill
     // (KEY CONFIG, SETTINGS), then QUIT alone in the corner, where a close
-    // control is expected. Groups are told apart by a wider gap.
-    let btn_w = 56.0 * s;
-    let (near, far) = (6.0 * s, 14.0 * s);
+    // control is expected.
     let icons = &sk.icons;
-    // (icon, lit, keycap, hit, gap to the button on the right, bubble)
-    let buttons: [(
-        AtlasRegion,
-        bool,
-        &'static str,
-        HitId,
-        f32,
-        [&'static str; 2],
-    ); 5] = [
-        (
-            icons.power,
-            false,
-            "ESC",
-            HitId::ExitQuit,
-            0.0,
-            [strings::QUIT(), strings::TIP_QUIT()],
-        ),
-        (
-            icons.gear,
-            false,
-            "F4",
-            HitId::OpenSettings,
-            far,
-            [strings::SETTINGS(), strings::TIP_SETTINGS()],
-        ),
-        (
-            icons.keyboard,
-            false,
-            "F12",
-            HitId::KeyConfig,
-            near,
-            [strings::KEY_CONFIG(), strings::TIP_KEY_CONFIG()],
-        ),
-        (
-            icons.sliders,
-            false,
-            "TAB",
-            HitId::PlayOptions,
-            far,
-            [strings::OPTIONS(), strings::TIP_OPTIONS()],
-        ),
-        (
+    let button = |icon, lit, id, name, info| BarButton {
+        icon,
+        lit,
+        id,
+        name,
+        info,
+    };
+    // In `BAR_KEYS` order.
+    let buttons = [
+        button(
             icons.auto,
             f.auto_play,
-            "A",
             HitId::Auto,
-            near,
-            [strings::BUTTON_AUTO(), strings::TIP_AUTO()],
+            strings::BUTTON_AUTO(),
+            strings::TIP_AUTO(),
+        ),
+        button(
+            icons.sliders,
+            false,
+            HitId::PlayOptions,
+            strings::OPTIONS(),
+            strings::TIP_OPTIONS(),
+        ),
+        button(
+            icons.keyboard,
+            false,
+            HitId::KeyConfig,
+            strings::KEY_CONFIG(),
+            strings::TIP_KEY_CONFIG(),
+        ),
+        button(
+            icons.gear,
+            false,
+            HitId::OpenSettings,
+            strings::SETTINGS(),
+            strings::TIP_SETTINGS(),
+        ),
+        button(
+            icons.power,
+            false,
+            HitId::ExitQuit,
+            strings::QUIT(),
+            strings::TIP_QUIT(),
         ),
     ];
-    let gaps: f32 = buttons.iter().map(|b| b.4).sum();
-    let left_edge = vp.x + vp.width - PAD * s - gaps - btn_w * buttons.len() as f32;
     // Search box: it keeps its width; the freed room goes to the sort group.
-    let search_w = 240.0 * s;
-    let search_x = left_edge - 12.0 * s - search_w;
+    let search_w = (240.0 * s).round();
+    let search_x = cells[0].x - (12.0 * s).round() - search_w;
 
     // Sort: its right end sits before the search box. Its left end stops at the
     // folder group's fixed parts (FOLDER and both chevrons); a value that does not
@@ -575,20 +677,7 @@ fn top_bar(
         c.stroke_rect(sort_hit, s.max(1.0), theme::CYAN.with_alpha(90));
     }
 
-    let mut right = vp.x + vp.width - PAD * s;
-    let mut tip = None;
-    for (icon, lit, key, id, gap, [name, info]) in buttons {
-        let r = Rect::new(right - gap - btn_w, bar_top, btn_w, bar_h);
-        if bar_button(c, t, sk, hs, r, icon, lit, key, id, s) {
-            tip = Some(BarTip {
-                anchor: r,
-                name,
-                key,
-                info,
-            });
-        }
-        right = r.x;
-    }
+    let tip = bar_buttons(c, t, sk, hs, &cells, &buttons, s);
     let search = Rect::new(search_x, bar_top, search_w, bar_h);
     hs.add(search, HitId::Search);
     c.nine(

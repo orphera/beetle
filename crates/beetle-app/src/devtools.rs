@@ -11,6 +11,9 @@
 //! - `BEETLE_CAPTURE_ROW=<index>`: with the Settings screen, start on that row.
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
+//! - `BEETLE_CAPTURE_HOVER=<0..4>`: song select draws the pointer over that top
+//!   bar button (left to right: auto, options, key config, settings, quit), so
+//!   a capture shows its hover state and tooltip.
 //! - With `BEETLE_CAPTURE_SCREEN=keyconfig` or `settings` the app starts there
 //!   (it is otherwise only reachable by key press).
 //! - `BEETLE_CAPTURE_TRANSITION=<0..1>`: draws the shutter frozen at that
@@ -160,6 +163,13 @@ pub fn start_screen() -> Option<AppScreen> {
 /// capture can show a scrolled column without key input.
 pub fn start_settings_row() -> Option<usize> {
     std::env::var("BEETLE_CAPTURE_ROW").ok()?.parse().ok()
+}
+
+/// The song select top bar button the pointer is drawn over
+/// (`BEETLE_CAPTURE_HOVER=<index>`), read once.
+pub fn capture_hover() -> Option<usize> {
+    static HOVER: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *HOVER.get_or_init(|| std::env::var("BEETLE_CAPTURE_HOVER").ok()?.parse().ok())
 }
 
 /// Song select modal to open at startup: (options, exit).
