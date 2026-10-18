@@ -44,6 +44,13 @@ pub struct Icons {
     pub star: AtlasRegion,
     pub check: AtlasRegion,
     pub dot: AtlasRegion,
+    /// Top bar buttons: settings (gear), key config (keyboard), play options
+    /// (sliders), auto play, quit (power).
+    pub gear: AtlasRegion,
+    pub keyboard: AtlasRegion,
+    pub sliders: AtlasRegion,
+    pub auto: AtlasRegion,
+    pub power: AtlasRegion,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -149,6 +156,11 @@ impl Skin {
                 star: icon_star(atlas, px(32.0 * s)),
                 check: icon_check(atlas, px(32.0 * s)),
                 dot: icon_dot(atlas, px(32.0 * s)),
+                gear: icon_gear(atlas, px(32.0 * s)),
+                keyboard: icon_keyboard(atlas, px(32.0 * s)),
+                sliders: icon_sliders(atlas, px(32.0 * s)),
+                auto: icon_auto(atlas, px(32.0 * s)),
+                power: icon_power(atlas, px(32.0 * s)),
             },
         }
     }
@@ -527,6 +539,92 @@ fn icon_check(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
             0.30 * f,
         ));
         coverage(d - th / 2.0)
+    });
+    put(atlas, &bmp)
+}
+
+/// A ring of radius `r` and width `th` as a signed distance (<= 0 inside).
+fn ring_d(x: f32, y: f32, c: f32, r: f32, th: f32) -> f32 {
+    (sdf::circle(x, y, c, c, r)).abs() - th / 2.0
+}
+
+fn icon_gear(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
+    let f = size as f32;
+    let c = f / 2.0;
+    let bmp = Bitmap::supersampled(size, size, 4, |x, y| {
+        let mut d = ring_d(x, y, c, 0.25 * f, 0.12 * f);
+        for i in 0..8 {
+            let a = i as f32 * std::f32::consts::FRAC_PI_4;
+            let (ca, sa) = (a.cos(), a.sin());
+            let t = segment(
+                x,
+                y,
+                c + 0.28 * f * ca,
+                c + 0.28 * f * sa,
+                c + 0.41 * f * ca,
+                c + 0.41 * f * sa,
+            ) - 0.065 * f;
+            d = d.min(t);
+        }
+        d <= 0.0
+    });
+    put(atlas, &bmp)
+}
+
+fn icon_keyboard(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
+    let f = size as f32;
+    let bmp = Bitmap::supersampled(size, size, 4, |x, y| {
+        let body = sdf::round_box(x, y, 0.5 * f, 0.5 * f, 0.43 * f, 0.28 * f, 0.07 * f);
+        let mut d = body.abs() - 0.045 * f;
+        for row in 0..2 {
+            for col in 0..4 {
+                let (kx, ky) = (
+                    (0.27 + 0.153 * col as f32) * f,
+                    (0.40 + 0.12 * row as f32) * f,
+                );
+                if row == 1 && (col == 1 || col == 2) {
+                    continue;
+                }
+                d = d.min(sdf::circle(x, y, kx, ky, 0.04 * f));
+            }
+        }
+        d = d.min(segment(x, y, 0.38 * f, 0.64 * f, 0.62 * f, 0.64 * f) - 0.035 * f);
+        d <= 0.0
+    });
+    put(atlas, &bmp)
+}
+
+fn icon_sliders(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
+    let f = size as f32;
+    let bmp = Bitmap::supersampled(size, size, 4, |x, y| {
+        let mut d = f32::MAX;
+        for (ly, kx) in [(0.24, 0.68), (0.5, 0.34), (0.76, 0.6)] {
+            d = d.min(segment(x, y, 0.12 * f, ly * f, 0.88 * f, ly * f) - 0.03 * f);
+            d = d.min(sdf::circle(x, y, kx * f, ly * f, 0.1 * f));
+        }
+        d <= 0.0
+    });
+    put(atlas, &bmp)
+}
+
+fn icon_auto(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
+    let f = size as f32;
+    let c = f / 2.0;
+    let tri = [(0.42 * f, 0.34 * f), (0.42 * f, 0.66 * f), (0.68 * f, c)];
+    let bmp = Bitmap::supersampled(size, size, 4, |x, y| {
+        ring_d(x, y, c, 0.38 * f, 0.09 * f) <= 0.0 || sdf::in_polygon(x, y, &tri)
+    });
+    put(atlas, &bmp)
+}
+
+fn icon_power(atlas: &mut UiAtlas, size: u32) -> AtlasRegion {
+    let f = size as f32;
+    let c = f / 2.0;
+    let bmp = Bitmap::supersampled(size, size, 4, |x, y| {
+        // The ring is open at the top, where the stem comes down.
+        let up = (x - c).atan2(c - y).abs();
+        let arc = ring_d(x, y, c, 0.32 * f, 0.1 * f) <= 0.0 && up > 0.6;
+        arc || segment(x, y, c, 0.12 * f, c, 0.48 * f) - 0.05 * f <= 0.0
     });
     put(atlas, &bmp)
 }

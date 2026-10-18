@@ -1549,6 +1549,27 @@ table! {
         ko "자동",
         en "Auto",
         ja "自動";
+    /// Hover bubbles of the song select top bar buttons.
+    pub TIP_QUIT =
+        ko "BEETLE을 종료합니다",
+        en "Quit BEETLE",
+        ja "BEETLE を終了します";
+    pub TIP_SETTINGS =
+        ko "소리, 화면, 언어 등 전체 설정",
+        en "Audio, display, language and more",
+        ja "サウンド・画面・言語などの設定";
+    pub TIP_KEY_CONFIG =
+        ko "모드별 레인에 키를 지정합니다",
+        en "Bind keys to the lanes of each mode",
+        ja "モードごとにレーンへキーを割り当て";
+    pub TIP_OPTIONS =
+        ko "배치, 속도, 판정 등 플레이 옵션",
+        en "Note layout, speed, judge and more",
+        ja "配置・速度・判定などのプレイオプション";
+    pub TIP_AUTO =
+        ko "컴퓨터가 대신 플레이합니다",
+        en "The computer plays for you",
+        ja "コンピューターが代わりにプレイします";
     /// Error toast when the play cannot open an audio device.
     pub TOAST_NO_AUDIO_DEVICE =
         ko "오디오 장치를 찾지 못했어요",

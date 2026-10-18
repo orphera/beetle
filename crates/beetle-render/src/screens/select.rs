@@ -246,7 +246,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
         c.set_opacity(1.0);
     }
 
-    let (caret, sort_anchor) = top_bar(c, t, &sk, f, s, &mut hs);
+    let (caret, sort_anchor, tip) = top_bar(c, t, &sk, f, s, &mut hs);
     ui.ime_caret = caret;
     // Nothing to filter in an empty library.
     if !f.library_empty {
@@ -255,6 +255,10 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     footer(c, t, &sk, f, s, &mut hs);
     if let Some(menu) = &f.sort_menu {
         sort_menu(c, t, &sk, vp, menu, sort_anchor, s, &mut hs);
+    }
+    // Over everything, but not while a menu or modal is up.
+    if let (Some(tip), None) = (&tip, &f.sort_menu) {
+        bar_tip(c, t, &sk, &f.viewport.fit_to_design(), tip.anchor, tip, s);
     }
 }
 
@@ -276,26 +280,21 @@ fn backdrop(
 // Top bar: wordmark, folder / sort selectors, search box
 // ---------------------------------------------------------------------------
 
-/// A labeled top bar button with a keycap for its key; records `id`.
+/// An icon-only top bar button: the icon, and its key as small text. Records `id`.
+/// Returns whether the pointer is over it.
 #[allow(clippy::too_many_arguments)]
-/// The width a top bar button needs for its label and keycap, with the same
-/// margins as `bar_button` draws them.
-fn bar_button_width(c: &mut Canvas, t: &mut TextEngine, label: &str, key: &str, s: f32) -> f32 {
-    let label_st = TextStyle::new(12.0 * s).bold();
-    t.measure(c, label, &label_st) + keycap_width(c, t, key, s) + 10.0 * s + 2.0 * 14.0 * s
-}
-
 fn bar_button(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
     hs: &mut HitSink,
     r: Rect,
-    label: &str,
+    icon: AtlasRegion,
+    lit: bool,
     key: &str,
     id: HitId,
     s: f32,
-) {
+) -> bool {
     let hot = hs.hovered(r);
     hs.add(r, id);
     c.nine(
@@ -306,39 +305,75 @@ fn bar_button(
     c.nine(
         &sk.cut_outline,
         r,
-        if hot {
+        if hot || lit {
             theme::CYAN.with_alpha(200)
         } else {
             theme::LINE
         },
     );
-    let label_st =
-        TextStyle::new(12.0 * s)
-            .bold()
-            .color(if hot { theme::TEXT } else { theme::MUTED });
-    let lw = t.measure(c, label, &label_st);
-    let kw = keycap_width(c, t, key, s);
-    let bx = r.x + (r.w - lw - kw - 10.0 * s) / 2.0;
+    let col = if lit {
+        theme::CYAN
+    } else if hot {
+        theme::TEXT
+    } else {
+        theme::MUTED
+    };
+    let size = 18.0 * s;
+    c.sprite(
+        icon,
+        Rect::new(r.x + 9.0 * s, r.y + (r.h - size) / 2.0, size, size),
+        col,
+    );
     t.draw_in(
         c,
-        label,
-        Rect::new(bx, r.y, lw + 1.0, r.h),
-        Align::Left,
-        &label_st,
+        key,
+        Rect::new(r.x + 30.0 * s, r.y + 1.0 * s, r.w - 34.0 * s, r.h),
+        Align::Center,
+        &TextStyle::new(10.0 * s).bold().color(theme::MUTED2),
     );
+    hot
+}
+
+/// A hover bubble under a top bar button, right-aligned to `anchor` and kept
+/// inside the viewport: the name with its key, then the detail line.
+fn bar_tip(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    vp: &Viewport,
+    anchor: Rect,
+    tip: &BarTip,
+    s: f32,
+) {
+    let name_st = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+    let info_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+    let kw = keycap_width(c, t, tip.key, s);
+    let name_w = t.measure(c, tip.name, &name_st) + 8.0 * s + kw;
+    let w = name_w.max(t.measure(c, tip.info, &info_st)) + 24.0 * s;
+    let h = 58.0 * s;
+    let x = (anchor.right() - w).clamp(vp.x + 8.0 * s, vp.x + vp.width - w - 8.0 * s);
+    let r = Rect::new(x, anchor.bottom() + 8.0 * s, w, h);
+    c.nine(&sk.panel, r, theme::SURF3);
+    c.nine(&sk.panel_outline, r, theme::LINE);
+    let nx = r.x + 12.0 * s;
+    let nw = t.draw(c, tip.name, nx, r.y + 22.0 * s, &name_st);
     keycap(
         c,
         t,
         sk,
-        key,
-        Rect::new(
-            bx + lw + 10.0 * s,
-            r.y + (r.h - 20.0 * s) / 2.0,
-            kw,
-            20.0 * s,
-        ),
+        tip.key,
+        Rect::new(nx + nw + 8.0 * s, r.y + 8.0 * s, kw, 20.0 * s),
         s,
     );
+    t.draw(c, tip.info, nx, r.y + 44.0 * s, &info_st);
+}
+
+/// The hover bubble to draw once the whole screen is drawn.
+struct BarTip {
+    anchor: Rect,
+    name: &'static str,
+    key: &'static str,
+    info: &'static str,
 }
 
 /// Between two breadcrumb segments.
@@ -353,7 +388,7 @@ fn top_bar(
     f: &SelectFrame,
     s: f32,
     hs: &mut HitSink,
-) -> (Option<Rect>, Rect) {
+) -> (Option<Rect>, Rect, Option<BarTip>) {
     let fitted = f.viewport.fit_to_design();
     let vp = &fitted;
     let x0 = vp.x + PAD * s;
@@ -373,32 +408,63 @@ fn top_bar(
     // Right edge, left to right: the play group (AUTO, OPTIONS), the setup group
     // (KEY CONFIG, SETTINGS), then QUIT alone in the corner, where a close
     // control is expected. Groups are told apart by a wider gap.
-    let btn_w = 96.0 * s;
-    let (near, far) = (8.0 * s, 20.0 * s);
-    let auto_label = if f.auto_play {
-        strings::AUTO_PLAY()
-    } else {
-        strings::BUTTON_AUTO()
-    };
-    // (label, keycap, hit, gap to the button on the right)
-    let buttons: [(&str, &str, HitId, f32); 5] = [
-        (strings::QUIT(), "ESC", HitId::ExitQuit, 0.0),
-        (strings::SETTINGS(), "F4", HitId::OpenSettings, far),
-        (strings::KEY_CONFIG(), "F12", HitId::KeyConfig, near),
-        (strings::OPTIONS(), "TAB", HitId::PlayOptions, far),
-        (auto_label, "A", HitId::Auto, near),
+    let btn_w = 56.0 * s;
+    let (near, far) = (6.0 * s, 14.0 * s);
+    let icons = &sk.icons;
+    // (icon, lit, keycap, hit, gap to the button on the right, bubble)
+    let buttons: [(
+        AtlasRegion,
+        bool,
+        &'static str,
+        HitId,
+        f32,
+        [&'static str; 2],
+    ); 5] = [
+        (
+            icons.power,
+            false,
+            "ESC",
+            HitId::ExitQuit,
+            0.0,
+            [strings::QUIT(), strings::TIP_QUIT()],
+        ),
+        (
+            icons.gear,
+            false,
+            "F4",
+            HitId::OpenSettings,
+            far,
+            [strings::SETTINGS(), strings::TIP_SETTINGS()],
+        ),
+        (
+            icons.keyboard,
+            false,
+            "F12",
+            HitId::KeyConfig,
+            near,
+            [strings::KEY_CONFIG(), strings::TIP_KEY_CONFIG()],
+        ),
+        (
+            icons.sliders,
+            false,
+            "TAB",
+            HitId::PlayOptions,
+            far,
+            [strings::OPTIONS(), strings::TIP_OPTIONS()],
+        ),
+        (
+            icons.auto,
+            f.auto_play,
+            "A",
+            HitId::Auto,
+            near,
+            [strings::BUTTON_AUTO(), strings::TIP_AUTO()],
+        ),
     ];
-    // A label in a longer language may need a wider button than the rest.
-    let widths: Vec<f32> = buttons
-        .iter()
-        .map(|&(label, key, _, _)| bar_button_width(c, t, label, key, s).max(btn_w))
-        .collect();
-    // Extra width the buttons take over the usual one, which the search box gives up.
-    let bar_extra: f32 = widths.iter().map(|w| w - btn_w).sum();
-    let gaps: f32 = buttons.iter().map(|b| b.3).sum();
-    let left_edge = vp.x + vp.width - PAD * s - gaps - widths.iter().sum::<f32>();
-    // Search box: its left edge stays where it is, so it never reaches the sort group.
-    let search_w = (240.0 * s - bar_extra).max(160.0 * s);
+    let gaps: f32 = buttons.iter().map(|b| b.4).sum();
+    let left_edge = vp.x + vp.width - PAD * s - gaps - btn_w * buttons.len() as f32;
+    // Search box: it keeps its width; the freed room goes to the sort group.
+    let search_w = 240.0 * s;
     let search_x = left_edge - 12.0 * s - search_w;
 
     // Sort: its right end sits before the search box. Its left end stops at the
@@ -510,9 +576,17 @@ fn top_bar(
     }
 
     let mut right = vp.x + vp.width - PAD * s;
-    for ((label, key, id, gap), w) in buttons.into_iter().zip(widths) {
-        let r = Rect::new(right - gap - w, bar_top, w, bar_h);
-        bar_button(c, t, sk, hs, r, label, key, id, s);
+    let mut tip = None;
+    for (icon, lit, key, id, gap, [name, info]) in buttons {
+        let r = Rect::new(right - gap - btn_w, bar_top, btn_w, bar_h);
+        if bar_button(c, t, sk, hs, r, icon, lit, key, id, s) {
+            tip = Some(BarTip {
+                anchor: r,
+                name,
+                key,
+                info,
+            });
+        }
         right = r.x;
     }
     let search = Rect::new(search_x, bar_top, search_w, bar_h);
@@ -588,7 +662,7 @@ fn top_bar(
         20.0 * s,
     );
     keycap(c, t, sk, "/", key, s);
-    (caret, sort_hit)
+    (caret, sort_hit, tip)
 }
 
 // ---------------------------------------------------------------------------
