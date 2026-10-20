@@ -1,4 +1,4 @@
-# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 10)
+# TASKS.md — Beetle 로드맵 및 개발 체크리스트 (Milestone 11)
 
 이 문서는 Beetle 프로젝트의 활성 마일스톤 구현 태스크를 관리하는 로드맵 문서입니다.
 
@@ -12,75 +12,11 @@
 > - [archive/tasks_milestone_7.md](archive/tasks_milestone_7.md): 듀얼 아틀라스(Sound & BGA Atlas) 초고속 패키지 엔진, 무손실 FLAC 압축, WebDAV VFS 온더플라이 WAV 합성
 > - [archive/tasks_milestone_8.md](archive/tasks_milestone_8.md): 원격 패키지 레지스트리 및 온라인 송 허브 (`bpm update/search/install/upgrade`, `bpm serve`, `bpm-gui` 온라인 탭)
 > - [archive/tasks_milestone_9.md](archive/tasks_milestone_9.md): 순수 .bmsp 아카이브 전용 저장소 및 UI 디자인 시스템 수립
+> - [archive/tasks_milestone_10.md](archive/tasks_milestone_10.md): 멀티키 모드 실동작 지원 (9K / 10K / 14K, DP 듀얼 플레이필드, 전용 키 프리셋)
 
 ---
 
-# 🚀 Milestone 10: 멀티키 모드 실동작 지원 (Multi-Key Mode Playability: 9K / 10K / 14K)
-
-자세한 기술 설계 및 아키텍처는 [specs/multi_key_mode_support.md](specs/multi_key_mode_support.md)를 참조합니다.
-
-**배경**: 9Key(PMS)/10Key/14Key(더블 플레이) 차트는 메타데이터 탐지만 정상이고, 실제로는 2P/추가 키 채널이 전부 배경음악으로 치환되어 5Key·7Key 범위로만 플레이된다. `Lane` enum, 파서, 입력 설정이 모두 "7K + 1S" 전용으로 하드코딩되어 있던 것이 근본 원인.
-
----
-
-## 📋 Phase 1: 코어 데이터 모델 — Lane enum 확장 및 2-패스 모드 인식 파서 (`crates/beetle-core`)
-- [x] **`Lane` enum에 신규 변형 추가 (append-only, 기존 8개 값/순서 불변)**
-  - [x] `Key8`, `Key9` (PMS 9K 전용 추가 버튼)
-  - [x] `P2Scratch`, `P2Key1`..`P2Key7` (DP 10K/14K 2P 측)
-- [x] **파서를 PASS 2a(플래그 스캔) / PASS 2b(노트 생성)로 분리**
-  - [x] PASS 2a: 전체 측정 라인을 순회하며 `has_scratch`/`has_k67`/`has_2p_dp`/`has_pms_ch`/`has_2p_key1` 플래그만 먼저 확정 (`scan_measure_flags`)
-  - [x] PASS 2a 종료 후 `chart.detect_play_mode()`로 최종 `PlayMode` 확정
-  - [x] PASS 2b: 확정된 모드를 `channel_to_lane(ch, mode)`에 전달하여 노트 생성
-- [x] **채널 21~29/61~69 모드별 분기 매핑**
-  - [x] `Keys9`: `22→Key6, 23→Key7, 24→Key8, 25→Key9` (+LN 62~65)
-  - [x] `Keys10`/`Keys14`: `21→P2Key1..25→P2Key5, 26→P2Scratch, 28→P2Key6, 29→P2Key7` (+LN 61~69)
-  - [x] 그 외 모드(변칙 5K/7K)는 기존처럼 `bgm_notes` 폴백 유지 (회귀 방지)
-- [x] **모디파이어(`modifier.rs`) 안전 통과**: `Key1..Key7` 외 레인(Key8/Key9/P2*)은 셔플 대상에서 제외하고 identity 통과 (SRandom 분기도 `KEY_LANES` 외 레인은 건너뛰도록 수정)
-- [x] **리플레이(`replay.rs`) 직렬화 확장**: 신규 Lane 값을 8번부터 append, 기존 `.rep` 파일 역호환 유지
-- [x] **단위 테스트**: 9K(`test_pms_9k_extra_buttons_are_judgeable_key6_to_9`)/10K(`test_2p_dp_notes_are_now_judgeable_not_bgm`)/14K(`test_dp_14k_all_2p_lanes_and_long_notes_judgeable`) 픽스처로 모든 2P/추가 채널 노트가 올바른 Lane으로 생성되는지 검증
-- [x] **컴파일 전파 수정**: `beetle-render`(`lane_index`/`key_pressed` 배열을 `LANE_COUNT=18`로 확장, `skin.rs`의 `lane_x`/`lane_color`/`key_beam_color`에 신규 레인 임시 배치 추가)와 `beetle-app`(`input.rs`의 `lane_to_name`/`name_to_lane` 전체 레인 지원, 7K+1S 전용 프리셋은 신규 레인에 `"None"` 반환)의 exhaustive match 컴파일 에러 전부 해소. `cargo check/test --workspace` 및 `cargo build --release` 통과 확인.
-
-> 참고: Phase 1 완료를 위해 `beetle-render`의 `lane_x()`에 DP 2P 레인의 **임시** 배치(1P 플레이필드 바로 뒤에 이어 붙이는 방식)를 추가했다. 이는 컴파일/판정 정합성만 보장하는 자리표시자이며, 실제 좌/우 듀얼 플레이필드 레이아웃은 Phase 3에서 교체한다.
-
----
-
-## 📋 Phase 2: 판정/스코어 엔진 정합성 (`crates/beetle-core/src/judge`)
-- [x] `Lane` exhaustive match 컴파일 에러 전부 해소 (현재 8개 가정 코드 전수 점검) — `judge/mod.rs`, `score_tracker.rs` 둘 다 `Lane` 값을 동등 비교로만 다루고 고정 배열/exhaustive match가 전혀 없어 추가 수정이 필요 없음을 코드 전수 확인으로 검증. `beetle-audio`도 `Lane`을 전혀 참조하지 않음을 확인.
-- [x] `JudgeEngine`/`ScoreTracker`가 신규 레인 노트를 1P 7K와 동일하게 판정하는지 확인 — 신규 테스트 `test_judge_engine_handles_dp_14k_lanes_with_correct_max_score`에서 `Lane::P2Key1` 노트를 1P 레인과 동일하게 PerfectGreat로 판정함을 확인
-- [x] 신규 레인 포함 차트의 EX Score/정확도 분모가 실제 판정 가능 노트 수와 일치하는지 테스트로 검증 — 14K 차트(1P 1개 + 2P 2개 = 3개 실제 노트)의 `max_ex_score()`가 정확히 6(3노트×2점)임을 검증, BGM 폴백으로 인한 왜곡 없음
-
----
-
-## 📋 Phase 3: 렌더 레이아웃 — 9K 단일 플레이필드 / DP 듀얼 플레이필드 (`crates/beetle-render`)
-- [x] `SkinConfig::update_layout`에 `Keys9` 전용 분기 (스크래치 없는 9레인 단일 플레이필드) — `playfield_width_for()`에 `Keys9 => 9.0 * lane_width` 분기 추가, `lane_x()`도 `Keys9`일 때 스크래치 오프셋 생략
-- [x] DP(10K/14K)용 2차 좌표 세트 추가 및 `lane_x()`의 `P2*` 레인을 Phase 1의 임시 배치에서 실제 좌/우 듀얼 플레이필드 좌표로 교체 — `dp_side_width()`/`p2_side_x()` 헬퍼로 1P 블록(스크래치+5 또는 7키) 바로 뒤에 작은 간격을 두고 2P 블록을 배치. 별도 필드(`playfield_x_p2` 등) 대신 기존 `playfield_width`를 "전체 플레이필드 스팬"으로 재정의해 `playfield_x + playfield_width`를 참조하는 기존 코드(HUD/게이지/BGA)가 자동으로 2P 측까지 커버하도록 함
-- [x] 화면 좌/우 듀얼 플레이필드 레이아웃 + HUD/BGA 축소 재배치 — 별도 코드 변경 불필요: `gameplay.rs`의 BGA `max_w`/게이지/HUD 위치가 모두 `playfield_x + playfield_width` 기준으로 계산되므로, 위에서 재정의한 `playfield_width`가 넓어지면 자동으로 오른쪽 패널들이 밀리고 축소됨 (Phase 2에서 확인한 "기존 앵커링 재사용" 패턴과 동일)
-- [x] `lane_index()` 및 `key_pressed` 고정 배열을 `[bool; LANE_COUNT]`(18)로 확장 (`renderer.rs`, `gameplay_gpu.rs`) — Phase 1에서 선반영
-- [x] 소프트웨어 렌더러(`gameplay.rs`)·GPU 렌더러(`gameplay_gpu.rs`) 양쪽 동일 레이아웃 적용 — 둘 다 `skin.active_lanes()`/`skin.lane_x()`를 통해서만 레인 좌표를 얻으므로 `SkinConfig` 레벨 수정만으로 양쪽 렌더러에 동일하게 반영됨 (코드 중복 없음)
-
-> 검증: `skin.rs`에 신규 유닛 테스트 4종 추가 — Keys7 기존 좌표 회귀 없음, Keys9 스크래치 없는 9레인, Keys10(5+5)/Keys14(7+7) 듀얼 플레이필드가 겹치지 않고 `playfield_width`가 2P 측까지 포함함을 좌표 계산으로 검증. 라이브러리에 실제 9K/DP BMS 패키지가 없어 인게임 시각 확인은 Phase 5(수동 플레이 테스트)에서 수행.
-
----
-
-## 📋 Phase 4: 입력 설정 & Key Config UI (`crates/beetle-app`)
-- [x] `KeyPreset`에 9K/DP 전용 신규 프리셋 추가 (기존 `HomeRow`/`ArcadeZx`는 7K+1S 전용으로 불변 유지) — `Pms9K`(S D F Space J K L ; ', 스크래치 없음) / `DoublePlay`(1P측 ArcadeZx 그대로 + 2P측 RShift+U I O P [ ] \\) 추가. `toggle_preset()`이 4개 프리셋을 모두 순회한 뒤 Custom으로 진입
-- [x] `InputConfig`가 모드별 기본 바인딩 세트를 제공하도록 확장 — `map_key`/`get_key_name_for_lane`/`init_custom_from_preset`에 신규 프리셋 분기 추가. 부수 수정: `serialize_bindings()`가 기존 8레인만 순회하던 버그 발견 및 수정(`beetle-core`에 `Lane::ALL` 18레인 상수 신규 추가) — PMS/DP 레인 커스텀 바인딩이 저장 시 사라지던 문제 해결
-- [x] `main.rs`가 Key Config 화면에 현재 로드된 차트의 `PlayMode`에 맞는 전체 레인 목록을 전달하도록 수정 (`skin.active_lanes()` 고정 호출 제거) — `AppState::key_config_mode()`(로드된 차트 우선, 없으면 송셀렉트에서 하이라이트된 곡의 캐시된 PlayMode) / `key_config_lanes()` 신규 추가, `handlers/key_config.rs`의 Up/Down·Rebind 경계값도 실제 레인 수 기준으로 수정(`.min(7)` 하드코딩 제거)
-- [x] Key Config 화면 UI: 레인 수가 8개를 넘는 DP 모드를 위한 2열 레이아웃 또는 스크롤 지원 — `render_key_config()`가 `key_names.len() > 8`일 때 1P/2P 2열로 자동 분할(기존 단일열 코드 경로는 완전히 동일하게 유지, 픽셀 회귀 없음). 레인 색상 표시도 기존 "행 위치 기반"에서 "라벨 텍스트 기반"(`lane_indicator_color`)으로 수정 — PMS처럼 스크래치가 없는 모드에서 Key1이 잘못 빨간색(스크래치색)으로 표시되던 잠재 버그도 같이 해결
-
-> 검증: `input.rs`에 신규 유닛 테스트 4종(Pms9K 매핑, DoublePlay 매핑, 4프리셋 순회, DP 레인 직렬화 라운드트립 회귀 테스트) 추가, 전부 통과. 인게임 시각 확인: 7K 차트로 Key Config 진입 → 기존 단일열 레이아웃 완전 동일(회귀 없음) 확인, F1로 PMS 9K 프리셋 전환 → "SCRATCH: None"(PMS는 스크래치 바인딩 없음) 정상 표시 확인(스크린샷 캡처). 2열 DP 레이아웃은 라이브러리에 실제 10K/14K 차트가 없어 Phase 5로 시각 확인을 미룸(기하학적 정합성은 `key_config.rs`의 분기 로직 자체가 레인 개수에만 의존하므로 Phase 3와 동일한 사유로 코드 레벨에서는 안전).
-
----
-
-## 📋 Phase 5: 전체 워크스페이스 검증 및 릴리스 빌드
-- [ ] `cargo check --workspace` 타입 체크
-- [ ] `cargo test --workspace` 전체 테스트 통과 검증
-- [ ] 9K/10K/14K 실제 BMS 패키지로 수동 플레이 검증 (노트 판정, 키 입력, 레이아웃)
-- [ ] `cargo build --release` 바이너리 크기 및 정상 동작 확인
-
----
-
-## ⏭️ 다음 할 일: 게임 안에서 곡 넣기
+# 🚀 Milestone 11: 게임 안에서 곡 넣기 (In-Game Song Install)
 
 설계와 확정된 결정은 [plans/2026-10-21-song-install-in-app.md](plans/2026-10-21-song-install-in-app.md)를 참조합니다.
 
@@ -90,6 +26,8 @@
 - [ ] **S4** 선곡 화면 곡 메뉴(폴더 열기 / 삭제 / 버전 선택)
 - [ ] **S5** `.bmsp` 파일 연결 + 단일 인스턴스 넘겨주기
 - [ ] **S6** `bpm-gui`를 "고급 도구"로 자리 정리(계속 함께 배포)
+
+---
 
 ## 🎨 UI 디자인 시스템
 - [specs/ui_design_system.md](specs/ui_design_system.md): 타이포그래피 4단계 위계, 색상 의미 체계, 테두리 사용 정책(보더 다이어트), 리스트/모달 그룹핑 컨벤션. 화면 UI를 고칠 때 이 문서를 기준으로 삼는다.
