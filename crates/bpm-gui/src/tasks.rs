@@ -4,7 +4,8 @@
 
 use crate::josa::{quoted_eul, quoted_eun};
 use bms_package_manager::{
-    BgaPackMode, PackOptions, PackProfile, PackageManager, PackageManagerError,
+    AddError, AddOptions, AddProgress, AddReport, AddSource, Added, BgaPackMode, FolderMode,
+    PackOptions, PackProfile, PackageManager, PackageManagerError, SkipReason, Skipped,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -125,134 +126,94 @@ fn failed(what: &str, e: PackageManagerError) -> String {
     }
 }
 
-/// Archives that can hold a song folder.
-pub fn is_archive(path: &Path) -> bool {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    matches!(ext.as_str(), "zip" | "rar" | "7z")
-}
-
 /// What dropping or adding `path` does, as a task title; `None` when the path
 /// is not something that can be added.
 pub fn add_title(path: &Path) -> Result<String, String> {
     let name = file_name(path);
-    let lower = name.to_ascii_lowercase();
-    if path.is_dir() {
-        Ok(format!("'{name}' 폴더에서 곡 추가하는 중"))
-    } else if !path.exists() {
-        Err(format!(
+    match AddSource::of(path) {
+        Some(AddSource::Folder) => Ok(format!("'{name}' 폴더에서 곡 추가하는 중")),
+        Some(AddSource::Package | AddSource::BgaCompanion) => Ok(format!("'{name}' 설치하는 중")),
+        Some(AddSource::Delta) => Ok(format!("'{name}' 업데이트 적용하는 중")),
+        Some(AddSource::Archive) => Ok(format!("'{name}' 압축을 풀어 곡 추가하는 중")),
+        None if !path.exists() => Err(format!(
             "{} 찾을 수 없어요",
             quoted_eul(&path.display().to_string())
-        ))
-    } else if lower.ends_with(".bmsp") {
-        Ok(format!("'{name}' 설치하는 중"))
-    } else if lower.ends_with(".bmdp") {
-        Ok(format!("'{name}' 업데이트 적용하는 중"))
-    } else if is_archive(path) {
-        Ok(format!("'{name}' 압축을 풀어 곡 추가하는 중"))
-    } else {
-        Err(format!(
+        )),
+        None => Err(format!(
             "{} 추가할 수 없는 파일이에요. 곡 폴더, 압축 파일(.zip/.rar/.7z), .bmsp 파일을 넣어 주세요.",
             quoted_eun(&name)
-        ))
+        )),
     }
 }
 
 /// Adds whatever `path` is: a song folder (or a folder of song folders), an
-/// archive of one, a `.bmsp` package or a `.bmdp` update.
+/// archive of one, a `.bmsp` package or a `.bmdp` update. Folders are copied
+/// into the store, as this tool always has.
 pub fn add_path(root: PathBuf, path: PathBuf, r: &Reporter) -> Result<String, String> {
-    let lower = file_name(&path).to_ascii_lowercase();
-    if path.is_dir() {
-        import_folders(&root, &path, r)
-    } else if lower.ends_with(".bga.bmsp") {
-        let id = manager(&root)?
-            .install_bga_companion(&path)
-            .map_err(|e| failed("배경 영상 설치", e))?;
-        Ok(format!("'{id}'에 배경 영상을 설치했어요"))
-    } else if lower.ends_with(".bmsp") {
-        install_bmsp(&root, &path, r)
-    } else if lower.ends_with(".bmdp") {
-        let installed = manager(&root)?
-            .apply_delta(&path)
-            .map_err(|e| failed("업데이트 적용", e))?;
-        Ok(format!("{} 업데이트했어요", quoted_eul(&installed.name)))
-    } else if is_archive(&path) {
-        let scratch = std::env::temp_dir().join(format!("bpm-gui-add-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&scratch);
-        r.progress("압축 푸는 중...", 0, 0, &file_name(&path));
-        let result = bms_package_manager::table_ops::unpack_body(&path, &scratch)
-            .map_err(|e| format!("압축을 풀 수 없어요: {e}"))
-            .and_then(|folder| import_folders(&root, &folder, r));
-        let _ = fs::remove_dir_all(&scratch);
-        result
-    } else {
-        Err(add_title(&path).err().unwrap_or_default())
-    }
-}
-
-fn install_bmsp(root: &Path, path: &Path, r: &Reporter) -> Result<String, String> {
-    let mut mgr = manager(root)?;
-    let installed = mgr
-        .install_with_progress(path, Some(&r.cancel), r.callback())
-        .map_err(|e| failed("설치", e))?;
-    // A background video package next to it is installed too.
-    let companion = path.with_file_name(format!(
-        "{}.bga.bmsp",
-        file_name(path).trim_end_matches(".bmsp")
-    ));
-    let mut extra = "";
-    if companion.exists() && mgr.install_bga_companion(&companion).is_ok() {
-        extra = " (배경 영상 포함)";
-    }
-    Ok(format!("{} 설치했어요{extra}", quoted_eul(&installed.name)))
-}
-
-/// Imports every song folder under `folder`.
-fn import_folders(root: &Path, folder: &Path, r: &Reporter) -> Result<String, String> {
-    let roots = bms_package_manager::find_bms_song_roots(folder);
-    if roots.is_empty() {
-        return Err(format!(
-            "'{}'에서 BMS 채보 파일(.bms, .bme 등)을 찾지 못했어요",
-            folder.display()
-        ));
-    }
-    let mut mgr = manager(root)?;
-    if roots.len() == 1 {
-        let installed = mgr
-            .import_folder_with_progress(&roots[0], None, Some(&r.cancel), r.callback())
-            .map_err(|e| failed("곡 추가", e))?;
-        return Ok(format!("{} 추가했어요", quoted_eul(&installed.name)));
-    }
-    let total = roots.len();
-    let mut added = 0;
-    for (i, song) in roots.iter().enumerate() {
-        if r.cancelled() {
-            return Err(format!("취소했어요 ({added}곡은 추가됨)"));
+    let mut mgr = manager(&root)?;
+    let options = AddOptions {
+        folders: FolderMode::Import,
+        profile: PackProfile::Classic,
+    };
+    let result =
+        bms_package_manager::add_path(&mut mgr, &path, &options, Some(&r.cancel), |p| match p {
+            AddProgress::Unpacking { name } => r.progress("압축 푸는 중...", 0, 0, name),
+            AddProgress::Song { index, total, name } => r.progress(
+                &format!("{total}곡 중 {}번째 추가하는 중", index + 1),
+                index,
+                total,
+                name,
+            ),
+            AddProgress::Step {
+                phase,
+                current,
+                total,
+                detail,
+            } => r.progress(phase, current, total, detail),
+        });
+    match result {
+        Ok(report) => add_message(&report),
+        Err(AddError::Unsupported) => Err(add_title(&path).err().unwrap_or_default()),
+        Err(AddError::Cancelled(report)) if report.added() > 0 => {
+            Err(format!("{CANCELLED} ({}곡은 추가됨)", report.added()))
         }
-        let name = file_name(song);
-        r.progress(
-            &format!("{total}곡 중 {}번째 추가하는 중", i + 1),
-            i,
-            total,
-            &name,
-        );
-        match mgr.import_folder_with_progress(song, None, Some(&r.cancel), |_, _, _, _| {}) {
-            Ok(_) => added += 1,
-            Err(PackageManagerError::Cancelled) => {
-                return Err(format!("취소했어요 ({added}곡은 추가됨)"))
+        Err(AddError::Cancelled(_)) => Err(CANCELLED.to_string()),
+        Err(AddError::Library(e)) => Err(format!("곡 폴더 목록을 저장할 수 없어요: {e}")),
+    }
+}
+
+/// The status bar line for a finished add.
+fn add_message(report: &AddReport) -> Result<String, String> {
+    let added = report.installed.len();
+    let total = added + report.skipped.len();
+    match (report.installed.as_slice(), report.skipped.as_slice()) {
+        ([one], []) => Ok(match one.how {
+            Added::Imported => format!("{} 추가했어요", quoted_eul(&one.name)),
+            Added::Installed => format!("{} 설치했어요", quoted_eul(&one.name)),
+            Added::InstalledWithBga => {
+                format!("{} 설치했어요 (배경 영상 포함)", quoted_eul(&one.name))
             }
-            Err(_) => {}
-        }
-    }
-    if added == total {
-        Ok(format!("{added}곡을 모두 추가했어요"))
-    } else {
-        Ok(format!(
+            Added::Updated => format!("{} 업데이트했어요", quoted_eul(&one.name)),
+            Added::Bga => format!("'{}'에 배경 영상을 설치했어요", one.id),
+        }),
+        ([], [one]) => Err(skip_message(one)),
+        _ if added == total => Ok(format!("{added}곡을 모두 추가했어요")),
+        _ => Ok(format!(
             "{total}곡 중 {added}곡을 추가했어요 (나머지는 읽을 수 없었어요)"
-        ))
+        )),
+    }
+}
+
+fn skip_message(skip: &Skipped) -> String {
+    match &skip.reason {
+        SkipReason::NoCharts => format!(
+            "'{}'에서 BMS 채보 파일(.bms, .bme 등)을 찾지 못했어요",
+            skip.name
+        ),
+        SkipReason::Unpack(e) => format!("압축을 풀 수 없어요: {e}"),
+        SkipReason::AlreadyInstalled => format!("{} 이미 설치되어 있어요", quoted_eun(&skip.name)),
+        SkipReason::AlreadyLinked => format!("{} 이미 연결되어 있어요", quoted_eun(&skip.name)),
+        SkipReason::Failed(e) => format!("곡 추가 실패: {e}"),
     }
 }
 
@@ -355,4 +316,63 @@ pub fn create_delta(base: PathBuf, target: PathBuf) -> Result<String, String> {
         "업데이트 파일 {} 만들었어요",
         quoted_eul(&out.display().to_string())
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bms_package_manager::InstalledSong;
+
+    fn song(name: &str, how: Added) -> InstalledSong {
+        InstalledSong {
+            id: format!("id.{name}"),
+            name: name.to_string(),
+            how,
+        }
+    }
+
+    fn skipped(name: &str, reason: SkipReason) -> Skipped {
+        Skipped {
+            name: name.to_string(),
+            reason,
+        }
+    }
+
+    #[test]
+    fn add_messages_follow_the_report() {
+        let one = |how| AddReport {
+            installed: vec![song("곡", how)],
+            ..Default::default()
+        };
+        assert_eq!(
+            add_message(&one(Added::Imported)).unwrap(),
+            "'곡'을 추가했어요"
+        );
+        assert_eq!(
+            add_message(&one(Added::InstalledWithBga)).unwrap(),
+            "'곡'을 설치했어요 (배경 영상 포함)"
+        );
+        assert_eq!(
+            add_message(&one(Added::Bga)).unwrap(),
+            "'id.곡'에 배경 영상을 설치했어요"
+        );
+
+        let none = AddReport {
+            skipped: vec![skipped("pics", SkipReason::NoCharts)],
+            ..Default::default()
+        };
+        assert!(add_message(&none)
+            .unwrap_err()
+            .contains("'pics'에서 BMS 채보"));
+
+        let some = AddReport {
+            installed: vec![song("a", Added::Imported), song("b", Added::Imported)],
+            skipped: vec![skipped("c", SkipReason::AlreadyInstalled)],
+            ..Default::default()
+        };
+        assert_eq!(
+            add_message(&some).unwrap(),
+            "3곡 중 2곡을 추가했어요 (나머지는 읽을 수 없었어요)"
+        );
+    }
 }

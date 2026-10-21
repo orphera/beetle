@@ -2,6 +2,7 @@
 //!
 //! Package lifecycle, installation, registry management, and discovery layer for `.bmsp` packages.
 
+pub mod add;
 pub mod archive;
 pub mod base_match;
 pub mod collection;
@@ -23,6 +24,10 @@ pub mod table_ops;
 pub mod updater;
 pub mod vfs;
 
+pub use add::{
+    add_path, is_archive, AddError, AddOptions, AddProgress, AddReport, AddSource, Added,
+    FolderMode, InstalledSong, SkipReason, Skipped,
+};
 pub use archive::{extract_archive, extract_zip_archive, find_seven_zip};
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
