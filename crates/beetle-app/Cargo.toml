@@ -9,6 +9,7 @@ beetle-core = { workspace = true }
 beetle-audio = { workspace = true }
 beetle-render = { workspace = true }
 bms-package = { workspace = true }
+bms-package-manager = { workspace = true }
 winit = { workspace = true }
 rtrb = { workspace = true }
 
@@ -17,5 +18,4 @@ default = ["bga-enhanced"]
 bga-enhanced = ["beetle-render/bga-enhanced"]
 
 [dev-dependencies]
-bms-package-manager = { workspace = true }
 hound = { workspace = true }

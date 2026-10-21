@@ -100,6 +100,9 @@ pub enum HitId {
     CalibrateCancel,
     ExitQuit,
     ExitCancel,
+    /// A toast that does something when clicked (install progress: cancel;
+    /// install summary: list the songs left out).
+    Toast,
     /// Full-screen region a modal records before its own parts: a click that
     /// reaches it closes the modal (cancel for the exit prompt).
     Blocker,

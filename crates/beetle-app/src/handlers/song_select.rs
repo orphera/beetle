@@ -93,6 +93,15 @@ pub fn handle_song_select_input(
         return;
     }
 
+    // The list of songs an install left out: ESC or Enter closes it.
+    if state.installs.show_skipped {
+        if matches!(code, KeyCode::Escape | KeyCode::Enter) {
+            play_ui(state, UiSound::Close);
+            state.installs.show_skipped = false;
+        }
+        return;
+    }
+
     // The help overlay: ? or ESC closes it, other keys wait.
     if state.show_help {
         if code == KeyCode::Escape || is_help_key(code, text) {

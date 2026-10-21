@@ -369,6 +369,7 @@ fn render_ex(
                     alpha: 1.0,
                     slide: 1.0,
                     anchor: ToastAnchor::Footer,
+                    clickable: false,
                 },
             )
         }
@@ -387,6 +388,7 @@ fn render_ex(
                     alpha: 1.0,
                     slide: 1.0,
                     anchor: ToastAnchor::Footer,
+                    clickable: false,
                 },
             )
         }

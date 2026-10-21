@@ -24,6 +24,8 @@
 //!   end banner shows this lamp instead of the play's real one (display only).
 //!
 //! - `BEETLE_LANG=ko|en|ja`: the UI language for this run only (not saved).
+//! - `BEETLE_DEV_DROP=<path>;<path>...`: adds these as if they were dropped on
+//!   the window at startup (see `install.rs`).
 //!
 //! Nothing here runs unless the variables are set.
 
@@ -144,9 +146,26 @@ fn boot_shows_title(cli_chart: bool, var: impl Fn(&str) -> Option<String>) -> bo
     if var("BEETLE_CAPTURE_SCREEN").is_some_and(|s| parse_screen(&s) == Some(AppScreen::Title)) {
         return true;
     }
-    ["BEETLE_CAPTURE", "BEETLE_CAPTURE_SCREEN", "BEETLE_AUTOPLAY"]
-        .iter()
-        .all(|key| var(key).is_none())
+    [
+        "BEETLE_CAPTURE",
+        "BEETLE_CAPTURE_SCREEN",
+        "BEETLE_AUTOPLAY",
+        "BEETLE_DEV_DROP",
+    ]
+    .iter()
+    .all(|key| var(key).is_none())
+}
+
+/// `BEETLE_DEV_DROP`: paths to add as if dropped on the window.
+pub fn dropped_paths() -> Vec<std::path::PathBuf> {
+    std::env::var("BEETLE_DEV_DROP")
+        .map(|v| {
+            v.split(';')
+                .filter(|p| !p.trim().is_empty())
+                .map(|p| p.trim().into())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Screen to start on instead of song select (only Key Config and Settings, which have

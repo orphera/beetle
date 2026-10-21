@@ -202,6 +202,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
                     alpha: pose.alpha,
                     slide: pose.slide,
                     anchor,
+                    clickable: toast.clickable,
                 },
             );
         }
@@ -539,6 +540,15 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     if state.show_help {
         beetle_render::draw_help_overlay(ui, &vp);
+    }
+    if state.installs.show_skipped {
+        let rows: Vec<(String, String)> = state
+            .installs
+            .skipped
+            .iter()
+            .map(|r| (r.name.clone(), r.reason.clone()))
+            .collect();
+        beetle_render::draw_skipped_overlay(ui, &vp, &rows);
     }
     if state.drop_hover {
         beetle_render::draw_drop_overlay(ui, &vp);

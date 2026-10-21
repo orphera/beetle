@@ -295,6 +295,8 @@ pub struct AppState {
     /// library was read. Compared on focus regain so a song manager or
     /// Explorer session triggers a rescan without a key press.
     pub last_library_mtime: Option<std::time::SystemTime>,
+    /// Songs dropped on the window being added (see `install.rs`).
+    pub installs: crate::install::Installs,
 }
 
 impl AppState {
@@ -581,13 +583,22 @@ impl AppState {
             }
         }
         self.recompute_entries();
-        if self.library_job == LibraryJob::Rescan {
-            let count = self.songs.len().to_string();
-            crate::transition::show_toast(
-                self,
-                beetle_render::ToastKind::Success,
-                strings::fill(strings::TOAST_RESCAN_DONE(), &[&count]),
-            );
+        let install_summary = self.installs.summary.take();
+        match install_summary {
+            // Songs just added: their summary stands for the rescan's toast.
+            Some(summary) if self.library_job == LibraryJob::Rescan => {
+                crate::install::focus_new_song(self, &summary.focus);
+                crate::install::show_summary(self, summary);
+            }
+            _ if self.library_job == LibraryJob::Rescan => {
+                let count = self.songs.len().to_string();
+                crate::transition::show_toast(
+                    self,
+                    beetle_render::ToastKind::Success,
+                    strings::fill(strings::TOAST_RESCAN_DONE(), &[&count]),
+                );
+            }
+            _ => {}
         }
         self.cursor_settle_time = Instant::now();
         if self.screen == AppScreen::Boot {

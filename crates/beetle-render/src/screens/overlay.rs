@@ -4,6 +4,7 @@
 //! only draw what they are given.
 
 use crate::canvas::Rect;
+use crate::hit::{HitId, HitSink};
 use crate::motion::ease_in_out_cubic;
 use crate::skin::ColorRgba;
 use crate::text::{Align, TextStyle};
@@ -39,6 +40,8 @@ pub struct ToastFrame<'a> {
     pub alpha: f32,
     pub slide: f32,
     pub anchor: ToastAnchor,
+    /// Records a `HitId::Toast` region and lights the outline under the pointer.
+    pub clickable: bool,
 }
 
 /// Left edge of a footer toast, in 720 units: clears the footer count on the
@@ -192,7 +195,7 @@ pub fn draw_shutter(ui: &mut Ui, vp: &Viewport, phase: ShutterPhase) {
 }
 
 /// A small rounded panel with an icon and one line of text, centred under the
-/// top bar. Not clickable: it records no hit.
+/// top bar. Records a hit only when `clickable`.
 pub fn draw_toast(ui: &mut Ui, vp: &Viewport, toast: &ToastFrame) {
     let a = toast.alpha.clamp(0.0, 1.0);
     if a <= 0.0 {
@@ -229,10 +232,22 @@ pub fn draw_toast(ui: &mut Ui, vp: &Viewport, toast: &ToastFrame) {
         ),
     };
     let rect = Rect::new(x, top, w, h);
+    let mut hot = false;
+    if toast.clickable {
+        let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+        hs.add(rect, HitId::Toast);
+        hot = hs.hovered(rect);
+    }
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
 
     c.halo(&sk.shadow, rect, theme::BLACK.with_alpha(alpha8(a * 0.6)));
     c.nine(&sk.panel, rect, theme::SURF3.with_alpha(alpha8(a * 0.96)));
-    c.nine(&sk.panel_outline, rect, accent.with_alpha(alpha8(a * 0.6)));
+    let outline = if hot { 1.0 } else { 0.6 };
+    c.nine(
+        &sk.panel_outline,
+        rect,
+        accent.with_alpha(alpha8(a * outline)),
+    );
 
     let icon = ICON * s;
     let icon_rect = Rect::new(x + PAD_X * s, top + (h - icon) / 2.0, icon, icon);

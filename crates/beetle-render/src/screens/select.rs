@@ -3104,6 +3104,60 @@ pub fn draw_help_overlay(ui: &mut Ui, vp: &Viewport) {
     }
 }
 
+/// The songs the last install left out, one row each: the file or folder
+/// name and why. A click outside the panel (or ESC) closes it.
+pub fn draw_skipped_overlay(ui: &mut Ui, vp: &Viewport, rows: &[(String, String)]) {
+    const ROW_H: f32 = 26.0;
+    const SHOWN: usize = 14;
+    let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let s = vp.scale;
+    let shown = rows.len().min(SHOWN);
+    let h = (92.0 + ROW_H * shown.max(1) as f32 + if rows.len() > SHOWN { ROW_H } else { 0.0 }) * s;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 760.0 * s, h, s);
+    let inner = panel.inset(28.0 * s);
+    t.draw(
+        c,
+        strings::SKIPPED_TITLE(),
+        inner.x,
+        inner.y + 24.0 * s,
+        &TextStyle::new(20.0 * s).bold().color(theme::TEXT),
+    );
+    t.draw_in(
+        c,
+        strings::SKIPPED_CLOSE(),
+        Rect::new(inner.x, inner.y + 4.0 * s, inner.w, 24.0 * s),
+        Align::Right,
+        &TextStyle::new(12.0 * s).color(theme::MUTED),
+    );
+    let name_w = 300.0 * s;
+    let name_style = TextStyle::new(13.0 * s).color(theme::TEXT);
+    let reason_style = TextStyle::new(13.0 * s).color(theme::MUTED);
+    for (i, (name, reason)) in rows.iter().take(SHOWN).enumerate() {
+        let y = inner.y + 52.0 * s + i as f32 * ROW_H * s;
+        if i > 0 {
+            c.fill_rect(Rect::new(inner.x, y, inner.w, s.max(1.0)), theme::LINE);
+        }
+        let name = t.fit(c, name, name_w - 16.0 * s, &name_style).into_owned();
+        t.draw(c, &name, inner.x, y + 18.0 * s, &name_style);
+        let reason = t
+            .fit(c, reason, inner.w - name_w, &reason_style)
+            .into_owned();
+        t.draw(c, &reason, inner.x + name_w, y + 18.0 * s, &reason_style);
+    }
+    if rows.len() > SHOWN {
+        let more = (rows.len() - SHOWN).to_string();
+        t.draw(
+            c,
+            &strings::fill(strings::SKIPPED_MORE(), &[&more]),
+            inner.x,
+            inner.y + 52.0 * s + SHOWN as f32 * ROW_H * s + 18.0 * s,
+            &TextStyle::new(12.0 * s).color(theme::MUTED2),
+        );
+    }
+}
+
 /// The overlay over the whole window while a file is dragged over it. It
 /// records no click regions: the drop is handled by the window event.
 pub fn draw_drop_overlay(ui: &mut Ui, vp: &Viewport) {

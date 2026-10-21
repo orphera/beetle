@@ -26,6 +26,7 @@ pub const GAMEPLAY_REVEAL_SECONDS: f32 = 0.25;
 /// Toast: slide and fade in, stay, then fade out.
 const TOAST_IN: f32 = 0.15;
 const TOAST_STAY: f32 = 2.5;
+const TOAST_STAY_LONG: f32 = 8.0;
 const TOAST_OUT: f32 = 0.3;
 /// Frame pacing while something animates (about 60 Hz).
 pub const FRAME: Duration = Duration::from_millis(16);
@@ -161,10 +162,32 @@ pub struct ToastPose {
     pub slide: f32,
 }
 
-/// The toast's pose `elapsed` seconds after it was shown; `None` once gone.
+/// The pose of a `Normal` toast `elapsed` seconds after it was shown; `None` once gone.
+#[cfg(test)]
 pub fn toast_pose(elapsed: f32) -> Option<ToastPose> {
+    toast_pose_with(elapsed, ToastLife::Normal)
+}
+
+/// How long a toast stays in place before it fades.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ToastLife {
+    /// About two and a half seconds.
+    Normal,
+    /// Long enough to read and click (an install summary with songs skipped).
+    Long,
+    /// Until it is replaced (install progress).
+    Held,
+}
+
+/// The pose of a toast with `life`, `elapsed` seconds after it was shown.
+pub fn toast_pose_with(elapsed: f32, life: ToastLife) -> Option<ToastPose> {
     let elapsed = elapsed.max(0.0);
-    let stay_end = TOAST_IN + TOAST_STAY;
+    let stay = match life {
+        ToastLife::Normal => TOAST_STAY,
+        ToastLife::Long => TOAST_STAY_LONG,
+        ToastLife::Held => f32::INFINITY,
+    };
+    let stay_end = TOAST_IN + stay;
     if elapsed < TOAST_IN {
         let t = elapsed / TOAST_IN;
         Some(ToastPose {
@@ -244,6 +267,9 @@ pub struct Toast {
     pub text: String,
     pub kind: ToastKind,
     pub shown_at: Instant,
+    pub life: ToastLife,
+    /// A click on it goes to `install::toast_clicked`.
+    pub clickable: bool,
 }
 
 /// Puts `text` in the toast slot; a toast already there is replaced.
@@ -252,12 +278,32 @@ pub fn set_toast(slot: &mut Option<Toast>, kind: ToastKind, text: String, now: I
         text,
         kind,
         shown_at: now,
+        life: ToastLife::Normal,
+        clickable: false,
     });
 }
 
 /// Shows a toast over the menus (replacing one that is showing) and asks for a frame.
 pub fn show_toast(state: &mut AppState, kind: ToastKind, text: impl Into<String>) {
     set_toast(&mut state.toast, kind, text.into(), Instant::now());
+    state.window.request_redraw();
+}
+
+/// Shows a toast that stays for `life` and can be clicked. A held toast
+/// showing already only has its text changed, so it does not slide in again.
+pub fn show_lasting_toast(state: &mut AppState, kind: ToastKind, text: String, life: ToastLife) {
+    let now = Instant::now();
+    let shown_at = match &state.toast {
+        Some(t) if t.life == ToastLife::Held && life == ToastLife::Held => t.shown_at,
+        _ => now,
+    };
+    state.toast = Some(Toast {
+        text,
+        kind,
+        shown_at,
+        life,
+        clickable: true,
+    });
     state.window.request_redraw();
 }
 
@@ -281,7 +327,10 @@ impl AppState {
             return None;
         }
         let toast = self.toast.as_ref()?;
-        toast_pose(now.saturating_duration_since(toast.shown_at).as_secs_f32())
+        toast_pose_with(
+            now.saturating_duration_since(toast.shown_at).as_secs_f32(),
+            toast.life,
+        )
     }
 
     /// Whether a transition or a toast is on screen now (frames keep coming).
@@ -530,6 +579,24 @@ mod tests {
         assert!(*visible.last().unwrap() < 0.01, "last frame invisible");
         assert_eq!(toast_pose(end), None);
         assert_eq!(toast_pose(end + 1.0), None);
+    }
+
+    #[test]
+    fn a_held_toast_stays_and_a_long_one_outlasts_the_normal() {
+        assert_eq!(
+            toast_pose_with(3600.0, ToastLife::Held),
+            Some(ToastPose {
+                alpha: 1.0,
+                slide: 1.0
+            })
+        );
+        let after_normal = TOAST_IN + TOAST_STAY + TOAST_OUT + 0.1;
+        assert_eq!(toast_pose_with(after_normal, ToastLife::Normal), None);
+        assert!(toast_pose_with(after_normal, ToastLife::Long).is_some());
+        assert_eq!(
+            toast_pose_with(TOAST_IN + TOAST_STAY_LONG + TOAST_OUT, ToastLife::Long),
+            None
+        );
     }
 
     #[test]

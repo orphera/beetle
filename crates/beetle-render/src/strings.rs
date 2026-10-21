@@ -163,9 +163,9 @@ table! {
         en "Takes effect after restart",
         ja "再起動後に反映されます";
     pub TOAST_UNSUPPORTED_FILE =
-        ko "지원하지 않는 파일이에요 (.bmsp, .bms, .bme, .bml, .pms)",
-        en "Unsupported file (.bmsp, .bms, .bme, .bml, .pms)",
-        ja "対応していないファイルです (.bmsp, .bms, .bme, .bml, .pms)";
+        ko "넣을 수 없는 파일이에요 (폴더, .zip, .rar, .7z, .bmsp, .bms)",
+        en "This file cannot be added (folder, .zip, .rar, .7z, .bmsp, .bms)",
+        ja "追加できないファイルです（フォルダ、.zip、.rar、.7z、.bmsp、.bms）";
     /// `{}` is the file name of the package.
     pub TOAST_UNINSTALLED_ONE =
         ko "설치되지 않은 패키지: {} / bpm install로 설치하세요",
@@ -667,13 +667,107 @@ table! {
 
     // Drag overlay: a file is dragged over the window (song select).
     pub DROP_TITLE =
-        ko "여기에 놓으면 곡을 열어요",
-        en "Drop here to open the song",
-        ja "ここにドロップして曲を開く";
+        ko "여기에 놓으면 곡을 넣어요",
+        en "Drop here to add songs",
+        ja "ここにドロップして曲を追加";
     pub DROP_NOTE =
-        ko ".bmsp 패키지나 .bms 채보를 놓으면 바로 열어요.",
-        en "Drop a .bmsp package or .bms chart to open it at once.",
-        ja ".bmsp パッケージや .bms 譜面をドロップすると、すぐに開きます。";
+        ko "압축 파일과 .bmsp는 설치하고, 폴더는 그 자리에서 연결해요. .bms 채보는 바로 열어요.",
+        en "Archives and .bmsp files are installed, folders are linked where they are. A .bms chart opens at once.",
+        ja "圧縮ファイルと .bmsp はインストールし、フォルダはその場所のまま追加します。.bms 譜面はすぐに開きます。";
+
+    // Adding dropped songs (song select and the other menus show the toasts).
+    /// `{}`: the item being added (1-based), the items dropped, the file or folder name.
+    pub INSTALL_PROGRESS =
+        ko "곡 넣는 중 ({}/{}) {} - 누르면 취소",
+        en "Adding songs ({}/{}) {} - click to cancel",
+        ja "曲を追加中（{}/{}）{} - クリックで中止";
+    pub INSTALL_CANCELLING =
+        ko "곡 넣기를 멈추는 중...",
+        en "Stopping...",
+        ja "中止しています...";
+    /// `{}` is the song name.
+    pub INSTALL_ADDED_ONE =
+        ko "곡을 넣었어요: {}",
+        en "Song added: {}",
+        ja "曲を追加しました: {}";
+    /// `{}` is the folder.
+    pub INSTALL_LINKED_ONE =
+        ko "폴더를 연결했어요: {}",
+        en "Folder linked: {}",
+        ja "フォルダを追加しました: {}";
+    /// Parts of the summary of several, joined with ", ". `{}` is a count.
+    pub INSTALL_ADDED_MANY =
+        ko "{}곡 추가",
+        en "{} songs added",
+        ja "{}曲追加";
+    pub INSTALL_LINKED_MANY =
+        ko "폴더 {}개 연결",
+        en "{} folders linked",
+        ja "フォルダ{}件追加";
+    pub INSTALL_SKIPPED_MANY =
+        ko "{}개 건너뜀",
+        en "{} skipped",
+        ja "{}件スキップ";
+    /// Ends a summary with songs left out: the toast opens their list.
+    pub INSTALL_SEE_WHY =
+        ko " - 누르면 이유 보기",
+        en " - click for details",
+        ja " - クリックで詳細";
+    /// `{}`: the file or folder name, then why.
+    pub INSTALL_FAILED_ONE =
+        ko "넣지 못했어요: {} ({})",
+        en "Not added: {} ({})",
+        ja "追加できませんでした: {}（{}）";
+    pub INSTALL_CANCELLED =
+        ko "곡 넣기를 멈췄어요",
+        en "Stopped adding songs",
+        ja "曲の追加を中止しました";
+    pub INSTALL_NOTHING =
+        ko "넣은 곡이 없어요",
+        en "No songs were added",
+        ja "追加された曲はありません";
+    // Why a song was left out.
+    pub SKIP_NO_CHARTS =
+        ko "BMS 채보 파일이 없어요",
+        en "no BMS chart files in it",
+        ja "BMS 譜面ファイルがありません";
+    pub SKIP_UNPACK =
+        ko "압축을 풀지 못했어요",
+        en "could not be unpacked",
+        ja "展開できませんでした";
+    pub SKIP_ALREADY_INSTALLED =
+        ko "이미 있는 곡이에요",
+        en "already installed",
+        ja "すでにある曲です";
+    pub SKIP_ALREADY_LINKED =
+        ko "이미 연결된 폴더예요",
+        en "already linked",
+        ja "すでに追加されたフォルダです";
+    pub SKIP_FAILED =
+        ko "읽을 수 없어요",
+        en "could not be read",
+        ja "読み込めませんでした";
+    pub SKIP_UNSUPPORTED =
+        ko "넣을 수 없는 파일이에요",
+        en "not a song file",
+        ja "追加できないファイルです";
+    pub SKIP_LIBRARY =
+        ko "곡 폴더 목록을 저장하지 못했어요",
+        en "the folder list could not be saved",
+        ja "フォルダ一覧を保存できませんでした";
+    pub SKIPPED_TITLE =
+        ko "넣지 못한 곡",
+        en "Not Added",
+        ja "追加できなかった曲";
+    pub SKIPPED_CLOSE =
+        ko "ESC로 닫아요",
+        en "ESC to close",
+        ja "ESC で閉じる";
+    /// `{}` is how many more rows there are.
+    pub SKIPPED_MORE =
+        ko "그 밖에 {}개",
+        en "{} more",
+        ja "ほか{}件";
 
     // Opening the song manager or the songs folder failed.
     pub TOAST_MANAGER_OPENED =

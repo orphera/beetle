@@ -11,6 +11,7 @@ mod handlers;
 mod hid;
 mod ime;
 mod input;
+mod install;
 mod lane_logic;
 mod loader;
 mod menu_audio;
@@ -339,6 +340,7 @@ impl ApplicationHandler for BeetleApp {
             cursor: None,
             wheel_carry: 0.0,
             last_library_mtime: None,
+            installs: Default::default(),
         };
 
         app_state.apply_display_mode();
@@ -348,6 +350,9 @@ impl ApplicationHandler for BeetleApp {
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
         menu_audio::sync_with_screen(&mut app_state);
+        for path in devtools::dropped_paths() {
+            install::queue(&mut app_state, path);
+        }
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
@@ -438,6 +443,7 @@ impl ApplicationHandler for BeetleApp {
         }
 
         state.poll_library();
+        install::poll(state);
 
         // Set by each branch that already wakes on its own frame-rate timer,
         // so the menu backdrop drift below does not change that cadence.
@@ -644,6 +650,12 @@ impl ApplicationHandler for BeetleApp {
             timed = true;
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(now + transition::FRAME));
+        }
+        // Songs being added: the worker's progress and its end need a look
+        // even on a screen that sleeps until input (the title).
+        if state.installs.busy() && !timed {
+            timed = true;
+            event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(100)));
         }
         // The menu's own wake-ups, each only ever shortening the one set above
         // except the slot scan, which is set only on an idle screen.
@@ -875,14 +887,18 @@ fn fail_song_load(state: &mut AppState) {
     state.window.request_redraw();
 }
 
+/// A dropped chart opens at once; folders, archives and packages are added
+/// (see `install.rs`).
 fn open_dropped_file(state: &mut AppState, path: &Path) {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let is_chart = ["bms", "bme", "bml", "pms"]
         .iter()
         .any(|x| ext.eq_ignore_ascii_case(x));
-    let started = if ext.eq_ignore_ascii_case("bmsp") {
-        start_dropped_package(state, path)
-    } else if is_chart {
+    if install::is_installable(path) {
+        install::queue(state, path.to_path_buf());
+        return;
+    }
+    let started = if is_chart {
         fs::read(path)
             .ok()
             .and_then(|bytes| SongMetadata::from_bytes(&path.to_string_lossy(), &bytes))
@@ -903,42 +919,6 @@ fn open_dropped_file(state: &mut AppState, path: &Path) {
             strings::fill(strings::TOAST_OPEN_FAILED(), &[&name]),
         );
     }
-}
-
-/// Queues the first chart of a dropped package. `false` when it does not open
-/// or holds no chart that parses.
-fn start_dropped_package(state: &mut AppState, path: &Path) -> bool {
-    let Ok(mut pkg) = bms_package::PackageReader::open_file(path) else {
-        return false;
-    };
-    let path_str = path.to_string_lossy();
-    let chart_entries: Vec<String> = pkg
-        .entries()
-        .iter()
-        .filter_map(|e| {
-            let e_ext = e.path.rsplit('.').next().unwrap_or("");
-            if e_ext.eq_ignore_ascii_case("bms")
-                || e_ext.eq_ignore_ascii_case("bme")
-                || e_ext.eq_ignore_ascii_case("bml")
-                || e_ext.eq_ignore_ascii_case("pms")
-            {
-                Some(e.path.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    for entry_path in chart_entries {
-        if let Ok(bytes) = pkg.read_entry(&entry_path) {
-            let virtual_path = format!("{}::{}", path_str, entry_path);
-            if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
-                queue_start_gameplay(state, &meta);
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Hands the keys queued by the raw input thread to the play (or the judge

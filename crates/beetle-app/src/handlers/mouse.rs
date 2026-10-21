@@ -80,6 +80,11 @@ pub fn handle_press(state: &mut AppState) {
 
 /// Runs the action of a clicked region on the current screen.
 pub fn handle_click(state: &mut AppState, id: HitId) {
+    // The toast lies over every menu's own regions.
+    if id == HitId::Toast {
+        crate::install::toast_clicked(state);
+        return;
+    }
     match state.screen {
         AppScreen::Title => title_click(state, id),
         AppScreen::SongSelect => song_select_click(state, id),
@@ -91,6 +96,14 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
 }
 
 fn song_select_click(state: &mut AppState, id: HitId) {
+    // The list of songs an install left out: a click outside it closes it.
+    if state.installs.show_skipped {
+        if id == HitId::Blocker {
+            play_ui(state, UiSound::Close);
+            state.installs.show_skipped = false;
+        }
+        return;
+    }
     // The help overlay: a click outside its panel closes it.
     if state.show_help {
         if id == HitId::Blocker {
@@ -240,6 +253,7 @@ pub fn handle_wheel(state: &mut AppState, delta: MouseScrollDelta) {
     if state.screen == AppScreen::SongSelect
         && !state.show_exit_modal
         && !state.show_help
+        && !state.installs.show_skipped
         && !state.show_option_modal
     {
         scroll_list(state, -(notches as isize));
