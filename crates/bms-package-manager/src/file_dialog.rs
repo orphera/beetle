@@ -1,7 +1,7 @@
 //! The Windows "Open" dialog (`IFileOpenDialog`) through direct COM calls, so
-//! the user picks folders and files instead of typing their paths. No crate:
-//! the few vtable slots it needs are called by index, as `clipboard.rs` calls
-//! user32.
+//! the user picks folders and files instead of typing their paths (`bpm-gui`,
+//! and the game's "link a BMS folder"). No crate: the few vtable slots it
+//! needs are called by index.
 //!
 //! The dialog runs on its own thread with its own COM apartment. It is owned by
 //! the main window, so Windows keeps the main window disabled while it is open,

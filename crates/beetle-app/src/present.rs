@@ -582,6 +582,14 @@ pub fn settings(state: &mut AppState, size: PhysicalSize<u32>) {
             scroll,
         },
     );
+    if let Some(list) = &state.song_folders {
+        beetle_render::draw_folders_overlay(
+            state.gpu_ui.ui.current(),
+            &state.view.ui,
+            &list.paths,
+            list.row,
+        );
+    }
     overlays(state, true);
     finish(state);
 }

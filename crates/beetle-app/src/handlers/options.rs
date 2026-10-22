@@ -80,6 +80,10 @@ pub fn enter_row(
             open_calibration(state);
             true
         }
+        Some(options_table::Activation::SongFolders) => {
+            crate::song_folders::open(state);
+            true
+        }
         None => {
             play_ui(state, UiSound::Move);
             options_table::step(state, desc.id, true);

@@ -21,9 +21,8 @@ use crate::handlers::result::{retry_song, retry_with_options, take_screenshot, t
 use crate::handlers::settings::{open_settings, settings_click};
 use crate::handlers::song_select::{
     activate_filter, activate_selected, choose_chart, clear_filter, close_help, close_sort_menu,
-    cycle_folder, go_to_crumb, go_up, open_exit_prompt, open_help, open_key_config,
-    open_song_manager, open_songs_folder, pick_sort, rescan, scroll_list, start_replay,
-    step_filter_level, toggle_auto, toggle_sort_menu,
+    cycle_folder, go_to_crumb, go_up, open_exit_prompt, open_help, open_key_config, pick_sort,
+    rescan, scroll_list, start_replay, step_filter_level, toggle_auto, toggle_sort_menu,
 };
 use crate::handlers::title::title_click;
 use crate::ime::set_search_active;
@@ -173,8 +172,7 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::KeyConfig => open_key_config(state),
         HitId::Quit => open_exit_prompt(state),
         HitId::Help => open_help(state),
-        HitId::OpenManager => open_song_manager(state),
-        HitId::OpenSongsFolder => open_songs_folder(state),
+        HitId::LinkFolder => crate::song_folders::pick(state),
         HitId::Rescan => rescan(state),
         _ => (),
     }

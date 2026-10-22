@@ -635,35 +635,67 @@ table! {
         en "Drop a file here to open the song",
         ja "ファイルをドロップすると曲を開きます";
 
-    // First run: the library has no songs. The guide lists three ways to add songs.
+    // First run: the library has no songs. The guide lists two ways to add songs.
     pub GUIDE_TITLE =
         ko "아직 곡이 없어요",
         en "No songs yet",
         ja "まだ曲がありません";
     pub GUIDE_LEAD =
-        ko "곡을 넣는 방법은 세 가지예요.",
-        en "There are three ways to add songs.",
-        ja "曲を追加する方法は3つあります。";
-    pub GUIDE_MANAGER =
-        ko "곡 관리자로 곡 패키지(.bmsp)를 설치해요.",
-        en "Install song packages (.bmsp) with the Song Manager.",
-        ja "曲管理ツールで曲パッケージ（.bmsp）をインストールします。";
+        ko "곡을 넣는 방법은 두 가지예요.",
+        en "There are two ways to add songs.",
+        ja "曲を追加する方法は2つあります。";
+    pub GUIDE_LINK =
+        ko "이미 가진 BMS 폴더를 연결해요. 복사하지 않고 그 자리에서 읽어요.",
+        en "Link a BMS folder you already have. It is read where it is, not copied.",
+        ja "お持ちの BMS フォルダを追加します。コピーせずその場所から読み込みます。";
     pub GUIDE_DROP =
-        ko "곡 파일(.bmsp, .bms)이나 폴더를 창에 끌어다 놓아요.",
-        en "Drag song files (.bmsp, .bms) or folders into this window.",
-        ja "曲ファイル（.bmsp, .bms）やフォルダをウィンドウにドラッグ&ドロップします。";
-    pub GUIDE_FOLDER =
-        ko "곡 파일을 songs 폴더에 넣어요.",
-        en "Put song files in the songs folder.",
-        ja "曲ファイルを songs フォルダに入れます。";
-    pub GUIDE_BTN_MANAGER =
-        ko "곡 관리자 열기",
-        en "Open Song Manager",
-        ja "曲管理ツールを開く";
-    pub GUIDE_BTN_FOLDER =
-        ko "songs 폴더 열기",
-        en "Open songs folder",
-        ja "songs フォルダを開く";
+        ko "곡 파일(압축 파일, .bmsp)이나 폴더를 창에 끌어다 놓아요.",
+        en "Drag song files (archives, .bmsp) or folders into this window.",
+        ja "曲ファイル（圧縮ファイル、.bmsp）やフォルダをウィンドウにドラッグ&ドロップします。";
+    pub GUIDE_BTN_LINK =
+        ko "기존 BMS 폴더 연결",
+        en "Link a BMS Folder",
+        ja "BMS フォルダを追加";
+    /// Title of the folder picker (the guide's button, the Song Folders list).
+    pub FOLDER_PICK_TITLE =
+        ko "연결할 BMS 폴더 고르기",
+        en "Choose a BMS folder to link",
+        ja "追加する BMS フォルダを選択";
+
+    // The Song Folders list (Settings): the folders linked in library.dat.
+    pub FOLDERS_TITLE =
+        ko "곡 폴더",
+        en "Song Folders",
+        ja "曲フォルダ";
+    pub FOLDERS_NOTE =
+        ko "연결한 폴더는 그 자리에서 읽어요. 연결을 끊어도 파일은 지워지지 않아요.",
+        en "Linked folders are read where they are. Unlinking one deletes no files.",
+        ja "追加したフォルダはその場所から読み込みます。解除してもファイルは削除されません。";
+    pub FOLDERS_EMPTY =
+        ko "연결한 폴더가 없어요",
+        en "No folders linked",
+        ja "追加したフォルダはありません";
+    pub FOLDERS_ADD =
+        ko "폴더 추가",
+        en "Add Folder",
+        ja "フォルダを追加";
+    pub FOLDERS_UNLINK =
+        ko "연결 끊기",
+        en "Unlink",
+        ja "解除";
+    pub FOLDERS_KEYS =
+        ko "DEL 연결 끊기 / ESC 닫기",
+        en "DEL unlink / ESC close",
+        ja "DEL 解除 / ESC 閉じる";
+    /// `{}` is the folder.
+    pub TOAST_UNLINKED =
+        ko "폴더 연결을 끊었어요: {}",
+        en "Folder unlinked: {}",
+        ja "フォルダを解除しました: {}";
+    pub TOAST_LIBRARY_SAVE_FAILED =
+        ko "폴더 목록(library.dat)을 저장하지 못했어요",
+        en "Could not save the folder list (library.dat)",
+        ja "フォルダ一覧（library.dat）を保存できませんでした";
 
     // Drag overlay: a file is dragged over the window (song select).
     pub DROP_TITLE =
@@ -768,20 +800,6 @@ table! {
         ko "그 밖에 {}개",
         en "{} more",
         ja "ほか{}件";
-
-    // Opening the song manager or the songs folder failed.
-    pub TOAST_MANAGER_OPENED =
-        ko "곡을 넣은 뒤 이 창으로 돌아오면 목록이 갱신돼요",
-        en "Come back to this window after adding songs to refresh the list",
-        ja "曲を追加してからこのウィンドウに戻ると、一覧が更新されます";
-    pub TOAST_MANAGER_MISSING =
-        ko "곡 관리자(bpm-gui.exe)를 찾지 못했어요",
-        en "Could not find the Song Manager (bpm-gui.exe)",
-        ja "曲管理ツール（bpm-gui.exe）が見つかりませんでした";
-    pub TOAST_FOLDER_FAILED =
-        ko "songs 폴더를 열지 못했어요",
-        en "Could not open the songs folder",
-        ja "songs フォルダを開けませんでした";
 
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS =
@@ -1612,6 +1630,19 @@ table! {
         en "System",
         ja "システム";
     /// Settings row: the UI language.
+    pub ROW_SONG_FOLDERS =
+        ko "곡 폴더",
+        en "Song Folders",
+        ja "曲フォルダ";
+    pub HELP_SONG_FOLDERS =
+        ko "연결한 BMS 폴더를 보고, 더하고, 끊어요. ENTER로 열어요.",
+        en "See, add and unlink the linked BMS folders. ENTER opens the list.",
+        ja "追加した BMS フォルダの確認・追加・解除をします。ENTER で開きます。";
+    /// `{}` is how many folders are linked.
+    pub VALUE_FOLDERS =
+        ko "{}개",
+        en "{}",
+        ja "{}件";
     pub ROW_LANGUAGE =
         ko "언어",
         en "Language",

@@ -297,6 +297,12 @@ pub struct AppState {
     pub last_library_mtime: Option<std::time::SystemTime>,
     /// Songs dropped on the window being added (see `install.rs`).
     pub installs: crate::install::Installs,
+    /// The folder picker is open; it answers with the folder to link, or `None`.
+    pub folder_pick: Option<std::sync::mpsc::Receiver<Option<std::path::PathBuf>>>,
+    /// The Song Folders list (Settings) is open.
+    pub song_folders: Option<crate::song_folders::FolderList>,
+    /// How many folders `library.dat` links, as of the last library read.
+    pub linked_folders: usize,
 }
 
 impl AppState {
@@ -583,6 +589,10 @@ impl AppState {
             }
         }
         self.recompute_entries();
+        self.linked_folders = bms_package_manager::library::load_library().paths().len();
+        if let Some(list) = &mut self.song_folders {
+            list.reload();
+        }
         let install_summary = self.installs.summary.take();
         match install_summary {
             // Songs just added: their summary stands for the rescan's toast.
@@ -612,6 +622,9 @@ impl AppState {
             if self.screen == AppScreen::Settings {
                 if let Some(row) = crate::devtools::start_settings_row() {
                     self.settings_row = row.min(crate::options_table::settings_options().len() - 1);
+                }
+                if crate::devtools::folders_requested() {
+                    crate::song_folders::open(self);
                 }
             }
         }

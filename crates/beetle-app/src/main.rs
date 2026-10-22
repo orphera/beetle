@@ -21,6 +21,7 @@ mod preview;
 mod raw_input;
 mod result_reveal;
 mod scanner;
+mod song_folders;
 mod state;
 mod tables;
 mod thumbs;
@@ -341,6 +342,9 @@ impl ApplicationHandler for BeetleApp {
             wheel_carry: 0.0,
             last_library_mtime: None,
             installs: Default::default(),
+            folder_pick: None,
+            song_folders: None,
+            linked_folders: 0,
         };
 
         app_state.apply_display_mode();
@@ -443,6 +447,7 @@ impl ApplicationHandler for BeetleApp {
         }
 
         state.poll_library();
+        song_folders::poll(state);
         install::poll(state);
 
         // Set by each branch that already wakes on its own frame-rate timer,

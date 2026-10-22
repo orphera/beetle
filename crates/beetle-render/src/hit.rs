@@ -55,9 +55,13 @@ pub enum HitId {
     TitleItem(usize),
     /// Opens (or the overlay's own close) the help overlay (the footer `?`).
     Help,
-    /// The first-run guide: open the song manager, open the songs folder, rescan.
-    OpenManager,
-    OpenSongsFolder,
+    /// Opens the folder picker to link a BMS folder (the first-run guide, the
+    /// Song Folders list's add button).
+    LinkFolder,
+    /// The Song Folders list: a row, and its unlink button.
+    FolderRow(usize),
+    UnlinkFolder(usize),
+    /// Reads the song folders again.
     Rescan,
     /// Opens the quit prompt.
     Quit,

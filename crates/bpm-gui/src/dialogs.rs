@@ -1,9 +1,9 @@
 //! The dialogs: what each one asks, its text fields, and how it looks
 //! (`Dialog::view`). What confirming does lives in `main.rs`.
 
-use crate::file_dialog::PickKind;
 use crate::ui::{ButtonView, ChoiceView, DialogView, FieldView, ListRowView};
 use crate::widgets::{Btn, UiAction};
+use bms_package_manager::file_dialog::PickKind;
 use bms_package_manager::BgaPackMode;
 use std::path::{Path, PathBuf};
 

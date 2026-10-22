@@ -160,6 +160,10 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
     if key_state != ElementState::Pressed {
         return;
     }
+    if state.song_folders.is_some() {
+        crate::song_folders::key(state, code);
+        return;
+    }
     let row = state.settings_row;
     match code {
         KeyCode::Escape => leave_settings(state),
@@ -183,10 +187,15 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
 /// A click on the Settings screen. The first click on a row selects it; a
 /// click on the selected row runs its activation (the key layout opens Key
 /// Config, the judge offset opens the calibration). `<` and `>` change the
-/// value. While the calibration is open only its own buttons respond.
+/// value. While the calibration or the Song Folders list is open only its
+/// own buttons respond.
 pub fn settings_click(state: &mut AppState, id: HitId) {
     if state.calibration.is_some() {
         calibration_action(state, id);
+        return;
+    }
+    if state.song_folders.is_some() {
+        crate::song_folders::click(state, id);
         return;
     }
     match id {

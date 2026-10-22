@@ -1,11 +1,10 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 
 use std::time::Instant;
 
 use beetle_audio::UiSound;
 use beetle_core::{sort_songs, ReplayData, SortMode};
-use beetle_render::{filter_items, strings, FilterItem, ToastKind};
+use beetle_render::{filter_items, FilterItem};
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
@@ -18,7 +17,6 @@ use crate::ime::{append_text, backspace, key_text_to_append, set_search_active};
 use crate::menu_audio::play_ui;
 use crate::scanner::DEFAULT_SONGS_DIR;
 use crate::state::{replay_path, AppScreen, AppState};
-use crate::transition;
 
 /// Handles keyboard input for the Song Select screen.
 pub fn handle_song_select_input(
@@ -267,86 +265,6 @@ pub fn library_mtime() -> std::time::SystemTime {
         }
     }
     latest
-}
-
-/// The song manager (`bpm-gui.exe`) that ships next to the running app.
-pub fn manager_beside(exe: &Path) -> PathBuf {
-    exe.with_file_name(SONG_MANAGER_EXE)
-}
-
-/// The song manager's file name, next to the app's own executable.
-const SONG_MANAGER_EXE: &str = "bpm-gui.exe";
-
-/// The process is not waited for, so the UI keeps running. A toast says so
-/// when the file is not there or cannot start.
-pub fn open_song_manager(state: &mut AppState) {
-    let manager = std::env::current_exe()
-        .ok()
-        .map(|exe| manager_beside(&exe))
-        .filter(|path| path.is_file());
-    let started = manager.is_some_and(|path| shell_open("open", &path));
-    if started {
-        play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Info, strings::TOAST_MANAGER_OPENED());
-    } else {
-        play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Error, strings::TOAST_MANAGER_MISSING());
-    }
-}
-
-/// Opens the songs folder in Explorer, creating it first when it is missing.
-/// Explorer runs in its own process and is not waited for.
-pub fn open_songs_folder(state: &mut AppState) {
-    let opened = std::env::current_dir()
-        .ok()
-        .map(|cwd| cwd.join(DEFAULT_SONGS_DIR))
-        .is_some_and(|dir| fs::create_dir_all(&dir).is_ok() && shell_open("explore", &dir));
-    if !opened {
-        play_ui(state, UiSound::Toast);
-        transition::show_toast(state, ToastKind::Error, strings::TOAST_FOLDER_FAILED());
-    }
-}
-
-/// Starts `target` through the shell (`ShellExecuteW`) with the given verb:
-/// "open" for the song manager, "explore" for a folder. Returns false when
-/// the shell refuses (ShellExecuteW reports success as a value above 32).
-/// Going through the shell avoids pulling `std::process` into the app binary.
-#[cfg(windows)]
-fn shell_open(verb: &str, target: &Path) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "shell32")]
-    extern "system" {
-        fn ShellExecuteW(
-            hwnd: *mut std::ffi::c_void,
-            operation: *const u16,
-            file: *const u16,
-            parameters: *const u16,
-            directory: *const u16,
-            show: i32,
-        ) -> isize;
-    }
-    const SW_SHOWNORMAL: i32 = 1;
-    let wide = |s: &std::ffi::OsStr| -> Vec<u16> { s.encode_wide().chain(Some(0)).collect() };
-    let verb = wide(std::ffi::OsStr::new(verb));
-    let file = wide(target.as_os_str());
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            verb.as_ptr(),
-            file.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    result > 32
-}
-
-/// Non-Windows builds have no shell to hand the path to.
-#[cfg(not(windows))]
-fn shell_open(_verb: &str, _target: &Path) -> bool {
-    false
 }
 
 /// Turns auto play on or off (A, or the footer button).
@@ -730,14 +648,6 @@ mod tests {
         assert!(!rescan_needed(None, t0));
         assert!(!rescan_needed(Some(t0), t0));
         assert!(rescan_needed(Some(t0), t1));
-    }
-
-    #[test]
-    fn song_manager_is_the_file_next_to_the_app() {
-        assert_eq!(
-            manager_beside(Path::new("dir/beetle-app.exe")),
-            Path::new("dir/bpm-gui.exe")
-        );
     }
 
     #[test]

@@ -1549,7 +1549,7 @@ fn first_run_guide(
     hs: &mut HitSink,
 ) {
     // The panel ends where its content does; a step without a button is a shorter row.
-    let rows = [true, false, true];
+    let rows = [true, false];
     let content: f32 = rows
         .iter()
         .map(|b| if *b { 84.0 } else { 52.0 })
@@ -1578,16 +1578,12 @@ fn first_run_guide(
         &'static str,
         Option<(&'static str, HitId, Option<&'static str>)>,
     );
-    let steps: [Step; 3] = [
+    let steps: [Step; 2] = [
         (
-            strings::GUIDE_MANAGER(),
-            Some((strings::GUIDE_BTN_MANAGER(), HitId::OpenManager, None)),
+            strings::GUIDE_LINK(),
+            Some((strings::GUIDE_BTN_LINK(), HitId::LinkFolder, None)),
         ),
         (strings::GUIDE_DROP(), None),
-        (
-            strings::GUIDE_FOLDER(),
-            Some((strings::GUIDE_BTN_FOLDER(), HitId::OpenSongsFolder, None)),
-        ),
     ];
     let mut y = inner.y + 96.0 * s;
     for (i, (text, button)) in steps.into_iter().enumerate() {
@@ -3158,6 +3154,112 @@ pub fn draw_skipped_overlay(ui: &mut Ui, vp: &Viewport, rows: &[(String, String)
     }
 }
 
+/// The Song Folders list (Settings): the linked folders, each with an unlink
+/// button, then the add button. `selected` is a folder's index, or
+/// `folders.len()` for the add button. A click outside closes it (`Blocker`).
+pub fn draw_folders_overlay(ui: &mut Ui, vp: &Viewport, folders: &[String], selected: usize) {
+    const ROW_H: f32 = 40.0;
+    const SHOWN: usize = 10;
+    let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let s = vp.scale;
+    // The rows scroll so the selected one stays in view.
+    let first = selected
+        .min(folders.len().saturating_sub(1))
+        .saturating_sub(SHOWN - 1);
+    let shown = folders.len().min(SHOWN);
+    let h = (150.0 + ROW_H * shown.max(1) as f32) * s;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 760.0 * s, h, s);
+    let inner = panel.inset(28.0 * s);
+    t.draw(
+        c,
+        strings::FOLDERS_TITLE(),
+        inner.x,
+        inner.y + 24.0 * s,
+        &TextStyle::new(20.0 * s).bold().color(theme::TEXT),
+    );
+    t.draw_in(
+        c,
+        strings::FOLDERS_KEYS(),
+        Rect::new(inner.x, inner.y + 4.0 * s, inner.w, 24.0 * s),
+        Align::Right,
+        &TextStyle::new(12.0 * s).color(theme::MUTED),
+    );
+    let note_style = TextStyle::new(12.0 * s).color(theme::MUTED);
+    let note = t
+        .fit(c, strings::FOLDERS_NOTE(), inner.w, &note_style)
+        .into_owned();
+    t.draw(c, &note, inner.x, inner.y + 48.0 * s, &note_style);
+    let top = inner.y + 62.0 * s;
+    if folders.is_empty() {
+        t.draw(
+            c,
+            strings::FOLDERS_EMPTY(),
+            inner.x,
+            top + 25.0 * s,
+            &TextStyle::new(13.0 * s).color(theme::MUTED2),
+        );
+    }
+    let path_style = TextStyle::new(13.0 * s).color(theme::TEXT);
+    let button_w = 110.0 * s;
+    for (row, (i, path)) in folders
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(SHOWN)
+        .enumerate()
+    {
+        let r = Rect::new(inner.x, top + row as f32 * ROW_H * s, inner.w, ROW_H * s);
+        hs.add(r, HitId::FolderRow(i));
+        if i == selected {
+            c.nine(&sk.panel_sm, r, theme::CYAN.with_alpha(40));
+        } else if row > 0 {
+            c.fill_rect(Rect::new(r.x, r.y, r.w, s.max(1.0)), theme::LINE);
+        }
+        let text = t
+            .fit(c, path, r.w - button_w - 28.0 * s, &path_style)
+            .into_owned();
+        t.draw(c, &text, r.x + 12.0 * s, r.y + 25.0 * s, &path_style);
+        let b = Rect::new(
+            r.right() - button_w - 6.0 * s,
+            r.y + 6.0 * s,
+            button_w,
+            r.h - 12.0 * s,
+        );
+        guide_button(
+            c,
+            t,
+            &sk,
+            &mut hs,
+            b,
+            strings::FOLDERS_UNLINK(),
+            HitId::UnlinkFolder(i),
+            None,
+            false,
+            s,
+        );
+    }
+    let add = Rect::new(
+        inner.x,
+        top + ROW_H * shown.max(1) as f32 * s + 14.0 * s,
+        180.0 * s,
+        32.0 * s,
+    );
+    guide_button(
+        c,
+        t,
+        &sk,
+        &mut hs,
+        add,
+        strings::FOLDERS_ADD(),
+        HitId::LinkFolder,
+        None,
+        selected >= folders.len(),
+        s,
+    );
+}
+
 /// The overlay over the whole window while a file is dragged over it. It
 /// records no click regions: the drop is handled by the window event.
 pub fn draw_drop_overlay(ui: &mut Ui, vp: &Viewport) {
@@ -3738,8 +3840,7 @@ mod tests {
         draw_song_select(&mut ui, &guide);
         assert_eq!(ui.canvas.debug_batches().len(), 1, "guide");
         let ids: Vec<HitId> = ui.hits.iter().map(|h| h.id).collect();
-        assert!(ids.contains(&HitId::OpenManager));
-        assert!(ids.contains(&HitId::OpenSongsFolder));
+        assert!(ids.contains(&HitId::LinkFolder));
         assert!(
             !ids.contains(&HitId::ListRow(0)),
             "the guide replaces the list"

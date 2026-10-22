@@ -8,6 +8,7 @@ pub mod base_match;
 pub mod collection;
 pub mod error;
 pub mod export;
+pub mod file_dialog;
 pub mod flac;
 pub mod ir;
 pub mod library;

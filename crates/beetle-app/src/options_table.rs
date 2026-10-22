@@ -47,6 +47,7 @@ pub enum OptionId {
     StartMeasure,
     // Settings screen.
     Language,
+    SongFolders,
     DisplayMode,
     Resolution,
     Graphics,
@@ -164,6 +165,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_LANGUAGE(),
             help: strings::HELP_LANGUAGE(),
+        },
+        OptionDesc {
+            id: OptionId::SongFolders,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_SONG_FOLDERS(),
+            help: strings::HELP_SONG_FOLDERS(),
         },
         OptionDesc {
             id: OptionId::DisplayMode,
@@ -340,6 +348,8 @@ pub enum Activation {
     KeyConfig,
     /// Opens the judge offset calibration (a metronome test).
     Calibrate,
+    /// Opens the Song Folders list (the linked BMS folders).
+    SongFolders,
 }
 
 /// The activation of `id`, if the row has one. Other rows change their value
@@ -348,6 +358,7 @@ pub fn activation(id: OptionId) -> Option<Activation> {
     match id {
         OptionId::KeyLayout => Some(Activation::KeyConfig),
         OptionId::JudgeOffset => Some(Activation::Calibrate),
+        OptionId::SongFolders => Some(Activation::SongFolders),
         _ => None,
     }
 }
@@ -475,6 +486,10 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::AutoPlay => on_off(state.is_auto_play).to_string(),
         OptionId::StartMeasure => format!("M.{}", state.start_measure),
         OptionId::Language => language_label(strings::lang()).to_string(),
+        OptionId::SongFolders => strings::fill(
+            strings::VALUE_FOLDERS(),
+            &[&state.linked_folders.to_string()],
+        ),
         OptionId::DisplayMode => display_mode_label(state.display_mode).to_string(),
         OptionId::Resolution => state.current_resolution_label().to_string(),
         OptionId::Graphics => {
@@ -662,6 +677,8 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.key_bindings.get_mut(mode).cycle_preset(mode);
             state.sync_eight_k_form();
         }
+        // A list, not a value: ENTER opens it.
+        OptionId::SongFolders => {}
     }
 }
 
@@ -806,11 +823,12 @@ mod tests {
     }
 
     #[test]
-    fn only_key_layout_and_judge_offset_have_an_activation() {
+    fn only_key_layout_judge_offset_and_song_folders_have_an_activation() {
         for d in all() {
             let expected = match d.id {
                 OptionId::KeyLayout => Some(Activation::KeyConfig),
                 OptionId::JudgeOffset => Some(Activation::Calibrate),
+                OptionId::SongFolders => Some(Activation::SongFolders),
                 _ => None,
             };
             assert_eq!(activation(d.id), expected, "{:?}", d.id);

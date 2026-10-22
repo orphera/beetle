@@ -3,7 +3,6 @@
 mod bitmap_font;
 mod clipboard;
 mod dialogs;
-mod file_dialog;
 mod image_draw;
 mod josa;
 mod tables_tab;
@@ -176,11 +175,16 @@ impl AppState {
         }
     }
 
-    fn open_picker(&mut self, target: PickTarget, kind: file_dialog::PickKind, title: &str) {
+    fn open_picker(
+        &mut self,
+        target: PickTarget,
+        kind: bms_package_manager::file_dialog::PickKind,
+        title: &str,
+    ) {
         if self.picker.is_some() {
             return;
         }
-        let rx = file_dialog::pick(kind, title, self.hwnd());
+        let rx = bms_package_manager::file_dialog::pick(kind, title, self.hwnd());
         self.picker = Some((target, rx));
     }
 
