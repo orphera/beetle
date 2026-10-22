@@ -49,6 +49,7 @@ fn song(n: u64) -> SongMetadata {
         play_level: 12,
         notes_count: 1500,
         play_mode: PlayMode::Keys7,
+        difficulty: None,
     }
 }
 

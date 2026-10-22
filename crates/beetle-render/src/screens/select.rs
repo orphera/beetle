@@ -271,7 +271,9 @@ fn backdrop(
     lite: bool,
     art: Mix,
 ) {
-    let tier = song.map_or(theme::MAGENTA, |s| theme::level_tier(s.play_level).1);
+    let tier = song.map_or(theme::MAGENTA, |s| {
+        theme::level_tier(s.difficulty, s.play_level).1
+    });
     let ambient = f.ambient.map_or(tier, |a| theme::vivid(a, tier));
     widgets::backdrop_art(c, sk, f.viewport, ambient, time, lite, art);
 }
@@ -988,7 +990,15 @@ fn song_row(
 ) {
     row_background(c, sk, row, on, hot, s);
     lamp_strip(c, sk, row, best, s);
-    let tx = row_jacket(c, t, song.play_level, jacket, &song.title, row, s);
+    let tx = row_jacket(
+        c,
+        t,
+        (song.difficulty, song.play_level),
+        jacket,
+        &song.title,
+        row,
+        s,
+    );
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
     row_title(c, t, row, &song.title, tx, text_w, on, s);
@@ -1067,13 +1077,13 @@ const JACKET_PX: f32 = 44.0;
 fn row_jacket(
     c: &mut Canvas,
     t: &mut TextEngine,
-    level: u32,
+    (difficulty, level): (Option<u32>, u32),
     jacket: Option<(AtlasRegion, bool)>,
     title: &str,
     row: Rect,
     s: f32,
 ) -> f32 {
-    let (_, diff) = theme::level_tier(level);
+    let (_, diff) = theme::level_tier(difficulty, level);
     let j = Rect::new(
         row.x + 20.0 * s,
         row.y + (row.h - JACKET_PX * s) / 2.0,
@@ -1231,7 +1241,15 @@ fn group_row(
     let best = f.scores.best(song, f.ln_option);
     row_background(c, sk, row, on, hot, s);
     lamp_strip(c, sk, row, best, s);
-    let tx = row_jacket(c, t, song.play_level, jacket, title, row, s);
+    let tx = row_jacket(
+        c,
+        t,
+        (song.difficulty, song.play_level),
+        jacket,
+        title,
+        row,
+        s,
+    );
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
     row_title(c, t, row, title, tx, text_w, on, s);
@@ -1243,7 +1261,7 @@ fn group_row(
         let (Some(chart), Some(text)) = (f.songs.get(i), labels.get(pos)) else {
             continue;
         };
-        let (_, col) = theme::level_tier(chart.play_level);
+        let (_, col) = theme::level_tier(chart.difficulty, chart.play_level);
         let w = chart_chip(c, t, text, ax, base, col, pos == selected, s);
         // Chips take clicks only when the whole row is shown (see `takes_clicks`).
         if takes_clicks(view, row) {
@@ -1282,7 +1300,7 @@ fn chart_tabs(
         let (Some(chart), Some(text)) = (f.songs.get(i), tabs.labels.get(pos)) else {
             continue;
         };
-        let (_, col) = theme::level_tier(chart.play_level);
+        let (_, col) = theme::level_tier(chart.difficulty, chart.play_level);
         let on = pos == tabs.selected;
         let st = caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
         let w = t.measure(c, text, &st) + 24.0 * s;
@@ -1732,7 +1750,7 @@ fn detail_panel(
         }
         None => inner,
     };
-    let (tier, tier_col) = theme::level_tier(song.play_level);
+    let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
 
     // Jacket (stage image, 4:3) or a generated placeholder in the tier color.
     let jacket = Rect::new(inner.x, inner.y, 256.0 * s, 192.0 * s);
@@ -3401,6 +3419,7 @@ mod tests {
             } else {
                 PlayMode::Keys7
             },
+            difficulty: None,
         }
     }
 
@@ -4088,6 +4107,7 @@ mod jacket_tests {
             play_level: (i % 13) as u32,
             notes_count: 1000 + i,
             play_mode: PlayMode::Keys7,
+            difficulty: None,
         }
     }
 

@@ -460,6 +460,7 @@ mod tests {
             play_level: 1,
             notes_count: 0,
             play_mode: beetle_core::PlayMode::Keys7,
+            difficulty: None,
         }
     }
 

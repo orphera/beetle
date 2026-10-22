@@ -53,7 +53,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let vp = f.viewport;
     let s = vp.scale;
     let song = f.song;
-    let (tier, tier_col) = theme::level_tier(song.play_level);
+    let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
 
     widgets::backdrop_art(
         c,
@@ -300,6 +300,7 @@ mod tests {
             play_level: 12,
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
+            difficulty: None,
         };
         let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);
@@ -345,6 +346,7 @@ mod tests {
             play_level: 12,
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
+            difficulty: None,
         };
         let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);

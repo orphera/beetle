@@ -129,6 +129,7 @@ fn library() -> Vec<SongMetadata> {
                 play_level: *level,
                 notes_count: 900 + i * 137,
                 play_mode: *mode,
+                difficulty: None,
             }
         })
         .collect()

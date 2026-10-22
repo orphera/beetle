@@ -984,6 +984,7 @@ mod tests {
             play_level: level,
             notes_count: 100,
             play_mode: mode,
+            difficulty: None,
         }
     }
 

@@ -143,14 +143,26 @@ pub fn rank(accuracy_percent: f64) -> (&'static str, ColorRgba) {
     }
 }
 
-/// Difficulty tier name and color for a play level.
-pub fn level_tier(level: u32) -> (&'static str, ColorRgba) {
-    match level {
-        1..=4 => ("NORMAL", GREEN),
-        5..=8 => ("HYPER", BLUE),
-        9..=10 => ("ANOTHER", ORANGE),
-        11..=12 => ("INSANE", MAGENTA),
-        _ => ("OVERJOY", PURPLE),
+/// Difficulty name and colour of a chart, from its `#DIFFICULTY` (1 BEGINNER,
+/// 2 NORMAL, 3 HYPER, 4 ANOTHER, 5 INSANE). A chart that does not say is
+/// "LV", coloured by its play level so the list still reads at a glance.
+pub fn level_tier(difficulty: Option<u32>, level: u32) -> (&'static str, ColorRgba) {
+    match difficulty {
+        Some(1) => ("BEGINNER", GREEN),
+        Some(2) => ("NORMAL", BLUE),
+        Some(3) => ("HYPER", GOLD),
+        Some(4) => ("ANOTHER", RED),
+        Some(5) => ("INSANE", PURPLE),
+        _ => (
+            "LV",
+            match level {
+                1..=4 => GREEN,
+                5..=8 => BLUE,
+                9..=10 => ORANGE,
+                11..=12 => MAGENTA,
+                _ => PURPLE,
+            },
+        ),
     }
 }
 

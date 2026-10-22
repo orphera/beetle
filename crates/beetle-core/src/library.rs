@@ -88,6 +88,9 @@ pub struct SongMetadata {
     /// The chart's own `#LNMODE` (1 LN, 2 CN, 3 HCN), if it has one.
     pub ln_mode: Option<u32>,
     pub play_mode: PlayMode,
+    /// The chart's `#DIFFICULTY`: 1 BEGINNER, 2 NORMAL, 3 HYPER, 4 ANOTHER,
+    /// 5 INSANE. `None` when the chart does not say.
+    pub difficulty: Option<u32>,
 }
 
 impl SongMetadata {
@@ -111,6 +114,7 @@ impl SongMetadata {
             .filter(|n| n.note_type == NoteType::LongNoteEnd)
             .count() as u32;
         let ln_mode = chart.header.ln_mode;
+        let difficulty = chart.header.difficulty;
 
         let title = if chart.header.title.is_empty() {
             "Unknown Title".to_string()
@@ -135,6 +139,7 @@ impl SongMetadata {
             ln_count,
             ln_mode,
             play_mode,
+            difficulty,
         })
     }
 
@@ -181,7 +186,7 @@ impl SongMetadata {
     /// Serializes to one `field=value` line, tab separated.
     pub fn serialize_line(&self) -> String {
         format!(
-            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tid={}\tmd5={}\tlegacy={:016x}",
+            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tdiff={}\tid={}\tmd5={}\tlegacy={:016x}",
             escape_field(&self.file_path),
             escape_field(&self.title),
             escape_field(&self.subtitle),
@@ -195,6 +200,7 @@ impl SongMetadata {
             self.ln_count,
             self.ln_mode.map_or(String::new(), |m| m.to_string()),
             self.play_mode.as_str(),
+            self.difficulty.map_or(String::new(), |d| d.to_string()),
             self.id,
             md5_to_hex(&self.md5),
             self.legacy_hash,
@@ -212,6 +218,7 @@ impl SongMetadata {
         let (mut play_level, mut notes_count) = (1, 0);
         let (mut ln_count, mut ln_mode) = (0, None);
         let mut play_mode = PlayMode::Keys7;
+        let mut difficulty = None;
         let (mut id, mut md5, mut hash) = (None, None, None);
 
         for field in line.split('\t') {
@@ -243,6 +250,7 @@ impl SongMetadata {
                         _ => PlayMode::Keys7,
                     }
                 }
+                "diff" => difficulty = value.parse().ok(),
                 "id" => id = ChartId::from_hex(value),
                 "md5" => md5 = md5_from_hex(value),
                 "legacy" => hash = u64::from_str_radix(value, 16).ok(),
@@ -267,6 +275,7 @@ impl SongMetadata {
             ln_count,
             ln_mode,
             play_mode,
+            difficulty,
         })
     }
 }
@@ -328,7 +337,7 @@ pub fn sort_songs(
 pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
 /// First line of a song list cache.
-const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V7";
+const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V8";
 
 /// Serializes song list to flat cache text.
 pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
@@ -385,6 +394,7 @@ mod tests {
             play_level: 10,
             notes_count: 1200,
             play_mode: PlayMode::Keys7,
+            difficulty: None,
         };
 
         let line = meta.serialize_line();
@@ -413,6 +423,7 @@ mod tests {
                 play_level: 8,
                 notes_count: 100,
                 play_mode: PlayMode::Keys7,
+                difficulty: None,
             },
             SongMetadata {
                 id: ChartId::synthetic(2),
@@ -431,6 +442,7 @@ mod tests {
                 play_level: 4,
                 notes_count: 50,
                 play_mode: PlayMode::Keys7,
+                difficulty: None,
             },
         ];
         let store = ScoreStore::new();
@@ -508,14 +520,27 @@ mod tests {
             .unwrap(),
         ];
         let text = serialize_song_cache(&songs);
-        assert!(text.starts_with("#BEETLE_SONGS_V7\n"));
+        assert!(text.starts_with("#BEETLE_SONGS_V8\n"));
         assert_eq!(deserialize_song_cache(&text), songs);
 
-        // Earlier caches have no long note fields: not trusted, so the app rescans.
-        let v2 = text.replacen("#BEETLE_SONGS_V7", "#BEETLE_SONGS_V4", 1);
-        assert!(deserialize_song_cache(&v2).is_empty());
+        // Earlier caches lack fields (long notes, #DIFFICULTY): not trusted, so the app rescans.
+        for old_header in ["#BEETLE_SONGS_V4", "#BEETLE_SONGS_V7"] {
+            let older = text.replacen("#BEETLE_SONGS_V8", old_header, 1);
+            assert!(deserialize_song_cache(&older).is_empty());
+        }
         let old = "0000000000000001\ta.bms\tT\t\tA\tG\t140.00\t5\t100\t7KEYS\n";
         assert!(deserialize_song_cache(old).is_empty());
+    }
+
+    #[test]
+    fn difficulty_is_read_from_the_chart_and_kept_in_the_cache() {
+        let hyper =
+            SongMetadata::from_bytes("h.bms", b"#DIFFICULTY 3\n#BPM 120\n#00112:01\n").unwrap();
+        assert_eq!(hyper.difficulty, Some(3));
+        let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
+        assert_eq!(plain.difficulty, None);
+        let text = serialize_song_cache(&[hyper.clone(), plain.clone()]);
+        assert_eq!(deserialize_song_cache(&text), vec![hyper, plain]);
     }
 
     #[test]
