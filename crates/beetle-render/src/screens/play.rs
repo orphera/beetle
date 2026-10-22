@@ -362,7 +362,7 @@ const HUD_GAP: f32 = 48.0;
 /// Margin between the viewport edge and a HUD column (720p pixels).
 const HUD_EDGE: f32 = 24.0;
 /// Height of the song block, from its top (720p pixels).
-const HUD_SONG_H: f32 = 110.0;
+const HUD_SONG_H: f32 = 116.0;
 /// Height of the key hint strip along the bottom (720p pixels).
 const HUD_HINT_H: f32 = 36.0;
 /// Space between the song block and the score block when they share a column.
@@ -1359,13 +1359,13 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
 
     let title_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
     let title = t.fit(c, &header.title, r.w, &title_st).into_owned();
-    t.draw(c, &title, r.x, r.y + 36.0 * s, &title_st);
+    t.draw(c, &title, r.x, r.y + 46.0 * s, &title_st);
     let sub = format!("{}  /  BPM {}", header.artist, header.bpm.round());
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
     let sub = t.fit(c, &sub, r.w, &sub_st).into_owned();
-    t.draw(c, &sub, r.x, r.y + 60.0 * s, &sub_st);
+    t.draw(c, &sub, r.x, r.y + 68.0 * s, &sub_st);
 
-    let prog = Rect::new(r.x, r.y + 82.0 * s, r.w, 3.0 * s);
+    let prog = Rect::new(r.x, r.y + 88.0 * s, r.w, 3.0 * s);
     c.fill_rect(prog, theme::LINE);
     let ratio = if f.song_length > 0.0 {
         (f.audio_time / f.song_length).clamp(0.0, 1.0) as f32
@@ -1385,7 +1385,7 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     t.draw_in(
         c,
         &clock,
-        Rect::new(r.x, r.y + 90.0 * s, r.w, 16.0 * s),
+        Rect::new(r.x, r.y + 96.0 * s, r.w, 16.0 * s),
         Align::Right,
         &caption(12.0, s).color(theme::MUTED),
     );
@@ -1431,7 +1431,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         c,
         &ex,
         r.x,
-        r.y + 50.0 * s,
+        r.y + 58.0 * s,
         &TextStyle::new(46.0 * s).bold().color(theme::TEXT),
     );
     let max = format!("/ {}", thousands(score.max_ex_score()));
@@ -1439,7 +1439,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         c,
         &max,
         r.x + ex_w + 8.0 * s,
-        r.y + 50.0 * s,
+        r.y + 58.0 * s,
         &TextStyle::new(13.0 * s).color(theme::MUTED2),
     );
 
@@ -1448,7 +1448,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         c,
         rank,
         r.x,
-        r.y + 84.0 * s,
+        r.y + 92.0 * s,
         &TextStyle::new(30.0 * s).bold().color(rank_col),
     );
     let target = (judged as f64 * 2.0 * 8.0 / 9.0).round() as i64;
@@ -1458,7 +1458,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         c,
         strings::PACE(),
         pace_x,
-        r.y + 84.0 * s,
+        r.y + 92.0 * s,
         &caption(12.0, s).color(theme::MUTED),
     );
     let diff_txt = format!("{}{}", if diff >= 0 { "+" } else { "" }, diff);
@@ -1466,7 +1466,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         c,
         &diff_txt,
         pace_x + pace_w + 6.0 * s,
-        r.y + 84.0 * s,
+        r.y + 92.0 * s,
         &TextStyle::new(13.0 * s).bold().color(if diff >= 0 {
             theme::CYAN
         } else {
@@ -1476,13 +1476,13 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
     t.draw_in(
         c,
         &format!("{acc:.2}%"),
-        Rect::new(r.x, r.y + 78.0 * s, r.w, 18.0 * s),
+        Rect::new(r.x, r.y + 80.0 * s, r.w, 18.0 * s),
         Align::Right,
         &TextStyle::new(13.0 * s).bold().color(theme::TEXT),
     );
 
     // Judgement counts: a thin distribution bar, then a 2×3 grid of pills.
-    let bar = Rect::new(r.x, r.y + 96.0 * s, r.w, 4.0 * s);
+    let bar = Rect::new(r.x, r.y + 102.0 * s, r.w, 4.0 * s);
     let counts = [
         (JudgeGrade::PerfectGreat, score.pgreat_count),
         (JudgeGrade::Great, score.great_count),
@@ -1509,7 +1509,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
     let gap = 6.0 * s;
     let pill_h = 26.0 * s;
     let pill_w = (r.w - gap) / 2.0;
-    let grid_y = r.y + 110.0 * s;
+    let grid_y = r.y + 116.0 * s;
     for (i, (g, n)) in counts.iter().enumerate() {
         let pill = Rect::new(
             r.x + (i % 2) as f32 * (pill_w + gap),
@@ -1547,7 +1547,7 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
 
     // The timeline is quiet: a caption and a hairline, no box. It only shows
     // when the column is tall enough to keep it clear of the spectrum.
-    let strip_y = r.y + 226.0 * s;
+    let strip_y = r.y + 232.0 * s;
     let vis_h = 32.0 * s;
     if strip_y + 44.0 * s <= r.bottom() - vis_h - 8.0 * s {
         t.draw(

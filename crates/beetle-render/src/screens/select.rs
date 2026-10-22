@@ -2402,6 +2402,7 @@ fn filter_row(
         s,
     );
     item += 1;
+    x += 6.0 * s;
     let tilde_w = t.measure(c, "~", &cap);
     t.draw_in(
         c,

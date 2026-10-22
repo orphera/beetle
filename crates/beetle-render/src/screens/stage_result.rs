@@ -554,7 +554,7 @@ fn gauge_trend_graph(
         &clear_text,
         Rect::new(
             rect.x + 6.0 * s,
-            y_clear - 16.0 * s,
+            y_clear - 20.0 * s,
             rect.w - 12.0 * s,
             14.0 * s,
         ),
