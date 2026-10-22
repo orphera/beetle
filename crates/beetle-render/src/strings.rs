@@ -916,13 +916,13 @@ table! {
         en "Input",
         ja "入力";
     pub ROW_GREEN =
-        ko "그린 넘버",
-        en "Green Number",
-        ja "緑数字";
+        ko "노트 속도",
+        en "Note Speed",
+        ja "ノーツ速度";
     pub ROW_SPEED_ANCHOR =
-        ko "하이스피드 기준",
-        en "Hi-Speed Anchor",
-        ja "ハイスピード基準";
+        ko "속도 기준",
+        en "Speed Anchor",
+        ja "速度基準";
     pub SPEED_ANCHOR_START =
         ko "시작 BPM",
         en "Start BPM",
@@ -1148,9 +1148,9 @@ table! {
         ja "{} ms";
     /// Option chip above PLAY; `{}` is the green number in milliseconds.
     pub CHIP_GREEN =
-        ko "G {}",
-        en "G {}",
-        ja "G {}";
+        ko "속도 {}",
+        en "Speed {}",
+        ja "速度 {}";
     /// Modal footer hints.
     pub HINT_MOVE =
         ko "이동",
@@ -1175,13 +1175,13 @@ table! {
 
     // Help sentences: one line under the highlighted row (plain Korean).
     pub HELP_GREEN =
-        ko "노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.",
-        en "Time from a note appearing on screen to reaching the judge line. Lower is faster. It stays the same when the lane cover changes.",
-        ja "ノーツが画面に現れてから判定ラインに届くまでの時間です。小さいほど速くなります。レーンカバーを変えても保たれます。";
+        ko "그린 넘버라고도 해요. 노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.",
+        en "Also called the green number. Time from a note appearing on screen to reaching the judge line. Lower is faster. It stays the same when the lane cover changes.",
+        ja "緑数字とも呼びます。ノーツが画面に現れてから判定ラインに届くまでの時間です。小さいほど速くなります。レーンカバーを変えても保たれます。";
     pub HELP_SPEED_ANCHOR =
-        ko "그린 넘버를 어느 BPM에 맞출지예요. 주 BPM은 곡에서 가장 오래 유지되는 BPM이에요. 다른 BPM에서는 노트가 더 빠르거나 느려져요.",
-        en "Which BPM the green number holds at. Main BPM is the one the song stays at longest. At other BPMs the notes move faster or slower.",
-        ja "緑数字をどの BPM に合わせるかです。メイン BPM は曲中で最も長く続く BPM です。ほかの BPM ではノーツが速く、または遅くなります。";
+        ko "노트 속도를 어느 BPM에 맞출지예요. 주 BPM은 곡에서 가장 오래 유지되는 BPM이에요. 다른 BPM에서는 노트가 더 빠르거나 느려져요.",
+        en "Which BPM the note speed holds at. Main BPM is the one the song stays at longest. At other BPMs the notes move faster or slower.",
+        ja "ノーツ速度をどの BPM に合わせるかです。メイン BPM は曲中で最も長く続く BPM です。ほかの BPM ではノーツが速く、または遅くなります。";
     pub HELP_LANE_COVER =
         ko "레인 위쪽을 가려 노트가 보이는 구간을 줄여요. 0%는 가리지 않아요. 플레이 중 F10, F11로도 바꿀 수 있어요.",
         en "Hides the top of the lane to shorten the visible note area. 0% hides nothing. You can also change it while playing with F10 and F11.",
@@ -1509,14 +1509,14 @@ table! {
         ja "ESC  曲選択に戻る";
     /// Key hint line while playing; `{}` is the key layout.
     pub HUD_KEYS =
-        ko "키  {}    1/2 그린 넘버    F10/F11 커버    ESC 일시정지",
-        en "Keys  {}    1/2 Green Number    F10/F11 Cover    ESC Pause",
-        ja "キー  {}    1/2 緑数字    F10/F11 カバー    ESC 一時停止";
+        ko "키  {}    1/2 노트 속도    F10/F11 커버    ESC 일시정지",
+        en "Keys  {}    1/2 Note Speed    F10/F11 Cover    ESC Pause",
+        ja "キー  {}    1/2 ノーツ速度    F10/F11 カバー    ESC 一時停止";
     /// Same, for layouts without cover keys (double play).
     pub HUD_KEYS_NO_COVER =
-        ko "키  {}    1/2 그린 넘버    ESC 일시정지",
-        en "Keys  {}    1/2 Green Number    ESC Pause",
-        ja "キー  {}    1/2 緑数字    ESC 一時停止";
+        ko "키  {}    1/2 노트 속도    ESC 일시정지",
+        en "Keys  {}    1/2 Note Speed    ESC Pause",
+        ja "キー  {}    1/2 ノーツ速度    ESC 一時停止";
     pub KEYS_CUSTOM =
         ko "사용자 배치",
         en "Custom layout",
@@ -1532,9 +1532,9 @@ table! {
         en "GO!",
         ja "GO!";
     pub READY_HINT =
-        ko "F3/F4 그린 넘버 / F10/F11 레인 커버",
-        en "F3/F4 Green Number / F10/F11 Lane Cover",
-        ja "F3/F4 緑数字 / F10/F11 レーンカバー";
+        ko "F3/F4 노트 속도 / F10/F11 레인 커버",
+        en "F3/F4 Note Speed / F10/F11 Lane Cover",
+        ja "F3/F4 ノーツ速度 / F10/F11 レーンカバー";
     /// Readout over the lane after a green number change (`{}` = ms).
     pub READOUT_GREEN =
         ko "{} ms",
