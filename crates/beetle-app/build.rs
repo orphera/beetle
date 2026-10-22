@@ -6,8 +6,9 @@
 //! a user-writable folder is never loaded. XInput is loaded the same way
 //! (`xinput.rs`). Other toolchains do not take the MSVC linker flag.
 //!
-//! The app icon comes from `build_support/app_icon.rs` (shared with `bpm-gui`):
-//! icon group 1, read back at run time for the window (`APP_ICON_ID` in `main.rs`).
+//! The icons come from `build_support/app_icon.rs` (shared with `bpm-gui`):
+//! group 1 is the app (read back for the window, `APP_ICON_ID` in `main.rs`),
+//! group 2 the `.bmsp` file icon (`file_assoc.rs`).
 
 include!("../../build_support/app_icon.rs");
 
@@ -17,5 +18,5 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         println!("cargo:rustc-link-arg-bin=beetle-app=/DEPENDENTLOADFLAG:0x800");
     }
-    link_app_icon("beetle-app");
+    link_app_icon("beetle-app", true);
 }

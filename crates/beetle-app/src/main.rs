@@ -400,6 +400,7 @@ impl ApplicationHandler for BeetleApp {
         }
         if self.single {
             app_state.handoff = single_instance::listen(app_state.window.clone());
+            file_assoc::refresh_icon();
         }
 
         // If a specific file path was provided via CLI, launch directly into gameplay

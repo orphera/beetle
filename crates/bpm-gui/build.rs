@@ -6,5 +6,5 @@ include!("../../build_support/app_icon.rs");
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../../build_support/app_icon.rs");
-    link_app_icon("bpm-gui");
+    link_app_icon("bpm-gui", false);
 }

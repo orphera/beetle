@@ -1,18 +1,23 @@
-// The app icon, shared by the `beetle-app` and `bpm-gui` build scripts
-// (`include!`d there, so there is one drawing). It is drawn here (no image
+// The app icons, shared by the `beetle-app` and `bpm-gui` build scripts
+// (`include!`d there, so there is one drawing). They are drawn here (no image
 // file, like the skin) and linked as a compiled resource (`.res`, which
-// `link.exe` takes as an input file): icon group 1, which each app reads
-// back at run time for its window.
+// `link.exe` takes as an input file). Icon group 1 is the app, which each app
+// reads back at run time for its window; group 2 (the game only) is the
+// `.bmsp` file icon the file association points at (`"<exe>",-2`).
 
-/// Draws the icon, writes it as `app_icon.res` in `OUT_DIR` and links it into
-/// the binary `bin`. MSVC only: other linkers do not take a `.res`.
-fn link_app_icon(bin: &str) {
+/// What a binary carries: the app icon, and with `package_icon` the `.bmsp`
+/// file icon too.
+fn link_app_icon(bin: &str, package_icon: bool) {
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
     }
     let out = std::env::var("OUT_DIR").expect("OUT_DIR");
     let res = std::path::Path::new(&out).join("app_icon.res");
-    std::fs::write(&res, icon_res(&[16, 24, 32, 48, 64])).expect("write app_icon.res");
+    let mut groups: Vec<(u16, fn(f32, f32) -> Option<[f32; 3]>)> = vec![(1, sample)];
+    if package_icon {
+        groups.push((2, sample_package));
+    }
+    std::fs::write(&res, icon_res(&[16, 24, 32, 48, 64], &groups)).expect("write app_icon.res");
     println!("cargo:rustc-link-arg-bin={bin}={}", res.display());
 }
 
@@ -21,9 +26,8 @@ const CYAN: [f32; 3] = [0.0, 229.0, 255.0];
 const MAGENTA: [f32; 3] = [255.0, 45.0, 106.0];
 const WHITE: [f32; 3] = [255.0, 255.0, 255.0];
 
-/// The icon at `size` px, RGBA rows top to bottom: a rounded square in a
-/// cyan-to-magenta diagonal, two falling note bars and the judge line.
-fn draw(size: u32) -> Vec<u8> {
+/// An icon at `size` px from `sample`, RGBA rows top to bottom.
+fn draw(size: u32, sample: fn(f32, f32) -> Option<[f32; 3]>) -> Vec<u8> {
     const SS: u32 = 4;
     let n = size as f32;
     let mut out = Vec::with_capacity((size * size * 4) as usize);
@@ -60,7 +64,9 @@ fn draw(size: u32) -> Vec<u8> {
     out
 }
 
-/// The colour at (u, v) in 0..1 icon units, `None` outside the shape.
+/// The app icon at (u, v) in 0..1 icon units, `None` outside the shape: a
+/// rounded square in a cyan-to-magenta diagonal, two falling note bars and
+/// the judge line.
 fn sample(u: f32, v: f32) -> Option<[f32; 3]> {
     // Rounded square with a small margin.
     let (m, r) = (0.04, 0.22);
@@ -82,27 +88,75 @@ fn sample(u: f32, v: f32) -> Option<[f32; 3]> {
     Some(if mark { WHITE } else { bg })
 }
 
-/// A `.res` file holding one icon group (id 1) with an image per size.
-fn icon_res(sizes: &[u32]) -> Vec<u8> {
+/// The `.bmsp` file icon at (u, v): a light page with a folded corner,
+/// carrying the app's gradient panel with its note mark.
+fn sample_package(u: f32, v: f32) -> Option<[f32; 3]> {
+    const PAGE: [f32; 3] = [236.0, 240.0, 247.0];
+    const EDGE: [f32; 3] = [140.0, 150.0, 170.0];
+    const FOLD: [f32; 3] = [196.0, 204.0, 218.0];
+    let (x0, y0, x1, y1, corner) = (0.14, 0.04, 0.86, 0.96, 0.24);
+    if u < x0 || u > x1 || v < y0 || v > y1 {
+        return None;
+    }
+    // The folded corner: cut above its diagonal, the flap below it.
+    let (fx, fy) = (u - (x1 - corner), v - y0);
+    if fx > 0.0 && fy < corner {
+        if fx > fy + 0.01 {
+            return None;
+        }
+        return Some(if fx > fy - 0.04 { EDGE } else { FOLD });
+    }
+    let edge = 0.035;
+    if u < x0 + edge || u > x1 - edge || v < y0 + edge || v > y1 - edge {
+        return Some(EDGE);
+    }
+    // The app's panel in the lower part of the page.
+    let (px0, py0, px1, py1) = (0.24, 0.42, 0.76, 0.86);
+    if u >= px0 && u <= px1 && v >= py0 && v <= py1 {
+        let t = (((u - px0) / (px1 - px0) + (v - py0) / (py1 - py0)) / 2.0).clamp(0.0, 1.0);
+        let inside = |a: f32, b: f32, c: f32, d: f32| u >= a && u <= c && v >= b && v <= d;
+        let mark = inside(0.31, 0.50, 0.49, 0.58)
+            || inside(0.51, 0.62, 0.69, 0.70)
+            || inside(0.29, 0.76, 0.71, 0.80);
+        return Some(if mark {
+            WHITE
+        } else {
+            [
+                CYAN[0] + (MAGENTA[0] - CYAN[0]) * t,
+                CYAN[1] + (MAGENTA[1] - CYAN[1]) * t,
+                CYAN[2] + (MAGENTA[2] - CYAN[2]) * t,
+            ]
+        });
+    }
+    Some(PAGE)
+}
+
+/// A `.res` file holding each icon group in `groups` (id, drawing) with an
+/// image per size. Image ids run on across the groups.
+fn icon_res(sizes: &[u32], groups: &[(u16, fn(f32, f32) -> Option<[f32; 3]>)]) -> Vec<u8> {
     let mut res = Vec::new();
     // Every .res starts with an empty entry.
     entry(&mut res, 0, 0, &[]);
-    let mut group = Vec::new();
-    group.extend_from_slice(&0u16.to_le_bytes()); // reserved
-    group.extend_from_slice(&1u16.to_le_bytes()); // type: icon
-    group.extend_from_slice(&(sizes.len() as u16).to_le_bytes());
-    for (i, &size) in sizes.iter().enumerate() {
-        let image = dib(size, &draw(size));
-        let id = (i + 1) as u16;
-        entry(&mut res, 3, id, &image); // RT_ICON
-        let side = if size >= 256 { 0 } else { size as u8 };
-        group.extend_from_slice(&[side, side, 0, 0]);
-        group.extend_from_slice(&1u16.to_le_bytes()); // planes
-        group.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
-        group.extend_from_slice(&(image.len() as u32).to_le_bytes());
-        group.extend_from_slice(&id.to_le_bytes());
+    let mut next_id = 1u16;
+    for &(group_id, sample) in groups {
+        let mut group = Vec::new();
+        group.extend_from_slice(&0u16.to_le_bytes()); // reserved
+        group.extend_from_slice(&1u16.to_le_bytes()); // type: icon
+        group.extend_from_slice(&(sizes.len() as u16).to_le_bytes());
+        for &size in sizes {
+            let image = dib(size, &draw(size, sample));
+            let id = next_id;
+            next_id += 1;
+            entry(&mut res, 3, id, &image); // RT_ICON
+            let side = if size >= 256 { 0 } else { size as u8 };
+            group.extend_from_slice(&[side, side, 0, 0]);
+            group.extend_from_slice(&1u16.to_le_bytes()); // planes
+            group.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+            group.extend_from_slice(&(image.len() as u32).to_le_bytes());
+            group.extend_from_slice(&id.to_le_bytes());
+        }
+        entry(&mut res, 14, group_id, &group); // RT_GROUP_ICON
     }
-    entry(&mut res, 14, 1, &group); // RT_GROUP_ICON
     res
 }
 

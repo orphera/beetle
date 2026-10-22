@@ -6,6 +6,26 @@
 /// The ProgID the `.bmsp` extension points at.
 const PROG_ID: &str = "Beetle.Package";
 
+/// The `.bmsp` file icon: icon group 2 in the game's exe (`build_support/app_icon.rs`).
+pub fn package_icon(exe: &str) -> String {
+    format!("\"{exe}\",-2")
+}
+
+/// Points `.bmsp` at the current file icon when the association is on, so an
+/// association made before the file icon existed (or by a moved exe) shows it.
+pub fn refresh_icon() {
+    if !is_registered() {
+        return;
+    }
+    if let Some(exe) = current_exe() {
+        let key = format!(r"Software\Classes\{PROG_ID}\DefaultIcon");
+        if imp::get(&key).as_deref() != Some(package_icon(&exe).as_str()) {
+            imp::set(&key, &package_icon(&exe));
+            imp::notify();
+        }
+    }
+}
+
 /// The open command for `exe`: the file goes in as the first argument.
 pub fn open_command(exe: &str) -> String {
     format!("\"{exe}\" \"%1\"")
@@ -34,7 +54,7 @@ pub fn set(on: bool) -> bool {
             )
             && imp::set(
                 &format!(r"Software\Classes\{PROG_ID}\DefaultIcon"),
-                &format!("\"{exe}\",0"),
+                &package_icon(&exe),
             )
             && imp::set(
                 &format!(r"Software\Classes\{PROG_ID}\shell\open\command"),
@@ -168,6 +188,14 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_file_icon_is_the_second_icon_group_of_the_exe() {
+        assert_eq!(
+            package_icon(r"C:\Games\Beetleeetle-app.exe"),
+            r#""C:\Games\Beetleeetle-app.exe",-2"#
+        );
+    }
 
     #[test]
     fn the_command_quotes_both_paths() {
