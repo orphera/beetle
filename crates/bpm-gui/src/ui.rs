@@ -50,7 +50,8 @@ pub struct FieldView {
     pub value: String,
     pub placeholder: String,
     pub focused: bool,
-    pub browse: bool,
+    /// Pick buttons on the field's right: (label, action).
+    pub buttons: Vec<(String, UiAction)>,
 }
 
 /// A one-of-many choice in a dialog.
@@ -267,7 +268,7 @@ impl GuiRenderer {
             placeholder,
             active,
             UiAction::FocusSearch,
-            None,
+            &[],
         );
         if clear {
             self.button(
@@ -1149,7 +1150,7 @@ impl GuiRenderer {
                 &field.placeholder,
                 field.focused,
                 UiAction::DialogFocus(i),
-                field.browse.then_some(UiAction::DialogBrowse(i)),
+                &field.buttons,
             );
             cy += 56.0;
         }

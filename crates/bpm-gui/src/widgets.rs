@@ -51,7 +51,7 @@ pub enum UiAction {
     // The open dialog
     DialogFocus(usize),
     DialogBrowse(usize),
-    /// The pack dialog's "압축 파일 고르기": an archive into field 0.
+    /// The pack dialog's "압축 파일..." button: an archive into field 0.
     DialogBrowseArchive,
     DialogConfirm,
     DialogCancel,
@@ -524,7 +524,7 @@ impl GuiRenderer {
         x + 8.0
     }
 
-    /// A text field. `browse` adds a "찾아보기" button on the right.
+    /// A text field. Each of `buttons` (label, action) sits on its right, in order.
     #[allow(clippy::too_many_arguments)]
     pub fn text_field(
         &mut self,
@@ -535,19 +535,14 @@ impl GuiRenderer {
         placeholder: &str,
         focused: bool,
         focus_action: UiAction,
-        browse: Option<UiAction>,
+        buttons: &[(String, UiAction)],
     ) {
         let h = 36.0;
-        let browse_w = if browse.is_some() {
-            Self::button_w("찾아보기...")
-        } else {
-            0.0
-        };
-        let field_w = if browse.is_some() {
-            w - browse_w - 8.0
-        } else {
-            w
-        };
+        let buttons_w: f32 = buttons
+            .iter()
+            .map(|(label, _)| Self::button_w(label) + 8.0)
+            .sum();
+        let field_w = w - buttons_w;
         let hover = self.hovered(x, y, field_w, h);
         self.round(x, y, field_w, h, 7.0, theme::BG);
         let border = if focused {
@@ -587,16 +582,11 @@ impl GuiRenderer {
             }
         }
         self.hit(x, y, field_w, h, focus_action);
-        if let Some(action) = browse {
-            self.button(
-                x + field_w + 8.0,
-                y,
-                browse_w,
-                h,
-                "찾아보기...",
-                Btn::Secondary,
-                action,
-            );
+        let mut bx = x + field_w + 8.0;
+        for (label, action) in buttons {
+            let bw = Self::button_w(label);
+            self.button(bx, y, bw, h, label, Btn::Secondary, action.clone());
+            bx += bw + 8.0;
         }
     }
 

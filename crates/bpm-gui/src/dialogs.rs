@@ -128,7 +128,20 @@ impl Dialog {
         }
     }
 
-    /// The archive picker of the pack dialog (its field's own button picks a folder).
+    /// The pick buttons beside field `i`: the pack dialog takes a folder or an
+    /// archive (one system picker cannot pick both), the others "찾아보기".
+    fn field_buttons(&self, i: usize) -> Vec<(String, UiAction)> {
+        match (&self.kind, self.browse(i)) {
+            (DialogKind::Pack { .. }, _) => vec![
+                ("폴더...".to_string(), UiAction::DialogBrowse(i)),
+                ("압축 파일...".to_string(), UiAction::DialogBrowseArchive),
+            ],
+            (_, Some(_)) => vec![("찾아보기...".to_string(), UiAction::DialogBrowse(i))],
+            (_, None) => Vec::new(),
+        }
+    }
+
+    /// The archive picker of the pack dialog (its "폴더..." button picks a folder).
     pub fn archive_pick(&self) -> Option<(PickKind, &'static str)> {
         matches!(self.kind, DialogKind::Pack { .. })
             .then_some((ARCHIVES, "패키지로 만들 압축 파일 고르기"))
@@ -149,7 +162,7 @@ impl Dialog {
             value: self.fields[i].clone(),
             placeholder: placeholder.to_string(),
             focused: self.focus == i,
-            browse: self.browse(i).is_some(),
+            buttons: self.field_buttons(i),
         };
         let mut v = DialogView::default();
         match &self.kind {
@@ -278,12 +291,7 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                     },
                 ];
                 v.footnote = "만든 파일은 고른 폴더 옆에 저장돼요. 여러 곡이 든 폴더를 고르면 곡마다 하나씩 그 폴더 안에, 압축 파일을 고르면 곡마다 하나씩 압축 파일 옆에 만들어요.".into();
-                v.buttons = vec![button(
-                    "압축 파일 고르기",
-                    Btn::Ghost,
-                    UiAction::DialogBrowseArchive,
-                )];
-                v.buttons.extend(cancel_ok("만들기"));
+                v.buttons = cancel_ok("만들기");
             }
             DialogKind::ApplyDelta => {
                 v.title = "업데이트 파일 적용".into();
