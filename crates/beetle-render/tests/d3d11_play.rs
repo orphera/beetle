@@ -240,6 +240,8 @@ fn render_with(
                 0.2, 0.5, 0.8, 0.6, 0.9, 0.4, 0.3, 0.7, 0.5, 0.2, 0.6, 0.85, 0.4, 0.3, 0.2, 0.1,
             ],
             bga: None,
+            jacket: None,
+            chart_has_bga: false,
             layer: None,
             track_bga_opacity: 0.0,
             key_pressed: &keys,

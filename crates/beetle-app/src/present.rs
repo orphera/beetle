@@ -262,6 +262,18 @@ pub fn gameplay(
                 true,
             )
         });
+    // The stage image the loading screen showed, for the empty HUD column.
+    let id = state.active_chart_id;
+    let jacket = match state
+        .stage_image_cache
+        .get(&id)
+        .and_then(|img| img.as_ref())
+    {
+        Some(img) => state
+            .gpu_ui
+            .image(&mut state.d3d11, ImageKey::Stage(id), img),
+        None => None,
+    };
     state.view.clean_expired_hit_bursts(audio_time);
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
@@ -291,6 +303,8 @@ pub fn gameplay(
                 visual_levels,
                 bga,
                 layer,
+                jacket,
+                chart_has_bga: !state.bga_bank.is_empty() || !state.video_players.is_empty(),
                 track_bga_opacity: if state.bga_enabled {
                     state.track_bga.opacity()
                 } else {

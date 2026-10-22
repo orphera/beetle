@@ -46,6 +46,12 @@ pub struct PlayFrame<'a> {
     /// Base BGA (already resolved: poor > video > image) and layer BGA.
     pub bga: Option<SizedTexture>,
     pub layer: Option<SizedTexture>,
+    /// The song's stage image (STAGEFILE / BANNER). When the chart has no BGA
+    /// of its own it fills the HUD column under the song block.
+    pub jacket: Option<SizedTexture>,
+    /// The chart has BGA images or videos (not just the stage image standing
+    /// in behind the field).
+    pub chart_has_bga: bool,
     /// Opacity of the BGA backdrop behind the whole screen (0 = off).
     pub track_bga_opacity: f32,
     pub key_pressed: &'a [bool; LANE_COUNT],
@@ -344,6 +350,9 @@ pub(crate) struct Hud {
     pub song: Rect,
     pub score: Rect,
     pub hint: Rect,
+    /// The free part of the song column between the song block and the key
+    /// hint (empty when the song shares its column with the score).
+    pub art: Rect,
 }
 
 /// Widest a HUD column gets, in 720p pixels: slim, so the field stays the focus.
@@ -387,12 +396,17 @@ pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s:
     let song_h = HUD_SONG_H * s;
     let hint_h = HUD_HINT_H * s;
     match position {
-        FieldPosition::Center => Hud {
-            gauge,
-            song: Rect::new(left_x, field.y, left_w, song_h),
-            hint: Rect::new(left_x, field.bottom() - hint_h, left_w, hint_h),
-            score: Rect::new(right_x, field.y, right_w, field.h),
-        },
+        FieldPosition::Center => {
+            let art_y = field.y + song_h + 2.0 * HUD_STACK_GAP * s;
+            let art_bottom = field.bottom() - hint_h - 2.0 * HUD_STACK_GAP * s;
+            Hud {
+                gauge,
+                song: Rect::new(left_x, field.y, left_w, song_h),
+                hint: Rect::new(left_x, field.bottom() - hint_h, left_w, hint_h),
+                score: Rect::new(right_x, field.y, right_w, field.h),
+                art: Rect::new(left_x, art_y, left_w, (art_bottom - art_y).max(0.0)),
+            }
+        }
         // The field is at one edge: every HUD piece in one column on the other side.
         FieldPosition::Left | FieldPosition::Right => {
             let (x, w) = match position {
@@ -406,6 +420,7 @@ pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s:
                 song: Rect::new(x, field.y, w, song_h),
                 score: Rect::new(x, score_y, w, (score_bottom - score_y).max(0.0)),
                 hint: Rect::new(x, field.bottom() - hint_h, w, hint_h),
+                art: Rect::new(x, score_y, 0.0, 0.0),
             }
         }
     }
@@ -1235,11 +1250,89 @@ fn hud_panels(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, hud:
     if hud.song.w >= min_w {
         song_block(c, t, sk, f, hud.song, s);
     }
+    // Without a BGA of the chart's own the column under the song block would be empty.
+    if !f.chart_has_bga && hud.art.w >= min_w && hud.art.h >= 120.0 * s {
+        jacket_card(c, t, sk, f, hud.art, s);
+    }
     if hud.score.w >= min_w {
         score_block(c, t, sk, f, hud.score, s);
     }
     if hud.hint.w >= min_w && f.key_hint_alpha > 0.0 {
         key_hint(c, t, f, hud.hint, s);
+    }
+}
+
+/// The song's stage image in `area` (4:3, at the top of it), or a card in the
+/// level colour with the mode when the song has none.
+fn jacket_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, area: Rect, s: f32) {
+    let h = (area.w * 0.75).min(area.h);
+    let w = h / 0.75;
+    let r = Rect::new(area.x, area.y, w, h);
+    c.halo(&sk.shadow, r, theme::WHITE.with_alpha(140));
+    match f.jacket {
+        Some(tex) => {
+            c.fill_rect(r, theme::BG);
+            c.image(tex.id, r, cover_uv(tex, r), theme::WHITE);
+        }
+        None => {
+            let (_, tier_col) = theme::level_tier(f.chart.header.play_level);
+            c.fill_rect_corners(
+                r,
+                [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
+            );
+            t.draw_in(
+                c,
+                theme::mode_label(f.layout.play_mode),
+                r.inset(16.0 * s),
+                Align::Left,
+                &TextStyle::new(56.0 * s)
+                    .bold()
+                    .color(theme::WHITE.with_alpha(48)),
+            );
+        }
+    }
+    c.stroke_rect(r, s.max(1.0), theme::LINE);
+
+    // Under the card, while there is room: the chart's numbers.
+    let header = &f.chart.header;
+    let rank = match header.rank {
+        0 => "VERY HARD",
+        1 => "HARD",
+        3 => "EASY",
+        _ => "NORMAL",
+    };
+    let total = if header.total > 0.0 {
+        format!("{:.0}", header.total)
+    } else {
+        "-".to_string()
+    };
+    let rows = [
+        ("NOTES", f.score.total_notes.to_string()),
+        ("GAUGE", f.score.gauge_type.as_str().to_string()),
+        ("JUDGE", rank.to_string()),
+        ("TOTAL", total),
+    ];
+    let cap = caption(12.0, s).color(theme::MUTED);
+    let val = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+    let row_h = 26.0 * s;
+    let mut y = r.bottom() + 24.0 * s;
+    for (label, value) in rows {
+        if y + row_h > area.bottom() {
+            break;
+        }
+        t.draw(c, label, area.x, y + 16.0 * s, &cap);
+        t.draw_in(
+            c,
+            &value,
+            Rect::new(area.x, y, area.w, row_h),
+            Align::Right,
+            &val,
+        );
+        c.fill_rect(
+            Rect::new(area.x, y + row_h, area.w, s.max(1.0)),
+            theme::LINE,
+        );
+        y += row_h + 4.0 * s;
     }
 }
 
@@ -1479,8 +1572,59 @@ fn score_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: 
         );
     }
 
+    // Under the timeline, when the column has room: max combo, FAST / SLOW,
+    // and the timing histogram, so the column does not sit empty.
+    let stats_y = strip_y + 64.0 * s;
+    if stats_y + 96.0 * s <= r.bottom() - vis_h - 16.0 * s {
+        timing_stats(c, t, f, Rect::new(r.x, stats_y, r.w, 96.0 * s), s);
+    }
+
     if r.h >= vis_h {
         spectrum(c, f, Rect::new(r.x, r.bottom() - vis_h, r.w, vis_h), s);
+    }
+}
+
+/// MAX COMBO and FAST / SLOW on one line, then the timing histogram (early on
+/// the left, late on the right) as bars over a centre line.
+fn timing_stats(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, r: Rect, s: f32) {
+    let score = f.score;
+    let cap = caption(12.0, s).color(theme::MUTED);
+    let val = TextStyle::new(13.0 * s).bold().color(theme::TEXT);
+    let third = r.w / 3.0;
+    for (i, (label, value, col)) in [
+        ("MAX COMBO", score.max_combo, theme::TEXT),
+        ("FAST", score.fast_count, theme::CYAN),
+        ("SLOW", score.slow_count, theme::MAGENTA),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let x = r.x + i as f32 * third;
+        t.draw(c, label, x, r.y, &cap);
+        t.draw(c, &value.to_string(), x, r.y + 20.0 * s, &val.color(col));
+    }
+    let plot = Rect::from_ltrb(r.x, r.y + 40.0 * s, r.right(), r.bottom());
+    let bins = &score.timing_histogram;
+    let peak = bins.iter().copied().max().unwrap_or(0).max(1) as f32;
+    let n = bins.len() as f32;
+    let gap = 2.0 * s;
+    let bw = (plot.w - gap * (n - 1.0)) / n;
+    c.fill_rect(
+        Rect::new(plot.x, plot.bottom() - s.max(1.0), plot.w, s.max(1.0)),
+        theme::LINE,
+    );
+    let mid = (bins.len() / 2) as f32;
+    for (i, &count) in bins.iter().enumerate() {
+        let h = (plot.h * count as f32 / peak).max(if count > 0 { 2.0 * s } else { 0.0 });
+        let col = if (i as f32 - mid).abs() < 1.0 {
+            theme::TEXT
+        } else if (i as f32) < mid {
+            theme::CYAN
+        } else {
+            theme::MAGENTA
+        };
+        let x = plot.x + i as f32 * (bw + gap);
+        c.fill_rect(Rect::new(x, plot.bottom() - h, bw, h), col.with_alpha(180));
     }
 }
 
@@ -2044,6 +2188,8 @@ mod tests {
                     song_length: 120.0,
                     visual_levels: &[0.5; 16],
                     bga: None,
+                    jacket: None,
+                    chart_has_bga: false,
                     layer: None,
                     track_bga_opacity: 0.3,
                     key_pressed: &keys,
@@ -2157,6 +2303,8 @@ mod tests {
                     song_length: 120.0,
                     visual_levels: &[0.5; 16],
                     bga: None,
+                    jacket: None,
+                    chart_has_bga: false,
                     layer: None,
                     track_bga_opacity: 0.0,
                     key_pressed: &keys,
@@ -2525,6 +2673,8 @@ mod tests {
                 song_length: 120.0,
                 visual_levels: &[0.5; 16],
                 bga: Some(bga),
+                jacket: None,
+                chart_has_bga: false,
                 layer: None,
                 track_bga_opacity: 0.5,
                 key_pressed: &[false; LANE_COUNT],
@@ -2842,6 +2992,8 @@ mod tests {
                 song_length: 120.0,
                 visual_levels: &[0.0; 16],
                 bga: None,
+                jacket: None,
+                chart_has_bga: false,
                 layer: None,
                 track_bga_opacity: 0.0,
                 key_pressed: &[false; LANE_COUNT],
