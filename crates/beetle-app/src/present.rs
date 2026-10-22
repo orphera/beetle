@@ -392,6 +392,7 @@ fn option_lines(state: &AppState, table: &'static [OptionDesc]) -> Vec<OptionLin
                 section,
                 label: d.label,
                 value: options_table::value(state, d.id),
+                stepper: options_table::steps(d.id),
             }
         })
         .collect()

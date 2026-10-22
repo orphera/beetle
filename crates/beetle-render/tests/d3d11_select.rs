@@ -335,6 +335,7 @@ fn render_ex(
                 section,
                 label,
                 value: value.to_string(),
+                stepper: true,
             };
             let lines = [
                 line(Some(strings::GROUP_PLAY()), strings::ROW_GREEN(), "500 ms"),

@@ -329,6 +329,9 @@ pub struct OptionLine<'a> {
     pub label: &'a str,
     /// The value as shown ("500 ms", "GROOVE", "<" arrows added by the drawing).
     pub value: String,
+    /// Whether the value steps with `<` `>`. A row that only opens something
+    /// on ENTER (a list, another program) has no arrows.
+    pub stepper: bool,
 }
 
 /// A section header: caption and a hairline to its right, top at `y`.
@@ -395,14 +398,16 @@ pub(crate) fn option_row(
     let prev = Rect::new(area.x, row.y, step, row.h);
     let next = Rect::new(area.right() - step, row.y, step, row.h);
     hs.add(row, HitId::OptionRow(index));
-    hs.add(prev, HitId::OptionPrev(index));
-    hs.add(next, HitId::OptionNext(index));
+    if line.stepper {
+        hs.add(prev, HitId::OptionPrev(index));
+        hs.add(next, HitId::OptionNext(index));
+    }
 
     let text = Rect::new(area.x + step, row.y, area.w - 2.0 * step, row.h);
     let st = TextStyle::new(13.0 * s).bold().color(fg);
     let value = t.fit(c, &line.value, text.w - 4.0 * s, &st).into_owned();
     t.draw_in(c, &value, text, Align::Center, &st);
-    if on || hot {
+    if (on || hot) && line.stepper {
         let iy = row.y + (row.h - icon) / 2.0;
         c.sprite(
             sk.icons.chevron_left,

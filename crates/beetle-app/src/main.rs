@@ -22,6 +22,7 @@ mod preview;
 mod raw_input;
 mod result_reveal;
 mod scanner;
+mod shell;
 mod single_instance;
 mod song_folders;
 mod song_menu;

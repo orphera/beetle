@@ -211,24 +211,28 @@ mod tests {
                 section: Some("화면"),
                 label: "화면 모드",
                 value: "창 모드".into(),
+                stepper: true,
             },
             OptionLine {
                 column: 0,
                 section: None,
                 label: "해상도",
                 value: "1280 x 720".into(),
+                stepper: true,
             },
             OptionLine {
                 column: 1,
                 section: Some("레이아웃"),
                 label: "플레이필드",
                 value: "가운데".into(),
+                stepper: true,
             },
             OptionLine {
                 column: 1,
                 section: None,
                 label: "키 배치",
                 value: "7K  HomeRow".into(),
+                stepper: true,
             },
         ]
     }
@@ -329,6 +333,7 @@ mod tests {
                 section: (i % 5 == 0).then_some("분류"),
                 label: "항목",
                 value: "값".into(),
+                stepper: true,
             })
             .collect()
     }
@@ -418,6 +423,7 @@ mod tests {
             section: None,
             label: "항목",
             value: format!("값 {i}").into(),
+            stepper: true,
         }));
         // Scroll column 0 down by selecting its bottom row.
         let scrolled = follow_settings_scroll(&vp, &lines, 13, [0.0; 2]);

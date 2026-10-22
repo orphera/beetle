@@ -259,6 +259,7 @@ fn options_panel_over_the_result() {
         section,
         label,
         value: value.to_string(),
+        stepper: true,
     };
     let lines = [
         line(None, strings::ROW_LANE_COVER(), "25%"),

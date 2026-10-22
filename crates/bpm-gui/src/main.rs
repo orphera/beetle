@@ -264,7 +264,7 @@ impl ApplicationHandler for BpmGuiApp {
         }
 
         let window_attributes = Window::default_attributes()
-            .with_title("Beetle 곡 관리자")
+            .with_title("Beetle 고급 도구")
             .with_inner_size(LogicalSize::new(1080.0, 740.0))
             .with_min_inner_size(LogicalSize::new(900.0, 620.0));
 

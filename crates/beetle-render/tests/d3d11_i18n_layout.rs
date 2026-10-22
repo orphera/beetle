@@ -96,6 +96,7 @@ fn settings_lines() -> Vec<OptionLine<'static>> {
             section,
             label,
             value: value.to_string(),
+            stepper: true,
         })
         .collect()
 }
@@ -126,6 +127,7 @@ fn option_lines() -> Vec<OptionLine<'static>> {
         section: (i == 0 || i == 5).then_some(section),
         label,
         value: value.to_string(),
+        stepper: true,
     })
     .collect()
 }

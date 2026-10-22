@@ -39,6 +39,23 @@ pub fn leave_settings(state: &mut AppState) {
     }
 }
 
+/// Starts the advanced tools (`bpm-gui.exe` next to the game) and says so.
+/// The game is not paused: coming back to its window rescans when the tools
+/// changed the library.
+pub fn open_tools(state: &mut AppState) {
+    let started = std::env::current_exe()
+        .ok()
+        .map(|exe| crate::shell::tools_beside(&exe))
+        .filter(|path| path.is_file())
+        .is_some_and(|path| crate::shell::open("open", &path));
+    play_ui(state, UiSound::Toast);
+    if started {
+        show_toast(state, ToastKind::Info, strings::TOAST_TOOLS_OPENED());
+    } else {
+        show_toast(state, ToastKind::Error, strings::TOAST_TOOLS_MISSING());
+    }
+}
+
 /// Changes the value of Settings row `row` one step and saves.
 fn change_setting(state: &mut AppState, row: usize, forward: bool) {
     if let Some(desc) = settings_options().get(row) {

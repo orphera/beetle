@@ -180,7 +180,7 @@ impl GuiRenderer {
         self.text_bold("Beetle", PAD + 34.0, 22.0, PX_TITLE, theme::TEXT);
         let name_w = text_w_bold("Beetle", PX_TITLE);
         self.text(
-            "곡 관리자",
+            "고급 도구",
             PAD + 40.0 + name_w,
             25.0,
             PX_SMALL,

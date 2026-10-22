@@ -148,10 +148,11 @@ impl Dialog {
         let mut v = DialogView::default();
         match &self.kind {
             DialogKind::Help => {
-                v.title = "Beetle 곡 관리자 사용법".into();
+                v.title = "Beetle 고급 도구 사용법".into();
                 v.wide = true;
                 v.body = vec![
                     "Beetle 게임에서 플레이할 곡을 넣고 정리하는 프로그램이에요.".into(),
+                    "곡을 넣고 지우는 것만이라면 게임 창으로 충분해요(끌어다 놓기, 곡 메뉴). 여기서는 난이도표, 패키지 만들기, 폴더 복사 같은 일을 해요.".into(),
                     "BMS란? 리듬게임용 곡 형식이에요. 곡 하나는 음악, 효과음과 채보 파일(.bms 등)이 든 폴더 하나예요.".into(),
                     "## 내 곡".into(),
                     "갖고 있는 곡을 보고 지워요. 곡 폴더나 압축 파일을 창에 끌어다 놓으면 추가돼요.".into(),

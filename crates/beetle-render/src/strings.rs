@@ -1724,6 +1724,26 @@ table! {
         ko "켜면 탐색기에서 .bmsp 파일을 두 번 눌렀을 때 이 게임이 열리고 곡을 넣어요.",
         en "When on, double-clicking a .bmsp file in Explorer opens this game and adds the song.",
         ja "オンにすると、エクスプローラーで .bmsp ファイルをダブルクリックしたときにこのゲームが開き、曲を追加します。";
+    pub ROW_TOOLS =
+        ko "고급 도구",
+        en "Advanced Tools",
+        ja "詳細ツール";
+    pub HELP_TOOLS =
+        ko "난이도표, 패키지 만들기, 폴더 복사를 다루는 고급 도구(bpm-gui)를 열어요. ENTER로 열어요.",
+        en "Opens the advanced tools (bpm-gui) for tables, making packages and copying folders. ENTER opens it.",
+        ja "難易度表、パッケージ作成、フォルダのコピーを扱う詳細ツール（bpm-gui）を開きます。ENTER で開きます。";
+    pub VALUE_OPEN =
+        ko "열기",
+        en "Open",
+        ja "開く";
+    pub TOAST_TOOLS_OPENED =
+        ko "고급 도구에서 바꾼 뒤 이 창으로 돌아오면 목록이 갱신돼요",
+        en "Come back to this window after changes in the tools to refresh the list",
+        ja "詳細ツールで変更した後このウィンドウに戻ると、一覧が更新されます";
+    pub TOAST_TOOLS_MISSING =
+        ko "고급 도구(bpm-gui.exe)를 찾지 못했어요",
+        en "Could not find the advanced tools (bpm-gui.exe)",
+        ja "詳細ツール（bpm-gui.exe）が見つかりませんでした";
     pub ROW_HIDDEN_SONGS =
         ko "숨긴 곡",
         en "Hidden Songs",

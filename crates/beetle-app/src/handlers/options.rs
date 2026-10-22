@@ -84,6 +84,10 @@ pub fn enter_row(
             crate::song_folders::open(state);
             true
         }
+        Some(options_table::Activation::OpenTools) => {
+            crate::handlers::settings::open_tools(state);
+            true
+        }
         Some(options_table::Activation::UnhideAll) => {
             crate::song_menu::unhide_all(state);
             true

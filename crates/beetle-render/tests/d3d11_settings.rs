@@ -86,6 +86,7 @@ fn lines(graphics_after_restart: bool) -> Vec<OptionLine<'static>> {
             section,
             label,
             value,
+            stepper: true,
         })
         .collect()
 }

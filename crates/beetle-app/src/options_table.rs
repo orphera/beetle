@@ -50,6 +50,7 @@ pub enum OptionId {
     SongFolders,
     HiddenSongs,
     FileAssoc,
+    AdvancedTools,
     DisplayMode,
     Resolution,
     Graphics,
@@ -188,6 +189,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_FILE_ASSOC(),
             help: strings::HELP_FILE_ASSOC(),
+        },
+        OptionDesc {
+            id: OptionId::AdvancedTools,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_TOOLS(),
+            help: strings::HELP_TOOLS(),
         },
         OptionDesc {
             id: OptionId::DisplayMode,
@@ -368,6 +376,17 @@ pub enum Activation {
     SongFolders,
     /// Shows every hidden song again.
     UnhideAll,
+    /// Starts the advanced tools (`bpm-gui.exe`).
+    OpenTools,
+}
+
+/// Whether the row's value steps with the arrows. A row that only opens a
+/// list or another program does not.
+pub fn steps(id: OptionId) -> bool {
+    !matches!(
+        id,
+        OptionId::SongFolders | OptionId::HiddenSongs | OptionId::AdvancedTools
+    )
 }
 
 /// The activation of `id`, if the row has one. Other rows change their value
@@ -378,6 +397,7 @@ pub fn activation(id: OptionId) -> Option<Activation> {
         OptionId::JudgeOffset => Some(Activation::Calibrate),
         OptionId::SongFolders => Some(Activation::SongFolders),
         OptionId::HiddenSongs => Some(Activation::UnhideAll),
+        OptionId::AdvancedTools => Some(Activation::OpenTools),
         _ => None,
     }
 }
@@ -510,6 +530,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             &[&state.linked_folders.to_string()],
         ),
         OptionId::FileAssoc => on_off(state.file_assoc).to_string(),
+        OptionId::AdvancedTools => strings::VALUE_OPEN().to_string(),
         OptionId::HiddenSongs => {
             strings::fill(strings::VALUE_FOLDERS(), &[&state.hidden_songs.to_string()])
         }
@@ -701,7 +722,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.sync_eight_k_form();
         }
         // A list, not a value: ENTER opens it.
-        OptionId::SongFolders | OptionId::HiddenSongs => {}
+        OptionId::SongFolders | OptionId::HiddenSongs | OptionId::AdvancedTools => {}
         OptionId::FileAssoc => {
             crate::file_assoc::set(!state.file_assoc);
             // Read back: a refused write leaves the row as it was.
@@ -858,6 +879,7 @@ mod tests {
                 OptionId::JudgeOffset => Some(Activation::Calibrate),
                 OptionId::SongFolders => Some(Activation::SongFolders),
                 OptionId::HiddenSongs => Some(Activation::UnhideAll),
+                OptionId::AdvancedTools => Some(Activation::OpenTools),
                 _ => None,
             };
             assert_eq!(activation(d.id), expected, "{:?}", d.id);

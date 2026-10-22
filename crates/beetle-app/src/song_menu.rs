@@ -255,7 +255,10 @@ fn run(state: &mut AppState, i: usize) {
     };
     match action {
         Action::OpenFolder => {
-            let opened = menu.source.folder().is_some_and(|dir| shell_explore(dir));
+            let opened = menu
+                .source
+                .folder()
+                .is_some_and(|dir| crate::shell::open("explore", dir));
             state.song_menu = None;
             if !opened {
                 play_ui(state, UiSound::Toast);
@@ -477,46 +480,6 @@ pub fn unhide_all(state: &mut AppState) {
         focus: Vec::new(),
     });
     state.start_rescan();
-}
-
-/// Opens `dir` in Explorer through the shell (`ShellExecuteW`), which avoids
-/// pulling `std::process` into the app binary. Returns false when the shell
-/// refuses (it reports success as a value above 32).
-#[cfg(windows)]
-fn shell_explore(dir: &Path) -> bool {
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "shell32")]
-    extern "system" {
-        fn ShellExecuteW(
-            hwnd: *mut std::ffi::c_void,
-            operation: *const u16,
-            file: *const u16,
-            parameters: *const u16,
-            directory: *const u16,
-            show: i32,
-        ) -> isize;
-    }
-    const SW_SHOWNORMAL: i32 = 1;
-    let wide = |s: &std::ffi::OsStr| -> Vec<u16> { s.encode_wide().chain(Some(0)).collect() };
-    let verb = wide(std::ffi::OsStr::new("explore"));
-    let file = wide(dir.as_os_str());
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            verb.as_ptr(),
-            file.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    result > 32
-}
-
-#[cfg(not(windows))]
-fn shell_explore(_dir: &Path) -> bool {
-    false
 }
 
 #[cfg(test)]
