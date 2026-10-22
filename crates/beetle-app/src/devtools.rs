@@ -25,6 +25,8 @@
 //! - `BEETLE_CAPTURE_LAMP=<failed|easy|clear|hard|fullcombo|perfect>`: the
 //!   end banner shows this lamp instead of the play's real one (display only).
 //!
+//! - `BEETLE_CAPTURE_FOLDER=<path>`: song select starts in this folder
+//!   (`dir`, `mode/7k`, ...) instead of the saved one.
 //! - `BEETLE_LANG=ko|en|ja`: the UI language for this run only (not saved).
 //! - `BEETLE_DEV_DROP=<path>;<path>...`: adds these as if they were dropped on
 //!   the window at startup (see `install.rs`).
@@ -178,6 +180,13 @@ pub fn start_screen() -> Option<AppScreen> {
         .and_then(|_| std::env::var("BEETLE_CAPTURE_SCREEN").ok())
         .and_then(|s| parse_screen(&s))
         .filter(|s| matches!(s, AppScreen::KeyConfig | AppScreen::Settings))
+}
+
+/// `BEETLE_CAPTURE_FOLDER`: the song select folder to start in.
+pub fn start_folder() -> Option<crate::folders::FolderPath> {
+    std::env::var("BEETLE_CAPTURE_FOLDER")
+        .ok()
+        .map(|p| crate::folders::FolderPath::parse(&p))
 }
 
 /// The Settings row the capture starts on (`BEETLE_CAPTURE_ROW=<index>`), so a

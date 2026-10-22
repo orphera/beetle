@@ -285,6 +285,14 @@ pub fn build_tree(
         (0..songs.len()).filter(|&i| pass[i]).collect(),
     ));
 
+    // Folders on disk: the folder holding each song's folder (an event or a
+    // collection), and the installed packages together.
+    root.extend(branch(
+        "dir",
+        strings::FOLDER_DIRS(),
+        dir_folders(songs, pass),
+    ));
+
     // Key modes.
     let modes: Vec<Folder> = MODE_ORDER
         .iter()
@@ -381,6 +389,57 @@ pub fn build_tree(
     }
 
     root
+}
+
+/// Where a song sits on disk for the folder view: (id, label) of the folder
+/// that holds its song folder. Packages share one folder. `None` for a loose
+/// chart.
+fn collection_of(file_path: &str) -> Option<(String, String)> {
+    let folder = song_folder(file_path)?;
+    if folder.contains("::") {
+        return Some(("~packages".into(), strings::FOLDER_PACKAGES().into()));
+    }
+    let parent = folder.rsplit_once('/').map_or(folder.as_str(), |(p, _)| p);
+    let label = parent.rsplit('/').next().unwrap_or(parent);
+    Some((id_piece(parent), label.to_string()))
+}
+
+/// The folder view's children, by label. Two folders with the same name show
+/// the one above too (`BMS/Event`).
+fn dir_folders(songs: &[SongMetadata], pass: &[bool]) -> Vec<Folder> {
+    let mut by_dir: BTreeMap<String, (String, Vec<usize>)> = BTreeMap::new();
+    for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
+        if let Some((id, label)) = collection_of(&s.file_path) {
+            by_dir
+                .entry(id)
+                .or_insert_with(|| (label, Vec::new()))
+                .1
+                .push(i);
+        }
+    }
+    let mut label_uses: HashMap<String, usize> = HashMap::new();
+    for (label, _) in by_dir.values() {
+        *label_uses.entry(label.clone()).or_default() += 1;
+    }
+    let mut out: Vec<Folder> = by_dir
+        .into_iter()
+        .filter_map(|(id, (label, idx))| {
+            let label = if label_uses[&label] > 1 {
+                let path = id.replace('|', "/");
+                let mut parts = path.rsplit('/');
+                let last = parts.next().unwrap_or("");
+                match parts.next() {
+                    Some(up) => format!("{up}/{last}"),
+                    None => label,
+                }
+            } else {
+                label
+            };
+            leaf(id, label, idx)
+        })
+        .collect();
+    out.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+    out
 }
 
 /// Songs per clear lamp (`LAMP_ORDER`) among the songs `indices` of the library.
@@ -656,20 +715,83 @@ pub fn chip_labels(songs: &[SongMetadata], charts: &[usize]) -> Vec<String> {
     labels
 }
 
-/// The key of a song's group: its folder and base title, FNV-1a 64. `None`
-/// when the song has no folder (a loose chart file), so it always gets its own row.
+fn fnv(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |h: u64, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// The key of a song's group when its folder is split by title: its folder
+/// and base title, FNV-1a 64. `None` when the song has no folder (a loose
+/// chart file), so it always gets its own row.
 pub fn group_key(song: &SongMetadata) -> Option<u64> {
     let folder = song_folder(&song.file_path)?;
-    let text = format!("{folder}\n{}", base_title(&song.title));
-    Some(text.bytes().fold(0xcbf2_9ce4_8422_2325, |h: u64, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-    }))
+    Some(fnv(&format!("{folder}\n{}", base_title(&song.title))))
+}
+
+/// The first few letters and digits of a title, lowercased: charts of one
+/// song (`Song -A-`, `Song [H]`) share them, different songs mostly do not.
+fn title_stem(title: &str) -> String {
+    base_title(title)
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .take(4)
+        .collect()
+}
+
+/// Each song's group key. The charts of one folder are one song and share
+/// the folder's key, unless the folder is a dump of many songs (more than two
+/// title stems, and more stems than half its charts): then they are grouped
+/// by folder and base title (`group_key`). A loose chart has none.
+pub fn group_keys(songs: &[SongMetadata]) -> Vec<Option<u64>> {
+    let folders: Vec<Option<String>> = songs.iter().map(|s| song_folder(&s.file_path)).collect();
+    let mut stems: HashMap<&str, (HashSet<String>, usize)> = HashMap::new();
+    for (song, folder) in songs.iter().zip(&folders) {
+        if let Some(folder) = folder {
+            let entry = stems.entry(folder.as_str()).or_default();
+            entry.0.insert(title_stem(&song.title));
+            entry.1 += 1;
+        }
+    }
+    songs
+        .iter()
+        .zip(&folders)
+        .map(|(song, folder)| {
+            let folder = folder.as_deref()?;
+            let (distinct, charts) = &stems[folder];
+            let mixed = distinct.len() > 2 && distinct.len() * 2 > *charts;
+            if mixed {
+                group_key(song)
+            } else {
+                Some(fnv(folder))
+            }
+        })
+        .collect()
+}
+
+/// The title a group shows: the base title most of its charts share (the
+/// first chart's on a tie).
+fn group_title(songs: &[SongMetadata], charts: &[usize]) -> String {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for &c in charts {
+        let t = base_title(&songs[c].title);
+        match counts.iter_mut().find(|(x, _)| *x == t) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((t, 1)),
+        }
+    }
+    let best = counts.iter().map(|(_, n)| *n).max().unwrap_or(0);
+    counts
+        .iter()
+        .find(|(_, n)| *n == best)
+        .map_or(String::new(), |(t, _)| t.to_string())
 }
 
 /// The rows for `indices` (song indices in list order). Charts with the same
-/// group key share one row, which takes the place of its first chart. A
-/// group of one chart is a plain song row. The charts run by level, then title,
-/// and the row shows the remembered chart (or the first one).
+/// group key (`group_keys`) share one row, which takes the place of its first
+/// chart. A group of one chart is a plain song row. The charts run by level,
+/// then title, and the row shows the remembered chart (or the first one).
 pub fn group_entries(
     songs: &[SongMetadata],
     indices: &[usize],
@@ -679,10 +801,11 @@ pub fn group_entries(
         Song(usize),
         Group(u64),
     }
+    let keys = group_keys(songs);
     let mut members: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut order = Vec::new();
     for &i in indices {
-        match group_key(&songs[i]) {
+        match keys[i] {
             Some(key) => {
                 let bucket = members.entry(key).or_default();
                 if bucket.is_empty() {
@@ -713,7 +836,7 @@ pub fn group_entries(
                 let labels = chip_labels(songs, &charts);
                 ListEntry::Group {
                     key,
-                    title: base_title(&songs[charts[0]].title).to_string(),
+                    title: group_title(songs, &charts),
                     charts,
                     selected,
                     labels,
@@ -972,6 +1095,30 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn the_folder_view_lists_the_folders_above_the_song_folders() {
+        let songs = vec![
+            chart(1, "D:/BMS/BOF/AIR/a.bms", "AIR", 1),
+            chart(2, "D:/BMS/BOF/Other/b.bms", "Other", 2),
+            chart(3, "E:/Games/BOF/Third/c.bms", "Third", 3),
+            chart(4, "D:/BMS/Solo/One/d.bms", "One", 4),
+            chart(5, "packages/p/s/package.bmsp::x.bms", "Pkg", 5),
+        ];
+        let tree = tree_of(&songs, &TableIndex::default());
+        let dir = tree.iter().find(|f| f.id == "dir").unwrap();
+        let Body::Branch(children) = &dir.body else {
+            panic!("the folder view is a branch");
+        };
+        let labels: Vec<&str> = children.iter().map(|c| c.label.as_str()).collect();
+        // Two "BOF" folders show the folder above; packages are one folder.
+        assert!(labels.contains(&"BMS/BOF"));
+        assert!(labels.contains(&"Games/BOF"));
+        assert!(labels.contains(&"Solo"));
+        assert_eq!(children.len(), 4);
+        let bof = children.iter().find(|c| c.label == "BMS/BOF").unwrap();
+        assert_eq!(bof.count, 2);
     }
 
     #[test]
@@ -1521,15 +1668,37 @@ mod tests {
     }
 
     #[test]
-    fn charts_of_one_song_in_one_folder_share_a_group_key() {
-        let a = chart(1, "songs/AIR/a.bms", "AIRSHAVER [7key, Another]", 12);
-        let b = chart(2, "songs/AIR/b.bms", "AIRSHAVER [14key, Another]", 12);
-        let other_folder = chart(3, "songs/OTHER/c.bms", "AIRSHAVER [7key, Another]", 12);
-        let other_song = chart(4, "songs/AIR/d.bms", "AIRSHAVER 2", 12);
-        assert_eq!(group_key(&a), group_key(&b));
-        assert_ne!(group_key(&a), group_key(&other_folder));
-        assert_ne!(group_key(&a), group_key(&other_song));
-        assert_eq!(group_key(&chart(5, "loose.bms", "Loose", 1)), None);
+    fn the_charts_of_one_folder_share_a_group_key() {
+        let songs = vec![
+            chart(1, "songs/AIR/a.bms", "AIRSHAVER [7key, Another]", 12),
+            chart(2, "songs/AIR/b.bms", "AIRSHAVER -HYPER-", 10),
+            chart(3, "songs/OTHER/c.bms", "AIRSHAVER [7key, Another]", 12),
+            chart(4, "songs/AIR/d.bms", "AIRSHAVER 2", 12),
+            chart(5, "loose.bms", "Loose", 1),
+        ];
+        let keys = group_keys(&songs);
+        // Different titles in one song folder are still one song.
+        assert_eq!(keys[0], keys[1]);
+        assert_eq!(keys[0], keys[3]);
+        assert_ne!(keys[0], keys[2]);
+        assert_eq!(keys[4], None);
+    }
+
+    #[test]
+    fn a_folder_of_many_songs_is_grouped_by_title() {
+        let songs = vec![
+            chart(1, "dump/a.bms", "Alpha [N]", 5),
+            chart(2, "dump/b.bms", "Alpha [H]", 9),
+            chart(3, "dump/c.bms", "Bravo", 5),
+            chart(4, "dump/d.bms", "Charlie", 5),
+            chart(5, "dump/e.bms", "Delta", 5),
+        ];
+        let keys = group_keys(&songs);
+        assert_eq!(keys[0], keys[1]);
+        assert_ne!(keys[0], keys[2]);
+        assert_ne!(keys[2], keys[3]);
+        let entries = group_entries(&songs, &[0, 1, 2, 3, 4], &ChartChoices::new());
+        assert_eq!(entries.len(), 4);
     }
 
     #[test]
@@ -1546,7 +1715,7 @@ mod tests {
             entries,
             [
                 ListEntry::Group {
-                    key: group_key(&songs[0]).unwrap(),
+                    key: group_keys(&songs)[0].unwrap(),
                     title: "AIR".into(),
                     charts: vec![3, 2, 0],
                     selected: 0,
@@ -1564,7 +1733,7 @@ mod tests {
             chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
             chart(9, "loose.bms", "Loose", 5),
         ];
-        let key = group_key(&songs[0]).unwrap();
+        let key = group_keys(&songs)[0].unwrap();
         let mut choices = ChartChoices::new();
         choices.insert(key, songs[1].id);
         let entries = group_entries(&songs, &[0, 1, 2], &choices);

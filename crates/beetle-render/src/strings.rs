@@ -378,6 +378,14 @@ table! {
         ko "전체 곡",
         en "All Songs",
         ja "全曲";
+    pub FOLDER_DIRS =
+        ko "폴더별",
+        en "By Folder",
+        ja "フォルダ別";
+    pub FOLDER_PACKAGES =
+        ko "설치한 곡",
+        en "Installed Songs",
+        ja "インストールした曲";
     pub FOLDER_MODE =
         ko "키 모드",
         en "Key Mode",
