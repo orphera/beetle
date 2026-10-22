@@ -32,7 +32,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Window, WindowAttributes, WindowId};
 
 /// Where a path picked in the Open dialog goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +257,25 @@ struct BpmGuiApp {
     state: Option<AppState>,
 }
 
+/// The icon group `build.rs` links into the exe (the game's icon).
+#[cfg(windows)]
+const APP_ICON_ID: u16 = 1;
+
+/// The exe's own icon on the title bar and the taskbar. A missing resource
+/// leaves the default icon.
+fn with_app_icon(attributes: WindowAttributes) -> WindowAttributes {
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
+        if let Ok(icon) = winit::window::Icon::from_resource(APP_ICON_ID, None) {
+            return attributes
+                .with_window_icon(Some(icon.clone()))
+                .with_taskbar_icon(Some(icon));
+        }
+    }
+    attributes
+}
+
 impl ApplicationHandler for BpmGuiApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
@@ -267,6 +286,7 @@ impl ApplicationHandler for BpmGuiApp {
             .with_title("Beetle 고급 도구")
             .with_inner_size(LogicalSize::new(1080.0, 740.0))
             .with_min_inner_size(LogicalSize::new(900.0, 620.0));
+        let window_attributes = with_app_icon(window_attributes);
 
         let window = match event_loop.create_window(window_attributes) {
             Ok(w) => Arc::new(w),
