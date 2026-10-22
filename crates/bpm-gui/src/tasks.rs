@@ -217,11 +217,10 @@ fn skip_message(skip: &Skipped) -> String {
     }
 }
 
-/// Packs each song folder under `folder` into `.bmsp` files next to it. An
-/// archive (zip, rar, 7z) is unpacked to a temp folder first, and each song's
-/// package goes next to the archive.
+/// Packs each song folder under `folder` into `.bmsp` files next to it. A
+/// zip is read in place and a rar / 7z unpacked to a temp folder first; each
+/// song's package goes next to the archive.
 pub fn pack(
-    root: PathBuf,
     folder: PathBuf,
     turbo: bool,
     bga: BgaPackMode,
@@ -235,7 +234,7 @@ pub fn pack(
         Err(PackageManagerError::Cancelled) => return Err(CANCELLED.to_string()),
         Err(e) => return Err(failed("압축 풀기", e)),
     };
-    let roots = bms_package_manager::find_bms_song_roots(source.root());
+    let roots = source.songs();
     if roots.is_empty() {
         return Err(format!(
             "'{}'에서 BMS 채보 파일을 찾지 못했어요",
@@ -248,26 +247,19 @@ pub fn pack(
         PackProfile::Classic
     };
     let options = PackOptions::new(profile, bga);
-    let mgr = manager(&root)?;
     // One song: the file goes next to the folder. Several: inside the folder.
     // An archive's: next to the archive.
-    let out_dir = source.out_dir(roots.len());
+    let out_dir = source.out_dir(&roots);
     let total = roots.len();
     let mut made = Vec::new();
     for (i, song) in roots.iter().enumerate() {
         if r.cancelled() {
             return Err(CANCELLED.to_string());
         }
-        let name = source.song_name(song);
+        let name = song.name.clone();
         let out = out_dir.join(format!("{name}.bmsp"));
         let result = if total == 1 {
-            mgr.pack_folder_advanced_with_progress(
-                song,
-                None,
-                options,
-                Some(&r.cancel),
-                r.callback(),
-            )
+            source.pack(song, options, Some(&r.cancel), r.callback())
         } else {
             r.progress(
                 &format!("{total}곡 중 {}번째 만드는 중", i + 1),
@@ -275,13 +267,7 @@ pub fn pack(
                 total,
                 &name,
             );
-            mgr.pack_folder_advanced_with_progress(
-                song,
-                None,
-                options,
-                Some(&r.cancel),
-                |_, _, _, _| {},
-            )
+            source.pack(song, options, Some(&r.cancel), |_, _, _, _| {})
         };
         match result {
             Ok(output) => {

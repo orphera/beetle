@@ -184,7 +184,7 @@ fn extract_with_seven_zip(
 
 /// Turns an archive entry name into a path under the destination, or `None`
 /// if it would escape it (absolute, drive-prefixed, or containing `..`).
-fn safe_relative_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn safe_relative_path(name: &str) -> Option<PathBuf> {
     let mut path = PathBuf::new();
     for part in name.split(['/', '\\']) {
         match part {
@@ -415,16 +415,48 @@ pub fn is_archive_path(path: &Path) -> bool {
     })
 }
 
-/// What packing reads songs from: a folder as it is, or an archive unpacked
-/// into a temp folder of its own, which goes away with this value.
+/// What packing reads songs from: a folder as it is, a zip read in place
+/// (nothing unpacked), or a rar / 7z unpacked into a temp folder of its own,
+/// which goes away with this value.
 pub struct PackSource {
     input: PathBuf,
-    root: PathBuf,
-    unpacked: bool,
+    kind: SourceKind,
+}
+
+enum SourceKind {
+    Folder,
+    Zip(crate::song_tree::ZipTree),
+    Unpacked(PathBuf),
+}
+
+/// One song of a `PackSource`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackSong {
+    /// The package name: the song folder's name, or the archive's name when
+    /// the charts sit at the archive's top level.
+    pub name: String,
+    place: SongPlace,
+}
+
+impl PackSong {
+    /// The song's folder on disk, when it has one (not for a song read from a zip).
+    pub fn folder(&self) -> Option<&Path> {
+        match &self.place {
+            SongPlace::Dir(dir) => Some(dir),
+            SongPlace::Zip(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SongPlace {
+    Dir(PathBuf),
+    /// A folder inside the zip ("" for its top level).
+    Zip(String),
 }
 
 impl PackSource {
-    /// Opens `input`: a folder, or a zip / rar / 7z (unpacked now).
+    /// Opens `input`: a folder, a zip, or a rar / 7z (unpacked now).
     pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, PackageManagerError> {
         Self::open_with_cancel(input, None)
     }
@@ -435,80 +467,153 @@ impl PackSource {
         cancel: Option<&AtomicBool>,
     ) -> Result<Self, PackageManagerError> {
         let input = input.as_ref().to_path_buf();
-        if input.is_file() && is_archive_path(&input) {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let root = std::env::temp_dir().join(format!(
-                "bpm-pack-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            let source = Self {
-                input: input.clone(),
-                root,
-                unpacked: true,
-            };
-            // On an error or a cancel, `source` drops and removes the folder.
-            extract_archive_with_cancel(&input, &source.root, cancel)?;
-            return Ok(source);
+        if !(input.is_file() && is_archive_path(&input)) {
+            return Ok(Self {
+                input,
+                kind: SourceKind::Folder,
+            });
         }
-        Ok(Self {
-            root: input.clone(),
-            input,
-            unpacked: false,
-        })
-    }
-
-    /// The folder to look for songs in.
-    pub fn root(&self) -> &Path {
-        &self.root
+        let is_zip = input
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("zip"));
+        if is_zip {
+            let tree = crate::song_tree::ZipTree::open(&input)?;
+            return Ok(Self {
+                input,
+                kind: SourceKind::Zip(tree),
+            });
+        }
+        use std::sync::atomic::AtomicUsize;
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "bpm-pack-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let source = Self {
+            input: input.clone(),
+            kind: SourceKind::Unpacked(root.clone()),
+        };
+        // On an error or a cancel, `source` drops and removes the folder.
+        extract_archive_with_cancel(&input, &root, cancel)?;
+        Ok(source)
     }
 
     /// Whether the input was an archive.
     pub fn is_archive(&self) -> bool {
-        self.unpacked
+        !matches!(self.kind, SourceKind::Folder)
     }
 
-    /// Where the packages go by default: next to the archive, or (for a
-    /// folder) next to it when it is one song and inside it when it holds several.
-    pub fn out_dir(&self, songs: usize) -> PathBuf {
+    fn archive_name(&self) -> String {
+        self.input
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("package")
+            .to_string()
+    }
+
+    /// The songs to pack, in folder order.
+    pub fn songs(&self) -> Vec<PackSong> {
+        let dir_songs = |root: &Path, top_name: String| -> Vec<PackSong> {
+            crate::find_bms_song_roots(root)
+                .into_iter()
+                .map(|dir| PackSong {
+                    name: if dir == root {
+                        top_name.clone()
+                    } else {
+                        dir.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("package")
+                            .to_string()
+                    },
+                    place: SongPlace::Dir(dir),
+                })
+                .collect()
+        };
+        match &self.kind {
+            SourceKind::Folder => {
+                let name = self
+                    .input
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("package")
+                    .to_string();
+                dir_songs(&self.input, name)
+            }
+            SourceKind::Unpacked(root) => dir_songs(root, self.archive_name()),
+            SourceKind::Zip(tree) => tree
+                .song_dirs()
+                .into_iter()
+                .map(|dir| PackSong {
+                    name: if dir.is_empty() {
+                        self.archive_name()
+                    } else {
+                        dir.rsplit('/').next().unwrap_or(&dir).to_string()
+                    },
+                    place: SongPlace::Zip(dir),
+                })
+                .collect(),
+        }
+    }
+
+    /// Packs `song` (one of `songs()`) with `options`.
+    pub fn pack<F>(
+        &self,
+        song: &PackSong,
+        options: crate::PackOptions,
+        cancel: Option<&AtomicBool>,
+        on_progress: F,
+    ) -> Result<crate::PackOutput, PackageManagerError>
+    where
+        F: FnMut(&str, usize, usize, &str),
+    {
+        match (&song.place, &self.kind) {
+            (SongPlace::Zip(dir), SourceKind::Zip(tree)) => crate::pack_song_with_progress(
+                &tree.song(dir, &song.name),
+                None,
+                options,
+                cancel,
+                on_progress,
+            ),
+            (SongPlace::Dir(dir), _) => crate::pack_song_with_progress(
+                &crate::song_tree::DirSong::new(dir),
+                None,
+                options,
+                cancel,
+                on_progress,
+            ),
+            _ => Err(PackageManagerError::InvalidPackage(
+                "the song is not from this source".into(),
+            )),
+        }
+    }
+
+    /// Where the packages go by default: next to an archive; for a folder,
+    /// next to it when it is one song and inside it when it holds several.
+    pub fn out_dir(&self, songs: &[PackSong]) -> PathBuf {
         let beside = || {
             self.input
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
         };
-        if self.unpacked || (songs == 1 && self.root_is_song()) {
+        let folder_is_the_song = matches!(
+            songs,
+            [one] if one.place == SongPlace::Dir(self.input.clone())
+        );
+        if self.is_archive() || folder_is_the_song {
             beside()
         } else {
             self.input.clone()
         }
     }
-
-    fn root_is_song(&self) -> bool {
-        crate::find_bms_song_roots(&self.root)
-            .first()
-            .is_some_and(|r| r == &self.root)
-    }
-
-    /// The package name for the song folder `song`: its folder name, or the
-    /// archive's name when the charts sit at the archive's top level.
-    pub fn song_name(&self, song: &Path) -> String {
-        let from = if self.unpacked && song == self.root {
-            self.input.file_stem()
-        } else {
-            song.file_name()
-        };
-        from.and_then(|n| n.to_str())
-            .unwrap_or("package")
-            .to_string()
-    }
 }
 
 impl Drop for PackSource {
     fn drop(&mut self) {
-        if self.unpacked {
-            let _ = fs::remove_dir_all(&self.root);
+        if let SourceKind::Unpacked(root) = &self.kind {
+            let _ = fs::remove_dir_all(root);
         }
     }
 }
@@ -534,10 +639,6 @@ mod cancel_tests {
         let out = dir.join("out");
         assert!(matches!(
             extract_archive_with_cancel(&zip_path, &out, Some(&cancel)),
-            Err(PackageManagerError::Cancelled)
-        ));
-        assert!(matches!(
-            PackSource::open_with_cancel(&zip_path, Some(&cancel)),
             Err(PackageManagerError::Cancelled)
         ));
         let left: Vec<_> = fs::read_dir(std::env::temp_dir())
@@ -569,45 +670,66 @@ mod pack_source_tests {
         zip.finish().unwrap();
     }
 
+    fn wav() -> Vec<u8> {
+        let mut c = std::io::Cursor::new(Vec::new());
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::new(&mut c, spec).unwrap();
+        for s in [0i16, 1000, -1000, 500] {
+            w.write_sample(s).unwrap();
+        }
+        w.finalize().unwrap();
+        c.into_inner()
+    }
+
     #[test]
-    fn an_archive_is_unpacked_named_after_itself_and_removed_after() {
+    fn a_zip_packs_the_same_bytes_as_its_unpacked_folder() {
         let dir = std::env::temp_dir().join(format!("bpm-packsrc-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let top = dir.join("Top Song.zip");
-        zip_with(&top, &[("a.bms", b"#TITLE A\n"), ("a.wav", b"RIFF")]);
-        let nested = dir.join("Pack.zip");
-        zip_with(
-            &nested,
-            &[("One/x.bms", b"#TITLE X\n"), ("Two/y.bms", b"#TITLE Y\n")],
-        );
-
-        let unpacked_root;
-        {
-            let source = PackSource::open(&top).unwrap();
-            assert!(source.is_archive());
-            unpacked_root = source.root().to_path_buf();
-            let songs = crate::find_bms_song_roots(source.root());
-            assert_eq!(songs.len(), 1);
-            assert_eq!(source.song_name(&songs[0]), "Top Song");
-            assert_eq!(source.out_dir(1), dir);
+        let chart: &[u8] = b"#TITLE Song\n#ARTIST A\n#WAV01 kick.wav\n#00111:01\n";
+        let kick = wav();
+        let files: Vec<(&str, &[u8])> = vec![
+            ("Pack/One/a.bms", chart),
+            ("Pack/One/kick.wav", &kick),
+            ("Pack/Two/b.bms", chart),
+            ("Pack/Two/kick.wav", &kick),
+        ];
+        let zip_path = dir.join("Two Songs.zip");
+        zip_with(&zip_path, &files);
+        for (name, data) in &files {
+            let path = dir.join("unpacked").join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, data).unwrap();
         }
-        assert!(!unpacked_root.exists(), "the unpacked folder is removed");
 
-        let source = PackSource::open(&nested).unwrap();
-        let mut names: Vec<String> = crate::find_bms_song_roots(source.root())
-            .iter()
-            .map(|s| source.song_name(s))
-            .collect();
-        names.sort();
+        let zip = PackSource::open(&zip_path).unwrap();
+        let folder = PackSource::open(dir.join("unpacked")).unwrap();
+        assert!(zip.is_archive() && !folder.is_archive());
+        let (zs, fs_) = (zip.songs(), folder.songs());
+        let names: Vec<&str> = zs.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["One", "Two"]);
-        assert_eq!(source.out_dir(2), dir);
+        assert_eq!(zip.out_dir(&zs), dir);
+        for profile in [crate::PackProfile::Classic, crate::PackProfile::Turbo] {
+            let options = crate::PackOptions::new(profile, crate::BgaPackMode::Embed);
+            for (z, f) in zs.iter().zip(&fs_) {
+                let a = zip.pack(z, options, None, |_, _, _, _| {}).unwrap();
+                let b = folder.pack(f, options, None, |_, _, _, _| {}).unwrap();
+                assert_eq!(a.base_package, b.base_package, "{profile:?} {}", z.name);
+            }
+        }
 
-        // A folder is used where it is.
-        let folder = PackSource::open(&dir).unwrap();
-        assert!(!folder.is_archive());
-        assert_eq!(folder.root(), dir.as_path());
-        drop(source);
+        // Charts at the top level take the archive's name.
+        let top = dir.join("Top Level.zip");
+        zip_with(&top, &[("a.bms", chart), ("kick.wav", &kick)]);
+        let source = PackSource::open(&top).unwrap();
+        let songs = source.songs();
+        assert_eq!(songs.len(), 1);
+        assert_eq!(songs[0].name, "Top Level");
         let _ = fs::remove_dir_all(&dir);
     }
 }

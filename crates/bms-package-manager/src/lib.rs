@@ -17,6 +17,7 @@ pub mod net;
 pub mod pack;
 pub mod registry;
 pub mod serve;
+pub mod song_tree;
 pub mod songs;
 pub mod storage;
 pub mod table;
@@ -31,7 +32,7 @@ pub use add::{
 };
 pub use archive::{
     extract_archive, extract_archive_with_cancel, extract_zip_archive, find_seven_zip,
-    is_archive_path, PackSource,
+    is_archive_path, PackSong, PackSource,
 };
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};
@@ -44,10 +45,10 @@ pub use net::{
     RemotePackageInstaller, DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT, GLOBAL_MAX_PACKAGE_SIZE,
 };
 pub use pack::{
-    analyze_bms_folder, find_bms_song_roots, pack_bms_folder,
+    analyze_bms_folder, analyze_song, find_bms_song_roots, pack_bms_folder,
     pack_bms_folder_advanced_with_progress, pack_bms_folder_profile,
-    pack_bms_folder_profile_with_progress, AudioPackMode, BgaPackMode, PackOptions, PackOutput,
-    PackProfile,
+    pack_bms_folder_profile_with_progress, pack_song_with_progress, AudioPackMode, BgaPackMode,
+    PackOptions, PackOutput, PackProfile,
 };
 pub use registry::{
     remote::{CompanionBgaMetadata, RemotePackageMetadata, RemoteRegistryIndex},

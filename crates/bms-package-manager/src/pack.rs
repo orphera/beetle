@@ -1,9 +1,9 @@
 use crate::error::PackageManagerError;
+use crate::song_tree::{self, DirSong, SongTree};
 use beetle_audio::{SampleBank, SoundAtlasBuilder};
 use beetle_render::{is_video_path, BgaAtlasBuilder, ImageBuffer};
 use bms_package::{
     split_sequence_prefix_and_num, BgaDeltaBuilder, Manifest, PackageBuilder, SoundAtlasCodec,
-    MANIFEST_FILENAME,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -178,37 +178,26 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
         [single] => single.as_path(),
         [first, ..] => first.as_path(),
     };
+    Ok(analyze_song(&DirSong::new(target_dir)))
+}
 
-    let dir_name = target_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("bms_song");
-
+/// The manifest of `song`, from the charts directly in its folder: the title
+/// and artist most of them share, the first genre.
+pub fn analyze_song(song: &dyn SongTree) -> Manifest {
+    let dir_name = song.name();
     let mut found_genre = String::new();
 
-    // Look for .bms, .bme, .bml, .pms files in target_dir
-    let mut bms_paths = Vec::new();
-    for entry in fs::read_dir(target_dir)? {
-        let path = entry?.path();
-        if path.is_file() {
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-
-            if matches!(ext.as_str(), "bms" | "bme" | "bml" | "pms") {
-                bms_paths.push(path);
-            }
-        }
-    }
-    // read_dir order is platform-defined; sort so the chosen values are the same on every run.
-    bms_paths.sort();
+    // The charts directly in the song folder, in name order.
+    let bms_paths: Vec<String> = song
+        .files()
+        .into_iter()
+        .filter(|rel| !rel.contains('/') && song_tree::is_chart(rel))
+        .collect();
 
     let mut titles = Vec::new();
     let mut artists = Vec::new();
     for path in &bms_paths {
-        if let Ok(bytes) = fs::read(path) {
+        if let Ok(bytes) = song.read(path) {
             // Same decoding as the chart loader: a lossy UTF-8 read turned
             // Shift-JIS and CP949 titles into U+FFFD boxes in the registry.
             let content = beetle_core::decode_bms_text(&bytes);
@@ -225,7 +214,7 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
         }
     }
 
-    let final_title = pick_most_common(&titles).unwrap_or_else(|| canonicalize_title(dir_name));
+    let final_title = pick_most_common(&titles).unwrap_or_else(|| canonicalize_title(&dir_name));
 
     let final_artist = pick_most_common(&artists).unwrap_or_else(|| "Unknown".to_string());
 
@@ -237,7 +226,7 @@ pub fn analyze_bms_folder<P: AsRef<Path>>(dir_path: P) -> Result<Manifest, Packa
         manifest = manifest.with_extra("genre", serde_json::json!(found_genre));
     }
 
-    Ok(manifest)
+    manifest
 }
 
 /// Packs an existing BMS directory into a standardized, deterministic `.bmsp` byte buffer (Classic profile).
@@ -310,7 +299,7 @@ pub fn pack_bms_folder_advanced_with_progress<P: AsRef<Path>, F>(
     manifest_override: Option<Manifest>,
     options: PackOptions,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
-    mut on_progress: F,
+    on_progress: F,
 ) -> Result<PackOutput, PackageManagerError>
 where
     F: FnMut(&str, usize, usize, &str),
@@ -327,29 +316,48 @@ where
         [first, ..] => first.as_path(),
     };
 
+    pack_song_with_progress(
+        &DirSong::new(target_dir),
+        manifest_override,
+        options,
+        cancel_flag,
+        on_progress,
+    )
+}
+
+/// Packs one song from `song` (a folder on disk, or a folder inside a zip
+/// read in place) into a `.bmsp` with `options`.
+pub fn pack_song_with_progress<F>(
+    song: &dyn SongTree,
+    manifest_override: Option<Manifest>,
+    options: PackOptions,
+    cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+    mut on_progress: F,
+) -> Result<PackOutput, PackageManagerError>
+where
+    F: FnMut(&str, usize, usize, &str),
+{
     match options.profile {
         PackProfile::Classic => {
-            let p = target_dir;
             let mut manifest = match manifest_override {
                 Some(m) => m,
-                None => analyze_bms_folder(p)?,
+                None => analyze_song(song),
             };
 
-            let mut files_to_read = Vec::new();
-            collect_file_paths(p, p, &mut files_to_read)?;
+            let files_to_read = song.files();
 
             let total = files_to_read.len();
             let mut base_files = Vec::new();
             let mut bga_files = Vec::new();
 
-            for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
+            for (i, rel_path) in files_to_read.into_iter().enumerate() {
                 if let Some(flag) = cancel_flag {
                     if flag.load(std::sync::atomic::Ordering::Relaxed) {
                         return Err(PackageManagerError::Cancelled);
                     }
                 }
                 on_progress("Reading files", i + 1, total, &rel_path);
-                let data = fs::read(&abs_path)?;
+                let data = song.read(&rel_path)?;
 
                 if is_video_path(&rel_path) {
                     match options.bga_mode {
@@ -415,8 +423,8 @@ where
                 bga_manifest: bga_manifest_opt,
             })
         }
-        PackProfile::Turbo => pack_bms_folder_turbo_with_progress(
-            target_dir,
+        PackProfile::Turbo => pack_song_turbo_with_progress(
+            song,
             manifest_override,
             options,
             cancel_flag,
@@ -426,8 +434,8 @@ where
 }
 
 /// Turbo compilation: Assembles Sound Atlas and BGA Texture Atlas and builds a v2.0 package.
-fn pack_bms_folder_turbo_with_progress<P: AsRef<Path>, F>(
-    folder_path: P,
+fn pack_song_turbo_with_progress<F>(
+    song: &dyn SongTree,
     manifest_override: Option<Manifest>,
     options: PackOptions,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
@@ -436,22 +444,13 @@ fn pack_bms_folder_turbo_with_progress<P: AsRef<Path>, F>(
 where
     F: FnMut(&str, usize, usize, &str),
 {
-    let roots = find_bms_song_roots(&folder_path);
-    let target_dir = match roots.as_slice() {
-        [] => folder_path.as_ref(),
-        [single] => single.as_path(),
-        [first, ..] => first.as_path(),
-    };
-
-    let p = target_dir;
     let bga_mode = options.bga_mode;
     let mut manifest = match manifest_override {
         Some(m) => m,
-        None => analyze_bms_folder(p)?,
+        None => analyze_song(song),
     };
 
-    let mut files_to_read = Vec::new();
-    collect_file_paths(p, p, &mut files_to_read)?;
+    let files_to_read = song.files();
 
     // 1. Scan charts to map WavId and BmpId references to filenames
     // These maps are only used to discover referenced files that have an
@@ -460,7 +459,7 @@ where
     let mut wav_targets: HashMap<String, ()> = HashMap::new();
     let mut bmp_targets: HashMap<String, ()> = HashMap::new();
 
-    for (rel_path, abs_path) in &files_to_read {
+    for rel_path in &files_to_read {
         let ext = Path::new(rel_path)
             .extension()
             .and_then(|e| e.to_str())
@@ -468,7 +467,7 @@ where
             .to_ascii_lowercase();
 
         if matches!(ext.as_str(), "bms" | "bme" | "bml" | "pms") {
-            if let Ok(bytes) = fs::read(abs_path) {
+            if let Ok(bytes) = song.read(rel_path) {
                 let content = beetle_core::decode_bms_text(&bytes);
                 if let Ok(chart) = beetle_core::parse_bms(&content) {
                     for (&_wav_id, filename) in &chart.header.wav_table {
@@ -566,15 +565,15 @@ where
 
     let ogg_count = files_to_read
         .iter()
-        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".ogg"))
+        .filter(|rel| rel.to_ascii_lowercase().ends_with(".ogg"))
         .count();
     let flac_count = files_to_read
         .iter()
-        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".flac"))
+        .filter(|rel| rel.to_ascii_lowercase().ends_with(".flac"))
         .count();
     let wav_count = files_to_read
         .iter()
-        .filter(|(rel, _)| rel.to_ascii_lowercase().ends_with(".wav"))
+        .filter(|rel| rel.to_ascii_lowercase().ends_with(".wav"))
         .count();
 
     let sound_codec = match options.audio_mode {
@@ -595,7 +594,7 @@ where
 
     let mut image_prefix_counts: HashMap<String, usize> = HashMap::new();
     let mut total_image_count = 0;
-    for (rel, _) in &files_to_read {
+    for rel in &files_to_read {
         let ext = Path::new(rel)
             .extension()
             .and_then(|e| e.to_str())
@@ -618,7 +617,7 @@ where
     let mut passthrough_files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut bga_files: Vec<(String, Vec<u8>)> = Vec::new();
     let total = files_to_read.len();
-    for (i, (rel_path, abs_path)) in files_to_read.into_iter().enumerate() {
+    for (i, rel_path) in files_to_read.into_iter().enumerate() {
         if let Some(flag) = cancel_flag {
             if flag.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(PackageManagerError::Cancelled);
@@ -627,7 +626,7 @@ where
 
         on_progress("Compiling assets into Atlases", i + 1, total, &rel_path);
 
-        let data = fs::read(&abs_path)?;
+        let data = song.read(&rel_path)?;
         let norm_rel = rel_path.replace('\\', "/").to_ascii_lowercase();
         let file_name = Path::new(&rel_path)
             .file_name()
@@ -771,34 +770,6 @@ where
         base_manifest: manifest,
         bga_manifest: bga_manifest_opt,
     })
-}
-
-fn collect_file_paths(
-    base_dir: &Path,
-    current_dir: &Path,
-    out: &mut Vec<(String, std::path::PathBuf)>,
-) -> Result<(), PackageManagerError> {
-    for entry in fs::read_dir(current_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_file_paths(base_dir, &path, out)?;
-        } else if path.is_file() {
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if file_name == MANIFEST_FILENAME
-                || file_name.ends_with(".bmsp")
-                || file_name.starts_with('.')
-            {
-                continue;
-            }
-
-            if let Ok(rel) = path.strip_prefix(base_dir) {
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                out.push((rel_str, path));
-            }
-        }
-    }
-    Ok(())
 }
 
 fn extract_bms_header_tags(content: &str) -> (String, String, String) {

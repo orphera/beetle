@@ -931,7 +931,6 @@ fn confirm_dialog(state: &mut AppState) {
                 return;
             }
             state.dialog = None;
-            let root = state.manager.root_dir().to_path_buf();
             let folder = PathBuf::from(first);
             let name = folder
                 .file_name()
@@ -942,7 +941,7 @@ fn confirm_dialog(state: &mut AppState) {
                 format!("'{name}' 패키지 만드는 중"),
                 "곡 폴더 읽는 중...",
                 TaskKind::Other,
-                move |r| tasks::pack(root, folder, turbo, bga, r),
+                move |r| tasks::pack(folder, turbo, bga, r),
             );
         }
         DialogKind::CreateDelta => {

@@ -1665,8 +1665,9 @@ fn main() -> Result<(), PackageManagerError> {
             let pack_options = bms_package_manager::PackOptions::new(profile, bga_mode)
                 .with_audio_mode(audio_mode);
 
-            // An archive is unpacked to a temp folder (removed when `source`
-            // drops); its packages go next to it unless -o says otherwise.
+            // A zip is read in place, a rar / 7z unpacked to a temp folder
+            // (removed when `source` drops); an archive's packages go next to
+            // it unless -o says otherwise.
             let source = match bms_package_manager::PackSource::open(folder) {
                 Ok(source) => source,
                 Err(e) => {
@@ -1674,7 +1675,7 @@ fn main() -> Result<(), PackageManagerError> {
                     std::process::exit(1);
                 }
             };
-            let roots = bms_package_manager::find_bms_song_roots(source.root());
+            let roots = source.songs();
             if roots.is_empty() {
                 eprintln!("Error: No BMS chart files (.bms, .bme, .bml, .pms) found in '{}' or any subdirectories.", folder);
                 std::process::exit(1);
@@ -1690,7 +1691,7 @@ fn main() -> Result<(), PackageManagerError> {
 
             if roots.len() == 1 {
                 let target_root = &roots[0];
-                let folder_name = source.song_name(target_root);
+                let folder_name = target_root.name.clone();
 
                 let out_file: PathBuf = if let Some(dest) = out_arg {
                     let dest_path = Path::new(dest);
@@ -1701,22 +1702,18 @@ fn main() -> Result<(), PackageManagerError> {
                         PathBuf::from(dest)
                     }
                 } else if source.is_archive() {
-                    source.out_dir(1).join(format!("{}.bmsp", folder_name))
+                    source.out_dir(&roots).join(format!("{}.bmsp", folder_name))
                 } else {
                     PathBuf::from(format!("{}.bmsp", folder_name))
                 };
 
-                if !source.is_archive() && target_root != std::path::Path::new(folder) {
-                    println!("Detected BMS song root at '{}'", target_root.display());
+                if let Some(dir) = target_root.folder() {
+                    if !source.is_archive() && dir != Path::new(folder) {
+                        println!("Detected BMS song root at '{}'", dir.display());
+                    }
                 }
 
-                match bms_package_manager::pack_bms_folder_advanced_with_progress(
-                    target_root,
-                    None,
-                    pack_options,
-                    None,
-                    |_, _, _, _| {},
-                ) {
+                match source.pack(target_root, pack_options, None, |_, _, _, _| {}) {
                     Ok(pack_out) => {
                         if let Err(e) = fs::write(&out_file, &pack_out.base_package) {
                             eprintln!("Failed to write output package file: {e}");
@@ -1724,10 +1721,9 @@ fn main() -> Result<(), PackageManagerError> {
                         }
                         println!(
                             "Successfully packed '{}' into '{}' [{}]",
-                            if source.is_archive() {
-                                folder.to_string()
-                            } else {
-                                target_root.display().to_string()
+                            match target_root.folder() {
+                                Some(dir) if !source.is_archive() => dir.display().to_string(),
+                                _ => folder.to_string(),
                             },
                             out_file.display(),
                             profile_tag
@@ -1764,12 +1760,12 @@ fn main() -> Result<(), PackageManagerError> {
 
                 let mut success_count = 0;
                 for (i, target_root) in roots.iter().enumerate() {
-                    let folder_name = source.song_name(target_root);
+                    let folder_name = target_root.name.clone();
                     let out_file = match &out_dir {
                         Some(dir) => dir.join(format!("{}.bmsp", folder_name)),
-                        None if source.is_archive() => source
-                            .out_dir(roots.len())
-                            .join(format!("{}.bmsp", folder_name)),
+                        None if source.is_archive() => {
+                            source.out_dir(&roots).join(format!("{}.bmsp", folder_name))
+                        }
                         None => {
                             let parent = Path::new(folder);
                             if parent.is_dir() {
@@ -1784,22 +1780,15 @@ fn main() -> Result<(), PackageManagerError> {
                         "[{}/{}] Packing '{}' into '{}' [{}]... ",
                         i + 1,
                         roots.len(),
-                        // A song from an archive is named, not shown by its temp path.
-                        if source.is_archive() {
-                            folder_name.clone()
-                        } else {
-                            target_root.display().to_string()
+                        // A song from an archive is named, not shown by a temp path.
+                        match target_root.folder() {
+                            Some(dir) if !source.is_archive() => dir.display().to_string(),
+                            _ => folder_name.clone(),
                         },
                         out_file.display(),
                         profile_tag
                     );
-                    match bms_package_manager::pack_bms_folder_advanced_with_progress(
-                        target_root,
-                        None,
-                        pack_options,
-                        None,
-                        |_, _, _, _| {},
-                    ) {
+                    match source.pack(target_root, pack_options, None, |_, _, _, _| {}) {
                         Ok(pack_out) => {
                             if let Err(e) = fs::write(&out_file, &pack_out.base_package) {
                                 println!("FAILED (Write error: {})", e);
