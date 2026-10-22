@@ -64,7 +64,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Window, WindowAttributes, WindowId};
 
 #[cfg(windows)]
 #[link(name = "winmm")]
@@ -120,6 +120,25 @@ fn fatal_error(msg: &str) {
     }
 }
 
+/// The icon group `build.rs` links into the exe.
+#[cfg(windows)]
+const APP_ICON_ID: u16 = 1;
+
+/// The exe's own icon on the title bar and the taskbar. A missing resource
+/// leaves the default icon.
+fn with_app_icon(attributes: WindowAttributes) -> WindowAttributes {
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
+        if let Ok(icon) = winit::window::Icon::from_resource(APP_ICON_ID, None) {
+            return attributes
+                .with_window_icon(Some(icon.clone()))
+                .with_taskbar_icon(Some(icon));
+        }
+    }
+    attributes
+}
+
 struct BeetleApp {
     state: Option<AppState>,
     cli_bms_path: Option<String>,
@@ -170,6 +189,7 @@ impl ApplicationHandler for BeetleApp {
             // Shown once the first frame is drawn, so no unpainted window is seen.
             .with_visible(false)
             .with_resizable(false);
+        let window_attributes = with_app_icon(window_attributes);
 
         let window = match event_loop.create_window(window_attributes) {
             Ok(w) => Arc::new(w),
