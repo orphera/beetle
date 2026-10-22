@@ -21,6 +21,9 @@ pub struct BootFrame<'a> {
     pub title: &'a str,
     /// What is happening ("곡 목록을 읽는 중").
     pub status: &'a str,
+    /// How far the current stage is, 0 to 1, when it counts items; `None`
+    /// sweeps the bar instead.
+    pub fraction: Option<f32>,
 }
 
 const ENTER_SECONDS: f64 = 0.35;
@@ -60,8 +63,22 @@ pub fn draw_boot(ui: &mut Ui, f: &BootFrame) {
         vp.width - 320.0 * s,
         4.0 * s,
     );
-    widgets::sweep_bar(c, &sk, track, f.elapsed, s);
-    let dots = ((f.elapsed * 3.0) as usize) % 4;
+    match f.fraction {
+        Some(p) => {
+            c.nine(&sk.panel_sm, track, theme::LINE);
+            c.fill_rect_hgradient(
+                Rect::new(track.x, track.y, track.w * p, track.h),
+                theme::CYAN.with_alpha(120),
+                theme::CYAN,
+            );
+        }
+        None => widgets::sweep_bar(c, &sk, track, f.elapsed, s),
+    }
+    let dots = if f.fraction.is_some() {
+        0
+    } else {
+        ((f.elapsed * 3.0) as usize) % 4
+    };
     let status = format!("{}{}", f.status, ".".repeat(dots));
     t.draw(
         c,
@@ -89,6 +106,7 @@ mod tests {
                     elapsed,
                     title: strings::BOOT_TITLE_STARTUP(),
                     status: strings::BOOT_STATUS_STARTUP(),
+                    fraction: None,
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");

@@ -229,6 +229,13 @@ impl PackageReader {
         self.entries.iter().any(|e| e.path == path)
     }
 
+    /// An index of the entry names for answering many `find_entry_path`
+    /// questions at once (the key sounds of a chart): built once, then each
+    /// question is a few hash lookups instead of passes over every entry.
+    pub fn entry_index(&self) -> EntryIndex {
+        EntryIndex::new(self.entries.iter().map(|e| e.path.as_str()))
+    }
+
     /// Resolves an entry path within the package given a base directory and relative name.
     /// Handles backslashes, case-insensitivity, and alternate audio extensions (.wav <-> .ogg).
     /// Scopes searches strictly to `base_dir` to prevent cross-song asset leakage in multi-song packages.
@@ -351,5 +358,118 @@ impl PackageReader {
         let mut content = Vec::with_capacity(entry_file.size() as usize);
         entry_file.read_to_end(&mut content)?;
         Ok(content)
+    }
+}
+
+/// Lowercased entry names, for `EntryIndex::has`.
+pub struct EntryIndex {
+    paths: std::collections::HashSet<String>,
+    /// File name → the folders holding a file of that name (all lowercase).
+    files: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl EntryIndex {
+    pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut index = Self {
+            paths: std::collections::HashSet::new(),
+            files: std::collections::HashMap::new(),
+        };
+        for path in paths {
+            let lower = path.to_lowercase();
+            let (dir, file) = lower.rsplit_once('/').unwrap_or(("", lower.as_str()));
+            index
+                .files
+                .entry(file.to_string())
+                .or_default()
+                .push(dir.to_string());
+            index.paths.insert(lower.clone());
+        }
+        index
+    }
+
+    /// Whether `PackageReader::find_entry_path(base_dir, relative_name)` finds
+    /// an entry: the same rules (the path in any case, then the file name
+    /// inside `base_dir`, then the same stem with another media extension).
+    pub fn has(&self, base_dir: &str, relative_name: &str) -> bool {
+        let normalized = relative_name.replace('\\', "/");
+        let base = base_dir.trim_matches('/').trim_matches('\\');
+        let has_base = !base.is_empty() && base != ".";
+        let combined = if has_base {
+            format!("{}/{}", base, normalized.trim_start_matches('/'))
+        } else {
+            normalized.clone()
+        };
+        if self.paths.contains(&combined.to_lowercase()) {
+            return true;
+        }
+        let file = normalized
+            .rsplit('/')
+            .next()
+            .unwrap_or(&normalized)
+            .to_lowercase();
+        let stem = file.rfind('.').map_or(file.as_str(), |pos| &file[..pos]);
+        let base_lower = base.to_lowercase();
+        let in_base = |dir: &String| {
+            !has_base || *dir == base_lower || dir.starts_with(&format!("{base_lower}/"))
+        };
+        let found = |name: &str| {
+            self.files
+                .get(name)
+                .is_some_and(|dirs| dirs.iter().any(in_base))
+        };
+        found(&file)
+            || ["wav", "ogg", "flac", "bmp", "png", "jpg", "jpeg"]
+                .iter()
+                .any(|ext| found(&format!("{stem}.{ext}")))
+    }
+}
+
+#[cfg(test)]
+mod entry_index_tests {
+    use super::*;
+    use crate::{Manifest, PackageBuilder};
+
+    #[test]
+    fn the_index_finds_what_find_entry_path_finds() {
+        let mut builder = PackageBuilder::new(Manifest::new("t", "T"));
+        for path in [
+            "song.bms",
+            "Kick.WAV",
+            "snare.ogg",
+            "sub/hat.wav",
+            "Other/Inner/Clap.flac",
+            "Other/chart.bms",
+            "bga/frame01.png",
+        ] {
+            builder.add_file(path, b"x".to_vec()).unwrap();
+        }
+        let file = std::env::temp_dir().join(format!("beetle-index-{}.bmsp", std::process::id()));
+        builder.build_to_file(&file).unwrap();
+        let reader = PackageReader::open_file(&file).unwrap();
+        let index = reader.entry_index();
+        let names = [
+            "kick.wav",
+            "KICK.ogg",
+            "snare.wav",
+            "snare.OGG",
+            "hat.wav",
+            "sub\\hat.wav",
+            "clap.wav",
+            "Inner/clap.flac",
+            "missing.wav",
+            "frame01.bmp",
+            "bga/frame01.png",
+            "chart.bms",
+        ];
+        for base in ["", ".", "sub", "Other", "other/inner", "/Other/"] {
+            for name in names {
+                assert_eq!(
+                    index.has(base, name),
+                    reader.find_entry_path(base, name).is_some(),
+                    "base {base:?}, name {name:?}"
+                );
+            }
+        }
+        let _ = std::fs::remove_file(&file);
     }
 }

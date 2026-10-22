@@ -7,6 +7,7 @@
 //! `beetle_core::choose_load_index` picks among the copies in the same order
 //! `bpm` uses: folders before packages, then source, then path.
 
+use crate::boot_progress::{self, Stage};
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
 use beetle_core::{
     choose_load_index, collection_folders, deserialize_song_cache, display_path,
@@ -22,33 +23,6 @@ pub const DEFAULT_SONGS_DIR: &str = "songs";
 
 const SKIP_DIRS: &[&str] = &[".bpm-trash", ".tmp_install"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
-
-/// How far a library scan is: chart files read and chart files found. Zero
-/// while no scan runs (a read from the cache never counts).
-pub mod progress {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static DONE: AtomicUsize = AtomicUsize::new(0);
-    static TOTAL: AtomicUsize = AtomicUsize::new(0);
-
-    pub(super) fn begin(total: usize) {
-        DONE.store(0, Ordering::Relaxed);
-        TOTAL.store(total, Ordering::Relaxed);
-    }
-
-    pub(super) fn step() {
-        DONE.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub(super) fn end() {
-        begin(0);
-    }
-
-    /// (files read, files found).
-    pub fn read() -> (usize, usize) {
-        (DONE.load(Ordering::Relaxed), TOTAL.load(Ordering::Relaxed))
-    }
-}
 
 /// Where the source list lives for this process, as `bpm library` writes it.
 pub fn library_file() -> PathBuf {
@@ -83,18 +57,25 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     let mut seen_files = HashSet::new();
     // Every chart file first (a file reached twice is read once), then read
     // and parsed on several threads; the copies keep this order.
+    // A file's identity is its folder's canonical path plus its path inside:
+    // a folder listed inside another one is read once, without asking the
+    // file system for every file's canonical path.
     let mut jobs: Vec<(&String, PathBuf)> = Vec::new();
+    boot_progress::begin(Stage::Listing, 0);
     for folder in folders {
+        let root = Path::new(folder);
+        let canonical_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let mut files = Vec::new();
-        collect_chart_files(Path::new(folder), &mut files);
+        collect_chart_files(root, &mut files);
         for file in files {
-            let canonical = fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
-            if seen_files.insert(canonical) {
+            let inside = file.strip_prefix(root).unwrap_or(&file);
+            let key = canonical_root.join(inside).to_string_lossy().to_lowercase();
+            if seen_files.insert(key) {
                 jobs.push((folder, file));
             }
         }
     }
-    progress::begin(jobs.len());
+    boot_progress::begin(Stage::Charts, jobs.len());
     let read = read_charts_parallel(&jobs);
     for ((folder, file), meta) in jobs.iter().zip(read) {
         if let Some(meta) = meta {
@@ -107,38 +88,13 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
             });
         }
     }
-    progress::end();
 
     let mut readers: BTreeMap<String, PackageReader> = BTreeMap::new();
     if let Some(root) = packages_root {
-        for state in installed::read_active_states(root).unwrap_or_default() {
-            let Ok(mut reader) = PackageReader::open_file(&state.bmsp_path) else {
-                continue;
-            };
-            let source = format!("{}@{}", state.id, state.state_hash);
-            let package_path = state.bmsp_path.to_string_lossy().into_owned();
-            let charts: Vec<String> = reader
-                .entries()
-                .iter()
-                .map(|e| e.path.clone())
-                .filter(|p| is_chart_path(p))
-                .collect();
-            for path in charts {
-                let Ok(bytes) = reader.read_entry(&path) else {
-                    continue;
-                };
-                let virtual_path = format!("{package_path}::{path}");
-                let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) else {
-                    continue;
-                };
-                copies.push(Copy {
-                    kind: Kind::Package,
-                    source: source.clone(),
-                    path,
-                    meta,
-                    missing: None,
-                });
-            }
+        let states = installed::read_active_states(root).unwrap_or_default();
+        boot_progress::begin(Stage::Packages, states.len());
+        for (source, reader, found) in read_packages_parallel(&states).into_iter().flatten() {
+            copies.extend(found);
             readers.insert(source, reader);
         }
     }
@@ -147,11 +103,8 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     for copy in copies {
         by_chart.entry(copy.meta.id).or_default().push(copy);
     }
-    for group in by_chart.values_mut().filter(|g| g.len() > 1) {
-        for copy in group.iter_mut() {
-            copy.missing = missing_key_sounds(copy, &mut readers);
-        }
-    }
+    boot_progress::begin(Stage::Copies, 0);
+    check_copies_parallel(&mut by_chart, readers);
 
     let mut songs = select_copies(by_chart);
     songs.sort_by(|a, b| {
@@ -162,6 +115,133 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     songs
 }
 
+/// How many threads a stage of the scan uses for `jobs` items.
+fn workers_for(jobs: usize) -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, 8)
+        .min(jobs.max(1))
+}
+
+/// A package's source (`<id>@<state hash>`), its reader and its chart copies.
+type PackageCopies = (String, PackageReader, Vec<Copy>);
+
+/// Opens each active package state and reads its charts, on several threads.
+/// The result is in `states` order; `None` for a package that cannot be opened.
+fn read_packages_parallel(states: &[installed::ActiveState]) -> Vec<Option<PackageCopies>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let next = AtomicUsize::new(0);
+    let out: Mutex<Vec<Option<PackageCopies>>> =
+        Mutex::new((0..states.len()).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        for _ in 0..workers_for(states.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(state) = states.get(i) else {
+                    break;
+                };
+                let read = read_package(state);
+                if let Ok(mut out) = out.lock() {
+                    out[i] = read;
+                }
+                boot_progress::step();
+            });
+        }
+    });
+    out.into_inner().unwrap_or_default()
+}
+
+fn read_package(state: &installed::ActiveState) -> Option<PackageCopies> {
+    let mut reader = PackageReader::open_file(&state.bmsp_path).ok()?;
+    let source = format!("{}@{}", state.id, state.state_hash);
+    let package_path = state.bmsp_path.to_string_lossy().into_owned();
+    let charts: Vec<String> = reader
+        .entries()
+        .iter()
+        .map(|e| e.path.clone())
+        .filter(|p| is_chart_path(p))
+        .collect();
+    let mut copies = Vec::new();
+    for path in charts {
+        let Ok(bytes) = reader.read_entry(&path) else {
+            continue;
+        };
+        let virtual_path = format!("{package_path}::{path}");
+        let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) else {
+            continue;
+        };
+        copies.push(Copy {
+            kind: Kind::Package,
+            source: source.clone(),
+            path,
+            meta,
+            missing: None,
+        });
+    }
+    Some((source, reader, copies))
+}
+
+/// Works out `missing` for every copy of the charts found more than once, on
+/// several threads: the folder copies one at a time, the package copies one
+/// package at a time (a reader is not shared).
+fn check_copies_parallel(
+    by_chart: &mut BTreeMap<ChartId, Vec<Copy>>,
+    mut readers: BTreeMap<String, PackageReader>,
+) {
+    use std::sync::Mutex;
+
+    enum Job<'a> {
+        Folder(&'a mut Copy),
+        Package(PackageReader, Vec<&'a mut Copy>),
+    }
+    let mut by_source: BTreeMap<String, Vec<&mut Copy>> = BTreeMap::new();
+    let mut jobs: Vec<Job> = Vec::new();
+    for copy in by_chart
+        .values_mut()
+        .filter(|g| g.len() > 1)
+        .flat_map(|g| g.iter_mut())
+    {
+        match copy.kind {
+            Kind::Folder => jobs.push(Job::Folder(copy)),
+            Kind::Package => by_source.entry(copy.source.clone()).or_default().push(copy),
+        }
+    }
+    for (source, copies) in by_source {
+        if let Some(reader) = readers.remove(&source) {
+            jobs.push(Job::Package(reader, copies));
+        }
+    }
+    let workers = workers_for(jobs.len());
+    let queue = Mutex::new(jobs);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                let mut lookups = Lookups::default();
+                loop {
+                    let job = match queue.lock() {
+                        Ok(mut q) => q.pop(),
+                        Err(_) => None,
+                    };
+                    match job {
+                        None => break,
+                        Some(Job::Folder(copy)) => {
+                            copy.missing = folder_missing(copy, &mut lookups);
+                        }
+                        Some(Job::Package(mut reader, copies)) => {
+                            let index = reader.entry_index();
+                            for copy in copies {
+                                copy.missing = package_missing(copy, &mut reader, &index);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// Reads and parses each chart file on several threads. The result is in
 /// `jobs` order; `None` for a file that cannot be read or is not a chart.
 fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>> {
@@ -170,12 +250,8 @@ fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>
 
     let next = AtomicUsize::new(0);
     let out: Mutex<Vec<Option<SongMetadata>>> = Mutex::new(vec![None; jobs.len()]);
-    let workers = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .clamp(1, 8)
-        .min(jobs.len().max(1));
     std::thread::scope(|scope| {
-        for _ in 0..workers {
+        for _ in 0..workers_for(jobs.len()) {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some((_, file)) = jobs.get(i) else {
@@ -187,7 +263,7 @@ fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>
                 if let Ok(mut out) = out.lock() {
                     out[i] = meta;
                 }
-                progress::step();
+                boot_progress::step();
             });
         }
     });
@@ -208,31 +284,59 @@ fn select_copies(by_chart: BTreeMap<ChartId, Vec<Copy>>) -> Vec<SongMetadata> {
         .collect()
 }
 
-/// Declared key sounds of a copy that are not next to it, as `bpm` counts them.
-/// `None` when the copy cannot be read or does not parse.
-fn missing_key_sounds(copy: &Copy, readers: &mut BTreeMap<String, PackageReader>) -> Option<u32> {
-    match copy.kind {
-        Kind::Folder => {
-            let file = Path::new(&copy.meta.file_path);
-            let bytes = fs::read(file).ok()?;
-            let names = declared_key_sounds(&bytes)?;
-            let dir = file.parent().unwrap_or_else(|| Path::new("."));
-            Some(count_missing(&names, |name| {
-                folder_sound_candidates(name)
-                    .iter()
-                    .any(|candidate| dir.join(candidate).is_file())
-            }))
+/// The files directly in each folder the copy check has looked in, by
+/// lowercased name, so a chart's key sounds are answered from memory.
+#[derive(Default)]
+struct Lookups {
+    folders: BTreeMap<PathBuf, HashSet<String>>,
+}
+
+impl Lookups {
+    /// Whether `candidate` (a path relative to `dir`) is a file, as
+    /// `dir.join(candidate).is_file()` answers on Windows (any case).
+    fn folder_has(&mut self, dir: &Path, candidate: &str) -> bool {
+        if candidate.contains('/') {
+            return dir.join(candidate).is_file();
         }
-        Kind::Package => {
-            let reader = readers.get_mut(&copy.source)?;
-            let bytes = reader.read_entry(&copy.path).ok()?;
-            let names = declared_key_sounds(&bytes)?;
-            let base = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-            Some(count_missing(&names, |name| {
-                reader.find_entry_path(base, name).is_some()
-            }))
-        }
+        let files = self.folders.entry(dir.to_path_buf()).or_insert_with(|| {
+            fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .filter(|e| e.file_type().is_ok_and(|t| !t.is_dir()))
+                        .map(|e| e.file_name().to_string_lossy().to_lowercase())
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        files.contains(&candidate.to_lowercase())
     }
+}
+
+/// Declared key sounds of a folder copy that are not next to it, as `bpm`
+/// counts them. `None` when the copy cannot be read or does not parse.
+fn folder_missing(copy: &Copy, lookups: &mut Lookups) -> Option<u32> {
+    let file = Path::new(&copy.meta.file_path);
+    let bytes = fs::read(file).ok()?;
+    let names = declared_key_sounds(&bytes)?;
+    let dir = file.parent().unwrap_or_else(|| Path::new("."));
+    Some(count_missing(&names, |name| {
+        folder_sound_candidates(name)
+            .iter()
+            .any(|candidate| lookups.folder_has(dir, candidate))
+    }))
+}
+
+/// `folder_missing` for a copy inside a package (`index` is the package's).
+fn package_missing(
+    copy: &Copy,
+    reader: &mut PackageReader,
+    index: &bms_package::EntryIndex,
+) -> Option<u32> {
+    let bytes = reader.read_entry(&copy.path).ok()?;
+    let names = declared_key_sounds(&bytes)?;
+    let base = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    Some(count_missing(&names, |name| index.has(base, name)))
 }
 
 /// The folders to scan now: `library.dat` and the songs folder.
@@ -366,10 +470,22 @@ fn collect_chart_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
-    let mut entries: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    // The entry's own type: no second look at the disk for each file.
+    let mut entries: Vec<(PathBuf, bool)> = entries
+        .flatten()
+        .map(|e| {
+            let is_dir = match e.file_type() {
+                // A link to a folder is followed, as before.
+                Ok(t) if t.is_symlink() => e.path().is_dir(),
+                Ok(t) => t.is_dir(),
+                Err(_) => false,
+            };
+            (e.path(), is_dir)
+        })
+        .collect();
     entries.sort();
-    for path in entries {
-        if path.is_dir() {
+    for (path, is_dir) in entries {
+        if is_dir {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if !SKIP_DIRS.contains(&name) {
                 collect_chart_files(&path, out);
@@ -379,6 +495,7 @@ fn collect_chart_files(dir: &Path, out: &mut Vec<PathBuf>) {
             .and_then(|e| e.to_str())
             .is_some_and(is_chart_extension)
         {
+            boot_progress::step();
             out.push(path);
         }
     }

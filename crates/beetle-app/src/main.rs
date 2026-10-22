@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod boot_progress;
 mod calibration;
 mod config;
 mod devtools;

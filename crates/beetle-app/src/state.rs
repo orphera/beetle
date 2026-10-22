@@ -1,3 +1,4 @@
+use crate::boot_progress::{self, Stage};
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
@@ -1037,8 +1038,11 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let (songs, score_store) = init_songs_and_scores(sort_mode);
+        boot_progress::begin(Stage::Tables, 0);
         let tables = crate::tables::build_index(&songs);
+        boot_progress::begin(Stage::Uninstalled, 0);
         let uninstalled = crate::scanner::uninstalled_in_library(DEFAULT_SONGS_DIR);
+        boot_progress::begin(Stage::Done, 0);
         let _ = tx.send(LibraryLoad {
             songs,
             tables,
@@ -1064,9 +1068,13 @@ pub fn rescan_return_screen(from: AppScreen) -> AppScreen {
 pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
+        boot_progress::begin(Stage::Listing, 0);
         let songs = rescan_songs();
+        boot_progress::begin(Stage::Tables, 0);
         let tables = crate::tables::build_index(&songs);
+        boot_progress::begin(Stage::Uninstalled, 0);
         let uninstalled = crate::scanner::uninstalled_in_library(DEFAULT_SONGS_DIR);
+        boot_progress::begin(Stage::Done, 0);
         let _ = tx.send(LibraryLoad {
             songs,
             tables,
@@ -1078,6 +1086,7 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
 }
 
 pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
+    boot_progress::begin(Stage::Scores, 0);
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
         if let Ok(score_data) = fs::read_to_string(SCORES_FILE) {
@@ -1085,6 +1094,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
         }
     }
 
+    boot_progress::begin(Stage::Cache, 0);
     let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR);
 
     migrate_chart_keys(&songs, &mut score_store);

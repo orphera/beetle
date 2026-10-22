@@ -1393,6 +1393,36 @@ table! {
 
     // ---- Loading ------------------------------------------------------
     // Loading screen: what the song loader is doing. `{}`: items done, items.
+    // Boot screen: what the library read is doing.
+    pub BOOT_STAGE_SCORES =
+        ko "기록을 읽는 중",
+        en "Reading records",
+        ja "記録を読み込んでいます";
+    pub BOOT_STAGE_CACHE =
+        ko "곡 목록을 읽는 중",
+        en "Reading the song list",
+        ja "曲リストを読み込んでいます";
+    /// `{}`: chart files found so far.
+    pub BOOT_STAGE_LISTING =
+        ko "곡 폴더에서 채보를 찾는 중 ({}개 찾음)",
+        en "Looking for charts in the song folders ({} found)",
+        ja "曲フォルダで譜面を探しています（{}件）";
+    pub BOOT_STAGE_PACKAGES =
+        ko "설치한 곡을 읽는 중 {} / {}",
+        en "Reading installed songs {} / {}",
+        ja "インストールした曲を読み込んでいます {} / {}";
+    pub BOOT_STAGE_COPIES =
+        ko "같은 채보 중 불러올 것을 고르는 중",
+        en "Choosing which copy of each chart to load",
+        ja "同じ譜面から読み込むものを選んでいます";
+    pub BOOT_STAGE_TABLES =
+        ko "난이도표를 맞추는 중",
+        en "Matching difficulty tables",
+        ja "難易度表を照合しています";
+    pub BOOT_STAGE_UNINSTALLED =
+        ko "설치하지 않은 패키지를 찾는 중",
+        en "Looking for packages not installed",
+        ja "未インストールのパッケージを探しています";
     /// Boot screen during a full library scan. `{}`: chart files read, found.
     pub BOOT_STATUS_COUNT =
         ko "채보 파일을 읽는 중 {} / {}",

@@ -32,7 +32,7 @@ pub use manifest::{
     MANIFEST_FILENAME,
 };
 pub use path::validate_entry_path;
-pub use reader::{Package, PackageReader, DEFAULT_MAX_ENTRY_SIZE};
+pub use reader::{EntryIndex, Package, PackageReader, DEFAULT_MAX_ENTRY_SIZE};
 
 #[cfg(test)]
 mod tests {

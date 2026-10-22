@@ -706,18 +706,8 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
         ),
         LibraryJob::Rescan => (strings::BOOT_TITLE_RESCAN(), strings::BOOT_STATUS_RESCAN()),
     };
-    // A full scan counts the chart files it reads.
-    let counted;
-    let status = match crate::scanner::progress::read() {
-        (done, total) if total > 0 => {
-            counted = strings::fill(
-                strings::BOOT_STATUS_COUNT(),
-                &[&done.to_string(), &total.to_string()],
-            );
-            counted.as_str()
-        }
-        _ => status,
-    };
+    let (stage_text, fraction) = boot_status();
+    let status = stage_text.as_deref().unwrap_or(status);
     begin(state, size);
     beetle_render::draw_boot(
         state.gpu_ui.ui.current(),
@@ -726,6 +716,7 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
             elapsed: state.library_started_at.elapsed().as_secs_f64(),
             title,
             status,
+            fraction,
         },
     );
     finish(state);
@@ -790,6 +781,28 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     overlays(state, false);
     finish(state);
+}
+
+/// What the library read is doing, as the Boot screen says it (`None` before
+/// it reports a stage), and how far along a counted stage is.
+fn boot_status() -> (Option<String>, Option<f32>) {
+    use crate::boot_progress::{self, Stage};
+    let (stage, done, total) = boot_progress::read();
+    let counted =
+        |template: &str| strings::fill(template, &[&done.to_string(), &total.to_string()]);
+    let fraction = (total > 0).then(|| (done as f32 / total as f32).clamp(0.0, 1.0));
+    let text = match stage {
+        Stage::Scores => strings::BOOT_STAGE_SCORES().to_string(),
+        Stage::Cache => strings::BOOT_STAGE_CACHE().to_string(),
+        Stage::Listing => strings::fill(strings::BOOT_STAGE_LISTING(), &[&done.to_string()]),
+        Stage::Charts => counted(strings::BOOT_STATUS_COUNT()),
+        Stage::Packages => counted(strings::BOOT_STAGE_PACKAGES()),
+        Stage::Copies => strings::BOOT_STAGE_COPIES().to_string(),
+        Stage::Tables => strings::BOOT_STAGE_TABLES().to_string(),
+        Stage::Uninstalled => strings::BOOT_STAGE_UNINSTALLED().to_string(),
+        Stage::Done => return (None, None),
+    };
+    (Some(text), fraction)
 }
 
 /// What the song loader is doing, as the loading screen says it, and how far
