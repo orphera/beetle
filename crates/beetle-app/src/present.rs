@@ -541,6 +541,22 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     if state.show_help {
         beetle_render::draw_help_overlay(ui, &vp);
     }
+    if let Some(menu) = &state.song_menu {
+        let items: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
+        let danger = menu
+            .items
+            .iter()
+            .position(|i| i.action == crate::song_menu::Action::Delete);
+        beetle_render::draw_song_menu(
+            ui,
+            &vp,
+            &menu.title,
+            menu.note.as_deref(),
+            &items,
+            menu.row,
+            danger,
+        );
+    }
     if state.installs.show_skipped {
         let rows: Vec<(String, String)> = state
             .installs

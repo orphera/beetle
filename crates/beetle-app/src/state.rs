@@ -303,6 +303,10 @@ pub struct AppState {
     pub song_folders: Option<crate::song_folders::FolderList>,
     /// How many folders `library.dat` links, as of the last library read.
     pub linked_folders: usize,
+    /// The song menu (song select) is open.
+    pub song_menu: Option<crate::song_menu::SongMenu>,
+    /// How many charts `hidden.dat` hides, as of the last library read.
+    pub hidden_songs: usize,
 }
 
 impl AppState {
@@ -574,6 +578,7 @@ impl AppState {
         };
         self.library_receiver = None;
         self.songs = load.songs;
+        self.hidden_songs = crate::song_menu::drop_hidden(&mut self.songs);
         self.tables = load.tables;
         match (self.library_job, load.score_store) {
             (LibraryJob::Startup, Some(store)) => self.score_store = store,
@@ -619,6 +624,11 @@ impl AppState {
             };
             self.screen = crate::devtools::start_screen().unwrap_or(after_boot);
             self.key_config_edit_mode = self.key_config_mode();
+            if self.screen == AppScreen::SongSelect {
+                if let Some(delete) = crate::devtools::song_menu_requested() {
+                    crate::song_menu::dev_open(self, delete);
+                }
+            }
             if self.screen == AppScreen::Settings {
                 if let Some(row) = crate::devtools::start_settings_row() {
                     self.settings_row = row.min(crate::options_table::settings_options().len() - 1);

@@ -84,6 +84,10 @@ pub fn enter_row(
             crate::song_folders::open(state);
             true
         }
+        Some(options_table::Activation::UnhideAll) => {
+            crate::song_menu::unhide_all(state);
+            true
+        }
         None => {
             play_ui(state, UiSound::Move);
             options_table::step(state, desc.id, true);

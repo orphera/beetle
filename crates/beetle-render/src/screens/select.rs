@@ -3007,6 +3007,11 @@ pub fn help_groups() -> Vec<HelpGroup> {
                     text: strings::HELP_BACK_QUIT(),
                 },
                 HelpRow {
+                    keys: &["M"],
+                    caption: "",
+                    text: strings::HELP_SONG_MENU(),
+                },
+                HelpRow {
                     keys: &["F5"],
                     caption: "",
                     text: strings::HELP_RESCAN(),
@@ -3150,6 +3155,77 @@ pub fn draw_skipped_overlay(ui: &mut Ui, vp: &Viewport, rows: &[(String, String)
             inner.x,
             inner.y + 52.0 * s + SHOWN as f32 * ROW_H * s + 18.0 * s,
             &TextStyle::new(12.0 * s).color(theme::MUTED2),
+        );
+    }
+}
+
+/// The song menu: the song's title, an optional warning line, then one
+/// button per row. `danger` marks the row drawn in the warning colour (the
+/// confirm page's delete). A click outside closes it (`Blocker`).
+pub fn draw_song_menu(
+    ui: &mut Ui,
+    vp: &Viewport,
+    title: &str,
+    note: Option<&str>,
+    items: &[&str],
+    selected: usize,
+    danger: Option<usize>,
+) {
+    const ROW_H: f32 = 44.0;
+    let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let s = vp.scale;
+    let note_h = if note.is_some() { 26.0 } else { 0.0 };
+    let h = (96.0 + note_h + ROW_H * items.len() as f32) * s;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 460.0 * s, h, s);
+    let inner = panel.inset(28.0 * s);
+    let title_style = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
+    let fitted = t.fit(c, title, inner.w, &title_style).into_owned();
+    t.draw(c, &fitted, inner.x, inner.y + 24.0 * s, &title_style);
+    let keys_style = TextStyle::new(12.0 * s).color(theme::MUTED);
+    t.draw(
+        c,
+        strings::MENU_KEYS(),
+        inner.x,
+        inner.y + 48.0 * s,
+        &keys_style,
+    );
+    if let Some(note) = note {
+        let st = TextStyle::new(13.0 * s).color(theme::MAGENTA);
+        let note = t.fit(c, note, inner.w, &st).into_owned();
+        t.draw(c, &note, inner.x, inner.y + 74.0 * s, &st);
+    }
+    let top = inner.y + (62.0 + note_h) * s;
+    for (i, label) in items.iter().enumerate() {
+        let r = Rect::new(
+            inner.x,
+            top + i as f32 * ROW_H * s,
+            inner.w,
+            (ROW_H - 8.0) * s,
+        );
+        hs.add(r, HitId::MenuItem(i));
+        let hot = hs.hovered(r) || i == selected;
+        if danger == Some(i) {
+            c.nine(
+                &sk.panel_sm,
+                r,
+                theme::MAGENTA.with_alpha(if hot { 200 } else { 90 }),
+            );
+        } else {
+            chip_frame(c, &sk, r, i == selected, hot, false, s);
+        }
+        let st = TextStyle::new(14.0 * s).bold().color(if hot {
+            theme::TEXT
+        } else {
+            theme::TEXT.with_alpha(200)
+        });
+        t.draw_in(
+            c,
+            label,
+            Rect::new(r.x + 14.0 * s, r.y, r.w - 28.0 * s, r.h),
+            Align::Left,
+            &st,
         );
     }
 }

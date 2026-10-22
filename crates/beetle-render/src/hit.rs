@@ -61,6 +61,8 @@ pub enum HitId {
     /// The Song Folders list: a row, and its unlink button.
     FolderRow(usize),
     UnlinkFolder(usize),
+    /// A row of the song menu (song select).
+    MenuItem(usize),
     /// Reads the song folders again.
     Rescan,
     /// Opens the quit prompt.

@@ -91,6 +91,11 @@ pub fn handle_song_select_input(
         return;
     }
 
+    if state.song_menu.is_some() {
+        crate::song_menu::key(state, code);
+        return;
+    }
+
     // The list of songs an install left out: ESC or Enter closes it.
     if state.installs.show_skipped {
         if matches!(code, KeyCode::Escape | KeyCode::Enter) {
@@ -189,6 +194,7 @@ pub fn handle_song_select_input(
         }
         KeyCode::Enter | KeyCode::Space => activate_selected(state),
         KeyCode::F5 => rescan(state),
+        KeyCode::KeyM => crate::song_menu::open(state),
         _ => {
             if let Some(t) = text {
                 if t == "/" {

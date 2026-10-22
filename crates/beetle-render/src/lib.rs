@@ -45,7 +45,7 @@ pub use screens::{
 };
 pub use screens::{
     draw_drop_overlay, draw_folders_overlay, draw_help_overlay, draw_skipped_overlay,
-    title_menu_labels, LAMP_COUNT,
+    draw_song_menu, title_menu_labels, LAMP_COUNT,
 };
 pub use skin::{
     green_ms_to_px_per_sec, px_per_sec_to_green_ms, scratch_side_applies, ColorRgba, EightKForm,

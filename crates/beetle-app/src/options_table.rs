@@ -48,6 +48,7 @@ pub enum OptionId {
     // Settings screen.
     Language,
     SongFolders,
+    HiddenSongs,
     DisplayMode,
     Resolution,
     Graphics,
@@ -172,6 +173,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_SONG_FOLDERS(),
             help: strings::HELP_SONG_FOLDERS(),
+        },
+        OptionDesc {
+            id: OptionId::HiddenSongs,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_HIDDEN_SONGS(),
+            help: strings::HELP_HIDDEN_SONGS(),
         },
         OptionDesc {
             id: OptionId::DisplayMode,
@@ -350,6 +358,8 @@ pub enum Activation {
     Calibrate,
     /// Opens the Song Folders list (the linked BMS folders).
     SongFolders,
+    /// Shows every hidden song again.
+    UnhideAll,
 }
 
 /// The activation of `id`, if the row has one. Other rows change their value
@@ -359,6 +369,7 @@ pub fn activation(id: OptionId) -> Option<Activation> {
         OptionId::KeyLayout => Some(Activation::KeyConfig),
         OptionId::JudgeOffset => Some(Activation::Calibrate),
         OptionId::SongFolders => Some(Activation::SongFolders),
+        OptionId::HiddenSongs => Some(Activation::UnhideAll),
         _ => None,
     }
 }
@@ -490,6 +501,9 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             strings::VALUE_FOLDERS(),
             &[&state.linked_folders.to_string()],
         ),
+        OptionId::HiddenSongs => {
+            strings::fill(strings::VALUE_FOLDERS(), &[&state.hidden_songs.to_string()])
+        }
         OptionId::DisplayMode => display_mode_label(state.display_mode).to_string(),
         OptionId::Resolution => state.current_resolution_label().to_string(),
         OptionId::Graphics => {
@@ -678,7 +692,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.sync_eight_k_form();
         }
         // A list, not a value: ENTER opens it.
-        OptionId::SongFolders => {}
+        OptionId::SongFolders | OptionId::HiddenSongs => {}
     }
 }
 
@@ -829,6 +843,7 @@ mod tests {
                 OptionId::KeyLayout => Some(Activation::KeyConfig),
                 OptionId::JudgeOffset => Some(Activation::Calibrate),
                 OptionId::SongFolders => Some(Activation::SongFolders),
+                OptionId::HiddenSongs => Some(Activation::UnhideAll),
                 _ => None,
             };
             assert_eq!(activation(d.id), expected, "{:?}", d.id);

@@ -631,9 +631,13 @@ table! {
         en "Open or close help",
         ja "ヘルプを開閉します";
     pub HELP_DROP =
-        ko "파일을 끌어다 놓으면 곡을 열어요",
-        en "Drop a file here to open the song",
-        ja "ファイルをドロップすると曲を開きます";
+        ko "파일이나 폴더를 끌어다 놓으면 곡을 넣어요",
+        en "Drop files or folders here to add songs",
+        ja "ファイルやフォルダをドロップすると曲を追加します";
+    pub HELP_SONG_MENU =
+        ko "곡 메뉴: 폴더 열기, 삭제, 버전 고르기 (우클릭도 돼요)",
+        en "Song menu: open folder, delete, choose version (or right-click)",
+        ja "曲メニュー: フォルダを開く、削除、バージョン選択（右クリックでも可）";
 
     // First run: the library has no songs. The guide lists two ways to add songs.
     pub GUIDE_TITLE =
@@ -800,6 +804,75 @@ table! {
         ko "그 밖에 {}개",
         en "{} more",
         ja "ほか{}件";
+
+    // The song menu (song select: right-click a song, or M).
+    pub MENU_OPEN_FOLDER =
+        ko "폴더 열기",
+        en "Open Folder",
+        ja "フォルダを開く";
+    pub MENU_VERSIONS =
+        ko "버전 고르기",
+        en "Choose Version",
+        ja "バージョンを選ぶ";
+    pub MENU_DELETE =
+        ko "삭제",
+        en "Delete",
+        ja "削除";
+    pub MENU_HIDE =
+        ko "목록에서 숨기기",
+        en "Hide from List",
+        ja "一覧から隠す";
+    pub MENU_DELETE_CONFIRM =
+        ko "삭제하기",
+        en "Delete",
+        ja "削除する";
+    pub MENU_DELETE_NOTE =
+        ko "이 곡을 지울까요? 되돌릴 수 없어요.",
+        en "Delete this song? This cannot be undone.",
+        ja "この曲を削除しますか？元に戻せません。";
+    /// `{}` is how many charts go with it.
+    pub MENU_DELETE_NOTE_MANY =
+        ko "함께 들어온 채보 {}개가 모두 지워져요. 되돌릴 수 없어요.",
+        en "All {} charts that came with it are deleted. This cannot be undone.",
+        ja "一緒に追加された譜面{}件がすべて削除されます。元に戻せません。";
+    /// `{}` is the version label; marks the version that plays.
+    pub MENU_VERSION_ACTIVE =
+        ko "{} - 지금 쓰는 버전",
+        en "{} - in use",
+        ja "{} - 使用中";
+    pub MENU_KEYS =
+        ko "ENTER 선택 / ESC 닫기",
+        en "ENTER select / ESC close",
+        ja "ENTER 選択 / ESC 閉じる";
+    /// `{}` is the song title.
+    pub TOAST_DELETED =
+        ko "곡을 지웠어요: {}",
+        en "Song deleted: {}",
+        ja "曲を削除しました: {}";
+    pub TOAST_VERSION_SET =
+        ko "버전을 바꿨어요: {}",
+        en "Version changed: {}",
+        ja "バージョンを変更しました: {}";
+    pub TOAST_HIDDEN =
+        ko "목록에서 숨겼어요: {}",
+        en "Hidden from the list: {}",
+        ja "一覧から隠しました: {}";
+    pub TOAST_UNHIDDEN =
+        ko "숨긴 곡을 모두 다시 보여요",
+        en "Hidden songs are shown again",
+        ja "隠した曲をすべて再表示します";
+    pub TOAST_SONG_CHANGE_FAILED =
+        ko "곡을 바꾸지 못했어요. 곡을 재생 중이면 잠시 뒤 다시 해 보세요",
+        en "Could not change the song. If it is playing, try again in a moment",
+        ja "曲を変更できませんでした。再生中の場合は少し待ってから再試行してください";
+    pub TOAST_HIDDEN_SAVE_FAILED =
+        ko "숨긴 곡 목록(hidden.dat)을 저장하지 못했어요",
+        en "Could not save the hidden list (hidden.dat)",
+        ja "非表示リスト（hidden.dat）を保存できませんでした";
+    pub TOAST_FOLDER_FAILED =
+        ko "폴더를 열지 못했어요",
+        en "Could not open the folder",
+        ja "フォルダを開けませんでした";
 
     // Play options panel (song select, TAB / O): per-play values only.
     pub MODAL_PLAY_OPTIONS =
@@ -1643,6 +1716,14 @@ table! {
         ko "{}개",
         en "{}",
         ja "{}件";
+    pub ROW_HIDDEN_SONGS =
+        ko "숨긴 곡",
+        en "Hidden Songs",
+        ja "隠した曲";
+    pub HELP_HIDDEN_SONGS =
+        ko "목록에서 숨긴 곡의 수예요. ENTER로 모두 다시 보여요.",
+        en "Songs hidden from the list. ENTER shows them all again.",
+        ja "一覧から隠した曲の数です。ENTER ですべて再表示します。";
     pub ROW_LANGUAGE =
         ko "언어",
         en "Language",

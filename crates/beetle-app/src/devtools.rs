@@ -12,6 +12,7 @@
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
 //!   `folders` with the Settings screen opens the Song Folders list.
+//!   `songmenu` opens the selected song's menu, `songmenu-delete` its delete confirm.
 //! - `BEETLE_CAPTURE_HOVER=<0..4>`: song select draws the pointer over that top
 //!   bar button (left to right: auto, options, key config, settings, quit), so
 //!   a capture shows its hover state and tooltip.
@@ -188,6 +189,16 @@ pub fn start_settings_row() -> Option<usize> {
 /// `BEETLE_CAPTURE_MODAL=folders`: the Settings capture opens the Song Folders list.
 pub fn folders_requested() -> bool {
     std::env::var("BEETLE_CAPTURE_MODAL").is_ok_and(|v| v == "folders")
+}
+
+/// `BEETLE_CAPTURE_MODAL=songmenu[-delete]`: the song menu to open after the
+/// library read: `Some(false)` its first page, `Some(true)` the delete confirm.
+pub fn song_menu_requested() -> Option<bool> {
+    match std::env::var("BEETLE_CAPTURE_MODAL").as_deref() {
+        Ok("songmenu") => Some(false),
+        Ok("songmenu-delete") => Some(true),
+        _ => None,
+    }
 }
 
 /// The song select top bar button the pointer is drawn over

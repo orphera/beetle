@@ -22,6 +22,7 @@ mod raw_input;
 mod result_reveal;
 mod scanner;
 mod song_folders;
+mod song_menu;
 mod state;
 mod tables;
 mod thumbs;
@@ -345,6 +346,8 @@ impl ApplicationHandler for BeetleApp {
             folder_pick: None,
             song_folders: None,
             linked_folders: 0,
+            song_menu: None,
+            hidden_songs: 0,
         };
 
         app_state.apply_display_mode();
@@ -771,6 +774,16 @@ impl ApplicationHandler for BeetleApp {
                 if button_state == ElementState::Pressed {
                     handlers::mouse::handle_press(state);
                 }
+                if is_menu_screen(state.screen) {
+                    state.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => {
+                handlers::mouse::handle_right_press(state);
                 if is_menu_screen(state.screen) {
                     state.window.request_redraw();
                 }

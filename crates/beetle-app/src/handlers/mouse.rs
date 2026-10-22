@@ -77,6 +77,28 @@ pub fn handle_press(state: &mut AppState) {
     }
 }
 
+/// A right button press: on song select, a song row opens its song menu
+/// (selecting the row first). Nothing else uses the right button.
+pub fn handle_right_press(state: &mut AppState) {
+    let blocked = state.song_menu.is_some()
+        || state.show_option_modal
+        || state.show_exit_modal
+        || state.show_help
+        || state.sort_menu.is_some()
+        || state.installs.show_skipped;
+    if state.screen != AppScreen::SongSelect || blocked {
+        return;
+    }
+    let Some((x, y)) = state.cursor else {
+        return;
+    };
+    if let Some(HitId::ListRow(i)) = hit_at(&state.gpu_ui.ui.current().hits, x, y) {
+        state.selected_entry = i;
+        state.cursor_settle_time = Instant::now();
+        crate::song_menu::open(state);
+    }
+}
+
 /// Runs the action of a clicked region on the current screen.
 pub fn handle_click(state: &mut AppState, id: HitId) {
     // The toast lies over every menu's own regions.
@@ -95,6 +117,10 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
 }
 
 fn song_select_click(state: &mut AppState, id: HitId) {
+    if state.song_menu.is_some() {
+        crate::song_menu::click(state, id);
+        return;
+    }
     // The list of songs an install left out: a click outside it closes it.
     if state.installs.show_skipped {
         if id == HitId::Blocker {
