@@ -304,6 +304,7 @@ pub fn gameplay(
                 bga,
                 layer,
                 jacket,
+                scroll_bpm: state.scroll_bpm,
                 chart_has_bga: !state.bga_bank.is_empty() || !state.video_players.is_empty(),
                 track_bga_opacity: if state.bga_enabled {
                     state.track_bga.opacity()

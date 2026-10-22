@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset};
+use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset, SpeedAnchor};
 use beetle_render::{
     scratch_side_applies, snap_ui_scale, strings, FieldPosition, JudgePosition, ScratchSide,
     NOTE_SIZE_MAX, NOTE_SIZE_MIN, NOTE_SIZE_STEP, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP,
@@ -39,6 +39,7 @@ const LN_ORDER: [LnOption; 3] = [LnOption::Auto, LnOption::Ln, LnOption::Cn];
 pub enum OptionId {
     // Play options panel.
     Green,
+    SpeedAnchor,
     LaneCover,
     Modifier,
     Gauge,
@@ -107,6 +108,13 @@ fn build_play_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_GREEN(),
             help: strings::HELP_GREEN(),
+        },
+        OptionDesc {
+            id: OptionId::SpeedAnchor,
+            group: strings::GROUP_PLAY(),
+            column: 0,
+            label: strings::ROW_SPEED_ANCHOR(),
+            help: strings::HELP_SPEED_ANCHOR(),
         },
         OptionDesc {
             id: OptionId::LaneCover,
@@ -360,6 +368,16 @@ pub fn settings_options() -> &'static [OptionDesc] {
     per_lang(&CELLS, build_settings_options)
 }
 
+/// The hi-speed anchor as the options show it.
+pub fn speed_anchor_label(anchor: SpeedAnchor) -> &'static str {
+    match anchor {
+        SpeedAnchor::Start => strings::SPEED_ANCHOR_START(),
+        SpeedAnchor::Min => strings::SPEED_ANCHOR_MIN(),
+        SpeedAnchor::Max => strings::SPEED_ANCHOR_MAX(),
+        SpeedAnchor::Main => strings::SPEED_ANCHOR_MAIN(),
+    }
+}
+
 /// Judge offset range in ms (the Settings row and the calibration suggestion).
 pub const JUDGE_OFFSET_MAX_MS: f64 = 100.0;
 /// Judge offset step in ms (the arrows and the calibration suggestion).
@@ -511,6 +529,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
     };
     match id {
         OptionId::Green => strings::fill(strings::VALUE_MS(), &[&o.green_ms.to_string()]),
+        OptionId::SpeedAnchor => speed_anchor_label(state.speed_anchor).to_string(),
         OptionId::LaneCover => format!("{:.0}%", state.view.skin.lane_cover_ratio * 100.0),
         OptionId::Modifier => o.lane_modifier.as_str().to_string(),
         OptionId::Gauge => o.gauge_type.as_str().to_string(),
@@ -589,6 +608,9 @@ pub fn value(state: &AppState, id: OptionId) -> String {
 /// a row without an activation). The caller saves the config.
 pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
     match id {
+        OptionId::SpeedAnchor => {
+            state.speed_anchor = cycle(&SpeedAnchor::ALL, state.speed_anchor, forward);
+        }
         OptionId::Green => {
             state.play_options.green_ms = green_ms_next(state.play_options.green_ms, forward);
             state.sync_hi_speed();

@@ -304,6 +304,8 @@ impl ApplicationHandler for BeetleApp {
             sfx_volume: saved_config.sfx_volume,
             visual_offset_ms: saved_config.visual_offset_ms,
             reduce_flashes: saved_config.reduce_flashes,
+            speed_anchor: saved_config.speed_anchor,
+            scroll_bpm: 130.0,
             reduce_motion: saved_config.reduce_motion,
             high_contrast: saved_config.high_contrast_notes,
             language: saved_config.language,

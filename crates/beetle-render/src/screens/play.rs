@@ -49,6 +49,9 @@ pub struct PlayFrame<'a> {
     /// The song's stage image (STAGEFILE / BANNER). When the chart has no BGA
     /// of its own it fills the HUD column under the song block.
     pub jacket: Option<SizedTexture>,
+    /// The BPM the scroll speed is set for: a note moves at `hi_speed` px/s
+    /// at this BPM, faster above it and slower below (the hi-speed anchor).
+    pub scroll_bpm: f64,
     /// The chart has BGA images or videos (not just the stage image standing
     /// in behind the field).
     pub chart_has_bga: bool,
@@ -578,10 +581,11 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
         c.set_additive(false);
     }
 
-    // Scroll by beat distance, not time: hi_speed is px/s at the chart's first
-    // BPM, so a BPM change speeds the notes up/down and a STOP freezes them.
+    // Scroll by beat distance, not time: hi_speed is px/s at `scroll_bpm`
+    // (the chosen anchor BPM), so a BPM change speeds the notes up/down and a
+    // STOP freezes them.
     let speed = l.hi_speed * s;
-    let px_per_beat = speed as f64 * 60.0 / f.timing.initial_bpm().max(1.0);
+    let px_per_beat = speed as f64 * 60.0 / f.scroll_bpm.max(1.0);
     let now_beat = f
         .timing
         .time_to_beat_position(note_clock(f.audio_time, f.visual_offset_ms));
@@ -2191,6 +2195,7 @@ mod tests {
                     bga: None,
                     jacket: None,
                     chart_has_bga: false,
+                    scroll_bpm: 120.0,
                     layer: None,
                     track_bga_opacity: 0.3,
                     key_pressed: &keys,
@@ -2306,6 +2311,7 @@ mod tests {
                     bga: None,
                     jacket: None,
                     chart_has_bga: false,
+                    scroll_bpm: 120.0,
                     layer: None,
                     track_bga_opacity: 0.0,
                     key_pressed: &keys,
@@ -2676,6 +2682,7 @@ mod tests {
                 bga: Some(bga),
                 jacket: None,
                 chart_has_bga: false,
+                scroll_bpm: 120.0,
                 layer: None,
                 track_bga_opacity: 0.5,
                 key_pressed: &[false; LANE_COUNT],
@@ -2995,6 +3002,7 @@ mod tests {
                 bga: None,
                 jacket: None,
                 chart_has_bga: false,
+                scroll_bpm: 120.0,
                 layer: None,
                 track_bga_opacity: 0.0,
                 key_pressed: &[false; LANE_COUNT],

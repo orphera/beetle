@@ -919,6 +919,26 @@ table! {
         ko "그린 넘버",
         en "Green Number",
         ja "緑数字";
+    pub ROW_SPEED_ANCHOR =
+        ko "하이스피드 기준",
+        en "Hi-Speed Anchor",
+        ja "ハイスピード基準";
+    pub SPEED_ANCHOR_START =
+        ko "시작 BPM",
+        en "Start BPM",
+        ja "開始 BPM";
+    pub SPEED_ANCHOR_MIN =
+        ko "최저 BPM",
+        en "Min BPM",
+        ja "最低 BPM";
+    pub SPEED_ANCHOR_MAX =
+        ko "최고 BPM",
+        en "Max BPM",
+        ja "最高 BPM";
+    pub SPEED_ANCHOR_MAIN =
+        ko "주 BPM",
+        en "Main BPM",
+        ja "メイン BPM";
     pub ROW_LANE_COVER =
         ko "레인 커버",
         en "Lane Cover",
@@ -1158,6 +1178,10 @@ table! {
         ko "노트가 화면에 나타나서 판정선에 닿기까지의 시간이에요. 작을수록 빨라요. 레인 커버를 바꿔도 유지돼요.",
         en "Time from a note appearing on screen to reaching the judge line. Lower is faster. It stays the same when the lane cover changes.",
         ja "ノーツが画面に現れてから判定ラインに届くまでの時間です。小さいほど速くなります。レーンカバーを変えても保たれます。";
+    pub HELP_SPEED_ANCHOR =
+        ko "그린 넘버를 어느 BPM에 맞출지예요. 주 BPM은 곡에서 가장 오래 유지되는 BPM이에요. 다른 BPM에서는 노트가 더 빠르거나 느려져요.",
+        en "Which BPM the green number holds at. Main BPM is the one the song stays at longest. At other BPMs the notes move faster or slower.",
+        ja "緑数字をどの BPM に合わせるかです。メイン BPM は曲中で最も長く続く BPM です。ほかの BPM ではノーツが速く、または遅くなります。";
     pub HELP_LANE_COVER =
         ko "레인 위쪽을 가려 노트가 보이는 구간을 줄여요. 0%는 가리지 않아요. 플레이 중 F10, F11로도 바꿀 수 있어요.",
         en "Hides the top of the lane to shorten the visible note area. 0% hides nothing. You can also change it while playing with F10 and F11.",

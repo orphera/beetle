@@ -1,7 +1,7 @@
 use crate::filters::Filter;
 use crate::folders::{mode_from_id, mode_id, ChartChoices, FolderPath};
 use crate::input::{mode_slot_name, KeyPreset, SavedLayout, MODE_SLOTS};
-use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode};
+use beetle_core::{ChartId, GaugeType, LaneModifier, LnOption, PlayOptions, SortMode, SpeedAnchor};
 use beetle_render::strings::Lang;
 use beetle_render::{
     px_per_sec_to_green_ms, snap_ui_scale, EightKForm, FieldPosition, JudgePosition, ScratchSide,
@@ -264,6 +264,8 @@ fn parse_finite(val: &str) -> Option<f32> {
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub play_options: PlayOptions,
+    /// Which BPM the green number holds at (`speed_anchor=start|min|max|main`).
+    pub speed_anchor: SpeedAnchor,
     pub lane_cover_ratio: f32,
     /// Where the single play playfield sits.
     pub field_position: FieldPosition,
@@ -352,6 +354,7 @@ impl Default for AppConfig {
             reduce_flashes: false,
             reduce_motion: false,
             high_contrast_notes: false,
+            speed_anchor: SpeedAnchor::Start,
             ui_scale: UI_SCALE_DEFAULT,
             language: None,
             turntable_axis: None,
@@ -547,6 +550,7 @@ impl AppConfig {
                 }
                 "judge_position" => config.judge_position = JudgePosition::from_name(val),
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
+                "speed_anchor" => config.speed_anchor = SpeedAnchor::parse(val).unwrap_or_default(),
                 "reduce_motion" => config.reduce_motion = val == "ON",
                 "high_contrast_notes" => config.high_contrast_notes = val == "ON",
                 "ui_scale" => {
@@ -627,6 +631,7 @@ impl AppConfig {
             if self.reduce_motion { "ON" } else { "OFF" },
             if self.high_contrast_notes { "ON" } else { "OFF" },
         );
+        out.push_str(&format!("speed_anchor={}\n", self.speed_anchor.as_str()));
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
                 let slot = mode_slot_name(mode);
@@ -748,6 +753,7 @@ mod tests {
             note_size: 1.15,
             judge_position: JudgePosition::Lower,
             reduce_flashes: true,
+            speed_anchor: SpeedAnchor::Main,
             ..AppConfig::default()
         };
 
@@ -788,6 +794,7 @@ mod tests {
         assert_eq!(config.note_size, parsed.note_size);
         assert_eq!(config.judge_position, parsed.judge_position);
         assert_eq!(config.reduce_flashes, parsed.reduce_flashes);
+        assert_eq!(parsed.speed_anchor, SpeedAnchor::Main);
         assert_eq!(config.bga_enabled, parsed.bga_enabled);
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);

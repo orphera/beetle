@@ -41,4 +41,4 @@ pub use replay::{ReplayData, ReplayEvent};
 pub use rules::{LnOption, LnRule, Ruleset};
 pub use score::{ClearType, PlayResult, ScoreRecord, ScoreStore, ScoreUpdate, ENGINE_VERSION};
 pub use table::{DifficultyTable, TableEntry, TableIndex, TableMatch};
-pub use timing::{TimingModel, TimingSegment};
+pub use timing::{BpmStats, SpeedAnchor, TimingModel, TimingSegment};

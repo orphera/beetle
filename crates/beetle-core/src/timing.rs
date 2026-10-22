@@ -12,6 +12,57 @@ pub struct TimingSegment {
     pub stop_duration_seconds: f64,
 }
 
+/// Which BPM the scroll speed is set for (the green number holds there): the
+/// chart's first BPM, its lowest, its highest, or its main BPM (the one held
+/// longest). At any other BPM the notes move faster or slower.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpeedAnchor {
+    #[default]
+    Start,
+    Min,
+    Max,
+    Main,
+}
+
+impl SpeedAnchor {
+    pub const ALL: [SpeedAnchor; 4] = [Self::Start, Self::Min, Self::Max, Self::Main];
+
+    /// The config file form.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Main => "main",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.as_str() == text.trim())
+    }
+}
+
+/// The BPMs a play goes through: its first, lowest, highest and main BPM.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BpmStats {
+    pub start: f64,
+    pub min: f64,
+    pub max: f64,
+    /// The BPM held for the most time (stops not counted).
+    pub main: f64,
+}
+
+impl BpmStats {
+    pub fn pick(&self, anchor: SpeedAnchor) -> f64 {
+        match anchor {
+            SpeedAnchor::Start => self.start,
+            SpeedAnchor::Min => self.min,
+            SpeedAnchor::Max => self.max,
+            SpeedAnchor::Main => self.main,
+        }
+    }
+}
+
 /// Timing model that maps measure/fraction to absolute audio seconds and vice versa.
 #[derive(Debug, Clone)]
 pub struct TimingModel {
@@ -232,6 +283,56 @@ impl TimingModel {
         self.initial_bpm
     }
 
+    /// The BPMs played from the start to `end_seconds` (the last note): a BPM
+    /// counts only if it is held for some time before then, so a change after
+    /// the last note does not move the minimum or maximum.
+    pub fn bpm_stats(&self, end_seconds: f64) -> BpmStats {
+        let mut held: Vec<(f64, f64)> = Vec::new();
+        for (i, seg) in self.segments.iter().enumerate() {
+            let from = seg.start_time_seconds + seg.stop_duration_seconds;
+            let to = self
+                .segments
+                .get(i + 1)
+                .map_or(end_seconds, |next| next.start_time_seconds)
+                .min(end_seconds);
+            let span = to - from;
+            if span <= 0.0 || seg.bpm <= 0.0 {
+                continue;
+            }
+            match held
+                .iter_mut()
+                .find(|(bpm, _)| (*bpm - seg.bpm).abs() < 1e-6)
+            {
+                Some((_, total)) => *total += span,
+                None => held.push((seg.bpm, span)),
+            }
+        }
+        let start = self.initial_bpm;
+        if held.is_empty() {
+            return BpmStats {
+                start,
+                min: start,
+                max: start,
+                main: start,
+            };
+        }
+        let min = held.iter().map(|h| h.0).fold(f64::INFINITY, f64::min);
+        let max = held.iter().map(|h| h.0).fold(f64::NEG_INFINITY, f64::max);
+        // The longest held; on a tie, the one heard first.
+        let mut main = held[0];
+        for &h in &held[1..] {
+            if h.1 > main.1 + 1e-9 {
+                main = h;
+            }
+        }
+        BpmStats {
+            start,
+            min,
+            max,
+            main: main.0,
+        }
+    }
+
     /// Calculates total playable duration in seconds of a chart.
     pub fn total_duration_seconds(&self, chart: &BmsChart) -> f64 {
         let mut max_time = 0.0;
@@ -255,6 +356,58 @@ impl TimingModel {
 mod tests {
     use super::*;
     use crate::bms::*;
+
+    #[test]
+    fn bpm_stats_count_only_bpms_held_before_the_end() {
+        // 120 for 4 beats (2 s), 240 for 16 beats (4 s), 60 after the end.
+        let mut m = TimingModel::default();
+        m.initial_bpm = 120.0;
+        m.segments = vec![
+            TimingSegment {
+                measure: 0,
+                fraction: 0.0,
+                start_beat: 0.0,
+                start_time_seconds: 0.0,
+                bpm: 120.0,
+                stop_duration_seconds: 0.0,
+            },
+            TimingSegment {
+                measure: 1,
+                fraction: 0.0,
+                start_beat: 4.0,
+                start_time_seconds: 2.0,
+                bpm: 240.0,
+                stop_duration_seconds: 0.0,
+            },
+            TimingSegment {
+                measure: 5,
+                fraction: 0.0,
+                start_beat: 20.0,
+                start_time_seconds: 6.0,
+                bpm: 60.0,
+                stop_duration_seconds: 0.0,
+            },
+        ];
+        let stats = m.bpm_stats(6.0);
+        assert_eq!(
+            (stats.start, stats.min, stats.max, stats.main),
+            (120.0, 120.0, 240.0, 240.0)
+        );
+        assert_eq!(stats.pick(SpeedAnchor::Main), 240.0);
+        // Up to 1 s only the first BPM has been heard.
+        let early = m.bpm_stats(1.0);
+        assert_eq!((early.min, early.max, early.main), (120.0, 120.0, 120.0));
+        // With the 60 BPM part played too, it is the minimum.
+        assert_eq!(m.bpm_stats(7.0).min, 60.0);
+    }
+
+    #[test]
+    fn speed_anchor_round_trips_its_config_form() {
+        for a in SpeedAnchor::ALL {
+            assert_eq!(SpeedAnchor::parse(a.as_str()), Some(a));
+        }
+        assert_eq!(SpeedAnchor::parse("x"), None);
+    }
 
     #[test]
     fn test_constant_bpm_timing() {

@@ -206,6 +206,10 @@ pub struct AppState {
     /// Where the notes are drawn, in ms. Drawing only: judgement never reads it.
     pub visual_offset_ms: f64,
     pub reduce_flashes: bool,
+    /// Which BPM the green number holds at (play option).
+    pub speed_anchor: beetle_core::SpeedAnchor,
+    /// The BPM the current play scrolls at (from `speed_anchor`), set when it starts.
+    pub scroll_bpm: f64,
     /// Reduce Motion: plain fades, frozen backdrops, snapping list scroll and
     /// no result shake. Read each frame by the presenter and the song select motion.
     pub reduce_motion: bool,
@@ -551,6 +555,7 @@ impl AppState {
             note_size: self.view.skin.note_size,
             judge_position: self.view.skin.judge_position,
             reduce_flashes: self.reduce_flashes,
+            speed_anchor: self.speed_anchor,
             reduce_motion: self.reduce_motion,
             high_contrast_notes: self.high_contrast,
             ui_scale: self.view.ui_scale,

@@ -242,6 +242,7 @@ fn render_with(
             bga: None,
             jacket: None,
             chart_has_bga: false,
+            scroll_bpm: 120.0,
             layer: None,
             track_bga_opacity: 0.0,
             key_pressed: &keys,

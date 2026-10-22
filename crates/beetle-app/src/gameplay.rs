@@ -226,6 +226,13 @@ pub fn finalize_start_gameplay(
         let _ = audio.set_bus_volume(Bus::Key, state.key_volume);
     }
 
+    // The BPM the green number holds at: up to the last note, as chosen.
+    let last_note = play_chart
+        .notes
+        .iter()
+        .map(|n| timing.beat_to_time_seconds(n.measure, n.fraction))
+        .fold(0.0, f64::max);
+    state.scroll_bpm = timing.bpm_stats(last_note).pick(state.speed_anchor);
     state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
     state.active_chart_id = song.id;
