@@ -230,7 +230,11 @@ pub fn pack(
     if bms_package_manager::is_archive_path(&folder) {
         r.progress("압축 푸는 중...", 0, 1, &file_name(&folder));
     }
-    let source = PackSource::open(&folder).map_err(|e| failed("압축 풀기", e))?;
+    let source = match PackSource::open_with_cancel(&folder, Some(&r.cancel)) {
+        Ok(source) => source,
+        Err(PackageManagerError::Cancelled) => return Err(CANCELLED.to_string()),
+        Err(e) => return Err(failed("압축 풀기", e)),
+    };
     let roots = bms_package_manager::find_bms_song_roots(source.root());
     if roots.is_empty() {
         return Err(format!(

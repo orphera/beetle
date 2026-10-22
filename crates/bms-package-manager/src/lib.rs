@@ -30,7 +30,8 @@ pub use add::{
     FolderMode, InstalledSong, SkipReason, Skipped,
 };
 pub use archive::{
-    extract_archive, extract_zip_archive, find_seven_zip, is_archive_path, PackSource,
+    extract_archive, extract_archive_with_cancel, extract_zip_archive, find_seven_zip,
+    is_archive_path, PackSource,
 };
 pub use error::PackageManagerError;
 pub use export::{export_package_to_folder, export_package_to_folder_with_progress, ExportStats};

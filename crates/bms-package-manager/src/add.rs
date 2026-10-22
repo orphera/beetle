@@ -232,7 +232,7 @@ where
             let scratch = scratch_dir();
             let _ = fs::remove_dir_all(&scratch);
             on_progress(AddProgress::Unpacking { name: &name });
-            let result = match crate::table_ops::unpack_body(path, &scratch) {
+            let result = match crate::table_ops::unpack_body_with_cancel(path, &scratch, cancel) {
                 Ok(folder) => import_folders(
                     mgr,
                     &folder,
@@ -242,8 +242,11 @@ where
                     &mut on_progress,
                     &mut report,
                 ),
+                Err(PackageManagerError::Cancelled) => {
+                    Err(AddError::Cancelled(std::mem::take(&mut report)))
+                }
                 Err(e) => {
-                    report.skip(&name, SkipReason::Unpack(e));
+                    report.skip(&name, SkipReason::Unpack(e.to_string()));
                     Ok(())
                 }
             };

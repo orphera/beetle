@@ -4,7 +4,6 @@
 //! Nothing here prints or asks. Callers decide how to show progress and when to
 //! confirm, so the same code runs in a terminal and in the window.
 
-use crate::archive::extract_archive;
 use crate::base_match::{self, EntryMeta, Verdict};
 use crate::collection::{self, Index, Location};
 use crate::manager::{InstalledPackage, PackageManager};
@@ -108,11 +107,23 @@ pub fn fetch_pack(
 /// returns the folder that holds the charts: the single folder the archive
 /// unpacks to, or the scratch folder itself.
 pub fn unpack_body(body_file: &Path, scratch: &Path) -> Result<PathBuf, String> {
+    unpack_body_with_cancel(body_file, scratch, None).map_err(|e| e.to_string())
+}
+
+/// `unpack_body` that stops (`Cancelled`) once `cancel` is set.
+pub fn unpack_body_with_cancel(
+    body_file: &Path,
+    scratch: &Path,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<PathBuf, crate::PackageManagerError> {
     if !body_file.is_file() {
-        return Err(format!("'{}' is not a file", body_file.display()));
+        return Err(crate::PackageManagerError::InvalidPackage(format!(
+            "'{}' is not a file",
+            body_file.display()
+        )));
     }
     let dir = scratch.join("body");
-    extract_archive(body_file, &dir).map_err(|e| e.to_string())?;
+    crate::archive::extract_archive_with_cancel(body_file, &dir, cancel)?;
     Ok(single_top_folder(&dir))
 }
 

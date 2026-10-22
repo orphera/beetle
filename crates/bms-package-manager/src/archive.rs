@@ -5,6 +5,11 @@ use crate::PackageManagerError;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+fn cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|c| c.load(Ordering::SeqCst))
+}
 
 /// Extracts every entry of the zip archive at `zip_path` under `dest_dir`.
 ///
@@ -14,6 +19,16 @@ pub fn extract_zip_archive<P: AsRef<Path>, Q: AsRef<Path>>(
     zip_path: P,
     dest_dir: Q,
 ) -> Result<usize, PackageManagerError> {
+    extract_zip_archive_with_cancel(zip_path, dest_dir, None)
+}
+
+/// `extract_zip_archive`, stopping with `Cancelled` between entries once
+/// `cancel` is set. What was written so far stays (the caller's temp folder).
+pub fn extract_zip_archive_with_cancel<P: AsRef<Path>, Q: AsRef<Path>>(
+    zip_path: P,
+    dest_dir: Q,
+    cancel: Option<&AtomicBool>,
+) -> Result<usize, PackageManagerError> {
     let dest_dir = dest_dir.as_ref();
     let file = File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)
@@ -22,6 +37,9 @@ pub fn extract_zip_archive<P: AsRef<Path>, Q: AsRef<Path>>(
 
     let mut written = 0;
     for index in 0..archive.len() {
+        if cancelled(cancel) {
+            return Err(PackageManagerError::Cancelled);
+        }
         let mut entry = archive
             .by_index(index)
             .map_err(|e| PackageManagerError::InvalidPackage(format!("corrupt zip entry: {e}")))?;
@@ -53,6 +71,16 @@ pub fn extract_archive<P: AsRef<Path>, Q: AsRef<Path>>(
     archive: P,
     dest_dir: Q,
 ) -> Result<usize, PackageManagerError> {
+    extract_archive_with_cancel(archive, dest_dir, None)
+}
+
+/// `extract_archive` that stops with `Cancelled` once `cancel` is set: between
+/// zip entries, or by ending the 7-Zip process.
+pub fn extract_archive_with_cancel<P: AsRef<Path>, Q: AsRef<Path>>(
+    archive: P,
+    dest_dir: Q,
+    cancel: Option<&AtomicBool>,
+) -> Result<usize, PackageManagerError> {
     let archive = archive.as_ref();
     let dest_dir = dest_dir.as_ref();
     let ext = archive
@@ -61,7 +89,7 @@ pub fn extract_archive<P: AsRef<Path>, Q: AsRef<Path>>(
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     match ext.as_str() {
-        "zip" => extract_zip_archive(archive, dest_dir),
+        "zip" => extract_zip_archive_with_cancel(archive, dest_dir, cancel),
         "rar" | "7z" => {
             let seven_zip = find_seven_zip().ok_or_else(|| {
                 PackageManagerError::InvalidPackage(format!(
@@ -69,7 +97,7 @@ pub fn extract_archive<P: AsRef<Path>, Q: AsRef<Path>>(
                     archive.display()
                 ))
             })?;
-            extract_with_seven_zip(&seven_zip, archive, dest_dir)
+            extract_with_seven_zip(&seven_zip, archive, dest_dir, cancel)
         }
         _ => Err(PackageManagerError::InvalidPackage(format!(
             "unsupported archive type: '{}'",
@@ -104,15 +132,28 @@ fn extract_with_seven_zip(
     seven_zip: &Path,
     archive: &Path,
     dest_dir: &Path,
+    cancel: Option<&AtomicBool>,
 ) -> Result<usize, PackageManagerError> {
     fs::create_dir_all(dest_dir)?;
-    let status = std::process::Command::new(seven_zip)
+    let mut child = std::process::Command::new(seven_zip)
         .arg("x")
         .arg("-y")
         .arg(format!("-o{}", dest_dir.display()))
         .arg(archive)
         .stdout(std::process::Stdio::null())
-        .status()?;
+        .spawn()?;
+    // Wait for 7-Zip, ending it if the user cancels meanwhile.
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if cancelled(cancel) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(PackageManagerError::Cancelled);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
     if !status.success() {
         return Err(PackageManagerError::InvalidPackage(format!(
             "7-Zip could not extract '{}' (exit {status})",
@@ -385,6 +426,14 @@ pub struct PackSource {
 impl PackSource {
     /// Opens `input`: a folder, or a zip / rar / 7z (unpacked now).
     pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, PackageManagerError> {
+        Self::open_with_cancel(input, None)
+    }
+
+    /// `open`, with unpacking stopped (`Cancelled`) once `cancel` is set.
+    pub fn open_with_cancel<P: AsRef<Path>>(
+        input: P,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Self, PackageManagerError> {
         let input = input.as_ref().to_path_buf();
         if input.is_file() && is_archive_path(&input) {
             use std::sync::atomic::{AtomicUsize, Ordering};
@@ -399,7 +448,8 @@ impl PackSource {
                 root,
                 unpacked: true,
             };
-            extract_archive(&input, &source.root)?;
+            // On an error or a cancel, `source` drops and removes the folder.
+            extract_archive_with_cancel(&input, &source.root, cancel)?;
             return Ok(source);
         }
         Ok(Self {
@@ -460,6 +510,47 @@ impl Drop for PackSource {
         if self.unpacked {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn a_set_cancel_flag_stops_unpacking_and_leaves_no_folder() {
+        let dir = std::env::temp_dir().join(format!("bpm-cancel-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("song.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+        zip.start_file("a.bms", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"#TITLE A").unwrap();
+        zip.finish().unwrap();
+
+        let cancel = AtomicBool::new(true);
+        let out = dir.join("out");
+        assert!(matches!(
+            extract_archive_with_cancel(&zip_path, &out, Some(&cancel)),
+            Err(PackageManagerError::Cancelled)
+        ));
+        assert!(matches!(
+            PackSource::open_with_cancel(&zip_path, Some(&cancel)),
+            Err(PackageManagerError::Cancelled)
+        ));
+        let left: Vec<_> = fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("bpm-pack-{}-", std::process::id()))
+            })
+            .collect();
+        assert!(left.is_empty(), "a cancelled open removes its folder");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
 
