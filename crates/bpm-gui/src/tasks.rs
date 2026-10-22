@@ -5,7 +5,7 @@
 use crate::josa::{quoted_eul, quoted_eun};
 use bms_package_manager::{
     AddError, AddOptions, AddProgress, AddReport, AddSource, Added, BgaPackMode, FolderMode,
-    PackOptions, PackProfile, PackageManager, PackageManagerError, SkipReason, Skipped,
+    PackOptions, PackProfile, PackSource, PackageManager, PackageManagerError, SkipReason, Skipped,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -217,7 +217,9 @@ fn skip_message(skip: &Skipped) -> String {
     }
 }
 
-/// Packs each song folder under `folder` into `.bmsp` files next to it.
+/// Packs each song folder under `folder` into `.bmsp` files next to it. An
+/// archive (zip, rar, 7z) is unpacked to a temp folder first, and each song's
+/// package goes next to the archive.
 pub fn pack(
     root: PathBuf,
     folder: PathBuf,
@@ -225,7 +227,11 @@ pub fn pack(
     bga: BgaPackMode,
     r: &Reporter,
 ) -> Result<String, String> {
-    let roots = bms_package_manager::find_bms_song_roots(&folder);
+    if bms_package_manager::is_archive_path(&folder) {
+        r.progress("압축 푸는 중...", 0, 1, &file_name(&folder));
+    }
+    let source = PackSource::open(&folder).map_err(|e| failed("압축 풀기", e))?;
+    let roots = bms_package_manager::find_bms_song_roots(source.root());
     if roots.is_empty() {
         return Err(format!(
             "'{}'에서 BMS 채보 파일을 찾지 못했어요",
@@ -240,18 +246,15 @@ pub fn pack(
     let options = PackOptions::new(profile, bga);
     let mgr = manager(&root)?;
     // One song: the file goes next to the folder. Several: inside the folder.
-    let out_dir = if roots.len() == 1 && roots[0] == folder {
-        folder.parent().unwrap_or(&folder).to_path_buf()
-    } else {
-        folder.clone()
-    };
+    // An archive's: next to the archive.
+    let out_dir = source.out_dir(roots.len());
     let total = roots.len();
     let mut made = Vec::new();
     for (i, song) in roots.iter().enumerate() {
         if r.cancelled() {
             return Err(CANCELLED.to_string());
         }
-        let name = file_name(song);
+        let name = source.song_name(song);
         let out = out_dir.join(format!("{name}.bmsp"));
         let result = if total == 1 {
             mgr.pack_folder_advanced_with_progress(

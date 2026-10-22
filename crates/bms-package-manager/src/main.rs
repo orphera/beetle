@@ -35,7 +35,7 @@ fn print_usage() {
     println!("  bpm table <add|update|list|remove>     Manage difficulty tables (tables/, read by the player)");
     println!("  bpm library <add|list|remove> [path]   Register existing BMS folders the player scans in place (no copy)");
     println!("  bpm import <folder_or_zip>             Import BMS folder(s) or a zip of BMS folders into managed storage");
-    println!("  bpm pack <folder> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack a BMS folder into a .bmsp archive");
+    println!("  bpm pack <folder|archive> [-o <out>] [--turbo] [--flac] [--split-bga] [--no-video] Pack each song of a folder or zip/rar/7z into a .bmsp (an archive's go next to it)");
     println!("  bpm diff <base> <target> [-o <out>]    Generate a .bmdp delta package between states/folders");
     println!(
         "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
@@ -1586,9 +1586,9 @@ fn main() -> Result<(), PackageManagerError> {
     match args[1].as_str() {
         "pack" => {
             if args.len() < 3 {
-                eprintln!("Error: Missing folder path.");
+                eprintln!("Error: Missing folder or archive path.");
                 eprintln!(
-                    "Usage: bpm pack <folder_path> [-o <output.bmsp>] [--base <base.bmsp_or_dir>]"
+                    "Usage: bpm pack <folder | archive.zip/.rar/.7z> [-o <output.bmsp>] [--base <base.bmsp_or_dir>]"
                 );
                 std::process::exit(1);
             }
@@ -1665,7 +1665,16 @@ fn main() -> Result<(), PackageManagerError> {
             let pack_options = bms_package_manager::PackOptions::new(profile, bga_mode)
                 .with_audio_mode(audio_mode);
 
-            let roots = bms_package_manager::find_bms_song_roots(folder);
+            // An archive is unpacked to a temp folder (removed when `source`
+            // drops); its packages go next to it unless -o says otherwise.
+            let source = match bms_package_manager::PackSource::open(folder) {
+                Ok(source) => source,
+                Err(e) => {
+                    eprintln!("Error: Could not open '{}': {e}", folder);
+                    std::process::exit(1);
+                }
+            };
+            let roots = bms_package_manager::find_bms_song_roots(source.root());
             if roots.is_empty() {
                 eprintln!("Error: No BMS chart files (.bms, .bme, .bml, .pms) found in '{}' or any subdirectories.", folder);
                 std::process::exit(1);
@@ -1681,11 +1690,7 @@ fn main() -> Result<(), PackageManagerError> {
 
             if roots.len() == 1 {
                 let target_root = &roots[0];
-                let folder_name = target_root
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("package")
-                    .to_string();
+                let folder_name = source.song_name(target_root);
 
                 let out_file: PathBuf = if let Some(dest) = out_arg {
                     let dest_path = Path::new(dest);
@@ -1695,11 +1700,13 @@ fn main() -> Result<(), PackageManagerError> {
                     } else {
                         PathBuf::from(dest)
                     }
+                } else if source.is_archive() {
+                    source.out_dir(1).join(format!("{}.bmsp", folder_name))
                 } else {
                     PathBuf::from(format!("{}.bmsp", folder_name))
                 };
 
-                if target_root != std::path::Path::new(folder) {
+                if !source.is_archive() && target_root != std::path::Path::new(folder) {
                     println!("Detected BMS song root at '{}'", target_root.display());
                 }
 
@@ -1717,7 +1724,11 @@ fn main() -> Result<(), PackageManagerError> {
                         }
                         println!(
                             "Successfully packed '{}' into '{}' [{}]",
-                            target_root.display(),
+                            if source.is_archive() {
+                                folder.to_string()
+                            } else {
+                                target_root.display().to_string()
+                            },
                             out_file.display(),
                             profile_tag
                         );
@@ -1753,13 +1764,12 @@ fn main() -> Result<(), PackageManagerError> {
 
                 let mut success_count = 0;
                 for (i, target_root) in roots.iter().enumerate() {
-                    let folder_name = target_root
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("song")
-                        .to_string();
+                    let folder_name = source.song_name(target_root);
                     let out_file = match &out_dir {
                         Some(dir) => dir.join(format!("{}.bmsp", folder_name)),
+                        None if source.is_archive() => source
+                            .out_dir(roots.len())
+                            .join(format!("{}.bmsp", folder_name)),
                         None => {
                             let parent = Path::new(folder);
                             if parent.is_dir() {
@@ -1774,7 +1784,12 @@ fn main() -> Result<(), PackageManagerError> {
                         "[{}/{}] Packing '{}' into '{}' [{}]... ",
                         i + 1,
                         roots.len(),
-                        target_root.display(),
+                        // A song from an archive is named, not shown by its temp path.
+                        if source.is_archive() {
+                            folder_name.clone()
+                        } else {
+                            target_root.display().to_string()
+                        },
                         out_file.display(),
                         profile_tag
                     );

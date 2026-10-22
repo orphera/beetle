@@ -51,6 +51,8 @@ pub enum UiAction {
     // The open dialog
     DialogFocus(usize),
     DialogBrowse(usize),
+    /// The pack dialog's "압축 파일 고르기": an archive into field 0.
+    DialogBrowseArchive,
     DialogConfirm,
     DialogCancel,
     DialogChoice(usize, usize),

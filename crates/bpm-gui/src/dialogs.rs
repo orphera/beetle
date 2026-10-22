@@ -128,6 +128,12 @@ impl Dialog {
         }
     }
 
+    /// The archive picker of the pack dialog (its field's own button picks a folder).
+    pub fn archive_pick(&self) -> Option<(PickKind, &'static str)> {
+        matches!(self.kind, DialogKind::Pack { .. })
+            .then_some((ARCHIVES, "패키지로 만들 압축 파일 고르기"))
+    }
+
     /// The picker each big choice of the dialog opens.
     pub fn card_pick(&self, i: usize) -> Option<(PickKind, &'static str)> {
         match (&self.kind, i) {
@@ -236,7 +242,11 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
             DialogKind::Pack { turbo, bga } => {
                 v.title = "패키지(.bmsp) 만들기".into();
                 v.wide = true;
-                v.fields = vec![field(0, "곡 폴더", "패키지로 만들 곡 폴더")];
+                v.fields = vec![field(
+                    0,
+                    "곡 폴더 또는 압축 파일",
+                    "곡 폴더나 zip / rar / 7z 파일 (끌어다 놓아도 돼요)",
+                )];
                 v.choices = vec![
                     ChoiceView {
                         label: "형식".into(),
@@ -267,8 +277,13 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                         },
                     },
                 ];
-                v.footnote = "만든 파일은 고른 폴더 옆에 저장돼요. 여러 곡이 든 폴더를 고르면 곡마다 하나씩 그 폴더 안에 만들어요.".into();
-                v.buttons = cancel_ok("만들기");
+                v.footnote = "만든 파일은 고른 폴더 옆에 저장돼요. 여러 곡이 든 폴더를 고르면 곡마다 하나씩 그 폴더 안에, 압축 파일을 고르면 곡마다 하나씩 압축 파일 옆에 만들어요.".into();
+                v.buttons = vec![button(
+                    "압축 파일 고르기",
+                    Btn::Ghost,
+                    UiAction::DialogBrowseArchive,
+                )];
+                v.buttons.extend(cancel_ok("만들기"));
             }
             DialogKind::ApplyDelta => {
                 v.title = "업데이트 파일 적용".into();

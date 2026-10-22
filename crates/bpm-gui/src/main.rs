@@ -851,6 +851,11 @@ fn dispatch(state: &mut AppState, action: UiAction) {
                 state.open_picker(PickTarget::Field(i), kind, title);
             }
         }
+        UiAction::DialogBrowseArchive => {
+            if let Some((kind, title)) = state.dialog.as_ref().and_then(|d| d.archive_pick()) {
+                state.open_picker(PickTarget::Field(0), kind, title);
+            }
+        }
         UiAction::DialogConfirm => confirm_dialog(state),
         UiAction::DialogCancel => state.dialog = None,
         UiAction::DialogChoice(group, option) => {
@@ -922,7 +927,7 @@ fn confirm_dialog(state: &mut AppState) {
         }
         DialogKind::Pack { turbo, bga } => {
             if first.is_empty() {
-                state.err("패키지로 만들 곡 폴더를 골라 주세요");
+                state.err("패키지로 만들 곡 폴더나 압축 파일을 골라 주세요");
                 return;
             }
             state.dialog = None;
