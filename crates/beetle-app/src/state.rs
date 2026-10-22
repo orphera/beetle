@@ -303,6 +303,10 @@ pub struct AppState {
     pub song_folders: Option<crate::song_folders::FolderList>,
     /// How many folders `library.dat` links, as of the last library read.
     pub linked_folders: usize,
+    /// Paths later launches of the game handed to this one (`single_instance.rs`).
+    pub handoff: Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
+    /// `.bmsp` files open with this executable (Settings, `file_assoc.rs`).
+    pub file_assoc: bool,
     /// The song menu (song select) is open.
     pub song_menu: Option<crate::song_menu::SongMenu>,
     /// How many charts `hidden.dat` hides, as of the last library read.

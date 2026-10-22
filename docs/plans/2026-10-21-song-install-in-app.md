@@ -64,6 +64,12 @@
 - 탐색기에서 `.bmsp`를 더블클릭하면 게임이 열리고 S2 경로로 설치된다. 이미 실행 중이면 그 창으로 넘긴다
   (단일 인스턴스: 이름 있는 뮤텍스와 `WM_COPYDATA`, 새 크레이트 없음).
 - 레지스트리 등록(HKCU)은 설정 화면에서 사용자가 켤 때만 한다.
+- 구현(2026-10-22): 명령줄 인자가 설치할 수 있는 것(압축 파일, `.bmsp`, `.bmdp`, 폴더)이면 끌어다 놓기와 같은 큐로 넣고,
+  채보 파일이면 예전처럼 바로 연다(명령줄 `.bmsp`를 바로 플레이하던 경로는 없앴다). 인자가 없거나 설치할 것이면
+  `Local\Beetle.SingleInstance` 뮤텍스를 보고, 이미 실행 중이면 메시지 전용 창 `BeetleAppReceiver`에 `WM_COPYDATA`로 경로를
+  보내고 끝난다(`single_instance.rs`). 받은 쪽은 창을 앞으로 가져오고 경로를 `open_dropped_file`로 넘긴다. 채보 경로나 개발용
+  캡처 환경 변수가 있으면 따로 창을 연다. 설정 시스템 묶음 ".bmsp 파일 열기"(켬/끔)는 `HKCU\Software\Classes\.bmsp` →
+  `Beetle.Package`(`shell\open\command`, `DefaultIcon`)를 쓰고 지운다. 끌 때 `.bmsp`가 다른 프로그램을 가리키고 있으면 그대로 둔다(`file_assoc.rs`).
 
 ### S6 — `bpm-gui` 자리 정리
 - 선곡 화면의 "곡 관리자 열기"는 "고급 도구"로 이름을 바꾸고 첫 실행 안내에서 뺀다.

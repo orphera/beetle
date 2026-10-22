@@ -1716,6 +1716,14 @@ table! {
         ko "{}개",
         en "{}",
         ja "{}件";
+    pub ROW_FILE_ASSOC =
+        ko ".bmsp 파일 열기",
+        en "Open .bmsp Files",
+        ja ".bmsp ファイルを開く";
+    pub HELP_FILE_ASSOC =
+        ko "켜면 탐색기에서 .bmsp 파일을 두 번 눌렀을 때 이 게임이 열리고 곡을 넣어요.",
+        en "When on, double-clicking a .bmsp file in Explorer opens this game and adds the song.",
+        ja "オンにすると、エクスプローラーで .bmsp ファイルをダブルクリックしたときにこのゲームが開き、曲を追加します。";
     pub ROW_HIDDEN_SONGS =
         ko "숨긴 곡",
         en "Hidden Songs",

@@ -49,6 +49,7 @@ pub enum OptionId {
     Language,
     SongFolders,
     HiddenSongs,
+    FileAssoc,
     DisplayMode,
     Resolution,
     Graphics,
@@ -180,6 +181,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_HIDDEN_SONGS(),
             help: strings::HELP_HIDDEN_SONGS(),
+        },
+        OptionDesc {
+            id: OptionId::FileAssoc,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_FILE_ASSOC(),
+            help: strings::HELP_FILE_ASSOC(),
         },
         OptionDesc {
             id: OptionId::DisplayMode,
@@ -501,6 +509,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             strings::VALUE_FOLDERS(),
             &[&state.linked_folders.to_string()],
         ),
+        OptionId::FileAssoc => on_off(state.file_assoc).to_string(),
         OptionId::HiddenSongs => {
             strings::fill(strings::VALUE_FOLDERS(), &[&state.hidden_songs.to_string()])
         }
@@ -693,6 +702,11 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         // A list, not a value: ENTER opens it.
         OptionId::SongFolders | OptionId::HiddenSongs => {}
+        OptionId::FileAssoc => {
+            crate::file_assoc::set(!state.file_assoc);
+            // Read back: a refused write leaves the row as it was.
+            state.file_assoc = crate::file_assoc::is_registered();
+        }
     }
 }
 

@@ -3,6 +3,7 @@
 mod calibration;
 mod config;
 mod devtools;
+mod file_assoc;
 mod filters;
 mod folders;
 mod gameplay;
@@ -21,6 +22,7 @@ mod preview;
 mod raw_input;
 mod result_reveal;
 mod scanner;
+mod single_instance;
 mod song_folders;
 mod song_menu;
 mod state;
@@ -35,7 +37,7 @@ compile_error!("beetle-app is Windows-only: it renders with Direct3D 11 (ADR-026
 
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -119,13 +121,19 @@ fn fatal_error(msg: &str) {
 struct BeetleApp {
     state: Option<AppState>,
     cli_bms_path: Option<String>,
+    /// A file to add given on the command line (a `.bmsp` opened from Explorer).
+    cli_install: Option<PathBuf>,
+    /// Whether this is the one instance that receives later launches.
+    single: bool,
 }
 
 impl BeetleApp {
-    pub fn new(cli_bms_path: Option<String>) -> Self {
+    pub fn new(cli_bms_path: Option<String>, cli_install: Option<PathBuf>, single: bool) -> Self {
         Self {
             state: None,
             cli_bms_path,
+            cli_install,
+            single,
         }
     }
 }
@@ -346,6 +354,8 @@ impl ApplicationHandler for BeetleApp {
             folder_pick: None,
             song_folders: None,
             linked_folders: 0,
+            handoff: None,
+            file_assoc: file_assoc::is_registered(),
             song_menu: None,
             hidden_songs: 0,
         };
@@ -360,42 +370,16 @@ impl ApplicationHandler for BeetleApp {
         for path in devtools::dropped_paths() {
             install::queue(&mut app_state, path);
         }
+        if let Some(path) = self.cli_install.take() {
+            install::queue(&mut app_state, path);
+        }
+        if self.single {
+            app_state.handoff = single_instance::listen(app_state.window.clone());
+        }
 
         // If a specific file path was provided via CLI, launch directly into gameplay
         if let Some(cli_path) = &self.cli_bms_path {
-            let p = Path::new(cli_path);
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext.eq_ignore_ascii_case("bmsp") {
-                if let Ok(mut pkg) = bms_package::PackageReader::open_file(p) {
-                    let path_str = p.to_string_lossy();
-                    let chart_entries: Vec<String> = pkg
-                        .entries()
-                        .iter()
-                        .filter_map(|e| {
-                            let e_ext = e.path.rsplit('.').next().unwrap_or("");
-                            if e_ext.eq_ignore_ascii_case("bms")
-                                || e_ext.eq_ignore_ascii_case("bme")
-                                || e_ext.eq_ignore_ascii_case("bml")
-                                || e_ext.eq_ignore_ascii_case("pms")
-                            {
-                                Some(e.path.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    for entry_path in chart_entries {
-                        if let Ok(bytes) = pkg.read_entry(&entry_path) {
-                            let virtual_path = format!("{}::{}", path_str, entry_path);
-                            if let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) {
-                                queue_start_gameplay(&mut app_state, &meta);
-                                break;
-                            }
-                        }
-                    }
-                }
-            } else if let Ok(bytes) = fs::read(cli_path) {
+            if let Ok(bytes) = fs::read(cli_path) {
                 if let Some(meta) = SongMetadata::from_bytes(cli_path, &bytes) {
                     queue_start_gameplay(&mut app_state, &meta);
                 }
@@ -451,6 +435,14 @@ impl ApplicationHandler for BeetleApp {
 
         state.poll_library();
         song_folders::poll(state);
+        let handed: Vec<PathBuf> = state
+            .handoff
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for path in handed {
+            open_dropped_file(state, &path);
+        }
         install::poll(state);
 
         // Set by each branch that already wakes on its own frame-rate timer,
@@ -1224,12 +1216,24 @@ fn main() {
     let _timer_guard = MultimediaTimerGuard::new();
 
     let args: Vec<String> = env::args().collect();
-    let bms_path = args.get(1).cloned();
+    let arg = args.get(1).cloned();
+    // Archives, packages and folders are added (as when dropped); a chart opens.
+    let cli_install = arg
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| install::is_installable(p));
+    let bms_path = arg.filter(|_| cli_install.is_none());
+    // A plain launch or a file to add goes to a running game instead. A chart
+    // path or a dev capture run starts its own window.
+    let single = bms_path.is_none() && devtools::title_after_boot(false);
+    if single && single_instance::hand_over(cli_install.as_deref()) {
+        return;
+    }
 
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = BeetleApp::new(bms_path);
+    let mut app = BeetleApp::new(bms_path, cli_install, single);
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("Application error: {e}");
     }
