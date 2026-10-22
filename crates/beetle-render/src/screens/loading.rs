@@ -33,6 +33,9 @@ pub struct LoadingFrame<'a> {
     /// Seconds since loading started.
     pub elapsed: f64,
     pub status: &'a str,
+    /// How far the current stage is, 0 to 1, when it counts items; `None`
+    /// sweeps the bar instead.
+    pub fraction: Option<f32>,
     /// Play options in effect ("그린 500", ...).
     pub option_chips: &'a [String],
     /// "AUTO PLAY" / "REPLAY" when the run is not a normal play.
@@ -231,8 +234,9 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     progress(c, t, &sk, f, s);
 }
 
-/// Indeterminate progress: a highlight sweeping along the track, plus the
-/// status line with animated dots and the cancel hint.
+/// Progress: the bar fills with the stage's share done, or a highlight
+/// sweeps along the track when the stage has no count; the status line with
+/// animated dots, and the cancel hint.
 fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: f32) {
     let vp = f.viewport;
     let track = Rect::new(
@@ -241,9 +245,24 @@ fn progress(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &LoadingFrame, s: 
         vp.width - 320.0 * s,
         4.0 * s,
     );
-    widgets::sweep_bar(c, sk, track, f.elapsed, s);
+    match f.fraction {
+        Some(p) => {
+            c.nine(&sk.panel_sm, track, theme::LINE);
+            c.fill_rect_hgradient(
+                Rect::new(track.x, track.y, track.w * p, track.h),
+                theme::CYAN.with_alpha(120),
+                theme::CYAN,
+            );
+        }
+        None => widgets::sweep_bar(c, sk, track, f.elapsed, s),
+    }
 
-    let dots = ((f.elapsed * 3.0) as usize) % 4;
+    // A counted stage moves on its own; only a stage without a count gets the dots.
+    let dots = if f.fraction.is_some() {
+        0
+    } else {
+        ((f.elapsed * 3.0) as usize) % 4
+    };
     let status = format!("{}{}", f.status, ".".repeat(dots));
     t.draw(
         c,
@@ -297,6 +316,7 @@ mod tests {
                     ambient: None,
                     elapsed,
                     status: strings::LOADING(),
+                    fraction: None,
                     option_chips: &chips,
                     badge: Some(strings::AUTO_PLAY()),
                 },
@@ -341,6 +361,7 @@ mod tests {
                     ambient: None,
                     elapsed: 3.3,
                     status: strings::LOADING(),
+                    fraction: None,
                     option_chips: &chips,
                     badge: None,
                 },

@@ -442,46 +442,105 @@ impl SampleBank {
 
     /// Pre-decodes and loads all `#WAVxx` audio files referenced in a chart from the song directory.
     pub fn load_chart_soundbank<P: AsRef<Path>>(chart: &BmsChart, chart_dir: P) -> (Self, usize) {
+        Self::load_chart_soundbank_with_progress(chart, chart_dir, &|_, _| {})
+    }
+
+    /// `load_chart_soundbank`, decoding on several threads. `progress` is
+    /// called with (files done, files in the chart) after each file, from the
+    /// decoding threads.
+    pub fn load_chart_soundbank_with_progress<P: AsRef<Path>>(
+        chart: &BmsChart,
+        chart_dir: P,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> (Self, usize) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+
         let dir = chart_dir.as_ref();
-        let mut bank = Self::new();
-        let mut loaded_count = 0;
-
-        for (&wav_id, filename) in &chart.header.wav_table {
-            let file_path = dir.join(filename);
-            let mut resolved_path = None;
-
-            if file_path.exists() {
-                resolved_path = Some(file_path);
-            } else {
-                // Try smart alternate extensions (.flac, .wav, .ogg, .FLAC, .WAV, .OGG)
-                let stem = Path::new(filename).file_stem().unwrap_or_default();
-                let stem_str = stem.to_string_lossy();
-                let candidates = [
-                    dir.join(format!("{stem_str}.flac")),
-                    dir.join(format!("{stem_str}.wav")),
-                    dir.join(format!("{stem_str}.ogg")),
-                    dir.join(format!("{stem_str}.FLAC")),
-                    dir.join(format!("{stem_str}.WAV")),
-                    dir.join(format!("{stem_str}.OGG")),
-                ];
-
-                for cand in candidates {
-                    if cand.exists() {
-                        resolved_path = Some(cand);
+        let listing = DirListing::read(dir);
+        let jobs: Vec<(WavId, &String)> = chart
+            .header
+            .wav_table
+            .iter()
+            .map(|(&id, name)| (id, name))
+            .collect();
+        let total = jobs.len();
+        let next = AtomicUsize::new(0);
+        let done = AtomicUsize::new(0);
+        let decoded: Mutex<Vec<(WavId, PcmBuffer)>> = Mutex::new(Vec::with_capacity(total));
+        let workers = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .clamp(1, 8)
+            .min(total.max(1));
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&(wav_id, filename)) = jobs.get(i) else {
                         break;
+                    };
+                    let pcm = listing
+                        .resolve(dir, filename)
+                        .and_then(|path| Self::load_audio_file(&path).ok());
+                    if let Some(pcm) = pcm {
+                        if let Ok(mut out) = decoded.lock() {
+                            out.push((wav_id, pcm));
+                        }
                     }
-                }
+                    progress(done.fetch_add(1, Ordering::Relaxed) + 1, total);
+                });
             }
+        });
+        let mut bank = Self::new();
+        let decoded = decoded.into_inner().unwrap_or_default();
+        let loaded_count = decoded.len();
+        for (id, pcm) in decoded {
+            bank.insert(id, pcm);
+        }
+        (bank, loaded_count)
+    }
+}
 
-            if let Some(path) = resolved_path {
-                if let Ok(pcm) = Self::load_audio_file(&path) {
-                    bank.insert(wav_id, pcm);
-                    loaded_count += 1;
-                }
+/// The files of a chart folder by lowercased name, read once, so a key sound
+/// is found without probing the disk for each spelling and extension.
+struct DirListing {
+    files: HashMap<String, std::path::PathBuf>,
+}
+
+impl DirListing {
+    fn read(dir: &Path) -> Self {
+        let mut files = HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                files.insert(name, entry.path());
             }
         }
+        Self { files }
+    }
 
-        (bank, loaded_count)
+    /// The file for `filename`: the name as written in any case, else the same
+    /// stem as `.flac`, `.wav` or `.ogg`. A name with a folder in it is looked
+    /// up on disk.
+    fn resolve(&self, dir: &Path, filename: &str) -> Option<std::path::PathBuf> {
+        if filename.contains(['/', '\\']) {
+            let path = dir.join(filename);
+            return path.exists().then_some(path).or_else(|| {
+                let stem = Path::new(filename).with_extension("");
+                ["flac", "wav", "ogg"]
+                    .iter()
+                    .map(|ext| dir.join(stem.with_extension(ext)))
+                    .find(|p| p.exists())
+            });
+        }
+        let lower = filename.to_lowercase();
+        if let Some(p) = self.files.get(&lower) {
+            return Some(p.clone());
+        }
+        let stem = lower.rsplit_once('.').map_or(lower.as_str(), |(s, _)| s);
+        ["flac", "wav", "ogg"]
+            .iter()
+            .find_map(|ext| self.files.get(&format!("{stem}.{ext}")).cloned())
     }
 }
 

@@ -23,6 +23,33 @@ pub const DEFAULT_SONGS_DIR: &str = "songs";
 const SKIP_DIRS: &[&str] = &[".bpm-trash", ".tmp_install"];
 const CHART_EXTENSIONS: &[&str] = &["bms", "bme", "bml", "pms"];
 
+/// How far a library scan is: chart files read and chart files found. Zero
+/// while no scan runs (a read from the cache never counts).
+pub mod progress {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DONE: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+    pub(super) fn begin(total: usize) {
+        DONE.store(0, Ordering::Relaxed);
+        TOTAL.store(total, Ordering::Relaxed);
+    }
+
+    pub(super) fn step() {
+        DONE.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn end() {
+        begin(0);
+    }
+
+    /// (files read, files found).
+    pub fn read() -> (usize, usize) {
+        (DONE.load(Ordering::Relaxed), TOTAL.load(Ordering::Relaxed))
+    }
+}
+
 /// Where the source list lives for this process, as `bpm library` writes it.
 pub fn library_file() -> PathBuf {
     std::env::var("BEETLE_LIBRARY_FILE")
@@ -54,30 +81,33 @@ struct Copy {
 pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<SongMetadata> {
     let mut copies: Vec<Copy> = Vec::new();
     let mut seen_files = HashSet::new();
+    // Every chart file first (a file reached twice is read once), then read
+    // and parsed on several threads; the copies keep this order.
+    let mut jobs: Vec<(&String, PathBuf)> = Vec::new();
     for folder in folders {
-        let root = Path::new(folder);
         let mut files = Vec::new();
-        collect_chart_files(root, &mut files);
+        collect_chart_files(Path::new(folder), &mut files);
         for file in files {
             let canonical = fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
-            if !seen_files.insert(canonical) {
-                continue;
+            if seen_files.insert(canonical) {
+                jobs.push((folder, file));
             }
-            let Ok(bytes) = fs::read(&file) else {
-                continue;
-            };
-            let Some(meta) = SongMetadata::from_bytes(&file.to_string_lossy(), &bytes) else {
-                continue;
-            };
+        }
+    }
+    progress::begin(jobs.len());
+    let read = read_charts_parallel(&jobs);
+    for ((folder, file), meta) in jobs.iter().zip(read) {
+        if let Some(meta) = meta {
             copies.push(Copy {
                 kind: Kind::Folder,
-                source: folder.clone(),
-                path: relative_path(root, &file),
+                source: (*folder).clone(),
+                path: relative_path(Path::new(folder), file),
                 meta,
                 missing: None,
             });
         }
     }
+    progress::end();
 
     let mut readers: BTreeMap<String, PackageReader> = BTreeMap::new();
     if let Some(root) = packages_root {
@@ -130,6 +160,38 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
             .then_with(|| a.file_path.cmp(&b.file_path))
     });
     songs
+}
+
+/// Reads and parses each chart file on several threads. The result is in
+/// `jobs` order; `None` for a file that cannot be read or is not a chart.
+fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let next = AtomicUsize::new(0);
+    let out: Mutex<Vec<Option<SongMetadata>>> = Mutex::new(vec![None; jobs.len()]);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, 8)
+        .min(jobs.len().max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some((_, file)) = jobs.get(i) else {
+                    break;
+                };
+                let meta = fs::read(file)
+                    .ok()
+                    .and_then(|bytes| SongMetadata::from_bytes(&file.to_string_lossy(), &bytes));
+                if let Ok(mut out) = out.lock() {
+                    out[i] = meta;
+                }
+                progress::step();
+            });
+        }
+    });
+    out.into_inner().unwrap_or_default()
 }
 
 /// One entry per chart: the copy the game loads, chosen from each group in

@@ -140,6 +140,7 @@ fn loading_frame(
             ambient: None,
             elapsed: 3.3,
             status: strings::LOADING(),
+            fraction: None,
             option_chips: &chips,
             badge: None,
         },

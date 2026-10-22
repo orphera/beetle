@@ -66,6 +66,50 @@ const ARTWORK_CANDIDATE_FILENAMES: &[&str] = &[
     "TITLE.BMP",
 ];
 
+/// What the song loader is doing, for the loading screen. One song loads at
+/// a time, so the loader thread writes these and the render thread reads them.
+pub mod progress {
+    use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Stage {
+        Chart,
+        Sounds,
+        Images,
+        Videos,
+    }
+
+    static STAGE: AtomicU8 = AtomicU8::new(0);
+    static DONE: AtomicUsize = AtomicUsize::new(0);
+    static TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+    /// Starts a stage of `total` items (0 when it has no count).
+    pub fn begin(stage: Stage, total: usize) {
+        DONE.store(0, Ordering::Relaxed);
+        TOTAL.store(total, Ordering::Relaxed);
+        STAGE.store(stage as u8, Ordering::Relaxed);
+    }
+
+    pub fn set_done(done: usize) {
+        DONE.store(done, Ordering::Relaxed);
+    }
+
+    /// The stage, items done and items in it.
+    pub fn read() -> (Stage, usize, usize) {
+        let stage = match STAGE.load(Ordering::Relaxed) {
+            1 => Stage::Sounds,
+            2 => Stage::Images,
+            3 => Stage::Videos,
+            _ => Stage::Chart,
+        };
+        (
+            stage,
+            DONE.load(Ordering::Relaxed),
+            TOTAL.load(Ordering::Relaxed),
+        )
+    }
+}
+
 fn resolve_file_case_insensitive(dir: &Path, relative: &str) -> Option<PathBuf> {
     let normalized = relative.replace('\\', "/");
     let parts: Vec<&str> = normalized
@@ -563,6 +607,7 @@ pub fn load_chart_and_audio_with_seed(
     seed: u64,
     load_bga: bool,
 ) -> Result<LoadedSongData, ChartLoadError> {
+    progress::begin(progress::Stage::Chart, 0);
     // Check if song is inside a .bmsp package
     if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
         if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
@@ -588,6 +633,7 @@ pub fn load_chart_and_audio_with_seed(
                     let mut loaded_count = 0;
 
                     // 1. Keysounds: FAST-PATH via Sound Atlas (1-pass zero-allocation decoding)
+                    progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
                     let mut loaded_sound_from_atlas = false;
                     let sound_meta = pkg.manifest().sound_atlas.clone();
                     if let Some(sound_meta) = sound_meta {
@@ -606,6 +652,7 @@ pub fn load_chart_and_audio_with_seed(
                                 ) {
                                     Ok(bank) => {
                                         loaded_count = bank.len();
+                                        progress::set_done(loaded_count);
                                         soundbank = bank;
                                         loaded_sound_from_atlas = true;
                                     }
@@ -625,6 +672,7 @@ pub fn load_chart_and_audio_with_seed(
                                     if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
                                         soundbank.insert(wav_id, pcm);
                                         loaded_count += 1;
+                                        progress::set_done(loaded_count);
                                     }
                                 }
                             }
@@ -632,6 +680,7 @@ pub fn load_chart_and_audio_with_seed(
                     }
 
                     // 2. BGA Frames: FAST-PATH via BGA Delta Bundle or BGA Texture Atlas
+                    progress::begin(progress::Stage::Images, 0);
                     let mut loaded_bga = false;
                     let bga_delta_meta = pkg.manifest().bga_delta.clone();
                     if let Some(delta_meta) = bga_delta_meta {
@@ -844,21 +893,23 @@ pub fn load_chart_and_audio_with_seed(
     let chart = parse_playable_chart(&content, seed)?;
     let timing = TimingModel::from_chart(&chart);
     let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let (soundbank, loaded) = SampleBank::load_chart_soundbank(&chart, parent_dir);
-    let mut bga_bank = HashMap::new();
+    let started = std::time::Instant::now();
+    progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
+    let (soundbank, loaded) =
+        SampleBank::load_chart_soundbank_with_progress(&chart, parent_dir, &|done, _| {
+            progress::set_done(done)
+        });
+    let sounds_ms = started.elapsed().as_millis();
     let no_bmps = HashMap::new();
     let bmp_table = if load_bga {
         &chart.header.bmp_table
     } else {
         &no_bmps
     };
+    progress::begin(progress::Stage::Images, bmp_table.len());
+    let bga_bank = load_images_parallel(parent_dir, bmp_table);
 
-    for (&bmp_id, filename) in bmp_table {
-        if let Some(img) = load_image_from_dir_or_case_insensitive(parent_dir, filename) {
-            bga_bank.insert(bmp_id, img);
-        }
-    }
-
+    progress::begin(progress::Stage::Videos, 0);
     let mut video_sources = if load_bga {
         find_video_files_in_dir(parent_dir, &chart)
     } else {
@@ -898,13 +949,51 @@ pub fn load_chart_and_audio_with_seed(
     }
 
     println!(
-        "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos)",
+        "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos) in {} ms (key sounds {} ms)",
         chart.header.title,
         loaded,
         bga_bank.len(),
-        video_sources.len()
+        video_sources.len(),
+        started.elapsed().as_millis(),
+        sounds_ms
     );
     Ok((chart, timing, soundbank, bga_bank, video_sources))
+}
+
+/// Decodes the BGA images of a folder chart on several threads, counting them
+/// in `progress` as they finish.
+fn load_images_parallel(
+    dir: &Path,
+    bmp_table: &HashMap<BmpId, String>,
+) -> HashMap<BmpId, ImageBuffer> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let jobs: Vec<(&BmpId, &String)> = bmp_table.iter().collect();
+    let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    let out = Mutex::new(HashMap::new());
+    let workers = thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, 8)
+        .min(jobs.len().max(1));
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&(&id, filename)) = jobs.get(i) else {
+                    break;
+                };
+                if let Some(img) = load_image_from_dir_or_case_insensitive(dir, filename) {
+                    if let Ok(mut map) = out.lock() {
+                        map.insert(id, img);
+                    }
+                }
+                progress::set_done(done.fetch_add(1, Ordering::Relaxed) + 1);
+            });
+        }
+    });
+    out.into_inner().unwrap_or_default()
 }
 
 /// Parses chart text. Text that is not a BMS chart, and a chart with no notes at

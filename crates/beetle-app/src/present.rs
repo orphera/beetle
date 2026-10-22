@@ -692,6 +692,18 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
         ),
         LibraryJob::Rescan => (strings::BOOT_TITLE_RESCAN(), strings::BOOT_STATUS_RESCAN()),
     };
+    // A full scan counts the chart files it reads.
+    let counted;
+    let status = match crate::scanner::progress::read() {
+        (done, total) if total > 0 => {
+            counted = strings::fill(
+                strings::BOOT_STATUS_COUNT(),
+                &[&done.to_string(), &total.to_string()],
+            );
+            counted.as_str()
+        }
+        _ => status,
+    };
     begin(state, size);
     beetle_render::draw_boot(
         state.gpu_ui.ui.current(),
@@ -743,6 +755,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
     let now = Instant::now();
     show_loading_backdrop(state, backdrop_song, now);
+    let (status, fraction) = loading_status();
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
             state.gpu_ui.ui.current(),
@@ -753,7 +766,8 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
                 jacket,
                 ambient,
                 elapsed,
-                status: strings::LOADING_STATUS(),
+                status: &status,
+                fraction,
                 option_chips: &chips,
                 badge,
                 now,
@@ -762,6 +776,24 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     }
     overlays(state, false);
     finish(state);
+}
+
+/// What the song loader is doing, as the loading screen says it, and how far
+/// along the stage is (when it counts items).
+fn loading_status() -> (String, Option<f32>) {
+    use crate::loader::progress::{self, Stage};
+    let (stage, done, total) = progress::read();
+    let counted =
+        |template: &str| strings::fill(template, &[&done.to_string(), &total.to_string()]);
+    let fraction = (total > 0).then(|| (done as f32 / total as f32).clamp(0.0, 1.0));
+    match stage {
+        Stage::Chart => (strings::LOADING_CHART().to_string(), None),
+        Stage::Sounds if total > 0 => (counted(strings::LOADING_SOUNDS()), fraction),
+        Stage::Images if total > 0 => (counted(strings::LOADING_IMAGES()), fraction),
+        Stage::Sounds | Stage::Images | Stage::Videos => {
+            (strings::LOADING_VIDEOS().to_string(), None)
+        }
+    }
 }
 
 /// The backdrop of the result screen: the played chart's artwork, blurred

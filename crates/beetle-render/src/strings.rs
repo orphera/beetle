@@ -1392,10 +1392,28 @@ table! {
         ja "終了";
 
     // ---- Loading ------------------------------------------------------
-    pub LOADING_STATUS =
-        ko "키음을 디코딩하고 오디오를 준비하는 중",
-        en "Decoding key sounds and preparing audio",
-        ja "キー音をデコードし、オーディオを準備しています";
+    // Loading screen: what the song loader is doing. `{}`: items done, items.
+    /// Boot screen during a full library scan. `{}`: chart files read, found.
+    pub BOOT_STATUS_COUNT =
+        ko "채보 파일을 읽는 중 {} / {}",
+        en "Reading chart files {} / {}",
+        ja "譜面ファイルを読み込んでいます {} / {}";
+    pub LOADING_CHART =
+        ko "채보를 읽는 중",
+        en "Reading the chart",
+        ja "譜面を読み込んでいます";
+    pub LOADING_SOUNDS =
+        ko "키음을 불러오는 중 {} / {}",
+        en "Loading key sounds {} / {}",
+        ja "キー音を読み込んでいます {} / {}";
+    pub LOADING_IMAGES =
+        ko "BGA 이미지를 불러오는 중 {} / {}",
+        en "Loading BGA images {} / {}",
+        ja "BGA 画像を読み込んでいます {} / {}";
+    pub LOADING_VIDEOS =
+        ko "BGA를 준비하는 중",
+        en "Preparing the BGA",
+        ja "BGA を準備しています";
     pub PRACTICE =
         ko "연습",
         en "Practice",
