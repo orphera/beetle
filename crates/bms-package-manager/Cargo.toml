@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 beetle-core = { workspace = true }
+cs-disc = { workspace = true }
 beetle-audio = { workspace = true }
 beetle-render = { workspace = true }
 bms-package = { workspace = true }

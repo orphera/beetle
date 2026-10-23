@@ -135,6 +135,25 @@ pub struct Chart {
     pub file: u32,
 }
 
+impl Chart {
+    /// The chart's name on its disc, `<song id>/<style>_<difficulty>`
+    /// (`017/sp_another`): what a player stores to find it again.
+    pub fn key(&self, song: &Song) -> String {
+        let style = match self.style {
+            Style::Single => "sp",
+            Style::Double => "dp",
+        };
+        let difficulty = match self.difficulty {
+            Difficulty::Beginner => "beginner",
+            Difficulty::Normal => "normal",
+            Difficulty::Hyper => "hyper",
+            Difficulty::Another => "another",
+            Difficulty::Black => "black",
+        };
+        format!("{:03}/{style}_{difficulty}", song.id)
+    }
+}
+
 /// One song: a record of the song table that has at least one chart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Song {
@@ -196,6 +215,15 @@ impl Disc {
             files,
             dats,
         })
+    }
+
+    /// The song and chart a `Chart::key` names.
+    pub fn find(&self, key: &str) -> Option<(&Song, &Chart)> {
+        let (id, _) = key.split_once('/')?;
+        let id: u32 = id.parse().ok()?;
+        let song = self.songs.iter().find(|s| s.id == id)?;
+        let chart = song.charts.iter().find(|c| c.key(song) == key)?;
+        Some((song, chart))
     }
 
     /// Where file number `file` is, or `None` for a number the tables lack.
@@ -288,6 +316,12 @@ impl Song {
 /// sound bank.
 pub fn sound_name(n: u16) -> String {
     format!("{n:04}.wav")
+}
+
+/// The sound number `sound_name` gave `name`.
+pub fn sound_number(name: &str) -> Option<u16> {
+    let digits = name.strip_suffix(".wav")?;
+    (digits.len() == 4).then(|| digits.parse().ok()).flatten()
 }
 
 impl Disc {
@@ -469,6 +503,32 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_chart_is_found_again_by_its_key() {
+        let levels = [4, 7, 10, 0, 0, 0, 8, 0, 0, 0];
+        let charts = [11, 12, 13, 0, 14, 0, 0, 0, 0, 0];
+        let mut table = record("A", [0; 10], [0; 10]);
+        table.extend(record("B", levels, charts));
+        let disc = Disc {
+            edition: Edition::Empress,
+            songs: read_songs(&table, (0, RECORD_SIZE * 2)).unwrap(),
+            files: Vec::new(),
+            dats: [FileExtent { lba: 0, size: 0 }; 3],
+        };
+        let song = &disc.songs[0];
+        let key = song.charts[1].key(song);
+        assert_eq!(key, "001/sp_hyper");
+        let (found_song, found) = disc.find(&key).unwrap();
+        assert_eq!((found_song.id, found.file), (1, 11));
+        assert!(disc.find("001/dp_black").is_none());
+    }
+
+    #[test]
+    fn sound_names_read_back() {
+        assert_eq!(sound_number(&sound_name(42)), Some(42));
+        assert_eq!(sound_number("0042.ogg"), None);
     }
 
     #[test]

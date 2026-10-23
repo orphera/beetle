@@ -51,6 +51,22 @@ impl Game {
     }
 }
 
+/// Whether `target` names a disc: a disc image file (`.iso`) or a drive (`E:`).
+pub fn is_disc_target(target: &str) -> bool {
+    drive::as_drive_letter(target).is_some()
+        || std::path::Path::new(target)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("iso"))
+}
+
+/// Opens a disc image file, or a drive's disc when `target` is a drive (`E:`).
+pub fn open(target: &str) -> io::Result<SectorReader<std::fs::File>> {
+    match drive::as_drive_letter(target) {
+        Some(letter) => drive::open(letter),
+        None => SectorReader::open_image(target),
+    }
+}
+
 /// Which known game is on the disc, or `None` for any other disc (not PS2, or
 /// a game this crate does not read).
 pub fn identify<R: Read + Seek>(disc: &mut SectorReader<R>) -> io::Result<Option<Game>> {

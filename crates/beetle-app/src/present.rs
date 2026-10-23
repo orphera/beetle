@@ -798,6 +798,7 @@ fn boot_status() -> (Option<String>, Option<f32>) {
         Stage::Listing => strings::fill(strings::BOOT_STAGE_LISTING(), &[&done.to_string()]),
         Stage::Charts => counted(strings::BOOT_STATUS_COUNT()),
         Stage::Packages => counted(strings::BOOT_STAGE_PACKAGES()),
+        Stage::Discs => counted(strings::BOOT_STAGE_DISCS()),
         Stage::Copies => strings::BOOT_STAGE_COPIES().to_string(),
         Stage::Tables => strings::BOOT_STAGE_TABLES().to_string(),
         Stage::Uninstalled => strings::BOOT_STAGE_UNINSTALLED().to_string(),

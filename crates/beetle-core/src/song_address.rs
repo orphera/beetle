@@ -2,7 +2,8 @@
 //!
 //! - A chart file in a folder: its path (`D:/BMS/song/x.bms`).
 //! - An entry of a `.bmsp` package: `<package>::<entry>`.
-//! - A chart read off a game disc image: `disc:<image>::<chart>`, where
+//! - A chart read off a game disc: `disc:<image>::<chart>`, where `<image>` is
+//!   a disc image file or a drive (`E:`), and
 //!   `<chart>` is the disc reader's own name for the chart, written like a path
 //!   (`<song>/<chart>`) so the song's folder is the part before the last `/`.
 //!
@@ -26,7 +27,8 @@ impl<'a> SongAddress<'a> {
     pub fn parse(file_path: &'a str) -> Self {
         if let Some((image, chart)) = file_path
             .strip_prefix(DISC_PREFIX)
-            .and_then(|rest| rest.split_once(SEPARATOR))
+            // The last separator: a drive's image is `E:`, so `E:::017/…`.
+            .and_then(|rest| rest.rsplit_once(SEPARATOR))
         {
             return SongAddress::Disc { image, chart };
         }
@@ -105,6 +107,18 @@ mod tests {
         );
         assert_eq!(parsed.container(), "D:/iso/iidx16.iso");
         assert_eq!(parsed.inner(), "017/sp_another");
+    }
+
+    #[test]
+    fn a_disc_in_a_drive_is_its_drive_letter() {
+        let address = disc_address("E:", "017/sp_another");
+        assert_eq!(
+            SongAddress::parse(&address),
+            SongAddress::Disc {
+                image: "E:",
+                chart: "017/sp_another"
+            }
+        );
     }
 
     #[test]

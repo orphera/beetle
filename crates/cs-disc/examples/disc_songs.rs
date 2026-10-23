@@ -5,11 +5,10 @@
 //! cargo run -p cs-disc --example disc_songs          (every CD/DVD drive)
 //! ```
 
-use std::fs::File;
 use std::io;
 
 use cs_disc::iidx16::{Difficulty, Disc, Style};
-use cs_disc::{drive, identify, Game, SectorReader, Volume};
+use cs_disc::{drive, identify, Game, Volume};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,15 +30,8 @@ fn main() {
     }
 }
 
-fn open(target: &str) -> io::Result<SectorReader<File>> {
-    match drive::as_drive_letter(target) {
-        Some(letter) => drive::open(letter),
-        None => SectorReader::open_image(target),
-    }
-}
-
 fn list(target: &str) -> io::Result<()> {
-    let mut disc = open(target)?;
+    let mut disc = cs_disc::open(target)?;
     let Some(game) = identify(&mut disc)? else {
         println!("{target}: not a disc this player reads");
         return Ok(());

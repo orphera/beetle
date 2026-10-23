@@ -4,7 +4,7 @@ use bms_package_manager::collection::{self, LocationKind};
 use bms_package_manager::songs;
 use bms_package_manager::table_ops;
 use bms_package_manager::{
-    absolute_dir, fetch_table, find_available_updates, load_library, save_library, HttpClient,
+    fetch_table, find_available_updates, library_entry, load_library, save_library, HttpClient,
     PackageManager, PackageManagerError, PackageUpdater, RegistryCacheManager, RegistrySource,
     RemotePackageInstaller, RemoteRegistryIndex, SourcesConfig, TableStore, UpdateOutcome,
 };
@@ -753,7 +753,7 @@ fn run_library_command(args: &[String]) {
     };
     match (args.first().map(String::as_str), args.get(1)) {
         (Some("add"), Some(path)) => {
-            let abs = absolute_dir(path).unwrap_or_else(|e| fail(&e));
+            let abs = library_entry(path).unwrap_or_else(|e| fail(&e));
             if list.add(&abs) {
                 save(&list);
                 println!("Added {abs} (the player rescans on next start)");
@@ -763,7 +763,7 @@ fn run_library_command(args: &[String]) {
         }
         (Some("remove"), Some(path)) => {
             // The folder may be gone already, so fall back to the text as typed.
-            let abs = absolute_dir(path).unwrap_or_else(|_| path.clone());
+            let abs = library_entry(path).unwrap_or_else(|_| path.clone());
             if list.remove(&abs) {
                 save(&list);
                 println!("Removed {abs}");
@@ -776,7 +776,7 @@ fn run_library_command(args: &[String]) {
                 println!("No folders registered. Add one with: bpm library add <folder>");
             }
             for p in list.paths() {
-                let status = if Path::new(p).is_dir() {
+                let status = if Path::new(p).exists() {
                     "ok"
                 } else {
                     "missing"
@@ -785,8 +785,10 @@ fn run_library_command(args: &[String]) {
             }
         }
         _ => {
-            eprintln!("Usage: bpm library <add|remove> <folder> | bpm library list");
-            eprintln!("Folders are kept in ./library.dat (or $BEETLE_LIBRARY_FILE), scanned in place by the player.");
+            eprintln!(
+                "Usage: bpm library <add|remove> <folder | disc.iso | E:> | bpm library list"
+            );
+            eprintln!("Folders and game discs are kept in ./library.dat (or $BEETLE_LIBRARY_FILE), read in place by the player.");
             std::process::exit(1);
         }
     }

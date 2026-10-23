@@ -1,5 +1,6 @@
 //! Reading and writing `library.dat`, the list of legacy BMS folders the
-//! player scans in place (shared by `bpm library` and `bpm-gui`).
+//! player scans in place, and of game discs it reads (`.iso` images and
+//! drives; shared by `bpm library` and `bpm-gui`).
 
 use beetle_core::LibraryPaths;
 use std::fs;
@@ -27,4 +28,36 @@ pub fn absolute_dir(path: &str) -> Result<String, String> {
         return Err(format!("'{path}' is not a folder"));
     }
     Ok(beetle_core::display_path(&p.to_string_lossy()).to_string())
+}
+
+/// What `library.dat` stores for `path`: a drive as `E:`, a disc image or a
+/// folder as its absolute path. A drive need not hold a disc yet.
+pub fn library_entry(path: &str) -> Result<String, String> {
+    if let Some(letter) = cs_disc::drive::as_drive_letter(path) {
+        return Ok(format!("{letter}:"));
+    }
+    if cs_disc::is_disc_target(path) {
+        let p = fs::canonicalize(path).map_err(|e| format!("'{path}': {e}"))?;
+        if !p.is_file() {
+            return Err(format!("'{path}' is not a disc image"));
+        }
+        return Ok(beetle_core::display_path(&p.to_string_lossy()).to_string());
+    }
+    absolute_dir(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_drive_is_stored_by_its_letter() {
+        assert_eq!(library_entry("e:\\").unwrap(), "E:");
+        assert_eq!(library_entry("E:").unwrap(), "E:");
+    }
+
+    #[test]
+    fn a_missing_disc_image_is_refused() {
+        assert!(library_entry("no-such-disc.iso").is_err());
+    }
 }

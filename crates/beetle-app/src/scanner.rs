@@ -1,17 +1,18 @@
 //! Finds the charts the game plays, and which copy of each chart it loads.
 //!
 //! Sources are the folders from `beetle_core::collection_folders` (library
-//! folders and the songs folder) and the active package states in the
-//! registry. A copy of a chart is a file (or package entry) whose bytes have the
+//! folders and the songs folder), the active package states in the registry,
+//! and the game discs listed in the library (`.iso` images and drives, read
+//! with `cs_disc`). A copy of a chart is a file (or package entry) whose bytes have the
 //! same `ChartId`; the game lists each chart once, loading the copy that
 //! `beetle_core::choose_load_index` picks among the copies in the same order
-//! `bpm` uses: folders before packages, then source, then path.
+//! `bpm` uses: folders before packages before discs, then source, then path.
 
 use crate::boot_progress::{self, Stage};
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
 use beetle_core::{
-    choose_load_index, collection_folders, deserialize_song_cache, display_path, package_address,
-    serialize_song_cache, ChartId, LibraryPaths, SongMetadata, SONGS_CACHE_FILE,
+    choose_load_index, collection_folders, deserialize_song_cache, disc_address, display_path,
+    package_address, serialize_song_cache, ChartId, LibraryPaths, SongMetadata, SONGS_CACHE_FILE,
 };
 use bms_package::installed::{self, REGISTRY_FILENAME};
 use bms_package::PackageReader;
@@ -30,19 +31,23 @@ pub fn library_file() -> PathBuf {
         .map_or_else(|_| PathBuf::from("library.dat"), PathBuf::from)
 }
 
-/// Where a copy comes from. Folders sort before packages, as in `bpm`.
+/// Where a copy comes from. Folders sort before packages, as in `bpm`, and
+/// discs last: a chart that is also installed loads from the installed copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Kind {
     Folder,
     Package,
+    Disc,
 }
 
 /// One copy of a chart found by a scan.
 struct Copy {
     kind: Kind,
     /// Folder: the folder's absolute path. Package: `<id>@<state hash>`.
+    /// Disc: the image or drive.
     source: String,
-    /// Folder: the file's path inside the folder, with `/`. Package: the entry path.
+    /// Folder: the file's path inside the folder, with `/`. Package: the entry
+    /// path. Disc: the chart's key on the disc.
     path: String,
     meta: SongMetadata,
     /// Declared key sounds missing next to this copy. Only worked out for
@@ -61,6 +66,8 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     // a folder listed inside another one is read once, without asking the
     // file system for every file's canonical path.
     let mut jobs: Vec<(&String, PathBuf)> = Vec::new();
+    let (discs, folders): (Vec<&String>, Vec<&String>) =
+        folders.iter().partition(|f| cs_disc::is_disc_target(f));
     boot_progress::begin(Stage::Listing, 0);
     for folder in folders {
         let root = Path::new(folder);
@@ -98,6 +105,9 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
             readers.insert(source, reader);
         }
     }
+
+    boot_progress::begin(Stage::Discs, discs.len());
+    copies.extend(read_discs_parallel(&discs));
 
     let mut by_chart: BTreeMap<ChartId, Vec<Copy>> = BTreeMap::new();
     for copy in copies {
@@ -183,6 +193,67 @@ fn read_package(state: &installed::ActiveState) -> Option<PackageCopies> {
     Some((source, reader, copies))
 }
 
+/// Reads the charts of each disc, one disc per thread, in `discs` order.
+fn read_discs_parallel(discs: &[&String]) -> Vec<Copy> {
+    std::thread::scope(|scope| {
+        let reads: Vec<_> = discs
+            .iter()
+            .map(|target| scope.spawn(move || read_disc(target)))
+            .collect();
+        reads
+            .into_iter()
+            .flat_map(|read| {
+                boot_progress::step();
+                read.join().unwrap_or_default()
+            })
+            .collect()
+    })
+}
+
+/// The charts on a game disc, each a copy with nothing missing. Nothing for
+/// a disc that cannot be read (an empty drive) or a game `cs_disc` does not know.
+fn read_disc(target: &str) -> Vec<Copy> {
+    use cs_disc::iidx16::Disc;
+    // A drive is stored as `E:`, however the library spells it.
+    let source = match cs_disc::drive::as_drive_letter(target) {
+        Some(letter) => format!("{letter}:"),
+        None => target.to_string(),
+    };
+    let Ok(mut disc) = cs_disc::open(&source) else {
+        return Vec::new();
+    };
+    let Ok(Some(game)) = cs_disc::identify(&mut disc) else {
+        return Vec::new();
+    };
+    let Ok(volume) = cs_disc::Volume::open(&mut disc) else {
+        return Vec::new();
+    };
+    let cs_disc::Game::Iidx16(edition) = game;
+    let Ok(songs) = Disc::open(&mut disc, &volume, edition) else {
+        return Vec::new();
+    };
+    let mut copies = Vec::new();
+    for song in &songs.songs {
+        for chart in &song.charts {
+            let Ok(bms) = songs.chart_bms(&mut disc, song, chart) else {
+                continue;
+            };
+            let key = chart.key(song);
+            let address = disc_address(&source, &key);
+            if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                copies.push(Copy {
+                    kind: Kind::Disc,
+                    source: source.clone(),
+                    path: key,
+                    meta,
+                    missing: Some(0),
+                });
+            }
+        }
+    }
+    copies
+}
+
 /// Works out `missing` for every copy of the charts found more than once, on
 /// several threads: the folder copies one at a time, the package copies one
 /// package at a time (a reader is not shared).
@@ -206,6 +277,8 @@ fn check_copies_parallel(
         match copy.kind {
             Kind::Folder => jobs.push(Job::Folder(copy)),
             Kind::Package => by_source.entry(copy.source.clone()).or_default().push(copy),
+            // A disc chart's sounds are on the disc.
+            Kind::Disc => {}
         }
     }
     for (source, copies) in by_source {

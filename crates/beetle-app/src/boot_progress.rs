@@ -21,6 +21,8 @@ pub enum Stage {
     Charts,
     /// Reading the charts of the installed packages.
     Packages,
+    /// Reading the charts of the game discs in the library.
+    Discs,
     /// Choosing which copy of a chart found twice to load.
     Copies,
     /// Matching the songs to the difficulty tables.
@@ -31,12 +33,13 @@ pub enum Stage {
     Done,
 }
 
-const STAGES: [Stage; 9] = [
+const STAGES: [Stage; 10] = [
     Stage::Scores,
     Stage::Cache,
     Stage::Listing,
     Stage::Charts,
     Stage::Packages,
+    Stage::Discs,
     Stage::Copies,
     Stage::Tables,
     Stage::Uninstalled,

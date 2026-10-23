@@ -403,9 +403,9 @@ impl ApplicationHandler for BeetleApp {
             file_assoc::refresh_icon();
         }
 
-        // If a specific file path was provided via CLI, launch directly into gameplay
+        // If a chart (file, or disc address) was given on the command line, play it.
         if let Some(cli_path) = &self.cli_bms_path {
-            if let Ok(bytes) = fs::read(cli_path) {
+            if let Ok(bytes) = loader::read_chart_bytes(cli_path) {
                 if let Some(meta) = SongMetadata::from_bytes(cli_path, &bytes) {
                     queue_start_gameplay(&mut app_state, &meta);
                 }

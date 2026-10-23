@@ -12,6 +12,7 @@ use beetle_core::{
 };
 use beetle_render::{strings, ImageBuffer};
 
+mod disc;
 mod folder;
 mod package;
 
@@ -179,14 +180,13 @@ trait SongSource {
 }
 
 /// Opens the source a song's `file_path` names (`SongAddress`).
-fn open_source(song: &SongMetadata) -> Result<Box<dyn SongSource>, ChartLoadError> {
-    match SongAddress::parse(&song.file_path) {
+fn open_source(file_path: &str) -> Result<Box<dyn SongSource>, ChartLoadError> {
+    match SongAddress::parse(file_path) {
         SongAddress::Folder { file } => Ok(Box::new(folder::FolderSource::new(file))),
         SongAddress::Package { bmsp, entry } => {
             Ok(Box::new(package::PackageSource::open(bmsp, entry)?))
         }
-        // No disc reader yet (docs/plans/2026-10-23-disc-direct-playback.md).
-        SongAddress::Disc { .. } => Err(ChartLoadError::NotFound),
+        SongAddress::Disc { image, chart } => Ok(Box::new(disc::DiscSource::open(image, chart)?)),
     }
 }
 
@@ -216,12 +216,18 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
         }
     }
 
-    let (img, cache_bytes) = open_source(song).ok()?.stage_image()?;
+    let (img, cache_bytes) = open_source(&song.file_path).ok()?.stage_image()?;
     if let Some(bytes) = cache_bytes {
         let _ = fs::create_dir_all(cache_dir);
         write_cache_file(&cache_file, &bytes);
     }
     Some(img)
+}
+
+/// The chart bytes at a song address (a chart file, package entry or disc
+/// chart), as the loader reads them.
+pub fn read_chart_bytes(file_path: &str) -> Result<Vec<u8>, ChartLoadError> {
+    open_source(file_path)?.chart_bytes()
 }
 
 /// `load_chart_and_audio_with_seed` with the library's fixed `#RANDOM` seed.
@@ -240,7 +246,7 @@ pub fn load_chart_and_audio_with_seed(
     load_bga: bool,
 ) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
-    let mut source = open_source(song)?;
+    let mut source = open_source(&song.file_path)?;
     let bytes = source.chart_bytes()?;
     let content = beetle_core::decode_bms_text(&bytes);
     let chart = parse_playable_chart(&content, seed)?;
@@ -1336,5 +1342,48 @@ mod tests {
     fn package_song_is_labelled_by_its_entry_name() {
         let meta = meta_at("pack.bmsp::dir/01.bms");
         assert_eq!(song_file_label(&meta), "01.bms");
+    }
+
+    #[test]
+    fn a_disc_that_is_not_there_is_not_found() {
+        let meta = meta_at("disc:no-such-disc.iso::000/sp_normal");
+        assert_eq!(
+            load_chart_and_audio_with_seed(&meta, 0, true).err(),
+            Some(ChartLoadError::NotFound)
+        );
+    }
+
+    /// With `CS_DISC_IIDX16_DISC2` set to the PREMIUM BEST image: ANISAKIS
+    /// loads from the disc with every key sound and its BGM, as the scanner
+    /// lists it.
+    #[test]
+    fn a_disc_chart_loads_with_its_sounds() {
+        let Ok(image) = std::env::var("CS_DISC_IIDX16_DISC2") else {
+            return;
+        };
+        let address = beetle_core::disc_address(&image, "000/sp_another");
+        let mut disc = cs_disc::open(&image).unwrap();
+        let volume = cs_disc::Volume::open(&mut disc).unwrap();
+        let songs =
+            cs_disc::iidx16::Disc::open(&mut disc, &volume, cs_disc::iidx16::Edition::PremiumBest)
+                .unwrap();
+        let (song, chart) = songs.find("000/sp_another").unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
+        let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
+        assert_eq!(meta.title, "ANISAKIS");
+
+        let (chart, _, bank, bga, videos) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        assert_eq!(bank.len(), chart.header.wav_table.len());
+        let bgm = chart
+            .header
+            .wav_table
+            .iter()
+            .find(|(_, n)| *n == "0001.wav")
+            .unwrap()
+            .0;
+        let bgm = bank.get(*bgm).expect("the BGM cue has the BGM stream");
+        assert!(bgm.duration_seconds() > 100.0, "{}", bgm.duration_seconds());
+        assert!(bga.is_empty() && videos.is_empty());
+        assert_eq!(song_file_label(&meta), "sp_another");
     }
 }

@@ -1435,6 +1435,10 @@ table! {
         ko "설치한 곡을 읽는 중 {} / {}",
         en "Reading installed songs {} / {}",
         ja "インストールした曲を読み込んでいます {} / {}";
+    pub BOOT_STAGE_DISCS =
+        ko "게임 디스크를 읽는 중 {} / {}",
+        en "Reading game discs {} / {}",
+        ja "ゲームディスクを読み込んでいます {} / {}";
     pub BOOT_STAGE_COPIES =
         ko "같은 채보 중 불러올 것을 고르는 중",
         en "Choosing which copy of each chart to load",

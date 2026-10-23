@@ -10,6 +10,7 @@ beetle-audio = { workspace = true }
 beetle-render = { workspace = true }
 bms-package = { workspace = true }
 bms-package-manager = { workspace = true }
+cs-disc = { workspace = true }
 winit = { workspace = true }
 rtrb = { workspace = true }
 
