@@ -456,7 +456,7 @@ fn card_container(record: &[u8]) -> Option<u32> {
             w[0] == 0 && (0x500..0x700).contains(&w[1]) && !SHARED_CONTAINERS.contains(&w[1])
         })
         .map(|w| w[1])
-        .last()
+        .next_back()
 }
 
 fn table(exe: &[u8], (at, len): (usize, usize)) -> io::Result<&[u8]> {
