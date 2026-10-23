@@ -3,6 +3,7 @@
 //! when the `bga-enhanced` feature is enabled on Windows, with a zero-overhead stub fallback.
 
 use crate::image::ImageBuffer;
+use crate::mpeg_player::MpegPlayer;
 use std::path::Path;
 
 /// Standard video file extensions supported by the BGA video player.
@@ -616,10 +617,15 @@ mod wmf_backend {
 
 /// Unified BGA video player interface.
 pub struct BgaVideoPlayer {
+    backend: Backend,
+}
+
+enum Backend {
+    /// MPEG-1/2, decoded here (`mpeg_player`).
+    Mpeg(Box<MpegPlayer>),
+    /// Everything else, through Windows Media Foundation.
     #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-    backend: Option<wmf_backend::WmfVideoPlayer>,
-    #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-    _dummy: (),
+    Wmf(wmf_backend::WmfVideoPlayer),
 }
 
 impl BgaVideoPlayer {
@@ -629,12 +635,24 @@ impl BgaVideoPlayer {
         if !is_video_path(p) {
             return None;
         }
+        // MPEG is decoded here, by content: a `.mpg` may hold anything.
+        let mut head = [0u8; 4];
+        let is_mpeg = std::fs::File::open(p)
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut head))
+            .is_ok()
+            && crate::mpeg_player::is_mpeg(&head);
+        if is_mpeg {
+            let bytes = std::fs::read(p).ok()?;
+            return MpegPlayer::open(&bytes).map(|m| Self {
+                backend: Backend::Mpeg(Box::new(m)),
+            });
+        }
 
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
             let backend = wmf_backend::WmfVideoPlayer::open(p)?;
             Some(Self {
-                backend: Some(backend),
+                backend: Backend::Wmf(backend),
             })
         }
 
@@ -652,87 +670,68 @@ impl BgaVideoPlayer {
                 return None;
             }
         }
+        if crate::mpeg_player::is_mpeg(bytes) {
+            return MpegPlayer::open(bytes).map(|m| Self {
+                backend: Backend::Mpeg(Box::new(m)),
+            });
+        }
 
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
             let backend = wmf_backend::WmfVideoPlayer::open_from_memory(bytes, filename_hint)?;
             Some(Self {
-                backend: Some(backend),
+                backend: Backend::Wmf(backend),
             })
         }
 
         #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
         {
-            let _ = (bytes, filename_hint);
             None
         }
     }
 
     /// Advances video playback synchronized to `audio_time_seconds` and returns the current frame.
     pub fn update(&mut self, audio_time_seconds: f64) -> Option<&ImageBuffer> {
-        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-        {
-            self.backend
-                .as_mut()
-                .and_then(|b| b.update(audio_time_seconds))
-        }
-
-        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-        {
-            let _ = audio_time_seconds;
-            None
+        match &mut self.backend {
+            Backend::Mpeg(m) => m.update(audio_time_seconds),
+            #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+            Backend::Wmf(w) => w.update(audio_time_seconds),
         }
     }
 
     /// Returns the current decoded frame buffer if available.
     pub fn current_frame(&self) -> Option<&ImageBuffer> {
-        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-        {
-            self.backend.as_ref().map(|b| &b.frame_buffer)
-        }
-
-        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-        {
-            None
+        match &self.backend {
+            Backend::Mpeg(m) => Some(&m.frame_buffer),
+            #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+            Backend::Wmf(w) => Some(&w.frame_buffer),
         }
     }
 
     /// Changes whenever a new frame was decoded (GPU upload change detection).
     pub fn frame_serial(&self) -> u64 {
-        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-        {
-            self.backend.as_ref().map(|b| b.frame_serial).unwrap_or(0)
-        }
-
-        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-        {
-            0
+        match &self.backend {
+            Backend::Mpeg(m) => m.frame_serial,
+            #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+            Backend::Wmf(w) => w.frame_serial,
         }
     }
 
     /// Returns video width.
     pub fn width(&self) -> u32 {
-        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-        {
-            self.backend.as_ref().map(|b| b.width).unwrap_or(0)
-        }
-
-        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-        {
-            0
+        match &self.backend {
+            Backend::Mpeg(m) => m.width,
+            #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+            Backend::Wmf(w) => w.width,
         }
     }
 
     /// Returns video height.
     pub fn height(&self) -> u32 {
-        #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-        {
-            self.backend.as_ref().map(|b| b.height).unwrap_or(0)
-        }
-
-        #[cfg(not(all(feature = "bga-enhanced", target_os = "windows")))]
-        {
-            0
+        match &self.backend {
+            Backend::Mpeg(m) => m.height,
+            #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
+            Backend::Wmf(w) => w.height,
         }
     }
 }

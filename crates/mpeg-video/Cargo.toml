@@ -1,0 +1,7 @@
+[package]
+name = "mpeg-video"
+version = "0.1.0"
+edition = "2021"
+description = "MPEG-1 and MPEG-2 video decoding (program streams included) for BGA playback, with no dependencies"
+
+[dependencies]

@@ -79,7 +79,7 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
    - 채보 식별값(`ChartId`)은 세부 정보 없이 디스크만으로 만든 BMS에서 정한다. 표를 고쳐도 기록이 끊기지 않는다. 표가 곡 캐시보다 새로우면 다시 스캔한다.
    - 로딩 카드: PREMIUM BEST는 곡 레코드 규칙(마지막 `(0, 0x5xx~0x6xx)` 쌍, 공용 UI 컨테이너 제외), EMPRESS는 규칙이 맞지 않아 표의 `card` 열(사람이 카드를 보고 맞춘 `empress_map.py`)을 쓴다. 두 디스크 199곡의 카드가 Python 추출본과 픽셀 단위로 같다(`examples/card_dump.rs`).
 
-**게임 연결 (완료)**: `library.dat`에 `.iso` 경로나 드라이브(`E:`)를 넣으면(`bpm library add <x.iso | E:>`) 스캐너가 디스크의 모든 채보를 `Disc` 종류로 올리고(폴더 → 패키지 → 디스크 순, 디스크 두 장 약 2.9초), 로더의 `DiscSource`가 채보와 키음·BGM을 디스크에서 바로 읽는다(ANISAKIS ANOTHER: 키음 735개 0.43초). 명령줄로 `beetle-app "disc:<이미지>::000/sp_another"`처럼 바로 플레이할 수도 있다. 남은 것: 실제 귀로 싱크·음질 확인, BGA 영상, bpm-gui와 `bpm scan`의 디스크 표시, 앱 안에서 ISO 추가(끌어 놓기·곡 폴더 설정), DVD 실물 확인.
+**게임 연결 (완료)**: `library.dat`에 `.iso` 경로나 드라이브(`E:`)를 넣으면(`bpm library add <x.iso | E:>`) 스캐너가 디스크의 모든 채보를 `Disc` 종류로 올리고(폴더 → 패키지 → 디스크 순, 디스크 두 장 약 2.9초), 로더의 `DiscSource`가 채보와 키음·BGM을 디스크에서 바로 읽는다(ANISAKIS ANOTHER: 키음 735개 0.43초). 명령줄로 `beetle-app "disc:<이미지>::000/sp_another"`처럼 바로 플레이할 수도 있다. BGA 영상: 곡 레코드 0x58의 영상 파일(MPEG-2 프로그램 스트림)을 그대로 넘기고, 자체 MPEG-1/2 디코더(`crates/mpeg-video`)가 재생한다(Windows의 MPEG-2 디코더는 Store 확장이라 기대하지 않음). 남은 것: 실제 귀로 싱크·음질 확인, bpm-gui와 `bpm scan`의 디스크 표시, 앱 안에서 ISO 추가(끌어 놓기·곡 폴더 설정), DVD 실물 확인.
 
 ## 5-1. 버전별 처리 (제품 코드 → 형식)
 

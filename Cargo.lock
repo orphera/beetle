@@ -153,6 +153,7 @@ dependencies = [
  "bms-package",
  "fontdue",
  "jpeg-decoder",
+ "mpeg-video",
  "png",
 ]
 
@@ -1234,6 +1235,10 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "mpeg-video"
+version = "0.1.0"
 
 [[package]]
 name = "ndk"

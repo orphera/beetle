@@ -2,6 +2,7 @@
 members = [
     "crates/bms-hash",
     "crates/cs-disc",
+    "crates/mpeg-video",
     "crates/beetle-core",
     "crates/beetle-audio",
     "crates/beetle-render",
@@ -19,6 +20,7 @@ beetle-audio = { path = "crates/beetle-audio" }
 beetle-render = { path = "crates/beetle-render" }
 bms-hash = { path = "crates/bms-hash" }
 cs-disc = { path = "crates/cs-disc" }
+mpeg-video = { path = "crates/mpeg-video" }
 bms-package = { path = "crates/bms-package" }
 bms-package-manager = { path = "crates/bms-package-manager" }
 bpm-gui = { path = "crates/bpm-gui" }

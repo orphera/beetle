@@ -54,6 +54,7 @@ pub use skin::{
 };
 pub use text::{Align, FontMetrics, TextEngine, TextStyle, Weight};
 pub use ui::{ambient_time, Ui, UiSet, AMBIENT_LOOP_SECS};
+mod mpeg_player;
 pub use video::{is_video_path, BgaVideoPlayer, VIDEO_EXTENSIONS};
 pub use view::{
     snap_ui_scale, HitBurst, JudgeMark, ViewState, Viewport, JUDGE_TIMELINE_SECONDS,
