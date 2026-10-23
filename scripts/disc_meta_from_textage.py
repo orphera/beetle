@@ -12,9 +12,11 @@ Inputs (from the iidx16-bms work):
   --titletbl  titletbl.js (the UTF-8 copy): subtitles, by Textage key
   --cards     empress_map.py: EMPRESS card container -> title, read off the cards by eye
 
-Rows that were not matched by title and levels together are marked
-"CHECK" in the note column; review those first. Re-running overwrites the
-tables, so keep hand edits in the tables themselves afterwards, or in a copy.
+Every row of song_map_final.csv is a confirmed mapping: rows not matched by
+title and levels together were checked by hand there, and their match note
+is kept in the note column for reference. Only an EMPRESS song left without
+a card is marked "CHECK". Re-running overwrites the tables, so keep hand
+edits in the mapping CSV, or in the tables after the last run.
 
 Usage: python scripts/disc_meta_from_textage.py --map <csv> --titletbl <js> [--cards <py>] [--out disc_meta]
 """
@@ -87,7 +89,7 @@ def main():
             card = str(cards.get(key(disc_title), ''))
         notes = ['textage ' + tkey] if tkey else []
         if not match.startswith('title+levels'):
-            notes.append('CHECK ' + match)
+            notes.append(match)
         if disc == 'EMPRESS' and args.cards and not card:
             notes.append('CHECK no card')
         tables[disc].append([song_id, disc_title, title, subtitle, artist, genre, card, '; '.join(notes)])
@@ -97,7 +99,7 @@ def main():
         path = os.path.join(args.out, slug + '.tsv')
         with open(path, 'w', encoding='utf-8', newline='\n') as f:
             f.write('# %s song details, drafted by scripts/disc_meta_from_textage.py.\n' % disc)
-            f.write('# Check the rows marked CHECK. An empty cell keeps what the disc says.\n')
+            f.write('# Rows marked CHECK need a look. An empty cell keeps what the disc says.\n')
             f.write('\t'.join(COLUMNS) + '\n')
             for row in sorted(tables[disc], key=lambda r: int(r[0])):
                 f.write('\t'.join(clean(v) for v in row) + '\n')

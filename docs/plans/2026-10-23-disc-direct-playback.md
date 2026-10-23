@@ -75,7 +75,7 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
    - 뱅크 항목: 왼쪽(0x0000) 다음 오른쪽(0x0100)이면 스테레오. 오른쪽 항목도 따로 하나의 소리로 남는다(DXY! 42, GEKKO 94를 채보가 직접 부름).
    - 볼륨·팬(항목 8, 9바이트)은 적용하지 않는다. 대부분 `01 7f`인데 문서대로 팬으로 읽으면 왼쪽 끝이 되어 의미가 확실하지 않다. 지금까지 들어 본 OGG 추출본과 같은 방식(저장된 그대로)이다.
 5. **메타/스테이지 이미지** — 완료.
-   - 곡 세부 정보는 사용자 쪽 파일 `disc_meta/<에디션>.tsv`(`iidx16-empress`, `iidx16-premium-best`)에 둔다. Textage에서 온 데이터라 저장소에는 넣지 않고(`.gitignore`), `scripts/disc_meta_from_textage.py`가 iidx16-bms의 `song_map_final.csv`·`titletbl.js`·`empress_map.py`로 초안을 만든다. 제목+레벨로 자동 매칭되지 않은 행은 `note`에 `CHECK`가 붙으니 사람이 확인하고 고친다. 빈 칸은 디스크 값(ASCII 제목)을 쓴다.
+   - 곡 세부 정보는 사용자 쪽 파일 `disc_meta/<에디션>.tsv`(`iidx16-empress`, `iidx16-premium-best`)에 둔다. Textage에서 온 데이터라 저장소에는 넣지 않고(`.gitignore`), `scripts/disc_meta_from_textage.py`가 iidx16-bms의 `song_map_final.csv`·`titletbl.js`·`empress_map.py`로 초안을 만든다. `song_map_final.csv`의 모든 행은 확인된 매핑이다(제목+레벨로 자동 매칭되지 않은 곡은 그 CSV에서 사람이 맞췄다). 매칭 방식은 참고용으로 `note`에 남기고, 카드가 없는 EMPRESS 곡만 `CHECK`로 표시한다. 빈 칸은 디스크 값(ASCII 제목)을 쓴다.
    - 채보 식별값(`ChartId`)은 세부 정보 없이 디스크만으로 만든 BMS에서 정한다. 표를 고쳐도 기록이 끊기지 않는다. 표가 곡 캐시보다 새로우면 다시 스캔한다.
    - 로딩 카드: PREMIUM BEST는 곡 레코드 규칙(마지막 `(0, 0x5xx~0x6xx)` 쌍, 공용 UI 컨테이너 제외), EMPRESS는 규칙이 맞지 않아 표의 `card` 열(사람이 카드를 보고 맞춘 `empress_map.py`)을 쓴다. 두 디스크 199곡의 카드가 Python 추출본과 픽셀 단위로 같다(`examples/card_dump.rs`).
 
