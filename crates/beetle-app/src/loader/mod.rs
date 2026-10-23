@@ -1383,7 +1383,12 @@ mod tests {
             .0;
         let bgm = bank.get(*bgm).expect("the BGM cue has the BGM stream");
         assert!(bgm.duration_seconds() > 100.0, "{}", bgm.duration_seconds());
-        assert!(bga.is_empty() && videos.is_empty());
+        assert!(bga.is_empty());
+        // The song's background video, an MPEG program stream, as BMP 01.
+        match videos.get(&BmpId(1)) {
+            Some(VideoSource::Memory { bytes, .. }) => assert_eq!(&bytes[..4], &[0, 0, 1, 0xba]),
+            other => panic!("no disc video: {other:?}"),
+        }
         assert_eq!(song_file_label(&meta), "sp_another");
     }
 }
