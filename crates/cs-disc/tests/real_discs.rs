@@ -167,3 +167,66 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
         assert!(worst.0 <= 1000.0 / 59.94, "{var}: {worst:?}");
     }
 }
+
+/// Every chart's key sound bank parses, every sound a chart plays (but 1, the
+/// BGM cue) is in its bank and decodes, and every BGM stream decodes.
+#[test]
+fn every_chart_finds_and_decodes_its_sounds() {
+    use cs_disc::ply::{Command, Ply};
+    use cs_disc::wvb::{decode_bgm, Bank};
+    for (var, edition) in [
+        ("CS_DISC_IIDX16_DISC1", Edition::Empress),
+        ("CS_DISC_IIDX16_DISC2", Edition::PremiumBest),
+    ] {
+        let Some((mut disc, volume)) = open(var) else {
+            continue;
+        };
+        let songs = Disc::open(&mut disc, &volume, edition).unwrap();
+        let mut decoded = std::collections::BTreeSet::new();
+        let mut checked = std::collections::BTreeSet::new();
+        let mut banks = std::collections::BTreeMap::new();
+        let mut missing = Vec::new();
+        for song in &songs.songs {
+            for chart in &song.charts {
+                let what = format!("{} {:?} {:?}", song.title, chart.style, chart.difficulty);
+                let (wvb, bgm) = song.sound_files(chart.style, chart.difficulty);
+                let wvb = wvb.unwrap_or_else(|| panic!("{what}: no key sounds"));
+                let bgm = bgm.unwrap_or_else(|| panic!("{what}: no BGM"));
+                let data = banks
+                    .entry(wvb)
+                    .or_insert_with(|| songs.read_file(&mut disc, wvb).unwrap());
+                let bank = Bank::parse(data).unwrap_or_else(|e| panic!("{what}: {e}"));
+                let ply = Ply::parse(&songs.read_chart(&mut disc, chart.file).unwrap()).unwrap();
+                for e in &ply.events {
+                    let sound = match e.command {
+                        Command::Sample { sound, .. } | Command::Auto { sound, .. } => sound,
+                        _ => continue,
+                    };
+                    if sound <= 1 || !checked.insert((wvb, sound)) {
+                        continue;
+                    }
+                    match bank.decode(sound) {
+                        Some(Ok(_)) => {}
+                        Some(Err(err)) => panic!("{what}: sound {sound}: {err}"),
+                        None => missing.push(format!("{what}: sound {sound}")),
+                    }
+                }
+                if decoded.insert(bgm) {
+                    let data = songs.read_file(&mut disc, bgm).unwrap();
+                    let pcm = decode_bgm(&data).unwrap_or_else(|e| panic!("{what}: BGM {e}"));
+                    assert!(
+                        pcm.channels[0].len() as u32 > pcm.rate * 10,
+                        "{what}: BGM too short"
+                    );
+                }
+            }
+        }
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "{var}: {} missing, first {:?}",
+            missing.len(),
+            &missing[..missing.len().min(10)]
+        );
+    }
+}

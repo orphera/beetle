@@ -244,6 +244,46 @@ impl Disc {
     }
 }
 
+/// Where a record keeps the (key sound bank, BGM) file numbers of the chart
+/// slots, in `CHART_SLOTS` order; the BLACK slots have none.
+const SOUND_PAIRS: [(usize, usize); 8] = [
+    (0, 2),
+    (1, 3),
+    (4, 6),
+    (5, 7),
+    (8, 10),
+    (9, 11),
+    (12, 14),
+    (13, 15),
+];
+
+/// No file.
+const NO_SOUND: u16 = 0xffff;
+
+impl Song {
+    /// The (key sound bank, BGM stream) file numbers a chart plays. A chart
+    /// slot without its own takes DP HYPER's (double) or SP HYPER's, field by
+    /// field, as iidx-ps2tools resolves them.
+    pub fn sound_files(&self, style: Style, difficulty: Difficulty) -> (Option<u32>, Option<u32>) {
+        let own = |slot: usize, field: usize| -> Option<u32> {
+            let pair = SOUND_PAIRS.get(slot)?;
+            let index = if field == 0 { pair.0 } else { pair.1 };
+            let file = self.sounds[index];
+            (file != NO_SOUND).then_some(file as u32)
+        };
+        let slot = CHART_SLOTS
+            .iter()
+            .position(|&s| s == (style, difficulty))
+            .unwrap();
+        let pick = |field: usize| {
+            own(slot, field)
+                .or_else(|| (style == Style::Double).then(|| own(1, field)).flatten())
+                .or_else(|| own(0, field))
+        };
+        (pick(0), pick(1))
+    }
+}
+
 /// The file name a disc chart's BMS gives sound `n`: its number in the song's
 /// sound bank.
 pub fn sound_name(n: u16) -> String {

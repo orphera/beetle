@@ -46,7 +46,8 @@ crates/cs-disc (신규, 의존성 없음 — IIDX뿐 아니라 pop'n·DDR 등 CS
   ply.rs       7th 스타일 채보 → 이벤트                                                 [완료]
   ply_bms.rs   이벤트 → BMS 텍스트 (결정론적)                                           [완료]
   (이후 게임마다 모듈 하나: popn*.rs, ddr*.rs …)
-  wvb.rs, adpcm.rs  키음/BGM → f32 PCM
+  adpcm.rs     PS2 SPU ADPCM, 프레임 스크램블 해제 (vgmstream과 샘플 단위로 일치)          [완료]
+  wvb.rs       키음 뱅크(.wvb)·BGM 스트림(.pcm) → 16비트 PCM                              [완료]
   meta.rs      구워 둔 메타 테이블(곡 번호 → 제목/부제/아티스트/장르, 수십 KB)
 
 beetle-core   ChartSource 개념 없음(순수 유지). 주소 파싱만 추가 가능.
@@ -67,7 +68,11 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
    `scanner.rs`의 출처 종류(`Folder`, `Package`)에 `Disc`를 넣고 `choose_load_index` 순서(폴더 → 패키지 → 디스크)를 정한다.
    bpm 쪽 컬렉션 표시도 같은 순서를 써야 한다(`load_location.rs` 주석의 약속).
 3. **cs-disc 크레이트** — 완료: ISO·드라이브 읽기, 게임 판별, IIDX16 곡 테이블, `.ply` 복호화·LZ·파싱, BMS 합성(`iidx16::Disc::chart_bms`). 이제 스캐너가 디스크 곡을 목록에 올릴 수 있다(다음: 스캐너 `Disc` 종류와 로더 `DiscSource`, 키음 없이 무음 플레이부터).
-4. **음원**: WVB + ADPCM 포팅. 계획 문서 5절의 음질 문제(째지는 소리)는 **Python에서 vgmstream과 샘플 비교로 먼저 해결**하고 포팅한다. 키음 볼륨/팬도 이때 넣는다.
+4. **음원** — 완료(`cs-disc`): `adpcm.rs`, `wvb.rs`, 채보별 뱅크 선택(`iidx16::Song::sound_files`).
+   - 째지는 소리의 원인: Python 디코더가 (1) 시프트 12 초과 프레임을 무음으로 만들고 (2) 예측값을 내림했다. vgmstream은 시프트 12 초과를 9로 읽고, 합을 0 쪽으로 버린다. 이렇게 맞추니 키음 1,043개와 BGM 3곡이 vgmstream 출력과 샘플 단위로 같다(`examples/sound_check.rs`).
+   - 실제 디스크 검증: 두 디스크 모든 채보가 쓰는 소리(1번 제외)가 자기 뱅크에 있고 디코딩되며, 모든 BGM이 디코딩된다.
+   - 뱅크 항목: 왼쪽(0x0000) 다음 오른쪽(0x0100)이면 스테레오. 오른쪽 항목도 따로 하나의 소리로 남는다(DXY! 42, GEKKO 94를 채보가 직접 부름).
+   - 볼륨·팬(항목 8, 9바이트)은 적용하지 않는다. 대부분 `01 7f`인데 문서대로 팬으로 읽으면 왼쪽 끝이 되어 의미가 확실하지 않다. 지금까지 들어 본 OGG 추출본과 같은 방식(저장된 그대로)이다.
 5. **메타/스테이지 이미지**: `song_map_final.csv`에서 디스크별 테이블을 굽는다. 스테이지 이미지는 처음엔 없이 가고 나중에 결정.
 
 1·2는 지금 beetle에서 바로 시작할 수 있다. 4는 iidx16-bms 쪽 조사가 먼저다.
@@ -85,6 +90,6 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
 - BEGINNER/BLACK 채보: 포함함(`#DIFFICULTY` 1, 5).
 - 노트 수 차이: 시각 0의 자리표시 노트 때문으로 확인(3절).
 - `auto` 이벤트는 BGM 채널(`01`)로 둔다. 키음이 하나도 없는 노트는 `ZZ`(정의 없는 소리)로 둔다. 노트의 `param`(길이)은 두 디스크 전체에서 0이라 롱노트·BSS는 없다.
-- 키음 번호 → 소리: 합성 BMS는 `#WAVxx NNNN.wav`(NNNN = 채보의 소리 번호)로 쓴다. 채보마다 어느 키음 뱅크(곡 레코드의 소리 번호 쌍 8개 중 하나)를 쓰는지는 음원 단계에서 정한다.
+- 키음 번호 → 소리: 합성 BMS는 `#WAVxx NNNN.wav`(NNNN = 채보의 소리 번호)로 쓴다. 1번은 BGM 신호(채보 첫 `auto`)라 그 채보의 BGM 스트림(.pcm)을 낸다. 나머지는 채보의 키음 뱅크에서 같은 번호. 채보의 (뱅크, BGM)은 곡 레코드의 소리 쌍 8개 중 자기 칸, 없으면 DP HYPER(DP) → SP HYPER 순으로 빌린다(BLACK은 항상 빌림).
 - 실제 광학 드라이브: 받기로 함. 드라이브는 섹터 경계 읽기만 허용하므로 모든 읽기를 섹터 단위로 넓혀 처리한다(`sector.rs`). 실제 DVD로는 아직 확인하지 못함(드라이브 목록은 잡히지만 디스크 없음).
 - DVD 읽기 속도: 곡 하나 로딩에 키음 수 MB를 탐색 읽기하므로, 파일 번호 순으로 정렬해 읽는 등 탐색을 줄이는 방법을 음원 단계에서 확인.
