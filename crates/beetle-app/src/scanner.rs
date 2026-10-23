@@ -223,6 +223,12 @@ fn read_disc(target: &str) -> Vec<Copy> {
         return Vec::new();
     };
     let Ok(Some(game)) = cs_disc::identify(&mut disc) else {
+        if let Ok(Some(title)) = cs_disc::identify_title(&mut disc) {
+            println!(
+                "[library] {source}: {} ({}) is not read yet",
+                title.name, title.code
+            );
+        }
         return Vec::new();
     };
     let Ok(volume) = cs_disc::Volume::open(&mut disc) else {

@@ -33,7 +33,10 @@ fn main() {
 fn list(target: &str) -> io::Result<()> {
     let mut disc = cs_disc::open(target)?;
     let Some(game) = identify(&mut disc)? else {
-        println!("{target}: not a disc this player reads");
+        match cs_disc::identify_title(&mut disc)? {
+            Some(title) => println!("{target}: {} ({}), not read yet", title.name, title.code),
+            None => println!("{target}: not a disc this player reads"),
+        }
         return Ok(());
     };
     let volume = Volume::open(&mut disc)?;

@@ -176,7 +176,7 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
                     *signatures.last_mut().unwrap() = signature;
                 }
             }
-            Command::Bpm { bpm } if bpm > 0 => tempos.push((t, bpm as f64)),
+            Command::Bpm { bpm } if bpm > 0.0 => tempos.push((t, bpm)),
             _ => {}
         }
     }
@@ -555,7 +555,7 @@ mod tests {
         let mut events = vec![
             Event {
                 time: 0,
-                command: Command::Bpm { bpm: 120 },
+                command: Command::Bpm { bpm: 120.0 },
             },
             Event {
                 time: 0,
@@ -574,7 +574,7 @@ mod tests {
         events.extend(extra.iter().map(|&(time, command)| Event { time, command }));
         events.sort_by_key(|e| e.time);
         Ply {
-            multiplier: 1000,
+            tick_ms: 1.0,
             events,
         }
     }

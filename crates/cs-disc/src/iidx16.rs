@@ -65,6 +65,11 @@ impl Edition {
             .find(|e| e.layout().executable.eq_ignore_ascii_case(name))
     }
 
+    /// The disc's entry in the title list: its name and chart layout.
+    pub fn title(self) -> &'static crate::titles::Title {
+        crate::titles::find(self.layout().executable).expect("IIDX 16 is listed")
+    }
+
     /// A short file-name-safe name (`iidx16-empress`).
     pub fn slug(self) -> &'static str {
         match self {
@@ -399,7 +404,8 @@ impl Disc {
             |pick: fn(&SongMeta) -> &String| meta.map(pick).filter(|v| !v.is_empty()).cloned();
         let bytes = self.read_chart(disc, chart.file)?;
         let invalid = |e: String| io::Error::new(io::ErrorKind::InvalidData, e);
-        let ply = Ply::parse(&bytes).map_err(|e| invalid(e.to_string()))?;
+        let ply = Ply::parse_as(&bytes, self.edition.title().charts)
+            .map_err(|e| invalid(e.to_string()))?;
         let header = Header {
             title: known(|m| &m.title).unwrap_or_else(|| song.title.clone()),
             subtitle: known(|m| &m.subtitle).unwrap_or_default(),

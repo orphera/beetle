@@ -27,6 +27,7 @@ pub mod ply_bms;
 pub mod ps2;
 pub mod ps2tex;
 pub mod sector;
+pub mod titles;
 pub mod wvb;
 
 pub use iso9660::{FileExtent, Volume};
@@ -67,6 +68,15 @@ pub fn open(target: &str) -> io::Result<SectorReader<std::fs::File>> {
         Some(letter) => drive::open(letter),
         None => SectorReader::open_image(target),
     }
+}
+
+/// The listed title of a PS2 disc (`titles`), playable or not: what to call
+/// a disc `identify` does not read. `None` for any other disc.
+pub fn identify_title<R: Read + Seek>(
+    disc: &mut SectorReader<R>,
+) -> io::Result<Option<&'static titles::Title>> {
+    let volume = Volume::open(disc)?;
+    Ok(ps2::boot_executable(disc, &volume)?.and_then(|exe| titles::find(&exe)))
 }
 
 /// Which known game is on the disc, or `None` for any other disc (not PS2, or

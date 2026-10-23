@@ -81,6 +81,25 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
 
 **게임 연결 (완료)**: `library.dat`에 `.iso` 경로나 드라이브(`E:`)를 넣으면(`bpm library add <x.iso | E:>`) 스캐너가 디스크의 모든 채보를 `Disc` 종류로 올리고(폴더 → 패키지 → 디스크 순, 디스크 두 장 약 2.9초), 로더의 `DiscSource`가 채보와 키음·BGM을 디스크에서 바로 읽는다(ANISAKIS ANOTHER: 키음 735개 0.43초). 명령줄로 `beetle-app "disc:<이미지>::000/sp_another"`처럼 바로 플레이할 수도 있다. 남은 것: 실제 귀로 싱크·음질 확인, BGA 영상, bpm-gui와 `bpm scan`의 디스크 표시, 앱 안에서 ISO 추가(끌어 놓기·곡 폴더 설정), DVD 실물 확인.
 
+## 5-1. 버전별 처리 (제품 코드 → 형식)
+
+디스크를 열면 `SYSTEM.CNF`의 실행 파일 이름(제품 코드)으로 버전을 정한다(`crates/cs-disc/src/titles.rs`). 표에 있지만 `playable`이 아닌 디스크는 이름만 알아보고(곡 목록 로그, `disc_songs` 예제에 "not read yet"), 읽지는 않는다.
+
+| 버전 | 제품 코드 | 채보 형식 (`ply::ChartFormat`) | 읽기 |
+|---|---|---|---|
+| 3rd, 4th style | SLPM_650.06, 650.26 | `Ps2NoHeader`: 헤더 없음, 4바이트 이벤트, 배율 0x414C | 아직 |
+| 5th, 6th style | SLPM_650.49, 651.56 | `Ps2Short`: 헤더 + 4바이트 이벤트 | 아직 |
+| 7th ~ 15 DJ TROOPERS | SLPM_655.93, 657.68, 659.46, 661.80, 664.26, 666.21, 668.28, 669.95, 551.17 | `Ps2Long`: 헤더 + 8바이트 이벤트(`.ply`) | 아직 |
+| 16 EMPRESS / PREMIUM BEST | SLPM_552.21 / 552.22 | `Ps2Long` | 됨 |
+| beatmania (US) | SLUS_212.39 | `Ps2Long` | 아직 |
+| 아케이드 `.1` | (파일) | `Arcade`: 12개 디렉터리, 타입 바이트와 파라미터가 따로, BPM = 값/파라미터, 틱은 GOLD 전 59.94·GOLD 60.046·그 뒤 1000/초 (`ChartFormat::arcade(버전)`) | 파서만 |
+
+- 근거: 제품 코드와 PS2 형식은 iidx-ps2tools(`plugins/*.py`의 `is_match`, `charttool/plugins/iidx*cs.py`), `.1`은 SaxxonPike `rhythm-game-formats/iidx/1.md`.
+- 실물로 확인한 것은 16(`Ps2Long`)뿐이다. 나머지 형식은 위 근거와 단위 테스트까지다.
+- 다른 버전을 읽으려면 채보 형식 외에 곡 테이블·파일 테이블 위치, 암호 키, 키음 형식도 버전마다 옮겨야 한다(iidx-ps2tools 플러그인별로 다름). 버전 모듈(`iidx16.rs`처럼)을 하나 추가하고 표의 `playable`을 켠다.
+- `.1`의 디렉터리 번호 ↔ 난이도 대응은 버전마다 다르다(iidx16-bms에서 Scharfrichter가 0/6을 HYPER로 읽는 차이를 겪음). 쓰게 되면 버전별로 정한다.
+- `ply_bms`(BMS 합성)의 스냅 허용치는 PS2 프레임(반 프레임) 기준이다. 1000틱 `.1`을 합성하게 되면 허용치를 틱에 맞춘다.
+
 ## 6. 불변식 점검
 
 - INV-3: 곡 로딩 때 해당 곡의 키음 전체를 디코딩해 `SampleBank`에 적재. 플레이 중 ISO 읽기 없음.
