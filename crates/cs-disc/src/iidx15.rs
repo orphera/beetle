@@ -288,6 +288,7 @@ impl Disc {
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
+        another: bool,
     ) -> io::Result<Option<Rgba>> {
         let Some(file) = song.overlay else {
             return Ok(None);
@@ -299,7 +300,10 @@ impl Disc {
         let Some((width, height)) = texture_size(texture.0) else {
             return Ok(None);
         };
-        Ok(decode_psmt8(&texture.1, width, height))
+        let Some(image) = decode_psmt8(&texture.1, width, height) else {
+            return Ok(None);
+        };
+        Ok(Some(select_packed_variant(song.overlay, image, another)))
     }
 
     /// Legacy card accessor retained for the old diagnostic path. IIDX 15
@@ -462,6 +466,34 @@ impl Disc {
             sound_name,
         };
         to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
+    }
+}
+
+/// Two DJ TROOPERS overlays contain two 298-pixel-wide stage variants packed
+/// edge-to-edge at the start of their 640-pixel texture. The second variant
+/// is selected for ANOTHER; the remaining 44 pixels are padding.
+fn select_packed_variant(overlay: Option<u32>, image: Rgba, another: bool) -> Rgba {
+    // The extracted c0426/c0444 names are DATA1-side labels. The song table's
+    // overlay field uses these actual DATA1 file indices instead.
+    const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
+    const CRYMSON_OVERLAY: u32 = 0x1bc;
+    const VARIANT_WIDTH: u32 = 298;
+
+    if !matches!(overlay, Some(BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY))
+        || image.width < VARIANT_WIDTH * 2
+    {
+        return image;
+    }
+    let start = if another { VARIANT_WIDTH } else { 0 };
+    let mut pixels = Vec::with_capacity((VARIANT_WIDTH * image.height) as usize);
+    for y in 0..image.height {
+        let row = (y * image.width + start) as usize;
+        pixels.extend_from_slice(&image.pixels[row..row + VARIANT_WIDTH as usize]);
+    }
+    Rgba {
+        width: VARIANT_WIDTH,
+        height: image.height,
+        pixels,
     }
 }
 

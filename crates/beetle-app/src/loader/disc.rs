@@ -260,7 +260,12 @@ impl SongSource for DiscSource {
     fn stage_image(&mut self) -> Option<StageArt> {
         if let OpenDisc::Iidx15 { disc, .. } = &self.songs {
             let song = &disc.songs[self.song];
-            let decoded = disc.stage_image(&mut self.disc, song).ok()??.centered_4_3();
+            let another =
+                song.charts[self.chart].difficulty == cs_disc::iidx15::Difficulty::Another;
+            let decoded = disc
+                .stage_image(&mut self.disc, song, another)
+                .ok()??
+                .centered_4_3();
             let mut image =
                 ImageBuffer::new(decoded.width, decoded.height, ColorRgba::new(0, 0, 0, 255));
             for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {
