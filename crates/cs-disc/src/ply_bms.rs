@@ -186,6 +186,21 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
     if lines.len() > 1000 {
         return Err(BmsError::TooManyBars);
     }
+    // PS2 charts commonly repeat the current BPM at every bar boundary.
+    // Those commands are not tempo changes. Keeping them as separate tempo
+    // cuts makes the region fitter derive a slightly different BPM from each
+    // rounded 59.94 Hz bar interval, producing false 1–2 BPM ranges.
+    let mut compact_tempos = Vec::with_capacity(tempos.len());
+    for (at, bpm) in tempos {
+        if compact_tempos
+            .last()
+            .is_some_and(|&(_, previous): &(f64, f64)| (previous - bpm).abs() < 1e-9)
+        {
+            continue;
+        }
+        compact_tempos.push((at, bpm));
+    }
+    let tempos = compact_tempos;
     let stored_at = |t: f64| {
         tempos
             .iter()

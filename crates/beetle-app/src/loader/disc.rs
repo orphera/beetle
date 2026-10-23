@@ -309,6 +309,20 @@ fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double:
         },
         ..Default::default()
     };
+    // A PS2 chart may repeat the same BPM command at bar boundaries. Those
+    // repeats are not speed changes; keep the raw BPM constant in that case
+    // instead of turning frame-rounding corrections into fake BPM changes.
+    let raw_bpms: Vec<f64> = ply
+        .events
+        .iter()
+        .filter_map(|event| match event.command {
+            Command::Bpm { bpm } if bpm > 0.0 => Some(bpm),
+            _ => None,
+        })
+        .collect();
+    let has_real_bpm_change = raw_bpms
+        .first()
+        .is_some_and(|first| raw_bpms.iter().any(|bpm| (bpm - first).abs() > 1e-9));
     let mut lines: Vec<f64> = ply
         .events
         .iter()
@@ -469,7 +483,7 @@ fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double:
         })
         .sum::<f64>();
     let first_target_beats = position_lengths.get(&0).copied().unwrap_or(1.0) * 4.0;
-    if first_stored_beats > 0.0 {
+    if has_real_bpm_change && first_stored_beats > 0.0 {
         chart.header.bpm = position_bpm * first_target_beats / first_stored_beats;
     }
     let corrected_time = |ms: f64| {
@@ -625,7 +639,7 @@ fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double:
                 chart.header.bpm = bpm;
                 have_initial_bpm = true;
             }
-            Command::Bpm { bpm } if bpm > 0.0 => {
+            Command::Bpm { bpm } if bpm > 0.0 && has_real_bpm_change => {
                 chart.timing_events.push(TimingEvent {
                     measure,
                     fraction,
