@@ -224,6 +224,17 @@ fn missing(what: &str) -> io::Error {
 }
 
 impl Disc {
+    /// Read and parse a chart without serializing it to BMS text.
+    pub fn chart_ply<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        chart: &Chart,
+    ) -> io::Result<Ply> {
+        let bytes = self.read_chart(disc, chart.file)?;
+        Ply::parse_as(&bytes, self.edition.title().charts)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    }
+
     /// Reads the song and file tables from the disc's boot executable.
     pub fn open<R: Read + Seek>(
         disc: &mut SectorReader<R>,

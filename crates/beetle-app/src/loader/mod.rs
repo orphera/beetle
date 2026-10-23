@@ -169,6 +169,10 @@ type StageArt = (ImageBuffer, Option<Vec<u8>>);
 trait SongSource {
     /// The chart file exactly as stored.
     fn chart_bytes(&mut self) -> Result<Vec<u8>, ChartLoadError>;
+    /// Native chart, when the source has a format that does not need BMS text.
+    fn native_chart(&mut self) -> Result<Option<BmsChart>, ChartLoadError> {
+        Ok(None)
+    }
     /// The chart's key sounds, counted in `progress` as they load, and how many loaded.
     fn sounds(&mut self, chart: &BmsChart) -> (SampleBank, usize);
     /// The images of `bmp_table`, counted in `progress` as they load.
@@ -247,9 +251,14 @@ pub fn load_chart_and_audio_with_seed(
 ) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
     let mut source = open_source(&song.file_path)?;
-    let bytes = source.chart_bytes()?;
-    let content = beetle_core::decode_bms_text(&bytes);
-    let chart = parse_playable_chart(&content, seed)?;
+    let chart = match source.native_chart()? {
+        Some(chart) => chart,
+        None => {
+            let bytes = source.chart_bytes()?;
+            let content = beetle_core::decode_bms_text(&bytes);
+            parse_playable_chart(&content, seed)?
+        }
+    };
     let timing = TimingModel::from_chart(&chart);
 
     let started = std::time::Instant::now();
