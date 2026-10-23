@@ -9,7 +9,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use beetle_core::{ChartId, ClearType, LnOption, PlayMode, ScoreStore, SongMetadata, TableIndex};
+use beetle_core::{
+    disc_address, package_address, ChartId, ClearType, LnOption, PlayMode, ScoreStore, SongAddress,
+    SongMetadata, TableIndex,
+};
 use beetle_render::{strings, theme};
 
 /// The chart each group shows when it is not the first one: group key → chart.
@@ -392,12 +395,20 @@ pub fn build_tree(
 }
 
 /// Where a song sits on disk for the folder view: (id, label) of the folder
-/// that holds its song folder. Packages share one folder. `None` for a loose
-/// chart.
+/// that holds its song folder. Packages share one folder; each disc image is
+/// one folder, named by its file. `None` for a loose chart.
 fn collection_of(file_path: &str) -> Option<(String, String)> {
     let folder = song_folder(file_path)?;
-    if folder.contains("::") {
-        return Some(("~packages".into(), strings::FOLDER_PACKAGES().into()));
+    match SongAddress::parse(&folder) {
+        SongAddress::Folder { .. } => {}
+        SongAddress::Package { .. } => {
+            return Some(("~packages".into(), strings::FOLDER_PACKAGES().into()));
+        }
+        SongAddress::Disc { image, .. } => {
+            let name = image.rsplit('/').next().unwrap_or(image);
+            let label = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+            return Some((id_piece(&disc_address(image, "")), label.to_string()));
+        }
     }
     let parent = folder.rsplit_once('/').map_or(folder.as_str(), |(p, _)| p);
     let label = parent.rsplit('/').next().unwrap_or(parent);
@@ -598,9 +609,10 @@ pub fn matches_query(song: &SongMetadata, query: &str) -> bool {
 pub fn song_folder(file_path: &str) -> Option<String> {
     let path = file_path.replace('\\', "/");
     let dir = |text: &str| text.rsplit_once('/').map_or("", |(d, _)| d).to_string();
-    match path.split_once("::") {
-        Some((package, inner)) => Some(format!("{package}::{}", dir(inner))),
-        None => Some(dir(&path)).filter(|d| !d.is_empty()),
+    match SongAddress::parse(&path) {
+        SongAddress::Folder { file } => Some(dir(file)).filter(|d| !d.is_empty()),
+        SongAddress::Package { bmsp, entry } => Some(package_address(bmsp, &dir(entry))),
+        SongAddress::Disc { image, chart } => Some(disc_address(image, &dir(chart))),
     }
 }
 
@@ -1666,6 +1678,22 @@ mod tests {
             Some("packages/p.bmsp::")
         );
         assert_eq!(song_folder("loose.bms"), None);
+        assert_eq!(
+            song_folder("disc:D:/iso/iidx16.iso::017/sp_another").as_deref(),
+            Some("disc:D:/iso/iidx16.iso::017")
+        );
+    }
+
+    #[test]
+    fn each_disc_image_is_one_collection_named_by_its_file() {
+        let (id, label) = collection_of("disc:D:/iso/iidx16.iso::017/sp_another").unwrap();
+        assert_eq!(label, "iidx16");
+        assert_eq!(
+            collection_of("disc:D:/iso/iidx16.iso::020/dp_hyper")
+                .unwrap()
+                .0,
+            id
+        );
     }
 
     #[test]

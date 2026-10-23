@@ -20,7 +20,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use beetle_audio::{AudioCommand, AudioEngine, PcmBuffer, SampleBank};
-use beetle_core::{decode_bms_text, parse_bms, ChartId, SongMetadata, WavId};
+use beetle_core::{decode_bms_text, parse_bms, ChartId, SongAddress, SongMetadata, WavId};
 
 const AUDIO_EXTS: [&str; 3] = ["ogg", "wav", "flac"];
 /// How often the event loop checks on a loading, looping or fading preview.
@@ -97,9 +97,10 @@ fn soonest(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
 
 /// Decodes the preview audio of `song`, if it has one.
 pub fn load_preview_pcm(song: &SongMetadata) -> Option<PcmBuffer> {
-    let pcm = match song.file_path.split_once("::") {
-        Some((pkg, entry)) => load_from_package(pkg, entry)?,
-        None => load_from_dir(Path::new(&song.file_path))?,
+    let pcm = match SongAddress::parse(&song.file_path) {
+        SongAddress::Folder { file } => load_from_dir(Path::new(file))?,
+        SongAddress::Package { bmsp, entry } => load_from_package(bmsp, entry)?,
+        SongAddress::Disc { .. } => return None,
     };
     (pcm.duration_seconds() >= 0.1).then_some(pcm)
 }

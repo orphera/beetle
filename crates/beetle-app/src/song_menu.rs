@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use beetle_audio::UiSound;
-use beetle_core::{ChartId, SongMetadata};
+use beetle_core::{ChartId, SongAddress, SongMetadata};
 use beetle_render::{strings, HitId, ToastKind};
 use bms_package::installed::packages_root;
 use bms_package_manager::PackageManager;
@@ -31,13 +31,14 @@ pub enum Source {
 }
 
 impl Source {
-    /// From a song's load path: `<bmsp>::<entry>` for a package, else a file.
+    /// From a song's load path (`SongAddress`). A disc image counts as a
+    /// folder chart: the user's own file, opened in its folder and only hidden.
     pub fn of(file_path: &str) -> Self {
-        match file_path.split_once("::") {
-            Some((bmsp, _)) => Source::Package { bmsp: bmsp.into() },
-            None => Source::Folder {
-                file: file_path.into(),
-            },
+        match SongAddress::parse(file_path) {
+            SongAddress::Package { bmsp, .. } => Source::Package { bmsp: bmsp.into() },
+            SongAddress::Folder { file } | SongAddress::Disc { image: file, .. } => {
+                Source::Folder { file: file.into() }
+            }
         }
     }
 
@@ -512,6 +513,12 @@ mod tests {
             Source::of("D:/BMS/song/x.bms"),
             Source::Folder {
                 file: "D:/BMS/song/x.bms".into()
+            }
+        );
+        assert_eq!(
+            Source::of("disc:D:/iso/iidx16.iso::017/sp_another"),
+            Source::Folder {
+                file: "D:/iso/iidx16.iso".into()
             }
         );
     }

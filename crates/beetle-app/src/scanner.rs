@@ -10,7 +10,7 @@
 use crate::boot_progress::{self, Stage};
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
 use beetle_core::{
-    choose_load_index, collection_folders, deserialize_song_cache, display_path,
+    choose_load_index, collection_folders, deserialize_song_cache, display_path, package_address,
     serialize_song_cache, ChartId, LibraryPaths, SongMetadata, SONGS_CACHE_FILE,
 };
 use bms_package::installed::{self, REGISTRY_FILENAME};
@@ -168,7 +168,7 @@ fn read_package(state: &installed::ActiveState) -> Option<PackageCopies> {
         let Ok(bytes) = reader.read_entry(&path) else {
             continue;
         };
-        let virtual_path = format!("{package_path}::{path}");
+        let virtual_path = package_address(&package_path, &path);
         let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) else {
             continue;
         };

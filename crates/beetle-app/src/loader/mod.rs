@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
-use beetle_core::{parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel};
+use beetle_core::{
+    parse_bms_with_seed, BmpId, BmsChart, ChartId, SongAddress, SongMetadata, TimingModel,
+};
 use beetle_render::{strings, ImageBuffer};
 
 mod folder;
@@ -176,12 +178,15 @@ trait SongSource {
     fn stage_image(&mut self) -> Option<StageArt>;
 }
 
-/// Opens the source a song's `file_path` names: `<package>::<entry>` is a
-/// `.bmsp` entry, anything else a chart file in a folder.
+/// Opens the source a song's `file_path` names (`SongAddress`).
 fn open_source(song: &SongMetadata) -> Result<Box<dyn SongSource>, ChartLoadError> {
-    match song.file_path.split_once("::") {
-        Some((pkg_path, entry)) => Ok(Box::new(package::PackageSource::open(pkg_path, entry)?)),
-        None => Ok(Box::new(folder::FolderSource::new(&song.file_path))),
+    match SongAddress::parse(&song.file_path) {
+        SongAddress::Folder { file } => Ok(Box::new(folder::FolderSource::new(file))),
+        SongAddress::Package { bmsp, entry } => {
+            Ok(Box::new(package::PackageSource::open(bmsp, entry)?))
+        }
+        // No disc reader yet (docs/plans/2026-10-23-disc-direct-playback.md).
+        SongAddress::Disc { .. } => Err(ChartLoadError::NotFound),
     }
 }
 
@@ -292,10 +297,7 @@ fn parse_playable_chart(content: &str, seed: u64) -> Result<BmsChart, ChartLoadE
 /// The name a song is shown by in messages: the chart file name, or the entry
 /// name for a song inside a `.bmsp` package.
 pub fn song_file_label(song: &SongMetadata) -> String {
-    let entry = match song.file_path.split_once("::") {
-        Some((_, entry)) => entry,
-        None => song.file_path.as_str(),
-    };
+    let entry = SongAddress::parse(&song.file_path).inner();
     Path::new(entry)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
