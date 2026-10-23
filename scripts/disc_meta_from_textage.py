@@ -1,5 +1,6 @@
 """Drafts the disc song details tables (disc_meta/<edition>.tsv) for the
 IIDX 16 discs from the iidx16-bms Textage mapping, for a person to check.
+How to make and fill the tables by hand: docs/specs/disc_meta.md.
 
 The player reads the tables (crates/cs-disc/src/meta.rs has the format) to
 show real titles, subtitles, artists and genres, and to find the loading

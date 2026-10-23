@@ -1,8 +1,10 @@
-//! Writes songs' loading cards as raw RGBA (`<id>.rgba`: u32 width, u32
-//! height, then pixels), to compare with another extraction.
+//! Writes loading cards as BMP pictures, to look at or to compare with
+//! another extraction. With `<song id>:<container>` pairs, those containers
+//! (as `<id>.bmp`); with `--scan <from> <to>`, every container in that range
+//! that holds a picture (as `c<container>.bmp`), to find a song's card by
+//! eye; with neither, every song's card by `Song::card`.
 //!
-//! cargo run -p cs-disc --release --example card_dump -- <iso> <out dir> [<song id>:<container> ...]
-//! Without pairs, every song's card by `Song::card`.
+//! cargo run -p cs-disc --release --example card_dump -- <image.iso | E:> <out dir> [<id>:<container> ... | --scan <from> <to>]
 use cs_disc::iidx16::Disc;
 use cs_disc::{identify, Game, Volume};
 
@@ -16,29 +18,50 @@ fn main() {
     };
     let v = Volume::open(&mut d).unwrap();
     let disc = Disc::open(&mut d, &v, ed).unwrap();
-    let pairs: Vec<(u32, u32)> = if a.len() > 2 {
+    let pairs: Vec<(String, u32)> = if a.get(2).map(String::as_str) == Some("--scan") {
+        let (from, to): (u32, u32) = (a[3].parse().unwrap(), a[4].parse().unwrap());
+        (from..=to).map(|c| (format!("c{c}"), c)).collect()
+    } else if a.len() > 2 {
         a[2..]
             .iter()
             .map(|p| {
                 let (s, c) = p.split_once(':').unwrap();
-                (s.parse().unwrap(), c.parse().unwrap())
+                (
+                    format!("{:04}", s.parse::<u32>().unwrap()),
+                    c.parse().unwrap(),
+                )
             })
             .collect()
     } else {
         disc.songs
             .iter()
-            .filter_map(|s| s.card.map(|c| (s.id, c)))
+            .filter_map(|s| s.card.map(|c| (format!("{:04}", s.id), c)))
             .collect()
     };
     for (id, container) in pairs {
         match disc.card_image(&mut d, container).unwrap() {
-            Some(img) => {
-                let mut bytes = img.width.to_le_bytes().to_vec();
-                bytes.extend(img.height.to_le_bytes());
-                bytes.extend(img.pixels.iter().flatten());
-                std::fs::write(out.join(format!("{id:04}.rgba")), bytes).unwrap();
-            }
+            Some(img) => std::fs::write(out.join(format!("{id}.bmp")), bmp(&img)).unwrap(),
+            None if id.starts_with('c') => {}
             None => println!("{id}: no picture in container {container}"),
         }
     }
+}
+
+/// A 32-bit top-down BMP.
+fn bmp(img: &cs_disc::ps2tex::Rgba) -> Vec<u8> {
+    let size = 54 + img.pixels.len() as u32 * 4;
+    let mut b = b"BM".to_vec();
+    for v in [size, 0, 54, 40, img.width] {
+        b.extend(v.to_le_bytes());
+    }
+    b.extend((-(img.height as i32)).to_le_bytes());
+    b.extend(1u16.to_le_bytes());
+    b.extend(32u16.to_le_bytes());
+    for v in [0u32, size - 54, 2835, 2835, 0, 0] {
+        b.extend(v.to_le_bytes());
+    }
+    for [r, g, bl, _] in &img.pixels {
+        b.extend([*bl, *g, *r, 255]);
+    }
+    b
 }
