@@ -123,8 +123,21 @@ impl SongSource for DiscSource {
         HashMap::new()
     }
 
+    /// The song's background video. The chart has no BGA events, so the
+    /// game plays it from the start of the chart.
     fn videos(&mut self, _: &BmsChart) -> HashMap<BmpId, VideoSource> {
-        HashMap::new()
+        let song = &self.songs.songs[self.song];
+        let Some(bytes) = song
+            .video
+            .and_then(|file| self.songs.read_file(&mut self.disc, file).ok())
+        else {
+            return HashMap::new();
+        };
+        let source = VideoSource::Memory {
+            bytes: bytes.into(),
+            filename_hint: Some("bga.mpg".to_string()),
+        };
+        HashMap::from([(BmpId(1), source)])
     }
 
     /// The song's loading card, on a 4:3 canvas.

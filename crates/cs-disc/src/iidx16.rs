@@ -142,6 +142,7 @@ const TITLE_LEN: usize = 0x40;
 const LEVELS_AT: usize = 0x4a;
 const CHARTS_AT: usize = 0xc0;
 const SOUNDS_AT: usize = 0xe8;
+const VIDEO_AT: usize = 0x58;
 
 /// One chart of a song.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +190,9 @@ pub struct Song {
     /// not a shared UI container). EMPRESS records do not follow it, so its
     /// cards come from a hand-made table (`meta`).
     pub card: Option<u32>,
+    /// The file number of the song's background video (MPEG-2, stored as
+    /// is), the first of the record's two video words as iidx-ps2tools reads them.
+    pub video: Option<u32>,
 }
 
 /// A file's span inside one of the DAT files.
@@ -533,6 +537,10 @@ fn read_songs(exe: &[u8], span: (usize, usize)) -> io::Result<Vec<Song>> {
             charts,
             sounds,
             card: card_container(record),
+            video: {
+                let file = u32_at(record, VIDEO_AT);
+                (file != 0 && file & 0xffff != 0xffff).then_some(file)
+            },
         });
     }
     Ok(songs)

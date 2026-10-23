@@ -41,6 +41,13 @@ fn disc2_is_premium_best_and_lists_anisakis() {
         }
     }
     assert!(sp_normal.level > 0);
+    // Background videos are MPEG program streams, stored as they are.
+    let video = songs
+        .read_file(&mut disc, anisakis.video.expect("ANISAKIS has a video"))
+        .unwrap();
+    assert_eq!(&video[..4], &[0, 0, 1, 0xba]);
+    let with_video = songs.songs.iter().filter(|s| s.video.is_some()).count();
+    assert!(with_video > 90, "{with_video} songs have a video");
 }
 
 #[test]
