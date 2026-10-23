@@ -7,10 +7,11 @@ use std::sync::Arc;
 use std::thread;
 
 use beetle_audio::SampleBank;
-use beetle_core::{
-    parse_bms, parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel,
-};
-use beetle_render::{is_video_path, strings, ImageBuffer};
+use beetle_core::{parse_bms_with_seed, BmpId, BmsChart, ChartId, SongMetadata, TimingModel};
+use beetle_render::{strings, ImageBuffer};
+
+mod folder;
+mod package;
 
 pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
@@ -110,243 +111,77 @@ pub mod progress {
     }
 }
 
-fn resolve_file_case_insensitive(dir: &Path, relative: &str) -> Option<PathBuf> {
-    let normalized = relative.replace('\\', "/");
-    let parts: Vec<&str> = normalized
-        .split('/')
-        .filter(|p| !p.is_empty() && *p != ".")
+/// Movie files a chart's folder may hold without naming them, played on the
+/// base BGA layer.
+const FALLBACK_VIDEO_NAMES: &[&str] = &[
+    "bga.mp4",
+    "movie.mp4",
+    "video.mp4",
+    "bg.mp4",
+    "pv.mp4",
+    "bga.mpg",
+    "movie.mpg",
+    "video.mpg",
+    "bg.mpg",
+    "bga.wmv",
+    "movie.wmv",
+    "video.wmv",
+    "bg.wmv",
+    "bga.avi",
+    "movie.avi",
+    "video.avi",
+    "bg.avi",
+    "bga.webm",
+    "movie.webm",
+    "video.webm",
+    "bg.webm",
+    "bga.mkv",
+    "movie.mkv",
+    "video.mkv",
+    "bg.mkv",
+];
+
+/// The BMP ids a fallback video plays as: the chart's base-layer ids, or `01`
+/// when the chart has no base layer.
+fn base_video_ids(chart: &BmsChart) -> Vec<BmpId> {
+    let ids: Vec<BmpId> = chart
+        .bga_events
+        .iter()
+        .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
+        .map(|ev| ev.bmp_id)
         .collect();
-    if parts.is_empty() {
-        return None;
+    if ids.is_empty() {
+        vec![BmpId(1)]
+    } else {
+        ids
     }
-
-    let mut current = dir.to_path_buf();
-    for part in parts {
-        let mut found = false;
-        if let Ok(entries) = fs::read_dir(&current) {
-            for entry in entries.flatten() {
-                if let Ok(name) = entry.file_name().into_string() {
-                    if name.eq_ignore_ascii_case(part) {
-                        current = entry.path();
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if !found {
-            return None;
-        }
-    }
-
-    Some(current)
 }
 
-fn load_image_from_dir_or_case_insensitive(dir: &Path, filename: &str) -> Option<ImageBuffer> {
-    let resolved = resolve_file_case_insensitive(dir, filename)?;
-    ImageBuffer::load_from_file(&resolved)
+/// Stage artwork, and the encoded bytes to keep in the artwork cache (`None`
+/// when it is not worth caching).
+type StageArt = (ImageBuffer, Option<Vec<u8>>);
+
+/// Where a song's chart and files come from. The loader parses the chart and
+/// times it the same way for every source; a source only reads.
+trait SongSource {
+    /// The chart file exactly as stored.
+    fn chart_bytes(&mut self) -> Result<Vec<u8>, ChartLoadError>;
+    /// The chart's key sounds, counted in `progress` as they load, and how many loaded.
+    fn sounds(&mut self, chart: &BmsChart) -> (SampleBank, usize);
+    /// The images of `bmp_table`, counted in `progress` as they load.
+    fn images(&mut self, bmp_table: &HashMap<BmpId, String>) -> HashMap<BmpId, ImageBuffer>;
+    /// The chart's BGA videos.
+    fn videos(&mut self, chart: &BmsChart) -> HashMap<BmpId, VideoSource>;
+    /// The song's stage artwork.
+    fn stage_image(&mut self) -> Option<StageArt>;
 }
 
-fn find_video_files_in_dir(dir: &Path, chart: &BmsChart) -> HashMap<BmpId, VideoSource> {
-    let mut videos = HashMap::new();
-
-    // 1. Check bmp_table for video files or files with matching stems
-    for (&bmp_id, filename) in &chart.header.bmp_table {
-        if is_video_path(filename) {
-            if let Some(p) = resolve_file_case_insensitive(dir, filename) {
-                videos.insert(bmp_id, VideoSource::File(p));
-            }
-        } else {
-            let stem = match filename.rfind('.') {
-                Some(pos) => &filename[..pos],
-                None => filename.as_str(),
-            };
-            for ext in beetle_render::VIDEO_EXTENSIONS {
-                let candidate = format!("{}.{}", stem, ext);
-                if let Some(p) = resolve_file_case_insensitive(dir, &candidate) {
-                    videos.insert(bmp_id, VideoSource::File(p));
-                    break;
-                }
-            }
-        }
-    }
-
-    // 2. Fallback: if no bmp_table entry matched a video, check stage/banner or common names
-    if videos.is_empty() {
-        let mut fallback_path = None;
-        for filename in &[&chart.header.stage_file, &chart.header.banner] {
-            if !filename.is_empty() && is_video_path(filename) {
-                if let Some(p) = resolve_file_case_insensitive(dir, filename) {
-                    fallback_path = Some(p);
-                    break;
-                }
-            }
-        }
-        if fallback_path.is_none() {
-            for name in &[
-                "bga.mp4",
-                "movie.mp4",
-                "video.mp4",
-                "bg.mp4",
-                "pv.mp4",
-                "bga.mpg",
-                "movie.mpg",
-                "video.mpg",
-                "bg.mpg",
-                "bga.wmv",
-                "movie.wmv",
-                "video.wmv",
-                "bg.wmv",
-                "bga.avi",
-                "movie.avi",
-                "video.avi",
-                "bg.avi",
-                "bga.webm",
-                "movie.webm",
-                "video.webm",
-                "bg.webm",
-                "bga.mkv",
-                "movie.mkv",
-                "video.mkv",
-                "bg.mkv",
-            ] {
-                let p = dir.join(name);
-                if p.exists() {
-                    fallback_path = Some(p);
-                    break;
-                }
-            }
-        }
-
-        if let Some(fp) = fallback_path {
-            let base_ids: Vec<BmpId> = chart
-                .bga_events
-                .iter()
-                .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
-                .map(|ev| ev.bmp_id)
-                .collect();
-            let source = VideoSource::File(fp);
-            if base_ids.is_empty() {
-                videos.insert(BmpId(1), source);
-            } else {
-                for id in base_ids {
-                    videos.entry(id).or_insert_with(|| source.clone());
-                }
-            }
-        }
-    }
-
-    videos
-}
-
-fn load_videos_from_package_archive(
-    pkg: &mut bms_package::PackageReader,
-    base_dir: &str,
-    chart: &BmsChart,
-    video_sources: &mut HashMap<BmpId, VideoSource>,
-) {
-    for (&bmp_id, filename) in &chart.header.bmp_table {
-        if is_video_path(filename) {
-            if let Some(target_path) = pkg.find_entry_path(base_dir, filename) {
-                if let Ok(bytes) = pkg.read_entry(&target_path) {
-                    video_sources.insert(
-                        bmp_id,
-                        VideoSource::Memory {
-                            bytes: Arc::from(bytes.into_boxed_slice()),
-                            filename_hint: Some(filename.clone()),
-                        },
-                    );
-                }
-            }
-        } else {
-            let stem = match filename.rfind('.') {
-                Some(pos) => &filename[..pos],
-                None => filename.as_str(),
-            };
-            for ext in beetle_render::VIDEO_EXTENSIONS {
-                let candidate = format!("{}.{}", stem, ext);
-                if let Some(target_path) = pkg.find_entry_path(base_dir, &candidate) {
-                    if let Ok(bytes) = pkg.read_entry(&target_path) {
-                        video_sources.insert(
-                            bmp_id,
-                            VideoSource::Memory {
-                                bytes: Arc::from(bytes.into_boxed_slice()),
-                                filename_hint: Some(candidate),
-                            },
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Fallback video inside package
-    if video_sources.is_empty() {
-        let mut fallback_entry = None;
-        for filename in &[&chart.header.stage_file, &chart.header.banner] {
-            if !filename.is_empty() && is_video_path(filename) {
-                if let Some(target_path) = pkg.find_entry_path(base_dir, filename) {
-                    fallback_entry = Some((target_path, filename.to_string()));
-                    break;
-                }
-            }
-        }
-        if fallback_entry.is_none() {
-            for name in &[
-                "bga.mp4",
-                "movie.mp4",
-                "video.mp4",
-                "bg.mp4",
-                "pv.mp4",
-                "bga.mpg",
-                "movie.mpg",
-                "video.mpg",
-                "bg.mpg",
-                "bga.wmv",
-                "movie.wmv",
-                "video.wmv",
-                "bg.wmv",
-                "bga.avi",
-                "movie.avi",
-                "video.avi",
-                "bg.avi",
-                "bga.webm",
-                "movie.webm",
-                "video.webm",
-                "bg.webm",
-                "bga.mkv",
-                "movie.mkv",
-                "video.mkv",
-                "bg.mkv",
-            ] {
-                if let Some(target_path) = pkg.find_entry_path(base_dir, name) {
-                    fallback_entry = Some((target_path, name.to_string()));
-                    break;
-                }
-            }
-        }
-        if let Some((target_path, name)) = fallback_entry {
-            if let Ok(bytes) = pkg.read_entry(&target_path) {
-                let source = VideoSource::Memory {
-                    bytes: Arc::from(bytes.into_boxed_slice()),
-                    filename_hint: Some(name),
-                };
-                let base_ids: Vec<BmpId> = chart
-                    .bga_events
-                    .iter()
-                    .filter(|ev| ev.channel == beetle_core::BgaChannel::Base)
-                    .map(|ev| ev.bmp_id)
-                    .collect();
-                if base_ids.is_empty() {
-                    video_sources.insert(BmpId(1), source);
-                } else {
-                    for id in base_ids {
-                        video_sources.entry(id).or_insert_with(|| source.clone());
-                    }
-                }
-            }
-        }
+/// Opens the source a song's `file_path` names: `<package>::<entry>` is a
+/// `.bmsp` entry, anything else a chart file in a folder.
+fn open_source(song: &SongMetadata) -> Result<Box<dyn SongSource>, ChartLoadError> {
+    match song.file_path.split_once("::") {
+        Some((pkg_path, entry)) => Ok(Box::new(package::PackageSource::open(pkg_path, entry)?)),
+        None => Ok(Box::new(folder::FolderSource::new(&song.file_path))),
     }
 }
 
@@ -376,219 +211,12 @@ pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
         }
     }
 
-    // 2. Check if song is packaged inside a .bmsp archive
-    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
-        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
-            let base_dir = Path::new(entry_name)
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .to_string_lossy();
-
-            // 2a-1. Check if package has BGA Delta bundle with stagefile/banner
-            let bga_delta_meta = pkg.manifest().bga_delta.clone();
-            if let Some(delta_meta) = bga_delta_meta {
-                let delta_path = if pkg.contains(&delta_meta.file) {
-                    Some(delta_meta.file.clone())
-                } else {
-                    pkg.find_entry_path(&base_dir, &delta_meta.file)
-                };
-
-                if let Some(path) = delta_path {
-                    if let Ok(delta_bytes) = pkg.read_entry(&path) {
-                        let mut stage_target: Option<String> = None;
-                        if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                            let content = beetle_core::decode_bms_text(&bms_bytes);
-                            if let Ok(chart) = parse_bms(&content) {
-                                for name in &[&chart.header.stage_file, &chart.header.banner] {
-                                    if !name.is_empty() {
-                                        stage_target = Some(name.to_string());
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        if stage_target.is_none() {
-                            for cand in &["stagefile", "stage", "banner", "title"] {
-                                if delta_meta.frames.keys().any(|k| {
-                                    k.eq_ignore_ascii_case(cand)
-                                        || Path::new(k)
-                                            .file_stem()
-                                            .map(|s| s.eq_ignore_ascii_case(cand))
-                                            .unwrap_or(false)
-                                }) {
-                                    stage_target = Some((*cand).to_string());
-                                    break;
-                                }
-                            }
-                        }
-
-                        if let Some(ref key) = stage_target {
-                            if let Ok(Some(img_bytes)) = delta_meta.unpack_frame(key, &delta_bytes)
-                            {
-                                if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
-                                    let _ = fs::create_dir_all(cache_dir);
-                                    write_cache_file(&cache_file, &img_bytes);
-                                    return Some(img);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2a-2. Check if package has BGA Atlas with stagefile/banner
-            let bga_meta = pkg.manifest().bga_atlas.clone();
-            if let Some(bga_meta) = bga_meta {
-                let atlas_path = if pkg.contains(&bga_meta.file) {
-                    Some(bga_meta.file.clone())
-                } else {
-                    pkg.find_entry_path(&base_dir, &bga_meta.file)
-                };
-
-                if let Some(path) = atlas_path {
-                    if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                        if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
-                            let mut stage_frame = bga_meta
-                                .frames
-                                .get("stagefile")
-                                .or_else(|| bga_meta.frames.get("banner"));
-
-                            if stage_frame.is_none() {
-                                if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                                    let content = beetle_core::decode_bms_text(&bms_bytes);
-                                    if let Ok(chart) = parse_bms(&content) {
-                                        for name in
-                                            &[&chart.header.stage_file, &chart.header.banner]
-                                        {
-                                            if !name.is_empty() {
-                                                let norm = name.replace('\\', "/");
-                                                let file_name = Path::new(&norm)
-                                                    .file_name()
-                                                    .and_then(|n| n.to_str())
-                                                    .unwrap_or(&norm);
-                                                let f = bga_meta
-                                                    .frames
-                                                    .get(&norm.to_ascii_lowercase())
-                                                    .or_else(|| {
-                                                        bga_meta.frames.values().find(|f| {
-                                                            f.original_filename
-                                                                .as_deref()
-                                                                .map(|s| {
-                                                                    s.eq_ignore_ascii_case(&norm)
-                                                                        || s.eq_ignore_ascii_case(
-                                                                            file_name,
-                                                                        )
-                                                                })
-                                                                .unwrap_or(false)
-                                                        })
-                                                    });
-                                                if let Some(f) = f {
-                                                    stage_frame = Some(f);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(frame) = stage_frame {
-                                if let Some(img) =
-                                    atlas_img.crop(frame.x, frame.y, frame.width, frame.height)
-                                {
-                                    let _ = fs::create_dir_all(cache_dir);
-                                    let bmp_bytes = img.encode_bmp_bytes();
-                                    write_cache_file(&cache_file, &bmp_bytes);
-                                    return Some(img);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                let content = beetle_core::decode_bms_text(&bms_bytes);
-                if let Ok(chart) = parse_bms(&content) {
-                    if !chart.header.stage_file.is_empty() {
-                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.stage_file)
-                        {
-                            if let Ok(img_bytes) = pkg.read_entry(&path) {
-                                if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
-                                    let _ = fs::create_dir_all(cache_dir);
-                                    write_cache_file(&cache_file, &img_bytes);
-                                    return Some(img);
-                                }
-                            }
-                        }
-                    }
-                    if !chart.header.banner.is_empty() {
-                        if let Some(path) = pkg.find_entry_path(&base_dir, &chart.header.banner) {
-                            if let Ok(img_bytes) = pkg.read_entry(&path) {
-                                if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
-                                    let _ = fs::create_dir_all(cache_dir);
-                                    write_cache_file(&cache_file, &img_bytes);
-                                    return Some(img);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            for name in ARTWORK_CANDIDATE_FILENAMES {
-                if let Some(path) = pkg.find_entry_path(&base_dir, name) {
-                    if let Ok(img_bytes) = pkg.read_entry(&path) {
-                        if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
-                            let _ = fs::create_dir_all(cache_dir);
-                            write_cache_file(&cache_file, &img_bytes);
-                            return Some(img);
-                        }
-                    }
-                }
-            }
-        }
-        return None;
+    let (img, cache_bytes) = open_source(song).ok()?.stage_image()?;
+    if let Some(bytes) = cache_bytes {
+        let _ = fs::create_dir_all(cache_dir);
+        write_cache_file(&cache_file, &bytes);
     }
-
-    let song_path = Path::new(&song.file_path);
-    let dir = song_path.parent().unwrap_or_else(|| Path::new("."));
-
-    // Check parsed chart header for stagefile or banner
-    if let Ok(bytes) = fs::read(song_path) {
-        let content = beetle_core::decode_bms_text(&bytes);
-        if let Ok(chart) = parse_bms(&content) {
-            if !chart.header.stage_file.is_empty() {
-                if let Some(img) =
-                    load_image_from_dir_or_case_insensitive(dir, &chart.header.stage_file)
-                {
-                    return Some(img);
-                }
-            }
-            if !chart.header.banner.is_empty() {
-                if let Some(img) =
-                    load_image_from_dir_or_case_insensitive(dir, &chart.header.banner)
-                {
-                    return Some(img);
-                }
-            }
-        }
-    }
-
-    // Fallback file scanning for common artwork names
-    for name in ARTWORK_CANDIDATE_FILENAMES {
-        let p = dir.join(name);
-        if let Some(img) = ImageBuffer::load_from_file(&p) {
-            if let Ok(data) = fs::read(&p) {
-                let _ = fs::create_dir_all(cache_dir);
-                write_cache_file(&cache_file, &data);
-            }
-            return Some(img);
-        }
-    }
-
-    None
+    Some(img)
 }
 
 /// `load_chart_and_audio_with_seed` with the library's fixed `#RANDOM` seed.
@@ -601,347 +229,38 @@ pub fn load_chart_and_audio(song: &SongMetadata) -> LoadedSongData {
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
 /// `seed` decides the rolls of any `#RANDOM` sections in the chart.
 /// A chart that cannot be read or parsed is an error: nothing is played for it.
-#[allow(clippy::map_entry)]
 pub fn load_chart_and_audio_with_seed(
     song: &SongMetadata,
     seed: u64,
     load_bga: bool,
 ) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
-    // Check if song is inside a .bmsp package
-    if let Some((pkg_path, entry_name)) = song.file_path.split_once("::") {
-        if let Ok(mut pkg) = bms_package::PackageReader::open_file(pkg_path) {
-            let base_dir = Path::new(entry_name)
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .to_string_lossy();
-
-            if let Ok(bms_bytes) = pkg.read_entry(entry_name) {
-                let content = beetle_core::decode_bms_text(&bms_bytes);
-                if let Ok(chart) = parse_playable_chart(&content, seed) {
-                    let timing = TimingModel::from_chart(&chart);
-                    // BGA OFF: nothing to decode, so no image or video work.
-                    let no_bmps = HashMap::new();
-                    let bmp_table = if load_bga {
-                        &chart.header.bmp_table
-                    } else {
-                        &no_bmps
-                    };
-                    let mut soundbank = SampleBank::new();
-                    let mut bga_bank = HashMap::new();
-                    let mut video_sources = HashMap::new();
-                    let mut loaded_count = 0;
-
-                    // 1. Keysounds: FAST-PATH via Sound Atlas (1-pass zero-allocation decoding)
-                    progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
-                    let mut loaded_sound_from_atlas = false;
-                    let sound_meta = pkg.manifest().sound_atlas.clone();
-                    if let Some(sound_meta) = sound_meta {
-                        let atlas_path = if pkg.contains(&sound_meta.file) {
-                            Some(sound_meta.file.clone())
-                        } else {
-                            pkg.find_entry_path(&base_dir, &sound_meta.file)
-                        };
-
-                        if let Some(path) = atlas_path {
-                            if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                                match SampleBank::load_from_sound_atlas_for_chart(
-                                    &chart,
-                                    &sound_meta,
-                                    &atlas_bytes,
-                                ) {
-                                    Ok(bank) => {
-                                        loaded_count = bank.len();
-                                        progress::set_done(loaded_count);
-                                        soundbank = bank;
-                                        loaded_sound_from_atlas = true;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("[Loader] Sound Atlas decode error: {e}, falling back to individual file scan");
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Fallback for sound: Classic file-by-file loading for any keysound missing from Sound Atlas
-                    for (&wav_id, filename) in &chart.header.wav_table {
-                        if !soundbank.contains_key(wav_id) {
-                            if let Some(target_path) = pkg.find_entry_path(&base_dir, filename) {
-                                if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                    if let Ok(pcm) = SampleBank::load_audio_from_bytes(&bytes) {
-                                        soundbank.insert(wav_id, pcm);
-                                        loaded_count += 1;
-                                        progress::set_done(loaded_count);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 2. BGA Frames: FAST-PATH via BGA Delta Bundle or BGA Texture Atlas
-                    progress::begin(progress::Stage::Images, 0);
-                    let mut loaded_bga = false;
-                    let bga_delta_meta = pkg.manifest().bga_delta.clone();
-                    if let Some(delta_meta) = bga_delta_meta {
-                        let delta_path = if pkg.contains(&delta_meta.file) {
-                            Some(delta_meta.file.clone())
-                        } else {
-                            pkg.find_entry_path(&base_dir, &delta_meta.file)
-                        };
-
-                        if let Some(path) = delta_path {
-                            if let Ok(delta_bytes) = pkg.read_entry(&path) {
-                                if let Ok(unpacked) = delta_meta.unpack_all(&delta_bytes) {
-                                    for (&bmp_id, filename) in bmp_table {
-                                        if !bga_bank.contains_key(&bmp_id) {
-                                            let norm = filename.replace('\\', "/");
-                                            let file_name = Path::new(&norm)
-                                                .file_name()
-                                                .and_then(|n| n.to_str())
-                                                .unwrap_or(&norm);
-                                            let norm_lower = norm.to_ascii_lowercase();
-                                            let file_name_lower = file_name.to_ascii_lowercase();
-
-                                            let found_bytes = unpacked
-                                                .get(&norm)
-                                                .or_else(|| unpacked.get(&norm_lower))
-                                                .or_else(|| unpacked.get(file_name))
-                                                .or_else(|| {
-                                                    unpacked
-                                                        .iter()
-                                                        .find(|(k, _)| {
-                                                            let k_norm = k
-                                                                .replace('\\', "/")
-                                                                .to_ascii_lowercase();
-                                                            let k_fn = Path::new(&k_norm)
-                                                                .file_name()
-                                                                .and_then(|s| s.to_str())
-                                                                .unwrap_or(&k_norm);
-                                                            k_norm == norm_lower
-                                                                || k_fn == file_name_lower
-                                                                || k_norm.ends_with(&norm_lower)
-                                                        })
-                                                        .map(|(_, b)| b)
-                                                });
-
-                                            if let Some(img_bytes) = found_bytes {
-                                                if let Some(img) =
-                                                    ImageBuffer::from_bytes(img_bytes)
-                                                {
-                                                    bga_bank.insert(bmp_id, img);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    loaded_bga = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if !loaded_bga {
-                        let bga_meta = pkg.manifest().bga_atlas.clone();
-                        if let Some(bga_meta) = bga_meta {
-                            let atlas_path = if pkg.contains(&bga_meta.file) {
-                                Some(bga_meta.file.clone())
-                            } else {
-                                pkg.find_entry_path(&base_dir, &bga_meta.file)
-                            };
-
-                            if let Some(path) = atlas_path {
-                                if let Ok(atlas_bytes) = pkg.read_entry(&path) {
-                                    if let Some(atlas_img) = ImageBuffer::from_bytes(&atlas_bytes) {
-                                        // Map chart BmpId -> chart filename -> atlas frame.
-                                        for (&bmp_id, filename) in bmp_table {
-                                            if !bga_bank.contains_key(&bmp_id) {
-                                                let norm = filename.replace('\\', "/");
-                                                let file_name = Path::new(&norm)
-                                                    .file_name()
-                                                    .and_then(|n| n.to_str())
-                                                    .unwrap_or(&norm);
-                                                let frame = bga_meta
-                                                    .frames
-                                                    .get(&norm.to_ascii_lowercase())
-                                                    .or_else(|| {
-                                                        bga_meta.frames.values().find(|f| {
-                                                            f.original_filename
-                                                                .as_deref()
-                                                                .map(|s| {
-                                                                    s.eq_ignore_ascii_case(&norm)
-                                                                        || s.eq_ignore_ascii_case(
-                                                                            file_name,
-                                                                        )
-                                                                })
-                                                                .unwrap_or(false)
-                                                        })
-                                                    });
-                                                if let Some(frame) = frame {
-                                                    if let Some(sub_img) = atlas_img.crop(
-                                                        frame.x,
-                                                        frame.y,
-                                                        frame.width,
-                                                        frame.height,
-                                                    ) {
-                                                        bga_bank.insert(bmp_id, sub_img);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        loaded_bga = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if !loaded_bga {
-                        for (&bmp_id, filename) in bmp_table {
-                            if !is_video_path(filename) {
-                                if let Some(target_path) = pkg.find_entry_path(&base_dir, filename)
-                                {
-                                    if let Ok(bytes) = pkg.read_entry(&target_path) {
-                                        if let Some(img) = ImageBuffer::from_bytes(&bytes) {
-                                            bga_bank.insert(bmp_id, img);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 1. Search videos inside primary .bmsp package
-                    if load_bga {
-                        load_videos_from_package_archive(
-                            &mut pkg,
-                            &base_dir,
-                            &chart,
-                            &mut video_sources,
-                        );
-                    }
-
-                    // 2. Search companion BGA package if no video was found in primary package
-                    if load_bga && video_sources.is_empty() {
-                        let pkg_file_path = Path::new(pkg_path);
-                        let parent_dir = pkg_file_path.parent().unwrap_or_else(|| Path::new("."));
-                        let pkg_stem = pkg_file_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("");
-
-                        let mut companion_candidates = Vec::new();
-
-                        if let Some(ref companions) = pkg.manifest().companion_packages {
-                            if let Some(ref bga_info) = companions.bga {
-                                companion_candidates
-                                    .push(parent_dir.join(&bga_info.recommended_filename));
-                            }
-                        }
-
-                        if !pkg_stem.is_empty() {
-                            companion_candidates
-                                .push(parent_dir.join(format!("{}.bga.bmsp", pkg_stem)));
-                        }
-
-                        companion_candidates
-                            .push(parent_dir.join(format!("{}.bga.bmsp", pkg.manifest().id)));
-                        companion_candidates.push(
-                            parent_dir
-                                .join(&pkg.manifest().id)
-                                .join("bga")
-                                .join(format!("{}.bga.bmsp", pkg.manifest().id)),
-                        );
-
-                        for cand in companion_candidates {
-                            if cand.is_file() {
-                                if let Ok(mut bga_pkg) =
-                                    bms_package::PackageReader::open_file(&cand)
-                                {
-                                    load_videos_from_package_archive(
-                                        &mut bga_pkg,
-                                        "",
-                                        &chart,
-                                        &mut video_sources,
-                                    );
-                                    if !video_sources.is_empty() {
-                                        println!("[Loader] Successfully loaded BGA companion package: '{}'", cand.display());
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    println!(
-                        "Loaded BMSP Chart: '{}' ({} / {} keysounds, {} BGA frames, {} BGA videos in-memory from archive, fast-atlas: sound={}, bga={})",
-                        chart.header.title, loaded_count, chart.header.wav_table.len(), bga_bank.len(), video_sources.len(),
-                        loaded_sound_from_atlas, loaded_bga
-                    );
-                    return Ok((chart, timing, soundbank, bga_bank, video_sources));
-                }
-                return Err(ChartLoadError::NotAChart);
-            }
-        }
-    }
-
-    let path = Path::new(&song.file_path);
-    let bytes = fs::read(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => ChartLoadError::NotFound,
-        _ => ChartLoadError::Unreadable,
-    })?;
+    let mut source = open_source(song)?;
+    let bytes = source.chart_bytes()?;
     let content = beetle_core::decode_bms_text(&bytes);
     let chart = parse_playable_chart(&content, seed)?;
     let timing = TimingModel::from_chart(&chart);
-    let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
     let started = std::time::Instant::now();
     progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
-    let (soundbank, loaded) =
-        SampleBank::load_chart_soundbank_with_progress(&chart, parent_dir, &|done, _| {
-            progress::set_done(done)
-        });
+    let (soundbank, loaded) = source.sounds(&chart);
     let sounds_ms = started.elapsed().as_millis();
+
+    // BGA OFF: nothing to decode, so no image or video work.
     let no_bmps = HashMap::new();
     let bmp_table = if load_bga {
         &chart.header.bmp_table
     } else {
         &no_bmps
     };
-    progress::begin(progress::Stage::Images, bmp_table.len());
-    let bga_bank = load_images_parallel(parent_dir, bmp_table);
+    let bga_bank = source.images(bmp_table);
 
     progress::begin(progress::Stage::Videos, 0);
-    let mut video_sources = if load_bga {
-        find_video_files_in_dir(parent_dir, &chart)
+    let video_sources = if load_bga {
+        source.videos(&chart)
     } else {
         HashMap::new()
     };
-
-    // If folder has no videos, check for adjacent companion package
-    if load_bga && video_sources.is_empty() {
-        let dir_name = parent_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        let candidates = [
-            parent_dir.join(format!("{}.bga.bmsp", dir_name)),
-            parent_dir.join("bga.bmsp"),
-        ];
-        for cand in candidates {
-            if cand.is_file() {
-                if let Ok(mut bga_pkg) = bms_package::PackageReader::open_file(&cand) {
-                    load_videos_from_package_archive(&mut bga_pkg, "", &chart, &mut video_sources);
-                    if !video_sources.is_empty() {
-                        println!(
-                            "[Loader] Successfully loaded BGA companion package for folder: '{}'",
-                            cand.display()
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
     for vs in video_sources.values() {
         if let VideoSource::File(p) = vs {
             println!("Detected BGA Video: '{}'", p.display());
@@ -949,51 +268,16 @@ pub fn load_chart_and_audio_with_seed(
     }
 
     println!(
-        "Loaded BMS: '{}' ({} keysounds, {} BGA frames loaded, {} BGA videos) in {} ms (key sounds {} ms)",
+        "Loaded BMS: '{}' ({} / {} keysounds, {} BGA frames loaded, {} BGA videos) in {} ms (key sounds {} ms)",
         chart.header.title,
         loaded,
+        chart.header.wav_table.len(),
         bga_bank.len(),
         video_sources.len(),
         started.elapsed().as_millis(),
         sounds_ms
     );
     Ok((chart, timing, soundbank, bga_bank, video_sources))
-}
-
-/// Decodes the BGA images of a folder chart on several threads, counting them
-/// in `progress` as they finish.
-fn load_images_parallel(
-    dir: &Path,
-    bmp_table: &HashMap<BmpId, String>,
-) -> HashMap<BmpId, ImageBuffer> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    let jobs: Vec<(&BmpId, &String)> = bmp_table.iter().collect();
-    let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
-    let out = Mutex::new(HashMap::new());
-    let workers = thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .clamp(1, 8)
-        .min(jobs.len().max(1));
-    thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some(&(&id, filename)) = jobs.get(i) else {
-                    break;
-                };
-                if let Some(img) = load_image_from_dir_or_case_insensitive(dir, filename) {
-                    if let Ok(mut map) = out.lock() {
-                        map.insert(id, img);
-                    }
-                }
-                progress::set_done(done.fetch_add(1, Ordering::Relaxed) + 1);
-            });
-        }
-    });
-    out.into_inner().unwrap_or_default()
 }
 
 /// Parses chart text. Text that is not a BMS chart, and a chart with no notes at
