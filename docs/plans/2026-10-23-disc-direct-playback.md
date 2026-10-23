@@ -30,10 +30,13 @@
 ## 4. 구조
 
 ```
-crates/iidx-disc (신규, 의존성 없음 — beetle-core 수준의 순수 크레이트)
-  iso9660.rs   ISO 디렉터리/파일 범위 읽기 (Read + Seek)
-  exe.rs       곡 테이블·레벨 (EMPRESS 0x178bf0 / PREMIUM 0x17e0f0)
-  container.rs DATA1 / BM2DX16{A,B,C}.DAT 항목
+crates/cs-disc (신규, 의존성 없음 — IIDX뿐 아니라 pop'n·DDR 등 CS 디스크 공용)
+  sector.rs    2048바이트 섹터 단위 읽기: ISO 파일과 광학 드라이브(\\.\E:)를 한 경로로  [완료]
+  drive.rs     CD/DVD 드라이브 목록(GetDriveTypeW), 드라이브 열기                       [완료]
+  iso9660.rs   ISO 디렉터리/파일 범위 읽기                                             [완료]
+  ps2.rs       SYSTEM.CNF의 BOOT2 → 실행 파일 이름(제품 코드)으로 게임 판별             [완료]
+  iidx16.rs    곡 테이블·레벨·채보 파일 번호, BM2DX16{A,B,C}.DAT 파일 테이블            [완료]
+  (이후 게임마다 모듈 하나: popn*.rs, ddr*.rs …; 아래 파일은 iidx16 하위로)
   blowfish.rs  .ply 복호화 (직접 구현, 크레이트 금지 정책)
   ply.rs       7th 채보 → 이벤트
   to_bms.rs    이벤트 → BMS 텍스트 (결정론적)
@@ -46,7 +49,7 @@ beetle-app    loader.rs: SongSource 추상화 → Folder / Package / Disc
 bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gui 표시
 ```
 
-주소 형식(안): `disc:<iso 경로>::<곡 번호>/<SP|DP><난이도>`. 기존 `pkg::entry` 판별과 겹치지 않도록 접두사로 먼저 가른다.
+주소 형식: `disc:<이미지 경로 또는 드라이브>::<곡 번호>/<채보>` (`beetle_core::SongAddress`). 기존 `pkg::entry` 판별과 겹치지 않도록 접두사로 먼저 가른다. 드라이브는 드라이브 문자(`disc:E:::…`)로 두고, 디스크를 바꿔 넣는 경우는 열 때 게임 판별로 다시 확인한다.
 
 ## 5. 먼저 고칠 것 (순서)
 
@@ -57,13 +60,13 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
 2. **beetle: 스캐너에 세 번째 출처 자리**
    `scanner.rs`의 출처 종류(`Folder`, `Package`)에 `Disc`를 넣고 `choose_load_index` 순서(폴더 → 패키지 → 디스크)를 정한다.
    bpm 쪽 컬렉션 표시도 같은 순서를 써야 한다(`load_location.rs` 주석의 약속).
-3. **iidx-disc 크레이트: 읽기 전용 부분부터 Rust 포팅**
+3. **cs-disc 크레이트: 읽기 전용 부분부터 Rust 포팅** — ISO·드라이브 읽기, 게임 판별, IIDX16 곡 테이블까지 완료(두 ISO에서 104곡·99곡 확인). 남은 것: `.ply` 복호화(Blowfish)·LZ 해제·파싱 → BMS 합성.
    ISO9660 → 곡 테이블/레벨 → `.ply` 복호화·파싱 → BMS 합성. 이 단계에서 **스캔(곡 목록 표시)까지** 가능하다.
    검증: 합성 BMS의 노트 수를 `IIDX16_charts` 1,170개 일치 결과와 비교하는 테스트(ISO 있을 때만 실행, `#[ignore]`).
 4. **음원**: WVB + ADPCM 포팅. 계획 문서 5절의 음질 문제(째지는 소리)는 **Python에서 vgmstream과 샘플 비교로 먼저 해결**하고 포팅한다. 키음 볼륨/팬도 이때 넣는다.
 5. **메타/스테이지 이미지**: `song_map_final.csv`에서 디스크별 테이블을 굽는다. 스테이지 이미지는 처음엔 없이 가고 나중에 결정.
 
-1·2는 지금 beetle에서 바로 시작할 수 있다. 3은 1과 병렬로 가능하다. 4는 iidx16-bms 쪽 조사가 먼저다.
+1·2는 지금 beetle에서 바로 시작할 수 있다. 4는 iidx16-bms 쪽 조사가 먼저다.
 
 ## 6. 불변식 점검
 
@@ -78,4 +81,5 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
 - BEGINNER/BLACK 채보: BMS 합성은 형식 제약이 없으므로 포함할지.
 - `.ply` `note_p1` 634 vs 631, BMS 6개 초과의 원인 — 합성기 테스트로 같이 잡는다.
 - `auto` 이벤트를 BGM 채널(`01`)로 둘지.
-- ISO 대신 실제 광학 드라이브(`\\.\D:`)도 받을지 — `Read + Seek`만 요구하면 거의 공짜.
+- 실제 광학 드라이브: 받기로 함. 드라이브는 섹터 경계 읽기만 허용하므로 모든 읽기를 섹터 단위로 넓혀 처리한다(`sector.rs`). 실제 DVD로는 아직 확인하지 못함(드라이브 목록은 잡히지만 디스크 없음).
+- DVD 읽기 속도: 곡 하나 로딩에 키음 수 MB를 탐색 읽기하므로, 파일 번호 순으로 정렬해 읽는 등 탐색을 줄이는 방법을 음원 단계에서 확인.

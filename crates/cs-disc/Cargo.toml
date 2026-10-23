@@ -1,0 +1,7 @@
+[package]
+name = "cs-disc"
+version = "0.1.0"
+edition = "2021"
+description = "Reads songs straight off console (CS) game discs: disc images and optical drives, no extraction"
+
+[dependencies]
