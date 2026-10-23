@@ -7,8 +7,9 @@ use std::fs::File;
 
 use beetle_audio::{PcmBuffer, SampleBank};
 use beetle_core::{BmpId, BmsChart};
-use beetle_render::ImageBuffer;
+use beetle_render::{ColorRgba, ImageBuffer};
 use cs_disc::iidx16::{sound_number, Disc};
+use cs_disc::meta::SongMeta;
 use cs_disc::wvb::{decode_bgm, Bank, Pcm};
 use cs_disc::{Game, SectorReader, Volume};
 
@@ -22,6 +23,8 @@ pub(super) struct DiscSource {
     songs: Disc,
     song: usize,
     chart: usize,
+    /// The song's hand-checked details (`disc_meta`), if any.
+    details: Option<SongMeta>,
 }
 
 impl DiscSource {
@@ -48,11 +51,13 @@ impl DiscSource {
                     .map(|c| (i, c))
             })
             .ok_or(ChartLoadError::NotFound)?;
+        let details = crate::disc_meta::load(edition).remove(&songs.songs[song].id);
         Ok(Self {
             disc,
             songs,
             song,
             chart,
+            details,
         })
     }
 }
@@ -75,7 +80,7 @@ impl SongSource for DiscSource {
         let song = &self.songs.songs[self.song];
         let chart = &song.charts[self.chart];
         self.songs
-            .chart_bms(&mut self.disc, song, chart)
+            .chart_bms(&mut self.disc, song, chart, self.details.as_ref())
             .map(String::into_bytes)
             .map_err(|_| ChartLoadError::NotAChart)
     }
@@ -122,7 +127,20 @@ impl SongSource for DiscSource {
         HashMap::new()
     }
 
+    /// The song's loading card, on a 4:3 canvas.
     fn stage_image(&mut self) -> Option<StageArt> {
-        None
+        let song = &self.songs.songs[self.song];
+        let container = self.details.as_ref().and_then(|d| d.card).or(song.card)?;
+        let card = self
+            .songs
+            .card_image(&mut self.disc, container)
+            .ok()??
+            .centered_4_3();
+        let mut image = ImageBuffer::new(card.width, card.height, ColorRgba::new(0, 0, 0, 255));
+        for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(card.pixels) {
+            *out = ColorRgba::new(r, g, b, a);
+        }
+        let bytes = image.encode_bmp_bytes();
+        Some((image, Some(bytes)))
     }
 }

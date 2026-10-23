@@ -1368,7 +1368,7 @@ mod tests {
             cs_disc::iidx16::Disc::open(&mut disc, &volume, cs_disc::iidx16::Edition::PremiumBest)
                 .unwrap();
         let (song, chart) = songs.find("000/sp_another").unwrap();
-        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "ANISAKIS");
 

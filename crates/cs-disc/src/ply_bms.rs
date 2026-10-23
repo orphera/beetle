@@ -35,6 +35,8 @@ const BEAT_GRIDS: [u64; 10] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 48];
 #[derive(Debug, Clone)]
 pub struct Header {
     pub title: String,
+    /// Written only when not empty.
+    pub subtitle: String,
     pub artist: String,
     pub genre: String,
     pub level: u8,
@@ -476,6 +478,9 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
     let mut out = String::new();
     let _ = writeln!(out, "#PLAYER {}", if header.double { 3 } else { 1 });
     let _ = writeln!(out, "#TITLE {}", header.title);
+    if !header.subtitle.is_empty() {
+        let _ = writeln!(out, "#SUBTITLE {}", header.subtitle);
+    }
     let _ = writeln!(out, "#ARTIST {}", header.artist);
     let _ = writeln!(out, "#GENRE {}", header.genre);
     let _ = writeln!(out, "#PLAYLEVEL {}", header.level);
@@ -535,6 +540,7 @@ mod tests {
     fn header(double: bool) -> Header {
         Header {
             title: "T".into(),
+            subtitle: String::new(),
             artist: String::new(),
             genre: String::new(),
             level: 5,

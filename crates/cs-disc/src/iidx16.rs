@@ -13,8 +13,10 @@
 use std::io::{self, Read, Seek};
 
 use crate::iso9660::{FileExtent, Volume};
+use crate::meta::SongMeta;
 use crate::ply::Ply;
 use crate::ply_bms::{to_bms, Header};
+use crate::ps2tex::{decode_lzss, decode_psmt8, texture_size, Rgba};
 use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,18 +34,22 @@ struct Layout {
     file_tables: [(usize, usize); 3],
     /// The song table: (offset, bytes).
     songs: (usize, usize),
+    /// The `DATA1.DAT` container table: (offset, bytes).
+    data1: (usize, usize),
 }
 
 const EMPRESS: Layout = Layout {
     executable: "SLPM_552.21",
     file_tables: [(0x13c370, 0x2a0), (0x13c610, 0x28c8), (0x13eed8, 0x660)],
     songs: (0x178bf0, 0x7e54),
+    data1: (0x139d00, 0x1cf0),
 };
 
 const PREMIUM_BEST: Layout = Layout {
     executable: "SLPM_552.22",
     file_tables: [(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
     songs: (0x17e0f0, 0x7850),
+    data1: (0x139980, 0x5bd0),
 };
 
 /// The Blowfish key of the chart files. iidx-ps2tools builds it from letters of
@@ -57,6 +63,14 @@ impl Edition {
         [Edition::Empress, Edition::PremiumBest]
             .into_iter()
             .find(|e| e.layout().executable.eq_ignore_ascii_case(name))
+    }
+
+    /// A short file-name-safe name (`iidx16-empress`).
+    pub fn slug(self) -> &'static str {
+        match self {
+            Edition::Empress => "iidx16-empress",
+            Edition::PremiumBest => "iidx16-premium-best",
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -165,6 +179,11 @@ pub struct Song {
     pub charts: Vec<Chart>,
     /// The sound file numbers as stored (key sounds and BGM per chart pair; `0xffff` is none).
     pub sounds: [u16; 16],
+    /// The `DATA1.DAT` container of the song's loading card, by the rule
+    /// found on PREMIUM BEST (the last `(0, 0x5xx..0x6xx)` word pair that is
+    /// not a shared UI container). EMPRESS records do not follow it, so its
+    /// cards come from a hand-made table (`meta`).
+    pub card: Option<u32>,
 }
 
 /// A file's span inside one of the DAT files.
@@ -183,6 +202,9 @@ pub struct Disc {
     pub songs: Vec<Song>,
     files: Vec<FileEntry>,
     dats: [FileExtent; 3],
+    data1: FileExtent,
+    /// `DATA1.DAT` containers: (byte offset, bytes).
+    containers: Vec<(u64, u64)>,
 }
 
 fn missing(what: &str) -> io::Error {
@@ -207,14 +229,52 @@ impl Disc {
         for (slot, name) in dats.iter_mut().zip(DAT_FILES) {
             *slot = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
         }
+        let data1 = volume
+            .find(disc, "DATA1.DAT")?
+            .ok_or_else(|| missing("DATA1.DAT"))?;
         let files = read_file_tables(&exe, &layout.file_tables)?;
-        let songs = read_songs(&exe, layout.songs)?;
+        let mut songs = read_songs(&exe, layout.songs)?;
+        if edition == Edition::Empress {
+            // The card rule points at containers without pictures here.
+            for song in &mut songs {
+                song.card = None;
+            }
+        }
+        // Container records: id, sector, sectors, 0.
+        let containers = table(&exe, layout.data1)?
+            .chunks_exact(16)
+            .map(|r| {
+                (
+                    u32_at(r, 4) as u64 * crate::SECTOR_SIZE,
+                    u32_at(r, 8) as u64 * crate::SECTOR_SIZE,
+                )
+            })
+            .collect();
         Ok(Self {
             edition,
             songs,
             files,
             dats,
+            data1,
+            containers,
         })
+    }
+
+    /// The first picture of `DATA1.DAT` container `container` (its file 0 is
+    /// not a picture): a song's loading card. `None` when it has none.
+    pub fn card_image<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        container: u32,
+    ) -> io::Result<Option<Rgba>> {
+        let Some(&(offset, size)) = self.containers.get(container as usize) else {
+            return Ok(None);
+        };
+        if size == 0 || offset + size > self.data1.size {
+            return Ok(None);
+        }
+        let bytes = disc.read_at(self.data1.offset() + offset, size as usize)?;
+        Ok(first_picture(&bytes))
     }
 
     /// The song and chart a `Chart::key` names.
@@ -325,20 +385,26 @@ pub fn sound_number(name: &str) -> Option<u16> {
 }
 
 impl Disc {
-    /// The chart as BMS text (`ply_bms`), titled with what the disc knows.
+    /// The chart as BMS text (`ply_bms`), titled with `meta` where it says
+    /// more than the disc does. Without `meta` the text depends on the disc
+    /// alone, so it can identify the chart.
     pub fn chart_bms<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
         chart: &Chart,
+        meta: Option<&SongMeta>,
     ) -> io::Result<String> {
+        let known =
+            |pick: fn(&SongMeta) -> &String| meta.map(pick).filter(|v| !v.is_empty()).cloned();
         let bytes = self.read_chart(disc, chart.file)?;
         let invalid = |e: String| io::Error::new(io::ErrorKind::InvalidData, e);
         let ply = Ply::parse(&bytes).map_err(|e| invalid(e.to_string()))?;
         let header = Header {
-            title: song.title.clone(),
-            artist: String::new(),
-            genre: String::new(),
+            title: known(|m| &m.title).unwrap_or_else(|| song.title.clone()),
+            subtitle: known(|m| &m.subtitle).unwrap_or_default(),
+            artist: known(|m| &m.artist).unwrap_or_default(),
+            genre: known(|m| &m.genre).unwrap_or_default(),
             level: chart.level,
             difficulty: match chart.difficulty {
                 Difficulty::Beginner => 1,
@@ -352,6 +418,45 @@ impl Disc {
         };
         to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
     }
+}
+
+/// A container: `u16 data offset, u16 count`, (decompressed, compressed)
+/// `u32` size pairs for `count + 1` files ending at the data offset, then the
+/// files back to back.
+fn first_picture(container: &[u8]) -> Option<Rgba> {
+    let data = u16::from_le_bytes([*container.first()?, *container.get(1)?]) as usize;
+    let count = u16::from_le_bytes([*container.get(2)?, *container.get(3)?]) as usize;
+    let sizes = data.checked_sub((count + 1) * 8)?;
+    let mut at = data;
+    for k in 0..=count {
+        let unpacked = u32_at(container.get(sizes + k * 8..sizes + k * 8 + 4)?, 0) as usize;
+        let packed = u32_at(container.get(sizes + k * 8 + 4..sizes + k * 8 + 8)?, 0) as usize;
+        if k > 0 {
+            if let Some((w, h)) = texture_size(unpacked) {
+                let raw = decode_lzss(container.get(at..)?, unpacked)?;
+                return decode_psmt8(&raw, w, h);
+            }
+        }
+        at += packed;
+    }
+    None
+}
+
+/// Containers every song record names that are shared UI, not a song's card.
+const SHARED_CONTAINERS: [u32; 6] = [0x520, 0x521, 0x522, 0x523, 0x6a6, 0x5a8];
+
+fn card_container(record: &[u8]) -> Option<u32> {
+    let words: Vec<u32> = record
+        .chunks_exact(2)
+        .map(|w| u16::from_le_bytes([w[0], w[1]]) as u32)
+        .collect();
+    words
+        .windows(2)
+        .filter(|w| {
+            w[0] == 0 && (0x500..0x700).contains(&w[1]) && !SHARED_CONTAINERS.contains(&w[1])
+        })
+        .map(|w| w[1])
+        .last()
 }
 
 fn table(exe: &[u8], (at, len): (usize, usize)) -> io::Result<&[u8]> {
@@ -421,6 +526,7 @@ fn read_songs(exe: &[u8], span: (usize, usize)) -> io::Result<Vec<Song>> {
             title,
             charts,
             sounds,
+            card: card_container(record),
         });
     }
     Ok(songs)
@@ -516,6 +622,8 @@ mod tests {
             songs: read_songs(&table, (0, RECORD_SIZE * 2)).unwrap(),
             files: Vec::new(),
             dats: [FileExtent { lba: 0, size: 0 }; 3],
+            data1: FileExtent { lba: 0, size: 0 },
+            containers: Vec::new(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);

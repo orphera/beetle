@@ -48,7 +48,8 @@ crates/cs-disc (신규, 의존성 없음 — IIDX뿐 아니라 pop'n·DDR 등 CS
   (이후 게임마다 모듈 하나: popn*.rs, ddr*.rs …)
   adpcm.rs     PS2 SPU ADPCM, 프레임 스크램블 해제 (vgmstream과 샘플 단위로 일치)          [완료]
   wvb.rs       키음 뱅크(.wvb)·BGM 스트림(.pcm) → 16비트 PCM                              [완료]
-  meta.rs      구워 둔 메타 테이블(곡 번호 → 제목/부제/아티스트/장르, 수십 KB)
+  ps2tex.rs    로딩 카드: LZSS, PSMT8 스위즐·CLUT → RGBA, 4:3 중앙 정렬 (iidx16-bms 추출본과 픽셀 일치) [완료]
+  meta.rs      곡 세부 정보 표(TSV) 읽기: 제목·부제·아티스트·장르·카드 컨테이너              [완료]
 
 beetle-core   ChartSource 개념 없음(순수 유지). 주소 파싱만 추가 가능.
 beetle-app    loader.rs: SongSource 추상화 → Folder / Package / Disc
@@ -73,9 +74,12 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
    - 실제 디스크 검증: 두 디스크 모든 채보가 쓰는 소리(1번 제외)가 자기 뱅크에 있고 디코딩되며, 모든 BGM이 디코딩된다.
    - 뱅크 항목: 왼쪽(0x0000) 다음 오른쪽(0x0100)이면 스테레오. 오른쪽 항목도 따로 하나의 소리로 남는다(DXY! 42, GEKKO 94를 채보가 직접 부름).
    - 볼륨·팬(항목 8, 9바이트)은 적용하지 않는다. 대부분 `01 7f`인데 문서대로 팬으로 읽으면 왼쪽 끝이 되어 의미가 확실하지 않다. 지금까지 들어 본 OGG 추출본과 같은 방식(저장된 그대로)이다.
-5. **메타/스테이지 이미지**: `song_map_final.csv`에서 디스크별 테이블을 굽는다. 스테이지 이미지는 처음엔 없이 가고 나중에 결정.
+5. **메타/스테이지 이미지** — 완료.
+   - 곡 세부 정보는 사용자 쪽 파일 `disc_meta/<에디션>.tsv`(`iidx16-empress`, `iidx16-premium-best`)에 둔다. Textage에서 온 데이터라 저장소에는 넣지 않고(`.gitignore`), `scripts/disc_meta_from_textage.py`가 iidx16-bms의 `song_map_final.csv`·`titletbl.js`·`empress_map.py`로 초안을 만든다. 제목+레벨로 자동 매칭되지 않은 행은 `note`에 `CHECK`가 붙으니 사람이 확인하고 고친다. 빈 칸은 디스크 값(ASCII 제목)을 쓴다.
+   - 채보 식별값(`ChartId`)은 세부 정보 없이 디스크만으로 만든 BMS에서 정한다. 표를 고쳐도 기록이 끊기지 않는다. 표가 곡 캐시보다 새로우면 다시 스캔한다.
+   - 로딩 카드: PREMIUM BEST는 곡 레코드 규칙(마지막 `(0, 0x5xx~0x6xx)` 쌍, 공용 UI 컨테이너 제외), EMPRESS는 규칙이 맞지 않아 표의 `card` 열(사람이 카드를 보고 맞춘 `empress_map.py`)을 쓴다. 두 디스크 199곡의 카드가 Python 추출본과 픽셀 단위로 같다(`examples/card_dump.rs`).
 
-**게임 연결 (완료)**: `library.dat`에 `.iso` 경로나 드라이브(`E:`)를 넣으면(`bpm library add <x.iso | E:>`) 스캐너가 디스크의 모든 채보를 `Disc` 종류로 올리고(폴더 → 패키지 → 디스크 순, 디스크 두 장 약 2.9초), 로더의 `DiscSource`가 채보와 키음·BGM을 디스크에서 바로 읽는다(ANISAKIS ANOTHER: 키음 735개 0.43초). 명령줄로 `beetle-app "disc:<이미지>::000/sp_another"`처럼 바로 플레이할 수도 있다. 남은 것: 실제 귀로 싱크·음질 확인, 메타데이터(아티스트·장르·일본어 제목), 스테이지 이미지, BGA 영상, bpm-gui와 `bpm scan`의 디스크 표시, 앱 안에서 ISO 추가(끌어 놓기·곡 폴더 설정), DVD 실물 확인.
+**게임 연결 (완료)**: `library.dat`에 `.iso` 경로나 드라이브(`E:`)를 넣으면(`bpm library add <x.iso | E:>`) 스캐너가 디스크의 모든 채보를 `Disc` 종류로 올리고(폴더 → 패키지 → 디스크 순, 디스크 두 장 약 2.9초), 로더의 `DiscSource`가 채보와 키음·BGM을 디스크에서 바로 읽는다(ANISAKIS ANOTHER: 키음 735개 0.43초). 명령줄로 `beetle-app "disc:<이미지>::000/sp_another"`처럼 바로 플레이할 수도 있다. 남은 것: 실제 귀로 싱크·음질 확인, BGA 영상, bpm-gui와 `bpm scan`의 디스크 표시, 앱 안에서 ISO 추가(끌어 놓기·곡 폴더 설정), DVD 실물 확인.
 
 ## 6. 불변식 점검
 

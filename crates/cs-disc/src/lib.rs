@@ -21,9 +21,11 @@ pub mod drive;
 pub mod iidx16;
 pub mod iso9660;
 pub mod lz;
+pub mod meta;
 pub mod ply;
 pub mod ply_bms;
 pub mod ps2;
+pub mod ps2tex;
 pub mod sector;
 pub mod wvb;
 

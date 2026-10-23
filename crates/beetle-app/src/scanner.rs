@@ -232,15 +232,29 @@ fn read_disc(target: &str) -> Vec<Copy> {
     let Ok(songs) = Disc::open(&mut disc, &volume, edition) else {
         return Vec::new();
     };
+    let details = crate::disc_meta::load(edition);
     let mut copies = Vec::new();
     for song in &songs.songs {
         for chart in &song.charts {
-            let Ok(bms) = songs.chart_bms(&mut disc, song, chart) else {
+            // The identity comes from the disc alone; the details only show.
+            let Ok(bms) = songs.chart_bms(&mut disc, song, chart, None) else {
                 continue;
             };
             let key = chart.key(song);
             let address = disc_address(&source, &key);
-            if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+            if let Some(mut meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                if let Some(d) = details.get(&song.id) {
+                    for (field, value) in [
+                        (&mut meta.title, &d.title),
+                        (&mut meta.subtitle, &d.subtitle),
+                        (&mut meta.artist, &d.artist),
+                        (&mut meta.genre, &d.genre),
+                    ] {
+                        if !value.is_empty() {
+                            *field = value.clone();
+                        }
+                    }
+                }
                 copies.push(Copy {
                     kind: Kind::Disc,
                     source: source.clone(),
@@ -491,16 +505,23 @@ pub fn uninstalled_in_library<P: AsRef<Path>>(songs_dir: P) -> Vec<String> {
 }
 
 /// A cache older than the library list or the registry was built without some
-/// folders or with states that are no longer active.
+/// folders or with states that are no longer active; one older than a disc
+/// details table shows old titles.
 fn cache_is_stale(cache: &Path) -> bool {
     let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
     let Some(cached) = modified(cache) else {
         return false;
     };
     let registry = installed::packages_root().join(REGISTRY_FILENAME);
+    let disc_tables = fs::read_dir(crate::disc_meta::DIR)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path());
     [library_file(), registry]
-        .iter()
-        .filter_map(|p| modified(p))
+        .into_iter()
+        .chain(disc_tables)
+        .filter_map(|p| modified(&p))
         .any(|changed| cached < changed)
 }
 

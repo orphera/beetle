@@ -4,6 +4,7 @@ mod boot_progress;
 mod calibration;
 mod config;
 mod devtools;
+mod disc_meta;
 mod file_assoc;
 mod filters;
 mod folders;
