@@ -114,28 +114,34 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = f.viewport.scale;
     let l = f.layout;
-    let field = Rect::new(
+    let skin_field = Rect::new(
         l.playfield_x,
         l.playfield_y,
         l.playfield_width,
         l.playfield_height,
     );
+    let lane_field = Rect::new(
+        l.playfield_x,
+        f.viewport.y,
+        l.playfield_width,
+        f.viewport.height,
+    );
     // With flashes reduced the danger stays red but stops blinking.
     let danger = is_danger(f.score) && (f.reduce_flashes || (f.audio_time * 6.0).sin() > 0.0);
 
-    let hud = hud_layout(f.viewport, field, l.effective_position(), s);
+    let hud = hud_layout(f.viewport, skin_field, l.effective_position(), s);
 
     backdrop(c, &sk, f, lite);
-    playfield(c, &sk, f, field, danger, s);
+    playfield(c, &sk, f, lane_field, danger, s);
     gauge(c, t, &sk, f, hud.gauge, danger, s);
-    ready(c, t, &sk, f, field, s);
+    ready(c, t, &sk, f, lane_field, s);
     // The end banner replaces the combo and the last judgement.
     if f.banner.is_none() {
-        combo_and_judge(c, t, &sk, f, field, s);
+        combo_and_judge(c, t, &sk, f, lane_field, s);
     }
-    readout(c, t, &sk, f, field, s);
+    readout(c, t, &sk, f, lane_field, s);
     hud_panels(c, t, &sk, f, &hud, s);
-    end_banner(c, t, &sk, f, field, s);
+    end_banner(c, t, &sk, f, lane_field, s);
     if let Some(selected) = f.pause {
         let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
         pause_menu(c, t, &sk, f, selected, s, &mut hs);
