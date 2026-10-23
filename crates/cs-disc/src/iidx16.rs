@@ -242,13 +242,10 @@ impl Disc {
             .find(disc, "DATA1.DAT")?
             .ok_or_else(|| missing("DATA1.DAT"))?;
         let files = read_file_tables(&exe, &layout.file_tables)?;
-        let mut songs = read_songs(&exe, layout.songs)?;
-        if edition == Edition::Empress {
-            // The card rule points at containers without pictures here.
-            for song in &mut songs {
-                song.card = None;
-            }
-        }
+        let songs = read_songs(&exe, layout.songs)?;
+        // EMPRESS cards come from DATA1 containers (verified against empress_cards.py);
+        // do not force None -- card_container determines it from the song record.
+        // Previous unconditional None was the root cause of stagefile read failures.
         // Container records: id, sector, sectors, 0.
         let containers = table(&exe, layout.data1)?
             .chunks_exact(16)
