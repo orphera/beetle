@@ -213,7 +213,6 @@ fn read_discs_parallel(discs: &[&String]) -> Vec<Copy> {
 /// The charts on a game disc, each a copy with nothing missing. Nothing for
 /// a disc that cannot be read (an empty drive) or a game `cs_disc` does not know.
 fn read_disc(target: &str) -> Vec<Copy> {
-    use cs_disc::iidx16::Disc;
     // A drive is stored as `E:`, however the library spells it.
     let source = match cs_disc::drive::as_drive_letter(target) {
         Some(letter) => format!("{letter}:"),
@@ -231,18 +230,76 @@ fn read_disc(target: &str) -> Vec<Copy> {
         }
         return Vec::new();
     };
+    match game {
+        cs_disc::Game::Iidx15(edition) => read_iidx15_disc(source, disc, edition),
+        cs_disc::Game::Iidx16(edition) => read_iidx16_disc(source, disc, edition),
+    }
+}
+
+fn read_iidx16_disc(
+    source: String,
+    mut disc: cs_disc::SectorReader<std::fs::File>,
+    edition: cs_disc::iidx16::Edition,
+) -> Vec<Copy> {
+    use cs_disc::iidx16::Disc;
     let Ok(volume) = cs_disc::Volume::open(&mut disc) else {
         return Vec::new();
     };
-    let cs_disc::Game::Iidx16(edition) = game;
     let Ok(songs) = Disc::open(&mut disc, &volume, edition) else {
         return Vec::new();
     };
-    let details = crate::disc_meta::load(edition);
+    let details = crate::disc_meta::load(edition.slug());
     let mut copies = Vec::new();
     for song in &songs.songs {
         for chart in &song.charts {
             // The identity comes from the disc alone; the details only show.
+            let Ok(bms) = songs.chart_bms(&mut disc, song, chart, None) else {
+                continue;
+            };
+            let key = chart.key(song);
+            let address = disc_address(&source, &key);
+            if let Some(mut meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                if let Some(d) = details.get(&song.id) {
+                    for (field, value) in [
+                        (&mut meta.title, &d.title),
+                        (&mut meta.subtitle, &d.subtitle),
+                        (&mut meta.artist, &d.artist),
+                        (&mut meta.genre, &d.genre),
+                    ] {
+                        if !value.is_empty() {
+                            *field = value.clone();
+                        }
+                    }
+                }
+                copies.push(Copy {
+                    kind: Kind::Disc,
+                    source: source.clone(),
+                    path: key,
+                    meta,
+                    missing: Some(0),
+                });
+            }
+        }
+    }
+    copies
+}
+
+fn read_iidx15_disc(
+    source: String,
+    mut disc: cs_disc::SectorReader<std::fs::File>,
+    edition: cs_disc::iidx15::Edition,
+) -> Vec<Copy> {
+    use cs_disc::iidx15::Disc;
+    let Ok(volume) = cs_disc::Volume::open(&mut disc) else {
+        return Vec::new();
+    };
+    let Ok(songs) = Disc::open(&mut disc, &volume, edition) else {
+        return Vec::new();
+    };
+    let details = crate::disc_meta::load(edition.slug());
+    let mut copies = Vec::new();
+    for song in &songs.songs {
+        for chart in &song.charts {
             let Ok(bms) = songs.chart_bms(&mut disc, song, chart, None) else {
                 continue;
             };

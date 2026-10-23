@@ -7,18 +7,17 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use cs_disc::iidx16::Edition;
 use cs_disc::meta::{parse, SongMeta};
 
 pub const DIR: &str = "disc_meta";
 
-pub fn path(edition: Edition) -> PathBuf {
-    PathBuf::from(DIR).join(format!("{}.tsv", edition.slug()))
+pub fn path(slug: &str) -> PathBuf {
+    PathBuf::from(DIR).join(format!("{slug}.tsv"))
 }
 
 /// The table for `edition`, by song id; empty when there is none.
-pub fn load(edition: Edition) -> BTreeMap<u32, SongMeta> {
-    fs::read_to_string(path(edition))
+pub fn load(slug: &str) -> BTreeMap<u32, SongMeta> {
+    fs::read_to_string(path(slug))
         .map(|text| parse(&text))
         .unwrap_or_default()
 }

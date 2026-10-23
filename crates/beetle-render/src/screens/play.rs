@@ -1110,7 +1110,6 @@ fn combo_and_judge(
         );
     }
 
-
     if f.score.current_combo > 0 {
         let pulse = match since {
             Some(e) if (0.0..0.12).contains(&e) => {

@@ -8,7 +8,7 @@
 //!   optical drive (`\\.\E:`), behind one reader.
 //! - `iso9660`: the disc's file system.
 //! - `ps2`: which game a PS2 disc is (its boot executable from `SYSTEM.CNF`).
-//! - one module per game (`iidx16`), knowing where that game keeps its songs.
+//! - one module per game (`iidx15`, `iidx16`), knowing where that game keeps its songs.
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
 //! plain song records; turning them into charts and sounds is the caller's job.
@@ -18,6 +18,7 @@ pub mod adpcm;
 mod blowfish;
 mod blowfish_pi;
 pub mod drive;
+pub mod iidx15;
 pub mod iidx16;
 pub mod iso9660;
 pub mod lz;
@@ -38,17 +39,21 @@ use std::io::{self, Read, Seek};
 /// A disc whose game this crate knows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Game {
+    Iidx15(iidx15::Edition),
     Iidx16(iidx16::Edition),
 }
 
 impl Game {
     /// The game a PS2 boot executable name belongs to (`SLPM_552.21`).
     pub fn from_ps2_executable(name: &str) -> Option<Self> {
-        iidx16::Edition::from_executable(name).map(Game::Iidx16)
+        iidx15::Edition::from_executable(name)
+            .map(Game::Iidx15)
+            .or_else(|| iidx16::Edition::from_executable(name).map(Game::Iidx16))
     }
 
     pub fn name(self) -> &'static str {
         match self {
+            Game::Iidx15(edition) => edition.name(),
             Game::Iidx16(edition) => edition.name(),
         }
     }

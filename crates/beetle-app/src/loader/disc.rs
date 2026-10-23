@@ -20,11 +20,16 @@ const BGM_CUE: u16 = 1;
 
 pub(super) struct DiscSource {
     disc: SectorReader<File>,
-    songs: Disc,
+    songs: OpenDisc,
     song: usize,
     chart: usize,
     /// The song's hand-checked details (`disc_meta`), if any.
     details: Option<SongMeta>,
+}
+
+enum OpenDisc {
+    Iidx15 { disc: cs_disc::iidx15::Disc },
+    Iidx16 { disc: Disc },
 }
 
 impl DiscSource {
@@ -34,24 +39,59 @@ impl DiscSource {
             _ => ChartLoadError::Unreadable,
         })?;
         // The drive may hold another disc by now.
-        let Ok(Some(Game::Iidx16(edition))) = cs_disc::identify(&mut disc) else {
+        let Ok(Some(game)) = cs_disc::identify(&mut disc) else {
             return Err(ChartLoadError::NotFound);
         };
         let volume = Volume::open(&mut disc).map_err(|_| ChartLoadError::Unreadable)?;
-        let songs =
-            Disc::open(&mut disc, &volume, edition).map_err(|_| ChartLoadError::Unreadable)?;
-        let (song, chart) = songs
-            .songs
-            .iter()
-            .enumerate()
-            .find_map(|(i, s)| {
-                s.charts
+        let (songs, song, chart, slug, song_id) = match game {
+            Game::Iidx15(edition) => {
+                let songs = cs_disc::iidx15::Disc::open(&mut disc, &volume, edition)
+                    .map_err(|_| ChartLoadError::Unreadable)?;
+                let (song, chart) = songs
+                    .songs
                     .iter()
-                    .position(|c| c.key(s) == key)
-                    .map(|c| (i, c))
-            })
-            .ok_or(ChartLoadError::NotFound)?;
-        let details = crate::disc_meta::load(edition).remove(&songs.songs[song].id);
+                    .enumerate()
+                    .find_map(|(i, s)| {
+                        s.charts
+                            .iter()
+                            .position(|c| c.key(s) == key)
+                            .map(|c| (i, c))
+                    })
+                    .ok_or(ChartLoadError::NotFound)?;
+                let id = songs.songs[song].id;
+                (
+                    OpenDisc::Iidx15 { disc: songs },
+                    song,
+                    chart,
+                    edition.slug(),
+                    id,
+                )
+            }
+            Game::Iidx16(edition) => {
+                let songs = Disc::open(&mut disc, &volume, edition)
+                    .map_err(|_| ChartLoadError::Unreadable)?;
+                let (song, chart) = songs
+                    .songs
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, s)| {
+                        s.charts
+                            .iter()
+                            .position(|c| c.key(s) == key)
+                            .map(|c| (i, c))
+                    })
+                    .ok_or(ChartLoadError::NotFound)?;
+                let id = songs.songs[song].id;
+                (
+                    OpenDisc::Iidx16 { disc: songs },
+                    song,
+                    chart,
+                    edition.slug(),
+                    id,
+                )
+            }
+        };
+        let details = crate::disc_meta::load(slug).remove(&song_id);
         Ok(Self {
             disc,
             songs,
@@ -77,20 +117,41 @@ fn to_buffer(pcm: &Pcm) -> PcmBuffer {
 
 impl SongSource for DiscSource {
     fn chart_bytes(&mut self) -> Result<Vec<u8>, ChartLoadError> {
-        let song = &self.songs.songs[self.song];
-        let chart = &song.charts[self.chart];
-        self.songs
-            .chart_bms(&mut self.disc, song, chart, self.details.as_ref())
+        let bytes = match &mut self.songs {
+            OpenDisc::Iidx15 { disc, .. } => {
+                let song = &disc.songs[self.song];
+                let chart = &song.charts[self.chart];
+                disc.chart_bms(&mut self.disc, song, chart, self.details.as_ref())
+            }
+            OpenDisc::Iidx16 { disc, .. } => {
+                let song = &disc.songs[self.song];
+                let chart = &song.charts[self.chart];
+                disc.chart_bms(&mut self.disc, song, chart, self.details.as_ref())
+            }
+        };
+        bytes
             .map(String::into_bytes)
             .map_err(|_| ChartLoadError::NotAChart)
     }
 
     fn sounds(&mut self, chart: &BmsChart) -> (SampleBank, usize) {
         let mut bank = SampleBank::new();
-        let song = &self.songs.songs[self.song];
-        let slot = &song.charts[self.chart];
-        let (wvb, bgm) = song.sound_files(slot.style, slot.difficulty);
-        let wvb_bytes = wvb.and_then(|f| self.songs.read_file(&mut self.disc, f).ok());
+        let (bgm, wvb_bytes) = match &mut self.songs {
+            OpenDisc::Iidx15 { disc, .. } => {
+                let song = &disc.songs[self.song];
+                let slot = &song.charts[self.chart];
+                let (wvb, bgm) = song.sound_files(slot.style, slot.difficulty);
+                let bytes = wvb.and_then(|f| disc.read_file(&mut self.disc, f).ok());
+                (bgm, bytes)
+            }
+            OpenDisc::Iidx16 { disc, .. } => {
+                let song = &disc.songs[self.song];
+                let slot = &song.charts[self.chart];
+                let (wvb, bgm) = song.sound_files(slot.style, slot.difficulty);
+                let bytes = wvb.and_then(|f| disc.read_file(&mut self.disc, f).ok());
+                (bgm, bytes)
+            }
+        };
         let key_sounds = wvb_bytes.as_deref().and_then(|b| Bank::parse(b).ok());
 
         // Sound numbers by the names the synthesized chart gave them.
@@ -102,8 +163,11 @@ impl SongSource for DiscSource {
                 continue;
             };
             let pcm = if n == BGM_CUE {
-                bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())
-                    .and_then(|b| decode_bgm(&b).ok())
+                bgm.and_then(|f| match &mut self.songs {
+                    OpenDisc::Iidx15 { disc, .. } => disc.read_file(&mut self.disc, f).ok(),
+                    OpenDisc::Iidx16 { disc, .. } => disc.read_file(&mut self.disc, f).ok(),
+                })
+                .and_then(|b| decode_bgm(&b).ok())
             } else {
                 key_sounds
                     .as_ref()
@@ -126,11 +190,14 @@ impl SongSource for DiscSource {
     /// The song's background video. The chart has no BGA events, so the
     /// game plays it from the start of the chart.
     fn videos(&mut self, _: &BmsChart) -> HashMap<BmpId, VideoSource> {
-        let song = &self.songs.songs[self.song];
-        let Some(bytes) = song
-            .video
-            .and_then(|file| self.songs.read_file(&mut self.disc, file).ok())
-        else {
+        let Some(bytes) = (match &mut self.songs {
+            OpenDisc::Iidx15 { disc, .. } => disc.songs[self.song]
+                .video
+                .and_then(|file| disc.read_file(&mut self.disc, file).ok()),
+            OpenDisc::Iidx16 { disc, .. } => disc.songs[self.song]
+                .video
+                .and_then(|file| disc.read_file(&mut self.disc, file).ok()),
+        }) else {
             return HashMap::new();
         };
         let source = VideoSource::Memory {
@@ -142,13 +209,27 @@ impl SongSource for DiscSource {
 
     /// The song's loading card, on a 4:3 canvas.
     fn stage_image(&mut self) -> Option<StageArt> {
-        let song = &self.songs.songs[self.song];
-        let container = self.details.as_ref().and_then(|d| d.card).or(song.card)?;
-        let card = self
-            .songs
-            .card_image(&mut self.disc, container)
-            .ok()??
-            .centered_4_3();
+        if let OpenDisc::Iidx15 { disc, .. } = &self.songs {
+            let song = &disc.songs[self.song];
+            let decoded = disc.stage_image(&mut self.disc, song).ok()??.centered_4_3();
+            let mut image =
+                ImageBuffer::new(decoded.width, decoded.height, ColorRgba::new(0, 0, 0, 255));
+            for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {
+                *out = ColorRgba::new(r, g, b, a);
+            }
+            let bytes = image.encode_bmp_bytes();
+            return Some((image, Some(bytes)));
+        }
+        let song_card = match &self.songs {
+            OpenDisc::Iidx16 { disc, .. } => disc.songs[self.song].card,
+            OpenDisc::Iidx15 { .. } => unreachable!(),
+        };
+        let container = self.details.as_ref().and_then(|d| d.card).or(song_card)?;
+        let card = match &mut self.songs {
+            OpenDisc::Iidx15 { disc, .. } => disc.card_image(&mut self.disc, container).ok()??,
+            OpenDisc::Iidx16 { disc, .. } => disc.card_image(&mut self.disc, container).ok()??,
+        }
+        .centered_4_3();
         let mut image = ImageBuffer::new(card.width, card.height, ColorRgba::new(0, 0, 0, 255));
         for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(card.pixels) {
             *out = ColorRgba::new(r, g, b, a);

@@ -90,11 +90,14 @@ pub const IIDX_PS2: [Title; 16] = [
         "beatmania IIDX 14 GOLD",
         ChartFormat::Ps2Long,
     ),
-    title(
-        "SLPM_551.17",
-        "beatmania IIDX 15 DJ TROOPERS",
-        ChartFormat::Ps2Long,
-    ),
+    Title {
+        playable: true,
+        ..title(
+            "SLPM_551.17",
+            "beatmania IIDX 15 DJ TROOPERS",
+            ChartFormat::Ps2Long,
+        )
+    },
     Title {
         playable: true,
         ..title(

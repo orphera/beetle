@@ -40,7 +40,10 @@ fn list(target: &str) -> io::Result<()> {
         return Ok(());
     };
     let volume = Volume::open(&mut disc)?;
-    let Game::Iidx16(edition) = game;
+    let Game::Iidx16(edition) = game else {
+        eprintln!("the disc is not an IIDX 16 disc");
+        return Ok(());
+    };
     let songs = Disc::open(&mut disc, &volume, edition)?;
     println!("{target}: {} ({} songs)", game.name(), songs.songs.len());
     for song in &songs.songs {

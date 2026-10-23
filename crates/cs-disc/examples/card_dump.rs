@@ -5,7 +5,6 @@
 //! eye; with neither, every song's card by `Song::card`.
 //!
 //! cargo run -p cs-disc --release --example card_dump -- <image.iso | E:> <out dir> [<id>:<container> ... | --scan <from> <to>]
-use cs_disc::iidx16::Disc;
 use cs_disc::{identify, Game, Volume};
 
 fn main() {
@@ -13,37 +12,101 @@ fn main() {
     let out = std::path::Path::new(&a[1]);
     std::fs::create_dir_all(out).unwrap();
     let mut d = cs_disc::open(&a[0]).unwrap();
-    let Some(Game::Iidx16(ed)) = identify(&mut d).unwrap() else {
-        panic!("not IIDX 16")
+    let Some(game) = identify(&mut d).unwrap() else {
+        panic!("unknown disc")
     };
     let v = Volume::open(&mut d).unwrap();
-    let disc = Disc::open(&mut d, &v, ed).unwrap();
-    let pairs: Vec<(String, u32)> = if a.get(2).map(String::as_str) == Some("--scan") {
-        let (from, to): (u32, u32) = (a[3].parse().unwrap(), a[4].parse().unwrap());
-        (from..=to).map(|c| (format!("c{c}"), c)).collect()
-    } else if a.len() > 2 {
-        a[2..]
-            .iter()
-            .map(|p| {
-                let (s, c) = p.split_once(':').unwrap();
-                (
-                    format!("{:04}", s.parse::<u32>().unwrap()),
-                    c.parse().unwrap(),
-                )
-            })
-            .collect()
-    } else {
-        disc.songs
-            .iter()
-            .filter_map(|s| s.card.map(|c| (format!("{:04}", s.id), c)))
-            .collect()
-    };
+    let mut cards: Vec<(String, u32)> = Vec::new();
+    let scan = a.get(2).map(String::as_str) == Some("--scan");
+    match game {
+        Game::Iidx15(ed) => {
+            let disc = cs_disc::iidx15::Disc::open(&mut d, &v, ed).unwrap();
+            if scan {
+                let (from, to): (u32, u32) = (a[3].parse().unwrap(), a[4].parse().unwrap());
+                cards.extend((from..=to).map(|c| (format!("c{c}"), c)));
+            } else if a.len() > 2 {
+                cards.extend(a[2..].iter().map(|p| {
+                    let (s, c) = p.split_once(':').unwrap();
+                    (
+                        format!("{:04}", s.parse::<u32>().unwrap()),
+                        c.parse().unwrap(),
+                    )
+                }));
+            } else {
+                cards.extend(
+                    disc.songs
+                        .iter()
+                        .filter_map(|s| s.overlay.map(|c| (format!("{:04}", s.id), c))),
+                );
+            }
+            dump(&mut d, &disc, &cards, out);
+            return;
+        }
+        Game::Iidx16(ed) => {
+            let disc = cs_disc::iidx16::Disc::open(&mut d, &v, ed).unwrap();
+            if scan {
+                let (from, to): (u32, u32) = (a[3].parse().unwrap(), a[4].parse().unwrap());
+                cards.extend((from..=to).map(|c| (format!("c{c}"), c)));
+            } else if a.len() > 2 {
+                cards.extend(a[2..].iter().map(|p| {
+                    let (s, c) = p.split_once(':').unwrap();
+                    (
+                        format!("{:04}", s.parse::<u32>().unwrap()),
+                        c.parse().unwrap(),
+                    )
+                }));
+            } else {
+                cards.extend(
+                    disc.songs
+                        .iter()
+                        .filter_map(|s| s.card.map(|c| (format!("{:04}", s.id), c))),
+                );
+            }
+            dump(&mut d, &disc, &cards, out);
+        }
+    }
+}
+
+fn dump<R: std::io::Read + std::io::Seek, D: CardDisc<R>>(
+    d: &mut cs_disc::SectorReader<R>,
+    disc: &D,
+    pairs: &[(String, u32)],
+    out: &std::path::Path,
+) {
     for (id, container) in pairs {
-        match disc.card_image(&mut d, container).unwrap() {
+        match disc.card_image(d, *container).unwrap() {
             Some(img) => std::fs::write(out.join(format!("{id}.bmp")), bmp(&img)).unwrap(),
             None if id.starts_with('c') => {}
             None => println!("{id}: no picture in container {container}"),
         }
+    }
+}
+
+trait CardDisc<R: std::io::Read + std::io::Seek> {
+    fn card_image(
+        &self,
+        disc: &mut cs_disc::SectorReader<R>,
+        container: u32,
+    ) -> std::io::Result<Option<cs_disc::ps2tex::Rgba>>;
+}
+
+impl<R: std::io::Read + std::io::Seek> CardDisc<R> for cs_disc::iidx15::Disc {
+    fn card_image(
+        &self,
+        disc: &mut cs_disc::SectorReader<R>,
+        container: u32,
+    ) -> std::io::Result<Option<cs_disc::ps2tex::Rgba>> {
+        self.card_image(disc, container)
+    }
+}
+
+impl<R: std::io::Read + std::io::Seek> CardDisc<R> for cs_disc::iidx16::Disc {
+    fn card_image(
+        &self,
+        disc: &mut cs_disc::SectorReader<R>,
+        container: u32,
+    ) -> std::io::Result<Option<cs_disc::ps2tex::Rgba>> {
+        self.card_image(disc, container)
     }
 }
 

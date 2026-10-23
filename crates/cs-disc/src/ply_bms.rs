@@ -406,9 +406,36 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
 
     // Objects by (bar, channel); several lines for channel 01.
     let mut objects: BTreeMap<(usize, u32), Vec<(Pos, String)>> = BTreeMap::new();
-    let mut sounds_used: BTreeMap<u16, ()> = BTreeMap::new();
+    let mut sounds_used: BTreeMap<u16, u16> = BTreeMap::new();
     let mut lane_sound: BTreeMap<(Side, u8), u16> = BTreeMap::new();
-    let sound_id = |s: u16| base36(s as usize).ok_or(BmsError::TooManySounds);
+    let compact_sounds = ply
+        .events
+        .iter()
+        .filter_map(|e| match e.command {
+            Command::Sample { sound, .. } | Command::Auto { sound, .. } => Some(sound),
+            Command::Note { .. } => None,
+            _ => None,
+        })
+        .map(|sound| (sound, ()))
+        .collect::<BTreeMap<_, _>>()
+        .len()
+        > 1295;
+    let mut sound_id = |s: u16| -> Result<String, BmsError> {
+        let id = if compact_sounds {
+            if let Some(&id) = sounds_used.get(&s) {
+                return base36(id as usize).ok_or(BmsError::TooManySounds);
+            }
+            let next = sounds_used.len() as u16 + 1;
+            if next as usize > 1295 {
+                return Ok("ZZ".to_string());
+            }
+            *sounds_used.entry(s).or_insert(next)
+        } else {
+            sounds_used.entry(s).or_insert(s);
+            s
+        };
+        base36(id as usize).ok_or(BmsError::TooManySounds)
+    };
 
     for e in &ply.events {
         let t = ply.millis(e.time);
@@ -427,14 +454,12 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
                 let id = if sound == 0 {
                     "ZZ".to_string()
                 } else {
-                    sounds_used.insert(sound, ());
                     sound_id(sound)?
                 };
                 let pos = position(&bars, t);
                 objects.entry((pos.bar, ch)).or_default().push((pos, id));
             }
             Command::Auto { sound, .. } if sound > 0 => {
-                sounds_used.insert(sound, ());
                 let pos = position(&bars, t);
                 objects
                     .entry((pos.bar, 1))
@@ -490,11 +515,11 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
     for (k, text) in tempo_ids.iter().enumerate() {
         let _ = writeln!(out, "#BPM{} {}", base36(k + 1).unwrap(), text);
     }
-    for &sound in sounds_used.keys() {
+    for (&sound, &id) in &sounds_used {
         let _ = writeln!(
             out,
             "#WAV{} {}",
-            sound_id(sound)?,
+            base36(id as usize).ok_or(BmsError::TooManySounds)?,
             (header.sound_name)(sound)
         );
     }
