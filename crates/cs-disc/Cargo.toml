@@ -5,3 +5,7 @@ edition = "2021"
 description = "Reads songs straight off console (CS) game discs: disc images and optical drives, no extraction"
 
 [dependencies]
+
+[dev-dependencies]
+# Real-disc tests read the synthesized BMS back with the player's parser.
+beetle-core = { workspace = true }

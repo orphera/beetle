@@ -13,6 +13,8 @@
 use std::io::{self, Read, Seek};
 
 use crate::iso9660::{FileExtent, Volume};
+use crate::ply::Ply;
+use crate::ply_bms::{to_bms, Header};
 use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +45,10 @@ const PREMIUM_BEST: Layout = Layout {
     file_tables: [(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
     songs: (0x17e0f0, 0x7850),
 };
+
+/// The Blowfish key of the chart files. iidx-ps2tools builds it from letters of
+/// option names in the game (`generate_encryption_key`); this is its result.
+const CHART_KEY: &[u8] = b"uYlFgVwOpaQmXdIR";
 
 const DAT_FILES: [&str; 3] = ["BM2DX16A.DAT", "BM2DX16B.DAT", "BM2DX16C.DAT"];
 
@@ -217,6 +223,60 @@ impl Disc {
             ));
         }
         disc.read_at(dat.offset() + entry.offset, entry.size as usize)
+    }
+}
+
+impl Disc {
+    /// Chart file number `file`, decrypted and decompressed: the `.ply` bytes.
+    pub fn read_chart<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        file: u32,
+    ) -> io::Result<Vec<u8>> {
+        let stored = self.read_file(disc, file)?;
+        let plain = crate::blowfish::decrypt_file(CHART_KEY, &stored);
+        crate::lz::decode(&plain).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("chart file {file} does not decompress"),
+            )
+        })
+    }
+}
+
+/// The file name a disc chart's BMS gives sound `n`: its number in the song's
+/// sound bank.
+pub fn sound_name(n: u16) -> String {
+    format!("{n:04}.wav")
+}
+
+impl Disc {
+    /// The chart as BMS text (`ply_bms`), titled with what the disc knows.
+    pub fn chart_bms<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        song: &Song,
+        chart: &Chart,
+    ) -> io::Result<String> {
+        let bytes = self.read_chart(disc, chart.file)?;
+        let invalid = |e: String| io::Error::new(io::ErrorKind::InvalidData, e);
+        let ply = Ply::parse(&bytes).map_err(|e| invalid(e.to_string()))?;
+        let header = Header {
+            title: song.title.clone(),
+            artist: String::new(),
+            genre: String::new(),
+            level: chart.level,
+            difficulty: match chart.difficulty {
+                Difficulty::Beginner => 1,
+                Difficulty::Normal => 2,
+                Difficulty::Hyper => 3,
+                Difficulty::Another => 4,
+                Difficulty::Black => 5,
+            },
+            double: chart.style == Style::Double,
+            sound_name,
+        };
+        to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
     }
 }
 

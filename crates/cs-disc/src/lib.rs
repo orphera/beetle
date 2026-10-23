@@ -14,9 +14,14 @@
 //! plain song records; turning them into charts and sounds is the caller's job.
 //! Plan: `docs/plans/2026-10-23-disc-direct-playback.md`.
 
+mod blowfish;
+mod blowfish_pi;
 pub mod drive;
 pub mod iidx16;
 pub mod iso9660;
+pub mod lz;
+pub mod ply;
+pub mod ply_bms;
 pub mod ps2;
 pub mod sector;
 

@@ -55,3 +55,115 @@ fn disc1_is_empress() {
     let songs = Disc::open(&mut disc, &volume, Edition::Empress).unwrap();
     assert!(!songs.songs.is_empty());
 }
+
+/// Every chart decrypts and decompresses to the `.ply` iidx-ps2tools extracted,
+/// when that extraction is on this machine (`CS_DISC_IIDX16_PLY_DIR`: the
+/// folder holding `<title> [<id>]/<title> [SP NORMAL].ply`).
+#[test]
+fn disc2_charts_match_the_extracted_ply_files() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX16_DISC2") else {
+        return;
+    };
+    let Ok(ply_dir) = std::env::var("CS_DISC_IIDX16_PLY_DIR") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::PremiumBest).unwrap();
+    let mut compared = 0;
+    for song in &songs.songs {
+        for chart in &song.charts {
+            let name = format!(
+                "{}/{} [{:04}]/{} [{}].ply",
+                ply_dir,
+                song.title,
+                song.id,
+                song.title,
+                slot_name(chart.style, chart.difficulty)
+            );
+            let ours = songs.read_chart(&mut disc, chart.file).unwrap();
+            if let Ok(theirs) = std::fs::read(&name) {
+                assert_eq!(ours, theirs, "{name}");
+                compared += 1;
+            }
+        }
+    }
+    assert!(compared > 500, "only {compared} charts compared");
+}
+
+fn slot_name(style: Style, difficulty: Difficulty) -> String {
+    let style = match style {
+        Style::Single => "SP",
+        Style::Double => "DP",
+    };
+    let difficulty = match difficulty {
+        Difficulty::Beginner => "BEGINNER",
+        Difficulty::Normal => "NORMAL",
+        Difficulty::Hyper => "HYPER",
+        Difficulty::Another => "ANOTHER",
+        Difficulty::Black => "BLACK",
+    };
+    format!("{style} {difficulty}")
+}
+
+/// Every chart on both discs becomes BMS that the player parses, with every
+/// played note of the `.ply` (all but the placeholders at time 0), each within
+/// one frame of its time on the disc.
+#[test]
+fn every_chart_becomes_bms_with_its_notes_on_time() {
+    use cs_disc::ply::{Command, Ply, Side};
+    let mut worst_overall = Vec::new();
+    for (var, edition) in [
+        ("CS_DISC_IIDX16_DISC1", Edition::Empress),
+        ("CS_DISC_IIDX16_DISC2", Edition::PremiumBest),
+    ] {
+        let Some((mut disc, volume)) = open(var) else {
+            continue;
+        };
+        let songs = Disc::open(&mut disc, &volume, edition).unwrap();
+        let mut worst = (0.0f64, String::new());
+        for song in &songs.songs {
+            for chart in &song.charts {
+                let what = format!("{} {:?} {:?}", song.title, chart.style, chart.difficulty);
+                let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
+                let parsed =
+                    beetle_core::parse_bms(&bms).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+                let timing = beetle_core::TimingModel::from_chart(&parsed);
+                let ply = Ply::parse(&songs.read_chart(&mut disc, chart.file).unwrap()).unwrap();
+                let double = chart.style == Style::Double;
+                let mut expected: Vec<f64> = ply
+                    .events
+                    .iter()
+                    .filter(|e| {
+                        e.time > 0
+                            && matches!(e.command, Command::Note { side, .. }
+                                if side == Side::P1 || double)
+                    })
+                    .map(|e| ply.millis(e.time))
+                    .collect();
+                let mut got: Vec<f64> = parsed
+                    .notes
+                    .iter()
+                    .map(|n| timing.beat_to_time_seconds(n.measure, n.fraction) * 1000.0)
+                    .collect();
+                assert_eq!(got.len(), expected.len(), "{what}: note count");
+                expected.sort_by(f64::total_cmp);
+                got.sort_by(f64::total_cmp);
+                let chart_worst = got
+                    .iter()
+                    .zip(&expected)
+                    .map(|(g, e)| (g - e).abs())
+                    .fold(0.0, f64::max);
+                if chart_worst > 1000.0 / 59.94 {
+                    println!("  {what}: {chart_worst:.1} ms");
+                }
+                if chart_worst > worst.0 {
+                    worst = (chart_worst, what.clone());
+                }
+            }
+        }
+        println!("{var}: worst note offset {:.2} ms ({})", worst.0, worst.1);
+        worst_overall.push((var, worst));
+    }
+    for (var, worst) in worst_overall {
+        assert!(worst.0 <= 1000.0 / 59.94, "{var}: {worst:?}");
+    }
+}

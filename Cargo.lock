@@ -516,6 +516,9 @@ dependencies = [
 [[package]]
 name = "cs-disc"
 version = "0.1.0"
+dependencies = [
+ "beetle-core",
+]
 
 [[package]]
 name = "ctor"
