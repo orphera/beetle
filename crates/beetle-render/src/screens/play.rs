@@ -496,11 +496,7 @@ fn backdrop(c: &mut Canvas, sk: &Skin, f: &PlayFrame, lite: bool) {
     // Decorative full-screen layers: each costs a full-screen of fill, which
     // the WARP fallback cannot afford (see `Ui::lite`).
     c.set_additive(true);
-    let ambient = if f.score.current_combo >= 100 {
-        theme::CYAN
-    } else {
-        theme::BLUE
-    };
+    let ambient = theme::BLUE;
     c.sprite_centered(
         sk.glow,
         vp.x + vp.width * 0.8,
@@ -546,8 +542,6 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     // Lane separators and frame.
     let sep = if f.high_contrast {
         theme::MUTED.with_alpha(230)
-    } else if f.score.current_combo >= 100 {
-        theme::CYAN.with_alpha(55)
     } else {
         theme::LINE.with_alpha(150)
     };
@@ -1116,37 +1110,6 @@ fn combo_and_judge(
         );
     }
 
-    // Every 100th combo flashes a ring out from the number: a brief extra
-    // glow, not a new state (a miss resets the combo, so it cannot linger).
-    if let Some((grade, at, _)) = f.last_judge {
-        let e = f.audio_time - at;
-        let milestone = f.score.current_combo > 0
-            && f.score.current_combo % 100 == 0
-            && !matches!(grade, JudgeGrade::Miss | JudgeGrade::Poor);
-        if milestone && (0.0..MILESTONE_SECONDS).contains(&e) {
-            let p = (e / MILESTONE_SECONDS) as f32;
-            let size = lerp(90.0, 280.0, ease_out_cubic(p)) * s;
-            let a = ((1.0 - p).powi(2) * 230.0) as u8;
-            c.set_additive(true);
-            c.sprite_centered(
-                sk.ring,
-                cx,
-                anchor + 22.0 * s,
-                size,
-                size,
-                theme::GOLD.with_alpha(a),
-            );
-            c.sprite_centered(
-                sk.flare,
-                cx,
-                anchor + 22.0 * s,
-                size * 0.8,
-                size * 0.8,
-                theme::WHITE.with_alpha(a / 2),
-            );
-            c.set_additive(false);
-        }
-    }
 
     if f.score.current_combo > 0 {
         let pulse = match since {
@@ -1238,9 +1201,6 @@ fn combo_and_judge(
         t.draw_in(c, &txt, tag, Align::Center, &st);
     }
 }
-
-/// How long the milestone ring of `combo_and_judge` lasts (audio seconds).
-const MILESTONE_SECONDS: f64 = 0.6;
 
 /// Draws the song and score blocks and the key hint, each if its column is
 /// wide enough to read.
