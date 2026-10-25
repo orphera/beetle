@@ -333,6 +333,17 @@ impl TimingModel {
         }
     }
 
+    /// The BPM in effect at `time_seconds`: the segment that holds that time.
+    /// A STOP keeps the BPM from before it, and a time before the first
+    /// segment reads the first BPM.
+    pub fn bpm_at_time(&self, time_seconds: f64) -> f64 {
+        let idx = self
+            .segments
+            .partition_point(|s| s.start_time_seconds <= time_seconds)
+            .saturating_sub(1);
+        self.segments.get(idx).map_or(self.initial_bpm, |s| s.bpm)
+    }
+
     /// Calculates total playable duration in seconds of a chart.
     pub fn total_duration_seconds(&self, chart: &BmsChart) -> f64 {
         let mut max_time = 0.0;
@@ -388,6 +399,11 @@ mod tests {
                 stop_duration_seconds: 0.0,
             },
         ];
+        assert_eq!(m.bpm_at_time(0.0), 120.0);
+        assert_eq!(m.bpm_at_time(2.0), 240.0);
+        assert_eq!(m.bpm_at_time(5.9), 240.0);
+        assert_eq!(m.bpm_at_time(6.0), 60.0);
+        assert_eq!(m.bpm_at_time(-1.0), 120.0);
         let stats = m.bpm_stats(6.0);
         assert_eq!(
             (stats.start, stats.min, stats.max, stats.main),

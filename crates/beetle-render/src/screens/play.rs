@@ -1330,7 +1330,17 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     let title_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
     let title = t.fit(c, &header.title, r.w, &title_st).into_owned();
     t.draw(c, &title, r.x, r.y + 46.0 * s, &title_st);
-    let sub = format!("{}  /  BPM {}", header.artist, header.bpm.round());
+    // The BPM now, and for a chart that changes its BPM, the range it plays
+    // over the song (the same span as the clock).
+    let now = f.timing.bpm_at_time(f.audio_time).round();
+    let stats = f.timing.bpm_stats(f.song_length);
+    let (lo, hi) = (stats.min.round(), stats.max.round());
+    let bpm_txt = if lo == hi {
+        format!("BPM {now}")
+    } else {
+        format!("BPM {now} ({lo}-{hi})")
+    };
+    let sub = format!("{}  /  {bpm_txt}", header.artist);
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
     let sub = t.fit(c, &sub, r.w, &sub_st).into_owned();
     t.draw(c, &sub, r.x, r.y + 68.0 * s, &sub_st);
