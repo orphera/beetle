@@ -44,7 +44,22 @@ pub fn shared_title(titles: &[&str]) -> String {
             len -= 1;
         }
     }
-    let shared: String = first[..len].iter().collect();
+    let mut shared: String = first[..len].iter().collect();
+    // A bracket the shared part leaves open (`Song [SP`) holds a chart tag, not
+    // the name: cut before it.
+    let mut opened: Vec<usize> = Vec::new();
+    for (i, c) in shared.char_indices() {
+        match c {
+            '(' | '[' => opened.push(i),
+            ')' | ']' => {
+                opened.pop();
+            }
+            _ => {}
+        }
+    }
+    if let Some(&at) = opened.first() {
+        shared.truncate(at);
+    }
     let name = shared.trim_end_matches(|c: char| c.is_whitespace() || SEPARATORS.contains(&c));
     if name.is_empty() {
         fallback
@@ -146,6 +161,15 @@ mod tests {
             "Song (Remix)"
         );
         assert_eq!(shared_title(&["Snow (Remix)", "Snow (Official)"]), "Snow");
+    }
+
+    #[test]
+    fn a_bracket_the_shared_part_leaves_open_is_cut_off() {
+        assert_eq!(
+            shared_title(&["Act Beloved [SP ANOTHER]", "Act Beloved [SP HYPER]"]),
+            "Act Beloved"
+        );
+        assert_eq!(shared_title(&["Song [SP]", "Song [DP]"]), "Song");
     }
 
     #[test]

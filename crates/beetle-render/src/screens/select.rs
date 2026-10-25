@@ -1347,15 +1347,31 @@ fn chart_tabs(
     s: f32,
     hs: &mut HitSink,
 ) {
+    // Only the tabs that fit the strip are drawn, the chosen one always among
+    // them; the rest are counted as "+N" (as the chips on a group row are).
+    let gap = 6.0 * s;
+    let n = tabs.charts.len().min(tabs.labels.len());
+    let tab_st = |on: bool| caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
+    let widths: Vec<f32> = tabs.labels[..n]
+        .iter()
+        .map(|text| t.measure(c, text, &tab_st(false)) + 24.0 * s)
+        .collect();
+    let all: f32 = widths.iter().sum::<f32>() + gap * n.saturating_sub(1) as f32;
+    let budget = if all <= strip.w {
+        strip.w
+    } else {
+        strip.w - MORE_CHIP_W * s
+    };
+    let (lo, hi) = chip_window(&widths, tabs.selected.min(n.saturating_sub(1)), gap, budget);
     let mut x = strip.x;
-    for (pos, &i) in tabs.charts.iter().enumerate() {
-        let (Some(chart), Some(text)) = (f.songs.get(i), tabs.labels.get(pos)) else {
+    for pos in lo..hi {
+        let Some(chart) = f.songs.get(tabs.charts[pos]) else {
             continue;
         };
         let (_, col) = theme::level_tier(chart.difficulty, chart.play_level);
         let on = pos == tabs.selected;
-        let st = caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
-        let w = t.measure(c, text, &st) + 24.0 * s;
+        let st = tab_st(on);
+        let w = widths[pos];
         let rect = Rect::new(x, strip.y, w, strip.h);
         c.fill_rect(rect, if on { col.with_alpha(70) } else { theme::SURF2 });
         c.stroke_rect(rect, s.max(1.0), if on { col } else { theme::LINE });
@@ -1365,9 +1381,14 @@ fn chart_tabs(
                 col,
             );
         }
-        t.draw_in(c, text, rect, Align::Center, &st);
+        t.draw_in(c, &tabs.labels[pos], rect, Align::Center, &st);
         hs.add(rect, HitId::ChartTab { row: tabs.row, pos });
-        x += w + 6.0 * s;
+        x += w + gap;
+    }
+    if hi - lo < n {
+        let more = format!("+{}", n - (hi - lo));
+        let st = caption(11.0, s).color(theme::MUTED);
+        t.draw(c, &more, x, strip.y + strip.h * 0.7, &st);
     }
 }
 
