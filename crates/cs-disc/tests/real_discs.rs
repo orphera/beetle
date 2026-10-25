@@ -238,8 +238,12 @@ fn every_chart_finds_and_decodes_its_sounds() {
                 if decoded.insert(bgm) {
                     let data = songs.read_file(&mut disc, bgm).unwrap();
                     let pcm = decode_bgm(&data).unwrap_or_else(|e| panic!("{what}: BGM {e}"));
+                    // Songs played all from key sounds (DistorteD's DUE
+                    // TOMORROW and DRUNK MONKY, GOLD's SH) hold a stub of
+                    // under a second at volume 1 in the BGM's place.
+                    let stub = data[40] <= 1;
                     assert!(
-                        pcm.channels[0].len() as u32 > pcm.rate * 10,
+                        stub || pcm.channels[0].len() as u32 > pcm.rate * 10,
                         "{what}: BGM too short"
                     );
                 }
