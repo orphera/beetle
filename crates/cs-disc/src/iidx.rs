@@ -18,7 +18,6 @@
 use std::io::{self, Read, Seek};
 
 use crate::iso9660::{FileExtent, Volume};
-use crate::meta::SongMeta;
 use crate::ply::Ply;
 use crate::ply_bms::{to_bms, Header};
 use crate::ps2tex::{decode_lzss, decode_psmt8, texture_size, Rgba};
@@ -689,24 +688,20 @@ impl Disc {
         Ply::parse_as(&bytes, self.edition.title().charts).map_err(|e| invalid(e.to_string()))
     }
 
-    /// The chart as BMS text (`ply_bms`), titled with `meta` where it says
-    /// more than the disc does. Without `meta` the text depends on the disc
-    /// alone, so it can identify the chart.
+    /// The chart as BMS text (`ply_bms`), titled with the disc's own title.
+    /// The text depends on the disc alone, so it can identify the chart.
     pub fn chart_bms<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
         chart: &Chart,
-        meta: Option<&SongMeta>,
     ) -> io::Result<String> {
-        let known =
-            |pick: fn(&SongMeta) -> &String| meta.map(pick).filter(|v| !v.is_empty()).cloned();
         let ply = self.chart_ply(disc, chart)?;
         let header = Header {
-            title: known(|m| &m.title).unwrap_or_else(|| song.title.clone()),
-            subtitle: known(|m| &m.subtitle).unwrap_or_default(),
-            artist: known(|m| &m.artist).unwrap_or_default(),
-            genre: known(|m| &m.genre).unwrap_or_default(),
+            title: song.title.clone(),
+            subtitle: String::new(),
+            artist: String::new(),
+            genre: String::new(),
             level: chart.level,
             difficulty: chart.difficulty.bms_number(),
             double: chart.style == Style::Double,

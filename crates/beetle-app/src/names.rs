@@ -1,6 +1,6 @@
 //! Word pictures of game disc songs: each song's title and artist as the
-//! disc draws them (`cs_disc::popn::Mask`), kept in `disc_meta/<edition>.names`
-//! next to the details table. The file is made from the disc once, when the
+//! disc draws them (`cs_disc::popn::Mask`), kept in `.cache/names/<edition>.names`
+//! The file is made from the disc once, when the
 //! disc is scanned, and reused while it is newer than the disc image, the same
 //! rule `songs.cache` follows. Without it a song shows its text title.
 //!
@@ -23,8 +23,6 @@ use cs_disc::iidx::Disc;
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
-use crate::disc_meta;
-
 const MAGIC: &[u8; 4] = b"BNM6";
 
 /// The names of a disc: its songs by id, and which song each chart is.
@@ -34,9 +32,12 @@ pub struct Names {
     pub charts: Vec<(ChartId, u32)>,
 }
 
-/// The names file of `slug`, next to its details table.
+/// The folder of the names files: derived data, made again from the discs.
+pub const DIR: &str = ".cache/names";
+
+/// The names file of `slug`.
 pub fn path(slug: &str) -> PathBuf {
-    PathBuf::from(disc_meta::DIR).join(format!("{slug}.names"))
+    PathBuf::from(DIR).join(format!("{slug}.names"))
 }
 
 pub fn encode(names: &Names) -> Vec<u8> {
@@ -126,7 +127,7 @@ fn take_mask(at: &mut &[u8]) -> Option<Option<Mask>> {
 /// Every chart's song names, from every names file in the library folder.
 pub fn load_all() -> HashMap<ChartId, Arc<SongNames>> {
     let mut by_chart = HashMap::new();
-    let files = fs::read_dir(disc_meta::DIR).into_iter().flatten().flatten();
+    let files = fs::read_dir(DIR).into_iter().flatten().flatten();
     for file in files {
         let p = file.path();
         if p.extension().is_none_or(|e| e != "names") {
@@ -165,7 +166,7 @@ fn is_current(slug: &str, source: &Path) -> bool {
 /// cannot read (made by an older build): its disc then needs a scan to make
 /// it again.
 pub fn any_unreadable() -> bool {
-    fs::read_dir(disc_meta::DIR)
+    fs::read_dir(DIR)
         .into_iter()
         .flatten()
         .flatten()
@@ -200,7 +201,7 @@ pub fn ensure<R: io::Read + io::Seek>(
     if names.songs.is_empty() {
         return;
     }
-    let _ = fs::create_dir_all(disc_meta::DIR);
+    let _ = fs::create_dir_all(DIR);
     let _ = fs::write(path(slug), encode(&names));
 }
 

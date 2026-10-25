@@ -10,7 +10,6 @@ use beetle_core::bms::{TimingEvent, TimingEventKind};
 use beetle_core::{BmpId, BmsChart, BmsHeader, Lane, NoteEvent, NoteType, PlayMode, WavId};
 use beetle_render::{ColorRgba, ImageBuffer};
 use cs_disc::iidx::{sound_number, Difficulty, Disc, Style};
-use cs_disc::meta::SongMeta;
 use cs_disc::ply::{Command, Ply, Side};
 use cs_disc::wvb::{decode_bgm, Bank, Pcm};
 use cs_disc::{SectorReader, Volume};
@@ -22,8 +21,6 @@ pub(super) struct DiscSource {
     songs: Disc,
     song: usize,
     chart: usize,
-    /// The song's hand-checked details (`disc_meta`), if any.
-    details: Option<SongMeta>,
 }
 
 impl DiscSource {
@@ -50,13 +47,11 @@ impl DiscSource {
                     .map(|c| (i, c))
             })
             .ok_or(ChartLoadError::NotFound)?;
-        let details = crate::disc_meta::load(edition.slug()).remove(&songs.songs[song].id);
         Ok(Self {
             disc,
             songs,
             song,
             chart,
-            details,
         })
     }
 
@@ -115,12 +110,7 @@ impl SongSource for DiscSource {
         // gameplay loader calls `native_chart` first and never enters here.
         let song = &self.songs.songs[self.song];
         self.songs
-            .chart_bms(
-                &mut self.disc,
-                song,
-                &song.charts[self.chart],
-                self.details.as_ref(),
-            )
+            .chart_bms(&mut self.disc, song, &song.charts[self.chart])
             .map(String::into_bytes)
             .map_err(|_| ChartLoadError::NotAChart)
     }

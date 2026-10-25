@@ -267,7 +267,7 @@ pub struct AppState {
     pub stage_image_loading_id: Option<ChartId>,
     /// Jacket thumbnails for the song select list (see `thumbs`).
     pub thumbs: crate::thumbs::ThumbLoader,
-    /// Disc word pictures by chart (`words`), read from `disc_meta` on the first
+    /// Disc word pictures by chart (`words`), read from `.cache/names` on the first
     /// frame; `None` until then.
     pub disc_names: Option<
         std::collections::HashMap<beetle_core::ChartId, std::sync::Arc<cs_disc::popn::SongNames>>,

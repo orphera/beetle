@@ -245,31 +245,18 @@ fn read_disc_songs(
     let Ok(songs) = Disc::open(&mut disc, &volume, edition) else {
         return Vec::new();
     };
-    let details = crate::disc_meta::load(edition.slug());
     let mut copies = Vec::new();
     let mut charts = Vec::new();
     for song in &songs.songs {
         for chart in &song.charts {
-            // The identity comes from the disc alone; the details only show.
-            let Ok(bms) = songs.chart_bms(&mut disc, song, chart, None) else {
+            // The identity comes from the disc alone.
+            let Ok(bms) = songs.chart_bms(&mut disc, song, chart) else {
                 continue;
             };
             let key = chart.key(song);
             let address = disc_address(&source, &key);
-            if let Some(mut meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+            if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
                 charts.push((meta.id, song.id));
-                if let Some(d) = details.get(&song.id) {
-                    for (field, value) in [
-                        (&mut meta.title, &d.title),
-                        (&mut meta.subtitle, &d.subtitle),
-                        (&mut meta.artist, &d.artist),
-                        (&mut meta.genre, &d.genre),
-                    ] {
-                        if !value.is_empty() {
-                            *field = value.clone();
-                        }
-                    }
-                }
                 copies.push(Copy {
                     kind: Kind::Disc,
                     source: source.clone(),
@@ -529,24 +516,17 @@ pub fn uninstalled_in_library<P: AsRef<Path>>(songs_dir: P) -> Vec<String> {
 }
 
 /// A cache older than the library list or the registry was built without some
-/// folders or with states that are no longer active; one older than a disc
-/// details table shows old titles.
+/// folders or with states that are no longer active.
 fn cache_is_stale(cache: &Path) -> bool {
     let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
     let Some(cached) = modified(cache) else {
         return false;
     };
     let registry = installed::packages_root().join(REGISTRY_FILENAME);
-    let disc_tables = fs::read_dir(crate::disc_meta::DIR)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path());
     let stale_names = crate::names::any_unreadable();
     stale_names
         || [library_file(), registry]
             .into_iter()
-            .chain(disc_tables)
             .filter_map(|p| modified(&p))
             .any(|changed| cached < changed)
 }

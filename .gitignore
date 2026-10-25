@@ -30,8 +30,6 @@ scratch/
 /packages/packages/
 /packages/registry.json
 
-# Disc song details drafted from Textage (scripts/disc_meta_from_textage.py): the user's own
-/disc_meta/
 
 # Python bytecode
 __pycache__/

@@ -22,7 +22,6 @@ pub mod drive;
 pub mod iidx;
 pub mod iso9660;
 pub mod lz;
-pub mod meta;
 pub mod ply;
 pub mod ply_bms;
 pub mod popn;

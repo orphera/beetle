@@ -1,5 +1,5 @@
 //! Fills the word pictures of game disc songs (`beetle_render::words`) for the
-//! charts near the select list, from the names files in `disc_meta`
+//! charts near the select list, from the names files in `.cache/names`
 //! (`names`). A chart without names keeps its text title.
 //!
 //! Like `thumbs`, this runs on the render thread once a frame: it only writes

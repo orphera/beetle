@@ -131,7 +131,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
         for song in &songs.songs {
             for chart in &song.charts {
                 let what = format!("{} {:?} {:?}", song.title, chart.style, chart.difficulty);
-                let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+                let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
                 let parsed =
                     beetle_core::parse_bms(&bms).unwrap_or_else(|e| panic!("{what}: {e:?}"));
                 let timing = beetle_core::TimingModel::from_chart(&parsed);
@@ -320,7 +320,7 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
                         }
                     }
                 }
-                let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+                let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
                 let parsed =
                     beetle_core::parse_bms(&bms).unwrap_or_else(|e| panic!("{what}: {e:?}"));
                 assert_eq!(

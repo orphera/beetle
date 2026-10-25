@@ -1386,7 +1386,7 @@ mod tests {
         let songs =
             cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::PremiumBest).unwrap();
         let (song, chart) = songs.find("000/sp_another").unwrap();
-        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "ANISAKIS");
 
@@ -1423,7 +1423,7 @@ mod tests {
         let songs = cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Gold).unwrap();
         let (song, chart) = songs.find("003/sp_another").unwrap();
         assert_eq!(chart.level, 11);
-        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "BLI");
 
@@ -1458,7 +1458,7 @@ mod tests {
             cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Popn13).unwrap();
         let (song, chart) = songs.find("000/sp_hyper").unwrap();
         assert_eq!(chart.level, 34);
-        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "ハードＰｆ");
 
@@ -1495,7 +1495,7 @@ mod tests {
         let songs = cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Gold).unwrap();
         let (song, chart) = songs.find(key).unwrap();
         let ply = songs.chart_ply(&mut disc, chart).unwrap();
-        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
         let meta =
             SongMetadata::from_bytes(&beetle_core::disc_address(&image, key), bms.as_bytes())
                 .unwrap();
