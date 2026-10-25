@@ -72,15 +72,23 @@ impl DiscSource {
     }
 }
 
-/// 16-bit mono or stereo PCM as the mixer's interleaved stereo floats.
+/// The level disc sounds play at. The discs master the BGM and the key
+/// sounds each to full scale and leave the headroom to the console's mixer:
+/// at full level a third to half of each disc's songs clip by more than 1%
+/// (EMPRESS's HOLIC 21%, MEI 14%). At half, HOLIC clips 1.4% and most songs
+/// not at all.
+const DISC_GAIN: f32 = 0.5;
+
+/// 16-bit mono or stereo PCM as the mixer's interleaved stereo floats, at `DISC_GAIN`.
 fn to_buffer(pcm: &Pcm) -> PcmBuffer {
     let left = &pcm.channels[0];
     let right = pcm.channels.get(1).unwrap_or(left);
     let frames = left.len().min(right.len());
+    let scale = DISC_GAIN / 32768.0;
     let mut samples = Vec::with_capacity(frames * 2);
     for i in 0..frames {
-        samples.push(left[i] as f32 / 32768.0);
-        samples.push(right[i] as f32 / 32768.0);
+        samples.push(left[i] as f32 * scale);
+        samples.push(right[i] as f32 * scale);
     }
     PcmBuffer::new(pcm.rate, samples)
 }
