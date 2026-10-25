@@ -8,7 +8,7 @@
 //!   optical drive (`\\.\E:`), behind one reader.
 //! - `iso9660`: the disc's file system.
 //! - `ps2`: which game a PS2 disc is (its boot executable from `SYSTEM.CNF`).
-//! - `iidx`: where each IIDX edition (13 DistorteD to 16 EMPRESS) keeps its songs.
+//! - `iidx`: where each IIDX edition (10th style to 16 EMPRESS) keeps its songs.
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
 //! plain song records; turning them into charts and sounds is the caller's job.

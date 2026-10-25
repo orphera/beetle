@@ -65,21 +65,30 @@ pub const IIDX_PS2: [Title; 16] = [
         "beatmania IIDX 9th style",
         ChartFormat::Ps2Long,
     ),
-    title(
-        "SLPM_661.80",
-        "beatmania IIDX 10th style",
-        ChartFormat::Ps2Long,
-    ),
-    title(
-        "SLPM_664.26",
-        "beatmania IIDX 11 IIDX RED",
-        ChartFormat::Ps2Long,
-    ),
-    title(
-        "SLPM_666.21",
-        "beatmania IIDX 12 HAPPY SKY",
-        ChartFormat::Ps2Long,
-    ),
+    Title {
+        playable: true,
+        ..title(
+            "SLPM_661.80",
+            "beatmania IIDX 10th style",
+            ChartFormat::Ps2Long,
+        )
+    },
+    Title {
+        playable: true,
+        ..title(
+            "SLPM_664.26",
+            "beatmania IIDX 11 IIDX RED",
+            ChartFormat::Ps2Long,
+        )
+    },
+    Title {
+        playable: true,
+        ..title(
+            "SLPM_666.21",
+            "beatmania IIDX 12 HAPPY SKY",
+            ChartFormat::Ps2Long,
+        )
+    },
     Title {
         playable: true,
         ..title(
@@ -143,6 +152,8 @@ mod tests {
 
     #[test]
     fn older_discs_are_known_but_not_read() {
+        let t = find("SLPM_659.46").unwrap();
+        assert!(!t.playable);
         let t = find("SLPM_650.06").unwrap();
         assert_eq!(t.charts, ChartFormat::Ps2NoHeader);
         assert!(!t.playable);

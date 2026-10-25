@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,29 +10,34 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 10th style | `SLPM_661.80` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
+| 11 IIDX RED | `SLPM_664.26` | `DATA2.DAT` 하나 | 0x140 | 없음 (암호화 안 함) |
+| 12 HAPPY SKY | `SLPM_666.21` | `BM2DX12A/B/C.DAT` | 0x144 | 없음 (암호화 안 함) |
 | 13 DistorteD | `SLPM_668.28` | `BM2DX13A/B/C.DAT` | 0x118 | 없음 (암호화 안 함) |
 | 14 GOLD | `SLPM_669.95` | `BM2DX14A/B/C.DAT` | 0x11c | `sEk2I1Xq7bz09Mtv` |
 | 15 DJ TROOPERS | `SLPM_551.17` | `BM2DX15A/B/C.DAT` | 0x134 | `eqkBipx2wgExUAIG` |
 | 16 EMPRESS | `SLPM_552.21` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
 | 16 PREMIUM BEST | `SLPM_552.22` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
 
-- 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 13은 8바이트 레코드(섹터, 섹터 수). 세 DAT에 걸쳐 번호가 이어진다.
+- 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 10–13은 8바이트 레코드(섹터, 섹터 수). DAT 파일이 여럿이면 그 순서로 번호가 이어진다.
 - `DATA1.DAT` 표: 16바이트 레코드(id, 섹터, 섹터 수, 0).
-- 차트 파일은 Blowfish(위 키)로 암호화하고 LZ로 압축되어 있다. 13은 LZ 압축만 한다.
+- 차트 파일은 Blowfish(위 키)로 암호화하고 LZ로 압축되어 있다. 10–13은 LZ 압축만 한다.
 
 ## 2. 곡 레코드
 
-| 필드 | 13 DistorteD | 14 GOLD | 15·16 |
-|---|---|---|---|
-| 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00, 0x40바이트 | 0x00, 0x40바이트 |
-| 레벨 바이트 | 0x42부터 | 0x42부터 | 0x4a부터 |
-| 배경 영상 파일 번호 | 0x54 | 0x54 | 0x58 |
-| 스테이지 그림 | 0x88 (0x60은 BGA 오버레이) | 0x84 (DATA1 파일 번호) | 15: 0x94 / 16: 레코드 전체에서 규칙으로 찾음 |
-| 차트 파일 번호 10개 (13은 8개, BLACK 없음) | 0xb8 | 0xb4 | 0xc0 |
-| 사운드 파일 번호 16개 | 0xd8 | 0xdc | 0xe8 |
+| 필드 | 10th | 11 RED | 12 HAPPY SKY | 13 DistorteD | 14 GOLD | 15·16 |
+|---|---|---|---|---|---|---|
+| 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00 | 0x00 | 0x00 | 0x00 | 0x00 |
+| 레벨 바이트 | 0x4a부터 | 0x41부터 | 0x41부터 | 0x42부터 | 0x42부터 | 0x4a부터 |
+| 배경 영상 파일 번호 | 0x58 | 0x5c | 0x54 | 0x54 | 0x54 | 0x58 |
+| 스테이지 그림 | 0xd4 (0xac는 BGA 오버레이) | 0xd8 (0xb0은 오버레이) | 0xcc (0xa4는 오버레이) | 0x88 (0x60은 BGA 오버레이) | 0x84 (DATA1 파일 번호) | 0x94 |
+| 차트 파일 번호 10개 (10–13은 8개, BLACK 없음) | 0x12c | 0x100 | 0xec | 0xb8 | 0xb4 | 0xc0 |
+| 사운드 파일 번호 16개 | 0x14c | 0x120 | 0x10c | 0xd8 | 0xdc | 0xe8 |
 
 - 차트 순서: SP H, DP H, SP A, DP A, SP N, DP N, SP B, DP B, SP BLACK, DP BLACK.
 - 레벨: 15·16은 SP N/H/A/B/BLACK, DP N/H/A/B/BLACK 순의 10바이트. DJ TROOPERS에서 DAZZLIN' DARLIN' DP BEGINNER가 8번 바이트에 1, RISTACCIA DP BLACK이 9번 바이트에 11(DP ANOTHER는 10)로 확인했다.
+- 10th 레벨: SP H/A, SP N/B, DP H/A, DP N/B 네 바이트. HYPER와 ANOTHER, NORMAL과 BEGINNER가 레벨을 함께 쓴다(디스크 값이 그렇다: PANDORA 7, 5, 8, 6).
+- RED 레벨: 비기너 1바이트, 미사용 10바이트, SP H/N/A, DP H/N/A. HAPPY SKY: 비기너, 미사용 8바이트, SP N/H/A, DP N/H/A.
 - GOLD·DistorteD 레벨: 비기너 1바이트(SP·DP 공용), 미사용 9바이트, SP N/H/A, DP N/H/A. BLACK은 ANOTHER의 레벨을 쓴다.
 - 사운드 파일 번호는 차트 쌍마다 (키음 뱅크, BGM). 차트에 자기 것이 없으면 DP HYPER(더블) 또는 SP HYPER의 것을 쓴다.
 - 레코드에는 곡별 음량 값이 없다. EMPRESS에서 곡의 실제 음량과 상관있어 보이는 0x54 바이트를 검토했지만 곡 순서를 따르는 값이었다(5.2절).
@@ -45,6 +50,7 @@
 
 - 시간 단위는 `multiplier / 1000` ms. 네 장의 모든 차트가 0x412b(16.683ms, 59.94Hz 한 프레임)를 쓴다.
 - 아케이드 GOLD의 `.1`은 60.046Hz 틱을 쓰지만, PS2 GOLD는 아니다. 일정 템포 89곡의 마디선 간격과 BPM으로 재면 중앙값이 59.945 프레임/초로 나온다.
+- 11·12의 몇 곡은 박자 명령 없이(처음의 4/4 하나뿐) 마디선 간격만으로 박자를 바꾼다. GOLDEN HORN(RED)은 7/4 마디가 이어지고, 100% minimoo-G(HAPPY SKY)는 마디마다 3–9박이다. 그래서 마디선 간격이 저장된 템포에서 박자와 크게 다르면(0.2박 + 3% 넘게) 그 간격을 4분음표 단위로 반올림한 길이를 마디 길이로 쓴다.
 - 저장된 BPM은 정수로 반올림되어 있어, 시각은 프레임이 정한다. 마디 안에서 템포가 바뀌는 곡(THE LEAST 100sec 20–21.5초)도 있다. 마디와 템포 맞춤은 `ply_bms::Layout` 하나가 하고, BMS 변환과 게임의 네이티브 로더가 함께 쓴다.
 
 ### 3.2 명령
@@ -144,7 +150,8 @@
 
 ## 6. 스테이지 그림
 
-- 13·14·15: 레코드가 가리키는 DATA1 파일은 애니메이션 묶음이고, 그 1번 파일이 스테이지 그림(PSMT8 텍스처)이다.
+- 10–15: 레코드가 가리키는 DATA1 파일은 애니메이션 묶음이고, 그 1번 파일이 스테이지 그림(PSMT8 텍스처)이다.
+  - 10·11·12도 13처럼 iidx-ps2tools가 읽는 오버레이 칸 0x28바이트 뒤가 스테이지 그림이며 모든 곡에 있다. 384×384 텍스처에 장르·제목·아티스트 카드 한 장이다. 그 뒤의 4바이트 칸들은 13의 그림 선택 칸과 모양은 같지만 값이 85까지 가므로 그림 선택이 아니다. 플레이어는 쓰지 않는다.
   - 13은 0x88의 파일이 스테이지 그림이다. iidx-ps2tools가 읽는 0x60은 BGA 오버레이 묶음이며 27곡에만 있다.
   - 텍스처 하나에 298픽셀 폭의 그림 두 장이 나란히 들어 있을 수 있다. 어느 그림을 쓸지는 레코드의 그림 선택 칸에 적혀 있다. 칸은 4바이트 (그림 번호 u16, 파일 u16)이고, 그림 번호 0은 왼쪽, 1은 오른쪽이며, 파일이 0인 칸은 비어 있다.
 

@@ -1,6 +1,7 @@
-//! Checks against the real IIDX 16 disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` to the `.iso` paths;
-//! without them these tests do nothing.
+//! Checks against the real IIDX disc images, when they are on this machine.
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX10` to
+//! `CS_DISC_IIDX14` for the chart and sound checks) to the
+//! `.iso` paths; without them these tests do nothing.
 
 use cs_disc::iidx::{Difficulty, Disc, Style};
 use cs_disc::Edition;
@@ -114,6 +115,11 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Ply, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX10", Edition::TenthStyle),
+        ("CS_DISC_IIDX11", Edition::Red),
+        ("CS_DISC_IIDX12", Edition::HappySky),
+        ("CS_DISC_IIDX13", Edition::Distorted),
+        ("CS_DISC_IIDX14", Edition::Gold),
         ("CS_DISC_IIDX16_DISC1", Edition::Empress),
         ("CS_DISC_IIDX16_DISC2", Edition::PremiumBest),
     ] {
@@ -177,6 +183,11 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX10", Edition::TenthStyle),
+        ("CS_DISC_IIDX11", Edition::Red),
+        ("CS_DISC_IIDX12", Edition::HappySky),
+        ("CS_DISC_IIDX13", Edition::Distorted),
+        ("CS_DISC_IIDX14", Edition::Gold),
         ("CS_DISC_IIDX16_DISC1", Edition::Empress),
         ("CS_DISC_IIDX16_DISC2", Edition::PremiumBest),
     ] {

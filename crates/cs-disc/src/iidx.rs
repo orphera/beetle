@@ -1,13 +1,15 @@
-//! The PS2 beatmania IIDX discs this crate reads (13 DistorteD, 14 GOLD,
-//! 15 DJ TROOPERS, 16 EMPRESS and its PREMIUM BEST disc): the song list and where each song's
+//! The PS2 beatmania IIDX discs this crate reads (10th style, 11 IIDX RED,
+//! 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS and its
+//! PREMIUM BEST disc): the song list and where each song's
 //! files are.
 //!
 //! The boot executable holds both. Its song table has one record per song slot
 //! (title, levels, file numbers of the charts and sounds); its file tables give
-//! each file number a span inside the three `BM2DX<nn>A/B/C.DAT` files. The
+//! each file number a span inside the `BM2DX<nn>A/B/C.DAT` files (`DATA2.DAT`
+//! on 10 and 11). The
 //! editions differ only in where those tables are, the record layout, the chart
 //! key and where a song's stage art is (`Layout`). Offsets come from
-//! iidx-ps2tools (`plugins/iidx13thcs.py`, `iidx14thcs.py`, `iidx15thcs.py`,
+//! iidx-ps2tools (`plugins/iidx10thcs.py` to `iidx13thcs.py`, `iidx14thcs.py`, `iidx15thcs.py`,
 //! `iidx16thempresscs.py`, `iidx16thpremiumbestcs.py`).
 //!
 //! The files are returned as stored: charts are still encrypted (from 14 on)
@@ -24,6 +26,12 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 10th style, `SLPM_661.80`.
+    TenthStyle,
+    /// 11 IIDX RED, `SLPM_664.26`.
+    Red,
+    /// 12 HAPPY SKY, `SLPM_666.21`.
+    HappySky,
     /// 13 DistorteD, `SLPM_668.28`.
     Distorted,
     /// 14 GOLD, `SLPM_669.95`.
@@ -36,7 +44,10 @@ pub enum Edition {
     PremiumBest,
 }
 
-const EDITIONS: [Edition; 5] = [
+const EDITIONS: [Edition; 8] = [
+    Edition::TenthStyle,
+    Edition::Red,
+    Edition::HappySky,
     Edition::Distorted,
     Edition::Gold,
     Edition::DjTroopers,
@@ -48,10 +59,11 @@ const EDITIONS: [Edition; 5] = [
 struct Layout {
     executable: &'static str,
     slug: &'static str,
-    /// The file tables of the three DAT files, in order: (offset, bytes).
-    file_tables: [(usize, usize); 3],
+    /// The file tables of the DAT files, in order: (offset, bytes).
+    file_tables: &'static [(usize, usize)],
     file_records: FileRecords,
-    dat_files: [&'static str; 3],
+    /// `DATA2.DAT` (10, 11) or the three `BM2DX<nn>A/B/C.DAT` files.
+    dat_files: &'static [&'static str],
     /// The song table: (offset, bytes).
     songs: (usize, usize),
     /// The `DATA1.DAT` file table: (offset, bytes).
@@ -59,7 +71,7 @@ struct Layout {
     /// The Blowfish key of the chart files. iidx-ps2tools builds it from
     /// letters of song names in the game (`generate_encryption_key`); this is
     /// its result.
-    /// `None` where charts are not encrypted (13).
+    /// `None` where charts are not encrypted (10 to 13).
     chart_key: Option<&'static [u8]>,
     record: Record,
 }
@@ -67,7 +79,7 @@ struct Layout {
 /// How a DAT file table entry gives a file's span.
 #[derive(Clone, Copy)]
 enum FileRecords {
-    /// 8 bytes: sector, sectors (13).
+    /// 8 bytes: sector, sectors (10 to 13).
     Sectors,
     /// 12 bytes: sector, an unused word, bytes (14 on).
     Bytes,
@@ -82,7 +94,7 @@ struct Record {
     video_at: usize,
     charts_at: usize,
     /// How many chart file numbers the record has (`CHART_SLOTS` prefix):
-    /// 13 has no BLACK slots.
+    /// 10 to 13 have no BLACK slots.
     chart_count: usize,
     sounds_at: usize,
     stage: StageArt,
@@ -92,13 +104,14 @@ struct Record {
 #[derive(Clone, Copy)]
 enum StageArt {
     /// The DATA1 file a record field names: an animation archive whose first
-    /// texture is the stage image (14, 15).
+    /// texture is the stage image (10 to 15).
     Overlay {
         at: usize,
         /// Which picture of a wide texture each use shows: where the
         /// record's `(picture, file)` word pairs start (the first is the usual
         /// card) and which pair is ANOTHER's. Picture 0 is the left one.
-        picks: Picks,
+        /// `None` where the texture holds one picture (10 to 12).
+        picks: Option<Picks>,
     },
     /// The DATA1 file a record field names, holding the loading card (16).
     Card { at: usize },
@@ -124,10 +137,88 @@ const RECORD_15_16: Record = Record {
     sounds_at: 0xe8,
     stage: StageArt::Overlay {
         at: 0x94,
-        picks: Picks {
+        picks: Some(Picks {
             at: 0x98,
             count: 4,
             another: 2,
+        }),
+    },
+};
+
+const TENTH_STYLE: Layout = Layout {
+    executable: "SLPM_661.80",
+    slug: "iidx10",
+    file_tables: &[(0xcdc90, 0x1a38)],
+    file_records: FileRecords::Sectors,
+    dat_files: &["DATA2.DAT"],
+    songs: (0x10bae0, 0x7d20),
+    data1: (0xc8e08, 0x11b0),
+    chart_key: None,
+    // Levels: SP H/A, SP N/B, DP H/A, DP N/B; one byte per pair.
+    record: Record {
+        size: 0x16c,
+        levels_at: 0x4a,
+        level_of: [0, 2, 0, 2, 1, 3, 1, 3, 0, 2],
+        video_at: 0x58,
+        charts_at: 0x12c,
+        chart_count: 8,
+        sounds_at: 0x14c,
+        stage: StageArt::Overlay {
+            at: 0xd4,
+            // One 384x384 card; the words after it are not picture picks.
+            picks: None,
+        },
+    },
+};
+
+const RED: Layout = Layout {
+    executable: "SLPM_664.26",
+    slug: "iidx11-red",
+    file_tables: &[(0xee440, 0x1b40)],
+    file_records: FileRecords::Sectors,
+    dat_files: &["DATA2.DAT"],
+    songs: (0x1c21f0, 0x6f40),
+    data1: (0xe83e8, 0x19c0),
+    chart_key: None,
+    // Levels: beginner (both styles), ten unused bytes, SP H/N/A, DP H/N/A.
+    record: Record {
+        size: 0x140,
+        levels_at: 0x41,
+        level_of: [11, 14, 13, 16, 12, 15, 0, 0, 13, 16],
+        video_at: 0x5c,
+        charts_at: 0x100,
+        chart_count: 8,
+        sounds_at: 0x120,
+        stage: StageArt::Overlay {
+            at: 0xd8,
+            // One 384x384 card; the words after it are not picture picks.
+            picks: None,
+        },
+    },
+};
+
+const HAPPY_SKY: Layout = Layout {
+    executable: "SLPM_666.21",
+    slug: "iidx12-happy-sky",
+    file_tables: &[(0x105260, 0xe0), (0x105340, 0x1700), (0x106a40, 0x458)],
+    file_records: FileRecords::Sectors,
+    dat_files: &["BM2DX12A.DAT", "BM2DX12B.DAT", "BM2DX12C.DAT"],
+    songs: (0x115f10, 0x7470),
+    data1: (0x100108, 0x1be0),
+    chart_key: None,
+    // Levels: beginner (both styles), eight unused bytes, SP N/H/A, DP N/H/A.
+    record: Record {
+        size: 0x144,
+        levels_at: 0x41,
+        level_of: [10, 13, 11, 14, 9, 12, 0, 0, 11, 14],
+        video_at: 0x54,
+        charts_at: 0xec,
+        chart_count: 8,
+        sounds_at: 0x10c,
+        stage: StageArt::Overlay {
+            at: 0xcc,
+            // One 384x384 card; the words after it are not picture picks.
+            picks: None,
         },
     },
 };
@@ -135,9 +226,9 @@ const RECORD_15_16: Record = Record {
 const DISTORTED: Layout = Layout {
     executable: "SLPM_668.28",
     slug: "iidx13-distorted",
-    file_tables: [(0x112a00, 0xc0), (0x112ac0, 0x1900), (0x1143c0, 0x4a0)],
+    file_tables: &[(0x112a00, 0xc0), (0x112ac0, 0x1900), (0x1143c0, 0x4a0)],
     file_records: FileRecords::Sectors,
-    dat_files: ["BM2DX13A.DAT", "BM2DX13B.DAT", "BM2DX13C.DAT"],
+    dat_files: &["BM2DX13A.DAT", "BM2DX13B.DAT", "BM2DX13C.DAT"],
     songs: (0x1353e0, 0x71c0),
     data1: (0x10d7f8, 0x1bf0),
     chart_key: None,
@@ -155,11 +246,11 @@ const DISTORTED: Layout = Layout {
         stage: StageArt::Overlay {
             at: 0x88,
             // The third pair is CARDINAL GATE's card.
-            picks: Picks {
+            picks: Some(Picks {
                 at: 0x8c,
                 count: 6,
                 another: 3,
-            },
+            }),
         },
     },
 };
@@ -167,8 +258,8 @@ const DISTORTED: Layout = Layout {
 const GOLD: Layout = Layout {
     executable: "SLPM_669.95",
     slug: "iidx14-gold",
-    file_tables: [(0x11ad60, 0x248), (0x11afa0, 0x26ac), (0x11d64c, 0x72c)],
-    dat_files: ["BM2DX14A.DAT", "BM2DX14B.DAT", "BM2DX14C.DAT"],
+    file_tables: &[(0x11ad60, 0x248), (0x11afa0, 0x26ac), (0x11d64c, 0x72c)],
+    dat_files: &["BM2DX14A.DAT", "BM2DX14B.DAT", "BM2DX14C.DAT"],
     songs: (0x156300, 0x76b4),
     data1: (0x118500, 0x1e80),
     file_records: FileRecords::Bytes,
@@ -185,11 +276,11 @@ const GOLD: Layout = Layout {
         sounds_at: 0xdc,
         stage: StageArt::Overlay {
             at: 0x84,
-            picks: Picks {
+            picks: Some(Picks {
                 at: 0x88,
                 count: 6,
                 another: 3,
-            },
+            }),
         },
     },
 };
@@ -197,8 +288,8 @@ const GOLD: Layout = Layout {
 const DJ_TROOPERS: Layout = Layout {
     executable: "SLPM_551.17",
     slug: "iidx15-dj-troopers",
-    file_tables: [(0x134020, 0x240), (0x134260, 0x27c0), (0x136a20, 0x630)],
-    dat_files: ["BM2DX15A.DAT", "BM2DX15B.DAT", "BM2DX15C.DAT"],
+    file_tables: &[(0x134020, 0x240), (0x134260, 0x27c0), (0x136a20, 0x630)],
+    dat_files: &["BM2DX15A.DAT", "BM2DX15B.DAT", "BM2DX15C.DAT"],
     songs: (0x16fe60, 0x80bc),
     data1: (0x131680, 0x1f80),
     file_records: FileRecords::Bytes,
@@ -209,8 +300,8 @@ const DJ_TROOPERS: Layout = Layout {
 const EMPRESS: Layout = Layout {
     executable: "SLPM_552.21",
     slug: "iidx16-empress",
-    file_tables: [(0x13c370, 0x2a0), (0x13c610, 0x28c8), (0x13eed8, 0x660)],
-    dat_files: ["BM2DX16A.DAT", "BM2DX16B.DAT", "BM2DX16C.DAT"],
+    file_tables: &[(0x13c370, 0x2a0), (0x13c610, 0x28c8), (0x13eed8, 0x660)],
+    dat_files: &["BM2DX16A.DAT", "BM2DX16B.DAT", "BM2DX16C.DAT"],
     songs: (0x178bf0, 0x7e54),
     data1: (0x139d00, 0x1cf0),
     file_records: FileRecords::Bytes,
@@ -224,7 +315,7 @@ const EMPRESS: Layout = Layout {
 const PREMIUM_BEST: Layout = Layout {
     executable: "SLPM_552.22",
     slug: "iidx16-premium-best",
-    file_tables: [(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
+    file_tables: &[(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
     songs: (0x17e0f0, 0x7850),
     data1: (0x139980, 0x5bd0),
     ..EMPRESS
@@ -254,6 +345,9 @@ impl Edition {
 
     fn layout(self) -> &'static Layout {
         match self {
+            Edition::TenthStyle => &TENTH_STYLE,
+            Edition::Red => &RED,
+            Edition::HappySky => &HAPPY_SKY,
             Edition::Distorted => &DISTORTED,
             Edition::Gold => &GOLD,
             Edition::DjTroopers => &DJ_TROOPERS,
@@ -363,7 +457,7 @@ pub struct Song {
 /// A file's span inside one of the DAT files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileEntry {
-    /// 0, 1, 2 for the edition's A/B/C DAT files.
+    /// The DAT file: 0, 1, 2 for the edition's A/B/C files (0 for `DATA2.DAT`).
     pub dat: u8,
     pub offset: u64,
     pub size: u32,
@@ -375,7 +469,7 @@ pub struct Disc {
     pub edition: Edition,
     pub songs: Vec<Song>,
     files: Vec<FileEntry>,
-    dats: [FileExtent; 3],
+    dats: Vec<FileExtent>,
     data1: FileExtent,
     /// `DATA1.DAT` files: (byte offset, bytes).
     data1_files: Vec<(u64, u64)>,
@@ -403,14 +497,15 @@ impl Disc {
         let exe = volume
             .read_file(disc, layout.executable)?
             .ok_or_else(|| missing(layout.executable))?;
-        let mut dats = [FileExtent { lba: 0, size: 0 }; 3];
-        for (slot, name) in dats.iter_mut().zip(layout.dat_files) {
-            *slot = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
-        }
+        let dats = layout
+            .dat_files
+            .iter()
+            .map(|name| volume.find(disc, name)?.ok_or_else(|| missing(name)))
+            .collect::<io::Result<_>>()?;
         let data1 = volume
             .find(disc, "DATA1.DAT")?
             .ok_or_else(|| missing("DATA1.DAT"))?;
-        let files = read_file_tables(&exe, &layout.file_tables, layout.file_records)?;
+        let files = read_file_tables(&exe, layout.file_tables, layout.file_records)?;
         let songs = read_songs(&exe, layout.songs, &layout.record)?;
         // DATA1 records: id, sector, sectors, 0.
         let data1_files = table(&exe, layout.data1)?
@@ -545,7 +640,7 @@ impl Disc {
     }
 
     /// The picture shown while `song` loads: 13, 14 and 15's stage image, of the
-    /// ANOTHER variant when `another` and the texture holds two; 16's loading
+    /// ANOTHER variant when `another` and the texture holds two (10 to 15); 16's loading
     /// card.
     pub fn stage_image<R: Read + Seek>(
         &self,
@@ -699,11 +794,11 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
-/// The file tables, numbered across all three DAT files in order. Each record
+/// The file tables, numbered across the DAT files in order. Each record
 /// is 12 bytes: sector inside the DAT, an unused word, size in bytes.
 fn read_file_tables(
     exe: &[u8],
-    tables: &[(usize, usize); 3],
+    tables: &[(usize, usize)],
     records: FileRecords,
 ) -> io::Result<Vec<FileEntry>> {
     let mut files = Vec::new();
@@ -780,7 +875,10 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             continue;
         }
         let stage_picks = match layout.stage {
-            StageArt::Overlay { picks, .. } => {
+            StageArt::Overlay { picks: None, .. } => None,
+            StageArt::Overlay {
+                picks: Some(picks), ..
+            } => {
                 let pick = |slot: usize| {
                     let at = picks.at + slot * 4;
                     let picture = u16::from_le_bytes([record[at], record[at + 1]]);
@@ -966,7 +1064,7 @@ mod tests {
             edition: Edition::Empress,
             songs: read_songs(&table, (0, RECORD.size * 2), RECORD).unwrap(),
             files: Vec::new(),
-            dats: [FileExtent { lba: 0, size: 0 }; 3],
+            dats: Vec::new(),
             data1: FileExtent { lba: 0, size: 0 },
             data1_files: Vec::new(),
         };
