@@ -1217,7 +1217,7 @@ impl GuiRenderer {
                 let (tag, fg, bg) = if row.ok {
                     ("연결됨", theme::GREEN, theme::GREEN_SOFT)
                 } else {
-                    ("폴더 없음", theme::DANGER, theme::DANGER_SOFT)
+                    ("찾을 수 없음", theme::DANGER, theme::DANGER_SOFT)
                 };
                 let tag_w = self.chip(tag, lx + 10.0, cy + 8.0, fg, bg);
                 let bw = GuiRenderer::button_w("빼기");

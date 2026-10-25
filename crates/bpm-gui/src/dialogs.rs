@@ -5,7 +5,7 @@ use crate::ui::{ButtonView, ChoiceView, DialogView, FieldView, ListRowView};
 use crate::widgets::{Btn, UiAction};
 use bms_package_manager::file_dialog::PickKind;
 use bms_package_manager::BgaPackMode;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogKind {
@@ -218,7 +218,7 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                     .iter()
                     .map(|p| ListRowView {
                         text: p.clone(),
-                        ok: Path::new(p).is_dir(),
+                        ok: bms_package_manager::library::entry_present(p),
                     })
                     .collect();
                 v.list_empty = "아직 연결한 폴더가 없어요".into();

@@ -46,6 +46,19 @@ pub fn library_entry(path: &str) -> Result<String, String> {
     absolute_dir(path)
 }
 
+/// Whether a `library.dat` entry is there to read: a folder, a disc image
+/// file, or a drive (with or without a disc in it).
+pub fn entry_present(entry: &str) -> bool {
+    let path = std::path::Path::new(entry);
+    if cs_disc::drive::as_drive_letter(entry).is_some() {
+        return true;
+    }
+    if cs_disc::is_disc_target(entry) {
+        return path.is_file();
+    }
+    path.is_dir()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,6 +67,18 @@ mod tests {
     fn a_drive_is_stored_by_its_letter() {
         assert_eq!(library_entry("e:\\").unwrap(), "E:");
         assert_eq!(library_entry("E:").unwrap(), "E:");
+    }
+
+    #[test]
+    fn a_disc_image_counts_as_present() {
+        let dir = std::env::temp_dir().join("bpm-entry-present");
+        fs::create_dir_all(&dir).unwrap();
+        let iso = dir.join("game.iso");
+        fs::write(&iso, b"").unwrap();
+        assert!(entry_present(&iso.to_string_lossy()));
+        assert!(!entry_present(&dir.join("gone.iso").to_string_lossy()));
+        assert!(entry_present(&dir.to_string_lossy()));
+        assert!(entry_present("E:"));
     }
 
     #[test]
