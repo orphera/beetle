@@ -6,6 +6,7 @@ pub mod atlas;
 pub mod clock;
 pub mod command;
 pub mod engine;
+pub mod limiter;
 pub mod mixer;
 pub mod sample;
 pub mod sfx;

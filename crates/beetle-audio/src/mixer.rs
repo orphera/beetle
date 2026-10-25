@@ -1,5 +1,6 @@
 use crate::clock::AudioClock;
 use crate::command::{AudioCommand, Bus, BUS_COUNT};
+use crate::limiter::Limiter;
 use crate::sample::SampleBank;
 use beetle_core::WavId;
 use rtrb::Consumer;
@@ -80,6 +81,7 @@ pub struct Mixer {
     /// Gain of each bus (`Bus as usize`), 0..=1, on top of the master volume.
     bus_gain: [f32; BUS_COUNT],
     is_paused: bool,
+    limiter: Limiter,
 }
 
 impl Mixer {
@@ -101,6 +103,7 @@ impl Mixer {
             master_volume: 1.0,
             bus_gain: [1.0; BUS_COUNT],
             is_paused: false,
+            limiter: Limiter::new(clock.sample_rate()),
         }
     }
 
@@ -271,10 +274,8 @@ impl Mixer {
             }
         }
 
-        // 5. Soft limiter / clamp
-        for s in output.iter_mut() {
-            *s = s.clamp(-1.0, 1.0);
-        }
+        // 5. Keep the sum inside full scale (`limiter`)
+        self.limiter.process(output);
 
         // 6. Update visualizer snapshot (16 bands)
         let chunk = (output.len() / 16).max(1);
@@ -502,10 +503,14 @@ mod tests {
         assert_eq!(clock.rendered_samples(), 10);
     }
 
-    /// A mixer over one 1.0-valued sample of `frames` frames (id 1).
+    /// The level of the tests' sample: below the limiter's threshold, so the
+    /// mix passes it untouched.
+    const LEVEL: f32 = 0.5;
+
+    /// A mixer over one `LEVEL`-valued sample of `frames` frames (id 1).
     fn scheduling_mixer(frames: usize) -> (Mixer, rtrb::Producer<AudioCommand>, AudioClock) {
         let mut sample_bank = SampleBank::new();
-        sample_bank.insert(WavId(1), PcmBuffer::new(44100, vec![1.0; frames * 2]));
+        sample_bank.insert(WavId(1), PcmBuffer::new(44100, vec![LEVEL; frames * 2]));
         let (producer, consumer) = RingBuffer::new(512);
         let clock = AudioClock::new(44100);
         let mixer = Mixer::new(sample_bank, consumer, &clock, make_visual_levels());
@@ -523,11 +528,11 @@ mod tests {
             .unwrap();
     }
 
-    /// Left-channel values of one `frames`-frame buffer.
+    /// Left-channel values of one `frames`-frame buffer, as a share of `LEVEL`.
     fn mix(mixer: &mut Mixer, frames: usize) -> Vec<f32> {
         let mut out = vec![0.0f32; frames * 2];
         mixer.process_buffer(&mut out);
-        out.iter().step_by(2).copied().collect()
+        out.iter().step_by(2).map(|s| s / LEVEL).collect()
     }
 
     #[test]
@@ -599,7 +604,7 @@ mod tests {
     #[test]
     fn the_trigger_queue_plays_after_the_main_queue() {
         let mut sample_bank = SampleBank::new();
-        sample_bank.insert(WavId(1), PcmBuffer::new(44100, vec![1.0; 200]));
+        sample_bank.insert(WavId(1), PcmBuffer::new(44100, vec![LEVEL; 200]));
         let (mut main_tx, main_rx) = RingBuffer::new(8);
         let (mut trigger_tx, trigger_rx) = RingBuffer::new(8);
         let clock = AudioClock::new(44100);
