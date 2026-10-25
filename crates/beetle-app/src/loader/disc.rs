@@ -156,9 +156,8 @@ impl SongSource for DiscSource {
             }
         };
         let ply = ply.map_err(|_| ChartLoadError::NotAChart)?;
-        let chart = native_ply_chart(&ply, title, level, difficulty, double);
-        (!chart.notes.is_empty())
-            .then_some(chart)
+        native_ply_chart(&ply, title, level, difficulty, double)
+            .filter(|chart| !chart.notes.is_empty())
             .ok_or(ChartLoadError::NotAChart)
             .map(Some)
     }
@@ -293,7 +292,13 @@ impl SongSource for DiscSource {
     }
 }
 
-fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double: bool) -> BmsChart {
+fn native_ply_chart(
+    ply: &Ply,
+    title: String,
+    level: u8,
+    difficulty: u8,
+    double: bool,
+) -> Option<BmsChart> {
     let mut chart = BmsChart {
         header: BmsHeader {
             title,
@@ -309,259 +314,29 @@ fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double:
         },
         ..Default::default()
     };
-    // A PS2 chart may repeat the same BPM command at bar boundaries. Those
-    // repeats are not speed changes; keep the raw BPM constant in that case
-    // instead of turning frame-rounding corrections into fake BPM changes.
-    let raw_bpms: Vec<f64> = ply
-        .events
-        .iter()
-        .filter_map(|event| match event.command {
-            Command::Bpm { bpm } if bpm > 0.0 => Some(bpm),
-            _ => None,
-        })
-        .collect();
-    let has_real_bpm_change = raw_bpms
-        .first()
-        .is_some_and(|first| raw_bpms.iter().any(|bpm| (bpm - first).abs() > 1e-9));
-    let mut lines: Vec<f64> = ply
-        .events
-        .iter()
-        .filter_map(|e| matches!(e.command, Command::Measure).then_some(ply.millis(e.time)))
-        .collect();
-    lines.dedup_by(|a, b| (*a - *b).abs() < 0.001);
-    if lines.is_empty() {
-        lines.push(0.0);
-    }
-    // A `.ply` stores the time signature at the bar line, while BMS stores
-    // the resulting bar length as a multiplier of four quarter beats.
-    let mut signature = (4.0_f64, 4.0_f64);
-    for event in &ply.events {
-        if let Command::TimeSignature {
-            numerator,
-            denominator,
-        } = event.command
-        {
-            if numerator > 0 && denominator > 0 {
-                signature = (numerator as f64, denominator as f64);
-            }
-        }
-        if let Command::Measure = event.command {
-            let measure = lines
-                .partition_point(|t| *t <= ply.millis(event.time))
-                .saturating_sub(1) as u32;
-            chart
-                .measure_lengths
-                .insert(measure, signature.0 / signature.1);
+    // The bars, tempos and snapped positions the BMS conversion writes
+    // (`ply_bms`): bar lines fitted against frame rounding, and the stored
+    // tempo ratios inside a bar whose tempo changes.
+    let layout = cs_disc::ply_bms::Layout::of(ply).ok()?;
+    let bar_beats: Vec<f64> = layout.bar_beats().collect();
+    for (bar, &beats) in bar_beats.iter().enumerate() {
+        if beats != 4.0 {
+            chart.measure_lengths.insert(bar as u32, beats / 4.0);
         }
     }
-    // Continue the final measure when notes occur after the last explicit
-    // bar line. A fixed fallback interval compresses the chart's tail.
-    let last_event_ms = ply
-        .events
-        .last()
-        .map_or(0.0, |event| ply.millis(event.time));
-    let last_beats = signature.0 / signature.1 * 4.0;
-    let last_bpm = ply
-        .events
-        .iter()
-        .rev()
-        .find_map(|event| match event.command {
-            Command::Bpm { bpm } if bpm > 0.0 => Some(bpm),
-            _ => None,
-        })
-        .unwrap_or(130.0);
-    let tail_ms = last_beats * 60000.0 / last_bpm;
-    while last_event_ms > lines.last().copied().unwrap_or(0.0) + tail_ms / 2.0 {
-        let next = lines.last().copied().unwrap_or(0.0) + tail_ms;
-        lines.push(next);
-        let measure = lines.len().saturating_sub(2) as u32;
-        chart
-            .measure_lengths
-            .insert(measure, signature.0 / signature.1);
+    chart.header.bpm = layout.initial_bpm();
+    for (bar, fraction, bpm) in layout.tempo_changes() {
+        chart.timing_events.push(TimingEvent {
+            measure: bar as u32,
+            fraction,
+            kind: TimingEventKind::BpmChange(bpm),
+        });
     }
-    let position_lengths = chart.measure_lengths.clone();
-    let position_bpm = ply
-        .events
-        .iter()
-        .find_map(|e| match e.command {
-            Command::Bpm { bpm } if bpm > 0.0 => Some(bpm),
-            _ => None,
-        })
-        .unwrap_or(130.0);
-    // Fit the observed bar lines to their accumulated musical beat positions.
-    // This removes the small per-bar drift caused by rounded 59.94 Hz frames
-    // for the common (constant-tempo) case.
-    let mut observed_beats = Vec::with_capacity(lines.len());
-    let mut beat = 0.0;
-    for (i, _) in lines.iter().enumerate() {
-        observed_beats.push(beat);
-        beat += position_lengths.get(&(i as u32)).copied().unwrap_or(1.0) * 4.0;
-    }
-    let line_bpm = |at: f64| {
-        ply.events
-            .iter()
-            .filter_map(|e| match e.command {
-                Command::Bpm { bpm } if bpm > 0.0 && ply.millis(e.time) <= at => Some(bpm),
-                _ => None,
-            })
-            .last()
-            .unwrap_or(position_bpm)
-    };
-    let mut corrected_lines = lines.clone();
-    let mut first = 0;
-    while first < lines.len() {
-        let bpm = line_bpm(lines[first]);
-        let mut last = first;
-        while last + 1 < lines.len() && (line_bpm(lines[last + 1]) - bpm).abs() < 1e-9 {
-            last += 1;
-        }
-        let end = (last + 1).min(lines.len() - 1);
-        let mut xs = observed_beats[first..=end].to_vec();
-        let mut ys = lines[first..=end].to_vec();
-        if end == last && end + 1 < lines.len() {
-            xs.push(observed_beats[end + 1]);
-            ys.push(lines[end + 1]);
-        }
-        let n = xs.len() as f64;
-        let mx = xs.iter().sum::<f64>() / n.max(1.0);
-        let my = ys.iter().sum::<f64>() / n.max(1.0);
-        let sxx = xs.iter().map(|x| (x - mx).powi(2)).sum::<f64>();
-        let sxy = xs
-            .iter()
-            .zip(&ys)
-            .map(|(x, y)| (x - mx) * (y - my))
-            .sum::<f64>();
-        let slope = if sxx > 0.0 { sxy / sxx } else { 60000.0 / bpm };
-        let intercept = my - slope * mx;
-        for i in first..=last {
-            corrected_lines[i] = intercept + slope * observed_beats[i];
-        }
-        first = last + 1;
-    }
-    // Keep the raw tempo cuts as well: a bar can contain a speed change, so
-    // its note beat is not proportional to wall-clock time across the whole
-    // bar. The stored tempo ratios determine the musical position inside it.
-    let mut bar_tempos: Vec<Vec<(f64, f64)>> = Vec::with_capacity(lines.len());
-    let mut current_bpm = position_bpm;
-    for bar in 0..lines.len() {
-        let start = lines[bar];
-        let end = lines.get(bar + 1).copied().unwrap_or(start + 4000.0);
-        for event in &ply.events {
-            let at = ply.millis(event.time);
-            if at <= start {
-                if let Command::Bpm { bpm } = event.command {
-                    if bpm > 0.0 {
-                        current_bpm = bpm;
-                    }
-                }
-            }
-        }
-        let mut segments = vec![(start, current_bpm)];
-        for event in &ply.events {
-            let at = ply.millis(event.time);
-            if at > start && at < end {
-                if let Command::Bpm { bpm } = event.command {
-                    if bpm > 0.0 {
-                        segments.push((at, bpm));
-                    }
-                }
-            }
-        }
-        bar_tempos.push(segments);
-    }
-    // The generated-BMS path writes the first corrected segment as `#BPM`.
-    // Keep the native timing model on that same time scale when the opening
-    // bar already contains a speed change.
-    let first_start = lines[0];
-    let first_end = lines.get(1).copied().unwrap_or(first_start + 4000.0);
-    let first_stored_beats = bar_tempos[0]
-        .iter()
-        .enumerate()
-        .map(|(i, &(_, bpm))| {
-            let end = bar_tempos[0].get(i + 1).map_or(first_end, |next| next.0);
-            (end - bar_tempos[0][i].0).max(0.0) * bpm / 60000.0
-        })
-        .sum::<f64>();
-    let first_target_beats = position_lengths.get(&0).copied().unwrap_or(1.0) * 4.0;
-    if has_real_bpm_change && first_stored_beats > 0.0 {
-        chart.header.bpm = position_bpm * first_target_beats / first_stored_beats;
-    }
-    let corrected_time = |ms: f64| {
-        let i = lines.partition_point(|t| *t <= ms).saturating_sub(1);
-        let next = (i + 1).min(lines.len() - 1);
-        if next == i || lines[next] <= lines[i] {
-            corrected_lines[i]
-        } else {
-            corrected_lines[i]
-                + (ms - lines[i]) / (lines[next] - lines[i])
-                    * (corrected_lines[next] - corrected_lines[i])
-        }
-    };
-    let pos = |ms: f64| -> (u32, f64) {
-        let corrected_ms = corrected_time(ms);
-        let bar = corrected_lines
-            .partition_point(|t| *t <= corrected_ms)
-            .saturating_sub(1);
-        let end = corrected_lines
-            .get(bar + 1)
-            .copied()
-            .unwrap_or(corrected_lines[bar] + 4000.0);
-        let beats = position_lengths.get(&(bar as u32)).copied().unwrap_or(1.0) * 4.0;
-        // `.ply` times are frame-rounded. Snap to the coarsest musical grid
-        // that is still within half a 59.94 Hz frame, matching ply_bms.
-        let raw_start = lines[bar];
-        let raw_end = lines.get(bar + 1).copied().unwrap_or(raw_start + 4000.0);
-        let cuts = &bar_tempos[bar];
-        let mut stored_beats = 0.0;
-        let mut raw_beat = 0.0;
-        for (i, &(at, bpm)) in cuts.iter().enumerate() {
-            let segment_end = cuts.get(i + 1).map_or(raw_end, |next| next.0);
-            let duration = (segment_end - at).max(0.0);
-            stored_beats += duration * bpm / 60000.0;
-            if ms <= segment_end {
-                raw_beat += (ms - at).max(0.0) * bpm / 60000.0;
-                break;
-            }
-            raw_beat += duration * bpm / 60000.0;
-        }
-        let raw_beat = if stored_beats > 0.0 {
-            raw_beat * beats / stored_beats
-        } else {
-            ((corrected_ms - corrected_lines[bar]) / (end - corrected_lines[bar]).max(1.0)) * beats
-        };
-        let bpm = position_bpm.max(1.0);
-        let tolerance = (1000.0 / 59.94 / 2.0) * bpm / 60000.0 + 1e-9;
-        let mut snapped = raw_beat;
-        for denominator in [1_u64, 2, 3, 4, 6, 8, 12, 16, 24, 48] {
-            let numerator = (raw_beat * denominator as f64).round().max(0.0) as u64;
-            let candidate = numerator as f64 / denominator as f64;
-            if (candidate - raw_beat).abs() <= tolerance {
-                snapped = candidate;
-                break;
-            }
-        }
-        (bar as u32, (snapped / beats.max(1.0)).clamp(0.0, 1.0))
-    };
-    let scaled_tempo = |ms: f64, bpm: f64| {
-        let bar = lines.partition_point(|t| *t <= ms).saturating_sub(1);
-        let raw_end = lines.get(bar + 1).copied().unwrap_or(lines[bar] + 4000.0);
-        let stored_beats = bar_tempos[bar]
-            .iter()
-            .enumerate()
-            .map(|(i, &(_, segment_bpm))| {
-                let end = bar_tempos[bar].get(i + 1).map_or(raw_end, |next| next.0);
-                (end - bar_tempos[bar][i].0).max(0.0) * segment_bpm / 60000.0
-            })
-            .sum::<f64>();
-        let target_beats = position_lengths.get(&(bar as u32)).copied().unwrap_or(1.0) * 4.0;
-        if stored_beats > 0.0 {
-            bpm * target_beats / stored_beats
-        } else {
-            bpm
-        }
+    let pos = |ms: f64| {
+        let (bar, fraction) = layout.position(ms);
+        (bar as u32, fraction)
     };
     let mut samples = std::collections::HashMap::<(bool, u8), WavId>::new();
-    let mut have_initial_bpm = false;
     for event in &ply.events {
         let ms = ply.millis(event.time);
         let (measure, fraction) = pos(ms);
@@ -635,21 +410,10 @@ fn native_ply_chart(ply: &Ply, title: String, level: u8, difficulty: u8, double:
                     .wav_table
                     .insert(WavId(sound), format!("{sound:04}.wav"));
             }
-            Command::Bpm { bpm } if bpm > 0.0 && !have_initial_bpm => {
-                chart.header.bpm = bpm;
-                have_initial_bpm = true;
-            }
-            Command::Bpm { bpm } if bpm > 0.0 && has_real_bpm_change => {
-                chart.timing_events.push(TimingEvent {
-                    measure,
-                    fraction,
-                    kind: TimingEventKind::BpmChange(scaled_tempo(ms, bpm)),
-                });
-            }
             _ => {}
         }
     }
     chart.total_notes_count = chart.notes.len();
-    chart.max_measure = lines.len().saturating_sub(1) as u32;
-    chart
+    chart.max_measure = bar_beats.len().saturating_sub(1) as u32;
+    Some(chart)
 }

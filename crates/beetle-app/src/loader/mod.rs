@@ -1435,4 +1435,54 @@ mod tests {
             other => panic!("no disc video: {other:?}"),
         }
     }
+
+    /// With `CS_DISC_IIDX14` set: THE LEAST 100sec slows down inside its
+    /// bars at 20-21.5 s, and every note and background sound still plays at
+    /// its frame time (it was up to 0.5 s late).
+    #[test]
+    fn a_gold_chart_slowing_inside_bars_keeps_its_frame_times() {
+        let Ok(image) = std::env::var("CS_DISC_IIDX14") else {
+            return;
+        };
+        let key = "083/sp_another";
+        let mut disc = cs_disc::open(&image).unwrap();
+        let volume = cs_disc::Volume::open(&mut disc).unwrap();
+        let songs = cs_disc::iidx15::Disc::open(&mut disc, &volume, cs_disc::iidx15::Edition::Gold)
+            .unwrap();
+        let (song, chart) = songs.find(key).unwrap();
+        let ply = songs.chart_ply(&mut disc, chart).unwrap();
+        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let meta =
+            SongMetadata::from_bytes(&beetle_core::disc_address(&image, key), bms.as_bytes())
+                .unwrap();
+        let (chart, ..) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        let timing = beetle_core::timing::TimingModel::from_chart(&chart);
+        let ms = |m: u32, f: f64| timing.beat_to_time_seconds(m, f) * 1000.0;
+        let mut want: Vec<f64> = ply
+            .events
+            .iter()
+            .filter(|e| {
+                e.time > 0
+                    && matches!(
+                        e.command,
+                        cs_disc::ply::Command::Note { .. } | cs_disc::ply::Command::Auto { .. }
+                    )
+            })
+            .map(|e| ply.millis(e.time))
+            .collect();
+        let mut got: Vec<f64> = chart
+            .notes
+            .iter()
+            .filter(|n| n.note_type != beetle_core::NoteType::LongNoteEnd)
+            .map(|n| ms(n.measure, n.fraction))
+            .chain(chart.bgm_notes.iter().map(|(m, f, _)| ms(*m, *f)))
+            .filter(|t| *t > 1.0)
+            .collect();
+        want.sort_by(f64::total_cmp);
+        got.sort_by(f64::total_cmp);
+        assert_eq!(want.len(), got.len());
+        for (w, g) in want.iter().zip(&got) {
+            assert!((w - g).abs() < 15.0, "{w} ms plays at {g} ms");
+        }
+    }
 }

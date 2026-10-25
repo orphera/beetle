@@ -410,6 +410,72 @@ fn position(bars: &[Bar], t: f64) -> Pos {
     }
 }
 
+/// Each bar's first tempo when it changes, and changes inside bars, as
+/// positions; the chart's starting tempo is `bars[0]`'s first and not listed.
+fn tempo_changes(bars: &[Bar]) -> Vec<(Pos, f64)> {
+    let mut changes = Vec::new();
+    let mut current = String::new();
+    for (i, bar) in bars.iter().enumerate() {
+        for seg in &bar.segments {
+            let text = tempo_text(seg.bpm);
+            if text == current {
+                continue;
+            }
+            current = text;
+            if i == 0 && seg.start_ms == bar.start_ms {
+                continue;
+            }
+            let pos = if seg.start_ms == bar.start_ms {
+                Pos { bar: i, n: 0, d: 1 }
+            } else {
+                position(bars, seg.start_ms)
+            };
+            changes.push((pos, seg.bpm));
+        }
+    }
+    changes
+}
+
+/// The bars and tempos `to_bms` writes, for a player that builds its chart
+/// from the `.ply` directly instead of parsing the BMS text.
+pub struct Layout {
+    bars: Vec<Bar>,
+}
+
+impl Layout {
+    pub fn of(ply: &Ply) -> Result<Self, BmsError> {
+        Ok(Self { bars: bars(ply)? })
+    }
+
+    /// Bar lengths in beats, in order.
+    pub fn bar_beats(&self) -> impl Iterator<Item = f64> + '_ {
+        self.bars.iter().map(Bar::beats)
+    }
+
+    pub fn initial_bpm(&self) -> f64 {
+        self.bars[0].segments[0].bpm
+    }
+
+    /// Tempo changes after the start: (bar, fraction of the bar, bpm).
+    pub fn tempo_changes(&self) -> Vec<(usize, f64, f64)> {
+        tempo_changes(&self.bars)
+            .into_iter()
+            .map(|(pos, bpm)| (pos.bar, self.fraction(pos), bpm))
+            .collect()
+    }
+
+    /// Where time `ms` falls, snapped as in the BMS text: (bar, fraction of the bar).
+    pub fn position(&self, ms: f64) -> (usize, f64) {
+        let pos = position(&self.bars, ms);
+        (pos.bar, self.fraction(pos))
+    }
+
+    fn fraction(&self, pos: Pos) -> f64 {
+        let bar = &self.bars[pos.bar];
+        (pos.n * bar.beats_den) as f64 / (pos.d * bar.beats_num) as f64
+    }
+}
+
 /// A tempo as written in the BMS text.
 fn tempo_text(bpm: f64) -> String {
     format!("{bpm:.6}")
@@ -487,32 +553,17 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
 
     // Tempo objects: each bar's first tempo when it changes, and changes inside bars.
     let mut tempo_ids: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for (i, bar) in bars.iter().enumerate() {
-        for seg in &bar.segments {
-            let text = tempo_text(seg.bpm);
-            if text == current {
-                continue;
+    for (pos, bpm) in tempo_changes(&bars) {
+        let text = tempo_text(bpm);
+        let index = match tempo_ids.iter().position(|t| *t == text) {
+            Some(k) => k,
+            None => {
+                tempo_ids.push(text);
+                tempo_ids.len() - 1
             }
-            current = text.clone();
-            if i == 0 && seg.start_ms == bar.start_ms {
-                continue; // `#BPM` covers the start
-            }
-            let index = match tempo_ids.iter().position(|t| *t == text) {
-                Some(k) => k,
-                None => {
-                    tempo_ids.push(text);
-                    tempo_ids.len() - 1
-                }
-            };
-            let id = base36(index + 1).ok_or(BmsError::TooManyTempos)?;
-            let pos = if seg.start_ms == bar.start_ms {
-                Pos { bar: i, n: 0, d: 1 }
-            } else {
-                position(&bars, seg.start_ms)
-            };
-            objects.entry((pos.bar, 8)).or_default().push((pos, id));
-        }
+        };
+        let id = base36(index + 1).ok_or(BmsError::TooManyTempos)?;
+        objects.entry((pos.bar, 8)).or_default().push((pos, id));
     }
 
     let mut out = String::new();
