@@ -786,9 +786,14 @@ impl Disc {
             return Ok(None);
         };
         let [genre, big, artist, small] = *refs;
+        let rect_base = if matches!(self.edition, Edition::Red | Edition::TenthStyle) {
+            0x90
+        } else {
+            0xd0
+        };
         let mask = |disc: &mut SectorReader<R>, (index, container): (u16, u16)| {
             Ok::<_, io::Error>(
-                self.word_sprite(disc, container, index)?
+                self.word_sprite(disc, container, index, rect_base)?
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)),
             )
         };
@@ -809,6 +814,7 @@ impl Disc {
         disc: &mut SectorReader<R>,
         container: u16,
         index: u16,
+        rect_base: usize,
     ) -> io::Result<Option<Rgba>> {
         let Some(archive) = self.read_data1(disc, container as u32)? else {
             return Ok(None);
@@ -823,10 +829,13 @@ impl Disc {
             return Ok(None);
         };
         let count = u16_le(&table, 6).unwrap_or(0);
-        if index >= count {
+        // The rectangles start at `rect_base` (0xd0, or 0x90 where the
+        // header has room for eight more); the count covers the rest.
+        let rects = (table.len().saturating_sub(rect_base)) / 8;
+        if index as usize >= rects.min(count as usize + (0xd0 - rect_base) / 8) {
             return Ok(None);
         }
-        let at = 0xd0 + index as usize * 8;
+        let at = rect_base + index as usize * 8;
         let Some(rect) = table.get(at..at + 8) else {
             return Ok(None);
         };
@@ -1053,6 +1062,8 @@ fn word_ref_offsets(edition: Edition) -> Option<[usize; 4]> {
             Some([0xac, 0xb0, 0xb4, 0xb8])
         }
         Edition::Gold => Some([0xa0, 0xa4, 0xa8, 0xac]),
+        Edition::Red => Some([0xec, 0xf0, 0xf4, 0xf8]),
+        Edition::TenthStyle => Some([0xdc, 0xe0, 0xe4, 0xec]),
         Edition::Distorted => Some([0xa4, 0xa8, 0xac, 0xb0]),
         Edition::HappySky => Some([0xd8, 0xdc, 0xe0, 0xe4]),
         // RED (0xec..0xf8, sheets 281-284) and 10th style (0xdc..0xec, sheets
@@ -1075,7 +1086,8 @@ fn read_word_refs(
         .map(|id| {
             offsets.map(|off| {
                 let r = at_record(id) + off;
-                (u16_le(exe, r).unwrap_or(0), u16_le(exe, r + 2).unwrap_or(0))
+                let index = u16_le(exe, r).unwrap_or(0);
+                (index, u16_le(exe, r + 2).unwrap_or(0))
             })
         })
         .collect()
