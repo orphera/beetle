@@ -146,7 +146,8 @@
 
 - 13·14·15: 레코드가 가리키는 DATA1 파일은 애니메이션 묶음이고, 그 1번 파일이 스테이지 그림(PSMT8 텍스처)이다.
   - 폭 640인 텍스처에는 298픽셀 폭의 그림 두 장이 나란히 들어 있고, 두 번째가 ANOTHER용이다.
-  - DistorteD와 GOLD는 넓은 텍스처가 모두 그렇다(DistorteD 15곡, 예: CONTRACT의 ANOTHER는 朱雀 그림). DJ TROOPERS는 Beautiful Angel과 CRYMSON 두 곡뿐이다.
+  - DistorteD와 GOLD는 넓은 텍스처가 모두 그렇다. DistorteD는 15곡이다. 그중 ANOTHER 채보가 다른 믹스인 곡(OUTER LIMITS → ALTERNATIVE, Attack the music → 49 MUSIC MIX, super highway → SUPER SUBWAY MIX, RemyWiki)은 두 번째 그림에 그 믹스 이름이 있고, 5곡은 두 그림이 같다.
+  - DistorteD의 CARDINAL GATE 5곡은 예외다. 그 모드는 곡을 아티스트 이름으로 보여 주며(RemyWiki `CS_DistorteD`), 한 장은 그 이름을 크게 쓴 카드(朱雀, 玄武, 青龍, 白虎, 嘆きの樹)다. ANOTHER용이 아니므로 언제나 다른 한 장을 쓴다. CONTRACT·Ganymede는 그 카드가 두 번째, waxing and wanding·華蝶風雪·嘆きの樹는 첫 번째에 있다. DJ TROOPERS는 Beautiful Angel과 CRYMSON 두 곡뿐이다.
   - 13은 0x88의 파일이 스테이지 그림이다. iidx-ps2tools가 읽는 0x60은 BGA 오버레이 묶음이며 27곡에만 있다.
 - 16: 로딩 카드. PREMIUM BEST는 레코드에서 `(0, 0x5xx–0x6xx)` 단어 쌍 가운데 공용 UI가 아닌 마지막 것이 카드 번호다. EMPRESS는 이 규칙을 따르지 않아 곡 세부 정보 표의 `card` 열을 쓴다.
 

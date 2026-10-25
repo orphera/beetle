@@ -532,28 +532,36 @@ impl Disc {
                     let (width, height) = texture_size(size)?;
                     decode_psmt8(&raw, width, height)
                 });
-                Ok(image.map(|image| {
-                    if self.packs_variants(file) {
-                        select_packed_variant(image, another)
-                    } else {
-                        image
-                    }
+                Ok(image.map(|image| match self.packed_half(file, another) {
+                    Some(second) => select_packed_variant(image, second),
+                    None => image,
                 }))
             }
         }
     }
 
-    /// Whether stage file `file`'s texture holds two variants.
-    fn packs_variants(&self, file: u32) -> bool {
+    /// Which half of stage file `file`'s texture to show (`true`: the
+    /// second), or `None` when it holds one picture.
+    fn packed_half(&self, file: u32, another: bool) -> Option<bool> {
         // The extracted c0426/c0444 names are DATA1-side labels. The song
         // table's field uses these actual DATA1 file indices instead.
         const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
         const CRYMSON_OVERLAY: u32 = 0x1bc;
+        // DistorteD's CARDINAL GATE songs pair their card with the one the
+        // gate shows them by (the artist's name in kanji, 朱雀 …), which is
+        // never an ANOTHER card: CONTRACT and Ganymede put it second, waxing
+        // and wanding, 華蝶風雪 and 嘆きの樹 first.
+        const GATE_CARD_SECOND: [u32; 2] = [0x13d, 0x14a];
+        const GATE_CARD_FIRST: [u32; 3] = [0x183, 0x158, 0x160];
         match self.edition {
-            // Every wide DistorteD and GOLD texture holds two.
-            Edition::Distorted | Edition::Gold => true,
-            Edition::DjTroopers => matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY),
-            Edition::Empress | Edition::PremiumBest => false,
+            Edition::Distorted if GATE_CARD_SECOND.contains(&file) => Some(false),
+            Edition::Distorted if GATE_CARD_FIRST.contains(&file) => Some(true),
+            // Every other wide DistorteD and GOLD texture holds two.
+            Edition::Distorted | Edition::Gold => Some(another),
+            Edition::DjTroopers if matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY) => {
+                Some(another)
+            }
+            Edition::DjTroopers | Edition::Empress | Edition::PremiumBest => None,
         }
     }
 }
