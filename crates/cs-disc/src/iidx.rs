@@ -122,6 +122,8 @@ const DISTORTED: Layout = Layout {
     data1: (0x10d7f8, 0x1bf0),
     chart_key: None,
     // Levels as GOLD; eight overlay slots instead of six and no BLACK charts.
+    // The stage art is not the overlay file (0x60, BGA overlays on 27 songs)
+    // but a DATA1 file every record names.
     record: Record {
         size: 0x118,
         levels_at: 0x42,
@@ -130,7 +132,7 @@ const DISTORTED: Layout = Layout {
         charts_at: 0xb8,
         chart_count: 8,
         sounds_at: 0xd8,
-        stage: StageArt::Overlay { at: 0x60 },
+        stage: StageArt::Overlay { at: 0x88 },
     },
 };
 
@@ -504,7 +506,7 @@ impl Disc {
             .and_then(|bytes| first_picture(&bytes)))
     }
 
-    /// The picture shown while `song` loads: 14 and 15's stage image, of the
+    /// The picture shown while `song` loads: 13, 14 and 15's stage image, of the
     /// ANOTHER variant when `another` and the texture holds two; 16's loading
     /// card, from `card` (a hand-made table's) before the song's own.
     pub fn stage_image<R: Read + Seek>(
@@ -548,10 +550,8 @@ impl Disc {
         const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
         const CRYMSON_OVERLAY: u32 = 0x1bc;
         match self.edition {
-            // Every wide GOLD texture holds two.
-            Edition::Gold => true,
-            // Not looked at yet.
-            Edition::Distorted => false,
+            // Every wide DistorteD and GOLD texture holds two.
+            Edition::Distorted | Edition::Gold => true,
             Edition::DjTroopers => matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY),
             Edition::Empress | Edition::PremiumBest => false,
         }
