@@ -98,3 +98,8 @@
 - 상세 패널의 채보 탭 줄(`chart_tabs`)도 칩과 같은 방식으로 행 너비 안의 탭만 그리고, 나머지는 `+N`으로 표시. 선택된 탭은 항상 포함.
 - 묶음 제목이 열린 괄호 안에서 잘리던 문제(`Act Beloved [SP`): `shared_title` 이 공통 부분에 닫히지 않은 `(` `[` 가 있으면 그 앞에서 자름 → `Act Beloved`.
 - 검증: `beetle-core` title 7개, `beetle-render` select 17개 통과, 워크스페이스 체크 통과. 실제 화면은 확인하지 않음.
+
+## 3의 처리(2026-10-25): 콤보 숫자
+- 콤보 숫자와 그 아래 그림자는 마지막 판정 뒤 1초(`COMBO_SECONDS`)가 지나면 사라짐. 콤보 수는 그대로 두고 다음 판정 때 다시 나타남 ([play.rs](crates/beetle-render/src/screens/play.rs)의 `combo_and_judge`).
+- 판정 문구는 기존처럼 0.5초.
+- 검증: `beetle-render` play 48개 통과, 워크스페이스 체크 통과. 실제 화면은 확인하지 않음.

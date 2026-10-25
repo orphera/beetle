@@ -92,6 +92,9 @@ pub struct PlayFrame<'a> {
 
 const BURST_SECONDS: f64 = 0.28;
 const JUDGE_SECONDS: f64 = 0.5;
+/// How long the combo number stays after the last judgement; the count itself
+/// is kept and shows again on the next one.
+const COMBO_SECONDS: f64 = 1.0;
 /// READY ends this long before the first note (audio seconds).
 const READY_LEAD: f64 = 1.0;
 /// READY fades out over this long, ending at `READY_LEAD` before the first note.
@@ -1090,8 +1093,10 @@ fn combo_and_judge(
     let cx = field.x + field.w / 2.0;
     let anchor = f.layout.judge_line_y - f.layout.judge_position.anchor_720() * s;
     let since = f.last_judge.map(|(_, at, _)| f.audio_time - at);
+    let combo_shown =
+        f.score.current_combo > 0 && since.is_some_and(|e| (0.0..COMBO_SECONDS).contains(&e));
 
-    if f.score.current_combo > 0 || since.is_some_and(|e| (0.0..JUDGE_SECONDS).contains(&e)) {
+    if combo_shown || since.is_some_and(|e| (0.0..JUDGE_SECONDS).contains(&e)) {
         // Soft dark pool so text stays legible over notes. Off the Upper
         // position it sits over the notes just above the judge line, so it is
         // much fainter there.
@@ -1110,7 +1115,7 @@ fn combo_and_judge(
         );
     }
 
-    if f.score.current_combo > 0 {
+    if combo_shown {
         let pulse = match since {
             Some(e) if (0.0..0.12).contains(&e) => {
                 1.0 + 0.12 * (1.0 - ease_out_cubic((e / 0.12) as f32))
