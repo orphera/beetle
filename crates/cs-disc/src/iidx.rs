@@ -100,9 +100,8 @@ enum StageArt {
         /// card) and which pair is ANOTHER's. Picture 0 is the left one.
         picks: Picks,
     },
-    /// A DATA1 file found by a rule over the whole record
-    /// (`card_container`), holding the loading card (16).
-    Card,
+    /// The DATA1 file a record field names, holding the loading card (16).
+    Card { at: usize },
 }
 
 /// Where a record's stage picture choices are (`StageArt::Overlay`).
@@ -217,7 +216,7 @@ const EMPRESS: Layout = Layout {
     file_records: FileRecords::Bytes,
     chart_key: Some(b"uYlFgVwOpaQmXdIR"),
     record: Record {
-        stage: StageArt::Card,
+        stage: StageArt::Card { at: 0x94 },
         ..RECORD_15_16
     },
 };
@@ -556,7 +555,7 @@ impl Disc {
         card: Option<u32>,
     ) -> io::Result<Option<Rgba>> {
         match self.edition.layout().record.stage {
-            StageArt::Card => match card.or(song.stage) {
+            StageArt::Card { .. } => match card.or(song.stage) {
                 Some(file) => self.card_image(disc, file),
                 None => Ok(None),
             },
@@ -692,25 +691,6 @@ fn first_picture(archive: &[u8]) -> Option<Rgba> {
         })
 }
 
-/// DATA1 files every 16 song record names that are shared UI, not a song's card.
-const SHARED_CONTAINERS: [u32; 6] = [0x520, 0x521, 0x522, 0x523, 0x6a6, 0x5a8];
-
-/// A 16 song's loading card: the last `(0, 0x5xx..0x6xx)` word pair of its
-/// record that is not shared UI.
-fn card_container(record: &[u8]) -> Option<u32> {
-    let words: Vec<u32> = record
-        .chunks_exact(2)
-        .map(|w| u16::from_le_bytes([w[0], w[1]]) as u32)
-        .collect();
-    words
-        .windows(2)
-        .filter(|w| {
-            w[0] == 0 && (0x500..0x700).contains(&w[1]) && !SHARED_CONTAINERS.contains(&w[1])
-        })
-        .map(|w| w[1])
-        .next_back()
-}
-
 fn table(exe: &[u8], (at, len): (usize, usize)) -> io::Result<&[u8]> {
     exe.get(at..at + len)
         .ok_or_else(|| invalid("the executable is shorter than its tables".to_string()))
@@ -793,14 +773,13 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
                 let second = (0..picks.count).any(|slot| pick(slot).is_some_and(|p| p != 0));
                 pick(0).map(|usual| (usual, pick(picks.another), second))
             }
-            StageArt::Card => None,
+            StageArt::Card { .. } => None,
         };
         let stage = match layout.stage {
-            StageArt::Overlay { at, .. } => {
+            StageArt::Overlay { at, .. } | StageArt::Card { at } => {
                 let file = u32_at(record, at);
                 (file != 0 && file != u32::MAX).then_some(file)
             }
-            StageArt::Card => card_container(record),
         };
         songs.push(Song {
             id: id as u32,
