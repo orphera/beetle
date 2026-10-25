@@ -481,6 +481,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let visible = beetle_render::visible_rows(&state.view.ui);
     let settled = state.cursor_settle_time.elapsed() >= crate::thumbs::SETTLE;
     state.jacket_busy = crate::thumbs::pump(state, motion.scroll, visible, settled);
+    crate::words::pump(state, motion.scroll, visible);
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()

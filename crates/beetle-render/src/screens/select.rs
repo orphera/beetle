@@ -18,6 +18,7 @@ use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::Viewport;
+use crate::words::{WordAtlas, WordRegions};
 use beetle_core::{
     ClearType, LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex,
 };
@@ -194,7 +195,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
     } else if f.rows.is_empty() {
         empty_state(c, t, &sk, f, content, s, &mut hs);
     } else if !f.show_help {
-        song_list(c, t, &sk, f, list, s, &mut hs, &mut ui.jackets);
+        song_list(c, t, &sk, f, list, s, &mut hs, &mut ui.jackets, &ui.words);
         let detail = Rect::from_ltrb(
             list.right() + PAD * s,
             content.y,
@@ -837,6 +838,7 @@ fn song_list(
     s: f32,
     hs: &mut HitSink,
     jackets: &mut JacketAtlas,
+    words: &WordAtlas,
 ) {
     let step = (ROW_H + ROW_GAP) * s;
     let rows = visible_rows(f.viewport);
@@ -899,6 +901,7 @@ fn song_list(
                     on,
                     hot,
                     jacket,
+                    words.get(song.id),
                     s,
                 );
             }
@@ -917,9 +920,28 @@ fn song_list(
                 if whole {
                     hs.add(view, HitId::ListRow(slot));
                 }
+                let group_words = charts
+                    .get(selected)
+                    .and_then(|&i| f.songs.get(i))
+                    .and_then(|song| words.get(song.id));
                 group_row(
-                    c, t, sk, f, title, charts, labels, selected, slot, row, view, on, hot, jacket,
-                    s, hs,
+                    c,
+                    t,
+                    sk,
+                    f,
+                    title,
+                    charts,
+                    labels,
+                    selected,
+                    slot,
+                    row,
+                    view,
+                    on,
+                    hot,
+                    jacket,
+                    group_words,
+                    s,
+                    hs,
                 );
             }
         }
@@ -986,6 +1008,7 @@ fn song_row(
     on: bool,
     hot: bool,
     jacket: Option<(AtlasRegion, bool)>,
+    words: Option<WordRegions>,
     s: f32,
 ) {
     row_background(c, sk, row, on, hot, s);
@@ -1001,7 +1024,19 @@ fn song_row(
     );
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
-    row_title(c, t, row, &song.title, tx, text_w, on, s);
+    // A disc song's title is its word picture when one is resident and fits
+    // the column; otherwise the text title.
+    title_or_word(
+        c,
+        t,
+        row,
+        &song.title,
+        tx,
+        text_w,
+        on,
+        words.and_then(|w| w.title),
+        s,
+    );
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
     let mode = theme::mode_label(song.play_mode);
     let mode_w = t.draw(
@@ -1015,10 +1050,27 @@ fn song_row(
     if let Some(chip) = table_chip {
         ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
     }
-    let artist = t
-        .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
-        .into_owned();
-    t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
+    // The artist's word picture, at a height that leaves the row's right
+    // column clear; the text artist when it does not fit or is not resident.
+    let (aw, ah) = crate::words::ARTIST_SIZE;
+    let artist_h = 14.0 * s;
+    let artist_w = aw as f32 * artist_h / ah as f32;
+    let artist_word = words
+        .and_then(|w| w.artist)
+        .filter(|_| ax + artist_w <= row.right() - right_w - 16.0 * s);
+    match artist_word {
+        Some(region) => {
+            let tint = theme::MUTED;
+            let dst = Rect::new(ax, row.y + 28.0 * s, artist_w, artist_h);
+            c.sprite(region, dst, tint);
+        }
+        None => {
+            let artist = t
+                .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
+                .into_owned();
+            t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
+        }
+    }
 
     row_record(c, t, sk, best, row, right_w, s);
 }
@@ -1132,6 +1184,36 @@ fn row_jacket(
     );
 
     j.right() + 12.0 * s
+}
+
+/// The row title: its word picture when one is given and fits `text_w`,
+/// else the text cut to `text_w`.
+#[allow(clippy::too_many_arguments)]
+fn title_or_word(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    row: Rect,
+    text: &str,
+    tx: f32,
+    text_w: f32,
+    on: bool,
+    word: Option<AtlasRegion>,
+    s: f32,
+) {
+    let word = word.filter(|_| text_w >= crate::words::TITLE_SIZE.0 as f32 * s);
+    match word {
+        Some(region) => {
+            let (w, h) = crate::words::TITLE_SIZE;
+            let tint = if on {
+                theme::TEXT
+            } else {
+                theme::TEXT.with_alpha(215)
+            };
+            let dst = Rect::new(tx, row.y + 8.0 * s, w as f32 * s, h as f32 * s);
+            c.sprite(region, dst, tint);
+        }
+        None => row_title(c, t, row, text, tx, text_w, on, s),
+    }
 }
 
 /// The row title on one line, cut to `text_w`.
@@ -1262,6 +1344,7 @@ fn group_row(
     on: bool,
     hot: bool,
     jacket: Option<(AtlasRegion, bool)>,
+    words: Option<WordRegions>,
     s: f32,
     hs: &mut HitSink,
 ) {
@@ -1282,7 +1365,17 @@ fn group_row(
     );
     let right_w = 112.0 * s;
     let text_w = row.right() - right_w - 16.0 * s - tx;
-    row_title(c, t, row, title, tx, text_w, on, s);
+    title_or_word(
+        c,
+        t,
+        row,
+        title,
+        tx,
+        text_w,
+        on,
+        words.and_then(|w| w.title),
+        s,
+    );
 
     // Chips on the second line, then the chosen chart's artist. Only the chips
     // that fit the row are drawn, the chosen one always among them; the rest

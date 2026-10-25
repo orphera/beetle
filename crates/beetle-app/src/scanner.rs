@@ -247,6 +247,7 @@ fn read_disc_songs(
     };
     let details = crate::disc_meta::load(edition.slug());
     let mut copies = Vec::new();
+    let mut charts = Vec::new();
     for song in &songs.songs {
         for chart in &song.charts {
             // The identity comes from the disc alone; the details only show.
@@ -256,6 +257,7 @@ fn read_disc_songs(
             let key = chart.key(song);
             let address = disc_address(&source, &key);
             if let Some(mut meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                charts.push((meta.id, song.id));
                 if let Some(d) = details.get(&song.id) {
                     for (field, value) in [
                         (&mut meta.title, &d.title),
@@ -278,6 +280,7 @@ fn read_disc_songs(
             }
         }
     }
+    crate::names::ensure(&mut disc, &songs, edition.slug(), &source, &charts);
     copies
 }
 

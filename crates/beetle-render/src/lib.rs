@@ -23,6 +23,7 @@ pub mod theme;
 pub mod ui;
 pub mod video;
 pub mod view;
+pub mod words;
 
 pub use art::{Halo, NineSlice, Skin};
 pub use backdrop::{BlurBackdrop, Mix};

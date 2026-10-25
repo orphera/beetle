@@ -8,6 +8,7 @@ use crate::canvas::{Canvas, Rect};
 use crate::hit::{self, Hit, HitId};
 use crate::jacket::JacketAtlas;
 use crate::text::TextEngine;
+use crate::words::WordAtlas;
 
 pub struct Ui {
     pub canvas: Canvas,
@@ -33,6 +34,9 @@ pub struct Ui {
     pub clock: f32,
     /// Song jacket thumbnails, in a slot grid of the shared atlas (`jacket`).
     pub jackets: JacketAtlas,
+    /// Title and artist word pictures of game discs, in slots of the shared
+    /// atlas (`words`).
+    pub words: WordAtlas,
     /// The blurred jacket backdrop of the menu screens (`backdrop`), two
     /// slots in the shared atlas with a crossfade between them.
     pub backdrop: BlurBackdrop,
@@ -56,6 +60,7 @@ impl Ui {
         let mut canvas = Canvas::new(crate::canvas::atlas_page_size_for_scale(scale));
         let skin = Skin::generate(canvas.atlas_mut(), scale);
         let jackets = JacketAtlas::new(canvas.atlas_mut());
+        let words = WordAtlas::new(canvas.atlas_mut());
         Self {
             canvas,
             text: TextEngine::new(),
@@ -66,6 +71,7 @@ impl Ui {
             ime_caret: None,
             clock: 0.0,
             jackets,
+            words,
             backdrop: BlurBackdrop::new(),
             rebuilds: 0,
         }
@@ -87,6 +93,9 @@ impl Ui {
             let residents = self.jackets.residents();
             self.jackets = JacketAtlas::new(self.canvas.atlas_mut());
             self.jackets.restore(self.canvas.atlas_mut(), residents);
+            // The word pictures are not kept on the CPU: the app writes them
+            // again when their charts are next on screen.
+            self.words = WordAtlas::new(self.canvas.atlas_mut());
             self.backdrop.reset();
         }
         self.canvas.begin(width, height);
@@ -287,7 +296,8 @@ mod tests {
             let (canvas, text) = (&mut ui.canvas, &mut ui.text);
             text.draw(canvas, "Beetle 한글 テスト", 0.0, 20.0, &style);
         }
-        assert_eq!(ui.canvas.atlas().page_count(), 1);
+        // Page 0 for the skin, glyphs and jackets; the word grid's own page.
+        assert_eq!(ui.canvas.atlas().page_count(), 2);
         assert_eq!(ui.skin.scale, 1.5);
     }
 
@@ -337,7 +347,9 @@ mod tests {
                     .expect("resident");
                 assert_eq!(r.page, 0, "thumb {seed} at scale {scale}");
             }
-            assert_eq!(ui.canvas.atlas().page_count(), 1, "scale {scale}");
+            // The word grid (`words`) takes a second page when the first is
+            // full; no other page is ever needed.
+            assert!(ui.canvas.atlas().page_count() <= 2, "scale {scale}");
         }
     }
 }

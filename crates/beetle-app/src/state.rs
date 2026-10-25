@@ -267,6 +267,13 @@ pub struct AppState {
     pub stage_image_loading_id: Option<ChartId>,
     /// Jacket thumbnails for the song select list (see `thumbs`).
     pub thumbs: crate::thumbs::ThumbLoader,
+    /// Disc word pictures by chart (`words`), read from `disc_meta` on the first
+    /// frame; `None` until then.
+    pub disc_names: Option<
+        std::collections::HashMap<beetle_core::ChartId, std::sync::Arc<cs_disc::popn::SongNames>>,
+    >,
+    /// The song count `disc_names` was read for: a scan that changes the list reads them again.
+    pub disc_names_songs: usize,
     /// Some visible row is still waiting for its jacket: the loop keeps redrawing.
     pub jacket_busy: bool,
     /// Song-select audio preview (`#PREVIEW`).

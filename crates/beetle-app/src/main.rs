@@ -18,6 +18,7 @@ mod install;
 mod lane_logic;
 mod loader;
 mod menu_audio;
+mod names;
 mod options_table;
 mod present;
 mod preview;
@@ -33,6 +34,7 @@ mod tables;
 mod thumbs;
 mod transition;
 mod turntable;
+mod words;
 mod xinput;
 
 #[cfg(not(target_os = "windows"))]
@@ -361,6 +363,8 @@ impl ApplicationHandler for BeetleApp {
             stage_image_receiver: None,
             stage_image_loading_id: None,
             thumbs: thumbs::ThumbLoader::new(),
+            disc_names: None,
+            disc_names_songs: 0,
             jacket_busy: false,
             preview: preview::Preview::default(),
             menu_audio: menu_audio::MenuAudio::default(),

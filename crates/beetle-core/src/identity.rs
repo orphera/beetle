@@ -24,6 +24,11 @@ impl ChartId {
         Self(sha256_digest(data))
     }
 
+    /// The id with these digest bytes, as `as_bytes` gives them back.
+    pub fn from_digest(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }

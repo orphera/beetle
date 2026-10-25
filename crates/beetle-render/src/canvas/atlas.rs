@@ -157,6 +157,9 @@ struct Page {
     full: bool,
     /// Rectangles written since the last sync (see `add_dirty`).
     dirty: DirtySlots,
+    /// Taken by `alloc_dedicated`: general `alloc` calls skip the page, so
+    /// nothing but its owner's region lands on it.
+    dedicated: bool,
 }
 
 impl Page {
@@ -168,6 +171,7 @@ impl Page {
             texture: None,
             full: true,
             dirty: [None; MAX_DIRTY],
+            dedicated: false,
         }
     }
 
@@ -262,6 +266,7 @@ impl UiAtlas {
             .pages
             .iter_mut()
             .enumerate()
+            .filter(|(_, p)| !p.dedicated)
             .find_map(|(i, p)| p.alloc(size, pw, ph).map(|pos| (i, pos)));
         let (page, (x, y)) = match found {
             Some(hit) => hit,
@@ -275,6 +280,46 @@ impl UiAtlas {
         };
         Some(AtlasRegion {
             page: page as u16,
+            x: (x + GUTTER) as u16,
+            y: (y + GUTTER) as u16,
+            w: w as u16,
+            h: h as u16,
+        })
+    }
+
+    /// Reserves a `w`×`h` region on a page of its own, which `alloc` never
+    /// uses for anything else. For a grid whose draws must not share a page
+    /// with the rest of the UI. `None` when the region cannot fit a page or
+    /// the pages are used up.
+    pub fn alloc_dedicated(&mut self, w: u32, h: u32) -> Option<AtlasRegion> {
+        let (pw, ph) = (w + 2 * GUTTER, h + 2 * GUTTER);
+        if w == 0 || h == 0 || pw > self.size || ph > self.size {
+            return None;
+        }
+        let size = self.size;
+        // A rebuild reserves the grid again: the dedicated page is reused
+        // (emptied) rather than adding one per rebuild.
+        let index = match self.pages.iter().position(|p| p.dedicated) {
+            Some(index) => {
+                let page = &mut self.pages[index];
+                page.pixels.fill(0);
+                page.shelves.clear();
+                page.next_shelf_y = 0;
+                page.full = true;
+                page.dirty = [None; MAX_DIRTY];
+                index
+            }
+            None if self.pages.len() < MAX_PAGES => {
+                let mut page = Page::new(size);
+                page.dedicated = true;
+                self.pages.push(page);
+                self.pages.len() - 1
+            }
+            None => return None,
+        };
+        let (x, y) = self.pages[index].alloc(size, pw, ph)?;
+        Some(AtlasRegion {
+            page: index as u16,
             x: (x + GUTTER) as u16,
             y: (y + GUTTER) as u16,
             w: w as u16,
