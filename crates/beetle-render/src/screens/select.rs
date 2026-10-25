@@ -1907,13 +1907,30 @@ fn detail_panel(
     let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
 
     let disc = is_disc_song(song);
-    let popn = word.is_some_and(|w| w.popn);
+    // A disc with a picture on the select screen is pop'n (IIDX has none
+    // there); the word names say so too, once they are read.
+    let popn = word.is_some_and(|w| w.popn) || f.jacket.is_some();
     let no_art = disc && !popn;
     // A pop'n disc shows its banner as a bar above the text; an IIDX disc has
     // no picture, so its text takes the whole panel.
-    let dy = if disc && popn { 84.0 * s } else { 0.0 };
+    // pop'n: the banner bar (4.2:1, 48 high) takes the top; the tier row, the
+    // title, the artist and the genre stack below it, above the stats.
+    // pop'n order from the top: the difficulty row, the banner, the title, the
+    // artist, the genre. `dy` moves the title block below the banner.
+    let (bar_h, bar_y, tier_y, dy) = if disc && popn {
+        (48.0 * s, 14.0 * s, 14.0 * s, 8.0 * s)
+    } else {
+        (0.0, 0.0, 14.0 * s, 0.0)
+    };
     let jacket = Rect::new(inner.x, inner.y, 256.0 * s, 192.0 * s);
-    let bar = Rect::new(inner.x, inner.y, 300.0 * s, 72.0 * s);
+    // The banner floats at the panel's top right, so the text column does not
+    // move when it is not loaded yet.
+    let bar = Rect::new(
+        inner.right() - bar_h * 4.2,
+        inner.y + bar_y,
+        bar_h * 4.2,
+        bar_h,
+    );
     if disc {
         if popn {
             if let Some(tex) = f.jacket {
@@ -1978,13 +1995,18 @@ fn detail_panel(
     } else {
         jacket.right() + 24.0 * s
     };
-    let iw = inner.right() - ix;
+    let bar_room = if disc && popn {
+        bar_h * 4.2 + 16.0 * s
+    } else {
+        0.0
+    };
+    let iw = inner.right() - ix - bar_room;
     let tier_txt = format!("{tier} {}", song.play_level);
     let tier_w = t.draw(
         c,
         &tier_txt,
         ix,
-        inner.y + 14.0 * s,
+        inner.y + tier_y,
         &caption(12.0, s).color(tier_col),
     );
     // The tables the chart is in (the first ones; the panel has no room for more).
@@ -1992,12 +2014,18 @@ fn detail_panel(
     for m in f.tables.matches_for(song.id).iter().take(3) {
         let table = &f.tables.tables()[m.table];
         let text = format!("{}{}", table.symbol, table.entries[m.entry].level);
-        chip_x += level_chip(c, t, &text, chip_x, inner.y + 14.0 * s, s) + 6.0 * s;
+        chip_x += level_chip(c, t, &text, chip_x, inner.y + tier_y, s) + 6.0 * s;
     }
     // One line at 26px if it fits, otherwise two lines at 20px.
-    let title_big = if no_art { 34.0 } else { 26.0 };
+    let title_big = if no_art { 40.0 } else { 26.0 };
     let big = TextStyle::new(title_big * s).bold().color(theme::TEXT);
-    let title_h = if no_art { 30.0 * s } else { 20.0 * s };
+    let title_h = if no_art {
+        36.0 * s
+    } else if popn {
+        22.0 * s
+    } else {
+        20.0 * s
+    };
     let title_word = word
         .and_then(|w| w.title)
         .map(|r| (r, title_h * r.w as f32 / r.h as f32))
@@ -2008,7 +2036,12 @@ fn detail_panel(
             Rect::new(ix, inner.y + dy + 22.0 * s, w, title_h),
             theme::TEXT,
         );
-        inner.y + dy + 70.0 * s
+        // Under the title, a small gap (IIDX and pop'n; others keep their spacing).
+        if disc {
+            inner.y + dy + 22.0 * s + title_h + 6.0 * s
+        } else {
+            inner.y + dy + 70.0 * s
+        }
     } else if t.measure(c, &song.title, &big) <= iw {
         t.draw(c, &song.title, ix, inner.y + dy + 46.0 * s, &big);
         inner.y + dy + 70.0 * s
@@ -2027,8 +2060,23 @@ fn detail_panel(
         t.draw(c, &sub, ix, y, &st);
         y += 20.0 * s;
     }
-    let artist_st = TextStyle::new(if no_art { 20.0 } else { 14.0 } * s).color(theme::MUTED);
-    let artist_h = if no_art { 20.0 * s } else { 13.0 * s };
+    let artist_st = TextStyle::new(
+        if no_art {
+            20.0
+        } else if popn {
+            18.0
+        } else {
+            14.0
+        } * s,
+    )
+    .color(theme::MUTED);
+    let artist_h = if no_art {
+        20.0 * s
+    } else if popn {
+        18.0 * s
+    } else {
+        13.0 * s
+    };
     let artist_word = word
         .and_then(|w| w.artist)
         .map(|r| (r, artist_h * r.w as f32 / r.h as f32))
@@ -2042,20 +2090,19 @@ fn detail_panel(
     }
     // The genre picture where the disc has one, else the text genre.
     let genre_h = if no_art { 18.0 * s } else { 13.0 * s };
+    // Below the artist, with room for its height (an IIDX artist is larger).
+    let genre_y = y + artist_h + 6.0 * s;
     let genre_word = word
         .and_then(|w| w.genre)
+        .filter(|_| !(disc && popn))
         .map(|r| (r, genre_h * r.w as f32 / r.h as f32))
         .filter(|&(_, w)| w <= iw);
     match genre_word {
-        Some((region, w)) => c.sprite(
-            region,
-            Rect::new(ix, y + 18.0 * s, w, genre_h),
-            theme::MUTED,
-        ),
-        None if !song.genre.is_empty() => {
+        Some((region, w)) => c.sprite(region, Rect::new(ix, genre_y, w, genre_h), theme::MUTED),
+        None if !song.genre.is_empty() && !(disc && popn) => {
             let st = TextStyle::new(12.0 * s).color(theme::MUTED);
             let genre = t.fit(c, &song.genre, iw, &st).into_owned();
-            t.draw(c, &genre, ix, y + 18.0 * s, &st);
+            t.draw(c, &genre, ix, genre_y, &st);
         }
         None => {}
     }

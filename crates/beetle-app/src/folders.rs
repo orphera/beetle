@@ -281,6 +281,12 @@ pub fn build_tree(
     ln_option: LnOption,
     pass: &[bool],
 ) -> Vec<Folder> {
+    // Game disc songs live in their own 디스크 folder; every other folder
+    // holds only the songs read from folders and packages.
+    let is_disc: Vec<bool> = songs.iter().map(is_disc_song).collect();
+    let plain: Vec<bool> = (0..songs.len()).map(|i| pass[i] && !is_disc[i]).collect();
+    let disc: Vec<bool> = (0..songs.len()).map(|i| pass[i] && is_disc[i]).collect();
+    let pass = plain.as_slice();
     let mut root = Vec::new();
     root.extend(leaf(
         "all".into(),
@@ -294,6 +300,13 @@ pub fn build_tree(
         "dir",
         strings::FOLDER_DIRS(),
         dir_folders(songs, pass),
+    ));
+
+    // Game discs: one folder per disc image, as the folder view shows them.
+    root.extend(branch(
+        "disc",
+        strings::FOLDER_DISC(),
+        dir_folders(songs, &disc),
     ));
 
     // Key modes.
@@ -1778,7 +1791,9 @@ mod tests {
             LnOption::Cn,
             &pass,
         );
-        assert_eq!(node(&tree, &FolderPath::top("all")).unwrap().count, 1);
+        // Disc songs are not in 전체 곡; they are in the 디스크 folder.
+        assert!(node(&tree, &FolderPath::top("all")).is_none());
+        assert!(node(&tree, &FolderPath::top("disc")).is_some());
     }
 
     #[test]

@@ -382,6 +382,10 @@ table! {
         ko "폴더별",
         en "By Folder",
         ja "フォルダ別";
+    pub FOLDER_DISC =
+        ko "디스크",
+        en "Discs",
+        ja "ディスク";
     pub FOLDER_PACKAGES =
         ko "설치한 곡",
         en "Installed Songs",
