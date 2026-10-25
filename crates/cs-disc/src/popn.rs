@@ -60,7 +60,10 @@ pub(crate) const POPN12: Layout = Layout {
     songs: (0xf6d30, 106),
     images: (0xde120, 600),
     banners: 3,
-    names: None,
+    names: Some(NameFiles {
+        title: 54,
+        artist: 56,
+    }),
 };
 
 pub(crate) const POPN13: Layout = Layout {
@@ -70,7 +73,10 @@ pub(crate) const POPN13: Layout = Layout {
     songs: (0x1339a0, 129),
     images: (0x10a420, 654),
     banners: 347,
-    names: None,
+    names: Some(NameFiles {
+        title: 349,
+        artist: 160,
+    }),
 };
 
 pub(crate) const POPN14: Layout = Layout {
@@ -101,7 +107,7 @@ const LEVELS_AT: usize = 0x51;
 /// The record's banner: its rectangle in the banner file.
 const BANNER_AT: usize = 0x40;
 /// The record's title and artist word rectangles (`u16` each), in the title
-/// and artist files of `NameFiles`. Found on 14; 12 and 13 do not read yet.
+/// and artist files of `NameFiles`. Found on 12, 13 and 14 (checked by eye).
 const TITLE_AT: usize = 0x10;
 const ARTIST_AT: usize = 0x18;
 /// The executable's load address, less its file offset.
@@ -371,8 +377,14 @@ impl Mask {
 /// record or the disc gives none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SongNames {
+    /// The title as the song list's big picture (the detail panel's).
     pub title: Option<Mask>,
+    /// The small title picture the list rows use, where the disc has one
+    /// (IIDX). `None` means the rows use `title`.
+    pub small_title: Option<Mask>,
     pub artist: Option<Mask>,
+    /// The genre picture (IIDX), where the disc has one.
+    pub genre: Option<Mask>,
 }
 
 /// Each record's title and artist rectangle numbers, in record order. Records

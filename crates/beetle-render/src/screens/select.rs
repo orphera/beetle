@@ -1035,10 +1035,9 @@ fn song_row(
         tx,
         text_w,
         on,
-        words.and_then(|w| w.title),
+        words.and_then(|w| w.small_title.or(w.title)),
         s,
     );
-    let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
     let mode = theme::mode_label(song.play_mode);
     let mode_w = t.draw(
         c,
@@ -1047,22 +1046,9 @@ fn song_row(
         row.y + 42.0 * s,
         &caption(12.0, s).color(if on { theme::CYAN } else { theme::MUTED }),
     );
-    let mut ax = tx + mode_w + 8.0 * s;
     if let Some(chip) = table_chip {
-        ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
+        level_chip(c, t, chip, tx + mode_w + 8.0 * s, row.y + 42.0 * s, s);
     }
-    artist_or_word(
-        c,
-        t,
-        row,
-        &song.artist,
-        ax,
-        right_w,
-        words.and_then(|w| w.artist),
-        &sub_st,
-        s,
-    );
-
     row_record(c, t, sk, best, row, right_w, s);
 }
 
@@ -1175,37 +1161,6 @@ fn row_jacket(
     );
 
     j.right() + 12.0 * s
-}
-
-/// The artist on a row's second line, from `x`: its word picture at the row's
-/// small height when one is given and fits before the right column, else the
-/// text cut to the same column.
-#[allow(clippy::too_many_arguments)]
-fn artist_or_word(
-    c: &mut Canvas,
-    t: &mut TextEngine,
-    row: Rect,
-    text: &str,
-    x: f32,
-    right_w: f32,
-    word: Option<AtlasRegion>,
-    st: &TextStyle,
-    s: f32,
-) {
-    let limit = row.right() - right_w - 16.0 * s;
-    let h = 14.0 * s;
-    // The picture keeps its own proportions at the row's height.
-    let width = |r: &AtlasRegion| h * r.w as f32 / r.h as f32;
-    match word.filter(|r| x + width(r) <= limit) {
-        Some(region) => {
-            let dst = Rect::new(x, row.y + 28.0 * s, width(&region), h);
-            c.sprite(region, dst, theme::MUTED)
-        }
-        None => {
-            let shown = t.fit(c, text, limit - x, st).into_owned();
-            t.draw(c, &shown, x, row.y + 42.0 * s, st);
-        }
-    }
 }
 
 /// The row title: its word picture when one is given and fits `text_w`,
@@ -1399,7 +1354,7 @@ fn group_row(
         tx,
         text_w,
         on,
-        words.and_then(|w| w.title),
+        words.and_then(|w| w.small_title.or(w.title)),
         s,
     );
 
@@ -1440,20 +1395,7 @@ fn group_row(
         let more = format!("+{}", n - (hi - lo));
         let st = caption(11.0, s).color(theme::MUTED);
         t.draw(c, &more, ax, base, &st);
-        ax += t.measure(c, &more, &st) + gap;
     }
-    let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
-    artist_or_word(
-        c,
-        t,
-        row,
-        &song.artist,
-        ax + 8.0 * s,
-        right_w,
-        words.and_then(|w| w.artist),
-        &sub_st,
-        s,
-    );
     row_record(c, t, sk, best, row, right_w, s);
 }
 
@@ -2061,10 +2003,24 @@ fn detail_panel(
             t.draw(c, &artist, ix, y, &artist_st);
         }
     }
-    if !song.genre.is_empty() {
-        let st = TextStyle::new(12.0 * s).color(theme::MUTED);
-        let genre = t.fit(c, &song.genre, iw, &st).into_owned();
-        t.draw(c, &genre, ix, y + 18.0 * s, &st);
+    // The genre picture where the disc has one, else the text genre.
+    let genre_h = 13.0 * s;
+    let genre_word = word
+        .and_then(|w| w.genre)
+        .map(|r| (r, genre_h * r.w as f32 / r.h as f32))
+        .filter(|&(_, w)| w <= iw);
+    match genre_word {
+        Some((region, w)) => c.sprite(
+            region,
+            Rect::new(ix, y + 18.0 * s, w, genre_h),
+            theme::MUTED,
+        ),
+        None if !song.genre.is_empty() => {
+            let st = TextStyle::new(12.0 * s).color(theme::MUTED);
+            let genre = t.fit(c, &song.genre, iw, &st).into_owned();
+            t.draw(c, &genre, ix, y + 18.0 * s, &st);
+        }
+        None => {}
     }
 
     // Chart stats along the jacket's bottom edge. MODE and NOTES hang off the

@@ -519,6 +519,8 @@ pub struct Disc {
     data1_files: Vec<(u64, u64)>,
     /// pop'n: each record's title and artist word rectangles (`song_names`).
     name_refs: Vec<(u16, u16)>,
+    /// PREMIUM BEST: each record's word sheet references (`WORD_REFS_AT`).
+    word_refs: Vec<[(u16, u16); 4]>,
 }
 
 fn missing(what: &str) -> io::Error {
@@ -574,6 +576,11 @@ impl Disc {
             data1,
             data1_files,
             name_refs: Vec::new(),
+            word_refs: if edition == Edition::PremiumBest {
+                read_word_refs(&exe, layout.songs, layout.record.size)
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -609,6 +616,7 @@ impl Disc {
                 .unwrap_or(FileExtent { lba: 0, size: 0 }),
             data1_files: crate::popn::read_images(&exe, layout).unwrap_or_default(),
             name_refs: crate::popn::read_name_refs(&exe, layout),
+            word_refs: Vec::new(),
         })
     }
 
@@ -737,15 +745,17 @@ impl Disc {
             .and_then(|bytes| first_picture(&bytes)))
     }
 
-    /// The word pictures of a pop'n `song`: its title and its artist, as
-    /// coverage masks. `None` on IIDX, or where the disc has no names for it.
+    /// The word pictures of a `song`: its title and its artist (and on
+    /// PREMIUM BEST its small title), as coverage masks. `None` where the disc
+    /// has no word pictures for it.
     pub fn song_names<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
     ) -> io::Result<Option<crate::popn::SongNames>> {
-        let Tables::Popn(layout) = self.edition.tables() else {
-            return Ok(None);
+        let layout = match self.edition.tables() {
+            Tables::Popn(layout) => layout,
+            Tables::Iidx(_) => return self.iidx_song_names(disc, song),
         };
         let Some(files) = layout.names else {
             return Ok(None);
@@ -761,7 +771,92 @@ impl Disc {
         };
         Ok(Some(crate::popn::SongNames {
             title: word(files.title, title)?,
+            small_title: None,
             artist: word(files.artist, artist)?,
+            genre: None,
+        }))
+    }
+
+    /// The PREMIUM BEST word pictures of `song` (see `WORD_REFS_AT`).
+    fn iidx_song_names<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        song: &Song,
+    ) -> io::Result<Option<crate::popn::SongNames>> {
+        let Some(refs) = self.word_refs.get(song.id as usize) else {
+            return Ok(None);
+        };
+        let [genre, big, artist, small] = *refs;
+        let mask = |disc: &mut SectorReader<R>, (index, container): (u16, u16)| {
+            Ok::<_, io::Error>(
+                self.word_sprite(disc, container, index)?
+                    .map(|picture| crate::popn::Mask::from_rgba(&picture)),
+            )
+        };
+        Ok(Some(crate::popn::SongNames {
+            title: mask(disc, big)?,
+            small_title: mask(disc, small)?,
+            artist: mask(disc, artist)?,
+            genre: mask(disc, genre)?,
+        }))
+    }
+
+    /// Rectangle `index` of the sprite sheet `container`: its picture as
+    /// `Rgba`. The sheet's first file holds the rectangles (`x, y, w, h`,
+    /// 8 bytes each from 0xd0; the count is the u16 at 6). A sheet of more than
+    /// one texture stacks them 1024 texels apart in `y`.
+    fn word_sprite<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        container: u16,
+        index: u16,
+    ) -> io::Result<Option<Rgba>> {
+        let Some(archive) = self.read_data1(disc, container as u32)? else {
+            return Ok(None);
+        };
+        let Some(mut files) = archive_files(&archive) else {
+            return Ok(None);
+        };
+        let Some((unpacked, Some(bytes))) = files.next() else {
+            return Ok(None);
+        };
+        let Some(table) = decode_lzss(bytes, unpacked) else {
+            return Ok(None);
+        };
+        let count = u16_le(&table, 6).unwrap_or(0);
+        if index >= count {
+            return Ok(None);
+        }
+        let at = 0xd0 + index as usize * 8;
+        let Some(rect) = table.get(at..at + 8) else {
+            return Ok(None);
+        };
+        let field = |k: usize| u16_le(rect, k * 2).unwrap_or(0) as i16 as i32;
+        let (x, y, w, h) = (field(0), field(1), field(2) as u32, field(3) as u32);
+        let textures: Vec<Rgba> = files
+            .filter_map(|(unpacked, bytes)| {
+                let (w, h) = texture_size(unpacked)?;
+                decode_psmt8(&decode_lzss(bytes?, unpacked)?, w, h)
+            })
+            .collect();
+        let stack = y.max(0) as usize / 1024;
+        let Some(texture) = textures.get(stack) else {
+            return Ok(None);
+        };
+        let top = (y - stack as i32 * 1024).max(0) as u32;
+        if x < 0 || top + h > texture.height || x as u32 + w > texture.width {
+            return Ok(None);
+        }
+        let pixels = (top..top + h)
+            .flat_map(|row| {
+                let at = (row * texture.width + x as u32) as usize;
+                texture.pixels[at..at + w as usize].iter().copied()
+            })
+            .collect();
+        Ok(Some(Rgba {
+            width: w,
+            height: h,
+            pixels,
         }))
     }
 
@@ -937,6 +1032,28 @@ fn archive_files(archive: &[u8]) -> Option<impl Iterator<Item = (usize, Option<&
 }
 
 /// The first picture after file 0 of a DATA1 archive.
+/// The record offsets of the word sheet references on PREMIUM BEST: each an
+/// `(index, container)` pair of u16s, for genre, big title, artist and small
+/// title (`iidx_ps2_disc.md`, found by checking the sheets by eye).
+const WORD_REFS_AT: [usize; 4] = [0xac, 0xb0, 0xb4, 0xb8];
+
+/// Each song record's word references (`WORD_REFS_AT`), in record order.
+fn read_word_refs(exe: &[u8], (at, bytes): (usize, usize), record: usize) -> Vec<[(u16, u16); 4]> {
+    let at_record = |id: usize| at + id * record;
+    (0..bytes / record)
+        .map(|id| {
+            WORD_REFS_AT.map(|off| {
+                let r = at_record(id) + off;
+                (u16_le(exe, r).unwrap_or(0), u16_le(exe, r + 2).unwrap_or(0))
+            })
+        })
+        .collect()
+}
+
+fn u16_le(bytes: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?))
+}
+
 fn first_picture(archive: &[u8]) -> Option<Rgba> {
     archive_files(archive)?
         .skip(1)
@@ -1229,6 +1346,7 @@ mod tests {
             data1: FileExtent { lba: 0, size: 0 },
             data1_files: Vec::new(),
             name_refs: Vec::new(),
+            word_refs: Vec::new(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);

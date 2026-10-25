@@ -1,10 +1,10 @@
-//! Song title and artist word pictures of game discs (pop'n), drawn in the
-//! select list in place of the text title.
+//! Song word pictures of game discs (pop'n and IIDX): the big title, the small
+//! title and the artist, drawn in the select list and the detail panel in
+//! place of the text.
 //!
-//! A fixed grid of slots lives in the shared UI atlas, like the jackets. Each
-//! slot holds one song chart's title (180×18) and artist (200×30) as alpha
-//! coverage, so a word is one more tinted quad in the screen's main batch,
-//! the same as a glyph. Slots are handed out least-recently-used
+//! A fixed grid of slots lives on a dedicated atlas page. Each slot holds one
+//! song chart's three words as alpha coverage, so a word is one more tinted
+//! quad, the same as a glyph. Slots are handed out least-recently-used
 //! (`SlotLru`); the app fills them (`beetle-app/src/words.rs`) and this module
 //! only does the slot bookkeeping.
 
@@ -14,20 +14,22 @@ use crate::canvas::{AtlasRegion, UiAtlas};
 use crate::jacket::SlotLru;
 use beetle_core::ChartId;
 
-/// The size of a title word picture, in texels.
-pub const TITLE_SIZE: (u32, u32) = (180, 18);
-/// The size of an artist word picture, in texels.
-pub const ARTIST_SIZE: (u32, u32) = (200, 30);
+/// The largest word picture of each kind, in texels: a word is at most this
+/// wide and this high (the box of its place in a slot).
+pub const TITLE_BOX: (u32, u32) = (264, 44);
+pub const SMALL_TITLE_BOX: (u32, u32) = (264, 24);
+pub const ARTIST_BOX: (u32, u32) = (264, 32);
+pub const GENRE_BOX: (u32, u32) = (264, 24);
 
-/// Texels between the title and the artist within a slot.
+/// Texels between the boxes within a slot.
 const GAP: u32 = 2;
-const SLOT_W: u32 = ARTIST_SIZE.0;
-const SLOT_H: u32 = TITLE_SIZE.1 + GAP + ARTIST_SIZE.1;
+const SLOT_W: u32 = TITLE_BOX.0;
+const SLOT_H: u32 = TITLE_BOX.1 + GAP + SMALL_TITLE_BOX.1 + GAP + ARTIST_BOX.1 + GAP + GENRE_BOX.1;
 /// Gutter between slots, so bilinear sampling never reads the next word.
 const PITCH_X: u32 = SLOT_W + 2;
 const PITCH_Y: u32 = SLOT_H + 2;
-const COLS: u32 = 8;
-const ROWS: u32 = 12;
+const COLS: u32 = 6;
+const ROWS: u32 = 15;
 const SLOTS: usize = (COLS * ROWS) as usize;
 
 /// Where one chart's words are in the atlas. `None` for a word the disc does
@@ -35,7 +37,9 @@ const SLOTS: usize = (COLS * ROWS) as usize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WordRegions {
     pub title: Option<AtlasRegion>,
+    pub small_title: Option<AtlasRegion>,
     pub artist: Option<AtlasRegion>,
+    pub genre: Option<AtlasRegion>,
 }
 
 /// Slot bookkeeping for the word pictures.
@@ -69,15 +73,16 @@ impl WordAtlas {
 
     /// Writes `id`'s words into its slot (taking the least recently used slot
     /// when it has none). A word is its width, its height and its coverage
-    /// bytes (one a texel): a title is `TITLE_SIZE` high and an artist
-    /// `ARTIST_SIZE` high, and each is at most that wide; a word of another
-    /// shape is left out. Returns `false` when the grid is not reserved.
+    /// bytes (one a texel), at most its box's size; a word that does not fit is
+    /// left out. Returns `false` when the grid is not reserved.
     pub fn insert(
         &mut self,
         atlas: &mut UiAtlas,
         id: ChartId,
         title: Option<Word>,
+        small_title: Option<Word>,
         artist: Option<Word>,
+        genre: Option<Word>,
     ) -> bool {
         let Some(base) = self.base else {
             return false;
@@ -96,19 +101,29 @@ impl WordAtlas {
             base.x as u32 + (slot as u32 % COLS) * PITCH_X,
             base.y as u32 + (slot as u32 / COLS) * PITCH_Y,
         );
+        let small_y = y + TITLE_BOX.1 + GAP;
+        let artist_y = small_y + SMALL_TITLE_BOX.1 + GAP;
         let title_region = title
-            .filter(|w| fits(*w, TITLE_SIZE))
+            .filter(|w| fits(*w, TITLE_BOX))
             .map(|w| region(atlas, base, x, y, w));
+        let small_region = small_title
+            .filter(|w| fits(*w, SMALL_TITLE_BOX))
+            .map(|w| region(atlas, base, x, small_y, w));
         let artist_region = artist
-            .filter(|w| fits(*w, ARTIST_SIZE))
-            .map(|w| region(atlas, base, x, y + TITLE_SIZE.1 + GAP, w));
+            .filter(|w| fits(*w, ARTIST_BOX))
+            .map(|w| region(atlas, base, x, artist_y, w));
+        let genre_region = genre
+            .filter(|w| fits(*w, GENRE_BOX))
+            .map(|w| region(atlas, base, x, artist_y + ARTIST_BOX.1 + GAP, w));
         self.slots.insert(
             id,
             (
                 slot,
                 WordRegions {
                     title: title_region,
+                    small_title: small_region,
                     artist: artist_region,
+                    genre: genre_region,
                 },
             ),
         );
@@ -131,12 +146,13 @@ pub struct Word<'a> {
     pub coverage: &'a [u8],
 }
 
-/// Whether `word` has the height of a `(_, h)` word and no more than its width.
-fn fits(word: Word, (max_w, h): (u32, u32)) -> bool {
-    word.height == h
+/// Whether `word` has a size and coverage bytes that fit a `(max_w, max_h)` box.
+fn fits(word: Word, (max_w, max_h): (u32, u32)) -> bool {
+    word.height > 0
+        && word.height <= max_h
         && word.width > 0
         && word.width <= max_w
-        && word.coverage.len() == (word.width * h) as usize
+        && word.coverage.len() == (word.width * word.height) as usize
 }
 
 /// Writes `word` at `(x, y)` of the page `base` lies on.
@@ -159,51 +175,21 @@ mod tests {
     #[test]
     fn slots_fit_their_grid_and_do_not_overlap() {
         assert!(SLOT_W < PITCH_X && SLOT_H < PITCH_Y);
-        assert_eq!(SLOTS, 96);
+        assert_eq!(SLOTS, 90);
     }
 
     #[test]
-    fn a_word_of_the_wrong_shape_is_left_out() {
-        let ink = [0u8; 180 * 18];
-        assert!(fits(
-            Word {
-                width: 180,
-                height: 18,
-                coverage: &ink[..180 * 18]
-            },
-            TITLE_SIZE
-        ));
-        assert!(fits(
-            Word {
-                width: 90,
-                height: 18,
-                coverage: &ink[..90 * 18]
-            },
-            TITLE_SIZE
-        ));
-        assert!(!fits(
-            Word {
-                width: 181,
-                height: 18,
-                coverage: &ink
-            },
-            TITLE_SIZE
-        ));
-        assert!(!fits(
-            Word {
-                width: 180,
-                height: 17,
-                coverage: &ink[..180 * 17]
-            },
-            TITLE_SIZE
-        ));
-        assert!(!fits(
-            Word {
-                width: 0,
-                height: 18,
-                coverage: &ink[..0]
-            },
-            TITLE_SIZE
-        ));
+    fn a_word_larger_than_its_box_is_left_out() {
+        let ink = [0u8; 265 * 45];
+        let word = |width: u32, height: u32| Word {
+            width,
+            height,
+            coverage: &ink[..(width * height) as usize],
+        };
+        assert!(fits(word(264, 44), TITLE_BOX));
+        assert!(fits(word(180, 18), SMALL_TITLE_BOX));
+        assert!(!fits(word(265, 44), TITLE_BOX));
+        assert!(!fits(word(264, 45), TITLE_BOX));
+        assert!(!fits(word(0, 18), SMALL_TITLE_BOX));
     }
 }

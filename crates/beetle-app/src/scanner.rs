@@ -542,11 +542,13 @@ fn cache_is_stale(cache: &Path) -> bool {
         .flatten()
         .flatten()
         .map(|e| e.path());
-    [library_file(), registry]
-        .into_iter()
-        .chain(disc_tables)
-        .filter_map(|p| modified(&p))
-        .any(|changed| cached < changed)
+    let stale_names = crate::names::any_unreadable();
+    stale_names
+        || [library_file(), registry]
+            .into_iter()
+            .chain(disc_tables)
+            .filter_map(|p| modified(&p))
+            .any(|changed| cached < changed)
 }
 
 /// Scans the song folders and packages, using `songs.cache` when it is current.

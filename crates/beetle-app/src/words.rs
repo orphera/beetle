@@ -50,7 +50,14 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
         // A group row is one song's charts; they share the song's names.
         let indices: &[usize] = match entries.get(row) {
             Some(ListEntry::Song(i)) => std::slice::from_ref(i),
-            Some(ListEntry::Group { charts, .. }) => charts,
+            // Only the chart the row shows: the slots hold one chart per row,
+            // so every chart of every group would crowd the rows out.
+            Some(ListEntry::Group {
+                charts, selected, ..
+            }) => charts
+                .get(*selected)
+                .map(std::slice::from_ref)
+                .unwrap_or(&[]),
             _ => continue,
         };
         for &i in indices {
@@ -64,12 +71,20 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
                 continue;
             };
             let title = song_names.title.as_ref().map(word);
+            let small_title = song_names.small_title.as_ref().map(word);
             let artist = song_names.artist.as_ref().map(word);
-            if title.is_none() && artist.is_none() {
+            let genre = song_names.genre.as_ref().map(word);
+            if title.is_none() && small_title.is_none() && artist.is_none() && genre.is_none() {
                 continue;
             }
-            ui.words
-                .insert(ui.canvas.atlas_mut(), song.id, title, artist);
+            ui.words.insert(
+                ui.canvas.atlas_mut(),
+                song.id,
+                title,
+                small_title,
+                artist,
+                genre,
+            );
         }
     }
 }

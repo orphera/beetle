@@ -7,8 +7,7 @@
 //! The list draws charts, so the file also maps each chart (its `ChartId`) to
 //! its disc song.
 //!
-//! Format (little endian): the magic `BNM3` (words cut to their ink, so the
-//! width of each is its own); `u32` song count, then per song
+//! Format (little endian): the magic `BNM5` (the small title and the genre too, IIDX); `u32` song count, then per song
 //! `u32` song id and the title and the artist, each `u8` present (0 or 1) and,
 //! when present, `u32` width, `u32` height and width × height coverage bytes;
 //! then `u32` chart count, then per chart its 32-byte `ChartId` and `u32` song id.
@@ -26,7 +25,7 @@ use cs_disc::SectorReader;
 
 use crate::disc_meta;
 
-const MAGIC: &[u8; 4] = b"BNM3";
+const MAGIC: &[u8; 4] = b"BNM5";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -46,7 +45,9 @@ pub fn encode(names: &Names) -> Vec<u8> {
     for (id, song) in &names.songs {
         out.extend(id.to_le_bytes());
         put_mask(&mut out, song.title.as_ref());
+        put_mask(&mut out, song.small_title.as_ref());
         put_mask(&mut out, song.artist.as_ref());
+        put_mask(&mut out, song.genre.as_ref());
     }
     out.extend((names.charts.len() as u32).to_le_bytes());
     for (chart, song) in &names.charts {
@@ -74,8 +75,18 @@ pub fn decode(bytes: &[u8]) -> Option<Names> {
     for _ in 0..take_u32(&mut at)? {
         let id = take_u32(&mut at)?;
         let title = take_mask(&mut at)?;
+        let small_title = take_mask(&mut at)?;
         let artist = take_mask(&mut at)?;
-        names.songs.insert(id, SongNames { title, artist });
+        let genre = take_mask(&mut at)?;
+        names.songs.insert(
+            id,
+            SongNames {
+                title,
+                small_title,
+                artist,
+                genre,
+            },
+        );
     }
     for _ in 0..take_u32(&mut at)? {
         let chart: [u8; 32] = take(&mut at, 32)?.try_into().ok()?;
@@ -150,6 +161,19 @@ fn is_current(slug: &str, source: &Path) -> bool {
     }
 }
 
+/// Whether any names file in the library folder is in a format this build
+/// cannot read (made by an older build): its disc then needs a scan to make
+/// it again.
+pub fn any_unreadable() -> bool {
+    fs::read_dir(disc_meta::DIR)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "names"))
+        .any(|p| fs::read(&p).ok().and_then(|b| decode(&b)).is_none())
+}
+
 /// Makes the names file of `slug` from `disc` when it is missing or old.
 /// `source` is the disc image's path (or the drive); `charts` lists each chart
 /// the scan made with its song id. Errors are ignored: the songs then show
@@ -199,14 +223,18 @@ mod tests {
             3,
             SongNames {
                 title: Some(mask(2, 1, 255)),
+                small_title: None,
                 artist: None,
+                genre: None,
             },
         );
         names.songs.insert(
             7,
             SongNames {
                 title: None,
+                small_title: Some(mask(3, 1, 7)),
                 artist: Some(mask(1, 2, 9)),
+                genre: None,
             },
         );
         names.charts.push((ChartId::of_bytes(b"chart"), 3));
@@ -220,7 +248,9 @@ mod tests {
             1,
             SongNames {
                 title: Some(mask(4, 4, 1)),
+                small_title: None,
                 artist: None,
+                genre: None,
             },
         );
         let bytes = encode(&names);
