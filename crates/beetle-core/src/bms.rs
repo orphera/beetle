@@ -317,6 +317,12 @@ impl BmsChart {
         self.detect_play_mode_with_hint(false)
     }
 
+    /// Pop'n Music (9KEYS) uses only 1P keys 1..5 (11..15) and 2P channels 22..25:
+    /// no scratch (16/26), no key 6/7 (18/19/28/29), no 2P key 1 (21/61).
+    fn is_pms_layout(&self) -> bool {
+        self.has_pms_ch && !self.has_scratch && !self.has_k67 && !self.has_2p_key1
+    }
+
     /// Detects the play mode with an optional file extension hint (e.g. true if `.pms`).
     pub fn detect_play_mode_with_hint(&self, is_pms_ext: bool) -> PlayMode {
         if is_pms_ext {
@@ -324,6 +330,10 @@ impl BmsChart {
         } else if let Some(mode) = self.header.declared_mode {
             // Wins over a stray `#PLAYER 2/3`: 4K/6K/8K are single play.
             mode
+        } else if self.is_pms_layout() {
+            // Checked before `#PLAYER`: pop'n charts often say `#PLAYER 3`,
+            // and the parser has no file extension to go by.
+            PlayMode::Keys9
         } else if self.header.player == 2 || self.header.player == 3 {
             // #PLAYER 3 (Double Play) or #PLAYER 2 (Couple Play)
             if self.has_k67 {
@@ -332,19 +342,7 @@ impl BmsChart {
                 PlayMode::Keys10
             }
         } else if self.has_2p_dp {
-            // 2P note channels are present.
-            // Pop'n Music (9KEYS) strictly uses only 1P keys 1..5 (11..15) and 2P channels 22..25,
-            // with NO scratch lanes (16/26), NO key 6/7 lanes (18/19/28/29),
-            // NO 2P key 1 (21/61), and player is 1 or unset.
-            let is_pms_layout = self.has_pms_ch
-                && !self.has_scratch
-                && !self.has_k67
-                && !self.has_2p_key1
-                && (self.header.player <= 1);
-
-            if is_pms_layout {
-                PlayMode::Keys9
-            } else if self.has_k67 {
+            if self.has_k67 {
                 PlayMode::Keys14
             } else {
                 PlayMode::Keys10
@@ -1792,6 +1790,16 @@ mod tests {
 "#;
         let chart_pms = parse_bms(bms_pms).unwrap();
         assert_eq!(chart_pms.detect_play_mode(), PlayMode::Keys9);
+
+        // pop'n charts often declare #PLAYER 3; the 2P-numbered channels are
+        // still buttons 6..9, not 2P lanes.
+        let chart_pms_p3 = parse_bms("#PLAYER 3\n#00111:01\n#00122:02\n#00165:0303\n").unwrap();
+        assert_eq!(chart_pms_p3.detect_play_mode(), PlayMode::Keys9);
+        let lanes: Vec<Lane> = chart_pms_p3.notes.iter().map(|n| n.lane).collect();
+        assert!(lanes.contains(&Lane::Key6) && lanes.contains(&Lane::Key9));
+        assert!(!lanes
+            .iter()
+            .any(|l| (*l as usize) >= Lane::P2Scratch as usize));
 
         let chart_pms_hint = parse_bms(bms_7k).unwrap();
         assert_eq!(
