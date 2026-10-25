@@ -390,6 +390,8 @@ pub struct SongNames {
     pub artist: Option<Mask>,
     /// The genre picture (IIDX), where the disc has one.
     pub genre: Option<Mask>,
+    /// Whether the disc is pop'n music (its picture is a banner bar).
+    pub popn: bool,
 }
 
 /// Each record's title and artist rectangle numbers, in record order. Records

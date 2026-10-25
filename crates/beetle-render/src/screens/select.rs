@@ -20,7 +20,7 @@ use crate::ui::Ui;
 use crate::view::Viewport;
 use crate::words::{WordAtlas, WordRegions};
 use beetle_core::{
-    ClearType, LnOption, Ruleset, ScoreRecord, ScoreStore, SongMetadata, TableIndex,
+    ClearType, LnOption, Ruleset, ScoreRecord, ScoreStore, SongAddress, SongMetadata, TableIndex,
 };
 use std::time::Instant;
 
@@ -1021,6 +1021,7 @@ fn song_row(
         jacket,
         &song.title,
         row,
+        !is_disc_song(song),
         s,
     );
     let right_w = 112.0 * s;
@@ -1110,6 +1111,7 @@ fn row_jacket(
     jacket: Option<(AtlasRegion, bool)>,
     title: &str,
     row: Rect,
+    show_art: bool,
     s: f32,
 ) -> f32 {
     let (_, diff) = theme::level_tier(difficulty, level);
@@ -1119,8 +1121,12 @@ fn row_jacket(
         JACKET_PX * s,
         JACKET_PX * s,
     );
-    c.fill_rect(j, theme::SURF3);
-    if let Some((region, placeholder)) = jacket {
+    // A disc song has no jacket on the list (its picture is on the detail
+    // panel): the level badge stays where the jacket was.
+    if show_art {
+        c.fill_rect(j, theme::SURF3);
+    }
+    if let (true, Some((region, placeholder))) = (show_art, jacket) {
         let whole = Rect::new(0.0, 0.0, THUMB_PX as f32, THUMB_PX as f32);
         c.sprite_sub(region, whole, j, theme::WHITE);
         if placeholder {
@@ -1161,6 +1167,15 @@ fn row_jacket(
     );
 
     j.right() + 12.0 * s
+}
+
+/// Whether a song is read from a game disc (its picture is the disc's, not a
+/// folder's jacket).
+fn is_disc_song(song: &SongMetadata) -> bool {
+    matches!(
+        SongAddress::parse(&song.file_path),
+        SongAddress::Disc { .. }
+    )
 }
 
 /// The row title: its word picture when one is given and fits `text_w`,
@@ -1342,6 +1357,7 @@ fn group_row(
         jacket,
         title,
         row,
+        !is_disc_song(song),
         s,
     );
     let right_w = 112.0 * s;
@@ -1890,58 +1906,78 @@ fn detail_panel(
     };
     let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
 
-    // Jacket (stage image, 4:3) or a generated placeholder in the tier color.
+    let disc = is_disc_song(song);
+    let popn = word.is_some_and(|w| w.popn);
+    let no_art = disc && !popn;
+    // A pop'n disc shows its banner as a bar above the text; an IIDX disc has
+    // no picture, so its text takes the whole panel.
+    let dy = if disc && popn { 84.0 * s } else { 0.0 };
     let jacket = Rect::new(inner.x, inner.y, 256.0 * s, 192.0 * s);
-    match f.jacket {
-        Some(tex) => {
-            c.fill_rect(jacket, theme::BG);
-            c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE);
+    let bar = Rect::new(inner.x, inner.y, 300.0 * s, 72.0 * s);
+    if disc {
+        if popn {
+            if let Some(tex) = f.jacket {
+                c.fill_rect(bar, theme::BG);
+                c.image(tex.id, bar, cover_uv(tex, bar), theme::WHITE);
+            }
         }
-        None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
-            // No stage image: the song's jacket thumbnail or placeholder, cropped to 4:3.
-            Some((region, _)) => {
-                c.fill_rect(jacket, theme::SURF3);
-                c.sprite_sub(
-                    region,
-                    Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
-                    jacket,
-                    theme::WHITE,
-                );
+    } else {
+        // Jacket (stage image, 4:3) or a generated placeholder in the tier color.
+        match f.jacket {
+            Some(tex) => {
+                c.fill_rect(jacket, theme::BG);
+                c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE);
             }
-            None => {
-                c.fill_rect_corners(
-                    jacket,
-                    [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
-                );
-                c.set_additive(true);
-                c.sprite_centered(
-                    sk.flare,
-                    jacket.x + jacket.w * 0.7,
-                    jacket.y + jacket.h * 0.3,
-                    160.0 * s,
-                    160.0 * s,
-                    theme::WHITE.with_alpha(90),
-                );
-                c.set_additive(false);
-                t.draw_in(
-                    c,
-                    theme::mode_label(song.play_mode),
-                    jacket.inset(12.0 * s),
-                    Align::Left,
-                    &TextStyle::new(44.0 * s)
-                        .bold()
-                        .color(theme::WHITE.with_alpha(40)),
-                );
-            }
-        },
-    }
-    c.stroke_rect(jacket, s.max(1.0), theme::LINE);
-    if let Some(secs) = f.preview_secs {
-        preview_badge(c, t, jacket, secs, s);
+            None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
+                // No stage image: the song's jacket thumbnail or placeholder, cropped to 4:3.
+                Some((region, _)) => {
+                    c.fill_rect(jacket, theme::SURF3);
+                    c.sprite_sub(
+                        region,
+                        Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
+                        jacket,
+                        theme::WHITE,
+                    );
+                }
+                None => {
+                    c.fill_rect_corners(
+                        jacket,
+                        [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
+                    );
+                    c.set_additive(true);
+                    c.sprite_centered(
+                        sk.flare,
+                        jacket.x + jacket.w * 0.7,
+                        jacket.y + jacket.h * 0.3,
+                        160.0 * s,
+                        160.0 * s,
+                        theme::WHITE.with_alpha(90),
+                    );
+                    c.set_additive(false);
+                    t.draw_in(
+                        c,
+                        theme::mode_label(song.play_mode),
+                        jacket.inset(12.0 * s),
+                        Align::Left,
+                        &TextStyle::new(44.0 * s)
+                            .bold()
+                            .color(theme::WHITE.with_alpha(40)),
+                    );
+                }
+            },
+        }
+        c.stroke_rect(jacket, s.max(1.0), theme::LINE);
+        if let Some(secs) = f.preview_secs {
+            preview_badge(c, t, jacket, secs, s);
+        }
     }
 
     // Title block, right of the jacket
-    let ix = jacket.right() + 24.0 * s;
+    let ix = if disc {
+        inner.x
+    } else {
+        jacket.right() + 24.0 * s
+    };
     let iw = inner.right() - ix;
     let tier_txt = format!("{tier} {}", song.play_level);
     let tier_w = t.draw(
@@ -1959,8 +1995,9 @@ fn detail_panel(
         chip_x += level_chip(c, t, &text, chip_x, inner.y + 14.0 * s, s) + 6.0 * s;
     }
     // One line at 26px if it fits, otherwise two lines at 20px.
-    let big = TextStyle::new(26.0 * s).bold().color(theme::TEXT);
-    let title_h = 20.0 * s;
+    let title_big = if no_art { 34.0 } else { 26.0 };
+    let big = TextStyle::new(title_big * s).bold().color(theme::TEXT);
+    let title_h = if no_art { 30.0 * s } else { 20.0 * s };
     let title_word = word
         .and_then(|w| w.title)
         .map(|r| (r, title_h * r.w as f32 / r.h as f32))
@@ -1968,21 +2005,21 @@ fn detail_panel(
     let mut y = if let Some((region, w)) = title_word {
         c.sprite(
             region,
-            Rect::new(ix, inner.y + 22.0 * s, w, title_h),
+            Rect::new(ix, inner.y + dy + 22.0 * s, w, title_h),
             theme::TEXT,
         );
-        inner.y + 70.0 * s
+        inner.y + dy + 70.0 * s
     } else if t.measure(c, &song.title, &big) <= iw {
-        t.draw(c, &song.title, ix, inner.y + 46.0 * s, &big);
-        inner.y + 70.0 * s
+        t.draw(c, &song.title, ix, inner.y + dy + 46.0 * s, &big);
+        inner.y + dy + 70.0 * s
     } else {
         let st = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
         let (l1, l2) = wrap2(c, t, &song.title, iw, &st);
-        t.draw(c, &l1, ix, inner.y + 42.0 * s, &st);
+        t.draw(c, &l1, ix, inner.y + dy + 42.0 * s, &st);
         if let Some(l2) = l2 {
-            t.draw(c, &l2, ix, inner.y + 66.0 * s, &st);
+            t.draw(c, &l2, ix, inner.y + dy + 66.0 * s, &st);
         }
-        inner.y + 90.0 * s
+        inner.y + dy + 90.0 * s
     };
     if !song.subtitle.is_empty() {
         let st = TextStyle::new(13.0 * s).color(theme::TEXT.with_alpha(180));
@@ -1990,8 +2027,8 @@ fn detail_panel(
         t.draw(c, &sub, ix, y, &st);
         y += 20.0 * s;
     }
-    let artist_st = TextStyle::new(14.0 * s).color(theme::MUTED);
-    let artist_h = 13.0 * s;
+    let artist_st = TextStyle::new(if no_art { 20.0 } else { 14.0 } * s).color(theme::MUTED);
+    let artist_h = if no_art { 20.0 * s } else { 13.0 * s };
     let artist_word = word
         .and_then(|w| w.artist)
         .map(|r| (r, artist_h * r.w as f32 / r.h as f32))
@@ -2004,7 +2041,7 @@ fn detail_panel(
         }
     }
     // The genre picture where the disc has one, else the text genre.
-    let genre_h = 13.0 * s;
+    let genre_h = if no_art { 18.0 * s } else { 13.0 * s };
     let genre_word = word
         .and_then(|w| w.genre)
         .map(|r| (r, genre_h * r.w as f32 / r.h as f32))

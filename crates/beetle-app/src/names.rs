@@ -23,7 +23,7 @@ use cs_disc::iidx::Disc;
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
-const MAGIC: &[u8; 4] = b"BNM6";
+const MAGIC: &[u8; 4] = b"BNM7";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -49,6 +49,7 @@ pub fn encode(names: &Names) -> Vec<u8> {
         put_mask(&mut out, song.small_title.as_ref());
         put_mask(&mut out, song.artist.as_ref());
         put_mask(&mut out, song.genre.as_ref());
+        out.push(song.popn as u8);
     }
     out.extend((names.charts.len() as u32).to_le_bytes());
     for (chart, song) in &names.charts {
@@ -79,6 +80,7 @@ pub fn decode(bytes: &[u8]) -> Option<Names> {
         let small_title = take_mask(&mut at)?;
         let artist = take_mask(&mut at)?;
         let genre = take_mask(&mut at)?;
+        let popn = take(&mut at, 1)?[0] != 0;
         names.songs.insert(
             id,
             SongNames {
@@ -86,6 +88,7 @@ pub fn decode(bytes: &[u8]) -> Option<Names> {
                 small_title,
                 artist,
                 genre,
+                popn,
             },
         );
     }
@@ -227,6 +230,7 @@ mod tests {
                 small_title: None,
                 artist: None,
                 genre: None,
+                popn: true,
             },
         );
         names.songs.insert(
@@ -236,6 +240,7 @@ mod tests {
                 small_title: Some(mask(3, 1, 7)),
                 artist: Some(mask(1, 2, 9)),
                 genre: None,
+                popn: true,
             },
         );
         names.charts.push((ChartId::of_bytes(b"chart"), 3));
@@ -252,6 +257,7 @@ mod tests {
                 small_title: None,
                 artist: None,
                 genre: None,
+                popn: true,
             },
         );
         let bytes = encode(&names);

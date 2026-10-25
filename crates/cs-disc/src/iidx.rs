@@ -768,6 +768,7 @@ impl Disc {
             small_title: None,
             artist: word(files.artist, artist)?,
             genre: None,
+            popn: false,
         }))
     }
 
@@ -797,6 +798,7 @@ impl Disc {
             small_title: mask(disc, small)?,
             artist: mask(disc, artist)?,
             genre: mask(disc, genre)?,
+            popn: false,
         }))
     }
 

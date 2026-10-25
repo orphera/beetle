@@ -84,6 +84,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
                 small_title,
                 artist,
                 genre,
+                song_names.popn,
             );
         }
     }

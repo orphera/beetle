@@ -40,6 +40,8 @@ pub struct WordRegions {
     pub small_title: Option<AtlasRegion>,
     pub artist: Option<AtlasRegion>,
     pub genre: Option<AtlasRegion>,
+    /// The disc is pop'n music: its picture is a banner bar.
+    pub popn: bool,
 }
 
 /// Slot bookkeeping for the word pictures.
@@ -83,6 +85,7 @@ impl WordAtlas {
         small_title: Option<Word>,
         artist: Option<Word>,
         genre: Option<Word>,
+        popn: bool,
     ) -> bool {
         let Some(base) = self.base else {
             return false;
@@ -124,6 +127,7 @@ impl WordAtlas {
                     small_title: small_region,
                     artist: artist_region,
                     genre: genre_region,
+                    popn,
                 },
             ),
         );
