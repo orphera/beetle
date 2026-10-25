@@ -7,7 +7,7 @@
 //! The list draws charts, so the file also maps each chart (its `ChartId`) to
 //! its disc song.
 //!
-//! Format (little endian): the magic `BNM5` (the small title and the genre too, IIDX); `u32` song count, then per song
+//! Format (little endian): the magic `BNM6` (the small title and the genre too, IIDX; ink cut from a faint floor); `u32` song count, then per song
 //! `u32` song id and the title and the artist, each `u8` present (0 or 1) and,
 //! when present, `u32` width, `u32` height and width × height coverage bytes;
 //! then `u32` chart count, then per chart its 32-byte `ChartId` and `u32` song id.
@@ -25,7 +25,7 @@ use cs_disc::SectorReader;
 
 use crate::disc_meta;
 
-const MAGIC: &[u8; 4] = b"BNM5";
+const MAGIC: &[u8; 4] = b"BNM6";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

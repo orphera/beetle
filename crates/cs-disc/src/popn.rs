@@ -331,6 +331,9 @@ pub(crate) fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
     })
 }
 
+/// The coverage from which a column of a word picture counts as ink.
+const INK_FLOOR: u8 = 64;
+
 /// A picture as coverage: one byte a pixel, 255 where the ink is. The word
 /// pictures are white ink on black with an opaque alpha, so the coverage is
 /// the pixel's mean brightness.
@@ -352,7 +355,9 @@ impl Mask {
             .iter()
             .map(|&[r, g, b, _]| ((r as u32 + g as u32 + b as u32) / 3) as u8)
             .collect();
-        let inked = |x: usize| (0..h).any(|y| coverage[y * w + x] > 0);
+        // The picture's background is not quite black: faint ink-free values
+        // would keep a blank margin, so a column counts as ink from INK_FLOOR.
+        let inked = |x: usize| (0..h).any(|y| coverage[y * w + x] >= INK_FLOOR);
         let Some(left) = (0..w).find(|&x| inked(x)) else {
             return Mask {
                 width: 0,
