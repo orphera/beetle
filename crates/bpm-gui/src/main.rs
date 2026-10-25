@@ -743,19 +743,21 @@ fn handle_drop(state: &mut AppState, path: PathBuf) {
 
 fn library_add(state: &mut AppState, text: &str) {
     let mut list = bms_package_manager::load_library();
-    match bms_package_manager::absolute_dir(text) {
+    // A folder, a disc image (.iso) or a drive.
+    match bms_package_manager::library::library_entry(text) {
         Ok(abs) if list.add(&abs) => match bms_package_manager::save_library(&list) {
             Ok(()) => state.ok(format!(
-                "'{abs}' 폴더를 연결했어요. 게임을 다시 시작하면 반영돼요."
+                "{} 연결했어요. 게임을 다시 시작하면 반영돼요.",
+                josa::quoted_eul(&abs)
             )),
             Err(e) => state.err(format!("저장하지 못했어요: {e}")),
         },
-        Ok(abs) => state.info(format!("{} 이미 연결된 폴더예요", josa::quoted_eun(&abs))),
-        Err(e) => state.err(format!("폴더를 찾을 수 없어요: {e}")),
+        Ok(abs) => state.info(format!("{} 이미 연결돼 있어요", josa::quoted_eun(&abs))),
+        Err(e) => state.err(format!("폴더나 디스크 이미지를 찾을 수 없어요: {e}")),
     }
     state.library = list.paths().to_vec();
     if let Some(dialog) = &mut state.dialog {
-        if let Some(field) = dialog.fields.first_mut() {
+        for field in &mut dialog.fields {
             field.clear();
         }
     }
@@ -921,8 +923,10 @@ fn confirm_dialog(state: &mut AppState) {
             state.start_add(PathBuf::from(first));
         }
         DialogKind::Library => {
-            if !first.is_empty() {
-                library_add(state, &first);
+            for text in [first, second] {
+                if !text.is_empty() {
+                    library_add(state, &text);
+                }
             }
         }
         DialogKind::Pack { turbo, bga } => {

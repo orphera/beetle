@@ -66,6 +66,10 @@ const SONG_FILES: PickKind = PickKind::File {
     filter_name: "곡 파일 (bmsp, zip, rar, 7z)",
     filter_spec: "*.bmsp;*.zip;*.rar;*.7z",
 };
+const DISC_IMAGES: PickKind = PickKind::File {
+    filter_name: "디스크 이미지 (.iso)",
+    filter_spec: "*.iso",
+};
 const BMDP: PickKind = PickKind::File {
     filter_name: "업데이트 파일 (.bmdp)",
     filter_spec: "*.bmdp",
@@ -90,12 +94,11 @@ impl Dialog {
     pub fn new(kind: DialogKind) -> Self {
         let count = match kind {
             DialogKind::Add
-            | DialogKind::Library
             | DialogKind::Pack { .. }
             | DialogKind::ApplyDelta
             | DialogKind::TableGetBody { .. }
             | DialogKind::AddTable => 1,
-            DialogKind::CreateDelta => 2,
+            DialogKind::CreateDelta | DialogKind::Library => 2,
             _ => 0,
         };
         Self {
@@ -116,7 +119,8 @@ impl Dialog {
     /// The picker the "찾아보기" button of field `i` opens, with its title.
     pub fn browse(&self, i: usize) -> Option<(PickKind, &'static str)> {
         match (&self.kind, i) {
-            (DialogKind::Library, _) => Some((PickKind::Folder, "게임에 연결할 BMS 폴더 고르기")),
+            (DialogKind::Library, 0) => Some((PickKind::Folder, "게임에 연결할 BMS 폴더 고르기")),
+            (DialogKind::Library, _) => Some((DISC_IMAGES, "게임에 연결할 디스크 이미지 고르기")),
             (DialogKind::Pack { .. }, _) => {
                 Some((PickKind::Folder, "패키지로 만들 곡 폴더 고르기"))
             }
@@ -222,11 +226,18 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                     })
                     .collect();
                 v.list_empty = "아직 연결한 폴더가 없어요".into();
-                v.fields = vec![field(
-                    0,
-                    "연결할 폴더",
-                    "폴더 경로 (찾아보기로 고르면 바로 연결돼요)",
-                )];
+                v.fields = vec![
+                    field(
+                        0,
+                        "연결할 폴더",
+                        "폴더 경로 (찾아보기로 고르면 바로 연결돼요)",
+                    ),
+                    field(
+                        1,
+                        "또는 게임 디스크 이미지",
+                        ".iso 파일 경로 (찾아보기로 고르면 바로 연결돼요)",
+                    ),
+                ];
                 v.footnote = "바뀐 내용은 Beetle 창으로 돌아가면 반영돼요.".into();
                 v.buttons = vec![
                     button("닫기", Btn::Ghost, UiAction::DialogCancel),

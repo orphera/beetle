@@ -161,7 +161,14 @@ fn snapshot_screens() {
         &shot("09-dialog-uninstall"),
     );
     let mut scene = with_dialog(DialogKind::Library);
-    scene.library = vec!["D:\\BMS\\songs".into(), "E:\\old\\bms".into()];
+    scene.library = vec![
+        "D:\\BMS\\songs".into(),
+        "E:\\old\\bms".into(),
+        "D:\\ISO\\disc1.iso".into(),
+        "D:\\ISO\\disc2.iso".into(),
+        "F:".into(),
+        "D:\\ISO\\disc3.iso".into(),
+    ];
     render(&mut r, &mut tables, scene, &shot("10-dialog-library"));
 
     let mut scene = Scene::new(ActiveTab::Installed, &packages);
