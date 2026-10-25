@@ -119,7 +119,8 @@ enum StageArt {
         /// Which picture of a wide texture each use shows: where the
         /// record's `(picture, file)` word pairs start (the first is the usual
         /// card) and which pair is ANOTHER's. Picture 0 is the left one.
-        /// `None` where the texture holds one picture (10 to 12).
+        /// `None` where records name no picture (10 to 12): a wide texture
+        /// there holds the usual card and ANOTHER's.
         picks: Option<Picks>,
     },
     /// The DATA1 file a record field names, holding the loading card (16).
@@ -758,7 +759,7 @@ impl Disc {
                 Some(file) => self.card_image(disc, file),
                 None => Ok(None),
             },
-            StageArt::Overlay { .. } => {
+            StageArt::Overlay { picks, .. } => {
                 let Some(file) = song.stage else {
                     return Ok(None);
                 };
@@ -772,6 +773,11 @@ impl Disc {
                 let picture = match song.stage_picks {
                     Some((usual, on_another)) if another => on_another.unwrap_or(usual),
                     Some((usual, _)) => usual,
+                    // 10 to 12 records name no picture: a wide texture (RED's
+                    // A and AA) holds the usual card and ANOTHER's.
+                    None if picks.is_none() => {
+                        return Ok(image.map(|image| select_packed_variant(image, another)))
+                    }
                     None => return Ok(image),
                 };
                 Ok(image.map(|image| select_packed_variant(image, picture == 1)))
