@@ -821,7 +821,30 @@ pub fn group_entries(
         Song(usize),
         Group(u64),
     }
-    let keys = group_keys(songs);
+    let mut keys = group_keys(songs);
+    // A chart listed once for several discs (`also_on`) carries the song
+    // folder of one disc; in a list without that disc's other charts it
+    // joins the song of the disc it is shown for.
+    let mut counts: HashMap<u64, usize> = HashMap::new();
+    for &i in indices {
+        if let Some(key) = keys[i] {
+            *counts.entry(key).or_default() += 1;
+        }
+    }
+    for &i in indices {
+        if keys[i].is_none_or(|key| counts[&key] > 1) {
+            continue;
+        }
+        let other = songs[i]
+            .also_on
+            .iter()
+            .filter_map(|path| song_folder(path))
+            .map(|folder| fnv(&folder))
+            .find(|key| counts.contains_key(key));
+        if let Some(key) = other {
+            keys[i] = Some(key);
+        }
+    }
     let mut members: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut order = Vec::new();
     for &i in indices {
@@ -1758,6 +1781,26 @@ mod tests {
         assert_ne!(keys[2], keys[3]);
         let entries = group_entries(&songs, &[0, 1, 2, 3, 4], &ChartChoices::new());
         assert_eq!(entries.len(), 4);
+    }
+
+    #[test]
+    fn a_chart_shared_by_two_discs_joins_its_song_on_either_disc() {
+        let songs = vec![
+            SongMetadata {
+                also_on: vec!["disc:D:/iso/13.iso::056/dp_hyper".into()],
+                ..chart(1, "disc:D:/iso/12.iso::026/dp_hyper", "MEI", 9)
+            },
+            chart(2, "disc:D:/iso/12.iso::026/sp_hyper", "MEI", 8),
+            chart(3, "disc:D:/iso/13.iso::056/sp_hyper", "MEI", 8),
+        ];
+        // On 13's own list the 12 copy joins 13's MEI: one row, not two.
+        let on_13 = group_entries(&songs, &[0, 2], &ChartChoices::new());
+        assert_eq!(on_13.len(), 1);
+        // With both discs it stays with 12's MEI.
+        let all = group_entries(&songs, &[0, 1, 2], &ChartChoices::new());
+        assert!(
+            matches!(&all[0], ListEntry::Group { charts, .. } if charts.contains(&0) && charts.contains(&1))
+        );
     }
 
     #[test]
