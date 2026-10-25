@@ -2,8 +2,9 @@
 //! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` to the `.iso` paths;
 //! without them these tests do nothing.
 
-use cs_disc::iidx16::{Difficulty, Disc, Edition, Style};
-use cs_disc::{identify, Game, SectorReader, Volume};
+use cs_disc::iidx::{Difficulty, Disc, Style};
+use cs_disc::Edition;
+use cs_disc::{identify, SectorReader, Volume};
 
 fn open(var: &str) -> Option<(SectorReader<std::fs::File>, Volume)> {
     let path = std::env::var(var).ok()?;
@@ -17,10 +18,7 @@ fn disc2_is_premium_best_and_lists_anisakis() {
     let Some((mut disc, volume)) = open("CS_DISC_IIDX16_DISC2") else {
         return;
     };
-    assert_eq!(
-        identify(&mut disc).unwrap(),
-        Some(Game::Iidx16(Edition::PremiumBest))
-    );
+    assert_eq!(identify(&mut disc).unwrap(), Some(Edition::PremiumBest));
     let songs = Disc::open(&mut disc, &volume, Edition::PremiumBest).unwrap();
     assert_eq!(songs.songs.len(), 99);
     let anisakis = songs
@@ -55,10 +53,7 @@ fn disc1_is_empress() {
     let Some((mut disc, volume)) = open("CS_DISC_IIDX16_DISC1") else {
         return;
     };
-    assert_eq!(
-        identify(&mut disc).unwrap(),
-        Some(Game::Iidx16(Edition::Empress))
-    );
+    assert_eq!(identify(&mut disc).unwrap(), Some(Edition::Empress));
     let songs = Disc::open(&mut disc, &volume, Edition::Empress).unwrap();
     assert!(!songs.songs.is_empty());
 }

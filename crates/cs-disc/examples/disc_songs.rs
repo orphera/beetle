@@ -7,8 +7,8 @@
 
 use std::io;
 
-use cs_disc::iidx16::{Difficulty, Disc, Style};
-use cs_disc::{drive, identify, Game, Volume};
+use cs_disc::iidx::{Difficulty, Disc, Style};
+use cs_disc::{drive, identify, Volume};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,10 +40,7 @@ fn list(target: &str) -> io::Result<()> {
         return Ok(());
     };
     let volume = Volume::open(&mut disc)?;
-    let Game::Iidx16(edition) = game else {
-        eprintln!("the disc is not an IIDX 16 disc");
-        return Ok(());
-    };
+    let edition = game;
     let songs = Disc::open(&mut disc, &volume, edition)?;
     println!("{target}: {} ({} songs)", game.name(), songs.songs.len());
     for song in &songs.songs {

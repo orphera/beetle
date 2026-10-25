@@ -150,7 +150,7 @@ mod tests {
     fn every_playable_title_is_a_game_the_crate_reads() {
         for t in IIDX_PS2.iter().filter(|t| t.playable) {
             assert!(
-                crate::Game::from_ps2_executable(t.code).is_some(),
+                crate::Edition::from_executable(t.code).is_some(),
                 "{}",
                 t.code
             );

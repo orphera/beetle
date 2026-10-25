@@ -4,14 +4,14 @@
 //!
 //! cargo run -p cs-disc --release --example disc_meta_template -- <image.iso | E:> [out.tsv]
 //! Without `out.tsv`, prints the table.
-use cs_disc::iidx16::Disc;
-use cs_disc::{identify, Game, Volume};
+use cs_disc::iidx::Disc;
+use cs_disc::{identify, Volume};
 use std::fmt::Write;
 
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let mut d = cs_disc::open(&a[0]).expect("disc opens");
-    let Some(Game::Iidx16(edition)) = identify(&mut d).expect("disc reads") else {
+    let Some(edition) = identify(&mut d).expect("disc reads") else {
         eprintln!("{}: not a disc this player reads", a[0]);
         std::process::exit(1);
     };
@@ -33,7 +33,7 @@ fn main() {
         "id\tdisc_title\ttitle\tsubtitle\tartist\tgenre\tcard\tnote"
     );
     for song in &disc.songs {
-        let card = song.card.map_or(String::new(), |c| c.to_string());
+        let card = song.stage.map_or(String::new(), |c| c.to_string());
         let _ = writeln!(out, "{}\t{}\t\t\t\t\t{}\t", song.id, song.title, card);
     }
     match a.get(1) {

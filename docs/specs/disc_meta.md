@@ -113,7 +113,7 @@ cargo run -p cs-disc --release --example card_dump -- "D:\ISO\SLPM_552.21.IIDX16
 | 위치 | 역할 |
 |---|---|
 | `crates/cs-disc/src/meta.rs` | 표 읽기 |
-| `crates/cs-disc/src/iidx16.rs` | 곡 테이블, PREMIUM BEST 카드 규칙(`Song::card`), 카드 그림(`Disc::card_image`) |
+| `crates/cs-disc/src/iidx.rs` | 곡 테이블, PREMIUM BEST 카드 규칙(`Song::stage`), 카드 그림(`Disc::card_image`, `Disc::stage_image`) |
 | `crates/cs-disc/src/ps2tex.rs` | 카드 그림 디코딩(LZSS, PSMT8), 4:3 배치 |
 | `crates/beetle-app/src/disc_meta.rs` | 게임이 표를 찾는 곳 |
 | `crates/beetle-app/src/scanner.rs`, `loader/disc.rs` | 곡 목록과 플레이 화면에 표 반영, 로딩 카드 |

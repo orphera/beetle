@@ -96,7 +96,7 @@ bms-package-manager: library.dat에 .iso 등록(`bpm library add x.iso`), bpm-gu
 
 - 근거: 제품 코드와 PS2 형식은 iidx-ps2tools(`plugins/*.py`의 `is_match`, `charttool/plugins/iidx*cs.py`), `.1`은 SaxxonPike `rhythm-game-formats/iidx/1.md`.
 - 실물로 확인한 것은 16(`Ps2Long`)뿐이다. 나머지 형식은 위 근거와 단위 테스트까지다.
-- 다른 버전을 읽으려면 채보 형식 외에 곡 테이블·파일 테이블 위치, 암호 키, 키음 형식도 버전마다 옮겨야 한다(iidx-ps2tools 플러그인별로 다름). 버전 모듈(`iidx16.rs`처럼)을 하나 추가하고 표의 `playable`을 켠다.
+- 다른 버전을 읽으려면 채보 형식 외에 곡 테이블·파일 테이블 위치, 암호 키, 키음 형식도 버전마다 옮겨야 한다(iidx-ps2tools 플러그인별로 다름). `crates/cs-disc/src/iidx.rs`에 에디션과 `Layout`(표 위치, 레코드 배치, 키, 스테이지 그림 위치)을 하나 추가하고 표의 `playable`을 켠다.
 - `.1`의 디렉터리 번호 ↔ 난이도 대응은 버전마다 다르다(iidx16-bms에서 Scharfrichter가 0/6을 HYPER로 읽는 차이를 겪음). 쓰게 되면 버전별로 정한다.
 - `ply_bms`(BMS 합성)의 스냅 허용치는 PS2 프레임(반 프레임) 기준이다. 1000틱 `.1`을 합성하게 되면 허용치를 틱에 맞춘다.
 

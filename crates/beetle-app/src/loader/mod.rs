@@ -1374,8 +1374,7 @@ mod tests {
         let mut disc = cs_disc::open(&image).unwrap();
         let volume = cs_disc::Volume::open(&mut disc).unwrap();
         let songs =
-            cs_disc::iidx16::Disc::open(&mut disc, &volume, cs_disc::iidx16::Edition::PremiumBest)
-                .unwrap();
+            cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::PremiumBest).unwrap();
         let (song, chart) = songs.find("000/sp_another").unwrap();
         let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
@@ -1411,8 +1410,7 @@ mod tests {
         let address = beetle_core::disc_address(&image, "003/sp_another");
         let mut disc = cs_disc::open(&image).unwrap();
         let volume = cs_disc::Volume::open(&mut disc).unwrap();
-        let songs = cs_disc::iidx15::Disc::open(&mut disc, &volume, cs_disc::iidx15::Edition::Gold)
-            .unwrap();
+        let songs = cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Gold).unwrap();
         let (song, chart) = songs.find("003/sp_another").unwrap();
         assert_eq!(chart.level, 11);
         let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
@@ -1447,8 +1445,7 @@ mod tests {
         let key = "083/sp_another";
         let mut disc = cs_disc::open(&image).unwrap();
         let volume = cs_disc::Volume::open(&mut disc).unwrap();
-        let songs = cs_disc::iidx15::Disc::open(&mut disc, &volume, cs_disc::iidx15::Edition::Gold)
-            .unwrap();
+        let songs = cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Gold).unwrap();
         let (song, chart) = songs.find(key).unwrap();
         let ply = songs.chart_ply(&mut disc, chart).unwrap();
         let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();

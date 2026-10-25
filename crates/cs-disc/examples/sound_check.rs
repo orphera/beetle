@@ -4,8 +4,8 @@
 //! largest sample difference.
 //!
 //! cargo run -p cs-disc --release --example sound_check -- <iso> <song title> <vgmstream_cli.exe> <work dir>
-use cs_disc::iidx16::{Difficulty, Disc, Style};
-use cs_disc::{identify, Game, SectorReader, Volume};
+use cs_disc::iidx::{Difficulty, Disc, Style};
+use cs_disc::{identify, SectorReader, Volume};
 use std::process::Command;
 
 fn main() {
@@ -13,7 +13,7 @@ fn main() {
     let (iso, title, vgm, work) = (&a[0], &a[1], &a[2], std::path::Path::new(&a[3]));
     std::fs::create_dir_all(work).unwrap();
     let mut d = SectorReader::open_image(iso).unwrap();
-    let Some(Game::Iidx16(ed)) = identify(&mut d).unwrap() else {
+    let Some(ed) = identify(&mut d).unwrap() else {
         panic!("not IIDX 16")
     };
     let v = Volume::open(&mut d).unwrap();
