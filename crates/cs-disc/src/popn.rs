@@ -336,16 +336,33 @@ pub struct Mask {
 }
 
 impl Mask {
+    /// The picture's coverage, cut to the columns that hold ink on either side
+    /// (the picture's own margins are not drawn). The height is kept, so every
+    /// word of a row keeps its baseline.
     pub(crate) fn from_rgba(picture: &Rgba) -> Mask {
-        let coverage = picture
+        let (w, h) = (picture.width as usize, picture.height as usize);
+        let coverage: Vec<u8> = picture
             .pixels
             .iter()
             .map(|&[r, g, b, _]| ((r as u32 + g as u32 + b as u32) / 3) as u8)
             .collect();
+        let inked = |x: usize| (0..h).any(|y| coverage[y * w + x] > 0);
+        let Some(left) = (0..w).find(|&x| inked(x)) else {
+            return Mask {
+                width: 0,
+                height: picture.height,
+                coverage: Vec::new(),
+            };
+        };
+        let right = (left..w).rev().find(|&x| inked(x)).unwrap_or(left);
+        let cut = right - left + 1;
+        let trimmed = (0..h)
+            .flat_map(|y| coverage[y * w + left..y * w + left + cut].iter().copied())
+            .collect();
         Mask {
-            width: picture.width,
+            width: cut as u32,
             height: picture.height,
-            coverage,
+            coverage: trimmed,
         }
     }
 }
@@ -569,15 +586,18 @@ mod tests {
     }
 
     #[test]
-    fn word_mask_is_mean_brightness() {
+    fn word_mask_is_mean_brightness_cut_to_its_ink() {
+        // Columns 0 and 3 are blank: the mask keeps columns 1 and 2.
+        let dark = [0, 0, 0, 255];
+        let white = [255, 255, 255, 255];
         let picture = Rgba {
-            width: 2,
-            height: 1,
-            pixels: vec![[255, 255, 255, 255], [0, 0, 0, 255]],
+            width: 4,
+            height: 2,
+            pixels: vec![dark, white, white, dark, dark, dark, dark, dark],
         };
         let mask = Mask::from_rgba(&picture);
-        assert_eq!((mask.width, mask.height), (2, 1));
-        assert_eq!(mask.coverage, vec![255, 0]);
+        assert_eq!((mask.width, mask.height), (2, 2));
+        assert_eq!(mask.coverage, vec![255, 255, 0, 0]);
     }
 
     #[test]

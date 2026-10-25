@@ -7,7 +7,8 @@
 //! The list draws charts, so the file also maps each chart (its `ChartId`) to
 //! its disc song.
 //!
-//! Format (little endian): the magic `BNM2`; `u32` song count, then per song
+//! Format (little endian): the magic `BNM3` (words cut to their ink, so the
+//! width of each is its own); `u32` song count, then per song
 //! `u32` song id and the title and the artist, each `u8` present (0 or 1) and,
 //! when present, `u32` width, `u32` height and width × height coverage bytes;
 //! then `u32` chart count, then per chart its 32-byte `ChartId` and `u32` song id.
@@ -25,7 +26,7 @@ use cs_disc::SectorReader;
 
 use crate::disc_meta;
 
-const MAGIC: &[u8; 4] = b"BNM2";
+const MAGIC: &[u8; 4] = b"BNM3";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -142,8 +143,9 @@ pub fn load_all() -> HashMap<ChartId, Arc<SongNames>> {
 /// never current.
 fn is_current(slug: &str, source: &Path) -> bool {
     let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let readable = fs::read(path(slug)).ok().and_then(|b| decode(&b)).is_some();
     match (modified(&path(slug)), modified(source)) {
-        (Some(cached), Some(image)) => cached >= image,
+        (Some(cached), Some(image)) => readable && cached >= image,
         _ => false,
     }
 }

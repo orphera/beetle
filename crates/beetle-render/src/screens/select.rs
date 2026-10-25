@@ -1192,11 +1192,14 @@ fn artist_or_word(
     s: f32,
 ) {
     let limit = row.right() - right_w - 16.0 * s;
-    let (aw, ah) = crate::words::ARTIST_SIZE;
     let h = 14.0 * s;
-    let w = aw as f32 * h / ah as f32;
-    match word.filter(|_| x + w <= limit) {
-        Some(region) => c.sprite(region, Rect::new(x, row.y + 28.0 * s, w, h), theme::MUTED),
+    // The picture keeps its own proportions at the row's height.
+    let width = |r: &AtlasRegion| h * r.w as f32 / r.h as f32;
+    match word.filter(|r| x + width(r) <= limit) {
+        Some(region) => {
+            let dst = Rect::new(x, row.y + 28.0 * s, width(&region), h);
+            c.sprite(region, dst, theme::MUTED)
+        }
         None => {
             let shown = t.fit(c, text, limit - x, st).into_owned();
             t.draw(c, &shown, x, row.y + 42.0 * s, st);
@@ -1218,16 +1221,20 @@ fn title_or_word(
     word: Option<AtlasRegion>,
     s: f32,
 ) {
-    let word = word.filter(|_| text_w >= crate::words::TITLE_SIZE.0 as f32 * s);
+    let word = word.filter(|r| text_w >= r.w as f32 * s);
     match word {
         Some(region) => {
-            let (w, h) = crate::words::TITLE_SIZE;
             let tint = if on {
                 theme::TEXT
             } else {
                 theme::TEXT.with_alpha(215)
             };
-            let dst = Rect::new(tx, row.y + 8.0 * s, w as f32 * s, h as f32 * s);
+            let dst = Rect::new(
+                tx,
+                row.y + 8.0 * s,
+                region.w as f32 * s,
+                region.h as f32 * s,
+            );
             c.sprite(region, dst, tint);
         }
         None => row_title(c, t, row, text, tx, text_w, on, s),

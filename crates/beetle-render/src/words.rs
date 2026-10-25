@@ -68,15 +68,16 @@ impl WordAtlas {
     }
 
     /// Writes `id`'s words into its slot (taking the least recently used slot
-    /// when it has none). `title` and `artist` are coverage bytes, one a
-    /// texel, of `TITLE_SIZE` and `ARTIST_SIZE`; a word of another size is
-    /// left out. Returns `false` when the grid is not reserved.
+    /// when it has none). A word is its width, its height and its coverage
+    /// bytes (one a texel): a title is `TITLE_SIZE` high and an artist
+    /// `ARTIST_SIZE` high, and each is at most that wide; a word of another
+    /// shape is left out. Returns `false` when the grid is not reserved.
     pub fn insert(
         &mut self,
         atlas: &mut UiAtlas,
         id: ChartId,
-        title: Option<&[u8]>,
-        artist: Option<&[u8]>,
+        title: Option<Word>,
+        artist: Option<Word>,
     ) -> bool {
         let Some(base) = self.base else {
             return false;
@@ -96,11 +97,11 @@ impl WordAtlas {
             base.y as u32 + (slot as u32 / COLS) * PITCH_Y,
         );
         let title_region = title
-            .filter(|c| fits(c, TITLE_SIZE))
-            .map(|c| region(atlas, base, x, y, TITLE_SIZE, c));
+            .filter(|w| fits(*w, TITLE_SIZE))
+            .map(|w| region(atlas, base, x, y, w));
         let artist_region = artist
-            .filter(|c| fits(c, ARTIST_SIZE))
-            .map(|c| region(atlas, base, x, y + TITLE_SIZE.1 + GAP, ARTIST_SIZE, c));
+            .filter(|w| fits(*w, ARTIST_SIZE))
+            .map(|w| region(atlas, base, x, y + TITLE_SIZE.1 + GAP, w));
         self.slots.insert(
             id,
             (
@@ -122,27 +123,32 @@ impl WordAtlas {
     }
 }
 
-fn fits(coverage: &[u8], (w, h): (u32, u32)) -> bool {
-    coverage.len() == (w * h) as usize
+/// A word picture: its size and its coverage, one byte a texel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Word<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub coverage: &'a [u8],
 }
 
-/// Writes `coverage` (of `size`) at `(x, y)` of the page `base` lies on.
-fn region(
-    atlas: &mut UiAtlas,
-    base: AtlasRegion,
-    x: u32,
-    y: u32,
-    (w, h): (u32, u32),
-    coverage: &[u8],
-) -> AtlasRegion {
+/// Whether `word` has the height of a `(_, h)` word and no more than its width.
+fn fits(word: Word, (max_w, h): (u32, u32)) -> bool {
+    word.height == h
+        && word.width > 0
+        && word.width <= max_w
+        && word.coverage.len() == (word.width * h) as usize
+}
+
+/// Writes `word` at `(x, y)` of the page `base` lies on.
+fn region(atlas: &mut UiAtlas, base: AtlasRegion, x: u32, y: u32, word: Word) -> AtlasRegion {
     let r = AtlasRegion {
         page: base.page,
         x: x as u16,
         y: y as u16,
-        w: w as u16,
-        h: h as u16,
+        w: word.width as u16,
+        h: word.height as u16,
     };
-    atlas.write_alpha(r, coverage);
+    atlas.write_alpha(r, word.coverage);
     r
 }
 
@@ -157,9 +163,47 @@ mod tests {
     }
 
     #[test]
-    fn a_word_of_the_wrong_size_is_left_out() {
-        assert!(fits(&[0; 180 * 18], TITLE_SIZE));
-        assert!(!fits(&[0; 180 * 17], TITLE_SIZE));
-        assert!(!fits(&[0; 200 * 18], ARTIST_SIZE));
+    fn a_word_of_the_wrong_shape_is_left_out() {
+        let ink = [0u8; 180 * 18];
+        assert!(fits(
+            Word {
+                width: 180,
+                height: 18,
+                coverage: &ink[..180 * 18]
+            },
+            TITLE_SIZE
+        ));
+        assert!(fits(
+            Word {
+                width: 90,
+                height: 18,
+                coverage: &ink[..90 * 18]
+            },
+            TITLE_SIZE
+        ));
+        assert!(!fits(
+            Word {
+                width: 181,
+                height: 18,
+                coverage: &ink
+            },
+            TITLE_SIZE
+        ));
+        assert!(!fits(
+            Word {
+                width: 180,
+                height: 17,
+                coverage: &ink[..180 * 17]
+            },
+            TITLE_SIZE
+        ));
+        assert!(!fits(
+            Word {
+                width: 0,
+                height: 18,
+                coverage: &ink[..0]
+            },
+            TITLE_SIZE
+        ));
     }
 }

@@ -6,8 +6,20 @@
 //! the words of rows that are on screen or next to it, and each word is a
 //! small copy into the atlas, so nothing here waits on the disc.
 
+use beetle_render::words::Word;
+use cs_disc::popn::Mask;
+
 use crate::folders::ListEntry;
 use crate::state::AppState;
+
+/// A mask as the atlas takes it.
+fn word(mask: &Mask) -> Word<'_> {
+    Word {
+        width: mask.width,
+        height: mask.height,
+        coverage: &mask.coverage,
+    }
+}
 
 /// Writes the words of the rows around the list window that are not resident
 /// yet. The names are read once, on the first call.
@@ -51,8 +63,8 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
             let Some(song_names) = names.get(&song.id) else {
                 continue;
             };
-            let title = song_names.title.as_ref().map(|m| m.coverage.as_slice());
-            let artist = song_names.artist.as_ref().map(|m| m.coverage.as_slice());
+            let title = song_names.title.as_ref().map(word);
+            let artist = song_names.artist.as_ref().map(word);
             if title.is_none() && artist.is_none() {
                 continue;
             }
