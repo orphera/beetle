@@ -3,41 +3,28 @@ IIDX 16 discs from the iidx16-bms Textage mapping, for a person to check.
 How to make and fill the tables by hand: docs/specs/disc_meta.md.
 
 The player reads the tables (crates/cs-disc/src/meta.rs has the format) to
-show real titles, subtitles, artists and genres, and to find the loading
-card where the disc gives no rule for it (EMPRESS). The tables hold data
+show real titles, subtitles, artists and genres. The tables hold data
 taken from Textage, so they stay on the user's machine: disc_meta/ is not
 part of the repository.
 
 Inputs (from the iidx16-bms work):
   --map       song_map_final.csv: disc song id -> Textage key, title, artist, genre
   --titletbl  titletbl.js (the UTF-8 copy): subtitles, by Textage key
-  --cards     empress_map.py: EMPRESS card container -> title, read off the cards by eye
 
 Every row of song_map_final.csv is a confirmed mapping: rows not matched by
 title and levels together were checked by hand there, and their match note
-is kept in the note column for reference. Only an EMPRESS song left without
-a card is marked "CHECK". Re-running overwrites the tables, so keep hand
+is kept in the note column for reference. Re-running overwrites the tables, so keep hand
 edits in the mapping CSV, or in the tables after the last run.
 
-Usage: python scripts/disc_meta_from_textage.py --map <csv> --titletbl <js> [--cards <py>] [--out disc_meta]
+Usage: python scripts/disc_meta_from_textage.py --map <csv> --titletbl <js> [--out disc_meta]
 """
 import argparse
 import csv
 import os
 import re
-import runpy
 
 EDITIONS = {'EMPRESS': 'iidx16-empress', 'PREMIUM BEST': 'iidx16-premium-best'}
-COLUMNS = ['id', 'disc_title', 'title', 'subtitle', 'artist', 'genre', 'card', 'note']
-
-# Decisions made by hand in the iidx16-bms work (docs/stagefile_extraction.md):
-# card 357's title is in kanji (TECHNO BANCHO), and NO CRIME J uses NO CRIME's card.
-CARD_BY_TITLE_EXTRA = {'TECHNO BANCHO': 357, 'NO CRIME J': 346}
-
-
-def key(title):
-    """Titles compared without case, spaces or punctuation."""
-    return re.sub(r'[^0-9A-Z]', '', title.upper())
+COLUMNS = ['id', 'disc_title', 'title', 'subtitle', 'artist', 'genre', 'note']
 
 
 def read_titletbl(path):
@@ -62,16 +49,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--map', required=True)
     ap.add_argument('--titletbl', required=True)
-    ap.add_argument('--cards')
     ap.add_argument('--out', default='disc_meta')
     args = ap.parse_args()
 
     titles = read_titletbl(args.titletbl)
-    cards = {}
-    if args.cards:
-        card_title = runpy.run_path(args.cards)['CARD_TITLE']
-        cards = {key(t): c for c, t in card_title.items()}
-        cards.update({key(t): c for t, c in CARD_BY_TITLE_EXTRA.items()})
 
     tables = {edition: [] for edition in EDITIONS}
     with open(args.map, encoding='utf-8-sig', newline='') as f:
@@ -85,15 +66,10 @@ def main():
         row = titles.get(tkey)
         if row and len(row) >= 4:
             subtitle = row[3]
-        card = ''
-        if disc == 'EMPRESS':
-            card = str(cards.get(key(disc_title), ''))
         notes = ['textage ' + tkey] if tkey else []
         if not match.startswith('title+levels'):
             notes.append(match)
-        if disc == 'EMPRESS' and args.cards and not card:
-            notes.append('CHECK no card')
-        tables[disc].append([song_id, disc_title, title, subtitle, artist, genre, card, '; '.join(notes)])
+        tables[disc].append([song_id, disc_title, title, subtitle, artist, genre, '; '.join(notes)])
 
     os.makedirs(args.out, exist_ok=True)
     for disc, slug in EDITIONS.items():

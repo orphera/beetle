@@ -1,6 +1,5 @@
 //! Writes a blank song details table for a disc (format: `cs_disc::meta`):
-//! every song's id and disc title, and its card container where the disc
-//! has a rule for it, for a person to fill in. See docs/specs/disc_meta.md.
+//! every song's id and disc title, for a person to fill in. See docs/specs/disc_meta.md.
 //!
 //! cargo run -p cs-disc --release --example disc_meta_template -- <image.iso | E:> [out.tsv]
 //! Without `out.tsv`, prints the table.
@@ -28,13 +27,9 @@ fn main() {
         "# Save as disc_meta/{}.tsv next to library.dat.",
         edition.slug()
     );
-    let _ = writeln!(
-        out,
-        "id\tdisc_title\ttitle\tsubtitle\tartist\tgenre\tcard\tnote"
-    );
+    let _ = writeln!(out, "id\tdisc_title\ttitle\tsubtitle\tartist\tgenre\tnote");
     for song in &disc.songs {
-        let card = song.stage.map_or(String::new(), |c| c.to_string());
-        let _ = writeln!(out, "{}\t{}\t\t\t\t\t{}\t", song.id, song.title, card);
+        let _ = writeln!(out, "{}\t{}\t\t\t\t\t", song.id, song.title);
     }
     match a.get(1) {
         Some(path) => std::fs::write(path, out).unwrap(),

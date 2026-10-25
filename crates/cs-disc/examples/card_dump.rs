@@ -20,7 +20,7 @@ fn main() {
     let disc = Disc::open(&mut d, &v, edition).unwrap();
     if a.len() == 2 {
         for song in &disc.songs {
-            match disc.stage_image(&mut d, song, false, None).unwrap() {
+            match disc.stage_image(&mut d, song, false).unwrap() {
                 Some(img) => {
                     std::fs::write(out.join(format!("{:04}.bmp", song.id)), bmp(&img)).unwrap()
                 }

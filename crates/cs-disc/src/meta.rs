@@ -1,6 +1,5 @@
 //! What a disc does not say about its songs, kept in a hand-checked table:
-//! the real title, subtitle, artist and genre, and the container of the
-//! loading card where the disc gives no rule for it.
+//! the real title, subtitle, artist and genre.
 //!
 //! One UTF-8 tab-separated file per disc edition. The first line that is not
 //! a comment names the columns; `id` is required, the others are optional and
@@ -8,8 +7,8 @@
 //!
 //! ```text
 //! # comments start with '#'
-//! id | disc_title | title | subtitle | artist | genre | card | note
-//! 0 | ANISAKIS | Anisakis | -somatic mutation type "Forza"- | 朱雀 | HARD RENAISSANCE | | textage anisakis
+//! id | disc_title | title | subtitle | artist | genre | note
+//! 0 | ANISAKIS | Anisakis | -somatic mutation type "Forza"- | 朱雀 | HARD RENAISSANCE | textage anisakis
 //! ```
 //!
 //! (cells separated by tabs, shown here as ` | `)
@@ -25,8 +24,6 @@ pub struct SongMeta {
     pub subtitle: String,
     pub artist: String,
     pub genre: String,
-    /// The loading card's container, when the table gives one.
-    pub card: Option<u32>,
 }
 
 /// The rows of a table, by song id. Rows without a numeric id are skipped.
@@ -40,13 +37,12 @@ pub fn parse(text: &str) -> BTreeMap<u32, SongMeta> {
     };
     let columns: Vec<&str> = header.split('\t').map(str::trim).collect();
     let at = |name: &str| columns.iter().position(|c| c.eq_ignore_ascii_case(name));
-    let (id, title, subtitle, artist, genre, card) = (
+    let (id, title, subtitle, artist, genre) = (
         at("id"),
         at("title"),
         at("subtitle"),
         at("artist"),
         at("genre"),
-        at("card"),
     );
     let Some(id) = id else {
         return BTreeMap::new();
@@ -68,7 +64,6 @@ pub fn parse(text: &str) -> BTreeMap<u32, SongMeta> {
                 subtitle: cell(subtitle),
                 artist: cell(artist),
                 genre: cell(genre),
-                card: cell(card).parse().ok(),
             },
         );
     }
@@ -82,17 +77,16 @@ mod tests {
     #[test]
     fn columns_are_found_by_name_and_empty_cells_stay_empty() {
         let text = "\u{feff}# made by a script, checked by hand\n\
-                    id\tdisc_title\tartist\ttitle\tcard\tnote\n\
-                    0\tANISAKIS\t朱雀\tAnisakis\t\tok\n\
-                    17\tJACK\tDesQ\tJack\t334\n\
+                    id\tdisc_title\tartist\ttitle\tnote\n\
+                    0\tANISAKIS\t朱雀\tAnisakis\tok\n\
+                    17\tJACK\tDesQ\tJack\n\
                     x\tnot a row\n";
         let rows = parse(text);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[&0].title, "Anisakis");
         assert_eq!(rows[&0].artist, "朱雀");
-        assert_eq!(rows[&0].card, None);
         assert_eq!(rows[&0].genre, "");
-        assert_eq!(rows[&17].card, Some(334));
+        assert_eq!(rows[&17].title, "Jack");
     }
 
     #[test]

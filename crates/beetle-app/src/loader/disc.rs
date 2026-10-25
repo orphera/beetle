@@ -183,10 +183,9 @@ impl SongSource for DiscSource {
     fn stage_image(&mut self) -> Option<StageArt> {
         let song = &self.songs.songs[self.song];
         let another = song.charts[self.chart].difficulty == Difficulty::Another;
-        let card = self.details.as_ref().and_then(|d| d.card);
         let decoded = self
             .songs
-            .stage_image(&mut self.disc, song, another, card)
+            .stage_image(&mut self.disc, song, another)
             .ok()??
             .centered_4_3();
         let mut image =

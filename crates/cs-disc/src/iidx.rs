@@ -546,16 +546,15 @@ impl Disc {
 
     /// The picture shown while `song` loads: 13, 14 and 15's stage image, of the
     /// ANOTHER variant when `another` and the texture holds two; 16's loading
-    /// card, from `card` (a hand-made table's) before the song's own.
+    /// card.
     pub fn stage_image<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
         another: bool,
-        card: Option<u32>,
     ) -> io::Result<Option<Rgba>> {
         match self.edition.layout().record.stage {
-            StageArt::Card { .. } => match card.or(song.stage) {
+            StageArt::Card { .. } => match song.stage {
                 Some(file) => self.card_image(disc, file),
                 None => Ok(None),
             },
