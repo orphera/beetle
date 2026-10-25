@@ -8,14 +8,17 @@
 //!   charts number them: `u16 channel` (0xff00 mono, 0x0000 left, 0x0100
 //!   right: a left entry followed by a right one is a stereo sound, and the
 //!   right entry is still a sound of its own, which charts play too — DXY!'s
-//!   42, GEKKO's 94), `u16 kind` (0 unused),
-//!   `u32 duration ms`, `u8 pan`, `u8 volume`, `u16 file`, `u32`.
+//!   42, GEKKO's 94), `u16 kind` (0 unused), `u32 duration ms`, `u8 pan`,
+//!   `u8 pan` again, `u16 file`, `u8 volume`, 3 bytes. Kind 1 sounds are
+//!   mono placed by the pan (64 center); kind 2 store 1 and 127 there and
+//!   play as stored. The volume (0 to 127, linear) is every sound's.
 //! - `0x8000`: `u32 file count, u32, u32 scrambled`, then one 16-byte record
 //!   per file: `u32 offset, u32 size, u16, u16 rate code (high byte), u32`.
 //!   File data follows the records.
 //!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
-//! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36), then
+//! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
+//! at 40 on the key sounds' scale), then
 //! ADPCM frames interleaved per channel every 16 bytes.
 
 use std::fmt;
@@ -107,11 +110,12 @@ pub enum Placement {
 pub struct KeySound {
     pub file: u16,
     pub placement: Placement,
-    /// Bytes 8 and 9 of the entry, pan and volume to iidx-ps2tools. A kind 2
-    /// entry stores 1 and 127 (full); a kind 1 entry stores its volume in
-    /// both (64, 72, ...), so `pan` is not a pan. `decode` applies `volume`:
-    /// GOLD plays THE LEAST 100sec's sliced music at 72.
+    /// Where a mono sound sits, 1 left, 64 center, 127 right: byte 8 of a
+    /// kind 1 entry (pop'n places most sounds off center), 64 for kind 2.
     pub pan: u8,
+    /// Byte 12, 0 to 127. Masters differ in loudness and the volumes even
+    /// them out: GOLD's THE LEAST 100sec plays its sliced music at 34 and
+    /// 60 against 86 to 127 for its other sounds.
     pub volume: u8,
 }
 
@@ -160,8 +164,8 @@ impl<'a> Bank<'a> {
                         Some(right) => Placement::Stereo { right },
                         None => Placement::Mono,
                     },
-                    pan: e[8],
-                    volume: e[9],
+                    pan: if kind >> 8 == 1 { e[8] } else { CENTER },
+                    volume: e[12],
                 }
             });
             sounds.push(sound);
@@ -204,8 +208,8 @@ impl<'a> Bank<'a> {
         Ok((rate, adpcm::decode(bytes, key, true)))
     }
 
-    /// Key sound `n` decoded, both channels for a stereo sound. `None` for an
-    /// empty slot.
+    /// Key sound `n` decoded at its volume, both channels for a stereo sound
+    /// or a mono one off center. `None` for an empty slot.
     pub fn decode(&self, n: u16) -> Option<Result<Pcm, SoundError>> {
         let sound = self.sound(n)?;
         Some((|| {
@@ -213,6 +217,13 @@ impl<'a> Bank<'a> {
             let mut channels = vec![left];
             if let Placement::Stereo { right } = sound.placement {
                 channels.push(self.decode_file(right)?.1);
+            }
+            if channels.len() == 1 && sound.pan != CENTER {
+                let (left, right) = pan_gains(sound.pan);
+                let mono = channels.pop().unwrap();
+                channels = [left, right]
+                    .map(|gain| mono.iter().map(|&s| (s as f32 * gain) as i16).collect())
+                    .into();
             }
             for channel in &mut channels {
                 apply_volume(channel, sound.volume);
@@ -222,7 +233,20 @@ impl<'a> Bank<'a> {
     }
 }
 
-/// Scales samples by a bank volume, 127 being as stored.
+/// The pan of a sound in the middle.
+const CENTER: u8 = 64;
+
+/// (left, right) gains of a mono sound at `pan`: the far side fades out
+/// and the near side stays as stored, as a centered sound plays in both.
+fn pan_gains(pan: u8) -> (f32, f32) {
+    let pan = pan.min(127) as f32;
+    (
+        ((127.0 - pan) / 63.0).min(1.0),
+        (pan / CENTER as f32).min(1.0),
+    )
+}
+
+/// Scales samples by a bank or BGM volume, 127 being as stored.
 fn apply_volume(samples: &mut [i16], volume: u8) {
     if volume >= 127 {
         return;
@@ -243,6 +267,7 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
     if interleave != 16 {
         return Err(SoundError::BadInterleave(interleave));
     }
+    let volume = u32_at(data, 40)?.min(127) as u8;
     let body = data
         .get(start..(start + size).min(data.len()))
         .ok_or(SoundError::TooShort)?;
@@ -256,7 +281,9 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
                 .flatten()
                 .copied()
                 .collect();
-            adpcm::decode(&frames, key, false)
+            let mut samples = adpcm::decode(&frames, key, false);
+            apply_volume(&mut samples, volume);
+            samples
         })
         .collect();
     Ok(Pcm { rate, channels })
@@ -275,8 +302,9 @@ mod tests {
             data[at..at + 2].copy_from_slice(&channel.to_le_bytes());
             data[at + 2..at + 4].copy_from_slice(&kind.to_le_bytes());
             data[at + 8] = pan;
-            data[at + 9] = volume;
+            data[at + 9] = pan;
             data[at + 10..at + 12].copy_from_slice(&file.to_le_bytes());
+            data[at + 12] = volume;
         }
         data.extend(2u32.to_le_bytes()); // two files
         data.extend(0u32.to_le_bytes());
@@ -317,6 +345,24 @@ mod tests {
         let pcm = bank.decode(2).unwrap().unwrap();
         assert_eq!(pcm.rate, 24000);
         assert_eq!(pcm.channels, vec![vec![0i16; 28]; 2]);
+    }
+
+    #[test]
+    fn a_kind_1_sound_is_placed_by_its_pan_and_kind_2_plays_as_stored() {
+        let data = bank(&[
+            (0xff00, 0x0100, 1, 127, 0),
+            (0xff00, 0x0100, 64, 127, 0),
+            (0xff00, 0x0200, 1, 127, 0),
+        ]);
+        let bank = Bank::parse(&data).unwrap();
+        assert_eq!(bank.sound(1).unwrap().pan, 1);
+        assert_eq!(bank.sound(2).unwrap().pan, CENTER);
+        assert_eq!(bank.sound(3).unwrap().pan, CENTER);
+        assert_eq!(bank.decode(1).unwrap().unwrap().channels.len(), 2);
+        assert_eq!(bank.decode(2).unwrap().unwrap().channels.len(), 1);
+        assert_eq!(pan_gains(1), (1.0, 1.0 / 64.0));
+        assert_eq!(pan_gains(CENTER), (1.0, 1.0));
+        assert_eq!(pan_gains(127), (0.0, 1.0));
     }
 
     #[test]

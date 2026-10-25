@@ -211,7 +211,8 @@ impl SongSource for DiscSource {
 /// The level a disc song plays at. The discs master the BGM and the key
 /// sounds each to full scale and leave the headroom to the console's mixer,
 /// so summed they pass full scale in many songs (EMPRESS's HOLIC 21% of the
-/// time, MEI 14%) and the records hold no volume for it. The song's autoplay
+/// time, MEI 14%); the volumes the discs store level the BGM and each key
+/// sound against each other, not their sum. The song's autoplay
 /// mix is rendered once and brought down so that its loud stretches (the
 /// 99th percentile of 10 ms peaks) sit at the mixer limiter's threshold; the
 /// limiter takes the rest, and a song that never gets that loud plays as
