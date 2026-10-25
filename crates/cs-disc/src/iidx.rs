@@ -727,6 +727,21 @@ fn read_file_tables(
     Ok(files)
 }
 
+/// A tutorial or practice record, not a song: one SP BEGINNER chart under
+/// `PRACTICE` (13), `TUTORIAL` (14), `TUTORIAL01`–`04` (15) or no title (16).
+fn is_tutorial(title: &str, charts: &[Chart]) -> bool {
+    let named = title.is_empty() || title == "PRACTICE" || title.starts_with("TUTORIAL");
+    let beginner_only = matches!(
+        charts,
+        [Chart {
+            style: Style::Single,
+            difficulty: Difficulty::Beginner,
+            ..
+        }]
+    );
+    named && beginner_only
+}
+
 fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<Vec<Song>> {
     let mut songs = Vec::new();
     let mut two_pictures = Vec::new();
@@ -761,6 +776,9 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             .collect::<String>()
             .trim()
             .to_string();
+        if is_tutorial(&title, &charts) {
+            continue;
+        }
         let stage_picks = match layout.stage {
             StageArt::Overlay { picks, .. } => {
                 let pick = |slot: usize| {
@@ -875,6 +893,26 @@ mod tests {
                 (Style::Double, Difficulty::Hyper, 9),
             ]
         );
+    }
+
+    #[test]
+    fn tutorials_are_not_songs() {
+        let beginner = |file| Chart {
+            style: Style::Single,
+            difficulty: Difficulty::Beginner,
+            level: 1,
+            file,
+        };
+        assert!(is_tutorial("TUTORIAL02", &[beginner(1)]));
+        assert!(is_tutorial("PRACTICE", &[beginner(1)]));
+        assert!(is_tutorial("", &[beginner(1)]));
+        // A song with a BEGINNER chart, or a tutorial-like title on a real song.
+        assert!(!is_tutorial("GAMBOL", &[beginner(1)]));
+        let normal = Chart {
+            difficulty: Difficulty::Normal,
+            ..beginner(2)
+        };
+        assert!(!is_tutorial("TUTORIAL", &[beginner(1), normal]));
     }
 
     #[test]
