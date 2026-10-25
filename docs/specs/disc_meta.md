@@ -10,6 +10,7 @@ PS2 디스크에서 바로 플레이하는 곡(`docs/plans/2026-10-23-disc-direc
   |---|---|
   | beatmania IIDX 16 EMPRESS (Disc 1, `SLPM_552.21`) | `disc_meta/iidx16-empress.tsv` |
   | beatmania IIDX 16 PREMIUM BEST (Disc 2, `SLPM_552.22`) | `disc_meta/iidx16-premium-best.tsv` |
+  | beatmania IIDX 14 GOLD (`SLPM_669.95`) | `disc_meta/iidx14-gold.tsv` |
 
 - **표는 저장소에 넣지 않는다**(`.gitignore`의 `/disc_meta/`). 표의 제목·아티스트·장르는 Textage(textage.cc)에서 가져온 값이다. Textage의 Read Me는 개인적인 범위의 이용은 자유, 블로그 등에서는 textage.cc 주소를 밝혀 달라는 부탁만 하고, 데이터를 묶어 재배포하는 경우는 말하지 않는다. beetle 저장소는 공개 저장소이므로 표는 각자 만들어 쓴다. 저장소에는 표를 만드는 스크립트와 이 문서만 둔다.
 - 표가 없으면 디스크의 영문 제목만 보이고, EMPRESS 곡은 로딩 카드가 없다. 플레이에는 지장이 없다.

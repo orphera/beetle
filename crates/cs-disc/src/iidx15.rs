@@ -1,11 +1,11 @@
-//! beatmania IIDX 15 DJ Troopers (PS2): the song list
+//! beatmania IIDX 15 DJ Troopers and 14 GOLD (PS2): the song list
 //! and where each song's files are.
 //!
-//! The boot executable holds both. Its song table has one 0x134-byte record per
-//! song slot (title, levels, file numbers of the charts and sounds); its file
-//! tables give each file number a span inside `BM2DX15A/B/C.DAT`. Offsets come
-//! from iidx-ps2tools (`plugins/iidx15thcs.py`) and were checked against
-//! both discs in the iidx16-bms work.
+//! The boot executable holds both. Its song table has one record per song slot
+//! (0x134 bytes on 15, 0x11c on 14: title, levels, file numbers of the charts
+//! and sounds); its file tables give each file number a span inside
+//! `BM2DX15A/B/C.DAT` (`BM2DX14A/B/C.DAT`). Offsets come from iidx-ps2tools
+//! (`plugins/iidx15thcs.py`, `plugins/iidx14thcs.py`).
 //!
 //! The files are returned as stored: charts are still encrypted and
 //! compressed, sounds still ADPCM.
@@ -23,6 +23,8 @@ use crate::sector::SectorReader;
 pub enum Edition {
     /// DJ Troopers
     DJTroopers,
+    /// 14 GOLD
+    Gold,
 }
 
 /// Where one edition keeps its tables inside the boot executable (file offsets).
@@ -34,6 +36,26 @@ struct Layout {
     songs: (usize, usize),
     /// The `DATA1.DAT` container table: (offset, bytes).
     data1: (usize, usize),
+    dat_files: [&'static str; 3],
+    /// The Blowfish key of the chart files. iidx-ps2tools builds it from
+    /// letters of song names in the game (`generate_encryption_key`); this is
+    /// its result.
+    chart_key: &'static [u8],
+    record: Record,
+}
+
+/// Where a song record keeps its fields.
+struct Record {
+    size: usize,
+    /// The level bytes and which of them each chart slot (`CHART_SLOTS` order) shows.
+    levels_at: usize,
+    level_of: [usize; 10],
+    video_at: usize,
+    /// The DATA1 animation file used for the song's loading/stage overlay.
+    /// This is a file-table index, not a DATA1 container number.
+    overlay_at: usize,
+    charts_at: usize,
+    sounds_at: usize,
 }
 
 const DJTROOPERS: Layout = Layout {
@@ -41,42 +63,72 @@ const DJTROOPERS: Layout = Layout {
     file_tables: [(0x134020, 0x240), (0x134260, 0x27c0), (0x136a20, 0x630)],
     songs: (0x16fe60, 0x80bc),
     data1: (0x131680, 0x1f80),
+    dat_files: ["BM2DX15A.DAT", "BM2DX15B.DAT", "BM2DX15C.DAT"],
+    chart_key: b"eqkBipx2wgExUAIG",
+    // Levels: SP N/H/A/B/Black, then DP N/H/A (DP beginner shares DP normal's,
+    // DP BLACK DP ANOTHER's).
+    record: Record {
+        size: 0x134,
+        levels_at: 0x4a,
+        level_of: [1, 6, 2, 7, 0, 5, 3, 5, 4, 7],
+        video_at: 0x58,
+        overlay_at: 0x94,
+        charts_at: 0xc0,
+        sounds_at: 0xe8,
+    },
 };
 
-/// The Blowfish key of the chart files. iidx-ps2tools builds it from letters of
-/// option names in the game (`generate_encryption_key`); this is its result.
-const CHART_KEY: &[u8] = b"eqkBipx2wgExUAIG";
-
-const DAT_FILES: [&str; 3] = ["BM2DX15A.DAT", "BM2DX15B.DAT", "BM2DX15C.DAT"];
+const GOLD: Layout = Layout {
+    executable: "SLPM_669.95",
+    file_tables: [(0x11ad60, 0x248), (0x11afa0, 0x26ac), (0x11d64c, 0x72c)],
+    songs: (0x156300, 0x76b4),
+    data1: (0x118500, 0x1e80),
+    dat_files: ["BM2DX14A.DAT", "BM2DX14B.DAT", "BM2DX14C.DAT"],
+    chart_key: b"sEk2I1Xq7bz09Mtv",
+    // Levels: beginner (both styles), 9 unused bytes, SP N/H/A, DP N/H/A
+    // (BLACK shares ANOTHER's).
+    record: Record {
+        size: 0x11c,
+        levels_at: 0x42,
+        level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
+        video_at: 0x54,
+        overlay_at: 0x84,
+        charts_at: 0xb4,
+        sounds_at: 0xdc,
+    },
+};
 
 impl Edition {
     pub fn from_executable(name: &str) -> Option<Self> {
-        [Edition::DJTroopers]
+        [Edition::DJTroopers, Edition::Gold]
             .into_iter()
             .find(|e| e.layout().executable.eq_ignore_ascii_case(name))
     }
 
     /// The disc's entry in the title list: its name and chart layout.
     pub fn title(self) -> &'static crate::titles::Title {
-        crate::titles::find(self.layout().executable).expect("IIDX 15 is listed")
+        crate::titles::find(self.layout().executable).expect("the edition is listed")
     }
 
     /// A short file-name-safe name (`iidx15-dj-troopers`).
     pub fn slug(self) -> &'static str {
         match self {
             Edition::DJTroopers => "iidx15-dj-troopers",
+            Edition::Gold => "iidx14-gold",
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Edition::DJTroopers => "beatmania IIDX 15 DJ TROOPERS",
+            Edition::Gold => "beatmania IIDX 14 GOLD",
         }
     }
 
     fn layout(self) -> &'static Layout {
         match self {
             Edition::DJTroopers => &DJTROOPERS,
+            Edition::Gold => &GOLD,
         }
     }
 }
@@ -110,30 +162,7 @@ const CHART_SLOTS: [(Style, Difficulty); 10] = [
     (Style::Double, Difficulty::Black),
 ];
 
-/// Where a slot's level is in the record's level bytes (SP N/H/A/B/Black, then DP).
-fn level_index(style: Style, difficulty: Difficulty) -> usize {
-    let base = match style {
-        Style::Single => 0,
-        Style::Double => 5,
-    };
-    base + match difficulty {
-        Difficulty::Normal => 0,
-        Difficulty::Hyper => 1,
-        Difficulty::Another => 2,
-        Difficulty::Beginner => 3,
-        Difficulty::Black => 4,
-    }
-}
-
-const RECORD_SIZE: usize = 0x134;
 const TITLE_LEN: usize = 0x40;
-const LEVELS_AT: usize = 0x4a;
-const CHARTS_AT: usize = 0xc0;
-const SOUNDS_AT: usize = 0xe8;
-const VIDEO_AT: usize = 0x58;
-/// The DATA1 animation file used for the song's loading/stage overlay.
-/// This is a file-table index, not a DATA1 container number.
-const OVERLAY_AT: usize = 0x94;
 
 /// One chart of a song.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,13 +215,13 @@ pub struct Song {
 /// A file's span inside one of the DAT files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileEntry {
-    /// 0, 1, 2 for `BM2DX15A/B/C.DAT`.
+    /// 0, 1, 2 for the edition's A/B/C DAT files.
     pub dat: u8,
     pub offset: u64,
     pub size: u32,
 }
 
-/// The song list of one IIDX 16 disc and where its files are.
+/// The song list of one IIDX 15 or 14 disc and where its files are.
 #[derive(Debug, Clone)]
 pub struct Disc {
     pub edition: Edition,
@@ -233,14 +262,14 @@ impl Disc {
             .read_file(disc, layout.executable)?
             .ok_or_else(|| missing(layout.executable))?;
         let mut dats = [FileExtent { lba: 0, size: 0 }; 3];
-        for (slot, name) in dats.iter_mut().zip(DAT_FILES) {
+        for (slot, name) in dats.iter_mut().zip(layout.dat_files) {
             *slot = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
         }
         let data1 = volume
             .find(disc, "DATA1.DAT")?
             .ok_or_else(|| missing("DATA1.DAT"))?;
         let files = read_file_tables(&exe, &layout.file_tables)?;
-        let songs = read_songs(&exe, layout.songs)?;
+        let songs = read_songs(&exe, layout.songs, &layout.record)?;
         // EMPRESS cards come from DATA1 containers (verified against empress_cards.py);
         // do not force None -- card_container determines it from the song record.
         // Previous unconditional None was the root cause of stagefile read failures.
@@ -303,7 +332,16 @@ impl Disc {
         let Some(image) = decode_psmt8(&texture.1, width, height) else {
             return Ok(None);
         };
-        Ok(Some(select_packed_variant(song.overlay, image, another)))
+        let packed = match self.edition {
+            Edition::DJTroopers => is_packed_djtroopers_overlay(song.overlay),
+            // Every wide GOLD texture holds two variants.
+            Edition::Gold => true,
+        };
+        Ok(Some(if packed {
+            select_packed_variant(image, another)
+        } else {
+            image
+        }))
     }
 
     /// Legacy card accessor retained for the old diagnostic path. IIDX 15
@@ -354,7 +392,7 @@ impl Disc {
                 io::ErrorKind::InvalidData,
                 format!(
                     "file {file} runs past the end of {}",
-                    DAT_FILES[entry.dat as usize]
+                    self.edition.layout().dat_files[entry.dat as usize]
                 ),
             ));
         }
@@ -370,7 +408,7 @@ impl Disc {
         file: u32,
     ) -> io::Result<Vec<u8>> {
         let stored = self.read_file(disc, file)?;
-        let plain = crate::blowfish::decrypt_file(CHART_KEY, &stored);
+        let plain = crate::blowfish::decrypt_file(self.edition.layout().chart_key, &stored);
         crate::lz::decode(&plain).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -469,19 +507,22 @@ impl Disc {
     }
 }
 
-/// Two DJ TROOPERS overlays contain two 298-pixel-wide stage variants packed
-/// edge-to-edge at the start of their 640-pixel texture. The second variant
-/// is selected for ANOTHER; the remaining 44 pixels are padding.
-fn select_packed_variant(overlay: Option<u32>, image: Rgba, another: bool) -> Rgba {
+/// Two DJ TROOPERS overlays pack two stage variants into one texture.
+fn is_packed_djtroopers_overlay(overlay: Option<u32>) -> bool {
     // The extracted c0426/c0444 names are DATA1-side labels. The song table's
     // overlay field uses these actual DATA1 file indices instead.
     const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
     const CRYMSON_OVERLAY: u32 = 0x1bc;
+    matches!(overlay, Some(BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY))
+}
+
+/// A packed overlay holds two 298-pixel-wide stage variants edge-to-edge at
+/// the start of its 640-pixel texture. The second variant is selected for
+/// ANOTHER; the remaining 44 pixels are padding. A narrower texture holds one.
+fn select_packed_variant(image: Rgba, another: bool) -> Rgba {
     const VARIANT_WIDTH: u32 = 298;
 
-    if !matches!(overlay, Some(BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY))
-        || image.width < VARIANT_WIDTH * 2
-    {
+    if image.width < VARIANT_WIDTH * 2 {
         return image;
     }
     let start = if another { VARIANT_WIDTH } else { 0 };
@@ -569,19 +610,19 @@ fn read_file_tables(exe: &[u8], tables: &[(usize, usize); 3]) -> io::Result<Vec<
     Ok(files)
 }
 
-fn read_songs(exe: &[u8], span: (usize, usize)) -> io::Result<Vec<Song>> {
+fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<Vec<Song>> {
     let mut songs = Vec::new();
-    for (id, record) in table(exe, span)?.chunks_exact(RECORD_SIZE).enumerate() {
-        let levels = &record[LEVELS_AT..LEVELS_AT + 10];
+    for (id, record) in table(exe, span)?.chunks_exact(layout.size).enumerate() {
+        let levels = &record[layout.levels_at..];
         let mut charts: Vec<Chart> = CHART_SLOTS
             .iter()
             .enumerate()
             .filter_map(|(i, &(style, difficulty))| {
-                let file = u32_at(record, CHARTS_AT + i * 4);
+                let file = u32_at(record, layout.charts_at + i * 4);
                 (file != 0 && file != u32::MAX).then(|| Chart {
                     style,
                     difficulty,
-                    level: levels[level_index(style, difficulty)],
+                    level: levels[layout.level_of[i]],
                     file,
                 })
             })
@@ -592,7 +633,7 @@ fn read_songs(exe: &[u8], span: (usize, usize)) -> io::Result<Vec<Song>> {
         charts.sort_by_key(|c| (c.style, c.difficulty));
         let mut sounds = [0u16; 16];
         for (i, sound) in sounds.iter_mut().enumerate() {
-            let at = SOUNDS_AT + i * 2;
+            let at = layout.sounds_at + i * 2;
             *sound = u16::from_le_bytes([record[at], record[at + 1]]);
         }
         let title = record[..TITLE_LEN]
@@ -608,11 +649,11 @@ fn read_songs(exe: &[u8], span: (usize, usize)) -> io::Result<Vec<Song>> {
             charts,
             sounds,
             overlay: {
-                let file = u32_at(record, OVERLAY_AT);
+                let file = u32_at(record, layout.overlay_at);
                 (file != 0 && file != u32::MAX).then_some(file)
             },
             video: {
-                let file = u32_at(record, VIDEO_AT);
+                let file = u32_at(record, layout.video_at);
                 (file != 0 && file & 0xffff != 0xffff).then_some(file)
             },
         });

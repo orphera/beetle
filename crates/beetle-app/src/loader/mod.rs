@@ -1400,4 +1400,39 @@ mod tests {
         }
         assert_eq!(song_file_label(&meta), "sp_another");
     }
+
+    /// With `CS_DISC_IIDX14` set to the GOLD image or drive: Blind Justice
+    /// loads from the disc with every key sound, its BGM and its video.
+    #[test]
+    fn a_gold_disc_chart_loads_with_its_sounds() {
+        let Ok(image) = std::env::var("CS_DISC_IIDX14") else {
+            return;
+        };
+        let address = beetle_core::disc_address(&image, "003/sp_another");
+        let mut disc = cs_disc::open(&image).unwrap();
+        let volume = cs_disc::Volume::open(&mut disc).unwrap();
+        let songs = cs_disc::iidx15::Disc::open(&mut disc, &volume, cs_disc::iidx15::Edition::Gold)
+            .unwrap();
+        let (song, chart) = songs.find("003/sp_another").unwrap();
+        assert_eq!(chart.level, 11);
+        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
+        assert_eq!(meta.title, "BLI");
+
+        let (chart, _, bank, _, videos) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        assert_eq!(bank.len(), chart.header.wav_table.len());
+        let bgm = chart
+            .header
+            .wav_table
+            .iter()
+            .find(|(_, n)| *n == "0001.wav")
+            .unwrap()
+            .0;
+        let bgm = bank.get(*bgm).expect("the BGM cue has the BGM stream");
+        assert!(bgm.duration_seconds() > 60.0, "{}", bgm.duration_seconds());
+        match videos.get(&BmpId(1)) {
+            Some(VideoSource::Memory { bytes, .. }) => assert_eq!(&bytes[..4], &[0, 0, 1, 0xba]),
+            other => panic!("no disc video: {other:?}"),
+        }
+    }
 }
