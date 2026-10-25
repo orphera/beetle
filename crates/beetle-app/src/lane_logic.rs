@@ -14,6 +14,7 @@ use beetle_audio::{AudioClock, SampleTrigger};
 #[cfg(test)]
 use beetle_core::{parse_bms, GaugeType, JudgeWindow, Ruleset, TimingModel};
 use beetle_core::{JudgeEngine, Lane, NoteType, WavId};
+#[cfg(test)]
 use winit::keyboard::KeyCode;
 
 use crate::calibration::judged_time;
