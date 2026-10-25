@@ -599,8 +599,11 @@ impl Disc {
             songs,
             files,
             dats: vec![dat],
-            data1: FileExtent { lba: 0, size: 0 },
-            data1_files: Vec::new(),
+            // `IMAGE.DAT` stands in for DATA1: the song banners are there.
+            data1: volume
+                .find(disc, crate::popn::IMAGE_FILE)?
+                .unwrap_or(FileExtent { lba: 0, size: 0 }),
+            data1_files: crate::popn::read_images(&exe, layout).unwrap_or_default(),
         })
     }
 
@@ -738,8 +741,17 @@ impl Disc {
         song: &Song,
         another: bool,
     ) -> io::Result<Option<Rgba>> {
-        let Tables::Iidx(layout) = self.edition.tables() else {
-            return Ok(None);
+        let layout = match self.edition.tables() {
+            Tables::Iidx(layout) => layout,
+            // The song's banner (genre and title).
+            Tables::Popn(layout) => {
+                let Some(banner) = song.stage else {
+                    return Ok(None);
+                };
+                return Ok(self
+                    .read_data1(disc, layout.banners)?
+                    .and_then(|file| crate::popn::banner(&file, banner)));
+            }
         };
         match layout.record.stage {
             StageArt::Card { .. } => match song.stage {

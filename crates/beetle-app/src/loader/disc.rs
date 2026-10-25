@@ -184,15 +184,20 @@ impl SongSource for DiscSource {
         HashMap::from([(BmpId(1), source)])
     }
 
-    /// The song's stage art (loading card), on a 4:3 canvas.
+    /// The song's stage art (loading card, or a pop'n song's banner), on a
+    /// 4:3 canvas.
     fn stage_image(&mut self) -> Option<StageArt> {
         let song = &self.songs.songs[self.song];
         let another = song.charts[self.chart].difficulty == Difficulty::Another;
-        let decoded = self
+        let picture = self
             .songs
             .stage_image(&mut self.disc, song, another)
-            .ok()??
-            .centered_4_3();
+            .ok()??;
+        let decoded = if self.songs.edition.is_popn() {
+            picture.letterboxed_4_3()
+        } else {
+            picture.centered_4_3()
+        };
         let mut image =
             ImageBuffer::new(decoded.width, decoded.height, ColorRgba::new(0, 0, 0, 255));
         for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {

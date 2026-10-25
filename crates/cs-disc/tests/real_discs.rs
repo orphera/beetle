@@ -246,7 +246,8 @@ fn every_chart_finds_and_decodes_its_sounds() {
 
 /// Every pop'n chart becomes BMS the player reads as nine buttons, with every
 /// note of the chart on time; every sound a chart plays is in its bank and
-/// decodes, and every BGM decodes. Set `CS_DISC_POPN12` to `CS_DISC_POPN14`.
+/// decodes, every BGM decodes, and every song has its banner. Set
+/// `CS_DISC_POPN12` to `CS_DISC_POPN14`.
 #[test]
 fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
     use cs_disc::ply::Command;
@@ -265,6 +266,19 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         let mut missing = Vec::new();
         let mut checked = std::collections::BTreeSet::new();
         for song in &songs.songs {
+            // The song's banner (genre and title) is its loading picture.
+            let banner = songs
+                .stage_image(&mut disc, song, false)
+                .unwrap()
+                .unwrap_or_else(|| panic!("{}: no banner", song.title));
+            // About 244x58 (13's アイドルポップ is 242 wide, 12's クラシック１１ 59 high).
+            assert!(
+                (236..=248).contains(&banner.width) && (56..=60).contains(&banner.height),
+                "{}: {}x{}",
+                song.title,
+                banner.width,
+                banner.height
+            );
             for chart in &song.charts {
                 let what = format!("{} {} {:?}", song.id, song.title, chart.difficulty);
                 let (wvb, bgm) = song.sound_files(chart.style, chart.difficulty);

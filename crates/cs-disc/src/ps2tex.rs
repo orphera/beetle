@@ -108,6 +108,31 @@ pub fn decode_psmt8(data: &[u8], width: u32, height: u32) -> Option<Rgba> {
 }
 
 impl Rgba {
+    /// A picture wider than 4:3 in the middle of a black 4:3 canvas of its
+    /// width (a pop'n banner, 244x58, on 244x183), so a 4:3 frame shows all
+    /// of it; a narrower one as it is.
+    pub fn letterboxed_4_3(&self) -> Rgba {
+        let height = (self.width * 3).div_ceil(4);
+        if height <= self.height {
+            return self.clone();
+        }
+        let top = (height - self.height) / 2;
+        let mut pixels = vec![[0, 0, 0, 255]; (self.width * height) as usize];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let [r, g, b, a] = self.pixels[(y * self.width + x) as usize];
+                // Over black, by its alpha (0x80 is opaque once doubled).
+                let over = |c: u8| (c as u32 * a as u32 / 255) as u8;
+                pixels[((y + top) * self.width + x) as usize] = [over(r), over(g), over(b), 255];
+            }
+        }
+        Rgba {
+            width: self.width,
+            height,
+            pixels,
+        }
+    }
+
     /// The picture on a black 4:3 canvas of its height (or wider, for a
     /// wide picture), moved so the box around its visible content (any
     /// channel above 40) sits in the middle without cutting anything off: the
