@@ -103,7 +103,9 @@ pub enum Command {
         slot: u8,
         sound: u16,
     },
-    /// Judgement timing: `value` is signed.
+    /// Judgement window bounds at time 0, slots 0-5, in frames (default
+    /// -16, -6, -1, 3, 8, 18; many charts differ). See
+    /// `docs/specs/iidx_ps2_disc.md`.
     Timing {
         slot: u8,
         value: i8,
