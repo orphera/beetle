@@ -7,8 +7,10 @@
 //! - PS2 (iidx-ps2tools `charttool/plugins/iidx3rdcs.py`, `iidx5thcs.py`,
 //!   `iidx7thcs.py`): the low nibble of `c1` is the command, the high nibble
 //!   its slot; times are in units of `multiplier / 1000` ms (0x412b, about one
-//!   59.94 Hz frame, on the 16th style discs; 0x414c when the chart has no
-//!   header). The list ends at time 0x7fff.
+//!   59.94 Hz frame, on the 14 GOLD to 16th style discs; 0x414c when the chart
+//!   has no header). The list ends at time 0x7fff. Unlike arcade GOLD's
+//!   60.046 Hz ticks, every GOLD disc chart stores 0x412b, and its bar lines
+//!   against its tempo measure 59.94 frames a second (median of 89 songs).
 //!   - 3rd, 4th style: no header, 4-byte events `u16 time, u8 c1, u8 value`.
 //!   - 5th, 6th style: `u32 first event, u32 multiplier` (only the first when
 //!     it is 4), then 4-byte events.
