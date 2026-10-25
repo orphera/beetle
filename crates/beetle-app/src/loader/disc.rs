@@ -24,6 +24,11 @@ pub(super) struct DiscSource {
 }
 
 impl DiscSource {
+    /// Whether the disc is a pop'n music disc (its art is in the atlas).
+    pub(super) fn is_popn(&self) -> bool {
+        self.songs.edition.is_popn()
+    }
+
     pub(super) fn open(image: &str, key: &str) -> Result<Self, ChartLoadError> {
         let mut disc = cs_disc::open(image).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => ChartLoadError::NotFound,

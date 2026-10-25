@@ -23,7 +23,6 @@ use std::time::Duration;
 use beetle_core::{ChartId, SongMetadata};
 use beetle_render::jacket::{jacket_seed, thumb_pixels, JacketKey};
 
-use crate::loader::load_stage_image;
 use crate::state::AppState;
 
 /// Rows requested on each side of the visible window.
@@ -199,7 +198,7 @@ fn next_request(shared: &SharedPair) -> Option<Request> {
 fn worker(shared: Arc<SharedPair>, done: Sender<Done>) {
     while let Some(req) = next_request(&shared) {
         finish_job(&shared, &done, req.id, || {
-            load_stage_image(&req.song).and_then(|img| thumb_pixels(&img))
+            crate::loader::select_stage_image(&req.song).and_then(|img| thumb_pixels(&img))
         });
     }
 }

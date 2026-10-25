@@ -210,6 +210,20 @@ fn write_cache_file(path: &Path, bytes: &[u8]) {
 }
 
 /// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
+/// The stage image the song select screen shows (its detail panel and jacket).
+/// IIDX discs have none there: their loading art is slow to read from the disc,
+/// so the select screen shows the text instead. Pop'n art is in the atlas and
+/// stays. Gameplay still loads the full stage image (`load_stage_image`).
+pub fn select_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
+    if let SongAddress::Disc { image, chart } = SongAddress::parse(&song.file_path) {
+        let source = disc::DiscSource::open(image, chart).ok()?;
+        if !source.is_popn() {
+            return None;
+        }
+    }
+    load_stage_image(song)
+}
+
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     // 1. Check persistent on-disk artwork cache first (fastest)
     let cache_dir = Path::new(ARTWORKS_CACHE_DIR);
@@ -355,7 +369,7 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
     let (tx, rx) = channel();
 
     thread::spawn(move || {
-        let img = load_stage_image(&song_clone);
+        let img = select_stage_image(&song_clone);
         let backdrop = img
             .as_ref()
             .and_then(beetle_render::backdrop::blur_backdrop);
