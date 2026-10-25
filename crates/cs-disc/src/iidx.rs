@@ -1,5 +1,5 @@
-//! The PS2 beatmania IIDX discs this crate reads (14 GOLD, 15 DJ TROOPERS,
-//! 16 EMPRESS and its PREMIUM BEST disc): the song list and where each song's
+//! The PS2 beatmania IIDX discs this crate reads (13 DistorteD, 14 GOLD,
+//! 15 DJ TROOPERS, 16 EMPRESS and its PREMIUM BEST disc): the song list and where each song's
 //! files are.
 //!
 //! The boot executable holds both. Its song table has one record per song slot
@@ -7,11 +7,11 @@
 //! each file number a span inside the three `BM2DX<nn>A/B/C.DAT` files. The
 //! editions differ only in where those tables are, the record layout, the chart
 //! key and where a song's stage art is (`Layout`). Offsets come from
-//! iidx-ps2tools (`plugins/iidx14thcs.py`, `iidx15thcs.py`,
+//! iidx-ps2tools (`plugins/iidx13thcs.py`, `iidx14thcs.py`, `iidx15thcs.py`,
 //! `iidx16thempresscs.py`, `iidx16thpremiumbestcs.py`).
 //!
-//! The files are returned as stored: charts are still encrypted and
-//! compressed, sounds still ADPCM.
+//! The files are returned as stored: charts are still encrypted (from 14 on)
+//! and compressed, sounds still ADPCM.
 
 use std::io::{self, Read, Seek};
 
@@ -24,6 +24,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 13 DistorteD, `SLPM_668.28`.
+    Distorted,
     /// 14 GOLD, `SLPM_669.95`.
     Gold,
     /// 15 DJ TROOPERS, `SLPM_551.17`.
@@ -34,7 +36,8 @@ pub enum Edition {
     PremiumBest,
 }
 
-const EDITIONS: [Edition; 4] = [
+const EDITIONS: [Edition; 5] = [
+    Edition::Distorted,
     Edition::Gold,
     Edition::DjTroopers,
     Edition::Empress,
@@ -47,6 +50,7 @@ struct Layout {
     slug: &'static str,
     /// The file tables of the three DAT files, in order: (offset, bytes).
     file_tables: [(usize, usize); 3],
+    file_records: FileRecords,
     dat_files: [&'static str; 3],
     /// The song table: (offset, bytes).
     songs: (usize, usize),
@@ -55,8 +59,18 @@ struct Layout {
     /// The Blowfish key of the chart files. iidx-ps2tools builds it from
     /// letters of song names in the game (`generate_encryption_key`); this is
     /// its result.
-    chart_key: &'static [u8],
+    /// `None` where charts are not encrypted (13).
+    chart_key: Option<&'static [u8]>,
     record: Record,
+}
+
+/// How a DAT file table entry gives a file's span.
+#[derive(Clone, Copy)]
+enum FileRecords {
+    /// 8 bytes: sector, sectors (13).
+    Sectors,
+    /// 12 bytes: sector, an unused word, bytes (14 on).
+    Bytes,
 }
 
 /// Where a song record keeps its fields.
@@ -67,6 +81,9 @@ struct Record {
     level_of: [usize; 10],
     video_at: usize,
     charts_at: usize,
+    /// How many chart file numbers the record has (`CHART_SLOTS` prefix):
+    /// 13 has no BLACK slots.
+    chart_count: usize,
     sounds_at: usize,
     stage: StageArt,
 }
@@ -90,8 +107,31 @@ const RECORD_15_16: Record = Record {
     level_of: [1, 6, 2, 7, 0, 5, 3, 8, 4, 9],
     video_at: 0x58,
     charts_at: 0xc0,
+    chart_count: 10,
     sounds_at: 0xe8,
     stage: StageArt::Overlay { at: 0x94 },
+};
+
+const DISTORTED: Layout = Layout {
+    executable: "SLPM_668.28",
+    slug: "iidx13-distorted",
+    file_tables: [(0x112a00, 0xc0), (0x112ac0, 0x1900), (0x1143c0, 0x4a0)],
+    file_records: FileRecords::Sectors,
+    dat_files: ["BM2DX13A.DAT", "BM2DX13B.DAT", "BM2DX13C.DAT"],
+    songs: (0x1353e0, 0x71c0),
+    data1: (0x10d7f8, 0x1bf0),
+    chart_key: None,
+    // Levels as GOLD; eight overlay slots instead of six and no BLACK charts.
+    record: Record {
+        size: 0x118,
+        levels_at: 0x42,
+        level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
+        video_at: 0x54,
+        charts_at: 0xb8,
+        chart_count: 8,
+        sounds_at: 0xd8,
+        stage: StageArt::Overlay { at: 0x60 },
+    },
 };
 
 const GOLD: Layout = Layout {
@@ -101,7 +141,8 @@ const GOLD: Layout = Layout {
     dat_files: ["BM2DX14A.DAT", "BM2DX14B.DAT", "BM2DX14C.DAT"],
     songs: (0x156300, 0x76b4),
     data1: (0x118500, 0x1e80),
-    chart_key: b"sEk2I1Xq7bz09Mtv",
+    file_records: FileRecords::Bytes,
+    chart_key: Some(b"sEk2I1Xq7bz09Mtv"),
     // Levels: beginner (both styles), 9 unused bytes, SP N/H/A, DP N/H/A
     // (BLACK shares ANOTHER's).
     record: Record {
@@ -110,6 +151,7 @@ const GOLD: Layout = Layout {
         level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
         video_at: 0x54,
         charts_at: 0xb4,
+        chart_count: 10,
         sounds_at: 0xdc,
         stage: StageArt::Overlay { at: 0x84 },
     },
@@ -122,7 +164,8 @@ const DJ_TROOPERS: Layout = Layout {
     dat_files: ["BM2DX15A.DAT", "BM2DX15B.DAT", "BM2DX15C.DAT"],
     songs: (0x16fe60, 0x80bc),
     data1: (0x131680, 0x1f80),
-    chart_key: b"eqkBipx2wgExUAIG",
+    file_records: FileRecords::Bytes,
+    chart_key: Some(b"eqkBipx2wgExUAIG"),
     record: RECORD_15_16,
 };
 
@@ -133,7 +176,8 @@ const EMPRESS: Layout = Layout {
     dat_files: ["BM2DX16A.DAT", "BM2DX16B.DAT", "BM2DX16C.DAT"],
     songs: (0x178bf0, 0x7e54),
     data1: (0x139d00, 0x1cf0),
-    chart_key: b"uYlFgVwOpaQmXdIR",
+    file_records: FileRecords::Bytes,
+    chart_key: Some(b"uYlFgVwOpaQmXdIR"),
     record: Record {
         stage: StageArt::Card,
         ..RECORD_15_16
@@ -173,6 +217,7 @@ impl Edition {
 
     fn layout(self) -> &'static Layout {
         match self {
+            Edition::Distorted => &DISTORTED,
             Edition::Gold => &GOLD,
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
@@ -325,7 +370,7 @@ impl Disc {
         let data1 = volume
             .find(disc, "DATA1.DAT")?
             .ok_or_else(|| missing("DATA1.DAT"))?;
-        let files = read_file_tables(&exe, &layout.file_tables)?;
+        let files = read_file_tables(&exe, &layout.file_tables, layout.file_records)?;
         let songs = read_songs(&exe, layout.songs, &layout.record)?;
         // DATA1 records: id, sector, sectors, 0.
         let data1_files = table(&exe, layout.data1)?
@@ -387,7 +432,10 @@ impl Disc {
         file: u32,
     ) -> io::Result<Vec<u8>> {
         let stored = self.read_file(disc, file)?;
-        let plain = crate::blowfish::decrypt_file(self.edition.layout().chart_key, &stored);
+        let plain = match self.edition.layout().chart_key {
+            Some(key) => crate::blowfish::decrypt_file(key, &stored),
+            None => stored,
+        };
         crate::lz::decode(&plain)
             .ok_or_else(|| invalid(format!("chart file {file} does not decompress")))
     }
@@ -502,6 +550,8 @@ impl Disc {
         match self.edition {
             // Every wide GOLD texture holds two.
             Edition::Gold => true,
+            // Not looked at yet.
+            Edition::Distorted => false,
             Edition::DjTroopers => matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY),
             Edition::Empress | Edition::PremiumBest => false,
         }
@@ -648,14 +698,26 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 
 /// The file tables, numbered across all three DAT files in order. Each record
 /// is 12 bytes: sector inside the DAT, an unused word, size in bytes.
-fn read_file_tables(exe: &[u8], tables: &[(usize, usize); 3]) -> io::Result<Vec<FileEntry>> {
+fn read_file_tables(
+    exe: &[u8],
+    tables: &[(usize, usize); 3],
+    records: FileRecords,
+) -> io::Result<Vec<FileEntry>> {
     let mut files = Vec::new();
+    let len = match records {
+        FileRecords::Sectors => 8,
+        FileRecords::Bytes => 12,
+    };
     for (dat, &span) in tables.iter().enumerate() {
-        for record in table(exe, span)?.chunks_exact(12) {
+        for record in table(exe, span)?.chunks_exact(len) {
+            let size = match records {
+                FileRecords::Sectors => u32_at(record, 4) * crate::SECTOR_SIZE as u32,
+                FileRecords::Bytes => u32_at(record, 8),
+            };
             files.push(FileEntry {
                 dat: dat as u8,
                 offset: u32_at(record, 0) as u64 * crate::SECTOR_SIZE,
-                size: u32_at(record, 8),
+                size,
             });
         }
     }
@@ -666,7 +728,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
     let mut songs = Vec::new();
     for (id, record) in table(exe, span)?.chunks_exact(layout.size).enumerate() {
         let levels = &record[layout.levels_at..];
-        let mut charts: Vec<Chart> = CHART_SLOTS
+        let mut charts: Vec<Chart> = CHART_SLOTS[..layout.chart_count]
             .iter()
             .enumerate()
             .filter_map(|(i, &(style, difficulty))| {
@@ -805,7 +867,8 @@ mod tests {
             exe.extend(0u32.to_le_bytes());
             exe.extend(size.to_le_bytes());
         }
-        let files = read_file_tables(&exe, &[(0, 12), (12, 24), (36, 0)]).unwrap();
+        let files =
+            read_file_tables(&exe, &[(0, 12), (12, 24), (36, 0)], FileRecords::Bytes).unwrap();
         assert_eq!(
             files,
             [

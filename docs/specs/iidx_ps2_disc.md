@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,29 +10,30 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 13 DistorteD | `SLPM_668.28` | `BM2DX13A/B/C.DAT` | 0x118 | 없음 (암호화 안 함) |
 | 14 GOLD | `SLPM_669.95` | `BM2DX14A/B/C.DAT` | 0x11c | `sEk2I1Xq7bz09Mtv` |
 | 15 DJ TROOPERS | `SLPM_551.17` | `BM2DX15A/B/C.DAT` | 0x134 | `eqkBipx2wgExUAIG` |
 | 16 EMPRESS | `SLPM_552.21` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
 | 16 PREMIUM BEST | `SLPM_552.22` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
 
-- 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 세 DAT에 걸쳐 번호가 이어진다.
+- 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 13은 8바이트 레코드(섹터, 섹터 수). 세 DAT에 걸쳐 번호가 이어진다.
 - `DATA1.DAT` 표: 16바이트 레코드(id, 섹터, 섹터 수, 0).
-- 차트 파일은 Blowfish(위 키)로 암호화하고 LZ로 압축되어 있다.
+- 차트 파일은 Blowfish(위 키)로 암호화하고 LZ로 압축되어 있다. 13은 LZ 압축만 한다.
 
 ## 2. 곡 레코드
 
-| 필드 | 14 GOLD | 15·16 |
-|---|---|---|
-| 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00, 0x40바이트 |
-| 레벨 바이트 | 0x42부터 | 0x4a부터 |
-| 배경 영상 파일 번호 | 0x54 | 0x58 |
-| 스테이지 그림 | 0x84 (DATA1 파일 번호) | 15: 0x94 / 16: 레코드 전체에서 규칙으로 찾음 |
-| 차트 파일 번호 10개 | 0xb4 | 0xc0 |
-| 사운드 파일 번호 16개 | 0xdc | 0xe8 |
+| 필드 | 13 DistorteD | 14 GOLD | 15·16 |
+|---|---|---|---|
+| 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00, 0x40바이트 | 0x00, 0x40바이트 |
+| 레벨 바이트 | 0x42부터 | 0x42부터 | 0x4a부터 |
+| 배경 영상 파일 번호 | 0x54 | 0x54 | 0x58 |
+| 스테이지 그림 | 0x60 | 0x84 (DATA1 파일 번호) | 15: 0x94 / 16: 레코드 전체에서 규칙으로 찾음 |
+| 차트 파일 번호 10개 (13은 8개, BLACK 없음) | 0xb8 | 0xb4 | 0xc0 |
+| 사운드 파일 번호 16개 | 0xd8 | 0xdc | 0xe8 |
 
 - 차트 순서: SP H, DP H, SP A, DP A, SP N, DP N, SP B, DP B, SP BLACK, DP BLACK.
 - 레벨: 15·16은 SP N/H/A/B/BLACK, DP N/H/A/B/BLACK 순의 10바이트. DJ TROOPERS에서 DAZZLIN' DARLIN' DP BEGINNER가 8번 바이트에 1, RISTACCIA DP BLACK이 9번 바이트에 11(DP ANOTHER는 10)로 확인했다.
-- GOLD 레벨: 비기너 1바이트(SP·DP 공용), 미사용 9바이트, SP N/H/A, DP N/H/A. BLACK은 ANOTHER의 레벨을 쓴다.
+- GOLD·DistorteD 레벨: 비기너 1바이트(SP·DP 공용), 미사용 9바이트, SP N/H/A, DP N/H/A. BLACK은 ANOTHER의 레벨을 쓴다.
 - 사운드 파일 번호는 차트 쌍마다 (키음 뱅크, BGM). 차트에 자기 것이 없으면 DP HYPER(더블) 또는 SP HYPER의 것을 쓴다.
 - 레코드에는 곡별 음량 값이 없다. EMPRESS에서 곡의 실제 음량과 상관있어 보이는 0x54 바이트를 검토했지만 곡 순서를 따르는 값이었다(5.2절).
 
