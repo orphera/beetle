@@ -832,9 +832,18 @@ impl Disc {
         };
         let field = |k: usize| u16_le(rect, k * 2).unwrap_or(0) as i16 as i32;
         let (x, y, w, h) = (field(0), field(1), field(2) as u32, field(3) as u32);
+        // The sheet's file 0 lists each texture's size as (width, height) u16
+        // pairs from 0x10, in file order (file k is pair k - 1).
+        let listed = |k: usize| {
+            let at = 0x10 + (k - 1) * 4;
+            Some((u16_le(&table, at)? as u32, u16_le(&table, at + 2)? as u32))
+        };
         let textures: Vec<Rgba> = files
-            .filter_map(|(unpacked, bytes)| {
-                let (w, h) = sheet_size(unpacked)?;
+            .enumerate()
+            .filter_map(|(i, (unpacked, bytes))| {
+                let (w, h) = listed(i + 1)
+                    .filter(|&(w, h)| (w * h) as usize + 0x400 == unpacked)
+                    .or_else(|| texture_size(unpacked))?;
                 decode_psmt8(&decode_lzss(bytes?, unpacked)?, w, h)
             })
             .collect();
@@ -1044,6 +1053,7 @@ fn word_ref_offsets(edition: Edition) -> Option<[usize; 4]> {
             Some([0xac, 0xb0, 0xb4, 0xb8])
         }
         Edition::Gold => Some([0xa0, 0xa4, 0xa8, 0xac]),
+        Edition::Distorted => Some([0xa4, 0xa8, 0xac, 0xb0]),
         // GOLD (0xa0..0xac) and DistorteD (0xa4..0xb0) have the sheets at these
         // offsets, but their genre and big title pictures are not verified yet.
         _ => None,
@@ -1070,27 +1080,6 @@ fn read_word_refs(
 
 fn u16_le(bytes: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?))
-}
-
-/// The sizes word sheets use, tried before `texture_size`: its size alone
-/// cannot tell 256x256 from 512x128 (both 64 KiB), and GOLD's genre sheets are
-/// 256x256 and 256x320.
-const SHEET_SIZES: [(u32, u32); 7] = [
-    (256, 256),
-    (256, 320),
-    (320, 256),
-    (512, 256),
-    (640, 256),
-    (640, 512),
-    (640, 320),
-];
-
-fn sheet_size(unpacked: usize) -> Option<(u32, u32)> {
-    let pixels = unpacked.checked_sub(0x400)?;
-    SHEET_SIZES
-        .into_iter()
-        .find(|&(w, h)| (w * h) as usize == pixels)
-        .or_else(|| texture_size(unpacked))
 }
 
 /// The first picture after file 0 of a DATA1 archive.
