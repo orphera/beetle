@@ -1213,6 +1213,36 @@ fn chart_chip(
     w
 }
 
+/// Width reserved for the "+N" count of the chips a group row cannot show, in 1× units.
+const MORE_CHIP_W: f32 = 30.0;
+
+/// The width `chart_chip` draws `text` at.
+fn chart_chip_width(c: &mut Canvas, t: &mut TextEngine, text: &str, s: f32) -> f32 {
+    let st = TextStyle::new(11.0 * s);
+    t.measure(c, text, &st) + 12.0 * s
+}
+
+/// The run of chips `[lo, hi)` a row of `budget` width shows: it starts at
+/// `chosen` and grows to either side while the next chip still fits.
+fn chip_window(widths: &[f32], chosen: usize, gap: f32, budget: f32) -> (usize, usize) {
+    if widths.is_empty() {
+        return (0, 0);
+    }
+    let (mut lo, mut hi) = (chosen, chosen + 1);
+    let mut used = widths[chosen];
+    loop {
+        if hi < widths.len() && used + gap + widths[hi] <= budget {
+            used += gap + widths[hi];
+            hi += 1;
+        } else if lo > 0 && used + gap + widths[lo - 1] <= budget {
+            lo -= 1;
+            used += gap + widths[lo];
+        } else {
+            return (lo, hi);
+        }
+    }
+}
+
 /// A group row: the group's title, one chip per chart (the chosen one filled)
 /// and the chosen chart's artist, badge, lamp and record. Each chip is a hit
 /// region that picks its chart.
@@ -1254,22 +1284,44 @@ fn group_row(
     let text_w = row.right() - right_w - 16.0 * s - tx;
     row_title(c, t, row, title, tx, text_w, on, s);
 
-    // Chips on the second line, then the chosen chart's artist.
+    // Chips on the second line, then the chosen chart's artist. Only the chips
+    // that fit the row are drawn, the chosen one always among them; the rest
+    // are counted as "+N", so a song with many charts never runs past the row.
     let base = row.y + 42.0 * s;
+    let gap = 6.0 * s;
+    let room = row.right() - right_w - 16.0 * s - tx;
+    let n = charts.len().min(labels.len());
+    let widths: Vec<f32> = labels[..n]
+        .iter()
+        .map(|text| chart_chip_width(c, t, text, s))
+        .collect();
+    let all: f32 = widths.iter().sum::<f32>() + gap * n.saturating_sub(1) as f32;
+    let budget = if all <= room {
+        room
+    } else {
+        room - MORE_CHIP_W * s
+    };
+    let (lo, hi) = chip_window(&widths, selected.min(n.saturating_sub(1)), gap, budget);
     let mut ax = tx;
-    for (pos, &i) in charts.iter().enumerate() {
-        let (Some(chart), Some(text)) = (f.songs.get(i), labels.get(pos)) else {
+    for pos in lo..hi {
+        let Some(chart) = f.songs.get(charts[pos]) else {
             continue;
         };
         let (_, col) = theme::level_tier(chart.difficulty, chart.play_level);
-        let w = chart_chip(c, t, text, ax, base, col, pos == selected, s);
+        let w = chart_chip(c, t, &labels[pos], ax, base, col, pos == selected, s);
         // Chips take clicks only when the whole row is shown (see `takes_clicks`).
         if takes_clicks(view, row) {
             if let Some(visible) = Rect::new(ax, base - 12.0 * s, w, 16.0 * s).intersect(&view) {
                 hs.add(visible, HitId::ChartTab { row: slot, pos });
             }
         }
-        ax += w + 6.0 * s;
+        ax += w + gap;
+    }
+    if hi - lo < n {
+        let more = format!("+{}", n - (hi - lo));
+        let st = caption(11.0, s).color(theme::MUTED);
+        t.draw(c, &more, ax, base, &st);
+        ax += t.measure(c, &more, &st) + gap;
     }
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
     let artist = t
@@ -3976,6 +4028,20 @@ mod tests {
         ui.begin(1280, 720, vp.scale);
         draw_drop_overlay(&mut ui, &vp);
         assert_eq!(ui.canvas.debug_batches().len(), 1, "drop");
+    }
+
+    #[test]
+    fn a_chip_window_always_holds_the_chosen_chip_and_fits_the_budget() {
+        let w = [10.0; 8];
+        // All fit in a wide row.
+        assert_eq!(chip_window(&w, 3, 2.0, 200.0), (0, 8));
+        // Room for three, grown to the right first: 3 × 10 + 2 × 2 = 34 fits, a fourth does not.
+        assert_eq!(chip_window(&w, 4, 2.0, 38.0), (4, 7));
+        // Where the right runs out, the run grows to the left.
+        assert_eq!(chip_window(&w, 7, 2.0, 38.0), (5, 8));
+        // Even a too-small budget keeps the chosen chip.
+        assert_eq!(chip_window(&w, 7, 2.0, 0.0), (7, 8));
+        assert_eq!(chip_window(&[], 0, 2.0, 100.0), (0, 0));
     }
 
     #[test]
