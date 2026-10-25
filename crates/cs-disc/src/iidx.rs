@@ -93,7 +93,13 @@ struct Record {
 enum StageArt {
     /// The DATA1 file a record field names: an animation archive whose first
     /// texture is the stage image (14, 15).
-    Overlay { at: usize },
+    Overlay {
+        at: usize,
+        /// Where the record says which picture of a wide texture each use
+        /// shows (13): `(picture, file)` word pairs, first the usual card,
+        /// third CARDINAL GATE's, fourth ANOTHER's. 0 is the left one.
+        picks_at: Option<usize>,
+    },
     /// A DATA1 file found by a rule over the whole record
     /// (`card_container`), holding the loading card (16).
     Card,
@@ -109,7 +115,10 @@ const RECORD_15_16: Record = Record {
     charts_at: 0xc0,
     chart_count: 10,
     sounds_at: 0xe8,
-    stage: StageArt::Overlay { at: 0x94 },
+    stage: StageArt::Overlay {
+        at: 0x94,
+        picks_at: None,
+    },
 };
 
 const DISTORTED: Layout = Layout {
@@ -132,7 +141,10 @@ const DISTORTED: Layout = Layout {
         charts_at: 0xb8,
         chart_count: 8,
         sounds_at: 0xd8,
-        stage: StageArt::Overlay { at: 0x88 },
+        stage: StageArt::Overlay {
+            at: 0x88,
+            picks_at: Some(0x8c),
+        },
     },
 };
 
@@ -155,7 +167,10 @@ const GOLD: Layout = Layout {
         charts_at: 0xb4,
         chart_count: 10,
         sounds_at: 0xdc,
-        stage: StageArt::Overlay { at: 0x84 },
+        stage: StageArt::Overlay {
+            at: 0x84,
+            picks_at: None,
+        },
     },
 };
 
@@ -317,6 +332,9 @@ pub struct Song {
     /// On 16 it is the loading card by the rule found on PREMIUM BEST; EMPRESS
     /// records do not follow it, so its cards come from a hand-made table (`meta`).
     pub stage: Option<u32>,
+    /// Which picture of a wide stage texture the song shows (0 the left),
+    /// usually and on ANOTHER, where the record says (13).
+    pub stage_picks: Option<(u16, Option<u16>)>,
     /// The file number of the song's background video (MPEG-2, stored as
     /// is), the first of the record's two video words as iidx-ps2tools reads them.
     pub video: Option<u32>,
@@ -532,7 +550,18 @@ impl Disc {
                     let (width, height) = texture_size(size)?;
                     decode_psmt8(&raw, width, height)
                 });
-                Ok(image.map(|image| match self.packed_half(file, another) {
+                let half = match song.stage_picks {
+                    Some((usual, on_another)) => {
+                        let picture = if another {
+                            on_another.unwrap_or(usual)
+                        } else {
+                            usual
+                        };
+                        Some(picture == 1)
+                    }
+                    None => self.packed_half(file, another),
+                };
+                Ok(image.map(|image| match half {
                     Some(second) => select_packed_variant(image, second),
                     None => image,
                 }))
@@ -547,17 +576,11 @@ impl Disc {
         // table's field uses these actual DATA1 file indices instead.
         const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
         const CRYMSON_OVERLAY: u32 = 0x1bc;
-        // DistorteD's CARDINAL GATE songs pair their card with the one the
-        // gate shows them by (the artist's name in kanji, 朱雀 …), which is
-        // never an ANOTHER card: CONTRACT and Ganymede put it second, waxing
-        // and wanding, 華蝶風雪 and 嘆きの樹 first.
-        const GATE_CARD_SECOND: [u32; 2] = [0x13d, 0x14a];
-        const GATE_CARD_FIRST: [u32; 3] = [0x183, 0x158, 0x160];
         match self.edition {
-            Edition::Distorted if GATE_CARD_SECOND.contains(&file) => Some(false),
-            Edition::Distorted if GATE_CARD_FIRST.contains(&file) => Some(true),
-            // Every other wide DistorteD and GOLD texture holds two.
-            Edition::Distorted | Edition::Gold => Some(another),
+            // DistorteD records say (`Song::stage_picks`).
+            Edition::Distorted => None,
+            // Every wide GOLD texture holds two.
+            Edition::Gold => Some(another),
             Edition::DjTroopers if matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY) => {
                 Some(another)
             }
@@ -765,8 +788,22 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             .collect::<String>()
             .trim()
             .to_string();
+        let stage_picks = match layout.stage {
+            StageArt::Overlay {
+                picks_at: Some(at), ..
+            } => {
+                let pick = |slot: usize| {
+                    let at = at + slot * 4;
+                    let picture = u16::from_le_bytes([record[at], record[at + 1]]);
+                    let file = u16::from_le_bytes([record[at + 2], record[at + 3]]);
+                    (file != 0).then_some(picture)
+                };
+                pick(0).map(|usual| (usual, pick(3)))
+            }
+            _ => None,
+        };
         let stage = match layout.stage {
-            StageArt::Overlay { at } => {
+            StageArt::Overlay { at, .. } => {
                 let file = u32_at(record, at);
                 (file != 0 && file != u32::MAX).then_some(file)
             }
@@ -778,6 +815,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             charts,
             sounds,
             stage,
+            stage_picks,
             video: {
                 let file = u32_at(record, layout.video_at);
                 (file != 0 && file & 0xffff != 0xffff).then_some(file)
