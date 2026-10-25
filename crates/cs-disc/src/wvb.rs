@@ -12,7 +12,8 @@
 //!   `u8 pan` again, `u16 file`, `u8 volume`, 3 bytes. Kind 1 sounds are
 //!   mono placed by the pan (64 center); kind 2 store 1 and 127 there and
 //!   play as stored. The volume (0 to 127, linear) is every sound's.
-//! - `0x8000`: `u32 file count, u32, u32 scrambled`, then one 16-byte record
+//! - `0x8000`: `u32 file count, u32, u32 scrambled` (with RED's key on 11,
+//!   `adpcm::KEY_KEYSOUND_RED`, told by its end frames), then one 16-byte record
 //!   per file: `u32 offset, u32 size, u16, u16 rate code (high byte), u32`.
 //!   File data follows the records.
 //!
@@ -23,7 +24,7 @@
 
 use std::fmt;
 
-use crate::adpcm::{self, KEY_BGM, KEY_KEYSOUND};
+use crate::adpcm::{self, Key, KEY_BGM, KEY_KEYSOUND, KEY_KEYSOUND_RED};
 
 /// Decoded audio: one 16-bit sample vector per channel (1 or 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,7 +123,7 @@ pub struct KeySound {
 /// A key sound bank, borrowed from its file's bytes.
 pub struct Bank<'a> {
     data: &'a [u8],
-    scrambled: bool,
+    key: Option<Key>,
     files: Vec<(usize, usize, u32)>,
     /// By key sound number - 1.
     sounds: Vec<Option<KeySound>>,
@@ -172,7 +173,7 @@ impl<'a> Bank<'a> {
         }
         Ok(Bank {
             data,
-            scrambled,
+            key: scrambled.then(|| scramble_key(data, &files)),
             files,
             sounds,
         })
@@ -194,7 +195,7 @@ impl<'a> Bank<'a> {
     /// One file's stored bytes, and whether they are scrambled.
     pub fn raw_file(&self, file: u16) -> Option<(&'a [u8], bool)> {
         let &(offset, size, _) = self.files.get(file as usize)?;
-        Some((self.data.get(offset..offset + size)?, self.scrambled))
+        Some((self.data.get(offset..offset + size)?, self.key.is_some()))
     }
 
     /// One file decoded: its rate and samples.
@@ -204,7 +205,7 @@ impl<'a> Bank<'a> {
             .data
             .get(offset..offset + size)
             .ok_or(SoundError::TooShort)?;
-        let key = self.scrambled.then_some(KEY_KEYSOUND);
+        let key = self.key;
         Ok((rate, adpcm::decode(bytes, key, true)))
     }
 
@@ -230,6 +231,20 @@ impl<'a> Bank<'a> {
             }
             Ok(Pcm { rate, channels })
         })())
+    }
+}
+
+/// Which key a scrambled bank uses: RED's when a file ends in RED's
+/// scrambled end frame.
+fn scramble_key(data: &[u8], files: &[(usize, usize, u32)]) -> Key {
+    const RED_END: [u8; 4] = [0xff, 0x05, 0x66, 0xae];
+    let red = files.iter().any(|&(offset, size, _)| {
+        size >= 16 && data.get(offset + size - 16..offset + size - 12) == Some(&RED_END[..])
+    });
+    if red {
+        KEY_KEYSOUND_RED
+    } else {
+        KEY_KEYSOUND
     }
 }
 
@@ -320,7 +335,7 @@ mod tests {
         for _ in 0..2 {
             let mut frame = [0u8; 16];
             frame[0] = 0x0c ^ 0xff;
-            frame[2] = KEY_KEYSOUND;
+            frame[2] = KEY_KEYSOUND[1];
             data.extend(frame);
         }
         data

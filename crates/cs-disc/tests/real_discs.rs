@@ -219,7 +219,18 @@ fn every_chart_finds_and_decodes_its_sounds() {
                         continue;
                     }
                     match bank.decode(sound) {
-                        Some(Ok(_)) => {}
+                        // Wrongly unscrambled frames decode to noise at full
+                        // scale (RED's key sounds before its key was known).
+                        Some(Ok(pcm)) => {
+                            let full = pcm.channels[0]
+                                .iter()
+                                .filter(|s| s.unsigned_abs() >= 32767)
+                                .count();
+                            assert!(
+                                full * 100 <= pcm.channels[0].len(),
+                                "{what}: sound {sound} clips"
+                            );
+                        }
                         Some(Err(err)) => panic!("{what}: sound {sound}: {err}"),
                         None => missing.push(format!("{what}: sound {sound}")),
                     }
