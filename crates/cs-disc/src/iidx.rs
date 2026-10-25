@@ -95,14 +95,22 @@ enum StageArt {
     /// texture is the stage image (14, 15).
     Overlay {
         at: usize,
-        /// Where the record says which picture of a wide texture each use
-        /// shows (13): `(picture, file)` word pairs, first the usual card,
-        /// third CARDINAL GATE's, fourth ANOTHER's. 0 is the left one.
-        picks_at: Option<usize>,
+        /// Which picture of a wide texture each use shows: where the
+        /// record's `(picture, file)` word pairs start (the first is the usual
+        /// card) and which pair is ANOTHER's. Picture 0 is the left one.
+        picks: Picks,
     },
     /// A DATA1 file found by a rule over the whole record
     /// (`card_container`), holding the loading card (16).
     Card,
+}
+
+/// Where a record's stage picture choices are (`StageArt::Overlay`).
+#[derive(Clone, Copy)]
+struct Picks {
+    at: usize,
+    count: usize,
+    another: usize,
 }
 
 /// 15 and 16 records. Levels: SP N/H/A/B/Black, then DP N/H/A/B/Black
@@ -117,7 +125,11 @@ const RECORD_15_16: Record = Record {
     sounds_at: 0xe8,
     stage: StageArt::Overlay {
         at: 0x94,
-        picks_at: None,
+        picks: Picks {
+            at: 0x98,
+            count: 4,
+            another: 2,
+        },
     },
 };
 
@@ -143,7 +155,12 @@ const DISTORTED: Layout = Layout {
         sounds_at: 0xd8,
         stage: StageArt::Overlay {
             at: 0x88,
-            picks_at: Some(0x8c),
+            // The third pair is CARDINAL GATE's card.
+            picks: Picks {
+                at: 0x8c,
+                count: 6,
+                another: 3,
+            },
         },
     },
 };
@@ -169,7 +186,11 @@ const GOLD: Layout = Layout {
         sounds_at: 0xdc,
         stage: StageArt::Overlay {
             at: 0x84,
-            picks_at: None,
+            picks: Picks {
+                at: 0x88,
+                count: 6,
+                another: 3,
+            },
         },
     },
 };
@@ -332,8 +353,8 @@ pub struct Song {
     /// On 16 it is the loading card by the rule found on PREMIUM BEST; EMPRESS
     /// records do not follow it, so its cards come from a hand-made table (`meta`).
     pub stage: Option<u32>,
-    /// Which picture of a wide stage texture the song shows (0 the left),
-    /// usually and on ANOTHER, where the record says (13).
+    /// Which picture of a stage texture holding two the song shows (0 the
+    /// left), usually and on ANOTHER (13, 14, 15); `None` for one picture.
     pub stage_picks: Option<(u16, Option<u16>)>,
     /// The file number of the song's background video (MPEG-2, stored as
     /// is), the first of the record's two video words as iidx-ps2tools reads them.
@@ -550,41 +571,13 @@ impl Disc {
                     let (width, height) = texture_size(size)?;
                     decode_psmt8(&raw, width, height)
                 });
-                let half = match song.stage_picks {
-                    Some((usual, on_another)) => {
-                        let picture = if another {
-                            on_another.unwrap_or(usual)
-                        } else {
-                            usual
-                        };
-                        Some(picture == 1)
-                    }
-                    None => self.packed_half(file, another),
+                let picture = match song.stage_picks {
+                    Some((usual, on_another)) if another => on_another.unwrap_or(usual),
+                    Some((usual, _)) => usual,
+                    None => return Ok(image),
                 };
-                Ok(image.map(|image| match half {
-                    Some(second) => select_packed_variant(image, second),
-                    None => image,
-                }))
+                Ok(image.map(|image| select_packed_variant(image, picture == 1)))
             }
-        }
-    }
-
-    /// Which half of stage file `file`'s texture to show (`true`: the
-    /// second), or `None` when it holds one picture.
-    fn packed_half(&self, file: u32, another: bool) -> Option<bool> {
-        // The extracted c0426/c0444 names are DATA1-side labels. The song
-        // table's field uses these actual DATA1 file indices instead.
-        const BEAUTIFUL_ANGEL_OVERLAY: u32 = 0x1aa;
-        const CRYMSON_OVERLAY: u32 = 0x1bc;
-        match self.edition {
-            // DistorteD records say (`Song::stage_picks`).
-            Edition::Distorted => None,
-            // Every wide GOLD texture holds two.
-            Edition::Gold => Some(another),
-            Edition::DjTroopers if matches!(file, BEAUTIFUL_ANGEL_OVERLAY | CRYMSON_OVERLAY) => {
-                Some(another)
-            }
-            Edition::DjTroopers | Edition::Empress | Edition::PremiumBest => None,
         }
     }
 }
@@ -757,6 +750,7 @@ fn read_file_tables(
 
 fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<Vec<Song>> {
     let mut songs = Vec::new();
+    let mut two_pictures = Vec::new();
     for (id, record) in table(exe, span)?.chunks_exact(layout.size).enumerate() {
         let levels = &record[layout.levels_at..];
         let mut charts: Vec<Chart> = CHART_SLOTS[..layout.chart_count]
@@ -789,18 +783,17 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             .trim()
             .to_string();
         let stage_picks = match layout.stage {
-            StageArt::Overlay {
-                picks_at: Some(at), ..
-            } => {
+            StageArt::Overlay { picks, .. } => {
                 let pick = |slot: usize| {
-                    let at = at + slot * 4;
+                    let at = picks.at + slot * 4;
                     let picture = u16::from_le_bytes([record[at], record[at + 1]]);
                     let file = u16::from_le_bytes([record[at + 2], record[at + 3]]);
                     (file != 0).then_some(picture)
                 };
-                pick(0).map(|usual| (usual, pick(3)))
+                let second = (0..picks.count).any(|slot| pick(slot).is_some_and(|p| p != 0));
+                pick(0).map(|usual| (usual, pick(picks.another), second))
             }
-            _ => None,
+            StageArt::Card => None,
         };
         let stage = match layout.stage {
             StageArt::Overlay { at, .. } => {
@@ -815,12 +808,22 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             charts,
             sounds,
             stage,
-            stage_picks,
+            stage_picks: stage_picks.map(|(usual, another, _)| (usual, another)),
             video: {
                 let file = u32_at(record, layout.video_at);
                 (file != 0 && file & 0xffff != 0xffff).then_some(file)
             },
         });
+        if stage_picks.is_some_and(|(_, _, second)| second) {
+            two_pictures.extend(stage);
+        }
+    }
+    // A wide texture holds one picture unless some record (not always the
+    // song's own: GOLD's 5KEYS DENIM) names the second.
+    for song in &mut songs {
+        if !song.stage.is_some_and(|f| two_pictures.contains(&f)) {
+            song.stage_picks = None;
+        }
     }
     Ok(songs)
 }
