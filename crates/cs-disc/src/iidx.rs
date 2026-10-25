@@ -154,11 +154,12 @@ const TENTH_STYLE: Layout = Layout {
     songs: (0x10bae0, 0x7d20),
     data1: (0xc8e08, 0x11b0),
     chart_key: None,
-    // Levels: SP H/A, SP N/B, DP H/A, DP N/B; one byte per pair.
+    // Levels: beginner (both styles), eight unused bytes, then SP H/A, SP N,
+    // DP H/A, DP N: HYPER and ANOTHER share one, as RemyWiki lists the CS.
     record: Record {
         size: 0x16c,
-        levels_at: 0x4a,
-        level_of: [0, 2, 0, 2, 1, 3, 1, 3, 0, 2],
+        levels_at: 0x41,
+        level_of: [9, 11, 9, 11, 10, 12, 0, 0, 9, 11],
         video_at: 0x58,
         charts_at: 0x12c,
         chart_count: 8,

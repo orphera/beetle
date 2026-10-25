@@ -28,7 +28,7 @@
 | 필드 | 10th | 11 RED | 12 HAPPY SKY | 13 DistorteD | 14 GOLD | 15·16 |
 |---|---|---|---|---|---|---|
 | 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00 | 0x00 | 0x00 | 0x00 | 0x00 |
-| 레벨 바이트 | 0x4a부터 | 0x41부터 | 0x41부터 | 0x42부터 | 0x42부터 | 0x4a부터 |
+| 레벨 바이트 | 0x41부터 | 0x41부터 | 0x41부터 | 0x42부터 | 0x42부터 | 0x4a부터 |
 | 배경 영상 파일 번호 | 0x58 | 0x5c | 0x54 | 0x54 | 0x54 | 0x58 |
 | 스테이지 그림 | 0xd4 (0xac는 BGA 오버레이) | 0xd8 (0xb0은 오버레이) | 0xcc (0xa4는 오버레이) | 0x88 (0x60은 BGA 오버레이) | 0x84 (DATA1 파일 번호) | 0x94 |
 | 차트 파일 번호 10개 (10–13은 8개, BLACK 없음) | 0x12c | 0x100 | 0xec | 0xb8 | 0xb4 | 0xc0 |
@@ -36,7 +36,7 @@
 
 - 차트 순서: SP H, DP H, SP A, DP A, SP N, DP N, SP B, DP B, SP BLACK, DP BLACK.
 - 레벨: 15·16은 SP N/H/A/B/BLACK, DP N/H/A/B/BLACK 순의 10바이트. DJ TROOPERS에서 DAZZLIN' DARLIN' DP BEGINNER가 8번 바이트에 1, RISTACCIA DP BLACK이 9번 바이트에 11(DP ANOTHER는 10)로 확인했다.
-- 10th 레벨: SP H/A, SP N/B, DP H/A, DP N/B 네 바이트. HYPER와 ANOTHER, NORMAL과 BEGINNER가 레벨을 함께 쓴다(디스크 값이 그렇다: PANDORA 7, 5, 8, 6).
+- 10th 레벨: 비기너 1바이트(0x41), 미사용 8바이트, SP H/A, SP N, DP H/A, DP N. HYPER와 ANOTHER는 레벨 하나를 함께 쓴다(PANDORA 7, 5, 8, 6). RemyWiki의 10th style CS 레벨과 노트 수(PANDORA, BABY LOVE, No.13)도 이와 같다.
 - RED 레벨: 비기너 1바이트, 미사용 10바이트, SP H/N/A, DP H/N/A. HAPPY SKY: 비기너, 미사용 8바이트, SP N/H/A, DP N/H/A.
 - GOLD·DistorteD 레벨: 비기너 1바이트(SP·DP 공용), 미사용 9바이트, SP N/H/A, DP N/H/A. BLACK은 ANOTHER의 레벨을 쓴다.
 - 사운드 파일 번호는 차트 쌍마다 (키음 뱅크, BGM). 차트에 자기 것이 없으면 DP HYPER(더블) 또는 SP HYPER의 것을 쓴다.
