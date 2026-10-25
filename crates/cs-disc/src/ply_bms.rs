@@ -330,6 +330,15 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             if points.len() < 2 {
                 return (lines[first], None);
             }
+            // The first region starts at the first bar line: the chart starts
+            // there (BGM and all), and a fitted start off it would move every
+            // note against the BGM (ALIEN TEMPLE's was 9 ms late).
+            if first == 0 {
+                let (x0, y0) = points[0];
+                let sxx: f64 = points.iter().map(|p| (p.0 - x0).powi(2)).sum();
+                let sxy: f64 = points.iter().map(|p| (p.0 - x0) * (p.1 - y0)).sum();
+                return (y0, Some(sxy / sxx));
+            }
             let n = points.len() as f64;
             let mx = points.iter().map(|p| p.0).sum::<f64>() / n;
             let my = points.iter().map(|p| p.1).sum::<f64>() / n;
