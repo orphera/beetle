@@ -44,6 +44,8 @@ pub enum ChartFormat {
     Ps2Long,
     /// One chart of an arcade `.1` file.
     Arcade { ticks_per_second: f64 },
+    /// A pop'n music PS2 chart file, read by `popn` rather than `Ply::parse_as`.
+    Popn,
 }
 
 impl ChartFormat {
@@ -138,13 +140,19 @@ pub struct Ply {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlyError {
     TooShort,
-    UnknownCommand { at: usize, c1: u8 },
+    UnknownCommand {
+        at: usize,
+        c1: u8,
+    },
+    /// A format `Ply::parse_as` does not read (`ChartFormat::Popn`).
+    OtherFormat,
 }
 
 impl fmt::Display for PlyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PlyError::TooShort => write!(f, "chart is too short"),
+            PlyError::OtherFormat => write!(f, "chart is not a .ply or .1 chart"),
             PlyError::UnknownCommand { at, c1 } => {
                 write!(f, "unknown chart command {c1:#04x} at byte {at:#x}")
             }
@@ -239,6 +247,7 @@ impl Ply {
 
     pub fn parse_as(bytes: &[u8], format: ChartFormat) -> Result<Self, PlyError> {
         let (first, multiplier) = match format {
+            ChartFormat::Popn => return Err(PlyError::OtherFormat),
             ChartFormat::Ps2NoHeader => (0, DEFAULT_MULTIPLIER),
             ChartFormat::Ps2Short | ChartFormat::Ps2Long => {
                 let first = u32_at(bytes, 0).ok_or(PlyError::TooShort)? as usize;
@@ -281,6 +290,7 @@ impl Ply {
                     let param = u16::from_le_bytes([e[6], e[7]]);
                     (time, ps2_command(e[4], e[5], param, at)?)
                 }
+                ChartFormat::Popn => unreachable!("refused above"),
                 ChartFormat::Arcade { .. } => {
                     let tick = u32_at(e, 0).unwrap() as i32;
                     if tick == ARCADE_END_MARK {

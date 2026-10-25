@@ -28,8 +28,9 @@ const fn title(code: &'static str, name: &'static str, charts: ChartFormat) -> T
     }
 }
 
-/// Every PS2 IIDX disc iidx-ps2tools knows, oldest first.
-pub const IIDX_PS2: [Title; 16] = [
+/// Every PS2 IIDX disc iidx-ps2tools knows, oldest first, then the pop'n
+/// music discs this crate reads.
+pub const IIDX_PS2: [Title; 19] = [
     title(
         "SLPM_650.06",
         "beatmania IIDX 3rd style",
@@ -131,6 +132,22 @@ pub const IIDX_PS2: [Title; 16] = [
     },
     // The 9th style chart code reads it.
     title("SLUS_212.39", "beatmania (US)", ChartFormat::Ps2Long),
+    Title {
+        playable: true,
+        ..title("SLPM_663.14", "pop'n music 12 いろは", ChartFormat::Popn)
+    },
+    Title {
+        playable: true,
+        ..title(
+            "SLPM_665.33",
+            "pop'n music 13 カーニバル",
+            ChartFormat::Popn,
+        )
+    },
+    Title {
+        playable: true,
+        ..title("SLPM_667.42", "pop'n music 14 FEVER!", ChartFormat::Popn)
+    },
 ];
 
 /// The title a boot executable name belongs to, in any case.

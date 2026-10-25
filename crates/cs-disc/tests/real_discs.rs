@@ -243,3 +243,102 @@ fn every_chart_finds_and_decodes_its_sounds() {
         );
     }
 }
+
+/// Every pop'n chart becomes BMS the player reads as nine buttons, with every
+/// note of the chart on time; every sound a chart plays is in its bank and
+/// decodes, and every BGM decodes. Set `CS_DISC_POPN12` to `CS_DISC_POPN14`.
+#[test]
+fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
+    use cs_disc::ply::Command;
+    use cs_disc::wvb::{decode_bgm, Bank};
+    for (var, edition) in [
+        ("CS_DISC_POPN12", Edition::Popn12),
+        ("CS_DISC_POPN13", Edition::Popn13),
+        ("CS_DISC_POPN14", Edition::Popn14),
+    ] {
+        let Some((mut disc, volume)) = open(var) else {
+            continue;
+        };
+        assert_eq!(identify(&mut disc).unwrap(), Some(edition));
+        let songs = Disc::open(&mut disc, &volume, edition).unwrap();
+        let mut worst = (0.0f64, String::new());
+        let mut missing = Vec::new();
+        let mut checked = std::collections::BTreeSet::new();
+        for song in &songs.songs {
+            for chart in &song.charts {
+                let what = format!("{} {} {:?}", song.id, song.title, chart.difficulty);
+                let (wvb, bgm) = song.sound_files(chart.style, chart.difficulty);
+                let (wvb, bgm) = (wvb.unwrap(), bgm.unwrap());
+                let bank_bytes = songs.read_file(&mut disc, wvb).unwrap();
+                let bank = Bank::parse(&bank_bytes).unwrap_or_else(|e| panic!("{what}: {e}"));
+                assert!(
+                    bank.numbers().all(|n| n < edition.bgm_sound()),
+                    "{what}: a key sound takes the BGM's number"
+                );
+                if checked.insert(bgm) {
+                    let bytes = songs.read_file(&mut disc, bgm).unwrap();
+                    let pcm = decode_bgm(&bytes).unwrap_or_else(|e| panic!("{what}: BGM {e}"));
+                    assert!(pcm.channels[0].len() > 44100, "{what}: BGM too short");
+                }
+                let ply = songs.chart_ply(&mut disc, chart).unwrap();
+                for e in &ply.events {
+                    if let Command::Sample { sound, .. } | Command::Auto { sound, .. } = e.command {
+                        if sound != 0
+                            && sound != edition.bgm_sound()
+                            && bank.decode(sound).is_none_or(|r| r.is_err())
+                        {
+                            missing.push(format!("{what}: sound {sound}"));
+                        }
+                    }
+                }
+                let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+                let parsed =
+                    beetle_core::parse_bms(&bms).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+                assert_eq!(
+                    parsed.detect_play_mode_with_hint(false),
+                    beetle_core::PlayMode::Keys9,
+                    "{what}"
+                );
+                let timing = beetle_core::TimingModel::from_chart(&parsed);
+                let mut expected: Vec<f64> = ply
+                    .events
+                    .iter()
+                    .filter(|e| matches!(e.command, Command::Note { .. }))
+                    .map(|e| ply.millis(e.time))
+                    .collect();
+                let mut got: Vec<f64> = parsed
+                    .notes
+                    .iter()
+                    .map(|n| timing.beat_to_time_seconds(n.measure, n.fraction) * 1000.0)
+                    .collect();
+                assert_eq!(got.len(), expected.len(), "{what}: note count");
+                expected.sort_by(f64::total_cmp);
+                got.sort_by(f64::total_cmp);
+                let off = got
+                    .iter()
+                    .zip(&expected)
+                    .map(|(g, e)| (g - e).abs())
+                    .fold(0.0, f64::max);
+                if off > 5.0 {
+                    println!("  {what}: {off:.1} ms");
+                }
+                if off > worst.0 {
+                    worst = (off, what);
+                }
+            }
+        }
+        missing.dedup();
+        println!(
+            "{var}: {} songs, worst note offset {:.2} ms ({}), {} missing sounds",
+            songs.songs.len(),
+            worst.0,
+            worst.1,
+            missing.len()
+        );
+        for m in missing.iter().take(10) {
+            println!("  {m}");
+        }
+        assert!(missing.is_empty(), "{var}: sounds missing");
+        assert!(worst.0 <= 10.0, "{var}: {worst:?}");
+    }
+}

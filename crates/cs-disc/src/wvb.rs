@@ -67,6 +67,8 @@ fn u32_at(b: &[u8], at: usize) -> Result<u32, SoundError> {
 /// Sample rates by the code in a bank's file record ("Thanks Konami").
 fn rate(code: u8) -> Result<u32, SoundError> {
     Ok(match code {
+        // pop'n 14 (モッズ): its entries' lengths in ms give 48016.
+        0x3c => 48000,
         0x3e => 44100,
         0x3f => 42000,
         0x40 => 40000,

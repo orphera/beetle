@@ -42,9 +42,15 @@ pub enum Edition {
     Empress,
     /// 16 EMPRESS, disc 2, `SLPM_552.22`.
     PremiumBest,
+    /// pop'n music 12 いろは, `SLPM_663.14`.
+    Popn12,
+    /// pop'n music 13 カーニバル, `SLPM_665.33`.
+    Popn13,
+    /// pop'n music 14 FEVER!, `SLPM_667.42`.
+    Popn14,
 }
 
-const EDITIONS: [Edition; 8] = [
+const EDITIONS: [Edition; 11] = [
     Edition::TenthStyle,
     Edition::Red,
     Edition::HappySky,
@@ -53,6 +59,9 @@ const EDITIONS: [Edition; 8] = [
     Edition::DjTroopers,
     Edition::Empress,
     Edition::PremiumBest,
+    Edition::Popn12,
+    Edition::Popn13,
+    Edition::Popn14,
 ];
 
 /// Where one edition keeps its tables inside the boot executable (file offsets).
@@ -327,25 +336,49 @@ impl Edition {
     pub fn from_executable(name: &str) -> Option<Self> {
         EDITIONS
             .into_iter()
-            .find(|e| e.layout().executable.eq_ignore_ascii_case(name))
+            .find(|e| e.executable().eq_ignore_ascii_case(name))
     }
 
     /// The disc's entry in the title list: its name and chart layout.
     pub fn title(self) -> &'static crate::titles::Title {
-        crate::titles::find(self.layout().executable).expect("every edition is listed")
+        crate::titles::find(self.executable()).expect("every edition is listed")
     }
 
     /// A short file-name-safe name (`iidx16-empress`).
     pub fn slug(self) -> &'static str {
-        self.layout().slug
+        match self.tables() {
+            Tables::Iidx(layout) => layout.slug,
+            Tables::Popn(layout) => layout.slug,
+        }
+    }
+
+    /// Whether this is a pop'n music disc: nine buttons, one chart file per
+    /// song (`popn`).
+    pub fn is_popn(self) -> bool {
+        matches!(self.tables(), Tables::Popn(_))
+    }
+
+    /// The sound number a chart's BGM start plays: the song's BGM stream.
+    pub fn bgm_sound(self) -> u16 {
+        match self.tables() {
+            Tables::Iidx(_) => 1,
+            Tables::Popn(_) => crate::popn::BGM_SOUND,
+        }
+    }
+
+    fn executable(self) -> &'static str {
+        match self.tables() {
+            Tables::Iidx(layout) => layout.executable,
+            Tables::Popn(layout) => layout.executable,
+        }
     }
 
     pub fn name(self) -> &'static str {
         self.title().name
     }
 
-    fn layout(self) -> &'static Layout {
-        match self {
+    fn tables(self) -> Tables {
+        Tables::Iidx(match self {
             Edition::TenthStyle => &TENTH_STYLE,
             Edition::Red => &RED,
             Edition::HappySky => &HAPPY_SKY,
@@ -354,8 +387,17 @@ impl Edition {
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
             Edition::PremiumBest => &PREMIUM_BEST,
-        }
+            Edition::Popn12 => return Tables::Popn(&crate::popn::POPN12),
+            Edition::Popn13 => return Tables::Popn(&crate::popn::POPN13),
+            Edition::Popn14 => return Tables::Popn(&crate::popn::POPN14),
+        })
     }
+}
+
+/// Where an edition's tables are: an IIDX layout or a pop'n one.
+enum Tables {
+    Iidx(&'static Layout),
+    Popn(&'static crate::popn::Layout),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -494,7 +536,10 @@ impl Disc {
         volume: &Volume,
         edition: Edition,
     ) -> io::Result<Self> {
-        let layout = edition.layout();
+        let layout = match edition.tables() {
+            Tables::Iidx(layout) => layout,
+            Tables::Popn(layout) => return Self::open_popn(disc, volume, edition, layout),
+        };
         let exe = volume
             .read_file(disc, layout.executable)?
             .ok_or_else(|| missing(layout.executable))?;
@@ -528,6 +573,37 @@ impl Disc {
         })
     }
 
+    fn open_popn<R: Read + Seek>(
+        disc: &mut SectorReader<R>,
+        volume: &Volume,
+        edition: Edition,
+        layout: &crate::popn::Layout,
+    ) -> io::Result<Self> {
+        let exe = volume
+            .read_file(disc, layout.executable)?
+            .ok_or_else(|| missing(layout.executable))?;
+        let name = crate::popn::DAT_FILE;
+        let dat = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
+        let short = || invalid("the executable is shorter than its tables".to_string());
+        let files = crate::popn::read_files(&exe, layout).ok_or_else(short)?;
+        let mut songs = crate::popn::read_songs(&exe, layout, files.len()).ok_or_else(short)?;
+        for song in &mut songs {
+            crate::popn::pick_sound_sets(song, &mut |file, bytes| {
+                let entry = files.get(file as usize)?;
+                let len = (entry.size as usize).min(bytes);
+                disc.read_at(dat.offset() + entry.offset, len).ok()
+            });
+        }
+        Ok(Self {
+            edition,
+            songs,
+            files,
+            dats: vec![dat],
+            data1: FileExtent { lba: 0, size: 0 },
+            data1_files: Vec::new(),
+        })
+    }
+
     /// The song and chart a `Chart::key` names.
     pub fn find(&self, key: &str) -> Option<(&Song, &Chart)> {
         let (id, _) = key.split_once('/')?;
@@ -555,7 +631,10 @@ impl Disc {
         if entry.offset + entry.size as u64 > dat.size {
             return Err(invalid(format!(
                 "file {file} runs past the end of {}",
-                self.edition.layout().dat_files[entry.dat as usize]
+                match self.edition.tables() {
+                    Tables::Iidx(layout) => layout.dat_files[entry.dat as usize],
+                    Tables::Popn(_) => crate::popn::DAT_FILE,
+                }
             )));
         }
         disc.read_at(dat.offset() + entry.offset, entry.size as usize)
@@ -568,7 +647,12 @@ impl Disc {
         file: u32,
     ) -> io::Result<Vec<u8>> {
         let stored = self.read_file(disc, file)?;
-        let plain = match self.edition.layout().chart_key {
+        let layout = match self.edition.tables() {
+            Tables::Iidx(layout) => layout,
+            // Stored plain: eight event lists (`popn`).
+            Tables::Popn(_) => return Ok(stored),
+        };
+        let plain = match layout.chart_key {
             Some(key) => crate::blowfish::decrypt_file(key, &stored),
             None => stored,
         };
@@ -583,6 +667,10 @@ impl Disc {
         chart: &Chart,
     ) -> io::Result<Ply> {
         let bytes = self.read_chart(disc, chart.file)?;
+        if self.edition.is_popn() {
+            return crate::popn::chart(&bytes, chart.difficulty)
+                .ok_or_else(|| invalid(format!("chart file {} is cut short", chart.file)));
+        }
         Ply::parse_as(&bytes, self.edition.title().charts).map_err(|e| invalid(e.to_string()))
     }
 
@@ -607,6 +695,7 @@ impl Disc {
             level: chart.level,
             difficulty: chart.difficulty.bms_number(),
             double: chart.style == Style::Double,
+            nine_buttons: self.edition.is_popn(),
             sound_name,
         };
         to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
@@ -649,7 +738,10 @@ impl Disc {
         song: &Song,
         another: bool,
     ) -> io::Result<Option<Rgba>> {
-        match self.edition.layout().record.stage {
+        let Tables::Iidx(layout) = self.edition.tables() else {
+            return Ok(None);
+        };
+        match layout.record.stage {
             StageArt::Card { .. } => match song.stage {
                 Some(file) => self.card_image(disc, file),
                 None => Ok(None),
@@ -693,6 +785,24 @@ const SOUND_PAIRS: [(usize, usize); 8] = [
 const NO_SOUND: u16 = 0xffff;
 
 impl Song {
+    /// Gives a chart slot its own (key sound bank, BGM stream).
+    pub(crate) fn set_sound_files(
+        &mut self,
+        style: Style,
+        difficulty: Difficulty,
+        bank: u32,
+        bgm: u32,
+    ) {
+        let slot = CHART_SLOTS
+            .iter()
+            .position(|&s| s == (style, difficulty))
+            .unwrap();
+        if let Some(&(key, stream)) = SOUND_PAIRS.get(slot) {
+            self.sounds[key] = bank as u16;
+            self.sounds[stream] = bgm as u16;
+        }
+    }
+
     /// The (key sound bank, BGM stream) file numbers a chart plays. A chart
     /// slot without its own takes DP HYPER's (double) or SP HYPER's, field by
     /// field, as iidx-ps2tools resolves them.

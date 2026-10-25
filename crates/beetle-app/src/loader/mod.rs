@@ -1444,6 +1444,43 @@ mod tests {
         }
     }
 
+    /// With `CS_DISC_POPN13` set to the pop'n music 13 image: ハードＰｆ's HYPER
+    /// loads as a nine-button chart with its key sounds and its BGM.
+    #[test]
+    fn a_popn_disc_chart_loads_as_nine_buttons() {
+        let Ok(image) = std::env::var("CS_DISC_POPN13") else {
+            return;
+        };
+        let address = beetle_core::disc_address(&image, "000/sp_hyper");
+        let mut disc = cs_disc::open(&image).unwrap();
+        let volume = cs_disc::Volume::open(&mut disc).unwrap();
+        let songs =
+            cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::Popn13).unwrap();
+        let (song, chart) = songs.find("000/sp_hyper").unwrap();
+        assert_eq!(chart.level, 34);
+        let bms = songs.chart_bms(&mut disc, song, chart, None).unwrap();
+        let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
+        assert_eq!(meta.title, "ハードＰｆ");
+
+        let (chart, _, bank, _, _) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        use beetle_core::{Lane, PlayMode};
+        assert_eq!(chart.header.declared_mode, Some(PlayMode::Keys9));
+        for lane in [Lane::Key1, Lane::Key5, Lane::Key6, Lane::Key9] {
+            assert!(chart.notes.iter().any(|n| n.lane == lane), "{lane:?}");
+        }
+        let bgm = chart
+            .header
+            .wav_table
+            .iter()
+            .find(|(_, n)| *n == "1294.wav")
+            .unwrap()
+            .0;
+        let bgm = bank.get(*bgm).expect("the BGM cue has the BGM stream");
+        assert!(bgm.duration_seconds() > 60.0, "{}", bgm.duration_seconds());
+        // Every sound the chart names but 0 (silence) loads.
+        assert_eq!(bank.len(), chart.header.wav_table.len() - 1);
+    }
+
     /// With `CS_DISC_IIDX14` set: THE LEAST 100sec slows down inside its
     /// bars at 20-21.5 s, and every note and background sound still plays at
     /// its frame time (it was up to 0.5 s late).

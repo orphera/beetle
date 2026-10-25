@@ -17,9 +17,6 @@ use cs_disc::{SectorReader, Volume};
 
 use super::{progress, ChartLoadError, SongSource, StageArt, VideoSource};
 
-/// The sound number a chart's BGM cue plays: the chart's BGM stream.
-const BGM_CUE: u16 = 1;
-
 pub(super) struct DiscSource {
     disc: SectorReader<File>,
     songs: Disc,
@@ -94,12 +91,19 @@ impl SongSource for DiscSource {
             .chart_ply(&mut self.disc, slot)
             .map_err(|_| ChartLoadError::NotAChart)?;
         let slot = self.slot();
+        let mode = if self.songs.edition.is_popn() {
+            PlayMode::Keys9
+        } else if slot.style == Style::Double {
+            PlayMode::Keys14
+        } else {
+            PlayMode::Keys7
+        };
         native_ply_chart(
             &ply,
             self.song().title.clone(),
             slot.level,
             slot.difficulty.bms_number(),
-            slot.style == Style::Double,
+            mode,
         )
         .filter(|chart| !chart.notes.is_empty())
         .ok_or(ChartLoadError::NotAChart)
@@ -136,7 +140,8 @@ impl SongSource for DiscSource {
             let Some(n) = sound_number(name) else {
                 continue;
             };
-            let pcm = if n == BGM_CUE {
+            // The cue that starts the chart's BGM stream.
+            let pcm = if n == self.songs.edition.bgm_sound() {
                 bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())
                     .and_then(|b| decode_bgm(&b).ok())
             } else {
@@ -291,19 +296,16 @@ fn native_ply_chart(
     title: String,
     level: u8,
     difficulty: u8,
-    double: bool,
+    mode: PlayMode,
 ) -> Option<BmsChart> {
+    let double = mode == PlayMode::Keys14;
     let mut chart = BmsChart {
         header: BmsHeader {
             title,
             play_level: level as u32,
             difficulty: Some(difficulty as u32),
             player: if double { 3 } else { 1 },
-            declared_mode: Some(if double {
-                PlayMode::Keys14
-            } else {
-                PlayMode::Keys7
-            }),
+            declared_mode: Some(mode),
             ..Default::default()
         },
         ..Default::default()
@@ -350,6 +352,18 @@ fn native_ply_chart(
                 }
                 let source_lane = lane;
                 let lane = match (side, lane) {
+                    // pop'n buttons 1–9.
+                    (Side::P1, n @ 0..=8) if mode == PlayMode::Keys9 => [
+                        Lane::Key1,
+                        Lane::Key2,
+                        Lane::Key3,
+                        Lane::Key4,
+                        Lane::Key5,
+                        Lane::Key6,
+                        Lane::Key7,
+                        Lane::Key8,
+                        Lane::Key9,
+                    ][n as usize],
                     (Side::P1, 7) => Lane::Scratch,
                     (Side::P2, 7) => Lane::P2Scratch,
                     (Side::P1, n @ 0..=6) => [
