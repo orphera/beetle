@@ -371,7 +371,7 @@ fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>
 }
 
 /// One entry per chart: the copy the game loads, chosen from each group in
-/// placement order.
+/// placement order, naming the chart's other disc copies (`also_on`).
 fn select_copies(by_chart: BTreeMap<ChartId, Vec<Copy>>) -> Vec<SongMetadata> {
     by_chart
         .into_values()
@@ -379,7 +379,15 @@ fn select_copies(by_chart: BTreeMap<ChartId, Vec<Copy>>) -> Vec<SongMetadata> {
             group.sort_by(|a, b| (a.kind, &a.source, &a.path).cmp(&(b.kind, &b.source, &b.path)));
             let intact: Vec<bool> = group.iter().map(|c| c.missing == Some(0)).collect();
             let chosen = choose_load_index(&intact)?;
-            group.into_iter().nth(chosen).map(|copy| copy.meta)
+            let also_on = group
+                .iter()
+                .enumerate()
+                .filter(|&(i, c)| i != chosen && c.kind == Kind::Disc)
+                .map(|(_, c)| c.meta.file_path.clone())
+                .collect();
+            let mut meta = group.into_iter().nth(chosen)?.meta;
+            meta.also_on = also_on;
+            Some(meta)
         })
         .collect()
 }

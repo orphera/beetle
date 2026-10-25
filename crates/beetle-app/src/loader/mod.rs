@@ -416,6 +416,7 @@ mod tests {
             notes_count: 100,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (_chart, _timing, _soundbank, _bga_bank, video_sources) = load_chart_and_audio(&meta);
@@ -541,6 +542,7 @@ mod tests {
             notes_count: 1,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (chart, _timing, soundbank, bga_bank, video_sources) = load_chart_and_audio(&meta);
@@ -606,6 +608,7 @@ mod tests {
             notes_count: 1,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (c_chart, _c_timing, c_soundbank, c_bga_bank, _c_videos) =
@@ -711,6 +714,7 @@ mod tests {
             notes_count: 1,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (chart, _timing, soundbank, bga_bank, video_sources) = load_chart_and_audio(&meta);
@@ -863,6 +867,7 @@ mod tests {
             notes_count: 500,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let turbo_meta = SongMetadata {
@@ -886,6 +891,7 @@ mod tests {
             notes_count: 250,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         // Classic load
@@ -1006,6 +1012,7 @@ mod tests {
             notes_count: 1,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         // 2. Load with BGA companion present
@@ -1134,6 +1141,7 @@ mod tests {
             notes_count: 3,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         // Load chart and audio from the packed Turbo package
@@ -1195,6 +1203,7 @@ mod tests {
             notes_count: 1000,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);
@@ -1239,6 +1248,7 @@ mod tests {
             notes_count: 500,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         };
 
         let (chart, _timing, soundbank, _bga_bank, _videos) = load_chart_and_audio(&song_meta);

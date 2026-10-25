@@ -169,6 +169,7 @@ mod tests {
             notes_count: 100,
             play_mode: mode,
             difficulty: None,
+            also_on: Vec::new(),
         }
     }
 

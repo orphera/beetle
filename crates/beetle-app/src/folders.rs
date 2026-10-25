@@ -420,12 +420,20 @@ fn collection_of(file_path: &str) -> Option<(String, String)> {
 fn dir_folders(songs: &[SongMetadata], pass: &[bool]) -> Vec<Folder> {
     let mut by_dir: BTreeMap<String, (String, Vec<usize>)> = BTreeMap::new();
     for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
-        if let Some((id, label)) = collection_of(&s.file_path) {
-            by_dir
-                .entry(id)
-                .or_insert_with(|| (label, Vec::new()))
-                .1
-                .push(i);
+        // A chart on several discs is in each disc's folder.
+        let mut seen = Vec::new();
+        for path in std::iter::once(&s.file_path).chain(&s.also_on) {
+            if let Some((id, label)) = collection_of(path) {
+                if seen.contains(&id) {
+                    continue;
+                }
+                seen.push(id.clone());
+                by_dir
+                    .entry(id)
+                    .or_insert_with(|| (label, Vec::new()))
+                    .1
+                    .push(i);
+            }
         }
     }
     let mut label_uses: HashMap<String, usize> = HashMap::new();
@@ -997,6 +1005,7 @@ mod tests {
             notes_count: 100,
             play_mode: mode,
             difficulty: None,
+            also_on: Vec::new(),
         }
     }
 
@@ -1694,6 +1703,27 @@ mod tests {
                 .0,
             id
         );
+    }
+
+    #[test]
+    fn a_chart_on_two_discs_is_in_both_disc_folders_and_listed_once() {
+        let songs = vec![SongMetadata {
+            also_on: vec!["disc:D:/iso/iidx16pb.iso::004/sp_another".into()],
+            ..chart(1, "disc:D:/iso/iidx16.iso::017/sp_another", "MENDES", 10)
+        }];
+        let pass = pass_all(&songs);
+        let dirs = dir_folders(&songs, &pass);
+        let labels: Vec<&str> = dirs.iter().map(|f| f.label.as_str()).collect();
+        assert_eq!(labels, ["iidx16", "iidx16pb"]);
+        assert!(dirs.iter().all(|f| f.body == Body::Leaf(vec![0])));
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &TableIndex::new(Vec::new()),
+            LnOption::Cn,
+            &pass,
+        );
+        assert_eq!(node(&tree, &FolderPath::top("all")).unwrap().count, 1);
     }
 
     #[test]

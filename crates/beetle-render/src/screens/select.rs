@@ -3420,6 +3420,7 @@ mod tests {
                 PlayMode::Keys7
             },
             difficulty: None,
+            also_on: Vec::new(),
         }
     }
 
@@ -4108,6 +4109,7 @@ mod jacket_tests {
             notes_count: 1000 + i,
             play_mode: PlayMode::Keys7,
             difficulty: None,
+            also_on: Vec::new(),
         }
     }
 
