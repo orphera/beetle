@@ -29,6 +29,22 @@ use crate::ply::{Command, Ply, Side};
 const HALF_FRAME_MS: f64 = 1000.0 / 59.94 / 2.0;
 /// Grids tried when snapping, as divisions of a beat, coarsest first.
 const BEAT_GRIDS: [u64; 10] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 48];
+/// The same for a chart timed in milliseconds (pop'n), whose notes may sit
+/// between the frame chart grids.
+const FINE_GRIDS: [u64; 14] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 192];
+/// How far a millisecond chart's times may be from the grid: the rounding,
+/// with room for a tempo that is itself rounded.
+const HALF_MS: f64 = 1.0;
+
+/// How far an event of `ply` may be from where it belongs: half a frame for
+/// the frame-timed IIDX charts, about a millisecond for pop'n.
+fn rounding(ply: &Ply) -> f64 {
+    if ply.tick_ms < 2.0 {
+        HALF_MS
+    } else {
+        HALF_FRAME_MS
+    }
+}
 
 /// What the BMS header says beyond the chart itself.
 #[derive(Debug, Clone)]
@@ -43,6 +59,8 @@ pub struct Header {
     pub difficulty: u8,
     /// Double play: both sides' notes, `#PLAYER 3`.
     pub double: bool,
+    /// pop'n music's nine buttons (P1 lanes 0–8) on the PMS channels.
+    pub nine_buttons: bool,
     /// The file name `#WAVxx` gives sound `n` (1-based as the chart numbers them).
     pub sound_name: fn(u16) -> String,
 }
@@ -81,6 +99,8 @@ struct Bar {
     beats_den: u64,
     /// Tempo stretches, the first starting at the bar.
     segments: Vec<Segment>,
+    /// How far an event may be from the grid (`rounding`).
+    rounding: f64,
 }
 
 impl Bar {
@@ -134,7 +154,15 @@ fn base36(n: usize) -> Option<String> {
 }
 
 /// IIDX lanes as BMS channels: keys 1–5 → x1–x5, 6–7 → x8–x9, scratch → x6.
-fn channel(side: Side, lane: u8) -> Option<u32> {
+/// pop'n buttons as PMS channels: 1–5 → 11–15, 6–9 → 22–25.
+fn channel(side: Side, lane: u8, nine_buttons: bool) -> Option<u32> {
+    if nine_buttons {
+        return match (side, lane) {
+            (Side::P1, 0..=4) => Some(11 + lane as u32),
+            (Side::P1, 5..=8) => Some(17 + lane as u32),
+            _ => None,
+        };
+    }
     let base = match side {
         Side::P1 => 10,
         Side::P2 => 20,
@@ -199,7 +227,15 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
         }
         compact_tempos.push((at, bpm));
     }
-    let tempos = compact_tempos;
+    // A change rounded to a millisecond before or after its bar line (pop'n
+    // ゴエモン: 190 BPM at 68786, the line at 68787) starts that bar.
+    let tempos: Vec<(f64, f64)> = compact_tempos
+        .into_iter()
+        .map(|(t, bpm)| {
+            let line = lines.iter().find(|&&l| (l - t).abs() < rounding(ply));
+            (line.copied().unwrap_or(t), bpm)
+        })
+        .collect();
     let stored_at = |t: f64| {
         tempos
             .iter()
@@ -222,6 +258,7 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
                     start_ms,
                     bpm: stored_at(start_ms),
                 }],
+                rounding: rounding(ply),
             }
         })
         .collect();
@@ -337,7 +374,7 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             for k in 1..segs.len() {
                 at_beat +=
                     (segs[k].start_ms - segs[k - 1].start_ms) * segs[k - 1].bpm * scale / 60000.0;
-                let (n, d) = snap_beat(at_beat, segs[k].bpm * scale);
+                let (n, d) = snap_beat(at_beat, segs[k].bpm * scale, rounding(ply));
                 let beat = n as f64 / d as f64;
                 if beat > cuts.last().unwrap().0 && beat < beats {
                     cuts.push((beat, segs[k].start_ms));
@@ -372,7 +409,7 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
         let last = bars.last().unwrap();
         let seg = last.segments.last().unwrap();
         let (beat, bpm) = last.beat_at(last_event.max(last.start_ms));
-        if beat + HALF_FRAME_MS * bpm / 60000.0 < last.beats() {
+        if beat + last.rounding * bpm / 60000.0 < last.beats() {
             break;
         }
         let end = seg.start_ms + (last.beats() - last.beat_at(seg.start_ms).0) * 60000.0 / seg.bpm;
@@ -384,6 +421,7 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
                 start_ms: end,
                 bpm: seg.bpm,
             }],
+            rounding: last.rounding,
         };
         bars.push(next);
         if bars.len() > 1000 {
@@ -393,25 +431,31 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
     Ok(bars)
 }
 
-/// `beat` as `n / d` on the coarsest grid within half a frame of it at `bpm`.
-fn snap_beat(beat: f64, bpm: f64) -> (u64, u64) {
-    let tolerance = HALF_FRAME_MS * bpm / 60000.0 + 1e-9;
-    BEAT_GRIDS
+/// `beat` as `n / d` on the coarsest grid within `rounding` ms of it at `bpm`.
+fn snap_beat(beat: f64, bpm: f64, rounding: f64) -> (u64, u64) {
+    let tolerance = rounding * bpm / 60000.0 + 1e-9;
+    let grids: &[u64] = if rounding < HALF_FRAME_MS {
+        &FINE_GRIDS
+    } else {
+        &BEAT_GRIDS
+    };
+    let finest = grids[grids.len() - 1];
+    grids
         .iter()
         .map(|&d| ((beat * d as f64).round().max(0.0) as u64, d))
         .find(|&(n, d)| (n as f64 / d as f64 - beat).abs() <= tolerance)
-        .unwrap_or_else(|| ((beat * 48.0).round().max(0.0) as u64, 48))
+        .unwrap_or_else(|| ((beat * finest as f64).round().max(0.0) as u64, finest))
 }
 
 /// Where time `t` falls, snapped.
 fn position(bars: &[Bar], t: f64) -> Pos {
     let i = bars
         .iter()
-        .rposition(|b| b.start_ms <= t + HALF_FRAME_MS)
+        .rposition(|b| b.start_ms <= t + b.rounding)
         .unwrap_or(0);
     let bar = &bars[i];
     let (beat, bpm) = bar.beat_at(t.max(bar.start_ms));
-    let (n, d) = snap_beat(beat, bpm);
+    let (n, d) = snap_beat(beat, bpm, bar.rounding);
     // Snapped onto the bar's end: the next bar's start.
     if n * bar.beats_den >= bar.beats_num * d && i + 1 < bars.len() {
         return Pos {
@@ -546,7 +590,7 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
                 if e.time == 0 || (side == Side::P2 && !header.double) {
                     continue;
                 }
-                let Some(ch) = channel(side, lane) else {
+                let Some(ch) = channel(side, lane, header.nine_buttons) else {
                     continue;
                 };
                 let sound = lane_sound.get(&(side, lane)).copied().unwrap_or(0);
@@ -655,6 +699,7 @@ mod tests {
             level: 5,
             difficulty: 2,
             double,
+            nine_buttons: false,
             sound_name: |n| format!("{n:04}.wav"),
         }
     }
@@ -708,8 +753,8 @@ mod tests {
                     sound: 37,
                 },
             ),
-            // Beat 1 of bar 1, a few ms off the grid.
-            (2504, note(Side::P1, 7)),
+            // Beat 1 of bar 1, a millisecond off the grid.
+            (2501, note(Side::P1, 7)),
             (4000, Command::Auto { slot: 8, sound: 2 }),
         ]);
         let bms = to_bms(&ply, &header(false)).unwrap();
@@ -776,6 +821,19 @@ mod tests {
         let bms = to_bms(&ply, &header(false)).unwrap();
         assert!(bms.contains("#00002:1.75\n"), "{bms}");
         assert!(!bms.contains("#00102:"), "{bms}");
+    }
+
+    #[test]
+    fn a_millisecond_chart_keeps_a_note_off_the_beat() {
+        // 4 ms past beat 1 at 120 BPM: a frame chart would snap it, a pop'n
+        // chart (times in ms) puts it on the 1/192 grid instead.
+        let ply = chart(&[(2504, note(Side::P1, 0))]);
+        let bms = to_bms(&ply, &header(false)).unwrap();
+        let line = bms.lines().find(|l| l.starts_with("#00111:")).unwrap();
+        let cells = (line.len() - 7) / 2;
+        let at = line[7..].find("ZZ").unwrap() / 2;
+        let beat = at as f64 * 4.0 / cells as f64;
+        assert!((beat - 1.008).abs() < 0.003, "{line}");
     }
 
     #[test]
