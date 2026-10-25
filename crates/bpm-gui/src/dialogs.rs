@@ -56,6 +56,8 @@ pub struct Dialog {
     pub kind: DialogKind,
     pub fields: Vec<String>,
     pub focus: usize,
+    /// The first list row shown (the list shows `LIST_ROWS` at a time).
+    pub list_top: usize,
 }
 
 const ARCHIVES: PickKind = PickKind::File {
@@ -105,7 +107,14 @@ impl Dialog {
             kind,
             fields: vec![String::new(); count],
             focus: 0,
+            list_top: 0,
         }
+    }
+
+    /// Scrolls the list by `rows` (the mouse wheel), kept within a list of `len` rows.
+    pub fn scroll_list(&mut self, rows: isize, len: usize) {
+        let max = len.saturating_sub(crate::ui::LIST_ROWS);
+        self.list_top = self.list_top.saturating_add_signed(rows).min(max);
     }
 
     pub fn has_fields(&self) -> bool {
@@ -225,6 +234,7 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                         ok: bms_package_manager::library::entry_present(p),
                     })
                     .collect();
+                v.list_top = self.list_top;
                 v.list_empty = "아직 연결한 폴더가 없어요".into();
                 v.fields = vec![
                     field(

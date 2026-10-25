@@ -459,7 +459,11 @@ impl ApplicationHandler for BpmGuiApp {
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
                 };
                 let rows = (-lines * 3.0).round() as isize;
-                if rows != 0 && state.dialog.is_none() {
+                if let (true, Some(dialog)) = (rows != 0, &mut state.dialog) {
+                    // One row a notch: the list shows only a few.
+                    dialog.scroll_list(rows.signum(), state.library.len());
+                    state.window.request_redraw();
+                } else if rows != 0 {
                     match state.renderer.scroll_target_at(state.cursor_pos) {
                         Some(ScrollTarget::Installed) => state.installed.scroll_by(rows),
                         Some(ScrollTarget::Tables) => state.tables.view.scroll_by(rows),

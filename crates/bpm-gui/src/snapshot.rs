@@ -168,7 +168,13 @@ fn snapshot_screens() {
         "D:\\ISO\\disc2.iso".into(),
         "F:".into(),
         "D:\\ISO\\disc3.iso".into(),
+        "G:".into(),
+        "D:\\BMS\\more".into(),
+        "D:\\ISO\\disc4.iso".into(),
     ];
+    if let Some(d) = &mut scene.dialog {
+        d.scroll_list(2, scene.library.len());
+    }
     render(&mut r, &mut tables, scene, &shot("10-dialog-library"));
 
     let mut scene = Scene::new(ActiveTab::Installed, &packages);

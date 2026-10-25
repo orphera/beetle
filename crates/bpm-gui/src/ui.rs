@@ -77,6 +77,9 @@ pub struct ButtonView {
     pub action: UiAction,
 }
 
+/// Rows a dialog list shows at a time; the mouse wheel scrolls the rest.
+pub const LIST_ROWS: usize = 6;
+
 /// Everything an open dialog shows. Built from the dialog state each frame.
 #[derive(Debug, Clone, Default)]
 pub struct DialogView {
@@ -88,6 +91,8 @@ pub struct DialogView {
     pub choices: Vec<ChoiceView>,
     /// Rows with a remove button (`DialogListRemove(i)`).
     pub list: Vec<ListRowView>,
+    /// The first row of `list` shown; `LIST_ROWS` rows show at a time.
+    pub list_top: usize,
     pub list_empty: String,
     pub buttons: Vec<ButtonView>,
     pub footnote: String,
@@ -1025,7 +1030,7 @@ impl GuiRenderer {
         for choice in &d.choices {
             dh += 24.0 + 42.0 + if choice.note.is_empty() { 0.0 } else { 22.0 } + 16.0;
         }
-        let list_rows = d.list.len().min(6);
+        let list_rows = d.list.len().min(LIST_ROWS);
         if !d.list.is_empty() || !d.list_empty.is_empty() {
             dh += list_rows.max(1) as f32 * 40.0 + 10.0;
         }
@@ -1212,7 +1217,9 @@ impl GuiRenderer {
                 );
                 cy += 40.0;
             }
-            for (i, row) in d.list.iter().enumerate().take(6) {
+            let list_y = cy;
+            let top = d.list_top.min(d.list.len().saturating_sub(LIST_ROWS));
+            for (i, row) in d.list.iter().enumerate().skip(top).take(LIST_ROWS) {
                 self.round(lx, cy, inner, 36.0, 8.0, theme::SURFACE);
                 let (tag, fg, bg) = if row.ok {
                     ("연결됨", theme::GREEN, theme::GREEN_SOFT)
@@ -1240,6 +1247,15 @@ impl GuiRenderer {
                     UiAction::DialogListRemove(i),
                 );
                 cy += 40.0;
+            }
+            // A thin bar beside the rows when not all of them fit.
+            if d.list.len() > LIST_ROWS {
+                let track = LIST_ROWS as f32 * 40.0 - 4.0;
+                let thumb = track * LIST_ROWS as f32 / d.list.len() as f32;
+                let max_top = (d.list.len() - LIST_ROWS) as f32;
+                let ty = list_y + (track - thumb) * top as f32 / max_top;
+                self.round(lx + inner + 6.0, list_y, 4.0, track, 2.0, theme::SURFACE);
+                self.round(lx + inner + 6.0, ty, 4.0, thumb, 2.0, theme::TEXT_FAINT);
             }
             cy += 10.0;
         }
