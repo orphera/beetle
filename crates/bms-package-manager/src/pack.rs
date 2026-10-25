@@ -203,7 +203,7 @@ pub fn analyze_song(song: &dyn SongTree) -> Manifest {
             let content = beetle_core::decode_bms_text(&bytes);
             let (title, artist, genre) = extract_bms_header_tags(&content);
             if !title.is_empty() {
-                titles.push(canonicalize_title(&title));
+                titles.push(title);
             }
             if !artist.is_empty() {
                 artists.push(artist);
@@ -214,7 +214,15 @@ pub fn analyze_song(song: &dyn SongTree) -> Manifest {
         }
     }
 
-    let final_title = pick_most_common(&titles).unwrap_or_else(|| canonicalize_title(&dir_name));
+    // The charts of a folder are one song: the title they share, not any one
+    // chart's title with its brackets stripped.
+    let title_refs: Vec<&str> = titles.iter().map(String::as_str).collect();
+    let shared = beetle_core::title::shared_title(&title_refs);
+    let final_title = if shared.is_empty() {
+        canonicalize_title(&dir_name)
+    } else {
+        shared
+    };
 
     let final_artist = pick_most_common(&artists).unwrap_or_else(|| "Unknown".to_string());
 

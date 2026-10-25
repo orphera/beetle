@@ -20,6 +20,7 @@ pub mod score;
 pub mod song_address;
 pub mod table;
 pub mod timing;
+pub mod title;
 
 pub use bms::{
     decode_base36, decode_bms_text, encode_base36, parse_bms, parse_bms_with_seed, BgaChannel,

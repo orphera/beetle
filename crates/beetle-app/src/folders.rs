@@ -721,7 +721,12 @@ pub fn chip_labels(songs: &[SongMetadata], charts: &[usize]) -> Vec<String> {
         let members: Vec<&SongMetadata> = run.iter().map(|&q| &songs[charts[q]]).collect();
         let bracket: Vec<Option<String>> = members
             .iter()
-            .map(|m| split_trailing_bracket(&m.title).and_then(|(_, inner)| short_tag(inner)))
+            .map(|m| {
+                let name = beetle_core::title::chart_name(&m.title).map(str::to_string);
+                name.or_else(|| {
+                    split_trailing_bracket(&m.title).and_then(|(_, inner)| short_tag(inner))
+                })
+            })
             .collect();
         let subtitle: Vec<Option<String>> =
             members.iter().map(|m| short_tag(&m.subtitle)).collect();
@@ -790,22 +795,11 @@ pub fn group_keys(songs: &[SongMetadata]) -> Vec<Option<u64>> {
         .collect()
 }
 
-/// The title a group shows: the base title most of its charts share (the
-/// first chart's on a tie).
+/// The title a group shows: the part its charts' titles share, so `Song - HYPER`
+/// and `Song - ANOTHER` show `Song`. A group of one shows its title as it is.
 fn group_title(songs: &[SongMetadata], charts: &[usize]) -> String {
-    let mut counts: Vec<(&str, usize)> = Vec::new();
-    for &c in charts {
-        let t = base_title(&songs[c].title);
-        match counts.iter_mut().find(|(x, _)| *x == t) {
-            Some((_, n)) => *n += 1,
-            None => counts.push((t, 1)),
-        }
-    }
-    let best = counts.iter().map(|(_, n)| *n).max().unwrap_or(0);
-    counts
-        .iter()
-        .find(|(_, n)| *n == best)
-        .map_or(String::new(), |(t, _)| t.to_string())
+    let titles: Vec<&str> = charts.iter().map(|&c| songs[c].title.as_str()).collect();
+    beetle_core::title::shared_title(&titles)
 }
 
 /// The rows for `indices` (song indices in list order). Charts with the same
