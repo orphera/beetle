@@ -1050,27 +1050,17 @@ fn song_row(
     if let Some(chip) = table_chip {
         ax += level_chip(c, t, chip, ax, row.y + 42.0 * s, s) + 8.0 * s;
     }
-    // The artist's word picture, at a height that leaves the row's right
-    // column clear; the text artist when it does not fit or is not resident.
-    let (aw, ah) = crate::words::ARTIST_SIZE;
-    let artist_h = 14.0 * s;
-    let artist_w = aw as f32 * artist_h / ah as f32;
-    let artist_word = words
-        .and_then(|w| w.artist)
-        .filter(|_| ax + artist_w <= row.right() - right_w - 16.0 * s);
-    match artist_word {
-        Some(region) => {
-            let tint = theme::MUTED;
-            let dst = Rect::new(ax, row.y + 28.0 * s, artist_w, artist_h);
-            c.sprite(region, dst, tint);
-        }
-        None => {
-            let artist = t
-                .fit(c, &song.artist, text_w - (ax - tx), &sub_st)
-                .into_owned();
-            t.draw(c, &artist, ax, row.y + 42.0 * s, &sub_st);
-        }
-    }
+    artist_or_word(
+        c,
+        t,
+        row,
+        &song.artist,
+        ax,
+        right_w,
+        words.and_then(|w| w.artist),
+        &sub_st,
+        s,
+    );
 
     row_record(c, t, sk, best, row, right_w, s);
 }
@@ -1184,6 +1174,34 @@ fn row_jacket(
     );
 
     j.right() + 12.0 * s
+}
+
+/// The artist on a row's second line, from `x`: its word picture at the row's
+/// small height when one is given and fits before the right column, else the
+/// text cut to the same column.
+#[allow(clippy::too_many_arguments)]
+fn artist_or_word(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    row: Rect,
+    text: &str,
+    x: f32,
+    right_w: f32,
+    word: Option<AtlasRegion>,
+    st: &TextStyle,
+    s: f32,
+) {
+    let limit = row.right() - right_w - 16.0 * s;
+    let (aw, ah) = crate::words::ARTIST_SIZE;
+    let h = 14.0 * s;
+    let w = aw as f32 * h / ah as f32;
+    match word.filter(|_| x + w <= limit) {
+        Some(region) => c.sprite(region, Rect::new(x, row.y + 28.0 * s, w, h), theme::MUTED),
+        None => {
+            let shown = t.fit(c, text, limit - x, st).into_owned();
+            t.draw(c, &shown, x, row.y + 42.0 * s, st);
+        }
+    }
 }
 
 /// The row title: its word picture when one is given and fits `text_w`,
@@ -1417,15 +1435,17 @@ fn group_row(
         ax += t.measure(c, &more, &st) + gap;
     }
     let sub_st = TextStyle::new(12.0 * s).color(theme::MUTED);
-    let artist = t
-        .fit(
-            c,
-            &song.artist,
-            row.right() - right_w - 16.0 * s - (ax + 8.0 * s),
-            &sub_st,
-        )
-        .into_owned();
-    t.draw(c, &artist, ax + 8.0 * s, base, &sub_st);
+    artist_or_word(
+        c,
+        t,
+        row,
+        &song.artist,
+        ax + 8.0 * s,
+        right_w,
+        words.and_then(|w| w.artist),
+        &sub_st,
+        s,
+    );
     row_record(c, t, sk, best, row, right_w, s);
 }
 
