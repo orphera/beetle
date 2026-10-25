@@ -624,6 +624,32 @@ pub fn song_folder(file_path: &str) -> Option<String> {
     }
 }
 
+/// The order a group's charts run in. For a disc's charts (`by_difficulty`):
+/// key count (7, 14, 5, 10, then the rest), then difficulty (unknown last),
+/// then level and title. Other charts run by level, then title.
+fn chart_order(song: &SongMetadata, by_difficulty: bool) -> (u32, u32, u32, &str) {
+    if !by_difficulty {
+        return (0, 0, song.play_level, song.title.as_str());
+    }
+    let mode = match song.play_mode {
+        PlayMode::Keys7 => 0,
+        PlayMode::Keys14 => 1,
+        PlayMode::Keys5 => 2,
+        PlayMode::Keys10 => 3,
+        _ => 4,
+    };
+    let difficulty = song.difficulty.unwrap_or(u32::MAX);
+    (mode, difficulty, song.play_level, song.title.as_str())
+}
+
+/// Whether a chart is read from a game disc (a `disc` address), not a folder or package.
+fn is_disc_song(song: &SongMetadata) -> bool {
+    matches!(
+        SongAddress::parse(&song.file_path),
+        SongAddress::Disc { .. }
+    )
+}
+
 /// The title split at its trailing `[...]` or `(...)` part:
 /// `AIRSHAVER [7key, Another]` → (`AIRSHAVER`, `7key, Another`). `None` when
 /// there is no such part or stripping would leave nothing.
@@ -871,9 +897,12 @@ pub fn group_entries(
                 if charts.len() == 1 {
                     return ListEntry::Song(charts[0]);
                 }
+                // A disc's charts run in difficulty order (BEGINNER → BLACK ANOTHER,
+                // EASY → EX for pop'n), the same for every song; other charts run by level.
+                let by_difficulty = charts.iter().all(|&c| is_disc_song(&songs[c]));
                 charts.sort_by(|&a, &b| {
-                    (songs[a].play_level, &songs[a].title)
-                        .cmp(&(songs[b].play_level, &songs[b].title))
+                    chart_order(&songs[a], by_difficulty)
+                        .cmp(&chart_order(&songs[b], by_difficulty))
                 });
                 let selected = choices
                     .get(&key)

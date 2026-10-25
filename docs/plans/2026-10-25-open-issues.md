@@ -63,6 +63,13 @@
   - IIDX 계열: BEGINNER → NORMAL → HYPER → ANOTHER → BLACK ANOTHER (7 → 14 → 5 → 10 순서로 표시).
   - pop'n: EASY → NORMAL → HYPER → EX.
 - 현재: 순서가 일정하지 않음.
+- 원인(확인): 선곡창 묶음 안의 채보는 레벨 → 제목 순으로 정렬됨(`folders.rs`의 `group_entries`). 같은 곡의 난이도 순서가 레벨에 따라 바뀜.
+- 처리(2026-10-25): 구현 완료, 커밋 전.
+  - CS Disc(`disc` 주소) 채보만 난이도 순서(`#DIFFICULTY` 1→5, pop'n은 EASY→EX)로 정렬. 그 밖의 채보는 레벨 순 유지.
+  - `chart_order` 함수 추가. 같은 난이도면 레벨, 그다음 제목.
+  - 테스트: `beetle-app` folders 49개 통과, 워크스페이스 체크 통과.
+  - 미확인: 실제 CS 디스크의 묶음 순서. 디스크 테스트는 로컬 이미지가 필요함.
+  - 추가(2026-10-25): 키 수가 먼저 정렬됨 (7K → 14K → 5K → 10K → 그 밖), 그다음 난이도. 예: BEGINNER 7 → NORMAL 7 → HYPER 7 → ANOTHER 7 → BEGINNER 14 …. 디스크 채보에만 적용.
 - 관련: `crates/cs-disc/src/iidx.rs`, `popn.rs`의 난이도 표 및 선곡 정렬.
 
 ## 7. RemyWiki 메타데이터 배포 가능 여부
