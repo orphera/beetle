@@ -23,7 +23,7 @@ use cs_disc::iidx::Disc;
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
-const MAGIC: &[u8; 4] = b"BNM7";
+const MAGIC: &[u8; 4] = b"BNM8";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

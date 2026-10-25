@@ -1192,7 +1192,11 @@ fn title_or_word(
     word: Option<AtlasRegion>,
     s: f32,
 ) {
-    let word = word.filter(|r| text_w >= r.w as f32 * s);
+    // List titles are drawn at one height, so a picture and its text fallback
+    // take the same space.
+    let list_h = 18.0 * s;
+    let width = |r: &AtlasRegion| list_h * r.w as f32 / r.h as f32;
+    let word = word.filter(|r| text_w >= width(r));
     match word {
         Some(region) => {
             let tint = if on {
@@ -1200,12 +1204,7 @@ fn title_or_word(
             } else {
                 theme::TEXT.with_alpha(215)
             };
-            let dst = Rect::new(
-                tx,
-                row.y + 8.0 * s,
-                region.w as f32 * s,
-                region.h as f32 * s,
-            );
+            let dst = Rect::new(tx, row.y + 8.0 * s, width(&region), list_h);
             c.sprite(region, dst, tint);
         }
         None => row_title(c, t, row, text, tx, text_w, on, s),
@@ -1224,7 +1223,7 @@ fn row_title(
     on: bool,
     s: f32,
 ) {
-    let title_st = TextStyle::new(16.0 * s).bold().color(if on {
+    let title_st = TextStyle::new(18.0 * s).bold().color(if on {
         theme::TEXT
     } else {
         theme::TEXT.with_alpha(215)
@@ -1907,9 +1906,10 @@ fn detail_panel(
     let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
 
     let disc = is_disc_song(song);
-    // A disc with a picture on the select screen is pop'n (IIDX has none
-    // there); the word names say so too, once they are read.
-    let popn = word.is_some_and(|w| w.popn) || f.jacket.is_some();
+    // pop'n is decided by the song's names alone. Deciding it from the loaded
+    // banner too changed the title's room while the banner loaded, so the title
+    // switched between picture and text.
+    let popn = word.is_some_and(|w| w.popn);
     let no_art = disc && !popn;
     // A pop'n disc shows its banner as a bar above the text; an IIDX disc has
     // no picture, so its text takes the whole panel.
@@ -2017,8 +2017,8 @@ fn detail_panel(
         chip_x += level_chip(c, t, &text, chip_x, inner.y + tier_y, s) + 6.0 * s;
     }
     // One line at 26px if it fits, otherwise two lines at 20px.
-    let title_big = if no_art { 40.0 } else { 26.0 };
-    let big = TextStyle::new(title_big * s).bold().color(theme::TEXT);
+    // The text fallback has the picture's size and place, so a title does not
+    // jump from text to picture (or back) when the picture loads.
     let title_h = if no_art {
         36.0 * s
     } else if popn {
@@ -2026,6 +2026,9 @@ fn detail_panel(
     } else {
         20.0 * s
     };
+    let title_big = title_h / s;
+    let title_base = if disc { 20.0 + title_big } else { 46.0 };
+    let big = TextStyle::new(title_big * s).bold().color(theme::TEXT);
     let title_word = word
         .and_then(|w| w.title)
         .map(|r| (r, title_h * r.w as f32 / r.h as f32))
@@ -2043,7 +2046,7 @@ fn detail_panel(
             inner.y + dy + 70.0 * s
         }
     } else if t.measure(c, &song.title, &big) <= iw {
-        t.draw(c, &song.title, ix, inner.y + dy + 46.0 * s, &big);
+        t.draw(c, &song.title, ix, inner.y + dy + title_base * s, &big);
         inner.y + dy + 70.0 * s
     } else {
         let st = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
@@ -2100,7 +2103,7 @@ fn detail_panel(
     match genre_word {
         Some((region, w)) => c.sprite(region, Rect::new(ix, genre_y, w, genre_h), theme::MUTED),
         None if !song.genre.is_empty() && !(disc && popn) => {
-            let st = TextStyle::new(12.0 * s).color(theme::MUTED);
+            let st = TextStyle::new(genre_h).color(theme::MUTED);
             let genre = t.fit(c, &song.genre, iw, &st).into_owned();
             t.draw(c, &genre, ix, genre_y, &st);
         }

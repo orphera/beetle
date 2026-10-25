@@ -768,7 +768,7 @@ impl Disc {
             small_title: None,
             artist: word(files.artist, artist)?,
             genre: None,
-            popn: false,
+            popn: true,
         }))
     }
 
