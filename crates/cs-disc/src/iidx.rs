@@ -1055,8 +1055,8 @@ fn word_ref_offsets(edition: Edition) -> Option<[usize; 4]> {
         Edition::Gold => Some([0xa0, 0xa4, 0xa8, 0xac]),
         Edition::Distorted => Some([0xa4, 0xa8, 0xac, 0xb0]),
         Edition::HappySky => Some([0xd8, 0xdc, 0xe0, 0xe4]),
-        // RED (0xec..0xf8, sheets 281-284) and 10th style (0xdc..0xec, sheets
-        // 162-165) are found but not verified: 34 and 48 pictures are empty.
+        Edition::Red => Some([0xec, 0xf0, 0xf4, 0xf8]),
+        Edition::TenthStyle => Some([0xdc, 0xe0, 0xe4, 0xec]),
         // GOLD (0xa0..0xac) and DistorteD (0xa4..0xb0) have the sheets at these
         // offsets, but their genre and big title pictures are not verified yet.
         _ => None,
