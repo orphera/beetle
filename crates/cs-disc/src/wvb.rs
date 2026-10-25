@@ -1,4 +1,4 @@
-//! IIDX 16 sound files: key sound banks (`.wvb`) and BGM streams (`.pcm`).
+//! IIDX 14–16 sound files: key sound banks (`.wvb`) and BGM streams (`.pcm`).
 //!
 //! Layouts from iidx-ps2tools (`parse_wvb.parse_wvb_new`) and the iidx16-bms
 //! work (`tools/ps2adpcm.py`, `tools/extract_sounds.py`).
@@ -105,9 +105,10 @@ pub enum Placement {
 pub struct KeySound {
     pub file: u16,
     pub placement: Placement,
-    /// Bytes 8 and 9 of the entry, pan and volume to iidx-ps2tools. What the
-    /// game does with them is not known (most sounds have 1 and 127), so the
-    /// player plays every sound as stored, as the BMS extraction did.
+    /// Bytes 8 and 9 of the entry, pan and volume to iidx-ps2tools. A kind 2
+    /// entry stores 1 and 127 (full); a kind 1 entry stores its volume in
+    /// both (64, 72, ...), so `pan` is not a pan. `decode` applies `volume`:
+    /// GOLD plays THE LEAST 100sec's sliced music at 72.
     pub pan: u8,
     pub volume: u8,
 }
@@ -211,8 +212,21 @@ impl<'a> Bank<'a> {
             if let Placement::Stereo { right } = sound.placement {
                 channels.push(self.decode_file(right)?.1);
             }
+            for channel in &mut channels {
+                apply_volume(channel, sound.volume);
+            }
             Ok(Pcm { rate, channels })
         })())
+    }
+}
+
+/// Scales samples by a bank volume, 127 being as stored.
+fn apply_volume(samples: &mut [i16], volume: u8) {
+    if volume >= 127 {
+        return;
+    }
+    for s in samples {
+        *s = (*s as i32 * volume as i32 / 127) as i16;
     }
 }
 
@@ -301,6 +315,16 @@ mod tests {
         let pcm = bank.decode(2).unwrap().unwrap();
         assert_eq!(pcm.rate, 24000);
         assert_eq!(pcm.channels, vec![vec![0i16; 28]; 2]);
+    }
+
+    #[test]
+    fn a_sound_plays_at_its_stored_volume() {
+        let mut samples = [12700i16, -12700, 0];
+        apply_volume(&mut samples, 72);
+        assert_eq!(samples, [7200, -7200, 0]);
+        let mut full = [32767i16, -32768];
+        apply_volume(&mut full, 127);
+        assert_eq!(full, [32767, -32768]);
     }
 
     #[test]
