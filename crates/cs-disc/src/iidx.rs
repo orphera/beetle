@@ -517,6 +517,8 @@ pub struct Disc {
     data1: FileExtent,
     /// `DATA1.DAT` files: (byte offset, bytes).
     data1_files: Vec<(u64, u64)>,
+    /// pop'n: each record's title and artist word rectangles (`song_names`).
+    name_refs: Vec<(u16, u16)>,
 }
 
 fn missing(what: &str) -> io::Error {
@@ -571,6 +573,7 @@ impl Disc {
             dats,
             data1,
             data1_files,
+            name_refs: Vec::new(),
         })
     }
 
@@ -605,6 +608,7 @@ impl Disc {
                 .find(disc, crate::popn::IMAGE_FILE)?
                 .unwrap_or(FileExtent { lba: 0, size: 0 }),
             data1_files: crate::popn::read_images(&exe, layout).unwrap_or_default(),
+            name_refs: crate::popn::read_name_refs(&exe, layout),
         })
     }
 
@@ -733,6 +737,34 @@ impl Disc {
             .and_then(|bytes| first_picture(&bytes)))
     }
 
+    /// The word pictures of a pop'n `song`: its title and its artist, as
+    /// coverage masks. `None` on IIDX, or where the disc has no names for it.
+    pub fn song_names<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        song: &Song,
+    ) -> io::Result<Option<crate::popn::SongNames>> {
+        let Tables::Popn(layout) = self.edition.tables() else {
+            return Ok(None);
+        };
+        let Some(files) = layout.names else {
+            return Ok(None);
+        };
+        let Some(&(title, artist)) = self.name_refs.get(song.id as usize) else {
+            return Ok(None);
+        };
+        let mut word = |file: u32, n: u16| -> io::Result<Option<crate::popn::Mask>> {
+            Ok(self
+                .read_data1(disc, file)?
+                .and_then(|bytes| crate::popn::rect_picture(&bytes, n as u32))
+                .map(|picture| crate::popn::Mask::from_rgba(&picture)))
+        };
+        Ok(Some(crate::popn::SongNames {
+            title: word(files.title, title)?,
+            artist: word(files.artist, artist)?,
+        }))
+    }
+
     /// The picture shown while `song` loads: 13, 14 and 15's stage image, of the
     /// ANOTHER variant when `another` and the texture holds two (10 to 15); 16's loading
     /// card.
@@ -751,7 +783,7 @@ impl Disc {
                 };
                 return Ok(self
                     .read_data1(disc, layout.banners)?
-                    .and_then(|file| crate::popn::banner(&file, banner)));
+                    .and_then(|file| crate::popn::rect_picture(&file, banner)));
             }
         };
         match layout.record.stage {
@@ -1196,6 +1228,7 @@ mod tests {
             dats: Vec::new(),
             data1: FileExtent { lba: 0, size: 0 },
             data1_files: Vec::new(),
+            name_refs: Vec::new(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);

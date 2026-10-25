@@ -40,6 +40,17 @@ pub(crate) struct Layout {
     pub images: (usize, usize),
     /// The `IMAGE.DAT` file of the song banners (`banner`).
     pub banners: u32,
+    /// The `IMAGE.DAT` files of the title and artist word pictures, when the
+    /// disc's records name them (`name_refs`). `None` where not yet read.
+    pub names: Option<NameFiles>,
+}
+
+/// The `IMAGE.DAT` files holding the title and artist word pictures. Each
+/// file's part 0 lists the words as rectangles (`rect_picture`).
+#[derive(Clone, Copy)]
+pub(crate) struct NameFiles {
+    pub title: u32,
+    pub artist: u32,
 }
 
 pub(crate) const POPN12: Layout = Layout {
@@ -49,6 +60,7 @@ pub(crate) const POPN12: Layout = Layout {
     songs: (0xf6d30, 106),
     images: (0xde120, 600),
     banners: 3,
+    names: None,
 };
 
 pub(crate) const POPN13: Layout = Layout {
@@ -58,6 +70,7 @@ pub(crate) const POPN13: Layout = Layout {
     songs: (0x1339a0, 129),
     images: (0x10a420, 654),
     banners: 347,
+    names: None,
 };
 
 pub(crate) const POPN14: Layout = Layout {
@@ -67,6 +80,10 @@ pub(crate) const POPN14: Layout = Layout {
     songs: (0x13eb50, 127),
     images: (0x11ab20, 674),
     banners: 3,
+    names: Some(NameFiles {
+        title: 68,
+        artist: 71,
+    }),
 };
 
 /// The data file every pop'n disc keeps its songs in.
@@ -83,6 +100,10 @@ const CHART_AT: usize = 0x4c;
 const LEVELS_AT: usize = 0x51;
 /// The record's banner: its rectangle in the banner file.
 const BANNER_AT: usize = 0x40;
+/// The record's title and artist word rectangles (`u16` each), in the title
+/// and artist files of `NameFiles`. Found on 14; 12 and 13 do not read yet.
+const TITLE_AT: usize = 0x10;
+const ARTIST_AT: usize = 0x18;
 /// The executable's load address, less its file offset.
 const LOAD: u32 = 0x100000 - 0x80;
 
@@ -268,11 +289,12 @@ fn parts(file: &[u8]) -> Option<Vec<Vec<u8>>> {
         .collect()
 }
 
-/// Banner `n` of the banner file (the song's genre and title, 244x58). Part 0
-/// lists rectangles `i16 x, y, w, h` from 0x10, `y` running down the
-/// 512-high pages that follow; a page is a 16-byte header (`u16 width,
-/// height`, 8 bits a pixel at 8) then a PSMT8 texture.
-pub(crate) fn banner(file: &[u8], n: u32) -> Option<Rgba> {
+/// Picture `n` of an `IMAGE.DAT` file that lists rectangles: a banner (the
+/// song's genre and title, 244x58) or a title or artist word. Part 0 lists
+/// rectangles `i16 x, y, w, h` from 0x10, `y` running down the 512-high pages
+/// that follow; a page is a 16-byte header (`u16 width, height`, 8 bits a
+/// pixel at 8) then a PSMT8 texture.
+pub(crate) fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
     let parts = parts(file)?;
     let at = 0x10 + n as usize * 8;
     let rect = parts.first()?.get(at..at + 8)?;
@@ -301,6 +323,60 @@ pub(crate) fn banner(file: &[u8], n: u32) -> Option<Rgba> {
         height: h,
         pixels,
     })
+}
+
+/// A picture as coverage: one byte a pixel, 255 where the ink is. The word
+/// pictures are white ink on black with an opaque alpha, so the coverage is
+/// the pixel's mean brightness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mask {
+    pub width: u32,
+    pub height: u32,
+    pub coverage: Vec<u8>,
+}
+
+impl Mask {
+    pub(crate) fn from_rgba(picture: &Rgba) -> Mask {
+        let coverage = picture
+            .pixels
+            .iter()
+            .map(|&[r, g, b, _]| ((r as u32 + g as u32 + b as u32) / 3) as u8)
+            .collect();
+        Mask {
+            width: picture.width,
+            height: picture.height,
+            coverage,
+        }
+    }
+}
+
+/// A song's word pictures: its title and its artist. `None` where the
+/// record or the disc gives none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SongNames {
+    pub title: Option<Mask>,
+    pub artist: Option<Mask>,
+}
+
+/// Each record's title and artist rectangle numbers, in record order. Records
+/// past the table's end, and an empty table on a disc without `NameFiles`,
+/// read as none.
+pub(crate) fn read_name_refs(exe: &[u8], layout: &Layout) -> Vec<(u16, u16)> {
+    if layout.names.is_none() {
+        return Vec::new();
+    }
+    let (at, count) = layout.songs;
+    (0..count)
+        .map(|id| {
+            let record = at + id * RECORD;
+            let field = |k: usize| {
+                exe.get(record + k..record + k + 2)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                    .unwrap_or(0)
+            };
+            (field(TITLE_AT), field(ARTIST_AT))
+        })
+        .collect()
 }
 
 /// The first bytes of a bank and of a BGM stream.
@@ -490,6 +566,45 @@ mod tests {
         assert_eq!(unpack(&input, 3).unwrap(), b"aba");
         assert_eq!(unpack(&[0x81, b'a'], 2), None);
         assert_eq!(unpack(&[], 0).unwrap(), b"");
+    }
+
+    #[test]
+    fn word_mask_is_mean_brightness() {
+        let picture = Rgba {
+            width: 2,
+            height: 1,
+            pixels: vec![[255, 255, 255, 255], [0, 0, 0, 255]],
+        };
+        let mask = Mask::from_rgba(&picture);
+        assert_eq!((mask.width, mask.height), (2, 1));
+        assert_eq!(mask.coverage, vec![255, 0]);
+    }
+
+    #[test]
+    fn name_refs_read_the_title_and_artist_words() {
+        // Two records at the table's start on a made-up layout, the rest of
+        // the executable zero.
+        let mut exe = vec![0u8; 0x200];
+        let record = |exe: &mut Vec<u8>, at: usize, title: u16, artist: u16| {
+            exe[at + TITLE_AT..at + TITLE_AT + 2].copy_from_slice(&title.to_le_bytes());
+            exe[at + ARTIST_AT..at + ARTIST_AT + 2].copy_from_slice(&artist.to_le_bytes());
+        };
+        record(&mut exe, 0x40, 50, 55);
+        record(&mut exe, 0x40 + RECORD, 51, 56);
+        let layout = Layout {
+            songs: (0x40, 2),
+            names: Some(NameFiles {
+                title: 68,
+                artist: 71,
+            }),
+            ..POPN14
+        };
+        assert_eq!(read_name_refs(&exe, &layout), vec![(50, 55), (51, 56)]);
+        let none = Layout {
+            names: None,
+            ..layout
+        };
+        assert!(read_name_refs(&exe, &none).is_empty());
     }
 
     #[test]
