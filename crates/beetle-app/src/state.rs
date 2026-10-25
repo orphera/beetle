@@ -595,6 +595,10 @@ impl AppState {
         };
         self.library_receiver = None;
         self.songs = load.songs;
+        // The scan may have written new names files: read them again, and
+        // drop the word pictures already in the atlas.
+        self.disc_names = None;
+        self.gpu_ui.ui.menu().words.clear();
         self.hidden_songs = crate::song_menu::drop_hidden(&mut self.songs);
         self.tables = load.tables;
         match (self.library_job, load.score_store) {
