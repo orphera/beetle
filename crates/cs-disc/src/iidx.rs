@@ -519,7 +519,7 @@ pub struct Disc {
     data1_files: Vec<(u64, u64)>,
     /// pop'n: each record's title and artist word rectangles (`song_names`).
     name_refs: Vec<(u16, u16)>,
-    /// PREMIUM BEST: each record's word sheet references (`WORD_REFS_AT`).
+    /// EMPRESS and PREMIUM BEST: each record's word sheet references (`WORD_REFS_AT`).
     word_refs: Vec<[(u16, u16); 4]>,
 }
 
@@ -576,7 +576,7 @@ impl Disc {
             data1,
             data1_files,
             name_refs: Vec::new(),
-            word_refs: if edition == Edition::PremiumBest {
+            word_refs: if matches!(edition, Edition::Empress | Edition::PremiumBest) {
                 read_word_refs(&exe, layout.songs, layout.record.size)
             } else {
                 Vec::new()
@@ -1032,7 +1032,7 @@ fn archive_files(archive: &[u8]) -> Option<impl Iterator<Item = (usize, Option<&
 }
 
 /// The first picture after file 0 of a DATA1 archive.
-/// The record offsets of the word sheet references on PREMIUM BEST: each an
+/// The record offsets of the word sheet references on EMPRESS and PREMIUM BEST: each an
 /// `(index, container)` pair of u16s, for genre, big title, artist and small
 /// title (`iidx_ps2_disc.md`, found by checking the sheets by eye).
 const WORD_REFS_AT: [usize; 4] = [0xac, 0xb0, 0xb4, 0xb8];

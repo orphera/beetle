@@ -58,7 +58,7 @@ pub fn decode_lzss(input: &[u8], size: usize) -> Option<Vec<u8>> {
 /// byte a pixel); the wider one when two sizes fit.
 pub fn texture_size(decompressed: usize) -> Option<(u32, u32)> {
     const WIDTHS: [u32; 4] = [640, 512, 384, 256];
-    const HEIGHTS: [u32; 7] = [640, 512, 448, 384, 256, 192, 128];
+    const HEIGHTS: [u32; 8] = [640, 512, 448, 384, 320, 256, 192, 128];
     let pixels = decompressed.checked_sub(CLUT).filter(|&p| p > 0)?;
     WIDTHS.iter().find_map(|&w| {
         HEIGHTS
@@ -192,7 +192,9 @@ mod tests {
         assert_eq!(texture_size(0x400 + 384 * 384), Some((384, 384)));
         assert_eq!(texture_size(0x50400), Some((640, 512)));
         assert_eq!(texture_size(0x400), None);
-        // The 640x192 word sheets (IIDX PREMIUM BEST).
+        // The 640x192 and 640x320 word sheets (IIDX).
+        assert_eq!(texture_size(0x400 + 640 * 320), Some((640, 320)));
+
         assert_eq!(texture_size(0x400 + 640 * 192), Some((640, 192)));
     }
 
