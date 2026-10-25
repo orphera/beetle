@@ -37,6 +37,7 @@
 - 차트 순서: SP H, DP H, SP A, DP A, SP N, DP N, SP B, DP B, SP BLACK, DP BLACK.
 - 레벨: 15·16은 SP N/H/A/B/BLACK, DP N/H/A/B/BLACK 순의 10바이트. DJ TROOPERS에서 DAZZLIN' DARLIN' DP BEGINNER가 8번 바이트에 1, RISTACCIA DP BLACK이 9번 바이트에 11(DP ANOTHER는 10)로 확인했다.
 - 10th 레벨: 비기너 1바이트(0x41), 미사용 8바이트, SP H/A, SP N, DP H/A, DP N. HYPER와 ANOTHER는 레벨 하나를 함께 쓴다(PANDORA 7, 5, 8, 6). RemyWiki의 10th style CS 레벨과 노트 수(PANDORA, BABY LOVE, No.13)도 이와 같다.
+- 더하기 레벨: 디스크는 정수만 적고, "+" 레벨은 다음 정수로 적는다. RED의 9는 RemyWiki의 "8+"다(BLOCKS SP·DP ANOTHER). 10th는 1–8만 쓴다. 9th CS의 "7+"는 10th CS에서 8이 되었다(No.13). 플레이어는 디스크 값 그대로 보여 준다.
 - RED 레벨: 비기너 1바이트, 미사용 10바이트, SP H/N/A, DP H/N/A. HAPPY SKY: 비기너, 미사용 8바이트, SP N/H/A, DP N/H/A.
 - GOLD·DistorteD 레벨: 비기너 1바이트(SP·DP 공용), 미사용 9바이트, SP N/H/A, DP N/H/A. BLACK은 ANOTHER의 레벨을 쓴다.
 - 사운드 파일 번호는 차트 쌍마다 (키음 뱅크, BGM). 차트에 자기 것이 없으면 DP HYPER(더블) 또는 SP HYPER의 것을 쓴다.
