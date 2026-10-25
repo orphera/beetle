@@ -16,9 +16,8 @@
 //!   (1/1 … 1/48 beat) that is within half a frame of it, which undoes the
 //!   frame rounding.
 //!
-//! Notes at time 0 are not played: the charts start with a few placeholder
-//! notes there (iidx16-bms found the BMS conversions one to twelve notes short
-//! of the `.ply` because of them).
+//! Notes at time 0 are not played: they are the chart's note count
+//! (`ply::Command::Note`), not notes.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;

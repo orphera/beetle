@@ -344,9 +344,8 @@ fn native_ply_chart(
                     .insert(WavId(sound), format!("{sound:04}.wav"));
             }
             Command::Note { side, lane, length } => {
-                // IIDX `.ply` files begin with zero-time placeholder objects
-                // used by the original game. They are not playable notes;
-                // keeping them causes autoplay to start with a false combo.
+                // Notes at time 0 are not notes: lane 0 there carries the
+                // side's note count in steps of up to 250 (`ply::Command::Note`).
                 if event.time == 0 {
                     continue;
                 }

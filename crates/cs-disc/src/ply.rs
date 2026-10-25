@@ -69,6 +69,11 @@ pub enum Side {
 pub enum Command {
     /// A note on `lane` (0..=6 keys, 7 scratch). `length` is `param`
     /// (non-zero for a long/backspin note, in the same time unit).
+    ///
+    /// At time 0 on a PS2 disc it is not a note: lane 0 notes there carry
+    /// the side's note count in `c2`, 250 at a time (2HO SP HYPER: 250, 250,
+    /// 112 for 612 notes), like the arcade's note count event (0x10). True
+    /// of every chart on GOLD, DJ TROOPERS and both EMPRESS discs.
     Note {
         side: Side,
         lane: u8,
@@ -91,7 +96,9 @@ pub enum Command {
         denominator: u16,
     },
     End,
-    /// Sound `sound` plays by itself (background).
+    /// Sound `sound` plays by itself (background). `slot` is its pan, as the
+    /// arcade's parameter: 1 left … 8 center … 15 right. Nearly all are 8;
+    /// some songs use 0 throughout (meaning unknown, likely center).
     Auto {
         slot: u8,
         sound: u16,
