@@ -225,6 +225,25 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             }
         })
         .collect();
+    // Some 11 and 12 charts change meter by bar lines alone, under one 4/4
+    // signature (GOLDEN HORN's 7/4, 100% minimoo-G's 3 to 9 beats). A bar
+    // whose lines are far from its signature at the stored tempo takes the
+    // length they measure, in quarter beats.
+    for (i, bar) in bars.iter_mut().enumerate() {
+        let Some(&end) = lines.get(i + 1) else {
+            continue;
+        };
+        if tempos.iter().any(|&(t, _)| t > lines[i] && t < end) {
+            continue;
+        }
+        let measured = (end - lines[i]) * bar.segments[0].bpm / 60000.0;
+        let quarters = (measured * 4.0).round() as u64;
+        if (measured - bar.beats()).abs() > 0.2 + 0.03 * bar.beats() && quarters > 0 {
+            let g = gcd(quarters, 4);
+            bar.beats_num = quarters / g;
+            bar.beats_den = 4 / g;
+        }
+    }
 
     // Regions: runs of whole bars at one stored tempo, or one bar with a
     // tempo change inside it.
@@ -743,6 +762,20 @@ mod tests {
         }
         let bms = to_bms(&ply, &header(false)).unwrap();
         assert!(bms.contains("#BPM 121.212121\n"), "{bms}");
+    }
+
+    #[test]
+    fn bar_lines_set_the_meter_a_signature_leaves_out() {
+        // Under 4/4 at 120 BPM, a 3500 ms bar is seven beats (GOLDEN HORN).
+        let mut ply = chart(&[]);
+        for e in &mut ply.events {
+            if e.command == Command::Measure && e.time > 0 {
+                e.time += 1500;
+            }
+        }
+        let bms = to_bms(&ply, &header(false)).unwrap();
+        assert!(bms.contains("#00002:1.75\n"), "{bms}");
+        assert!(!bms.contains("#00102:"), "{bms}");
     }
 
     #[test]
