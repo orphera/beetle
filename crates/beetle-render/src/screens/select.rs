@@ -233,6 +233,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                 detail_s,
                 &mut hs,
                 &mut ui.jackets,
+                &ui.words,
             ),
             (
                 Some(&SelectRow::Folder {
@@ -1925,7 +1926,9 @@ fn detail_panel(
     s: f32,
     hs: &mut HitSink,
     jackets: &mut JacketAtlas,
+    words: &WordAtlas,
 ) {
+    let word = words.get(song.id);
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
     let inner = panel.inset(24.0 * s);
@@ -2015,7 +2018,19 @@ fn detail_panel(
     }
     // One line at 26px if it fits, otherwise two lines at 20px.
     let big = TextStyle::new(26.0 * s).bold().color(theme::TEXT);
-    let mut y = if t.measure(c, &song.title, &big) <= iw {
+    let title_h = 20.0 * s;
+    let title_word = word
+        .and_then(|w| w.title)
+        .map(|r| (r, title_h * r.w as f32 / r.h as f32))
+        .filter(|&(_, w)| w <= iw);
+    let mut y = if let Some((region, w)) = title_word {
+        c.sprite(
+            region,
+            Rect::new(ix, inner.y + 22.0 * s, w, title_h),
+            theme::TEXT,
+        );
+        inner.y + 70.0 * s
+    } else if t.measure(c, &song.title, &big) <= iw {
         t.draw(c, &song.title, ix, inner.y + 46.0 * s, &big);
         inner.y + 70.0 * s
     } else {
@@ -2034,8 +2049,18 @@ fn detail_panel(
         y += 20.0 * s;
     }
     let artist_st = TextStyle::new(14.0 * s).color(theme::MUTED);
-    let artist = t.fit(c, &song.artist, iw, &artist_st).into_owned();
-    t.draw(c, &artist, ix, y, &artist_st);
+    let artist_h = 13.0 * s;
+    let artist_word = word
+        .and_then(|w| w.artist)
+        .map(|r| (r, artist_h * r.w as f32 / r.h as f32))
+        .filter(|&(_, w)| w <= iw);
+    match artist_word {
+        Some((region, w)) => c.sprite(region, Rect::new(ix, y, w, artist_h), theme::MUTED),
+        None => {
+            let artist = t.fit(c, &song.artist, iw, &artist_st).into_owned();
+            t.draw(c, &artist, ix, y, &artist_st);
+        }
+    }
     if !song.genre.is_empty() {
         let st = TextStyle::new(12.0 * s).color(theme::MUTED);
         let genre = t.fit(c, &song.genre, iw, &st).into_owned();
