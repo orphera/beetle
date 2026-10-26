@@ -7,6 +7,7 @@
 //! A table names its charts by the SHA-256 and/or MD5 of the chart file's
 //! bytes, which is exactly what `ChartId` and `SongMetadata::md5` are.
 
+use crate::course::{Constraint, CourseChart, CourseDef, Trophy};
 use crate::escape::{escape_field, unescape_field};
 use crate::identity::{md5_from_hex, md5_to_hex, ChartId};
 use std::cmp::Ordering;
@@ -17,6 +18,9 @@ use std::fmt::Write;
 const FILE_HEADER: &str = "#BEETLE_TABLE_V1";
 /// Line that ends the header fields and starts the entries.
 const ENTRIES_MARK: &str = "#ENTRIES";
+/// Line that ends the entries and starts the courses. Each course is a
+/// `course` line followed by its `chart` lines.
+const COURSES_MARK: &str = "#COURSES";
 
 /// One chart of a table.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -48,6 +52,8 @@ pub struct DifficultyTable {
     /// The order the table gives its levels in, if it gives one.
     pub level_order: Vec<String>,
     pub entries: Vec<TableEntry>,
+    /// Courses the table's header defines, in its order.
+    pub courses: Vec<CourseDef>,
 }
 
 impl DifficultyTable {
@@ -78,6 +84,41 @@ impl DifficultyTable {
                 escape_field(&e.url_diff),
             );
         }
+        if !self.courses.is_empty() {
+            out.push_str(COURSES_MARK);
+            out.push('\n');
+        }
+        for course in &self.courses {
+            let constraints: Vec<&str> = course.constraints.iter().map(Constraint::name).collect();
+            let trophies: Vec<String> = course
+                .trophies
+                .iter()
+                .map(|t| {
+                    format!(
+                        "{}:{}:{}",
+                        t.name.replace([':', ','], ""),
+                        t.max_miss_rate,
+                        t.min_score_rate
+                    )
+                })
+                .collect();
+            let _ = writeln!(
+                out,
+                "course\t{}\t{}\t{}",
+                escape_field(&course.name),
+                escape_field(&constraints.join(",")),
+                escape_field(&trophies.join(",")),
+            );
+            for chart in &course.charts {
+                let _ = writeln!(
+                    out,
+                    "chart\t{}\t{}\t{}",
+                    chart.md5.as_ref().map(md5_to_hex).unwrap_or_default(),
+                    chart.sha256.map(|id| id.to_hex()).unwrap_or_default(),
+                    escape_field(&chart.title),
+                );
+            }
+        }
         out
     }
 
@@ -92,7 +133,16 @@ impl DifficultyTable {
 
         let mut table = Self::default();
         let mut in_entries = false;
+        let mut in_courses = false;
         for line in lines {
+            if in_courses {
+                parse_course_line(line, &mut table.courses);
+                continue;
+            }
+            if line.trim() == COURSES_MARK {
+                in_courses = true;
+                continue;
+            }
             if !in_entries {
                 if line.trim() == ENTRIES_MARK {
                     in_entries = true;
@@ -139,6 +189,55 @@ impl DifficultyTable {
         }
         levels.sort_by(|a, b| self.compare_levels(a, b));
         levels
+    }
+}
+
+/// One line of the courses part. A `chart` line before any `course` line,
+/// or a chart with neither hash, is skipped.
+fn parse_course_line(line: &str, courses: &mut Vec<CourseDef>) {
+    let mut fields = line.split('\t');
+    match fields.next() {
+        Some("course") => {
+            let mut text = || fields.next().map(unescape_field).unwrap_or_default();
+            let name = text();
+            let constraints = text()
+                .split(',')
+                .filter(|c| !c.trim().is_empty())
+                .map(Constraint::from_name)
+                .collect();
+            let trophies = text()
+                .split(',')
+                .filter_map(|t| {
+                    let mut parts = t.split(':');
+                    Some(Trophy {
+                        name: parts.next()?.to_string(),
+                        max_miss_rate: parts.next()?.parse().ok()?,
+                        min_score_rate: parts.next()?.parse().ok()?,
+                    })
+                })
+                .collect();
+            courses.push(CourseDef {
+                name,
+                charts: Vec::new(),
+                constraints,
+                trophies,
+            });
+        }
+        Some("chart") => {
+            let md5 = fields.next().and_then(md5_from_hex);
+            let sha256 = fields.next().and_then(ChartId::from_hex);
+            if md5.is_none() && sha256.is_none() {
+                return;
+            }
+            if let Some(course) = courses.last_mut() {
+                course.charts.push(CourseChart {
+                    md5,
+                    sha256,
+                    title: fields.next().map(unescape_field).unwrap_or_default(),
+                });
+            }
+        }
+        _ => {}
     }
 }
 
@@ -401,6 +500,70 @@ mod tests {
             ..table("", "", vec![])
         };
         assert_eq!(DifficultyTable::parse(&t.serialize()), Some(t));
+    }
+
+    #[test]
+    fn courses_round_trip_and_stray_chart_lines_are_skipped() {
+        let (id, md5) = chart(1);
+        let (id2, _) = chart(2);
+        let mut t = table("Insane", "★", vec![entry("1", 1)]);
+        t.courses = vec![
+            CourseDef {
+                name: "発狂皆伝	dan".into(),
+                charts: vec![
+                    CourseChart {
+                        md5: Some(md5),
+                        sha256: None,
+                        title: "one".into(),
+                    },
+                    CourseChart {
+                        md5: None,
+                        sha256: Some(id2),
+                        title: String::new(),
+                    },
+                ],
+                constraints: vec![
+                    Constraint::GradeMirror,
+                    Constraint::from_name("gauge_lr2"),
+                    Constraint::Unknown("someday".into()),
+                ],
+                trophies: vec![Trophy {
+                    name: "goldmedal".into(),
+                    max_miss_rate: 2.5,
+                    min_score_rate: 85.0,
+                }],
+            },
+            CourseDef {
+                name: "plain".into(),
+                charts: vec![CourseChart {
+                    sha256: Some(id),
+                    ..CourseChart::default()
+                }],
+                ..CourseDef::default()
+            },
+        ];
+        assert_eq!(DifficultyTable::parse(&t.serialize()), Some(t.clone()));
+
+        let text = format!(
+            "{}
+#COURSES
+chart		{}	before any course
+course	C		
+chart			no hash
+",
+            t.serialize()
+                .split(
+                    "
+#COURSES"
+                )
+                .next()
+                .unwrap(),
+            id.to_hex()
+        );
+        let parsed = DifficultyTable::parse(&text).unwrap();
+        assert_eq!(parsed.courses.len(), 1);
+        assert!(parsed.courses[0].charts.is_empty());
+        assert_eq!(parsed.entries.len(), 1, "course lines are not entries");
     }
 
     #[test]

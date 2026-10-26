@@ -5,6 +5,7 @@
 //! Designed with zero GUI/Audio dependencies for maximum portability and fast testing.
 
 pub mod bms;
+pub mod course;
 mod escape;
 pub mod identity;
 pub mod judge;
@@ -27,6 +28,7 @@ pub use bms::{
     BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType,
     PlayMode, WavId,
 };
+pub use course::{Constraint, CourseChart, CourseDef, CourseId, CourseSource, Trophy};
 pub use identity::{hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId, ChartKey};
 pub use judge::{
     GaugePoint, GaugeTrend, GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote,

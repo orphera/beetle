@@ -9,7 +9,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use beetle_core::{md5_from_hex, ChartId, DifficultyTable, TableEntry};
+use beetle_core::{
+    md5_from_hex, ChartId, Constraint, CourseChart, CourseDef, DifficultyTable, TableEntry, Trophy,
+};
 use serde_json::Value;
 
 /// Largest page or JSON document taken from a table server.
@@ -235,6 +237,82 @@ fn parse_entries(data: &Value) -> Result<Vec<TableEntry>, TableError> {
         .collect())
 }
 
+/// Reads the header's `course` field, beatoraja's form: a list of course
+/// groups, each a list of courses (a flat list of courses is taken too).
+/// A course names its charts by `md5` / `sha256` lists or by a `charts` list
+/// of objects. Courses with no usable chart are dropped; a broken field is
+/// no courses, not a failed fetch.
+fn parse_courses(header: &Value) -> Vec<CourseDef> {
+    let Some(list) = header.get("course").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let courses = list.iter().flat_map(|item| match item {
+        Value::Array(group) => group.iter().collect::<Vec<_>>(),
+        other => vec![other],
+    });
+    courses.filter_map(parse_course).collect()
+}
+
+fn parse_course(course: &Value) -> Option<CourseDef> {
+    let hashes = |key: &str| -> Vec<&str> {
+        course
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default()
+    };
+    let charts: Vec<CourseChart> =
+        if let Some(list) = course.get("charts").and_then(Value::as_array) {
+            list.iter()
+                .map(|chart| CourseChart {
+                    md5: chart.get("md5").and_then(Value::as_str).and_then(parse_md5),
+                    sha256: chart
+                        .get("sha256")
+                        .and_then(Value::as_str)
+                        .and_then(parse_sha256),
+                    title: str_field(chart, "title"),
+                })
+                .collect()
+        } else {
+            let (md5s, sha256s) = (hashes("md5"), hashes("sha256"));
+            (0..md5s.len().max(sha256s.len()))
+                .map(|i| CourseChart {
+                    md5: md5s.get(i).and_then(|h| parse_md5(h)),
+                    sha256: sha256s.get(i).and_then(|h| parse_sha256(h)),
+                    title: String::new(),
+                })
+                .collect()
+        };
+    // A course with a chart nothing can match could never be played.
+    if charts.is_empty() || charts.iter().any(|c| c.md5.is_none() && c.sha256.is_none()) {
+        return None;
+    }
+    let trophies = course
+        .get("trophy")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|t| {
+                    Some(Trophy {
+                        name: t.get("name")?.as_str()?.trim().to_string(),
+                        max_miss_rate: t.get("missrate")?.as_f64()? as f32,
+                        min_score_rate: t.get("scorerate")?.as_f64()? as f32,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(CourseDef {
+        name: str_field(course, "name").trim().to_string(),
+        charts,
+        constraints: hashes("constraint")
+            .into_iter()
+            .map(Constraint::from_name)
+            .collect(),
+        trophies,
+    })
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -308,6 +386,7 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
         fetched: now_secs(),
         level_order,
         entries,
+        courses: parse_courses(&header),
     })
 }
 
@@ -643,6 +722,64 @@ mod tests {
         assert_eq!(table.entries[2].md5, None);
         assert_eq!(table.entries[2].sha256, ChartId::from_hex(SHA_B));
         assert!(table.fetched > 0);
+    }
+
+    #[test]
+    fn courses_are_read_from_the_header() {
+        let header = format!(
+            r#"{{"name":"Insane","data_url":"d.json","course":[
+              [{{"name":"発狂初段","md5":["{MD5_A}","{MD5_B}"],"constraint":["grade_mirror","gauge_lr2","no_good"],
+                "trophy":[{{"name":"goldmedal","missrate":2.5,"scorerate":85}}]}},
+               {{"name":"bad hash","md5":["{MD5_A}","nope"]}}],
+              [{{"name":"by charts","charts":[{{"sha256":"{SHA_B}","title":"B"}}]}},
+               {{"name":"empty"}}]
+            ]}}"#
+        );
+        let web = Web::new(&[
+            ("https://t.invalid/h.json", &header),
+            ("https://t.invalid/d.json", &data_json()),
+        ]);
+        let table = fetch_table(&web.get(), "https://t.invalid/h.json").unwrap();
+        let names: Vec<&str> = table.courses.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["発狂初段", "by charts"],
+            "unplayable courses dropped"
+        );
+
+        let dan = &table.courses[0];
+        assert!(dan.is_grade());
+        assert_eq!(dan.charts.len(), 2);
+        assert_eq!(dan.charts[1].md5, md5_from_hex(MD5_B));
+        assert_eq!(
+            dan.constraints,
+            [
+                Constraint::GradeMirror,
+                Constraint::from_name("gauge_lr2"),
+                Constraint::NoGood
+            ]
+        );
+        assert_eq!(dan.unsupported().count(), 1);
+        assert_eq!(dan.trophies[0].min_score_rate, 85.0);
+        assert_eq!(table.courses[1].charts[0].sha256, ChartId::from_hex(SHA_B));
+        assert_eq!(
+            DifficultyTable::parse(&table.serialize()).unwrap().courses,
+            table.courses,
+            "kept in the cache"
+        );
+
+        // A header whose course field is not a list just has no courses.
+        let web = Web::new(&[
+            (
+                "https://t.invalid/h.json",
+                r#"{"name":"N","data_url":"d.json","course":"oops"}"#,
+            ),
+            ("https://t.invalid/d.json", &data_json()),
+        ]);
+        assert!(fetch_table(&web.get(), "https://t.invalid/h.json")
+            .unwrap()
+            .courses
+            .is_empty());
     }
 
     #[test]
