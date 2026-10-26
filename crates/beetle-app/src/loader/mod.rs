@@ -397,6 +397,24 @@ pub fn spawn_background_song_loader(
     rx
 }
 
+/// Decoding threads a load in the background of a play may use.
+const BACKGROUND_WORKERS: usize = 2;
+
+/// Like `spawn_background_song_loader`, for a load that runs while a song
+/// plays (a course's next song): it decodes on fewer threads, so the play
+/// keeps its cores.
+pub fn spawn_quiet_song_loader(song: &SongMetadata, seed: u64, load_bga: bool) -> SongLoadReceiver {
+    let song_clone = song.clone();
+    let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
+    thread::spawn(move || {
+        let result = beetle_audio::with_decode_workers(BACKGROUND_WORKERS, || {
+            load_chart_and_audio_with_seed(&song_clone, seed, load_bga)
+        });
+        let _ = tx.send(result);
+    });
+    rx
+}
+
 /// What the stage image loader hands back: the chart and its stage picture
 /// (`load_stage`), with the backdrop already made.
 pub type StageLoad = (ChartId, StagePicture);

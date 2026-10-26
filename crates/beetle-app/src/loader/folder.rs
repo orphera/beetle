@@ -203,10 +203,7 @@ fn load_images_parallel(
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let out = Mutex::new(HashMap::new());
-    let workers = thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .clamp(1, 8)
-        .min(jobs.len().max(1));
+    let workers = beetle_audio::decode_workers().min(jobs.len().max(1));
     thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {

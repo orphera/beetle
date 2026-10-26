@@ -141,11 +141,14 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         .filter(|_| state.is_replay_playback)
         .and_then(|r| r.random_seed)
         .unwrap_or_else(fresh_seed);
-    state.loading_receiver = Some(spawn_background_song_loader(
-        song,
-        seed,
-        state.bga_visible(),
-    ));
+    // A course's next song may already be loading since the last one started.
+    let preloaded = crate::course_play::take_preload(state);
+    if state.capture.is_some() {
+        crate::devtools::log(&format!("load preloaded={}", preloaded.is_some()));
+    }
+    let rx =
+        preloaded.unwrap_or_else(|| spawn_background_song_loader(song, seed, state.bga_visible()));
+    state.loading_receiver = Some(rx);
     state.window.request_redraw();
 }
 
@@ -158,6 +161,12 @@ pub fn finalize_start_gameplay(
     bga_bank: std::collections::HashMap<beetle_core::BmpId, beetle_render::ImageBuffer>,
     mut video_sources: std::collections::HashMap<beetle_core::BmpId, crate::loader::VideoSource>,
 ) {
+    if state.capture.is_some() {
+        crate::devtools::log(&format!(
+            "load to play: {} ms",
+            state.loading_started_at.elapsed().as_millis()
+        ));
+    }
     // Apply Lane Modifier (Mirror, Random, R-Random, S-Random)
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -387,6 +396,7 @@ pub fn finalize_start_gameplay(
     state.view.reset_feedback();
     state.held_keys.clear();
     start_lane_session(state);
+    crate::course_play::preload_next(state);
     state.gpu_ui.release_song_textures(&mut state.d3d11);
     state.window.request_redraw();
 }

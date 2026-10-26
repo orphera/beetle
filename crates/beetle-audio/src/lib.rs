@@ -19,5 +19,5 @@ pub use clock::AudioClock;
 pub use command::{AudioCommand, Bus, BUS_COUNT};
 pub use engine::{AudioEngine, AudioEngineError, SampleTrigger};
 pub use mixer::Mixer;
-pub use sample::{AudioDecodeError, PcmBuffer, SampleBank};
+pub use sample::{decode_workers, with_decode_workers, AudioDecodeError, PcmBuffer, SampleBank};
 pub use sfx::{synthesize as synthesize_ui_sound, ui_sound_bank, UiSound};

@@ -468,10 +468,7 @@ impl SampleBank {
         let next = AtomicUsize::new(0);
         let done = AtomicUsize::new(0);
         let decoded: Mutex<Vec<(WavId, PcmBuffer)>> = Mutex::new(Vec::with_capacity(total));
-        let workers = std::thread::available_parallelism()
-            .map_or(1, |n| n.get())
-            .clamp(1, 8)
-            .min(total.max(1));
+        let workers = decode_workers().min(total.max(1));
         std::thread::scope(|scope| {
             for _ in 0..workers {
                 scope.spawn(|| loop {
@@ -542,6 +539,28 @@ impl DirListing {
             .iter()
             .find_map(|ext| self.files.get(&format!("{stem}.{ext}")).cloned())
     }
+}
+
+thread_local! {
+    static WORKER_CAP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// How many threads a load on this thread decodes files with: one per core,
+/// up to 8, or fewer inside `with_decode_workers`.
+pub fn decode_workers() -> usize {
+    let all = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, 8);
+    WORKER_CAP.with(|cap| cap.get().map_or(all, |cap| all.min(cap.max(1))))
+}
+
+/// Runs `f` with this thread's loads decoding on at most `workers` threads,
+/// so a load in the background of a play leaves the play its cores.
+pub fn with_decode_workers<R>(workers: usize, f: impl FnOnce() -> R) -> R {
+    let old = WORKER_CAP.with(|cap| cap.replace(Some(workers)));
+    let out = f();
+    WORKER_CAP.with(|cap| cap.set(old));
+    out
 }
 
 #[cfg(test)]
