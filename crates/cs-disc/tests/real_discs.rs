@@ -57,6 +57,22 @@ fn disc1_is_empress() {
     assert_eq!(identify(&mut disc).unwrap(), Some(Edition::Empress));
     let songs = Disc::open(&mut disc, &volume, Edition::Empress).unwrap();
     assert!(!songs.songs.is_empty());
+
+    // The dan table: 18 SP ranks of 4 songs, 16 DP ranks (5級 on) of 3; SP
+    // 皆伝 ends with MEI (冥) ANOTHER.
+    let dan = &songs.dan_courses;
+    let count = |style| dan.iter().filter(|c| c.style == style).count();
+    assert_eq!((count(Style::Single), count(Style::Double)), (18, 16));
+    let kaiden = dan
+        .iter()
+        .find(|c| c.style == Style::Single && c.rank == "皆伝")
+        .unwrap();
+    let (last, chart) = *kaiden.charts.last().unwrap();
+    let title = &songs.songs.iter().find(|s| s.id == last).unwrap().title;
+    assert_eq!((title.as_str(), chart), ("MEI", Difficulty::Another));
+    assert!(dan
+        .iter()
+        .all(|c| c.charts.len() == if c.style == Style::Single { 4 } else { 3 }));
 }
 
 /// Every chart decrypts and decompresses to the `.ply` iidx-ps2tools extracted,

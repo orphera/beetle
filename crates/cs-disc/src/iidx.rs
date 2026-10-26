@@ -82,6 +82,9 @@ struct Layout {
     /// `None` where charts are not encrypted (10 to 13).
     chart_key: Option<&'static [u8]>,
     record: Record,
+    /// The dan course table (`DAN_PAIRS` song and chart pairs), where the
+    /// edition has one (14 on; docs/specs/iidx_ps2_disc.md, 8).
+    dan: Option<usize>,
 }
 
 /// How a DAT file table entry gives a file's span.
@@ -179,6 +182,7 @@ const TENTH_STYLE: Layout = Layout {
             picks: None,
         },
     },
+    dan: None,
 };
 
 const RED: Layout = Layout {
@@ -205,6 +209,7 @@ const RED: Layout = Layout {
             picks: None,
         },
     },
+    dan: None,
 };
 
 const HAPPY_SKY: Layout = Layout {
@@ -231,6 +236,7 @@ const HAPPY_SKY: Layout = Layout {
             picks: None,
         },
     },
+    dan: None,
 };
 
 const DISTORTED: Layout = Layout {
@@ -263,6 +269,7 @@ const DISTORTED: Layout = Layout {
             }),
         },
     },
+    dan: None,
 };
 
 const GOLD: Layout = Layout {
@@ -293,6 +300,7 @@ const GOLD: Layout = Layout {
             }),
         },
     },
+    dan: Some(0x145250),
 };
 
 const DJ_TROOPERS: Layout = Layout {
@@ -305,6 +313,7 @@ const DJ_TROOPERS: Layout = Layout {
     file_records: FileRecords::Bytes,
     chart_key: Some(b"eqkBipx2wgExUAIG"),
     record: RECORD_15_16,
+    dan: Some(0x15e200),
 };
 
 const EMPRESS: Layout = Layout {
@@ -320,6 +329,7 @@ const EMPRESS: Layout = Layout {
         stage: StageArt::Card { at: 0x94 },
         ..RECORD_15_16
     },
+    dan: Some(0x167fe0),
 };
 
 const PREMIUM_BEST: Layout = Layout {
@@ -328,6 +338,7 @@ const PREMIUM_BEST: Layout = Layout {
     file_tables: &[(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
     songs: (0x17e0f0, 0x7850),
     data1: (0x139980, 0x5bd0),
+    dan: Some(0x16c530),
     ..EMPRESS
 };
 
@@ -520,6 +531,67 @@ pub struct Disc {
     name_refs: Vec<(u16, u16)>,
     /// Each record's word sheet references (`word_ref_offsets`).
     word_refs: Vec<[(u16, u16); 4]>,
+    /// The game's own dan courses (empty where none was found).
+    pub dan_courses: Vec<DanCourse>,
+}
+
+/// One dan course of the game (段位認定, CLASS mode).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DanCourse {
+    pub style: Style,
+    /// The rank, as the game names it: `7級` … `1級`, `初段` … `十段`, `皆伝`.
+    pub rank: &'static str,
+    /// Song ids (`Song::id`) and chart difficulties, in order.
+    pub charts: Vec<(u32, Difficulty)>,
+}
+
+/// Song and chart pairs in the dan table: 18 ranks of 4 per style, SP first.
+const DAN_PAIRS: usize = 2 * 18 * 4;
+const DAN_RANKS: [&str; 18] = [
+    "7級", "6級", "5級", "4級", "3級", "2級", "1級", "初段", "二段", "三段", "四段", "五段",
+    "六段", "七段", "八段", "九段", "十段", "皆伝",
+];
+
+/// Reads the dan table: (song id, chart) pairs of two words each, 4 per rank
+/// from 7級 to 皆伝, SP then DP. `(0, 0)` is an empty slot (DP has no 7級
+/// and 6級, and 3 songs a rank). Chart: 0 NORMAL, 1 HYPER, 2 ANOTHER,
+/// 3 BEGINNER, 4 BLACK. A pair naming no song, or the table not fitting,
+/// gives no courses rather than wrong ones.
+fn read_dan_courses(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
+    let Some(bytes) = exe.get(at..at + DAN_PAIRS * 8) else {
+        return Vec::new();
+    };
+    let mut courses = Vec::new();
+    for (i, rank) in bytes.chunks_exact(32).enumerate() {
+        let mut charts = Vec::new();
+        for pair in rank.chunks_exact(8) {
+            let (song, chart) = (u32_at(pair, 0), u32_at(pair, 4));
+            if (song, chart) == (0, 0) {
+                continue;
+            }
+            let difficulty = match chart {
+                0 => Difficulty::Normal,
+                1 => Difficulty::Hyper,
+                2 => Difficulty::Another,
+                3 => Difficulty::Beginner,
+                4 => Difficulty::Black,
+                _ => return Vec::new(),
+            };
+            if !songs.iter().any(|s| s.id == song) {
+                return Vec::new();
+            }
+            charts.push((song, difficulty));
+        }
+        if charts.is_empty() {
+            continue;
+        }
+        courses.push(DanCourse {
+            style: if i < 18 { Style::Single } else { Style::Double },
+            rank: DAN_RANKS[i % 18],
+            charts,
+        });
+    }
+    courses
 }
 
 fn missing(what: &str) -> io::Error {
@@ -557,6 +629,10 @@ impl Disc {
             .ok_or_else(|| missing("DATA1.DAT"))?;
         let files = read_file_tables(&exe, layout.file_tables, layout.file_records)?;
         let songs = read_songs(&exe, layout.songs, &layout.record)?;
+        let dan_courses = layout
+            .dan
+            .map(|at| read_dan_courses(&exe, at, &songs))
+            .unwrap_or_default();
         // DATA1 records: id, sector, sectors, 0.
         let data1_files = table(&exe, layout.data1)?
             .chunks_exact(16)
@@ -579,6 +655,7 @@ impl Disc {
                 Some(offsets) => read_word_refs(&exe, layout.songs, layout.record.size, offsets),
                 None => Vec::new(),
             },
+            dan_courses,
         })
     }
 
@@ -615,6 +692,7 @@ impl Disc {
             data1_files: crate::popn::read_images(&exe, layout).unwrap_or_default(),
             name_refs: crate::popn::read_name_refs(&exe, layout),
             word_refs: Vec::new(),
+            dan_courses: Vec::new(),
         })
     }
 
@@ -1388,6 +1466,43 @@ mod tests {
     }
 
     #[test]
+    fn dan_courses_skip_empty_slots_and_refuse_a_bad_table() {
+        let charts = [11, 12, 13, 0, 14, 0, 0, 0, 0, 0];
+        let mut table = record("A", [1; 10], charts);
+        table.extend(record("B", [1; 10], charts));
+        let songs = read_songs(&table, (0, RECORD.size * 2), RECORD).unwrap();
+        assert_eq!(songs.len(), 2);
+        let mut exe = vec![0u8; DAN_PAIRS * 8];
+        let put = |exe: &mut Vec<u8>, pair: usize, song: u32, chart: u32| {
+            exe[pair * 8..pair * 8 + 4].copy_from_slice(&song.to_le_bytes());
+            exe[pair * 8 + 4..pair * 8 + 8].copy_from_slice(&chart.to_le_bytes());
+        };
+        put(&mut exe, 0, 1, 3);
+        put(&mut exe, 1, 0, 2);
+        put(&mut exe, 17 * 4, 1, 4);
+        put(&mut exe, 20 * 4 + 2, 1, 0);
+        let courses = read_dan_courses(&exe, 0, &songs);
+        let ranks: Vec<_> = courses.iter().map(|c| (c.style, c.rank)).collect();
+        assert_eq!(
+            ranks,
+            [
+                (Style::Single, "7級"),
+                (Style::Single, "皆伝"),
+                (Style::Double, "5級")
+            ]
+        );
+        assert_eq!(
+            courses[0].charts,
+            [(1, Difficulty::Beginner), (0, Difficulty::Another)]
+        );
+        assert_eq!(courses[2].charts, [(1, Difficulty::Normal)]);
+
+        put(&mut exe, 5, 9, 0);
+        assert!(read_dan_courses(&exe, 0, &songs).is_empty(), "no song 9");
+        assert!(read_dan_courses(&exe[..100], 0, &songs).is_empty());
+    }
+
+    #[test]
     fn a_chart_is_found_again_by_its_key() {
         let levels = [4, 7, 10, 0, 0, 0, 8, 0, 0, 0];
         let charts = [11, 12, 13, 0, 14, 0, 0, 0, 0, 0];
@@ -1402,6 +1517,7 @@ mod tests {
             data1_files: Vec::new(),
             name_refs: Vec::new(),
             word_refs: Vec::new(),
+            dan_courses: Vec::new(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);

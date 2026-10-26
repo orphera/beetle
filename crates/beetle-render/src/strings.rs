@@ -416,6 +416,11 @@ table! {
         ko "코스",
         en "Courses",
         ja "コース";
+    /// The course-only table of a game disc's dan courses: `{}` is the game.
+    pub DISC_DAN_TABLE =
+        ko "{} 단위인정",
+        en "{} Dan Courses",
+        ja "{} 段位認定";
     /// Tag on a dan certification course.
     pub COURSE_DAN =
         ko "단위인정",
