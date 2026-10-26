@@ -9,14 +9,96 @@ pub enum GaugeType {
     Groove,
     Hard,
     Hazard,
+    /// Dan course gauges (beatoraja CLASS / EXCLASS / EXHARDCLASS): start
+    /// full, fixed gains, fail at 0, carried from song to song.
+    Class,
+    ExClass,
+    ExHardClass,
+}
+
+/// Which numbers a dan gauge uses: beatoraja's own, or its LR2 set
+/// (the `gauge_lr2` course rule).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClassGaugeSet {
+    #[default]
+    Beatoraja,
+    Lr2,
+}
+
+/// A dan gauge's numbers, as beatoraja's `GaugeProperty` gives them.
+#[derive(Debug, Clone)]
+struct ClassGaugeTable {
+    /// Change per judgement, in beatoraja's order: PG, GR, GD, BD, PR (a
+    /// note that passed: `Miss` here), MS (an empty poor: `Poor` here).
+    values: [f64; 6],
+    /// Damage relief: below the first `gauge` it is under, damage is
+    /// multiplied by `factor`.
+    guts: &'static [(f64, f64)],
+}
+
+impl ClassGaugeTable {
+    fn of(gauge: GaugeType, set: ClassGaugeSet) -> Option<Self> {
+        use ClassGaugeSet::*;
+        let (values, guts): ([f64; 6], &'static [(f64, f64)]) = match (gauge, set) {
+            (GaugeType::Class, Beatoraja) => (
+                [0.15, 0.12, 0.06, -1.5, -3.0, -1.5],
+                &[
+                    (5.0, 0.4),
+                    (10.0, 0.5),
+                    (15.0, 0.6),
+                    (20.0, 0.7),
+                    (25.0, 0.8),
+                ],
+            ),
+            (GaugeType::ExClass, Beatoraja) => ([0.15, 0.12, 0.03, -3.0, -6.0, -3.0], &[]),
+            (GaugeType::ExHardClass, Beatoraja) => ([0.15, 0.06, 0.0, -5.0, -10.0, -5.0], &[]),
+            (GaugeType::Class, Lr2) => ([0.10, 0.10, 0.05, -2.0, -3.0, -2.0], &[(30.0, 0.6)]),
+            (GaugeType::ExClass, Lr2) => ([0.10, 0.10, 0.05, -6.0, -10.0, -2.0], &[(30.0, 0.6)]),
+            (GaugeType::ExHardClass, Lr2) => ([0.10, 0.10, 0.05, -12.0, -20.0, -2.0], &[]),
+            _ => return None,
+        };
+        // f32 in beatoraja; rounded the same way so long runs add up alike.
+        Some(Self {
+            values: values.map(|v| v as f32 as f64),
+            guts,
+        })
+    }
+
+    fn change(&self, grade: JudgeGrade, gauge: f64) -> f64 {
+        let value = self.values[match grade {
+            JudgeGrade::PerfectGreat => 0,
+            JudgeGrade::Great => 1,
+            JudgeGrade::Good => 2,
+            JudgeGrade::Bad => 3,
+            JudgeGrade::Miss => 4,
+            JudgeGrade::Poor => 5,
+        }];
+        if value >= 0.0 {
+            return value;
+        }
+        let factor = self
+            .guts
+            .iter()
+            .find(|(below, _)| gauge < *below)
+            .map_or(1.0, |(_, f)| *f);
+        value * factor
+    }
 }
 
 impl GaugeType {
     /// The gauge whose `as_str` name this is.
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Easy, Self::Groove, Self::Hard, Self::Hazard]
-            .into_iter()
-            .find(|g| g.as_str() == name)
+        [
+            Self::Easy,
+            Self::Groove,
+            Self::Hard,
+            Self::Hazard,
+            Self::Class,
+            Self::ExClass,
+            Self::ExHardClass,
+        ]
+        .into_iter()
+        .find(|g| g.as_str() == name)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -25,6 +107,28 @@ impl GaugeType {
             Self::Groove => "GROOVE",
             Self::Hard => "HARD",
             Self::Hazard => "HAZARD",
+            Self::Class => "CLASS",
+            Self::ExClass => "EXCLASS",
+            Self::ExHardClass => "EXHARDCLASS",
+        }
+    }
+
+    /// Fails the moment it empties, instead of being judged at the end.
+    pub fn is_survival(self) -> bool {
+        !matches!(self, Self::Easy | Self::Groove)
+    }
+
+    pub fn is_class(self) -> bool {
+        matches!(self, Self::Class | Self::ExClass | Self::ExHardClass)
+    }
+
+    /// The dan gauge a course plays with for the gauge option the player
+    /// chose, as beatoraja maps it.
+    pub fn for_course(self) -> Self {
+        match self {
+            Self::Easy | Self::Groove | Self::Class => Self::Class,
+            Self::Hard | Self::ExClass => Self::ExClass,
+            Self::Hazard | Self::ExHardClass => Self::ExHardClass,
         }
     }
 }
@@ -53,6 +157,7 @@ pub struct ScoreTracker {
     gauge_gain_pgreat: f64,
     gauge_gain_great: f64,
     gauge_gain_good: f64,
+    class_table: Option<ClassGaugeTable>,
 }
 
 impl Default for ScoreTracker {
@@ -76,9 +181,10 @@ impl ScoreTracker {
         let gain_great = gain_pgreat * 0.8;
         let gain_good = gain_pgreat * 0.5;
 
-        let initial_gauge = match gauge_type {
-            GaugeType::Easy | GaugeType::Groove => 20.0,
-            GaugeType::Hard | GaugeType::Hazard => 100.0,
+        let initial_gauge = if gauge_type.is_survival() {
+            100.0
+        } else {
+            20.0
         };
 
         Self {
@@ -102,7 +208,26 @@ impl ScoreTracker {
             gauge_gain_pgreat: gain_pgreat,
             gauge_gain_great: gain_great,
             gauge_gain_good: gain_good,
+            class_table: ClassGaugeTable::of(gauge_type, ClassGaugeSet::Beatoraja),
         }
+    }
+
+    /// A dan gauge tracker for one song of a course, starting from the gauge
+    /// the previous song left (100 for the first). A `gauge_type` that is
+    /// not a dan gauge is taken as the dan gauge it maps to.
+    pub fn for_course(
+        total_notes: u32,
+        total: f64,
+        gauge_type: GaugeType,
+        set: ClassGaugeSet,
+        carried_gauge: f64,
+    ) -> Self {
+        let gauge_type = gauge_type.for_course();
+        let mut tracker = Self::new(total_notes, total, gauge_type);
+        tracker.class_table = ClassGaugeTable::of(gauge_type, set);
+        tracker.gauge = carried_gauge.clamp(0.0, 100.0);
+        tracker.is_failed = tracker.gauge <= 0.0;
+        tracker
     }
 
     /// Records a judge result without explicit timing delta.
@@ -112,7 +237,7 @@ impl ScoreTracker {
 
     /// Records a judge result and updates score, gauge, and timing distribution stats.
     pub fn record_hit_with_delta(&mut self, grade: JudgeGrade, delta_ms: f64) {
-        if self.is_failed && matches!(self.gauge_type, GaugeType::Hard | GaugeType::Hazard) {
+        if self.is_failed && self.gauge_type.is_survival() {
             return;
         }
 
@@ -127,6 +252,13 @@ impl ScoreTracker {
 
             let bin = ((delta_ms + 42.5) / 5.0).floor().clamp(0.0, 16.0) as usize;
             self.timing_histogram[bin] += 1;
+        }
+
+        if let Some(table) = &self.class_table {
+            let change = table.change(grade, self.gauge);
+            self.count(grade);
+            self.apply_gauge_delta(change);
+            return;
         }
 
         match grade {
@@ -153,6 +285,8 @@ impl ScoreTracker {
                     GaugeType::Groove => -2.0,
                     GaugeType::Hard => -5.0,
                     GaugeType::Hazard => -100.0,
+                    // Dan gauges take the table path above.
+                    GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => 0.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -164,6 +298,8 @@ impl ScoreTracker {
                     GaugeType::Groove => -3.0,
                     GaugeType::Hard => -9.0,
                     GaugeType::Hazard => -100.0,
+                    // Dan gauges take the table path above.
+                    GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => 0.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -175,6 +311,8 @@ impl ScoreTracker {
                     GaugeType::Groove => -5.0,
                     GaugeType::Hard => -10.0,
                     GaugeType::Hazard => -100.0,
+                    // Dan gauges take the table path above.
+                    GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => 0.0,
                 };
                 self.apply_gauge_delta(penalty);
             }
@@ -185,10 +323,28 @@ impl ScoreTracker {
         }
     }
 
+    /// Counts and combo for a judgement, without the gauge.
+    fn count(&mut self, grade: JudgeGrade) {
+        match grade {
+            JudgeGrade::PerfectGreat => self.pgreat_count += 1,
+            JudgeGrade::Great => self.great_count += 1,
+            JudgeGrade::Good => self.good_count += 1,
+            JudgeGrade::Bad => self.bad_count += 1,
+            JudgeGrade::Poor => self.poor_count += 1,
+            JudgeGrade::Miss => self.miss_count += 1,
+        }
+        if grade.is_combo_breaker() {
+            self.current_combo = 0;
+        } else {
+            self.current_combo += 1;
+            self.max_combo = self.max_combo.max(self.current_combo);
+        }
+    }
+
     /// A landmine was stepped on: the gauge drops by `damage_percent`, and the
     /// combo and EX score are left alone.
     pub fn record_mine_hit(&mut self, damage_percent: f64) {
-        if self.is_failed && matches!(self.gauge_type, GaugeType::Hard | GaugeType::Hazard) {
+        if self.is_failed && self.gauge_type.is_survival() {
             return;
         }
         self.mine_hit_count += 1;
@@ -200,18 +356,13 @@ impl ScoreTracker {
         if self.gauge > 100.0 {
             self.gauge = 100.0;
         }
-        match self.gauge_type {
-            GaugeType::Easy | GaugeType::Groove => {
-                if self.gauge < 2.0 {
-                    self.gauge = 2.0;
-                }
+        if !self.gauge_type.is_survival() {
+            if self.gauge < 2.0 {
+                self.gauge = 2.0;
             }
-            GaugeType::Hard | GaugeType::Hazard => {
-                if self.gauge <= 0.0 {
-                    self.gauge = 0.0;
-                    self.is_failed = true;
-                }
-            }
+        } else if self.gauge <= 0.0 {
+            self.gauge = 0.0;
+            self.is_failed = true;
         }
     }
 
@@ -232,9 +383,10 @@ impl ScoreTracker {
 
     /// Returns true if cleared at the end of the song.
     pub fn is_cleared(&self) -> bool {
-        match self.gauge_type {
-            GaugeType::Easy | GaugeType::Groove => self.gauge >= 80.0,
-            GaugeType::Hard | GaugeType::Hazard => !self.is_failed,
+        if self.gauge_type.is_survival() {
+            !self.is_failed
+        } else {
+            self.gauge >= 80.0
         }
     }
 
@@ -248,6 +400,8 @@ impl ScoreTracker {
                 GaugeType::Groove => ClearType::Clear,
                 // Unreachable for Hazard (it already failed on that miss); Hard is the nearest rung.
                 GaugeType::Hard | GaugeType::Hazard => ClearType::Hard,
+                // A course's lamp is the course's; one song of it is just cleared.
+                GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => ClearType::Clear,
             }
         } else if self.great_count + self.good_count > 0 {
             ClearType::FullCombo

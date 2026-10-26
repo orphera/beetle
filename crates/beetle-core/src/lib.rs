@@ -28,11 +28,13 @@ pub use bms::{
     BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType,
     PlayMode, WavId,
 };
-pub use course::{Constraint, CourseChart, CourseDef, CourseId, CourseSource, Trophy};
+pub use course::{
+    Constraint, CourseChart, CourseDef, CourseId, CourseRun, CourseSource, StageResult, Trophy,
+};
 pub use identity::{hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId, ChartKey};
 pub use judge::{
-    GaugePoint, GaugeTrend, GaugeType, JudgeEngine, JudgeGrade, JudgeResult, JudgeWindow, PlayNote,
-    ScoreTracker, GAUGE_TREND_MAX_POINTS,
+    ClassGaugeSet, GaugePoint, GaugeTrend, GaugeType, JudgeEngine, JudgeGrade, JudgeResult,
+    JudgeWindow, PlayNote, ScoreTracker, GAUGE_TREND_MAX_POINTS,
 };
 pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,

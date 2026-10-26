@@ -1203,6 +1203,8 @@ fn handle_keyboard_input(
                 GaugeType::Groove => GaugeType::Hard,
                 GaugeType::Hard => GaugeType::Hazard,
                 GaugeType::Hazard => GaugeType::Easy,
+                // Only courses play these; the option itself never holds one.
+                GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => GaugeType::Easy,
             };
             state.save_config();
             return;

@@ -181,6 +181,7 @@ fn gauge_color(score: &ScoreTracker) -> ColorRgba {
         GaugeType::Groove => theme::CYAN,
         GaugeType::Hard => theme::ORANGE,
         GaugeType::Hazard => theme::MAGENTA,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => theme::GOLD,
     }
 }
 
@@ -529,9 +530,10 @@ fn gauge_trend_graph(
     let y_of = |gauge: f64| rect.bottom() - (gauge.clamp(0.0, 100.0) as f32 / 100.0) * rect.h;
 
     // Clear line: 80 for EASY / GROOVE, 0 (the fail line) for HARD / HAZARD.
-    let (clear_pct, clear_label) = match score.gauge_type {
-        GaugeType::Easy | GaugeType::Groove => (80.0, true),
-        GaugeType::Hard | GaugeType::Hazard => (0.0, false),
+    let (clear_pct, clear_label) = if score.gauge_type.is_survival() {
+        (0.0, false)
+    } else {
+        (80.0, true)
     };
     let y_clear = y_of(clear_pct);
     let mut x = rect.x;

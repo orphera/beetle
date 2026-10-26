@@ -7,7 +7,7 @@ use crate::timing::TimingModel;
 use std::collections::{HashMap, HashSet};
 
 pub use gauge_trend::{GaugePoint, GaugeTrend, GAUGE_TREND_MAX_POINTS};
-pub use score_tracker::{GaugeType, ScoreTracker};
+pub use score_tracker::{ClassGaugeSet, GaugeType, ScoreTracker};
 
 /// Judgment ratings for note hits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

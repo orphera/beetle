@@ -262,6 +262,7 @@ fn is_danger(score: &ScoreTracker) -> bool {
     match score.gauge_type {
         GaugeType::Hard => score.gauge < 30.0,
         GaugeType::Hazard => score.gauge < 100.0,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => score.gauge < 30.0,
         GaugeType::Easy | GaugeType::Groove => false,
     }
 }
@@ -946,6 +947,8 @@ fn gauge(
         GaugeType::Hard if danger || score.gauge < 30.0 => theme::RED,
         GaugeType::Hard => theme::ORANGE,
         GaugeType::Hazard => theme::MAGENTA,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass if danger => theme::RED,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => theme::GOLD,
     };
     let segs = 50;
     let inner = r.inset(3.0 * s);
