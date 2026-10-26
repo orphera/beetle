@@ -1408,7 +1408,7 @@ fn group_row(
     }
     if hi - lo < n {
         let more = format!("+{}", n - (hi - lo));
-        let st = caption(11.0, s).color(theme::MUTED);
+        let st = caption(12.0, s).color(theme::MUTED);
         t.draw(c, &more, ax, base, &st);
     }
     row_record(c, t, sk, best, row, right_w, s);
@@ -1465,7 +1465,7 @@ fn chart_tabs(
     }
     if hi - lo < n {
         let more = format!("+{}", n - (hi - lo));
-        let st = caption(11.0, s).color(theme::MUTED);
+        let st = caption(12.0, s).color(theme::MUTED);
         t.draw(c, &more, x, strip.y + strip.h * 0.7, &st);
     }
 }
