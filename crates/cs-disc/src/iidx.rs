@@ -789,8 +789,13 @@ impl Disc {
         to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
     }
 
+    /// How many files the `DATA1.DAT` table lists.
+    pub fn data1_count(&self) -> usize {
+        self.data1_files.len()
+    }
+
     /// `DATA1.DAT` file `file` as stored, or `None` for a number the table lacks.
-    fn read_data1<R: Read + Seek>(
+    pub fn read_data1<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         file: u32,
