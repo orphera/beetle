@@ -877,6 +877,20 @@ impl Disc {
     /// The picture shown while `song` loads: 13, 14 and 15's stage image, of the
     /// ANOTHER variant when `another` and the texture holds two (10 to 15); 16's loading
     /// card.
+    /// Where a song's stage art is on the disc: the absolute byte offset and
+    /// size of its DATA1 file (pop'n: its banner sheet), and the picture's
+    /// index in that file (pop'n's banner; 0 otherwise). The art is the same
+    /// for every chart of the song, except for the Another variant.
+    pub fn stage_extent(&self, song: &Song) -> Option<(u64, u64, u32)> {
+        let (file, index) = match self.edition.tables() {
+            Tables::Popn(layout) => (layout.banners, song.stage?),
+            Tables::Iidx(_) => (song.stage?, 0),
+        };
+        let &(offset, size) = self.data1_files.get(file as usize)?;
+        (size != 0 && offset + size <= self.data1.size)
+            .then(|| (self.data1.offset() + offset, size, index))
+    }
+
     pub fn stage_image<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,

@@ -179,6 +179,11 @@ trait SongSource {
     fn videos(&mut self, chart: &BmsChart) -> HashMap<BmpId, VideoSource>;
     /// The song's stage artwork.
     fn stage_image(&mut self) -> Option<StageArt>;
+    /// Names where the stage art is, for songs whose art is the same wherever
+    /// it is read. `None`: the art is read for each chart.
+    fn stage_key(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Opens the source a song's `file_path` names (`SongAddress`).
@@ -211,28 +216,19 @@ pub fn select_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 /// has the same key. Entries are kept for the run.
 static STAGE_PICTURES: OnceLock<Mutex<HashMap<String, Option<ImageBuffer>>>> = OnceLock::new();
 
-/// The key a song's stage art is shared under. A disc's art depends only on
-/// the song's folder and whether the chart is Another, so every chart of a song
-/// with the same Another flag shares one picture. Other sources have no key:
-/// their art is read for each chart.
-fn stage_key(file_path: &str) -> Option<String> {
-    let SongAddress::Disc { image, chart } = SongAddress::parse(file_path) else {
-        return None;
-    };
-    let (folder, name) = chart.rsplit_once('/').unwrap_or(("", chart));
-    let another = name.ends_with("another");
-    Some(format!("{image}::{folder}::{another}"))
-}
-
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    let Some(key) = stage_key(&song.file_path) else {
-        return open_source(&song.file_path).ok()?.stage_image();
+    let mut source = open_source(&song.file_path).ok()?;
+    let (Some(location), SongAddress::Disc { image, .. }) =
+        (source.stage_key(), SongAddress::parse(&song.file_path))
+    else {
+        return source.stage_image();
     };
+    let key = format!("{image}@{location}");
     let pictures = STAGE_PICTURES.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(hit) = pictures.lock().ok()?.get(&key) {
         return hit.clone();
     }
-    let img = open_source(&song.file_path).ok()?.stage_image();
+    let img = source.stage_image();
     pictures.lock().ok()?.insert(key, img.clone());
     img
 }
@@ -377,16 +373,6 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_disc_songs_charts_share_the_stage_key_by_another() {
-        let key = |chart: &str| stage_key(&format!("disc:D:/iso/x.iso::{chart}"));
-        assert_eq!(key("017/sp_normal"), key("017/dp_normal"));
-        assert_eq!(key("017/sp_another"), key("017/dp_another"));
-        assert_ne!(key("017/sp_normal"), key("017/sp_another"));
-        assert_ne!(key("017/sp_normal"), key("018/sp_normal"));
-        assert_eq!(stage_key("D:/bms/song/x.bms"), None);
-    }
 
     #[test]
     fn test_bmsp_in_memory_video_loading() {

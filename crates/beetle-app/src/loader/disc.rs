@@ -181,6 +181,13 @@ impl SongSource for DiscSource {
 
     /// The song's stage art (loading card, or a pop'n song's banner), on a
     /// 4:3 canvas.
+    fn stage_key(&self) -> Option<String> {
+        let song = &self.songs.songs[self.song];
+        let another = song.charts[self.chart].difficulty == Difficulty::Another;
+        let (at, size, index) = self.songs.stage_extent(song)?;
+        Some(format!("{at}+{size}#{index}:{another}"))
+    }
+
     fn stage_image(&mut self) -> Option<StageArt> {
         let song = &self.songs.songs[self.song];
         let another = song.charts[self.chart].difficulty == Difficulty::Another;
