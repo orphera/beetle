@@ -70,13 +70,12 @@ fn u32_at(b: &[u8], at: usize) -> Result<u32, SoundError> {
 
 /// The rate a sound's stored length implies: its samples over its duration.
 /// The code table is off for some codes (pop'n 13's 34000 plays at 33000,
-/// IIDX 12's 36000 at 35000, and the same code differs between discs), while
-/// the durations agree with the table where it is right. Sounds shorter than
-/// `MEASURED_MIN_MS` are too short to measure, so they keep the table's rate.
-const MEASURED_MIN_MS: u32 = 500;
-
+/// IIDX 12's 36000 at 35000), and the same code differs between discs, while
+/// the durations agree with the table where it is right. Every sound with a
+/// duration plays at its measured rate; the table is only a fallback for a
+/// zero duration or a rate outside the range discs use.
 fn measured_rate(samples: usize, duration_ms: u32) -> Option<u32> {
-    if duration_ms < MEASURED_MIN_MS {
+    if duration_ms == 0 {
         return None;
     }
     let rate = (samples as u64 * 1000 + duration_ms as u64 / 2) / duration_ms as u64;
@@ -415,7 +414,8 @@ mod tests {
         assert_eq!(measured_rate(35000, 1000), Some(35000));
         // Rounding the duration to the millisecond moves the rate by under 0.1%.
         assert_eq!(measured_rate(44100, 1000), Some(44100));
-        assert_eq!(measured_rate(22050, 499), None);
+        assert_eq!(measured_rate(2205, 99), Some(22273));
+        assert_eq!(measured_rate(11250, 255), Some(44118));
         assert_eq!(measured_rate(0, 1000), None);
         assert_eq!(measured_rate(1000, 0), None);
     }
