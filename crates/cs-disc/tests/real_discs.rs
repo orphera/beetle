@@ -389,3 +389,50 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         assert!(worst.0 <= 10.0, "{var}: {worst:?}");
     }
 }
+
+/// DistorteD keeps its courses in its own forms (`DanTable::Listed`,
+/// `ExpertTable::Inline`); RemyWiki's CS_DistorteD and CS dan course lists
+/// are the reference.
+#[test]
+fn distorted_courses_match_the_wiki() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX13") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::Distorted).unwrap();
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .as_str()
+    };
+
+    let dan = &songs.dan_courses;
+    let count = |style| dan.iter().filter(|c| c.style == style).count();
+    assert_eq!((count(Style::Single), count(Style::Double)), (18, 16));
+    let first_dp = dan.iter().find(|c| c.style == Style::Double).unwrap();
+    assert_eq!(first_dp.rank, "5級");
+    let kaiden = dan
+        .iter()
+        .find(|c| c.style == Style::Single && c.rank == "皆伝")
+        .unwrap();
+    let titles: Vec<&str> = kaiden.charts.iter().map(|&(id, _)| title(id)).collect();
+    assert_eq!(
+        titles,
+        [
+            "QUELL -THE SEVENTH SLAVE-",
+            "NAGEKI NO KI",
+            "GO BEYOND!!",
+            "MEI"
+        ]
+    );
+    assert!(kaiden.charts.iter().all(|&(_, d)| d == Difficulty::Another));
+
+    let expert = &songs.expert_courses;
+    assert_eq!(expert.len(), 17);
+    assert_eq!(expert[0].name, "POPS");
+    assert_eq!(expert[16].name, "CARDINAL");
+    assert_eq!(title(expert[16].songs[4]), "NAGEKI NO KI");
+}

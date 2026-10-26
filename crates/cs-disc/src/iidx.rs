@@ -82,12 +82,34 @@ struct Layout {
     /// `None` where charts are not encrypted (10 to 13).
     chart_key: Option<&'static [u8]>,
     record: Record,
-    /// The dan course table (`DAN_PAIRS` song and chart pairs), where the
-    /// edition has one (14 on; docs/specs/iidx_ps2_disc.md, 7).
-    dan: Option<usize>,
-    /// The EXPERT course table: (offset, courses), where the edition has one
-    /// (14 on; docs/specs/iidx_ps2_disc.md, 8).
-    expert: Option<(usize, usize)>,
+    /// The dan course table, where the edition has one
+    /// (13 on; docs/specs/iidx_ps2_disc.md, 7).
+    dan: Option<DanTable>,
+    /// The EXPERT course table, where the edition has one
+    /// (13 on; docs/specs/iidx_ps2_disc.md, 8).
+    expert: Option<ExpertTable>,
+}
+
+/// How an edition stores its dan courses.
+#[derive(Clone, Copy)]
+enum DanTable {
+    /// 14 on: `DAN_PAIRS` (song, chart) word pairs at this offset.
+    Pairs(usize),
+    /// 13: per course, (song, chart, slot bit) word triples ending in -1,
+    /// each course starting on a 16-byte boundary; SP 7級 to 皆伝, then DP
+    /// from 5級.
+    Listed(usize),
+}
+
+/// How an edition stores its EXPERT courses.
+#[derive(Clone, Copy)]
+enum ExpertTable {
+    /// 14 on: 64-byte records of a pointer to the name and five
+    /// (song, 1, 1) word triples.
+    Pointers { at: usize, count: usize },
+    /// 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
+    /// five (song, 1, 1, 1) word quadruples.
+    Inline { at: usize, count: usize },
 }
 
 /// How a DAT file table entry gives a file's span.
@@ -275,8 +297,11 @@ const DISTORTED: Layout = Layout {
             }),
         },
     },
-    dan: None,
-    expert: None,
+    dan: Some(DanTable::Listed(0x10af90)),
+    expert: Some(ExpertTable::Inline {
+        at: 0x10c558,
+        count: 17,
+    }),
 };
 
 const GOLD: Layout = Layout {
@@ -307,8 +332,11 @@ const GOLD: Layout = Layout {
             }),
         },
     },
-    dan: Some(0x145250),
-    expert: Some((0x144cc0, 16)),
+    dan: Some(DanTable::Pairs(0x145250)),
+    expert: Some(ExpertTable::Pointers {
+        at: 0x144cc0,
+        count: 16,
+    }),
 };
 
 const DJ_TROOPERS: Layout = Layout {
@@ -321,8 +349,11 @@ const DJ_TROOPERS: Layout = Layout {
     file_records: FileRecords::Bytes,
     chart_key: Some(b"eqkBipx2wgExUAIG"),
     record: RECORD_15_16,
-    dan: Some(0x15e200),
-    expert: Some((0x15dc70, 16)),
+    dan: Some(DanTable::Pairs(0x15e200)),
+    expert: Some(ExpertTable::Pointers {
+        at: 0x15dc70,
+        count: 16,
+    }),
 };
 
 const EMPRESS: Layout = Layout {
@@ -338,8 +369,11 @@ const EMPRESS: Layout = Layout {
         stage: StageArt::Card { at: 0x94 },
         ..RECORD_15_16
     },
-    dan: Some(0x167fe0),
-    expert: Some((0x167b10, 10)),
+    dan: Some(DanTable::Pairs(0x167fe0)),
+    expert: Some(ExpertTable::Pointers {
+        at: 0x167b10,
+        count: 10,
+    }),
 };
 
 const PREMIUM_BEST: Layout = Layout {
@@ -559,24 +593,27 @@ pub struct ExpertCourse {
     pub songs: Vec<u32>,
 }
 
-/// Reads the EXPERT course table: 64-byte records of a pointer to the
-/// course name (an ASCII string in the executable) and five (song id, 1, 1)
-/// triples (the two 1s are not known). A record that does not read as one
-/// gives no courses rather than wrong ones.
-fn read_expert_courses(
-    exe: &[u8],
-    (at, count): (usize, usize),
-    songs: &[Song],
-) -> Vec<ExpertCourse> {
+/// Reads the EXPERT course table (`ExpertTable`). The words after each song
+/// id (all 1) are not known. A record that does not read as one gives no
+/// courses rather than wrong ones.
+fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<ExpertCourse> {
+    let (at, count, size, first, step) = match table {
+        ExpertTable::Pointers { at, count } => (at, count, 64, 4, 12),
+        ExpertTable::Inline { at, count } => (at, count, 124, 0x24, 16),
+    };
     let mut courses = Vec::new();
     for c in 0..count {
-        let Some(record) = exe.get(at + c * 64..at + c * 64 + 64) else {
+        let Some(record) = exe.get(at + c * size..at + c * size + size) else {
             return Vec::new();
         };
-        let Some(name) = elf_string(exe, u32_at(record, 0)) else {
+        let name = match table {
+            ExpertTable::Pointers { .. } => elf_string(exe, u32_at(record, 0)),
+            ExpertTable::Inline { .. } => ascii(&record[..first]),
+        };
+        let Some(name) = name else {
             return Vec::new();
         };
-        let ids: Vec<u32> = (0..5).map(|i| u32_at(record, 4 + 12 * i)).collect();
+        let ids: Vec<u32> = (0..5).map(|i| u32_at(record, first + step * i)).collect();
         if !ids.iter().all(|id| songs.iter().any(|s| s.id == *id)) {
             return Vec::new();
         }
@@ -592,8 +629,12 @@ fn elf_string(exe: &[u8], address: u32) -> Option<String> {
     let header = exe.get(phoff..phoff + 32)?;
     let (offset, vaddr) = (u32_at(header, 4), u32_at(header, 8));
     let at = address.checked_sub(vaddr)?.checked_add(offset)? as usize;
-    let bytes = exe.get(at..)?;
-    let end = bytes.iter().take(64).position(|&b| b == 0)?;
+    ascii(exe.get(at..at.checked_add(64)?.min(exe.len()))?)
+}
+
+/// The NUL-terminated printable ASCII text at the start of `bytes`.
+fn ascii(bytes: &[u8]) -> Option<String> {
+    let end = bytes.iter().position(|&b| b == 0)?;
     let text = &bytes[..end];
     (end > 0 && text.iter().all(|b| (0x20..0x7f).contains(b)))
         .then(|| String::from_utf8_lossy(text).into_owned())
@@ -621,7 +662,68 @@ const DAN_RANKS: [&str; 18] = [
 /// and 6級, and 3 songs a rank). Chart: 0 NORMAL, 1 HYPER, 2 ANOTHER,
 /// 3 BEGINNER, 4 BLACK. A pair naming no song, or the table not fitting,
 /// gives no courses rather than wrong ones.
-fn read_dan_courses(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
+fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCourse> {
+    match table {
+        DanTable::Pairs(at) => read_dan_pairs(exe, at, songs),
+        DanTable::Listed(at) => read_dan_lists(exe, at, songs),
+    }
+}
+
+/// A dan table chart number as a difficulty.
+fn dan_chart(chart: u32) -> Option<Difficulty> {
+    Some(match chart {
+        0 => Difficulty::Normal,
+        1 => Difficulty::Hyper,
+        2 => Difficulty::Another,
+        3 => Difficulty::Beginner,
+        4 => Difficulty::Black,
+        _ => return None,
+    })
+}
+
+/// `DanTable::Listed`: 18 SP courses, then 16 DP courses (5級 on).
+fn read_dan_lists(exe: &[u8], mut at: usize, songs: &[Song]) -> Vec<DanCourse> {
+    let mut courses = Vec::new();
+    for i in 0..18 + 16 {
+        let mut charts = Vec::new();
+        loop {
+            let Some(word) = exe.get(at..at + 4) else {
+                return Vec::new();
+            };
+            if u32_at(word, 0) == u32::MAX {
+                at += 4;
+                break;
+            }
+            let Some(triple) = exe.get(at..at + 12) else {
+                return Vec::new();
+            };
+            let (song, chart) = (u32_at(triple, 0), u32_at(triple, 4));
+            let Some(difficulty) = dan_chart(chart) else {
+                return Vec::new();
+            };
+            if charts.len() == 4 || !songs.iter().any(|s| s.id == song) {
+                return Vec::new();
+            }
+            charts.push((song, difficulty));
+            at += 12;
+        }
+        at = at.next_multiple_of(16);
+        let (style, rank) = if i < 18 {
+            (Style::Single, i)
+        } else {
+            (Style::Double, i - 18 + 2)
+        };
+        courses.push(DanCourse {
+            style,
+            rank: DAN_RANKS[rank],
+            charts,
+        });
+    }
+    courses
+}
+
+/// `DanTable::Pairs`.
+fn read_dan_pairs(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
     let Some(bytes) = exe.get(at..at + DAN_PAIRS * 8) else {
         return Vec::new();
     };
@@ -633,13 +735,8 @@ fn read_dan_courses(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
             if (song, chart) == (0, 0) {
                 continue;
             }
-            let difficulty = match chart {
-                0 => Difficulty::Normal,
-                1 => Difficulty::Hyper,
-                2 => Difficulty::Another,
-                3 => Difficulty::Beginner,
-                4 => Difficulty::Black,
-                _ => return Vec::new(),
+            let Some(difficulty) = dan_chart(chart) else {
+                return Vec::new();
             };
             if !songs.iter().any(|s| s.id == song) {
                 return Vec::new();
@@ -695,7 +792,7 @@ impl Disc {
         let songs = read_songs(&exe, layout.songs, &layout.record)?;
         let dan_courses = layout
             .dan
-            .map(|at| read_dan_courses(&exe, at, &songs))
+            .map(|table| read_dan_courses(&exe, table, &songs))
             .unwrap_or_default();
         let expert_courses = layout
             .expert
@@ -1556,7 +1653,7 @@ mod tests {
         put(&mut exe, 1, 0, 2);
         put(&mut exe, 17 * 4, 1, 4);
         put(&mut exe, 20 * 4 + 2, 1, 0);
-        let courses = read_dan_courses(&exe, 0, &songs);
+        let courses = read_dan_courses(&exe, DanTable::Pairs(0), &songs);
         let ranks: Vec<_> = courses.iter().map(|c| (c.style, c.rank)).collect();
         assert_eq!(
             ranks,
@@ -1573,8 +1670,11 @@ mod tests {
         assert_eq!(courses[2].charts, [(1, Difficulty::Normal)]);
 
         put(&mut exe, 5, 9, 0);
-        assert!(read_dan_courses(&exe, 0, &songs).is_empty(), "no song 9");
-        assert!(read_dan_courses(&exe[..100], 0, &songs).is_empty());
+        assert!(
+            read_dan_courses(&exe, DanTable::Pairs(0), &songs).is_empty(),
+            "no song 9"
+        );
+        assert!(read_dan_courses(&exe[..100], DanTable::Pairs(0), &songs).is_empty());
     }
 
     #[test]
