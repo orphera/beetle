@@ -29,6 +29,9 @@ fn fresh_seed() -> u64 {
 /// the load shows on the play lane (`LoadingLane`), as LR2, beatoraja and
 /// IIDX load on their play screens.
 pub const LOADING_CARD_SECONDS: f64 = 1.2;
+/// Silence on the lane before the song's time 0, once the load is done, so
+/// the player has time to get ready (READY shows over it).
+pub const PLAY_LEAD_IN_SECONDS: f64 = 2.0;
 /// A load that finished early still leaves the lane up this long before the
 /// play starts, so its reveal ends and the full bar is seen.
 pub const LANE_LOADING_MIN_SECONDS: f64 = 0.6;
@@ -292,7 +295,7 @@ pub fn finalize_start_gameplay(
 
     // The menu stream would share the device with the gameplay engine.
     state.menu_audio.close();
-    let mut audio_engine = AudioEngine::new(soundbank).ok();
+    let mut audio_engine = AudioEngine::with_lead_in(soundbank, PLAY_LEAD_IN_SECONDS).ok();
     if audio_engine.is_none() {
         state.screen = AppScreen::SongSelect;
         crate::transition::show_toast(
@@ -715,7 +718,7 @@ pub fn tick_gameplay(state: &mut AppState, audio_time: f64) -> GameplayTickResul
         Some(score) => {
             state
                 .gauge_trend
-                .sample(audio_time, score.gauge, score.is_failed);
+                .sample(audio_time.max(0.0), score.gauge, score.is_failed);
             score.is_failed
         }
         None => false,

@@ -64,6 +64,12 @@ pub struct AudioEngine {
 impl AudioEngine {
     /// Initializes cpal audio stream, lock-free ring buffer, and audio clock.
     pub fn new(sample_bank: SampleBank) -> Result<Self, AudioEngineError> {
+        Self::with_lead_in(sample_bank, 0.0)
+    }
+
+    /// An engine whose clock starts `lead_in` seconds before the song's time
+    /// 0 (see `AudioClock::with_lead_in`): silence first, then the song.
+    pub fn with_lead_in(sample_bank: SampleBank, lead_in: f64) -> Result<Self, AudioEngineError> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -76,7 +82,7 @@ impl AudioEngine {
         let sample_rate = supported_config.sample_rate().0;
         let config: StreamConfig = supported_config.into();
 
-        let clock = AudioClock::new(sample_rate);
+        let clock = AudioClock::with_lead_in(sample_rate, lead_in);
 
         let visual_levels: Arc<[AtomicU32; 16]> =
             Arc::new(std::array::from_fn(|_| AtomicU32::new(0)));
@@ -135,13 +141,12 @@ impl AudioEngine {
         })
     }
 
-    /// Starts a sample at `time_seconds` on the audio clock, to the frame.
-    /// A time already past plays at once.
+    /// Starts a sample at song time `time_seconds` on the audio clock, to the
+    /// frame. A time already past plays at once.
     pub fn play_at(&mut self, sample_id: WavId, time_seconds: f64) -> Result<(), AudioCommand> {
-        let rate = self.clock.sample_rate() as f64;
         self.send_command(AudioCommand::PlaySampleAt {
             sample_id,
-            start_sample: (time_seconds.max(0.0) * rate).round() as u64,
+            start_sample: self.clock.frame_of(time_seconds),
             volume: 1.0,
             pan: 0.0,
         })

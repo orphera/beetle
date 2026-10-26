@@ -98,14 +98,31 @@ impl ClockState {
 pub struct AudioClock {
     state: Arc<ClockState>,
     sample_rate: u32,
+    /// Seconds of silence before the song's time 0: the times this clock
+    /// gives start at `-lead_in` and reach 0 that long after playback starts.
+    /// Frame counts (`current_samples`, `rendered_samples`) are the device's
+    /// and do not include it.
+    lead_in: f64,
 }
 
 impl AudioClock {
     pub fn new(sample_rate: u32) -> Self {
+        Self::with_lead_in(sample_rate, 0.0)
+    }
+
+    /// A clock whose song time starts `lead_in` seconds before 0.
+    pub fn with_lead_in(sample_rate: u32, lead_in: f64) -> Self {
         Self {
             state: Arc::new(ClockState::new()),
             sample_rate,
+            lead_in: lead_in.max(0.0),
         }
+    }
+
+    /// The device frame song time `seconds` falls on (0 for a time before
+    /// playback started).
+    pub fn frame_of(&self, seconds: f64) -> u64 {
+        ((seconds + self.lead_in).max(0.0) * self.sample_rate as f64).round() as u64
     }
 
     /// The playback position at `t` in frames, with no monotonic guard: `t`
@@ -150,12 +167,12 @@ impl AudioClock {
         self.state.snapshot().rendered
     }
 
-    /// Current audio playback time in seconds.
+    /// Current song time in seconds (negative during the lead-in).
     pub fn current_time_seconds(&self) -> f64 {
         if self.sample_rate == 0 {
             0.0
         } else {
-            self.position_now() / self.sample_rate as f64
+            self.position_now() / self.sample_rate as f64 - self.lead_in
         }
     }
 
@@ -166,7 +183,7 @@ impl AudioClock {
         if self.sample_rate == 0 {
             0.0
         } else {
-            self.position_at(self.state.snapshot(), t) / self.sample_rate as f64
+            self.position_at(self.state.snapshot(), t) / self.sample_rate as f64 - self.lead_in
         }
     }
 
@@ -277,6 +294,19 @@ mod tests {
 
         clock.advance(4800, Instant::now() - ms(100));
         assert_eq!(clock.current_samples(), 9600);
+    }
+
+    #[test]
+    fn a_lead_in_starts_song_time_below_zero() {
+        let clock = AudioClock::with_lead_in(RATE, 2.0);
+        assert_eq!(clock.current_time_seconds(), -2.0);
+        // The song's time 0 is two seconds of frames into playback.
+        assert_eq!(clock.frame_of(0.0), 96000);
+        assert_eq!(clock.frame_of(-5.0), 0);
+        clock.advance(96000, Instant::now());
+        clock.advance(0, Instant::now());
+        assert_eq!(clock.current_time_seconds(), 0.0);
+        assert_eq!(clock.current_samples(), 96000);
     }
 
     #[test]

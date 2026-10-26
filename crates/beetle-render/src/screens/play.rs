@@ -113,8 +113,6 @@ const COMBO_SECONDS: f64 = 1.0;
 const READY_LEAD: f64 = 1.0;
 /// READY fades out over this long, ending at `READY_LEAD` before the first note.
 const READY_FADE: f64 = 0.5;
-/// A first note sooner than this gets no READY label at all.
-const READY_MIN_FIRST_NOTE: f64 = 1.5;
 /// The readout stays this long; its last 0.3 s fade out.
 pub const READOUT_SECONDS: f64 = 1.0;
 
@@ -146,7 +144,7 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     gauge(c, t, &sk, f, hud.gauge, danger, s);
     ready(c, t, &sk, f, lane_field, s);
     if let Some(loading) = &f.loading {
-        lane_loading(c, t, &sk, loading, lane_field, s);
+        lane_loading(c, t, &sk, loading, lane_field, cue_top(f, s), s);
     }
     // The end banner replaces the combo and the last judgement.
     if f.banner.is_none() {
@@ -162,13 +160,9 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
 }
 
 /// Opacity of READY at `audio_time` before a first note at `first_note`
-/// (both audio seconds). Full from the song start, fading out over the
-/// half second that ends `READY_LEAD` before the note. A first note sooner
-/// than `READY_MIN_FIRST_NOTE` gets no READY.
+/// (both audio seconds). Full through the lead-in, fading out over the half
+/// second that ends `READY_LEAD` before the note.
 pub(crate) fn ready_alpha(audio_time: f64, first_note: f64) -> f32 {
-    if first_note < READY_MIN_FIRST_NOTE || audio_time < 0.0 {
-        return 0.0;
-    }
     ((first_note - READY_LEAD - audio_time) / READY_FADE).clamp(0.0, 1.0) as f32
 }
 
@@ -1278,7 +1272,7 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     );
     let clock = format!(
         "{} / {}",
-        theme::clock(f.audio_time),
+        theme::clock(f.audio_time.max(0.0)),
         theme::clock(f.song_length)
     );
     t.draw_in(
@@ -1645,15 +1639,19 @@ fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Re
     };
     let a = ready_alpha(f.audio_time, first);
     if a > 0.0 {
-        ready_label(c, t, sk, field, a, s);
+        ready_label(c, t, sk, field, cue_top(f, s), a, s);
     }
 }
 
-/// READY with its hint, in the upper third of the lane (the notes and the
-/// combo are below it), at opacity `a`.
-fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, a: f32, s: f32) {
+/// Top of READY and of the loading bar: a little above the judge line, where
+/// the eyes already are when the first notes come.
+fn cue_top(f: &PlayFrame, s: f32) -> f32 {
+    f.layout.judge_line_y - 190.0 * s
+}
+
+/// READY with its hint, from `y` down (above the judge line), at opacity `a`.
+fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, y: f32, a: f32, s: f32) {
     let cx = field.x + field.w / 2.0;
-    let y = field.y + field.h * 0.22;
     let alpha = (a * 255.0) as u8;
     c.sprite_centered(
         sk.glow,
@@ -1674,7 +1672,7 @@ fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, a: f3
     t.draw(c, strings::READY_HINT(), cx - hw / 2.0, y + 52.0 * s, &hint);
 }
 
-/// The loading bar where READY will show: a heading, the bar (filling with
+/// The loading bar where READY will show (from `y` down): a heading, the bar (filling with
 /// the stage's share, or sweeping when it has no count) and the status line.
 fn lane_loading(
     c: &mut Canvas,
@@ -1682,12 +1680,12 @@ fn lane_loading(
     sk: &Skin,
     l: &LaneLoading,
     field: Rect,
+    y: f32,
     s: f32,
 ) {
     let a = ease_out_quad((l.elapsed / 0.25).clamp(0.0, 1.0) as f32);
     let alpha = |v: f32| (v * a) as u8;
     let cx = field.x + field.w / 2.0;
-    let y = field.y + field.h * 0.22;
     c.sprite_centered(
         sk.glow,
         cx,
@@ -1909,7 +1907,7 @@ fn pause_menu(
     );
     let time = format!(
         "{} / {}",
-        theme::clock(f.audio_time),
+        theme::clock(f.audio_time.max(0.0)),
         theme::clock(f.song_length)
     );
     t.draw_in(
@@ -2218,8 +2216,9 @@ mod tests {
         assert_eq!(ready_alpha(4.0, 5.0), 0.0);
         assert_eq!(ready_alpha(4.5, 5.0), 0.0);
         // A first note sooner than 1.5 s gets no READY at all.
-        assert_eq!(ready_alpha(0.0, 1.4), 0.0);
-        assert_eq!(ready_alpha(-0.5, 5.0), 0.0);
+        // A note soon after the song's start: READY shows in the lead-in.
+        assert_eq!(ready_alpha(-2.0, 0.2), 1.0);
+        assert_eq!(ready_alpha(-0.8, 0.2), 0.0);
     }
 
     #[test]
