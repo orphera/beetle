@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use beetle_audio::SampleBank;
@@ -207,8 +207,34 @@ pub fn select_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
     load_stage_image(song)
 }
 
+/// Stage art decoded once per key (`stage_key`), shared by every chart that
+/// has the same key. Entries are kept for the run.
+static STAGE_PICTURES: OnceLock<Mutex<HashMap<String, Option<ImageBuffer>>>> = OnceLock::new();
+
+/// The key a song's stage art is shared under. A disc's art depends only on
+/// the song's folder and whether the chart is Another, so every chart of a song
+/// with the same Another flag shares one picture. Other sources have no key:
+/// their art is read for each chart.
+fn stage_key(file_path: &str) -> Option<String> {
+    let SongAddress::Disc { image, chart } = SongAddress::parse(file_path) else {
+        return None;
+    };
+    let (folder, name) = chart.rsplit_once('/').unwrap_or(("", chart));
+    let another = name.ends_with("another");
+    Some(format!("{image}::{folder}::{another}"))
+}
+
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    open_source(&song.file_path).ok()?.stage_image()
+    let Some(key) = stage_key(&song.file_path) else {
+        return open_source(&song.file_path).ok()?.stage_image();
+    };
+    let pictures = STAGE_PICTURES.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = pictures.lock().ok()?.get(&key) {
+        return hit.clone();
+    }
+    let img = open_source(&song.file_path).ok()?.stage_image();
+    pictures.lock().ok()?.insert(key, img.clone());
+    img
 }
 
 /// The chart bytes at a song address (a chart file, package entry or disc
@@ -351,6 +377,16 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_disc_songs_charts_share_the_stage_key_by_another() {
+        let key = |chart: &str| stage_key(&format!("disc:D:/iso/x.iso::{chart}"));
+        assert_eq!(key("017/sp_normal"), key("017/dp_normal"));
+        assert_eq!(key("017/sp_another"), key("017/dp_another"));
+        assert_ne!(key("017/sp_normal"), key("017/sp_another"));
+        assert_ne!(key("017/sp_normal"), key("018/sp_normal"));
+        assert_eq!(stage_key("D:/bms/song/x.bms"), None);
+    }
 
     #[test]
     fn test_bmsp_in_memory_video_loading() {
