@@ -56,6 +56,7 @@ pub fn handle_gameplay_input(
                     state.audio_engine = None;
                     state.video_players.clear();
                     state.video_start_times.clear();
+                    crate::course_play::quit(state);
                 } else {
                     state.is_gameplay_paused = true;
                     state.pause_selected_option = 0;
@@ -66,6 +67,17 @@ pub fn handle_gameplay_input(
                 return;
             }
             // F3 / 1: faster (a smaller green number), F4 / 2: slower.
+            // A course with `no_speed` keeps the speed it started with.
+            KeyCode::F3
+            | KeyCode::PageUp
+            | KeyCode::Digit1
+            | KeyCode::F4
+            | KeyCode::PageDown
+            | KeyCode::Digit2
+                if crate::course_play::speed_locked(state) =>
+            {
+                return;
+            }
             KeyCode::F3 | KeyCode::PageUp | KeyCode::Digit1 => {
                 state.play_options.green_ms = green_ms_next(state.play_options.green_ms, false);
                 state.sync_hi_speed();
@@ -240,7 +252,9 @@ pub fn handle_pause_modal_input(state: &mut AppState, code: KeyCode) {
         KeyCode::KeyR => {
             // Instant Restart
             state.is_gameplay_paused = false;
-            if let Some(song) = state.current_selected_song().cloned() {
+            if state.course.is_some() {
+                crate::course_play::restart(state);
+            } else if let Some(song) = state.current_selected_song().cloned() {
                 queue_start_gameplay(state, &song);
             }
         }
@@ -268,7 +282,9 @@ pub fn activate_pause_option(state: &mut AppState, option: usize) {
         }
         1 => {
             state.is_gameplay_paused = false;
-            if let Some(song) = state.current_selected_song().cloned() {
+            if state.course.is_some() {
+                crate::course_play::restart(state);
+            } else if let Some(song) = state.current_selected_song().cloned() {
                 queue_start_gameplay(state, &song);
             }
         }
@@ -278,6 +294,7 @@ pub fn activate_pause_option(state: &mut AppState, option: usize) {
             state.video_players.clear();
             state.video_start_times.clear();
             state.screen = AppScreen::SongSelect;
+            crate::course_play::quit(state);
         }
         _ => (),
     }

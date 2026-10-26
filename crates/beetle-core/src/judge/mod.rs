@@ -505,6 +505,12 @@ impl JudgeEngine {
         &self.score
     }
 
+    /// Starts the play from this tracker instead of a fresh one: a course
+    /// song carries the gauge the previous song left. Call before judging.
+    pub fn replace_score(&mut self, score: ScoreTracker) {
+        self.score = score;
+    }
+
     /// Access all playable notes (for renderer).
     pub fn notes(&self) -> &[PlayNote] {
         &self.notes

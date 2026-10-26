@@ -94,10 +94,14 @@ impl Constraint {
         matches!(self, Self::Grade | Self::GradeMirror | Self::GradeRandom)
     }
 
-    /// True for rules the player does not apply yet. A course with one can
-    /// still be listed, but is marked.
+    /// False for rules the player does not apply yet. A course with one can
+    /// still be listed, but is marked. HCN is played as CN, as charts that ask
+    /// for it are.
     pub fn is_supported(&self) -> bool {
-        !matches!(self, Self::NoGood | Self::NoGreat | Self::Unknown(_))
+        !matches!(
+            self,
+            Self::NoGood | Self::NoGreat | Self::LongNote(LongNoteRule::Hcn) | Self::Unknown(_)
+        )
     }
 }
 
@@ -357,9 +361,173 @@ impl CourseRun {
     }
 }
 
+/// The best a player has done on one course. Each field is its own best, as
+/// score records keep them: the best EX may come from a failed run.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CourseRecord {
+    pub passed: bool,
+    /// Best trophy earned, as the course names it.
+    pub trophy: Option<String>,
+    pub ex_score: u32,
+    pub max_ex_score: u32,
+    /// Fewest BAD + POOR + MISS over a passed run (`None` until one passes).
+    pub min_misses: Option<u32>,
+    /// Most songs finished (all of them once passed).
+    pub stages_cleared: usize,
+    pub plays: u32,
+}
+
+const COURSE_RECORDS_HEADER: &str = "#BEETLE_COURSES_V1";
+
+/// Every course record, by course id; kept in `courses.dat`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CourseRecords {
+    records: std::collections::HashMap<CourseId, CourseRecord>,
+}
+
+impl CourseRecords {
+    pub fn get(&self, id: &CourseId) -> Option<&CourseRecord> {
+        self.records.get(id)
+    }
+
+    /// Adds a finished run of `course`. `trophies` are the course's, to
+    /// rank a new trophy against the old one (a later trophy is better).
+    pub fn record(&mut self, id: CourseId, run: &CourseRun, trophies: &[Trophy]) {
+        let total = run.total();
+        let rec = self.records.entry(id).or_default();
+        rec.plays += 1;
+        rec.max_ex_score = rec.max_ex_score.max(total.total_notes * 2);
+        rec.ex_score = rec.ex_score.max(total.ex_score);
+        let finished = if run.is_passed() {
+            run.stages().len()
+        } else {
+            // The song the gauge emptied in was not finished.
+            run.stages().len().saturating_sub(1)
+        };
+        rec.stages_cleared = rec.stages_cleared.max(finished);
+        if !run.is_passed() {
+            return;
+        }
+        rec.passed = true;
+        rec.min_misses = Some(
+            rec.min_misses
+                .map_or(total.misses(), |m| m.min(total.misses())),
+        );
+        if let Some(new) = run.trophy(trophies) {
+            let rank = |name: &str| trophies.iter().position(|t| t.name == name);
+            let better = match &rec.trophy {
+                None => true,
+                Some(old) => rank(&new.name) > rank(old),
+            };
+            if better {
+                rec.trophy = Some(new.name.clone());
+            }
+        }
+    }
+
+    pub fn serialize(&self) -> String {
+        let mut ids: Vec<&CourseId> = self.records.keys().collect();
+        ids.sort_by_key(|id| id.0);
+        let mut out = String::from(COURSE_RECORDS_HEADER);
+        out.push('\n');
+        for id in ids {
+            let r = &self.records[id];
+            out.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                id.to_hex(),
+                u8::from(r.passed),
+                crate::escape::escape_field(r.trophy.as_deref().unwrap_or("")),
+                r.ex_score,
+                r.max_ex_score,
+                r.min_misses.map_or(String::new(), |m| m.to_string()),
+                r.stages_cleared,
+                r.plays,
+            ));
+        }
+        out
+    }
+
+    /// Reads `courses.dat`; anything that is not one is no records. Lines
+    /// it cannot read are skipped.
+    pub fn parse(text: &str) -> Self {
+        let mut lines = text.lines();
+        if lines.next().map(str::trim) != Some(COURSE_RECORDS_HEADER) {
+            return Self::default();
+        }
+        let records = lines
+            .filter_map(|line| {
+                let f: Vec<&str> = line.split('\t').collect();
+                if f.len() < 8 {
+                    return None;
+                }
+                let id = CourseId(*ChartId::from_hex(f[0])?.as_bytes());
+                let trophy = crate::escape::unescape_field(f[2]);
+                Some((
+                    id,
+                    CourseRecord {
+                        passed: f[1] == "1",
+                        trophy: (!trophy.is_empty()).then_some(trophy),
+                        ex_score: f[3].parse().ok()?,
+                        max_ex_score: f[4].parse().ok()?,
+                        min_misses: f[5].parse().ok(),
+                        stages_cleared: f[6].parse().ok()?,
+                        plays: f[7].parse().ok()?,
+                    },
+                ))
+            })
+            .collect();
+        Self { records }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn course_records_keep_each_best_and_round_trip() {
+        let course = dan(2, vec![Constraint::GradeMirror]);
+        let trophies = [
+            Trophy {
+                name: "silvermedal".into(),
+                max_miss_rate: 50.0,
+                min_score_rate: 0.0,
+            },
+            Trophy {
+                name: "goldmedal".into(),
+                max_miss_rate: 0.0,
+                min_score_rate: 100.0,
+            },
+        ];
+        let id = CourseId::of_charts(&[ChartId::synthetic(0), ChartId::synthetic(1)]);
+        let mut records = CourseRecords::default();
+
+        // Failed in the second song.
+        let mut run = CourseRun::new(&course, GaugeType::Groove);
+        play(&mut run, 2, &[JudgeGrade::PerfectGreat; 2]);
+        play(&mut run, 40, &[JudgeGrade::Miss; 40]);
+        records.record(id, &run, &trophies);
+        let r = records.get(&id).unwrap();
+        assert_eq!((r.passed, r.stages_cleared, r.min_misses), (false, 1, None));
+
+        // Passed perfectly: gold, and a later silver does not replace it.
+        let mut run = CourseRun::new(&course, GaugeType::Groove);
+        play(&mut run, 2, &[JudgeGrade::PerfectGreat; 2]);
+        play(&mut run, 2, &[JudgeGrade::PerfectGreat; 2]);
+        records.record(id, &run, &trophies);
+        let mut run = CourseRun::new(&course, GaugeType::Groove);
+        play(&mut run, 2, &[JudgeGrade::Great; 2]);
+        play(&mut run, 2, &[JudgeGrade::Bad, JudgeGrade::Great]);
+        records.record(id, &run, &trophies);
+        let r = records.get(&id).unwrap().clone();
+        assert!(r.passed);
+        assert_eq!(r.trophy.as_deref(), Some("goldmedal"));
+        assert_eq!((r.min_misses, r.stages_cleared, r.plays), (Some(0), 2, 3));
+        assert_eq!(r.ex_score, 8);
+
+        assert_eq!(CourseRecords::parse(&records.serialize()), records);
+        assert_eq!(CourseRecords::parse("garbage"), CourseRecords::default());
+    }
 
     fn dan(songs: usize, constraints: Vec<Constraint>) -> CourseDef {
         CourseDef {
@@ -499,7 +667,7 @@ mod tests {
         assert_eq!(unknown.name(), "future_rule");
         assert!(!unknown.is_supported());
         assert!(!Constraint::NoGood.is_supported());
-        assert!(Constraint::NoSpeed.is_supported());
+        assert!(Constraint::GradeMirror.is_supported());
     }
 
     #[test]

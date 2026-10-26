@@ -3,6 +3,7 @@
 mod boot_progress;
 mod calibration;
 mod config;
+mod course_play;
 mod devtools;
 mod file_assoc;
 mod filters;
@@ -353,6 +354,8 @@ impl ApplicationHandler for BeetleApp {
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
             loading_lane: None,
+            course: None,
+            course_records: course_play::load_records(),
             loaded_song: None,
             loading_started_at: Instant::now(),
             result_entered_at: Instant::now(),
@@ -523,7 +526,12 @@ impl ApplicationHandler for BeetleApp {
                 {
                     gameplay::show_loading_lane(state);
                 }
-                if gameplay::lane_ready_to_play(state) {
+                // Both are taken only together: a load still running keeps the
+                // song it loads (taking it alone lost it and the load never ended).
+                if gameplay::lane_ready_to_play(state)
+                    && state.loaded_song.is_some()
+                    && state.loading_song.is_some()
+                {
                     if let (Some((chart, timing, soundbank, bga_bank, video_sources)), Some(song)) =
                         (state.loaded_song.take(), state.loading_song.take())
                     {

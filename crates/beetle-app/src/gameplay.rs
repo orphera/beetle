@@ -60,7 +60,10 @@ impl LoadingLane {
         h.difficulty = song.difficulty;
         let timing = TimingModel::from_chart(&chart);
         let notes = song.notes_count_for(state.play_ruleset(song).ln) as u32;
-        let score = beetle_core::ScoreTracker::new(notes, 0.0, state.play_options.gauge_type);
+        // A course song shows the gauge it carries in.
+        let score = crate::course_play::starting_score(state, notes, 0.0).unwrap_or_else(|| {
+            beetle_core::ScoreTracker::new(notes, 0.0, state.play_options.gauge_type)
+        });
         Self {
             chart,
             timing,
@@ -75,8 +78,11 @@ impl LoadingLane {
     pub fn take_header(&mut self, chart: &BmsChart, gauge: beetle_core::GaugeType) {
         self.chart.header.rank = chart.header.rank;
         self.chart.header.total = chart.header.total;
-        self.score =
-            beetle_core::ScoreTracker::new(self.score.total_notes, chart.header.total, gauge);
+        // A dan gauge's changes do not depend on TOTAL, and it carries its value.
+        if !self.score.gauge_type.is_class() {
+            self.score =
+                beetle_core::ScoreTracker::new(self.score.total_notes, chart.header.total, gauge);
+        }
     }
 }
 
@@ -160,8 +166,14 @@ pub fn finalize_start_gameplay(
 
     let mut play_chart = chart.clone();
     if !state.is_replay_playback {
-        play_chart.notes =
-            apply_lane_modifier(&chart.notes, state.play_options.lane_modifier, seed);
+        let modifier = match &state.course {
+            Some(course) => crate::course_play::lane_modifier_for(
+                course.run.constraints(),
+                state.play_options.lane_modifier,
+            ),
+            None => state.play_options.lane_modifier,
+        };
+        play_chart.notes = apply_lane_modifier(&chart.notes, modifier, seed);
     }
 
     let play_chart_has_long_notes = play_chart
@@ -172,6 +184,14 @@ pub fn finalize_start_gameplay(
     state.active_hcn = play_chart_has_long_notes && ruleset.hcn_requested;
     let mut judge_engine =
         JudgeEngine::new(&play_chart, &timing, state.play_options.gauge_type, ruleset);
+    // A course song starts from the gauge the previous song left.
+    if let Some(score) = crate::course_play::starting_score(
+        state,
+        judge_engine.score().total_notes,
+        play_chart.header.total,
+    ) {
+        judge_engine.replace_score(score);
+    }
     let total_duration = timing.total_duration_seconds(&play_chart);
 
     let mut video_players = std::collections::HashMap::new();
@@ -465,7 +485,12 @@ pub fn finish_gameplay(state: &mut AppState) {
         None => ClearType::Failed,
     };
     let lamp = crate::devtools::banner_lamp_override().unwrap_or(real);
-    record_play(state);
+    // A course keeps no record per song; its result is the course's.
+    if state.course.is_some() {
+        crate::course_play::finish_stage(state);
+    } else {
+        record_play(state);
+    }
     let audio_time = audio_time_now(state);
     if releases_gameplay_device(lamp) {
         state.audio_engine = None;
@@ -485,6 +510,10 @@ pub fn leave_gameplay(state: &mut AppState) {
     state.gameplay_end = None;
     state.video_players.clear();
     state.video_start_times.clear();
+    if crate::course_play::after_song(state) {
+        state.window.request_redraw();
+        return;
+    }
     state.screen = AppScreen::Result;
     crate::result_reveal::begin(state);
     state.window.request_redraw();

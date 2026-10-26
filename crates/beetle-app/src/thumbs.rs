@@ -229,7 +229,7 @@ fn row_song(entry: &crate::folders::ListEntry) -> Option<usize> {
         ListEntry::Group {
             charts, selected, ..
         } => charts.get(*selected).copied(),
-        ListEntry::Folder { .. } => None,
+        ListEntry::Folder { .. } | ListEntry::Course { .. } => None,
     }
 }
 

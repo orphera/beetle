@@ -81,6 +81,14 @@ pub fn log(msg: &str) {
     }
 }
 
+/// `BEETLE_DEV_COURSE=<table index>/<course index>`: the course to start
+/// once the library is read (with `BEETLE_AUTOPLAY=1`, a course run end to end).
+pub fn course_requested() -> Option<(usize, usize)> {
+    let text = std::env::var("BEETLE_DEV_COURSE").ok()?;
+    let (table, course) = text.split_once('/')?;
+    Some((table.trim().parse().ok()?, course.trim().parse().ok()?))
+}
+
 pub fn autoplay_requested() -> bool {
     std::env::var("BEETLE_AUTOPLAY").is_ok_and(|v| v == "1")
 }
@@ -155,6 +163,7 @@ fn boot_shows_title(cli_chart: bool, var: impl Fn(&str) -> Option<String>) -> bo
         "BEETLE_CAPTURE_SCREEN",
         "BEETLE_AUTOPLAY",
         "BEETLE_DEV_DROP",
+        "BEETLE_DEV_COURSE",
     ]
     .iter()
     .all(|key| var(key).is_none())

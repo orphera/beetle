@@ -29,7 +29,8 @@ pub use bms::{
     PlayMode, WavId,
 };
 pub use course::{
-    Constraint, CourseChart, CourseDef, CourseId, CourseRun, CourseSource, StageResult, Trophy,
+    Constraint, CourseChart, CourseDef, CourseId, CourseRecord, CourseRecords, CourseRun,
+    CourseSource, GaugeRules, LongNoteRule, StageResult, Trophy,
 };
 pub use identity::{hash_chart_bytes, md5_from_hex, md5_of_bytes, md5_to_hex, ChartId, ChartKey};
 pub use judge::{

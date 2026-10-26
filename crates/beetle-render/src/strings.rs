@@ -411,6 +411,75 @@ table! {
         ko "전곡",
         en "All Songs",
         ja "全曲";
+    /// The folder of a table's courses (dan certification and others).
+    pub FOLDER_COURSES =
+        ko "코스",
+        en "Courses",
+        ja "コース";
+    /// Tag on a dan certification course.
+    pub COURSE_DAN =
+        ko "단위인정",
+        en "Dan Certification",
+        ja "段位認定";
+    /// Tag on any other course.
+    pub COURSE_PLAIN =
+        ko "코스",
+        en "Course",
+        ja "コース";
+    /// Course detail: a chart of the course the library does not have.
+    pub COURSE_CHART_MISSING =
+        ko "(없는 곡)",
+        en "(not in library)",
+        ja "(未所持)";
+    /// Course detail and toast: the course cannot start.
+    pub COURSE_CANNOT_START =
+        ko "없는 곡이 있어 시작할 수 없어요.",
+        en "Some songs are not in the library, so it cannot start.",
+        ja "未所持の曲があるため開始できません。";
+    /// Course detail: rules this version does not apply. `{}` is their names.
+    pub COURSE_UNSUPPORTED =
+        ko "지원하지 않는 규칙: {}",
+        en "Unsupported rules: {}",
+        ja "未対応のルール: {}";
+    /// Play option value a course decides: `{}` is the value it plays with.
+    pub VALUE_COURSE_RULE =
+        ko "{} (코스 규칙)",
+        en "{} (course rule)",
+        ja "{} (コースルール)";
+    /// Course detail: the best record. `{}` are the verdict and the EX score.
+    pub COURSE_BEST =
+        ko "최고 기록: {}, EX {}",
+        en "Best: {}, EX {}",
+        ja "最高記録: {}, EX {}";
+    /// Course result: the run is not saved because of a rule this version lacks.
+    pub COURSE_NOT_SAVED_RULES =
+        ko "미지원 규칙이 있어 기록하지 않아요",
+        en "Not saved: unsupported rules",
+        ja "未対応のルールがあるため記録しません";
+    /// Course result: the course was passed / failed.
+    pub COURSE_PASSED =
+        ko "합격",
+        en "PASSED",
+        ja "合格";
+    pub COURSE_FAILED =
+        ko "불합격",
+        en "FAILED",
+        ja "不合格";
+    /// Course result: the row adding the songs up.
+    pub COURSE_TOTAL =
+        ko "합계",
+        en "Total",
+        ja "合計";
+    /// Course result: a song the course never reached.
+    pub COURSE_NOT_PLAYED =
+        ko "미플레이",
+        en "Not played",
+        ja "未プレイ";
+    /// Course result footer.
+    pub COURSE_RESULT_HINT =
+        ko "ENTER로 선곡 화면으로 돌아가요.",
+        en "Press ENTER to return to song select.",
+        ja "ENTER で選曲画面に戻ります。";
     /// Detail panel and footer count of a folder: `{}` is the song count.
     pub FOLDER_SONGS =
         ko "{} 곡",

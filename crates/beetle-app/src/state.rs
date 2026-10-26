@@ -257,6 +257,10 @@ pub struct AppState {
     pub loading_anim_time: Instant,
     /// The play lane the rest of the load shows on, once the card is over.
     pub loading_lane: Option<crate::gameplay::LoadingLane>,
+    /// The course being played, from its first song to its result.
+    pub course: Option<crate::course_play::ActiveCourse>,
+    /// Best results per course (`courses.dat`).
+    pub course_records: beetle_core::CourseRecords,
     /// A finished load waiting for the lane to have shown (`lane_ready_to_play`).
     pub loaded_song: Option<crate::loader::LoadedSongData>,
     pub result_entered_at: Instant,
@@ -659,6 +663,13 @@ impl AppState {
                 if let Some(delete) = crate::devtools::song_menu_requested() {
                     crate::song_menu::dev_open(self, delete);
                 }
+                if let Some((table, course)) = crate::devtools::course_requested() {
+                    if let Some(def) =
+                        crate::course_play::course_of(&self.tables, table, course).cloned()
+                    {
+                        crate::course_play::start(self, def);
+                    }
+                }
             }
             if self.screen == AppScreen::Settings {
                 if let Some(row) = crate::devtools::start_settings_row() {
@@ -718,7 +729,8 @@ impl AppState {
                 Some(LnRule::Ln) => Ruleset::LN,
                 _ => Ruleset::CN,
             },
-            None => Ruleset::resolve(song.ln_mode, self.ln_option()),
+            None => crate::course_play::ruleset(self)
+                .unwrap_or_else(|| Ruleset::resolve(song.ln_mode, self.ln_option())),
         }
     }
 

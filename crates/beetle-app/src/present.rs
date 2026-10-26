@@ -551,10 +551,30 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let settled = state.cursor_settle_time.elapsed() >= crate::thumbs::SETTLE;
     state.jacket_busy = crate::thumbs::pump(state, motion.scroll, visible, settled);
     crate::words::pump(state, motion.scroll, visible);
+    let course_views: Vec<Option<beetle_render::CourseView>> = state
+        .entries
+        .iter()
+        .map(|e| match *e {
+            crate::folders::ListEntry::Course { table, course } => {
+                crate::course_play::course_of(&state.tables, table, course)
+                    .map(|def| crate::course_play::view(def, &state.songs, &state.course_records))
+            }
+            _ => None,
+        })
+        .collect();
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()
-        .map(|e| match e {
+        .zip(&course_views)
+        .map(|(e, course)| match e {
+            crate::folders::ListEntry::Course { .. } => match course {
+                Some(view) => beetle_render::SelectRow::Course(view),
+                None => beetle_render::SelectRow::Folder {
+                    label: "",
+                    count: 0,
+                    lamps: [0; beetle_render::LAMP_COUNT],
+                },
+            },
             crate::folders::ListEntry::Song(i) => beetle_render::SelectRow::Song(*i),
             crate::folders::ListEntry::Folder {
                 label,
@@ -935,6 +955,10 @@ fn show_result_backdrop(state: &mut AppState, now: Instant) {
 }
 
 pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
+    if state.course.is_some() {
+        course_result(state, size);
+        return;
+    }
     crate::result_reveal::advance(state);
     let elapsed = crate::result_reveal::reveal_time(state);
     let unsaved = if state.is_replay_playback {
@@ -1036,6 +1060,54 @@ pub fn key_config(state: &mut AppState, size: PhysicalSize<u32>) {
             form,
         },
     );
+    overlays(state, true);
+    finish(state);
+}
+
+/// The result of a course: every song, the course added up, and whether it
+/// was passed (see `course_play`).
+fn course_result(state: &mut AppState, size: PhysicalSize<u32>) {
+    begin(state, size);
+    show_result_backdrop(state, Instant::now());
+    let unsaved_reason = crate::course_play::unsaved_reason(state);
+    if let Some(course) = &state.course {
+        let run = &course.run;
+        let numbers = |r: &beetle_core::StageResult| beetle_render::CourseNumbers {
+            ex_score: r.ex_score,
+            max_ex_score: r.total_notes * 2,
+            misses: r.misses(),
+            max_combo: r.max_combo,
+            gauge: r.gauge,
+        };
+        let stages: Vec<beetle_render::CourseStageLine> = course
+            .songs
+            .iter()
+            .enumerate()
+            .map(|(i, &song)| beetle_render::CourseStageLine {
+                title: state.songs.get(song).map_or("", |s| s.title.as_str()),
+                played: run.stages().get(i).map(numbers),
+            })
+            .collect();
+        let kind = if course.def.is_grade() {
+            strings::COURSE_DAN()
+        } else {
+            strings::COURSE_PLAIN()
+        };
+        beetle_render::draw_course_result(
+            state.gpu_ui.ui.current(),
+            &beetle_render::CourseResultFrame {
+                viewport: &state.view.ui,
+                name: &course.def.name,
+                kind,
+                gauge_label: run.gauge_type().as_str(),
+                passed: run.is_passed(),
+                trophy: run.trophy(&course.def.trophies).map(|t| t.name.as_str()),
+                stages: &stages,
+                total: numbers(&run.total()),
+                unsaved_reason,
+            },
+        );
+    }
     overlays(state, true);
     finish(state);
 }

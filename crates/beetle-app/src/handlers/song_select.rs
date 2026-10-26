@@ -429,7 +429,11 @@ pub fn cycle_folder(state: &mut AppState, forward: bool) {
 
 /// ENTER or a click on the selected row: a folder opens, a song plays.
 pub fn activate_selected(state: &mut AppState) {
-    if state.current_selected_song().is_some() {
+    let on_course = matches!(
+        state.entries.get(state.selected_entry),
+        Some(ListEntry::Course { .. })
+    );
+    if on_course || state.current_selected_song().is_some() {
         start_selected(state);
     } else {
         enter_folder(state);
@@ -618,6 +622,14 @@ fn filter_key(state: &mut AppState, code: KeyCode) -> bool {
 
 /// Plays the highlighted song (ENTER, or a click on the selected row).
 pub fn start_selected(state: &mut AppState) {
+    if let Some(&ListEntry::Course { table, course }) = state.entries.get(state.selected_entry) {
+        if let Some(def) = crate::course_play::course_of(&state.tables, table, course).cloned() {
+            play_ui(state, UiSound::Confirm);
+            state.preview.duck();
+            crate::course_play::start(state, def);
+        }
+        return;
+    }
     if let Some(song) = state.current_selected_song().cloned() {
         play_ui(state, UiSound::Confirm);
         state.preview.duck();

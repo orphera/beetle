@@ -45,6 +45,30 @@ pub enum SelectRow<'a> {
         selected: usize,
         labels: &'a [String],
     },
+    /// A course of a difficulty table.
+    Course(&'a CourseView),
+}
+
+/// What the list and the detail panel show of a course.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CourseView {
+    pub name: String,
+    /// A dan certification (단위인정) rather than a plain course.
+    pub grade: bool,
+    /// Each chart's title in course order, and whether the library has it.
+    pub charts: Vec<(String, bool)>,
+    /// Names of rules this version does not apply, joined for display.
+    pub unsupported: String,
+    /// The course was passed before.
+    pub passed: bool,
+    /// The best record, as shown ("최고 기록: goldmedal, EX 3000 / 4000").
+    pub best: Option<String>,
+}
+
+impl CourseView {
+    pub fn playable(&self) -> bool {
+        self.charts.iter().all(|(_, owned)| *owned)
+    }
 }
 
 /// Charts a row stands for: one for a song, the charts of a group, the songs
@@ -54,6 +78,7 @@ fn row_charts(row: &SelectRow) -> usize {
         SelectRow::Song(_) => 1,
         SelectRow::Group { charts, .. } => charts.len(),
         SelectRow::Folder { count, .. } => *count,
+        SelectRow::Course(_) => 0,
     }
 }
 
@@ -243,6 +268,9 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                 }),
                 _,
             ) => folder_panel(c, t, &sk, label, count, &lamps, detail, detail_s),
+            (Some(&SelectRow::Course(course)), _) => {
+                course_panel(c, t, &sk, course, detail, detail_s)
+            }
             _ => {}
         }
         c.set_opacity(1.0);
@@ -910,7 +938,30 @@ fn song_list(
                 if whole {
                     hs.add(view, HitId::ListRow(slot));
                 }
-                folder_row(c, t, sk, label, count, row, on, hot, s);
+                folder_row(c, t, sk, label, count, theme::BLUE, row, on, hot, s);
+            }
+            SelectRow::Course(course) => {
+                if whole {
+                    hs.add(view, HitId::ListRow(slot));
+                }
+                // A course not passed yet keeps a quiet strip.
+                let accent = match (course.passed, course.grade) {
+                    (false, _) => theme::MUTED2,
+                    (true, true) => theme::GOLD,
+                    (true, false) => theme::CYAN,
+                };
+                folder_row(
+                    c,
+                    t,
+                    sk,
+                    &course.name,
+                    course.charts.len(),
+                    accent,
+                    row,
+                    on,
+                    hot,
+                    s,
+                );
             }
             SelectRow::Group {
                 title,
@@ -975,7 +1026,7 @@ fn row_song_index(row: &SelectRow) -> Option<usize> {
         SelectRow::Group {
             charts, selected, ..
         } => charts.get(selected).copied(),
-        SelectRow::Folder { .. } => None,
+        SelectRow::Folder { .. } | SelectRow::Course(_) => None,
     }
 }
 
@@ -1479,6 +1530,7 @@ fn folder_row(
     sk: &Skin,
     label: &str,
     count: usize,
+    accent: ColorRgba,
     row: Rect,
     on: bool,
     hot: bool,
@@ -1496,7 +1548,7 @@ fn folder_row(
     c.nine(
         &sk.panel_sm,
         Rect::new(row.x + 6.0 * s, row.y + 10.0 * s, 4.0 * s, row.h - 20.0 * s),
-        theme::BLUE,
+        accent,
     );
 
     let chevron = 14.0 * s;
@@ -1573,6 +1625,87 @@ fn folder_panel(
         Rect::new(inner.x, inner.y + 164.0 * s, inner.w, inner.h - 164.0 * s),
         s,
     );
+}
+
+/// A course: its kind, name and charts in order (missing ones marked), and
+/// why it cannot start, if it cannot.
+fn course_panel(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    sk: &Skin,
+    course: &CourseView,
+    panel: Rect,
+    s: f32,
+) {
+    c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
+    c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
+    let inner = panel.inset(24.0 * s);
+    let kind = if course.grade {
+        strings::COURSE_DAN()
+    } else {
+        strings::COURSE_PLAIN()
+    };
+    let accent = if course.grade {
+        theme::GOLD
+    } else {
+        theme::CYAN
+    };
+    t.draw(
+        c,
+        kind,
+        inner.x,
+        inner.y + 12.0 * s,
+        &caption(12.0, s).color(accent),
+    );
+    let name_st = TextStyle::new(30.0 * s).bold().color(theme::TEXT);
+    let name = t.fit(c, &course.name, inner.w, &name_st).into_owned();
+    t.draw(c, &name, inner.x, inner.y + 50.0 * s, &name_st);
+
+    let mut y = inner.y + 96.0 * s;
+    for (i, (title, owned)) in course.charts.iter().enumerate() {
+        let stage = format!("STAGE {}", i + 1);
+        t.draw(c, &stage, inner.x, y, &caption(12.0, s).color(theme::MUTED));
+        let text = if *owned {
+            title.clone()
+        } else if title.is_empty() {
+            strings::COURSE_CHART_MISSING().to_string()
+        } else {
+            format!("{title} {}", strings::COURSE_CHART_MISSING())
+        };
+        let st =
+            TextStyle::new(16.0 * s)
+                .bold()
+                .color(if *owned { theme::TEXT } else { theme::RED });
+        let x = inner.x + 72.0 * s;
+        let text = t.fit(c, &text, inner.right() - x, &st).into_owned();
+        t.draw(c, &text, x, y, &st);
+        y += 32.0 * s;
+    }
+
+    let mut notes = Vec::new();
+    if let Some(best) = &course.best {
+        notes.push((best.clone(), accent));
+    }
+    if !course.playable() {
+        notes.push((strings::COURSE_CANNOT_START().to_string(), theme::RED));
+    }
+    if !course.unsupported.is_empty() {
+        notes.push((
+            strings::fill(strings::COURSE_UNSUPPORTED(), &[&course.unsupported]),
+            theme::ORANGE,
+        ));
+    }
+    for (note, color) in notes {
+        y += 8.0 * s;
+        t.draw_in(
+            c,
+            &note,
+            Rect::new(inner.x, y - 14.0 * s, inner.w, 20.0 * s),
+            Align::Left,
+            &TextStyle::new(13.0 * s).color(color),
+        );
+        y += 20.0 * s;
+    }
 }
 
 /// The clear lamp breakdown: a stacked bar of the songs per lamp, then one

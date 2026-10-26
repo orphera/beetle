@@ -45,6 +45,9 @@ pub use screens::{
     TitleFrame, ToastAnchor, ToastFrame, ToastKind, KEY_MODES,
 };
 pub use screens::{
+    draw_course_result, CourseNumbers, CourseResultFrame, CourseStageLine, CourseView,
+};
+pub use screens::{
     draw_drop_overlay, draw_folders_overlay, draw_help_overlay, draw_skipped_overlay,
     draw_song_menu, title_menu_labels, LAMP_COUNT,
 };

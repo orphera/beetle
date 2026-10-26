@@ -531,6 +531,12 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::Green => strings::fill(strings::VALUE_MS(), &[&o.green_ms.to_string()]),
         OptionId::SpeedAnchor => speed_anchor_label(state.speed_anchor).to_string(),
         OptionId::LaneCover => format!("{:.0}%", state.view.skin.lane_cover_ratio * 100.0),
+        OptionId::Modifier | OptionId::Gauge | OptionId::LnMode
+            if crate::course_play::locked_value(state, id).is_some() =>
+        {
+            let value = crate::course_play::locked_value(state, id).unwrap_or_default();
+            strings::fill(strings::VALUE_COURSE_RULE(), &[&value])
+        }
         OptionId::Modifier => o.lane_modifier.as_str().to_string(),
         OptionId::Gauge => o.gauge_type.as_str().to_string(),
         OptionId::LnMode => match state.current_selected_song().filter(|s| s.ln_count > 0) {

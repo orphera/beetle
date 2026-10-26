@@ -2,6 +2,7 @@
 
 pub mod boot;
 pub mod calibrate;
+pub mod course_result;
 pub mod key_bind;
 pub mod loading;
 mod overlay;
@@ -14,6 +15,7 @@ mod widgets;
 
 pub use boot::{draw_boot, BootFrame};
 pub use calibrate::{draw_calibrate, CalibrateFrame, CalibratePhase};
+pub use course_result::{draw_course_result, CourseNumbers, CourseResultFrame, CourseStageLine};
 pub use key_bind::{
     draw_key_config, KeyBinding, KeyConfigFrame, KeyConfigRects, Rebind, KEY_MODES,
 };
@@ -27,8 +29,8 @@ pub use select::{
     centred_start, clamp_into_window, draw_drop_overlay, draw_exit_modal, draw_folders_overlay,
     draw_help_overlay, draw_options_modal, draw_options_panel, draw_skipped_overlay,
     draw_song_menu, draw_song_select, filter_items, scroll_by, top_bar_buttons, visible_rows,
-    window_start, FilterBar, FilterItem, OptionsFooter, SelectFrame, SelectMotion, SelectRow,
-    SortMenu, LAMP_COUNT,
+    window_start, CourseView, FilterBar, FilterItem, OptionsFooter, SelectFrame, SelectMotion,
+    SelectRow, SortMenu, LAMP_COUNT,
 };
 pub use settings::{draw_settings, follow_settings_scroll, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};
@@ -38,7 +40,8 @@ pub use widgets::OptionLine;
 #[cfg(test)]
 mod tests {
     /// Every screen source file. Text and colors are drawn only here.
-    const SCREENS: [(&str, &str); 11] = [
+    const SCREENS: [(&str, &str); 12] = [
+        ("course_result.rs", include_str!("course_result.rs")),
         ("title.rs", include_str!("title.rs")),
         ("play.rs", include_str!("play.rs")),
         ("select.rs", include_str!("select.rs")),

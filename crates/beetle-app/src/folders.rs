@@ -95,6 +95,9 @@ pub enum Body {
     Branch(Vec<Folder>),
     /// Song indices into the library, in library (sort) order.
     Leaf(Vec<usize>),
+    /// The courses of a difficulty table (index into the installed tables),
+    /// listed in the table's order. Holds no songs.
+    Courses { table: usize, count: usize },
 }
 
 /// One folder of the tree.
@@ -136,6 +139,12 @@ pub enum ListEntry {
         labels: Vec<String>,
     },
     Song(usize),
+    /// A course of a difficulty table: indices into the installed tables and
+    /// that table's `courses`.
+    Course {
+        table: usize,
+        course: usize,
+    },
 }
 
 impl ListEntry {
@@ -146,7 +155,7 @@ impl ListEntry {
             ListEntry::Group {
                 charts, selected, ..
             } => charts.get(*selected).copied(),
-            ListEntry::Folder { .. } => None,
+            ListEntry::Folder { .. } | ListEntry::Course { .. } => None,
         }
     }
 }
@@ -181,6 +190,8 @@ pub const LAMP_COUNT: usize = beetle_render::LAMP_COUNT;
 
 /// The id of the 전곡 folder at the top of 난이도표 (no table may take it).
 const TABLE_ALL_ID: &str = "all";
+/// The id of a table's course folder (`~` keeps it apart from level names).
+const COURSES_ID: &str = "~courses";
 
 /// The stable id of a key mode folder.
 pub fn mode_id(mode: PlayMode) -> &'static str {
@@ -260,6 +271,7 @@ fn branch(id: &str, label: &str, children: Vec<Folder>) -> Option<Folder> {
 fn collect_songs(folder: &Folder, out: &mut HashSet<usize>) {
     match &folder.body {
         Body::Leaf(songs) => out.extend(songs.iter().copied()),
+        Body::Courses { .. } => {}
         Body::Branch(children) => {
             for child in children {
                 collect_songs(child, out);
@@ -384,6 +396,20 @@ pub fn build_tree(
         )
         .into_iter()
         .collect();
+        // A table's courses come first, in one folder.
+        if !table.courses.is_empty() {
+            let count = table.courses.len();
+            levels.insert(
+                0,
+                Folder {
+                    id: COURSES_ID.into(),
+                    label: strings::FOLDER_COURSES().into(),
+                    count,
+                    body: Body::Courses { table: ti, count },
+                    lamps: [0; LAMP_COUNT],
+                },
+            );
+        }
         levels.extend(order.iter().copied().filter_map(|level| {
             let idx = by_level.remove(level)?;
             leaf(id_piece(level), format!("{}{}", table.symbol, level), idx)
@@ -495,6 +521,7 @@ fn lamp_counts(
 fn fill_lamps(folder: &mut Folder, lamp_of: &impl Fn(usize) -> Option<ClearType>) {
     folder.lamps = match &mut folder.body {
         Body::Leaf(songs) => lamp_counts(songs, lamp_of),
+        Body::Courses { .. } => [0; LAMP_COUNT],
         Body::Branch(children) => {
             for child in children.iter_mut() {
                 fill_lamps(child, lamp_of);
@@ -526,8 +553,8 @@ pub fn node<'a>(tree: &'a [Folder], path: &FolderPath) -> Option<&'a Folder> {
         match &folder.body {
             Body::Branch(children) => level = children,
             // A leaf has no children: it can only be the last segment.
-            Body::Leaf(_) if i + 1 < count => return None,
-            Body::Leaf(_) => {}
+            Body::Leaf(_) | Body::Courses { .. } if i + 1 < count => return None,
+            Body::Leaf(_) | Body::Courses { .. } => {}
         }
     }
     found
@@ -540,7 +567,7 @@ pub fn children<'a>(tree: &'a [Folder], path: &FolderPath) -> Option<&'a [Folder
     }
     match &node(tree, path)?.body {
         Body::Branch(children) => Some(children),
-        Body::Leaf(_) => None,
+        Body::Leaf(_) | Body::Courses { .. } => None,
     }
 }
 
@@ -561,7 +588,7 @@ pub fn normalize(tree: &[Folder], path: &FolderPath) -> FolderPath {
         keep = i + 1;
         match &folder.body {
             Body::Branch(children) => level = children,
-            Body::Leaf(_) => break,
+            Body::Leaf(_) | Body::Courses { .. } => break,
         }
     }
     path.truncated(keep)
@@ -604,7 +631,7 @@ pub fn crumbs(tree: &[Folder], path: &FolderPath) -> Vec<String> {
         out.push(folder.label.clone());
         match &folder.body {
             Body::Branch(children) => level = children,
-            Body::Leaf(_) => break,
+            Body::Leaf(_) | Body::Courses { .. } => break,
         }
     }
     out
@@ -941,7 +968,7 @@ pub fn row_showing(entries: &[ListEntry], songs: &[SongMetadata], id: ChartId) -
         ListEntry::Group { charts, .. } => charts
             .iter()
             .any(|&c| songs.get(c).is_some_and(|s| s.id == id)),
-        ListEntry::Folder { .. } => false,
+        ListEntry::Folder { .. } | ListEntry::Course { .. } => false,
     })
 }
 
@@ -1017,6 +1044,9 @@ pub fn entries_for(
         Some(folders) => folders.iter().map(folder_entry).collect(),
         None => match node(tree, path).map(|f| &f.body) {
             Some(Body::Leaf(idx)) => rows(idx),
+            Some(&Body::Courses { table, count }) => (0..count)
+                .map(|course| ListEntry::Course { table, course })
+                .collect(),
             _ => Vec::new(),
         },
     }
@@ -1712,7 +1742,7 @@ mod tests {
             .find(|f| f.id == "table")
             .and_then(|f| match &f.body {
                 Body::Branch(list) => list.first().map(|f| f.id.clone()),
-                Body::Leaf(_) => None,
+                Body::Leaf(_) | Body::Courses { .. } => None,
             })
             .unwrap();
         assert_eq!(id, "A|B");

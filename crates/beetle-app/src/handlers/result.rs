@@ -29,6 +29,15 @@ pub fn handle_result_input(
         return;
     }
 
+    // The course result: only back to the list (and a screenshot).
+    if state.course.is_some() {
+        match code {
+            KeyCode::Enter | KeyCode::Space | KeyCode::Escape => to_song_select(state),
+            KeyCode::KeyP => take_screenshot(state),
+            _ => (),
+        }
+        return;
+    }
     match code {
         KeyCode::Enter | KeyCode::Space | KeyCode::Escape => to_song_select(state),
         KeyCode::KeyR => retry_song(state),
@@ -58,6 +67,7 @@ pub fn handle_result_options_input(state: &mut AppState, code: KeyCode) {
 pub fn to_song_select(state: &mut AppState) {
     play_ui(state, UiSound::Cancel);
     state.screen = AppScreen::SongSelect;
+    crate::course_play::leave(state);
 }
 
 /// Plays the song just played again (R, or the footer button).
