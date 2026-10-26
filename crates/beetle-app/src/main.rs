@@ -356,6 +356,7 @@ impl ApplicationHandler for BeetleApp {
             loading_lane: None,
             course: None,
             course_records: course_play::load_records(),
+            course_views: Vec::new(),
             loaded_song: None,
             loading_started_at: Instant::now(),
             result_entered_at: Instant::now(),

@@ -261,6 +261,8 @@ pub struct AppState {
     pub course: Option<crate::course_play::ActiveCourse>,
     /// Best results per course (`courses.dat`).
     pub course_records: beetle_core::CourseRecords,
+    /// The course rows of `entries` as drawn (`course_play::views`).
+    pub course_views: Vec<Option<beetle_render::CourseView>>,
     /// A finished load waiting for the lane to have shown (`lane_ready_to_play`).
     pub loaded_song: Option<crate::loader::LoadedSongData>,
     pub result_entered_at: Instant,
@@ -799,6 +801,17 @@ impl AppState {
         // The list's contents changed, so the list snaps to its new target
         // rather than easing there from the old rows' scroll position.
         self.motion_selection = None;
+        self.refresh_course_views();
+    }
+
+    /// Rebuilds the course rows after the list or the course records change.
+    pub fn refresh_course_views(&mut self) {
+        self.course_views = crate::course_play::views(
+            &self.entries,
+            &self.tables,
+            &self.songs,
+            &self.course_records,
+        );
     }
 
     /// The song under the highlight: a group's selected chart. `None` when a folder row is highlighted.

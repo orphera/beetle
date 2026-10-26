@@ -42,20 +42,36 @@ impl ActiveCourse {
 /// chart the library does not have. A chart is found by its SHA-256 when it
 /// has one, otherwise by its MD5 (as tables are matched).
 pub fn resolve(def: &CourseDef, songs: &[SongMetadata]) -> Vec<Option<usize>> {
-    let mut by_id = HashMap::new();
-    let mut by_md5 = HashMap::new();
-    for (i, s) in songs.iter().enumerate() {
-        by_id.entry(s.id).or_insert(i);
-        by_md5.entry(s.md5).or_insert(i);
+    SongLookup::new(songs).resolve(def)
+}
+
+/// The library songs by SHA-256 and by MD5, built once for many courses.
+pub struct SongLookup {
+    by_id: HashMap<beetle_core::ChartId, usize>,
+    by_md5: HashMap<[u8; 16], usize>,
+}
+
+impl SongLookup {
+    pub fn new(songs: &[SongMetadata]) -> Self {
+        let mut by_id = HashMap::new();
+        let mut by_md5 = HashMap::new();
+        for (i, s) in songs.iter().enumerate() {
+            by_id.entry(s.id).or_insert(i);
+            by_md5.entry(s.md5).or_insert(i);
+        }
+        Self { by_id, by_md5 }
     }
-    def.charts
-        .iter()
-        .map(|c| match (c.sha256, c.md5) {
-            (Some(id), _) => by_id.get(&id).copied(),
-            (None, Some(md5)) => by_md5.get(&md5).copied(),
-            (None, None) => None,
-        })
-        .collect()
+
+    pub fn resolve(&self, def: &CourseDef) -> Vec<Option<usize>> {
+        def.charts
+            .iter()
+            .map(|c| match (c.sha256, c.md5) {
+                (Some(id), _) => self.by_id.get(&id).copied(),
+                (None, Some(md5)) => self.by_md5.get(&md5).copied(),
+                (None, None) => None,
+            })
+            .collect()
+    }
 }
 
 /// The lane option a course song plays with: a dan course allows only what
@@ -182,11 +198,38 @@ fn conclude(state: &mut AppState) {
         .course_records
         .record(id, &course.run, &course.def.trophies);
     save_records(&state.course_records);
+    state.refresh_course_views();
 }
 
 /// What the song list shows of a course.
-pub fn view(def: &CourseDef, songs: &[SongMetadata], records: &CourseRecords) -> CourseView {
-    let found = resolve(def, songs);
+/// The row of each course among `entries` (`None` for other rows). Built when
+/// the list or the records change, not every frame: a disc's course table
+/// lists hundreds of courses.
+pub fn views(
+    entries: &[ListEntry],
+    tables: &TableIndex,
+    songs: &[SongMetadata],
+    records: &CourseRecords,
+) -> Vec<Option<CourseView>> {
+    let lookup = SongLookup::new(songs);
+    entries
+        .iter()
+        .map(|e| match *e {
+            ListEntry::Course { table, course } => {
+                course_of(tables, table, course).map(|def| view(def, &lookup, songs, records))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn view(
+    def: &CourseDef,
+    lookup: &SongLookup,
+    songs: &[SongMetadata],
+    records: &CourseRecords,
+) -> CourseView {
+    let found = lookup.resolve(def);
     let ids: Option<Vec<_>> = found.iter().map(|f| f.map(|i| songs[i].id)).collect();
     let record = ids.and_then(|ids| records.get(&CourseId::of_charts(&ids)));
     CourseView {
@@ -406,7 +449,12 @@ mod tests {
             ..CourseDef::default()
         };
         assert_eq!(resolve(&def, &songs), [Some(1), Some(0), None]);
-        let v = view(&def, &songs, &CourseRecords::default());
+        let v = view(
+            &def,
+            &SongLookup::new(&songs),
+            &songs,
+            &CourseRecords::default(),
+        );
         assert!(!v.playable());
         assert_eq!(v.charts[0], ("Song 2".to_string(), true));
         assert_eq!(v.charts[2], ("Gone".to_string(), false));

@@ -551,21 +551,10 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let settled = state.cursor_settle_time.elapsed() >= crate::thumbs::SETTLE;
     state.jacket_busy = crate::thumbs::pump(state, motion.scroll, visible, settled);
     crate::words::pump(state, motion.scroll, visible);
-    let course_views: Vec<Option<beetle_render::CourseView>> = state
-        .entries
-        .iter()
-        .map(|e| match *e {
-            crate::folders::ListEntry::Course { table, course } => {
-                crate::course_play::course_of(&state.tables, table, course)
-                    .map(|def| crate::course_play::view(def, &state.songs, &state.course_records))
-            }
-            _ => None,
-        })
-        .collect();
     let rows: Vec<beetle_render::SelectRow> = state
         .entries
         .iter()
-        .zip(&course_views)
+        .zip(&state.course_views)
         .map(|(e, course)| match e {
             crate::folders::ListEntry::Course { .. } => match course {
                 Some(view) => beetle_render::SelectRow::Course(view),
