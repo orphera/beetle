@@ -36,11 +36,13 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     // until the player returns to it.
     state.thumbs.set_wanted(&[]);
 
-    // Cache stage image for loading screen
-    state
-        .stage_image_cache
-        .entry(song.id)
-        .or_insert_with(|| load_stage_image(song));
+    // Cache stage image for loading screen. The select screen caches an IIDX
+    // disc's art as `None` (it does not read it there), so an empty entry is
+    // read again here.
+    if !matches!(state.stage_image_cache.get(&song.id), Some(Some(_))) {
+        let img = load_stage_image(song);
+        state.stage_image_cache.insert(song.id, img);
+    }
 
     // A replay re-rolls `#RANDOM` with the seed it was recorded with; a fresh
     // play rolls anew.
