@@ -919,16 +919,6 @@ fn draw_head(
         c.nine(&sk.note_gloss, r, theme::WHITE);
         c.set_additive(false);
     }
-    if head == Head::Scratch {
-        c.sprite_centered(
-            sk.scratch_mark,
-            r.x + r.w / 2.0,
-            r.y + r.h / 2.0,
-            sk.scratch_mark.w as f32,
-            sk.scratch_mark.h as f32,
-            theme::WHITE.with_alpha(190),
-        );
-    }
 }
 
 /// Long-note body: the crisp rails of `ln_body`, then the flowing stripes

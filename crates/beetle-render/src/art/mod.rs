@@ -83,7 +83,6 @@ pub struct Skin {
     pub note: NineSlice,
     pub note_gloss: NineSlice,
     /// Scratch head: the body shape with a dark groove across its middle.
-    /// Drawn with `scratch_mark` on top.
     pub note_scratch: NineSlice,
     /// Long-note tail cap: the body shape lit from below, so head and tail
     /// read differently at a glance.
@@ -95,7 +94,6 @@ pub struct Skin {
     /// stripes flow.
     pub ln_flow: AtlasRegion,
     /// Double chevron drawn over a scratch head (white, tinted at draw time).
-    pub scratch_mark: AtlasRegion,
     /// Hit-burst ring, streak spark, cross flare.
     pub ring: AtlasRegion,
     pub spark: AtlasRegion,
@@ -149,7 +147,6 @@ impl Skin {
             note_tail: head(atlas, 12.0 * s, 3.0 * s, HeadShape::Tail, false),
             ln_body: ln_body(atlas, s),
             ln_flow: put(atlas, &ln_flow_bmp(px(24.0 * s))),
-            scratch_mark: put(atlas, &scratch_mark_bmp(px(12.0 * s), px(10.0 * s))),
             ring: ring(atlas, px(96.0 * s), 3.0 * s),
             spark: spark(atlas, px(64.0 * s), px(12.0 * s)),
             flare: flare(atlas, px(96.0 * s)),
@@ -385,27 +382,6 @@ pub fn ln_flow_bmp(h: u32) -> Bitmap {
         let rail = x < 1.5 || x > wf - 1.5;
         let luma = if rail { 1.0 } else { 0.55 + 0.45 * v * v };
         (luma, 1.0)
-    })
-}
-
-/// Chevron pair pointing up, white, for a scratch head. Symmetric about the
-/// vertical axis.
-pub fn scratch_mark_bmp(w: u32, h: u32) -> Bitmap {
-    let (fw, fh) = (w as f32, h as f32);
-    let th = 0.16 * fh;
-    Bitmap::mask(w, h, |x, y| {
-        let chevron = |top: f32| {
-            segment(x, y, 0.18 * fw, top + 0.36 * fh, 0.5 * fw, top + 0.06 * fh).min(segment(
-                x,
-                y,
-                0.5 * fw,
-                top + 0.06 * fh,
-                0.82 * fw,
-                top + 0.36 * fh,
-            ))
-        };
-        let d = chevron(0.0).min(chevron(0.36 * fh));
-        coverage(d - th / 2.0)
     })
 }
 
@@ -855,13 +831,6 @@ mod tests {
             (0..24).any(|y| (f.luma[y * w] - f.luma[y * w + 4]).abs() > 0.2),
             "stripes lean"
         );
-    }
-
-    #[test]
-    fn scratch_mark_is_symmetric_and_non_empty() {
-        let m = scratch_mark_bmp(12, 10);
-        assert!(m.alpha.iter().any(|&a| a > 0.9), "chevron has solid pixels");
-        assert!(mirror_equal(&m.alpha, m.w, m.h), "chevron mirrors");
     }
 
     #[test]
