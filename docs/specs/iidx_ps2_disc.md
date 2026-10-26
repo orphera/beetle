@@ -178,11 +178,14 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 ## 7. 단위인정 (CLASS 모드) 코스 표
 
-13 DistorteD부터 실행 파일에 단위인정 코스 표가 있다. 13과 14 이후는 형식이 다르다(`DanTable`). `crates/cs-disc/src/iidx.rs`의 `Layout::dan`이 그 위치이고, `read_dan_courses`가 읽는다.
+모든 에디션(10th~16)의 실행 파일에 단위인정 코스 표가 있다. 10th~13과 14 이후는 형식이 다르다(`DanTable`). `crates/cs-disc/src/iidx.rs`의 `Layout::dan`이 그 위치이고, `read_dan_courses`가 읽는다.
 
 | 에디션 | 실행 파일 안 위치 |
 |---|---|
-| 13 DistorteD | `0x10af90` (형식이 다름, 아래) |
+| 10th style | SP `0xc6790`, DP `0xc6bd0` (형식이 다름, 아래) |
+| 11 IIDX RED | SP `0xe5dc0`, DP `0xe6200` |
+| 12 HAPPY SKY | SP `0xfd9c0`, DP `0xfde30` |
+| 13 DistorteD | SP `0x10af90`, DP `0x10b410` |
 | 14 GOLD | `0x145250` |
 | 15 DJ TROOPERS | `0x15e200` |
 | 16 EMPRESS | `0x167fe0` |
@@ -203,8 +206,12 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 - PREMIUM BEST 디스크에도 같은 표(와 아래 EXPERT 표)가 자기 곡으로 채워져 있다. 하지만 이 디스크에는 STANDARD·EXPERT·CLASS 모드가 없어서(RemyWiki `CS_EMPRESS`) 플레이어는 읽지 않는다.
 - 14·15·16의 단위 곡 구성은 RemyWiki `Beatmania_IIDX_CS_Dan_Courses`와 모두 일치한다(DP 7級·6級 없음, DP 3곡 포함).
 - 찾은 방법: 곡 번호로 읽히는 값이 이어지는 구간을 실행 파일 전체에서 훑었다(`crates/cs-disc/examples/exe_dump.rs`로 실행 파일과 곡 목록을 꺼냄).
-- 13 DistorteD(`DanTable::Listed`): 코스마다 (곡 번호, 차트, 칸 비트 1·2·4·8) 32비트 세 개짜리가 이어지고 -1로 끝난다. 다음 코스는 16바이트 경계에서 시작한다. SP 7級~皆伝 18개 뒤에 DP 5級~皆伝 16개가 온다(DP는 3곡). 차트 값은 14 이후와 같다. RemyWiki 위키 목록에서 SP 7級의 곡 순서를 검색해 찾았고, 34개 모두 위키와 일치한다.
-- 10th~12 HAPPY SKY에서는 아직 찾지 않았다. 위키에는 단위 목록이 있다(개전 없음).
+- 10th~13(`DanTable::Listed`):
+  - 코스마다 (곡 번호, 차트, 칸 비트 1·2·4·8) 32비트 세 개짜리가 이어지고 -1로 끝난다. 다음 코스는 16바이트 경계에서 시작한다.
+  - SP는 7級부터, DP는 5級부터다(DP는 3곡). 차트 값은 14 이후와 같다.
+  - 13은 皆伝까지 SP 18·DP 16개, 10th~12는 皆伝이 없어서 十段까지 SP 17·DP 15개다.
+  - 12 HAPPY SKY는 SP 十段 뒤에 곡 2개(SCRIPTED CONNECTION HYPER, 冥 ANOTHER)짜리 레코드가 하나 더 있고, 그 뒤 빈 공간이 정렬 규칙보다 길다. 게임에 皆伝이 없으므로 쓰지 않는 자리로 보고, DP 시작 위치를 따로 둔다.
+  - RemyWiki 단위 목록에서 SP 7級의 곡 순서를 검색해 찾았고, 네 에디션 모두 위키와 일치한다.
 - 모르는 것:
   - 게임이 단위에서 허용하는 배치 옵션. 플레이어는 미러까지 허용한다고 가정한다(`GradeMirror`).
   - 원작 단위 게이지의 수치. 플레이어는 beatoraja CLASS 게이지로 친다.
@@ -218,7 +225,10 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
-| 13 DistorteD | `0x10c558` | 17 (POPS … CARDINAL), 형식이 다름 |
+| 10th style | `0xc7fb8` | 17 (INSTRUMENTAL … KING), 형식이 다름 |
+| 11 IIDX RED | `0xe7328` | 17 (J-POP … CORE) |
+| 12 HAPPY SKY | `0xfefd8` | 17 (FESTA … TEMPEST) |
+| 13 DistorteD | `0x10c558` | 17 (POPS … CARDINAL) |
 | 14 GOLD | `0x144cc0` | 16 (POP … GAZILLIONAIRE) |
 | 15 DJ TROOPERS | `0x15dc70` | 16 (FEELINGS … PANZERN) |
 | 16 EMPRESS | `0x167b10` | 10 (FINE TUNE … EMPRESS) |
@@ -226,7 +236,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 - 찾은 방법: RemyWiki `CS_EMPRESS`의 EXPERT 코스 목록(곡 순서)을 실행 파일에서 간격을 바꿔 가며 찾았다. 12바이트 간격으로 나왔고, 그 레코드 모양(이름 포인터 + 곡 5개)으로 다른 에디션도 찾았다.
 - EMPRESS 10개 코스는 이름과 곡 순서가 위키와 모두 같다.
-- 13 DistorteD(`ExpertTable::Inline`): 코스 하나가 124바이트다. 이름이 0x00부터 ASCII로 직접 들어 있고(포인터가 아님), 0x24부터 (곡 번호, 1, 1, 1) 16바이트가 5번 온다. 0x74의 두 워드는 코스 번호(1, 1 … 17, 17)다. 17개 뒤에 이름이 `ABCDEFGH`·`IJKLMNOP`인 더미 코스가 있어서 개수(17)로 끊는다. 위키의 CARDINAL GATE는 표에서 `CARDINAL`이다. 위키 `CS_DistorteD`와 이름·곡 순서가 모두 같다.
+- 10th~13(`ExpertTable::Inline`): 코스 하나가 124바이트다. 이름이 0x00부터 ASCII로 직접 들어 있고(포인터가 아님), 0x24부터 (곡 번호, 1, 1, 1) 16바이트가 5번 온다. 0x74의 두 워드는 코스 번호(1, 1 … 17, 17)다. 17개 뒤에 이름이 `ABCDEFGH`·`IJKLMNOP`인 더미 코스가 있어서 개수(17)로 끊는다. 위키의 CARDINAL GATE는 표에서 `CARDINAL`, RED의 ACCESSION은 `CS`, HAPPY SKY의 Ryu☆는 `Ryu`다. 네 에디션 모두 위키 CS 페이지와 곡 순서가 같다.
 - 플레이어는 SP·DP × NORMAL·HYPER·ANOTHER 가운데 다섯 곡 모두에 차트가 있는 조합마다 코스를 하나씩 만든다.
 - 앞서 실행 파일 밖(`ROMRS.DAT`, `ROMRIVAL.DAT`, `DATA1.DAT`)도 찾아봤다. `ROMRS.DAT`는 녹화된 플레이로 보이고, `ROMRIVAL.DAT`는 압축된 라이벌 데이터로 보인다.
 

@@ -436,3 +436,70 @@ fn distorted_courses_match_the_wiki() {
     assert_eq!(expert[16].name, "CARDINAL");
     assert_eq!(title(expert[16].songs[4]), "NAGEKI NO KI");
 }
+
+/// 10th style, RED and HAPPY SKY: the DistorteD forms without 皆伝, 17
+/// EXPERT courses each (RemyWiki's CS pages and CS dan course list).
+#[test]
+fn tenth_to_happy_sky_courses_match_the_wiki() {
+    let cases = [
+        (
+            "CS_DISC_IIDX10",
+            Edition::TenthStyle,
+            "INSTRUMENTAL",
+            [
+                "COLORS (RADIO EDIT)",
+                "HYPE THE CORE",
+                "NO.13",
+                "ONE MORE LOVELY",
+            ],
+        ),
+        (
+            "CS_DISC_IIDX11",
+            Edition::Red,
+            "J-POP",
+            ["A", "FAKE TIME", "PF CONCERTO ANTI-ARES", "AA"],
+        ),
+        (
+            "CS_DISC_IIDX12",
+            Edition::HappySky,
+            "FESTA",
+            [
+                "SCRIPTED CONNECTION A",
+                "MOON_CHILD",
+                "RAGE AGAINST USUAL",
+                "ONE MORE LOVELY",
+            ],
+        ),
+    ];
+    for (var, edition, first_expert, tenth_dan) in cases {
+        let Some((mut disc, volume)) = open(var) else {
+            continue;
+        };
+        let songs = Disc::open(&mut disc, &volume, edition).unwrap();
+        let title = |id: u32| {
+            songs
+                .songs
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap()
+                .title
+                .clone()
+        };
+        let dan = &songs.dan_courses;
+        let count = |style| dan.iter().filter(|c| c.style == style).count();
+        assert_eq!(
+            (count(Style::Single), count(Style::Double)),
+            (17, 15),
+            "{var}"
+        );
+        assert!(dan.iter().all(|c| c.rank != "皆伝"), "{var}");
+        let sp_tenth = dan
+            .iter()
+            .find(|c| c.style == Style::Single && c.rank == "十段")
+            .unwrap();
+        let titles: Vec<String> = sp_tenth.charts.iter().map(|&(id, _)| title(id)).collect();
+        assert_eq!(titles, tenth_dan, "{var}");
+        assert_eq!(songs.expert_courses.len(), 17, "{var}");
+        assert_eq!(songs.expert_courses[0].name, first_expert, "{var}");
+    }
+}

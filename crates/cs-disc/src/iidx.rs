@@ -95,10 +95,16 @@ struct Layout {
 enum DanTable {
     /// 14 on: `DAN_PAIRS` (song, chart) word pairs at this offset.
     Pairs(usize),
-    /// 13: per course, (song, chart, slot bit) word triples ending in -1,
-    /// each course starting on a 16-byte boundary; SP 7級 to 皆伝, then DP
-    /// from 5級.
-    Listed(usize),
+    /// 10th to 13: per course, (song, chart, slot bit) word triples ending
+    /// in -1, each course starting on a 16-byte boundary: `sp` SP courses
+    /// from 7級 at `at`, and `dp` DP courses from 5級 at `dp_at` (given
+    /// apart: HAPPY SKY keeps an unused two-song record between the two).
+    Listed {
+        at: usize,
+        sp: usize,
+        dp_at: usize,
+        dp: usize,
+    },
 }
 
 /// How an edition stores its EXPERT courses.
@@ -207,8 +213,16 @@ const TENTH_STYLE: Layout = Layout {
             picks: None,
         },
     },
-    dan: None,
-    expert: None,
+    dan: Some(DanTable::Listed {
+        at: 0xc6790,
+        sp: 17,
+        dp_at: 0xc6bd0,
+        dp: 15,
+    }),
+    expert: Some(ExpertTable::Inline {
+        at: 0xc7fb8,
+        count: 17,
+    }),
 };
 
 const RED: Layout = Layout {
@@ -235,8 +249,16 @@ const RED: Layout = Layout {
             picks: None,
         },
     },
-    dan: None,
-    expert: None,
+    dan: Some(DanTable::Listed {
+        at: 0xe5dc0,
+        sp: 17,
+        dp_at: 0xe6200,
+        dp: 15,
+    }),
+    expert: Some(ExpertTable::Inline {
+        at: 0xe7328,
+        count: 17,
+    }),
 };
 
 const HAPPY_SKY: Layout = Layout {
@@ -263,8 +285,16 @@ const HAPPY_SKY: Layout = Layout {
             picks: None,
         },
     },
-    dan: None,
-    expert: None,
+    dan: Some(DanTable::Listed {
+        at: 0xfd9c0,
+        sp: 17,
+        dp_at: 0xfde30,
+        dp: 15,
+    }),
+    expert: Some(ExpertTable::Inline {
+        at: 0xfefd8,
+        count: 17,
+    }),
 };
 
 const DISTORTED: Layout = Layout {
@@ -297,7 +327,12 @@ const DISTORTED: Layout = Layout {
             }),
         },
     },
-    dan: Some(DanTable::Listed(0x10af90)),
+    dan: Some(DanTable::Listed {
+        at: 0x10af90,
+        sp: 18,
+        dp_at: 0x10b410,
+        dp: 16,
+    }),
     expert: Some(ExpertTable::Inline {
         at: 0x10c558,
         count: 17,
@@ -665,7 +700,15 @@ const DAN_RANKS: [&str; 18] = [
 fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCourse> {
     match table {
         DanTable::Pairs(at) => read_dan_pairs(exe, at, songs),
-        DanTable::Listed(at) => read_dan_lists(exe, at, songs),
+        DanTable::Listed { at, sp, dp_at, dp } => {
+            let mut courses = read_dan_lists(exe, at, Style::Single, sp, songs);
+            let doubles = read_dan_lists(exe, dp_at, Style::Double, dp, songs);
+            if courses.is_empty() || doubles.is_empty() {
+                return Vec::new();
+            }
+            courses.extend(doubles);
+            courses
+        }
     }
 }
 
@@ -681,10 +724,24 @@ fn dan_chart(chart: u32) -> Option<Difficulty> {
     })
 }
 
-/// `DanTable::Listed`: 18 SP courses, then 16 DP courses (5級 on).
-fn read_dan_lists(exe: &[u8], mut at: usize, songs: &[Song]) -> Vec<DanCourse> {
+/// `count` courses of one style of a `DanTable::Listed` table: SP from 7級,
+/// DP from 5級.
+fn read_dan_lists(
+    exe: &[u8],
+    mut at: usize,
+    style: Style,
+    count: usize,
+    songs: &[Song],
+) -> Vec<DanCourse> {
+    let first = match style {
+        Style::Single => 0,
+        Style::Double => 2,
+    };
+    if first + count > DAN_RANKS.len() {
+        return Vec::new();
+    }
     let mut courses = Vec::new();
-    for i in 0..18 + 16 {
+    for i in 0..count {
         let mut charts = Vec::new();
         loop {
             let Some(word) = exe.get(at..at + 4) else {
@@ -708,14 +765,9 @@ fn read_dan_lists(exe: &[u8], mut at: usize, songs: &[Song]) -> Vec<DanCourse> {
             at += 12;
         }
         at = at.next_multiple_of(16);
-        let (style, rank) = if i < 18 {
-            (Style::Single, i)
-        } else {
-            (Style::Double, i - 18 + 2)
-        };
         courses.push(DanCourse {
             style,
-            rank: DAN_RANKS[rank],
+            rank: DAN_RANKS[first + i],
             charts,
         });
     }
