@@ -252,7 +252,7 @@ pub fn finalize_start_gameplay(
     state.video_start_times = video_start_times;
     // The Result backdrop is blurred from the stage art whether or not the BGA
     // is shown, so it is made here while the art is at hand.
-    let stage = load_stage_image(song);
+    let stage = state.stage_image_cache.get(&song.id).cloned().flatten();
     if let Some(px) = stage
         .as_ref()
         .and_then(beetle_render::backdrop::blur_backdrop)
