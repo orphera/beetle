@@ -38,10 +38,10 @@ fn begin(state: &mut AppState, size: PhysicalSize<u32>) {
     state.d3d11.begin_frame(
         size.width,
         size.height,
-        beetle_render::theme::clear_color(state.screen == AppScreen::Gameplay),
+        beetle_render::theme::clear_color(state.on_play_lane()),
     );
     // Menus draw at the UI scale, gameplay at the window scale; each has its own UI.
-    let gameplay = state.screen == AppScreen::Gameplay;
+    let gameplay = state.on_play_lane();
     let warp = state.d3d11.is_warp();
     // Reduce Motion freezes the decorative clock at 0: the backdrop drift,
     // particles, light band and title sweep all read it.
@@ -167,6 +167,7 @@ fn finish(state: &mut AppState) {
 /// so they never change what a screen does with input or judgement.
 fn overlays(state: &mut AppState, toasts: bool) {
     let now = Instant::now();
+    let lane = state.on_play_lane();
     let overlay = match devtools::frozen_shutter_progress() {
         Some(p) => transition::shutter_phase_at(p * transition::SHUTTER_SECONDS)
             .map(transition::Overlay::Shutter),
@@ -179,9 +180,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
         Some(transition::Overlay::Shutter(phase) | transition::Overlay::GameplayReveal(phase)) => {
             beetle_render::draw_shutter(
                 state.gpu_ui.ui.current(),
-                &state
-                    .view
-                    .frame_viewport(state.screen == AppScreen::Gameplay),
+                &state.view.frame_viewport(lane),
                 phase,
             );
         }
@@ -197,9 +196,7 @@ fn overlays(state: &mut AppState, toasts: bool) {
         if let (Some(pose), Some(toast)) = (state.toast_pose_now(now), state.toast.as_ref()) {
             beetle_render::draw_toast(
                 state.gpu_ui.ui.current(),
-                &state
-                    .view
-                    .frame_viewport(state.screen == AppScreen::Gameplay),
+                &state.view.frame_viewport(lane),
                 &ToastFrame {
                     text: &toast.text,
                     kind: toast.kind,
@@ -267,17 +264,7 @@ pub fn gameplay(
             )
         });
     // The stage image the loading screen showed, for the empty HUD column.
-    let id = state.active_chart_id;
-    let jacket = match state
-        .stage_image_cache
-        .get(&id)
-        .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)))
-    {
-        Some((stage, img)) => state
-            .gpu_ui
-            .image(&mut state.d3d11, ImageKey::Stage(stage), &img),
-        None => None,
-    };
+    let jacket = stage_texture(state, state.active_chart_id);
     state.view.clean_expired_hit_bursts(audio_time);
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
@@ -336,11 +323,89 @@ pub fn gameplay(
                 visual_offset_ms: state.visual_offset_ms,
                 reduce_flashes: state.reduce_flashes,
                 high_contrast: state.high_contrast,
+                loading: None,
             },
         );
     }
     // The Loading -> Gameplay reveal: drawn over this frame only. Gameplay
     // time, READY and judgement were already advanced above.
+    overlays(state, false);
+    finish(state);
+}
+
+/// The stage image of chart `id` on the GPU, when it has one.
+fn stage_texture(state: &mut AppState, id: ChartId) -> Option<beetle_render::SizedTexture> {
+    let (stage, img) = state
+        .stage_image_cache
+        .get(&id)
+        .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)))?;
+    state
+        .gpu_ui
+        .image(&mut state.d3d11, ImageKey::Stage(stage), &img)
+}
+
+/// The rest of a load, on the play lane: the empty play screen of the song
+/// with the loading bar over the lane. Nothing plays and no clock runs.
+fn loading_lane(state: &mut AppState, size: PhysicalSize<u32>) {
+    let Some(id) = state.loading_song.as_ref().map(|s| s.id) else {
+        return;
+    };
+    let jacket = stage_texture(state, id);
+    let (badge, hint) = gameplay_badge_and_hint(
+        state.is_replay_playback,
+        state.is_auto_play,
+        state.key_bindings.get(state.view.skin.play_mode).preset,
+    );
+    // A finished load waits on a full bar.
+    let (status, fraction) = if state.loaded_song.is_some() {
+        (strings::LOADING_DONE().to_string(), Some(1.0))
+    } else {
+        loading_status()
+    };
+    begin(state, size);
+    let Some(lane) = &state.loading_lane else {
+        return;
+    };
+    let elapsed = lane.shown_at.elapsed().as_secs_f64();
+    beetle_render::draw_gameplay(
+        state.gpu_ui.ui.current(),
+        &beetle_render::PlayFrame {
+            first_note: None,
+            viewport: &state.view.viewport,
+            layout: &state.view.skin,
+            chart: &lane.chart,
+            notes: &[],
+            timing: &lane.timing,
+            score: &lane.score,
+            audio_time: 0.0,
+            song_length: 0.0,
+            visual_levels: &[0.0; 16],
+            bga: None,
+            layer: None,
+            jacket,
+            scroll_bpm: lane.chart.header.bpm,
+            chart_has_bga: false,
+            track_bga_opacity: 0.0,
+            key_pressed: state.view.key_pressed(),
+            hit_bursts: &[],
+            last_judge: None,
+            hint: &hint,
+            badge,
+            pause: None,
+            key_hint_alpha: 0.0,
+            readout: None,
+            banner: None,
+            judge_marks: &[],
+            visual_offset_ms: state.visual_offset_ms,
+            reduce_flashes: state.reduce_flashes,
+            high_contrast: state.high_contrast,
+            loading: Some(beetle_render::LaneLoading {
+                status: &status,
+                fraction,
+                elapsed,
+            }),
+        },
+    );
     overlays(state, false);
     finish(state);
 }
@@ -729,6 +794,9 @@ pub fn boot(state: &mut AppState, size: PhysicalSize<u32>) {
 }
 
 pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
+    if state.loading_lane.is_some() {
+        return loading_lane(state, size);
+    }
     let chips = option_chips(state, state.loading_song.as_ref());
     let badge = if state.is_replay_playback {
         Some(strings::REPLAY())

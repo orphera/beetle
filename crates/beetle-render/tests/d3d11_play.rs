@@ -261,6 +261,7 @@ fn render_with(
             visual_offset_ms: 0.0,
             reduce_flashes: false,
             high_contrast: false,
+            loading: None,
         },
     );
     let calls = ui.end(gpu);

@@ -1,6 +1,7 @@
-//! Presentation-only polish for the menus and the Loading -> Gameplay hand-off:
-//! screen transitions (a shutter wipe, or a plain fade under the reduced-motion
-//! style), the reveal over the first Gameplay frames, and one toast at a time.
+//! Presentation-only polish for the menus and the way into a song: screen
+//! transitions (a shutter wipe, or a plain fade under the reduced-motion
+//! style), the reveal of the play lane the load finishes on, and one toast at
+//! a time.
 //! Nothing here reads or advances the audio clock or the judge (INV-1): these
 //! timings only choose what is drawn over a frame that is already rendered.
 //! The Gameplay reveal never delays gameplay time, READY, judgement or input.
@@ -21,7 +22,7 @@ pub const FADE_SECONDS: f32 = 0.2;
 /// this long (reveal only, like the Gameplay reveal, so the destination never
 /// shows uncovered).
 pub const SHUTTER_SECONDS: f32 = 0.35;
-/// Loading -> Gameplay: the panels uncover the first frames of Gameplay.
+/// Loading card -> lane: the panels uncover the play lane the load goes on on.
 pub const GAMEPLAY_REVEAL_SECONDS: f32 = 0.25;
 /// Toast: slide and fade in, stay, then fade out.
 const TOAST_IN: f32 = 0.15;
@@ -94,19 +95,16 @@ pub fn shows_toasts(screen: AppScreen) -> bool {
 /// The overlay for a change from `from` to `to`, or `None` for a plain cut.
 /// The shutter joins SongSelect with Settings, Key Config, Result and Loading
 /// (both ways for the first three), and the title with SongSelect, Settings
-/// and Key Config (both ways). Loading -> Gameplay reveals the first
-/// frames, and under `Fade` that is a plain fade instead. Every other change
-/// keeps the menu fade-in on its destination.
+/// and Key Config (both ways). Loading -> Gameplay is a cut: the lane is
+/// already on screen (revealed by `ScreenEntry::reveal_lane`). Every other
+/// change keeps the menu fade-in on its destination.
 pub fn transition_for(
     from: AppScreen,
     to: AppScreen,
     style: TransitionStyle,
 ) -> Option<Transition> {
     if from == AppScreen::Loading && to == AppScreen::Gameplay {
-        return Some(match style {
-            TransitionStyle::Shutter => Transition::GameplayReveal,
-            TransitionStyle::Fade => Transition::Fade,
-        });
+        return None;
     }
     let shutter_pair = matches!(
         (from, to),
@@ -246,6 +244,16 @@ impl ScreenEntry {
         self.screen = screen;
         self.entered_at = now;
         true
+    }
+
+    /// The loading card gives way to the play lane on the same screen: the
+    /// reveal plays over the lane from `now` (a plain fade under `Fade`).
+    pub fn reveal_lane(&mut self, now: Instant) {
+        self.transition = Some(match self.style {
+            TransitionStyle::Shutter => Transition::GameplayReveal,
+            TransitionStyle::Fade => Transition::Fade,
+        });
+        self.entered_at = now;
     }
 
     /// The overlay to draw on the current frame, if its entry transition is still running.
@@ -431,10 +439,8 @@ mod tests {
             Some(Transition::Fade)
         );
         assert!(fades_in(Title));
-        assert_eq!(
-            transition_for(Loading, Gameplay, shutter),
-            Some(Transition::GameplayReveal)
-        );
+        // The lane is already up when the play starts: a cut.
+        assert_eq!(transition_for(Loading, Gameplay, shutter), None);
         // Boot -> SongSelect stays a plain fade; so do the other changes.
         assert_eq!(
             transition_for(Boot, SongSelect, shutter),
@@ -458,10 +464,7 @@ mod tests {
             transition_for(SongSelect, Loading, fade),
             Some(Transition::Fade)
         );
-        assert_eq!(
-            transition_for(Loading, Gameplay, fade),
-            Some(Transition::Fade)
-        );
+        assert_eq!(transition_for(Loading, Gameplay, fade), None);
         // A cut where nothing fades in (into Gameplay from a menu).
         assert_eq!(transition_for(SongSelect, Gameplay, shutter), None);
     }
@@ -488,10 +491,6 @@ mod tests {
                 "{from:?} -> {to:?} fades under Reduce Motion"
             );
         }
-        assert_eq!(
-            transition_for(Loading, Gameplay, style_for(true)),
-            Some(Transition::Fade)
-        );
     }
 
     #[test]
@@ -509,14 +508,18 @@ mod tests {
         assert!(entry.sync(AppScreen::Loading, end));
         assert_eq!(entry.overlay(end), Some(Overlay::Fade(1.0)));
 
+        // The card gives way to the lane: the reveal plays over it.
         let t1 = end + Duration::from_secs(1);
-        assert!(entry.sync(AppScreen::Gameplay, t1));
+        entry.reveal_lane(t1);
         assert_eq!(
             entry.overlay(t1),
             Some(Overlay::GameplayReveal(ShutterPhase::Reveal(0.0)))
         );
-        // Gameplay reveal ends; no other overlay ever plays on Gameplay.
         assert_eq!(entry.overlay(t1 + Duration::from_millis(300)), None);
+        // The play starts on the lane already shown: a cut.
+        let t2 = t1 + Duration::from_secs(1);
+        assert!(entry.sync(AppScreen::Gameplay, t2));
+        assert_eq!(entry.overlay(t2), None);
     }
 
     #[test]

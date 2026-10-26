@@ -25,9 +25,89 @@ fn fresh_seed() -> u64 {
         .unwrap_or(42)
 }
 
+/// The loading card shows this long as the way into the song; the rest of
+/// the load shows on the play lane (`LoadingLane`), as LR2, beatoraja and
+/// IIDX load on their play screens.
+pub const LOADING_CARD_SECONDS: f64 = 1.2;
+/// A load that finished early still leaves the lane up this long before the
+/// play starts, so its reveal ends and the full bar is seen.
+pub const LANE_LOADING_MIN_SECONDS: f64 = 0.6;
+
+/// The empty play screen the rest of a load shows on: a chart with the song's
+/// header and no notes, its timing and a fresh score, so the lane, gauge and
+/// song panel draw as they will when the play starts.
+pub struct LoadingLane {
+    pub chart: BmsChart,
+    pub timing: TimingModel,
+    pub score: beetle_core::ScoreTracker,
+    /// When the lane replaced the card.
+    pub shown_at: Instant,
+}
+
+impl LoadingLane {
+    pub fn new(state: &AppState, song: &SongMetadata) -> Self {
+        let mut chart = BmsChart::default();
+        let h = &mut chart.header;
+        h.title = song.title.clone();
+        h.subtitle = song.subtitle.clone();
+        h.artist = song.artist.clone();
+        h.genre = song.genre.clone();
+        h.bpm = song.bpm;
+        h.play_level = song.play_level;
+        h.difficulty = song.difficulty;
+        let timing = TimingModel::from_chart(&chart);
+        let notes = song.notes_count_for(state.play_ruleset(song).ln) as u32;
+        let score = beetle_core::ScoreTracker::new(notes, 0.0, state.play_options.gauge_type);
+        Self {
+            chart,
+            timing,
+            score,
+            shown_at: Instant::now(),
+        }
+    }
+
+    /// The load is done: the judge rank and TOTAL come from the loaded chart
+    /// (the song list does not keep them), so the panel already shows what
+    /// the play will.
+    pub fn take_header(&mut self, chart: &BmsChart, gauge: beetle_core::GaugeType) {
+        self.chart.header.rank = chart.header.rank;
+        self.chart.header.total = chart.header.total;
+        self.score =
+            beetle_core::ScoreTracker::new(self.score.total_notes, chart.header.total, gauge);
+    }
+}
+
+/// Whether the load can hand over to the play: the lane has shown long enough.
+pub fn lane_ready_to_play(state: &AppState) -> bool {
+    state
+        .loading_lane
+        .as_ref()
+        .is_some_and(|l| l.shown_at.elapsed().as_secs_f64() >= LANE_LOADING_MIN_SECONDS)
+}
+
+/// The card has had its time: the play lane takes over the screen. Sets the
+/// lane's key mode and replays the reveal over it.
+pub fn show_loading_lane(state: &mut AppState) {
+    let Some(song) = state.loading_song.clone() else {
+        return;
+    };
+    state.view.skin.set_play_mode(song.play_mode);
+    state.sync_hi_speed();
+    state.view.reset_feedback();
+    let mut lane = LoadingLane::new(state, &song);
+    if let Some(data) = &state.loaded_song {
+        lane.take_header(&data.0, state.play_options.gauge_type);
+    }
+    state.loading_lane = Some(lane);
+    state.screen_entry.reveal_lane(Instant::now());
+    state.window.request_redraw();
+}
+
 pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.screen = AppScreen::Loading;
     state.loading_song = Some(song.clone());
+    state.loading_lane = None;
+    state.loaded_song = None;
     state.loading_spinner_frame = 0;
     state.loading_anim_time = Instant::now();
     state.loading_started_at = Instant::now();
@@ -279,6 +359,7 @@ pub fn finalize_start_gameplay(
     state.gauge_trend = GaugeTrend::new(total_duration);
     state.gameplay_readout = None;
     state.audio_engine = audio_engine;
+    state.loading_lane = None;
     state.screen = AppScreen::Gameplay;
     state.view.reset_feedback();
     state.held_keys.clear();

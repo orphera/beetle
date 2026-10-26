@@ -1476,6 +1476,11 @@ table! {
         ko "BGA를 준비하는 중",
         en "Preparing the BGA",
         ja "BGA を準備しています";
+    /// The load is done; the play starts in a moment.
+    pub LOADING_DONE =
+        ko "준비 완료",
+        en "Ready",
+        ja "準備完了";
     pub PRACTICE =
         ko "연습",
         en "Practice",
@@ -1534,11 +1539,6 @@ table! {
         ko "READY",
         en "READY",
         ja "READY";
-    /// Flashes on the first note (after the count-in, or after READY).
-    pub GO =
-        ko "GO!",
-        en "GO!",
-        ja "GO!";
     pub READY_HINT =
         ko "F3/F4 노트 속도 / F10/F11 레인 커버",
         en "F3/F4 Note Speed / F10/F11 Lane Cover",

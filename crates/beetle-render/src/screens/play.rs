@@ -88,6 +88,20 @@ pub struct PlayFrame<'a> {
     /// High-contrast notes: outlined heads in stronger colours, a thicker
     /// judge line that does not pulse, and brighter lane dividers.
     pub high_contrast: bool,
+    /// The song is still loading: the lane stands empty with a loading bar
+    /// over its upper part, and nothing plays yet.
+    pub loading: Option<LaneLoading<'a>>,
+}
+
+/// The loading bar over the lane while the song loads.
+#[derive(Debug, Clone, Copy)]
+pub struct LaneLoading<'a> {
+    /// What the loader is doing ("키음을 불러오는 중 120 / 340").
+    pub status: &'a str,
+    /// Share of the stage done, when the stage counts items; else the bar sweeps.
+    pub fraction: Option<f32>,
+    /// Wall seconds since the lane showed, for the sweep and the fade-in.
+    pub elapsed: f64,
 }
 
 const BURST_SECONDS: f64 = 0.28;
@@ -101,13 +115,6 @@ const READY_LEAD: f64 = 1.0;
 const READY_FADE: f64 = 0.5;
 /// A first note sooner than this gets no READY label at all.
 const READY_MIN_FIRST_NOTE: f64 = 1.5;
-/// The count-in (3-2-1) needs a first note at least this late, and the three
-/// beats it fills must fit after the song start.
-const COUNT_MIN_FIRST_NOTE: f64 = 2.0;
-/// The count-in fills this many beats before the first note: one number a beat.
-const COUNT_BEATS: f64 = 3.0;
-/// GO! flashes from the first note and fades over this long (audio seconds).
-const GO_SECONDS: f64 = 0.6;
 /// The readout stays this long; its last 0.3 s fade out.
 pub const READOUT_SECONDS: f64 = 1.0;
 
@@ -138,6 +145,9 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     playfield(c, &sk, f, lane_field, danger, s);
     gauge(c, t, &sk, f, hud.gauge, danger, s);
     ready(c, t, &sk, f, lane_field, s);
+    if let Some(loading) = &f.loading {
+        lane_loading(c, t, &sk, loading, lane_field, s);
+    }
     // The end banner replaces the combo and the last judgement.
     if f.banner.is_none() {
         combo_and_judge(c, t, &sk, f, lane_field, s);
@@ -162,97 +172,10 @@ pub(crate) fn ready_alpha(audio_time: f64, first_note: f64) -> f32 {
     ((first_note - READY_LEAD - audio_time) / READY_FADE).clamp(0.0, 1.0) as f32
 }
 
-/// What the start cue shows over the lane at one audio time. The cue is a
-/// pure function of the audio clock and the first note (INV-1): it never
-/// moves a note or delays the song.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum StartCue {
-    /// Nothing: no notes, a first note too soon, or before the song.
-    None,
-    /// Short lead-in: READY at this opacity (it fades out before the note).
-    Ready(f32),
-    /// Count-in: the number (3, 2 or 1) and its progress through its beat (0..1).
-    Count { number: u8, progress: f32 },
-    /// GO! at the first note; progress through its flash (0..1).
-    Go(f32),
-}
-
-/// The start cue at `audio_time` for a first note at `first_note` seconds, on
-/// the chart's timing (see `start_cue`).
-pub(crate) fn start_cue_on(timing: &TimingModel, audio_time: f64, first_note: f64) -> StartCue {
-    start_cue(
-        audio_time,
-        first_note,
-        timing.time_to_beat_position(first_note),
-        timing.time_to_beat_position(audio_time),
-    )
-}
-
-/// The start cue at `audio_time`, given the first note in audio seconds and
-/// both moments as beat positions on the chart (`first_beat` for the note,
-/// `now_beat` for the audio clock).
-///
-/// The count-in is counted in beats, so a tempo change or a STOP before the
-/// note moves it with the chart: 3, 2, 1 over the last three beats before the
-/// note, one number a beat, then GO! on the note (GO! itself follows the
-/// audio seconds, INV-1). A shorter lead-in, or one under three beats in,
-/// falls back to READY, then GO!. A first note sooner than
-/// `READY_MIN_FIRST_NOTE` gets nothing at all.
-pub(crate) fn start_cue(
-    audio_time: f64,
-    first_note: f64,
-    first_beat: f64,
-    now_beat: f64,
-) -> StartCue {
-    if first_note < READY_MIN_FIRST_NOTE || audio_time < 0.0 {
-        return StartCue::None;
-    }
-    if audio_time >= first_note {
-        let e = audio_time - first_note;
-        return if e < GO_SECONDS {
-            StartCue::Go((e / GO_SECONDS) as f32)
-        } else {
-            StartCue::None
-        };
-    }
-    let count_fits =
-        first_beat.is_finite() && first_beat >= COUNT_BEATS && first_note >= COUNT_MIN_FIRST_NOTE;
-    if !count_fits {
-        let a = ready_alpha(audio_time, first_note);
-        return if a > 0.0 {
-            StartCue::Ready(a)
-        } else {
-            StartCue::None
-        };
-    }
-    let window_start = first_beat - COUNT_BEATS;
-    // NaN fails this test too: a broken clock shows nothing rather than a count.
-    if !(now_beat >= window_start) {
-        return StartCue::None;
-    }
-    let beats = now_beat - window_start;
-    let beat = (beats.floor() as usize).min(2);
-    StartCue::Count {
-        number: 3 - beat as u8,
-        progress: (beats - beat as f64).clamp(0.0, 1.0) as f32,
-    }
-}
-
 /// Scale of a punch-in at progress `p` through its `span` (0..1): starts
 /// `amount` bigger and settles to 1 with a small overshoot.
 pub(crate) fn punch(p: f32, amount: f32, span: f32) -> f32 {
     1.0 + amount * (1.0 - ease_out_back((p / span).clamp(0.0, 1.0)))
-}
-
-/// Opacity of a count-in number at progress `p` through its beat: full, then
-/// fading out over the last 30% so the next number takes over cleanly.
-pub(crate) fn count_alpha(p: f32) -> f32 {
-    let p = p.clamp(0.0, 1.0);
-    if p < 0.7 {
-        1.0
-    } else {
-        1.0 - ease_in_cubic((p - 0.7) / 0.3)
-    }
 }
 
 /// Vertical offset (before the screen scale) of the FAILED banner at progress
@@ -1713,16 +1636,16 @@ pub(crate) fn next_rank(ex: u32, judged: u32) -> Option<(&'static str, u32)> {
     })
 }
 
-/// The start cue over the lane before the first note (see `start_cue`).
+/// READY over the lane before the first note (see `ready_alpha`). The cue is
+/// a pure function of the audio clock and the first note (INV-1): it never
+/// moves a note or delays the song.
 fn ready(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, field: Rect, s: f32) {
     let Some(first) = f.first_note else {
         return;
     };
-    match start_cue_on(f.timing, f.audio_time, first) {
-        StartCue::None => {}
-        StartCue::Ready(a) => ready_label(c, t, sk, field, a, s),
-        StartCue::Count { number, progress } => count_in(c, t, sk, field, number, progress, s),
-        StartCue::Go(p) => go_flash(c, t, sk, field, p, s),
+    let a = ready_alpha(f.audio_time, first);
+    if a > 0.0 {
+        ready_label(c, t, sk, field, a, s);
     }
 }
 
@@ -1751,90 +1674,52 @@ fn ready_label(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, a: f3
     t.draw(c, strings::READY_HINT(), cx - hw / 2.0, y + 52.0 * s, &hint);
 }
 
-/// One count-in number in the middle of the field: it punches in and fades
-/// over its beat, and a soft ring swells out behind it.
-fn count_in(
+/// The loading bar where READY will show: a heading, the bar (filling with
+/// the stage's share, or sweeping when it has no count) and the status line.
+fn lane_loading(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
+    l: &LaneLoading,
     field: Rect,
-    number: u8,
-    p: f32,
     s: f32,
 ) {
+    let a = ease_out_quad((l.elapsed / 0.25).clamp(0.0, 1.0) as f32);
+    let alpha = |v: f32| (v * a) as u8;
     let cx = field.x + field.w / 2.0;
-    let cy = field.y + field.h * 0.4;
-    let alpha = count_alpha(p);
-    // The ring: starts at the number and swells, fading as it goes.
-    let ring = lerp(70.0, 230.0, ease_out_cubic(p)) * s;
-    c.set_additive(true);
-    c.sprite_centered(
-        sk.ring,
-        cx,
-        cy,
-        ring,
-        ring,
-        theme::CYAN.with_alpha(((1.0 - p).powi(2) * 170.0) as u8),
-    );
-    c.set_additive(false);
+    let y = field.y + field.h * 0.22;
     c.sprite_centered(
         sk.glow,
         cx,
-        cy,
-        field.w * 0.6,
-        200.0 * s,
-        theme::BLACK.with_alpha((alpha * 120.0) as u8),
+        y + 30.0 * s,
+        field.w * 0.9,
+        150.0 * s,
+        theme::BLACK.with_alpha(alpha(150.0)),
     );
-    let text = number.to_string();
-    let size = 150.0 * s;
-    let pop = punch(p, 0.45, 0.18);
-    let a = (alpha * 255.0) as u8;
-    let st = TextStyle::new(size).bold().color(theme::TEXT.with_alpha(a));
-    let fx = Fx {
-        outline: Some((theme::BLACK.with_alpha(a), 4.0 * s)),
-        gradient: Some((theme::WHITE.with_alpha(a), theme::CYAN.with_alpha(a))),
-    };
-    let w = t.measure(c, &text, &st) * pop;
-    t.draw_fx(c, &text, cx - w / 2.0, cy - size * 0.5 * pop, &st, pop, fx);
-}
-
-/// GO! at the first note: it punches in and fades over `GO_SECONDS`.
-fn go_flash(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, field: Rect, p: f32, s: f32) {
-    let cx = field.x + field.w / 2.0;
-    let cy = field.y + field.h * 0.4;
-    let alpha = 1.0 - ease_in_cubic(p.clamp(0.0, 1.0));
-    let ring = lerp(90.0, 300.0, ease_out_cubic(p)) * s;
-    c.set_additive(true);
-    c.sprite_centered(
-        sk.ring,
-        cx,
-        cy,
-        ring,
-        ring,
-        theme::GOLD.with_alpha(((1.0 - p).powi(2) * 200.0) as u8),
-    );
-    c.set_additive(false);
-    let pop = punch(p, 0.3, 0.3);
-    let a = (alpha * 255.0) as u8;
-    let size = 110.0 * s;
-    let st = TextStyle::new(size)
+    let head = TextStyle::new(15.0 * s)
         .bold()
-        .tracking(4.0 * s)
-        .color(theme::TEXT.with_alpha(a));
-    let fx = Fx {
-        outline: Some((theme::BLACK.with_alpha(a), 4.0 * s)),
-        gradient: Some((theme::GOLD.with_alpha(a), theme::WHITE.with_alpha(a))),
-    };
-    let w = t.measure(c, strings::GO(), &st) * pop;
-    t.draw_fx(
-        c,
-        strings::GO(),
-        cx - w / 2.0,
-        cy - size * 0.5 * pop,
-        &st,
-        pop,
-        fx,
-    );
+        .tracking(1.0 * s)
+        .color(theme::TEXT.with_alpha(alpha(255.0)));
+    let hw = t.measure(c, strings::LOADING(), &head);
+    t.draw(c, strings::LOADING(), cx - hw / 2.0, y, &head);
+
+    let w = (field.w * 0.72).min(360.0 * s);
+    let track = Rect::new(cx - w / 2.0, y + 32.0 * s, w, 4.0 * s);
+    match l.fraction {
+        Some(p) => {
+            c.nine(&sk.panel_sm, track, theme::LINE.with_alpha(alpha(255.0)));
+            c.fill_rect_hgradient(
+                Rect::new(track.x, track.y, track.w * p.clamp(0.0, 1.0), track.h),
+                theme::CYAN.with_alpha(alpha(120.0)),
+                theme::CYAN.with_alpha(alpha(255.0)),
+            );
+        }
+        None => widgets::sweep_bar(c, sk, track, l.elapsed, s),
+    }
+
+    let st = caption(12.0, s).color(theme::MUTED.with_alpha(alpha(255.0)));
+    let line = Rect::new(field.x, track.bottom() + 10.0 * s, field.w, 16.0 * s);
+    t.draw_in(c, l.status, line, Align::Center, &st);
 }
 
 /// The value the player just changed, near the top of the lane.
@@ -2182,6 +2067,7 @@ mod tests {
                     visual_offset_ms: 0.0,
                     reduce_flashes: false,
                     high_contrast: false,
+                    loading: None,
                 },
             );
             assert_eq!(
@@ -2298,6 +2184,7 @@ mod tests {
                     visual_offset_ms: 0.0,
                     reduce_flashes: false,
                     high_contrast,
+                    loading: None,
                 },
             );
             assert_eq!(
@@ -2669,223 +2556,13 @@ mod tests {
                 visual_offset_ms: 0.0,
                 reduce_flashes: false,
                 high_contrast: false,
+                loading: None,
             },
         );
         // The backdrop image is one batch, the frame the other.
         assert!(ui.canvas.debug_batches().len() <= 2);
         let verts = ui.canvas.debug_vertices().len();
         assert!(verts < 8192, "{verts} vertices fit one batch");
-    }
-
-    /// `start_cue` at a constant tempo: a beat is `beat_seconds`, so beat
-    /// positions are the times divided by it.
-    fn start_cue(audio_time: f64, first: f64, beat_seconds: f64) -> StartCue {
-        super::start_cue(
-            audio_time,
-            first,
-            first / beat_seconds,
-            audio_time / beat_seconds,
-        )
-    }
-
-    /// A chart whose opening tempo is `bpm` and whose timing events are `events`.
-    fn timing_of(bpm: f64, events: Vec<beetle_core::bms::TimingEvent>) -> TimingModel {
-        let chart = beetle_core::BmsChart {
-            header: BmsHeader {
-                bpm,
-                ..Default::default()
-            },
-            timing_events: events,
-            ..Default::default()
-        };
-        TimingModel::from_chart(&chart)
-    }
-
-    #[test]
-    fn the_count_follows_a_tempo_change_before_the_first_note() {
-        use beetle_core::bms::{TimingEvent, TimingEventKind};
-        // 120 BPM for measure 0 (2 s, 4 beats), then 60 BPM: the first note at
-        // measure 2 is beat 8, at 6 s. The count covers beats 5 to 8, which
-        // are 3 s to 6 s, one number a second at 60 BPM.
-        let timing = timing_of(
-            120.0,
-            vec![TimingEvent {
-                measure: 1,
-                fraction: 0.0,
-                kind: TimingEventKind::BpmChange(60.0),
-            }],
-        );
-        let first = timing.beat_to_time_seconds(2, 0.0);
-        assert_eq!(first, 6.0);
-        assert_eq!(start_cue_on(&timing, 2.9, first), StartCue::None);
-        assert_eq!(
-            start_cue_on(&timing, 3.0, first),
-            StartCue::Count {
-                number: 3,
-                progress: 0.0
-            }
-        );
-        assert!(matches!(
-            start_cue_on(&timing, 4.0, first),
-            StartCue::Count { number: 2, .. }
-        ));
-        assert!(matches!(
-            start_cue_on(&timing, 5.0, first),
-            StartCue::Count { number: 1, .. }
-        ));
-        assert_eq!(start_cue_on(&timing, 6.0, first), StartCue::Go(0.0));
-    }
-
-    #[test]
-    fn a_stop_inside_the_count_freezes_its_number() {
-        use beetle_core::bms::{TimingEvent, TimingEventKind};
-        // 120 BPM with a 2 s STOP at beat 6 (time 3 s). The note is at beat 8,
-        // 5 s + 1 s = 6 s. The count starts at beat 5 (2.5 s), and the STOP
-        // holds the beat at 6 until 5 s, so "2" stays up through the STOP.
-        let timing = timing_of(
-            120.0,
-            vec![TimingEvent {
-                measure: 1,
-                fraction: 0.5,
-                kind: TimingEventKind::StopMeasures(1.0),
-            }],
-        );
-        let first = timing.beat_to_time_seconds(2, 0.0);
-        assert_eq!(first, 6.0);
-        assert_eq!(
-            start_cue_on(&timing, 2.5, first),
-            StartCue::Count {
-                number: 3,
-                progress: 0.0
-            }
-        );
-        assert_eq!(
-            start_cue_on(&timing, 3.5, first),
-            StartCue::Count {
-                number: 2,
-                progress: 0.0
-            }
-        );
-        assert_eq!(
-            start_cue_on(&timing, 4.9, first),
-            StartCue::Count {
-                number: 2,
-                progress: 0.0
-            }
-        );
-        assert!(matches!(
-            start_cue_on(&timing, 5.5, first),
-            StartCue::Count { number: 1, .. }
-        ));
-        assert_eq!(start_cue_on(&timing, 6.0, first), StartCue::Go(0.0));
-    }
-
-    #[test]
-    fn the_count_needs_three_beats_before_the_note() {
-        // A note two beats in (2 s at 60 BPM): no count, READY fades instead.
-        let timing = timing_of(60.0, vec![]);
-        assert!(matches!(
-            start_cue_on(&timing, 0.0, 2.0),
-            StartCue::Ready(a) if a > 0.0
-        ));
-        assert!(!matches!(
-            start_cue_on(&timing, 1.0, 2.0),
-            StartCue::Count { .. }
-        ));
-    }
-
-    #[test]
-    fn count_in_runs_over_the_last_three_beats() {
-        // First note at 4 s, 120 BPM (a beat is 0.5 s): 3, 2, 1, then GO!.
-        let (first, beat) = (4.0, 0.5);
-        assert_eq!(start_cue(2.49, first, beat), StartCue::None);
-        assert_eq!(
-            start_cue(2.5, first, beat),
-            StartCue::Count {
-                number: 3,
-                progress: 0.0
-            }
-        );
-        assert_eq!(
-            start_cue(3.25, first, beat),
-            StartCue::Count {
-                number: 2,
-                progress: 0.5
-            }
-        );
-        assert!(matches!(
-            start_cue(3.75, first, beat),
-            StartCue::Count { number: 1, .. }
-        ));
-        assert_eq!(start_cue(4.0, first, beat), StartCue::Go(0.0));
-        assert_eq!(
-            start_cue(4.0 + GO_SECONDS + 0.01, first, beat),
-            StartCue::None
-        );
-    }
-
-    #[test]
-    fn a_very_long_lead_in_is_silent_until_its_last_three_beats() {
-        assert_eq!(start_cue(0.0, 60.0, 0.5), StartCue::None);
-        assert_eq!(start_cue(30.0, 60.0, 0.5), StartCue::None);
-        assert!(matches!(
-            start_cue(58.75, 60.0, 0.5),
-            StartCue::Count { number: 3, .. }
-        ));
-    }
-
-    #[test]
-    fn a_short_lead_in_falls_back_to_ready_then_go() {
-        // 1.8 s to the first note is under the 2.0 s floor for numbers, so
-        // READY fades out and GO! lands on the note (no numbers).
-        assert_eq!(start_cue(0.0, 1.8, 0.5), StartCue::Ready(1.0));
-        assert_eq!(start_cue(1.2, 1.8, 0.5), StartCue::None);
-        assert_eq!(start_cue(1.8, 1.8, 0.5), StartCue::Go(0.0));
-        // Two seconds with 60 BPM: three beats (3 s) do not fit, so READY.
-        assert_eq!(start_cue(0.0, 2.0, 1.0), StartCue::Ready(1.0));
-    }
-
-    #[test]
-    fn no_cue_for_a_first_note_too_soon_or_before_the_song() {
-        assert_eq!(start_cue(0.0, 0.0, 0.5), StartCue::None);
-        assert_eq!(start_cue(0.0, 1.4, 0.5), StartCue::None);
-        assert_eq!(start_cue(-1.0, 4.0, 0.5), StartCue::None);
-        // A broken tempo never panics or counts: it falls back to READY.
-        assert_eq!(start_cue(0.0, 4.0, 0.0), StartCue::Ready(1.0));
-        assert_eq!(start_cue(0.0, 4.0, f64::NAN), StartCue::Ready(1.0));
-    }
-
-    #[test]
-    fn the_start_cue_never_goes_back() {
-        for &(first, beat) in &[(4.0, 0.5), (2.0, 0.5), (1.8, 0.5), (60.0, 0.5), (2.5, 1.0)] {
-            let mut last = 0;
-            for k in 0..(first * 200.0) as u32 + 100 {
-                let rank = match start_cue(k as f64 * 0.005, first, beat) {
-                    StartCue::None => continue,
-                    StartCue::Ready(_) | StartCue::Count { number: 3, .. } => 1,
-                    StartCue::Count { number: 2, .. } => 2,
-                    StartCue::Count { .. } => 3,
-                    StartCue::Go(_) => 4,
-                };
-                assert!(rank >= last, "first {first}, beat {beat}: went back at {k}");
-                last = rank;
-            }
-            assert_eq!(last, 4, "first {first}: ends on GO!");
-        }
-    }
-
-    #[test]
-    fn count_alpha_holds_then_fades() {
-        assert_eq!(count_alpha(0.0), 1.0);
-        assert_eq!(count_alpha(0.7), 1.0);
-        assert!(count_alpha(0.85) < 1.0);
-        assert!(count_alpha(1.0) < 0.001);
-        let mut prev = 1.0;
-        for k in 0..=100 {
-            let v = count_alpha(k as f32 / 100.0);
-            assert!(v <= prev + 1e-6 && (0.0..=1.0).contains(&v));
-            prev = v;
-        }
     }
 
     #[test]
@@ -2989,6 +2666,7 @@ mod tests {
                 visual_offset_ms: 0.0,
                 reduce_flashes: false,
                 high_contrast: false,
+                loading: None,
             },
         );
         assert_eq!(ui.canvas.debug_batches().len(), 1, "t={audio_time}");
@@ -3002,11 +2680,9 @@ mod tests {
         let late = [play_note(4.0, 4.0)];
         let short = [play_note(1.8, 1.8)];
         let mut max = 0;
-        // Count-in 3, 2, 1, GO!, then the READY fallback, with nothing on top.
+        // READY, then the first notes with nothing on top.
         for (notes, t) in [
-            (&late[..], 2.9),
-            (&late[..], 3.3),
-            (&late[..], 3.7),
+            (&late[..], 0.5),
             (&late[..], 4.1),
             (&short[..], 0.3),
             (&short[..], 1.9),

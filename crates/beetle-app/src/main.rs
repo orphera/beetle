@@ -352,6 +352,8 @@ impl ApplicationHandler for BeetleApp {
             loading_receiver: None,
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
+            loading_lane: None,
+            loaded_song: None,
             loading_started_at: Instant::now(),
             result_entered_at: Instant::now(),
             result_reveal_skipped: false,
@@ -492,18 +494,12 @@ impl ApplicationHandler for BeetleApp {
                         Ok(res) => {
                             state.loading_receiver = None;
                             match res {
-                                Ok((chart, timing, soundbank, bga_bank, video_sources)) => {
-                                    if let Some(song) = state.loading_song.take() {
-                                        finalize_start_gameplay(
-                                            state,
-                                            &song,
-                                            chart,
-                                            timing,
-                                            soundbank,
-                                            bga_bank,
-                                            video_sources,
-                                        );
+                                Ok(data) => {
+                                    let gauge = state.play_options.gauge_type;
+                                    if let Some(lane) = &mut state.loading_lane {
+                                        lane.take_header(&data.0, gauge);
                                     }
+                                    state.loaded_song = Some(data);
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to load chart: {e:?}");
@@ -516,6 +512,30 @@ impl ApplicationHandler for BeetleApp {
                             state.loading_receiver = None;
                             fail_song_load(state);
                         }
+                    }
+                }
+
+                // The card is the way in; the rest of the load shows on the lane.
+                if state.loading_lane.is_none()
+                    && state.loading_song.is_some()
+                    && state.loading_started_at.elapsed().as_secs_f64()
+                        >= gameplay::LOADING_CARD_SECONDS
+                {
+                    gameplay::show_loading_lane(state);
+                }
+                if gameplay::lane_ready_to_play(state) {
+                    if let (Some((chart, timing, soundbank, bga_bank, video_sources)), Some(song)) =
+                        (state.loaded_song.take(), state.loading_song.take())
+                    {
+                        finalize_start_gameplay(
+                            state,
+                            &song,
+                            chart,
+                            timing,
+                            soundbank,
+                            bga_bank,
+                            video_sources,
+                        );
                     }
                 }
 
@@ -1218,6 +1238,8 @@ fn handle_keyboard_input(
             if key_state == ElementState::Pressed && code == KeyCode::Escape {
                 state.loading_receiver = None;
                 state.loading_song = None;
+                state.loading_lane = None;
+                state.loaded_song = None;
                 state.screen = AppScreen::SongSelect;
             }
         }

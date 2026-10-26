@@ -255,6 +255,10 @@ pub struct AppState {
     /// When the current song load started (drives the loading animation).
     pub loading_started_at: Instant,
     pub loading_anim_time: Instant,
+    /// The play lane the rest of the load shows on, once the card is over.
+    pub loading_lane: Option<crate::gameplay::LoadingLane>,
+    /// A finished load waiting for the lane to have shown (`lane_ready_to_play`).
+    pub loaded_song: Option<crate::loader::LoadedSongData>,
     pub result_entered_at: Instant,
     /// The reveal was skipped (a key or a click): the final state from now on.
     pub result_reveal_skipped: bool,
@@ -522,6 +526,13 @@ impl AppState {
     /// Sets the renderer's scroll speed from the green number and the lane
     /// cover. Call after either changes; the green number itself is kept, so
     /// a new cover keeps the time a note is visible.
+    /// The frame shows the play lane: Gameplay, or the end of a load (the
+    /// load goes on on the lane once the card is over).
+    pub fn on_play_lane(&self) -> bool {
+        self.screen == AppScreen::Gameplay
+            || (self.screen == AppScreen::Loading && self.loading_lane.is_some())
+    }
+
     pub fn sync_hi_speed(&mut self) {
         self.view.skin.hi_speed = beetle_render::green_ms_to_px_per_sec(
             self.play_options.green_ms as f32,
