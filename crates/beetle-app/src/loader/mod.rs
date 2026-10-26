@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -15,8 +15,6 @@ use beetle_render::{strings, ImageBuffer};
 mod disc;
 mod folder;
 mod package;
-
-pub const ARTWORKS_CACHE_DIR: &str = ".cache/artworks";
 
 /// Unified video data source: either a filesystem path or in-memory byte buffer.
 #[derive(Debug, Clone)]
@@ -162,7 +160,7 @@ fn base_video_ids(chart: &BmsChart) -> Vec<BmpId> {
 
 /// Stage artwork, and the encoded bytes to keep in the artwork cache (`None`
 /// when it is not worth caching).
-type StageArt = (ImageBuffer, Option<Vec<u8>>);
+type StageArt = ImageBuffer;
 
 /// Where a song's chart and files come from. The loader parses the chart and
 /// times it the same way for every source; a source only reads.
@@ -194,22 +192,7 @@ fn open_source(file_path: &str) -> Result<Box<dyn SongSource>, ChartLoadError> {
     }
 }
 
-/// Writes an artwork cache file by renaming a temp file over it, so no reader
-/// (or a second decoder of the same image) sees a half-written file. The temp
-/// name is unique to each write, so two writers never share one. Failures are
-/// ignored: the cache is only a speed-up.
-fn write_cache_file(path: &Path, bytes: &[u8]) {
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(format!(".{}.{seq}.tmp", std::process::id()));
-    let tmp = PathBuf::from(tmp);
-    if fs::write(&tmp, bytes).is_err() || fs::rename(&tmp, path).is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-}
-
-/// Loads stage artwork image for a song if available on disk, cache, or inside a .bmsp package.
+/// Loads a song's stage artwork (the caller keeps it in memory).
 /// The stage image the song select screen shows (its detail panel and jacket).
 /// IIDX discs have none there: their loading art is slow to read from the disc,
 /// so the select screen shows the text instead. Pop'n art is in the atlas and
@@ -225,21 +208,7 @@ pub fn select_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
 }
 
 pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    // 1. Check persistent on-disk artwork cache first (fastest)
-    let cache_dir = Path::new(ARTWORKS_CACHE_DIR);
-    let cache_file = cache_dir.join(format!("{}.bmp", song.id.short()));
-    if cache_file.exists() {
-        if let Some(img) = ImageBuffer::load_from_file(&cache_file) {
-            return Some(img);
-        }
-    }
-
-    let (img, cache_bytes) = open_source(&song.file_path).ok()?.stage_image()?;
-    if let Some(bytes) = cache_bytes {
-        let _ = fs::create_dir_all(cache_dir);
-        write_cache_file(&cache_file, &bytes);
-    }
-    Some(img)
+    open_source(&song.file_path).ok()?.stage_image()
 }
 
 /// The chart bytes at a song address (a chart file, package entry or disc
@@ -382,28 +351,6 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_artwork_cache_write_replaces_the_file_whole_and_leaves_no_temp() {
-        let dir = std::env::temp_dir().join(format!("beetle-art-cache-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("a.bmp");
-        write_cache_file(&path, b"a longer first version");
-        write_cache_file(&path, b"second");
-        assert_eq!(fs::read(&path).unwrap(), b"second");
-        let temps = fs::read_dir(&dir)
-            .unwrap()
-            .filter(|e| {
-                e.as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .ends_with(".tmp")
-            })
-            .count();
-        assert_eq!(temps, 0);
-        let _ = fs::remove_dir_all(&dir);
-    }
 
     #[test]
     fn test_bmsp_in_memory_video_loading() {

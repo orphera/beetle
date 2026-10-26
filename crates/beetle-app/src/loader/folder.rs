@@ -89,7 +89,7 @@ impl SongSource for FolderSource {
                         continue;
                     }
                     if let Some(img) = load_image_from_dir_or_case_insensitive(&self.dir, name) {
-                        return Some((img, None));
+                        return Some(img);
                     }
                 }
             }
@@ -99,7 +99,7 @@ impl SongSource for FolderSource {
         for name in ARTWORK_CANDIDATE_FILENAMES {
             let p = self.dir.join(name);
             if let Some(img) = ImageBuffer::load_from_file(&p) {
-                return Some((img, fs::read(&p).ok()));
+                return Some(img);
             }
         }
         None

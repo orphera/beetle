@@ -198,8 +198,7 @@ impl SongSource for DiscSource {
         for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {
             *out = ColorRgba::new(r, g, b, a);
         }
-        let bytes = image.encode_bmp_bytes();
-        Some((image, Some(bytes)))
+        Some(image)
     }
 }
 

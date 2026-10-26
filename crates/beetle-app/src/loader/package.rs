@@ -94,7 +94,7 @@ impl PackageSource {
         })?;
         let img_bytes = delta_meta.unpack_frame(&key, &delta_bytes).ok()??;
         let img = ImageBuffer::from_bytes(&img_bytes)?;
-        Some((img, Some(img_bytes)))
+        Some(img)
     }
 
     fn stage_from_atlas(&mut self, names: &[String]) -> Option<StageArt> {
@@ -112,8 +112,7 @@ impl PackageSource {
                     .find_map(|name| find_atlas_frame(&bga_meta.frames, name))
             })?;
         let img = atlas_img.crop(frame.x, frame.y, frame.width, frame.height)?;
-        let bmp_bytes = img.encode_bmp_bytes();
-        Some((img, Some(bmp_bytes)))
+        Some(img)
     }
 
     fn images_from_delta(
@@ -350,7 +349,7 @@ impl SongSource for PackageSource {
         for name in candidates.collect::<Vec<_>>() {
             if let Some(img_bytes) = self.read_near_chart(name) {
                 if let Some(img) = ImageBuffer::from_bytes(&img_bytes) {
-                    return Some((img, Some(img_bytes)));
+                    return Some(img);
                 }
             }
         }
