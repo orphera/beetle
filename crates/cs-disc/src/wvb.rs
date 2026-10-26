@@ -19,7 +19,7 @@
 //!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
 //! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
-//! at 40 on the key sounds' scale), then
+//! at 40, which is not applied to the stream (see `decode_bgm`)), then
 //! ADPCM frames interleaved per channel every 16 bytes.
 
 use std::fmt;
@@ -289,7 +289,8 @@ fn apply_volume(samples: &mut [i16], volume: u8) {
     }
 }
 
-/// A BGM stream decoded.
+/// A BGM stream decoded at full level. Its header volume (40) is not applied:
+/// XENON's 48 would play it at 38%, too quiet under the key sounds.
 pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
     let start = u32_at(data, 8)? as usize;
     let size = u32_at(data, 12)? as usize;
@@ -300,7 +301,6 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
     if interleave != 16 {
         return Err(SoundError::BadInterleave(interleave));
     }
-    let volume = u32_at(data, 40)?.min(127) as u8;
     let body = data
         .get(start..(start + size).min(data.len()))
         .ok_or(SoundError::TooShort)?;
@@ -314,8 +314,7 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
                 .flatten()
                 .copied()
                 .collect();
-            let mut samples = adpcm::decode(&frames, key, false);
-            apply_volume(&mut samples, volume);
+            let samples = adpcm::decode(&frames, key, false);
             samples
         })
         .collect();
