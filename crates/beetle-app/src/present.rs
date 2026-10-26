@@ -76,15 +76,15 @@ fn show_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now: Instan
     }
     let ui = state.gpu_ui.ui.current();
     match state.stage_image_cache.get(&id) {
-        Some(Some(_)) => {
-            if let Some(px) = state.stage_backdrop_cache.get(&id) {
+        Some(pic) if pic.image.is_some() => {
+            if let Some(px) = pic.backdrop.clone() {
                 ui.backdrop
-                    .show(ui.canvas.atlas_mut(), JacketKey::Chart(id), now, || {
-                        px.clone()
+                    .show(ui.canvas.atlas_mut(), JacketKey::Chart(pic.id), now, || {
+                        px.as_ref().clone()
                     });
             }
         }
-        Some(None) => {
+        Some(_) => {
             ui.backdrop.show(
                 ui.canvas.atlas_mut(),
                 JacketKey::Placeholder(seed),
@@ -107,11 +107,15 @@ fn show_loading_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now
         return;
     }
     let ui = state.gpu_ui.ui.current();
-    match state.stage_backdrop_cache.get(&id) {
-        Some(px) => {
+    match state
+        .stage_image_cache
+        .get(&id)
+        .and_then(|pic| pic.backdrop.clone().map(|px| (pic.id, px)))
+    {
+        Some((stage, px)) => {
             ui.backdrop
-                .show(ui.canvas.atlas_mut(), JacketKey::Chart(id), now, || {
-                    px.clone()
+                .show(ui.canvas.atlas_mut(), JacketKey::Chart(stage), now, || {
+                    px.as_ref().clone()
                 });
         }
         None => {
@@ -267,11 +271,11 @@ pub fn gameplay(
     let jacket = match state
         .stage_image_cache
         .get(&id)
-        .and_then(|img| img.as_ref())
+        .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)))
     {
-        Some(img) => state
+        Some((stage, img)) => state
             .gpu_ui
-            .image(&mut state.d3d11, ImageKey::Stage(id), img),
+            .image(&mut state.d3d11, ImageKey::Stage(stage), &img),
         None => None,
     };
     state.view.clean_expired_hit_bursts(audio_time);
@@ -427,14 +431,14 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
 
     let stage_img = selected_id
         .and_then(|id| state.stage_image_cache.get(&id))
-        .and_then(|img| img.as_ref());
+        .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)));
     let (jacket, ambient) = match (selected_id, stage_img) {
-        (Some(id), Some(img)) => {
-            state.gpu_ui.trim_stage_textures(&mut state.d3d11, id);
+        (Some(_), Some((stage, img))) => {
+            state.gpu_ui.trim_stage_textures(&mut state.d3d11, stage);
             (
                 state
                     .gpu_ui
-                    .image(&mut state.d3d11, ImageKey::Stage(id), img),
+                    .image(&mut state.d3d11, ImageKey::Stage(stage), &img),
                 Some(img.average_color_sampled(6)),
             )
         }
@@ -738,12 +742,12 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
         Some(song) => match state
             .stage_image_cache
             .get(&song.id)
-            .and_then(|img| img.as_ref())
+            .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)))
         {
-            Some(img) => (
+            Some((stage, img)) => (
                 state
                     .gpu_ui
-                    .image(&mut state.d3d11, ImageKey::Stage(song.id), img),
+                    .image(&mut state.d3d11, ImageKey::Stage(stage), &img),
                 Some(img.average_color_sampled(6)),
             ),
             None => (None, None),
@@ -834,20 +838,15 @@ fn show_result_backdrop(state: &mut AppState, now: Instant) {
         return;
     }
     let played = state.active_chart_id;
-    if !state.stage_backdrop_cache.contains_key(&played) {
-        let fresh = state
-            .active_bga_image
-            .as_ref()
-            .and_then(beetle_render::backdrop::blur_backdrop);
-        if let Some(px) = fresh {
-            state.stage_backdrop_cache.insert(played, px);
-        }
-    }
+    let backdrop = state
+        .stage_image_cache
+        .get(&played)
+        .and_then(|pic| pic.backdrop.clone().map(|px| (pic.id, px)));
     let ui = state.gpu_ui.ui.current();
-    if let Some(px) = state.stage_backdrop_cache.get(&played) {
+    if let Some((stage, px)) = backdrop {
         ui.backdrop
-            .show(ui.canvas.atlas_mut(), JacketKey::Chart(played), now, || {
-                px.clone()
+            .show(ui.canvas.atlas_mut(), JacketKey::Chart(stage), now, || {
+                px.as_ref().clone()
             });
     } else if state.active_bga_image.is_none() {
         if let Some(chart) = state.active_chart.as_ref() {

@@ -12,7 +12,7 @@ use beetle_render::strings;
 use crate::calibration::judged_time;
 use crate::handlers::gameplay::freezone_sounds;
 use crate::lane_logic::{LaneSession, LogicCommand};
-use crate::loader::{load_stage_image, spawn_background_song_loader};
+use crate::loader::{load_stage, spawn_background_song_loader};
 use crate::state::{
     replay_path, save_scores, AppScreen, AppState, LaneSessionSync, REPLAYS_DIR,
     SCHEDULE_AHEAD_SECONDS,
@@ -37,11 +37,11 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     state.thumbs.set_wanted(&[]);
 
     // Cache stage image for loading screen. The select screen caches an IIDX
-    // disc's art as `None` (it does not read it there), so an empty entry is
-    // read again here.
-    if !matches!(state.stage_image_cache.get(&song.id), Some(Some(_))) {
-        let img = load_stage_image(song);
-        state.stage_image_cache.insert(song.id, img);
+    // disc's art without a picture (it does not read it there), so such an
+    // entry is loaded again here.
+    if !matches!(state.stage_image_cache.get(&song.id), Some(pic) if pic.image.is_some()) {
+        let pic = load_stage(song);
+        state.stage_image_cache.insert(song.id, pic);
     }
 
     // A replay re-rolls `#RANDOM` with the seed it was recorded with; a fresh
@@ -250,15 +250,11 @@ pub fn finalize_start_gameplay(
     state.poor_until_time = 0.0;
     state.video_players = video_players;
     state.video_start_times = video_start_times;
-    // The Result backdrop is blurred from the stage art whether or not the BGA
-    // is shown, so it is made here while the art is at hand.
-    let stage = state.stage_image_cache.get(&song.id).cloned().flatten();
-    if let Some(px) = stage
-        .as_ref()
-        .and_then(beetle_render::backdrop::blur_backdrop)
-    {
-        state.stage_backdrop_cache.insert(song.id, px);
-    }
+    // The stage art shows as the BGA fallback when the BGA option is on.
+    let stage = state
+        .stage_image_cache
+        .get(&song.id)
+        .and_then(|pic| pic.image.clone());
     state.active_bga_image = stage
         .filter(|_| state.bga_enabled)
         .map(|img| img.create_scaled(320, 180));

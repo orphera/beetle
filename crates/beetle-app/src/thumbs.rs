@@ -198,7 +198,9 @@ fn next_request(shared: &SharedPair) -> Option<Request> {
 fn worker(shared: Arc<SharedPair>, done: Sender<Done>) {
     while let Some(req) = next_request(&shared) {
         finish_job(&shared, &done, req.id, || {
-            crate::loader::select_stage_image(&req.song).and_then(|img| thumb_pixels(&img))
+            crate::loader::select_stage_image(&req.song)
+                .image
+                .and_then(|img| thumb_pixels(&img))
         });
     }
 }

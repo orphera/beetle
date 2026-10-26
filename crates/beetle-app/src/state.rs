@@ -162,9 +162,8 @@ pub struct AppState {
     pub playback_replay: Option<ReplayData>,
     pub playback_cursor: usize,
     pub start_measure: u32,
-    pub stage_image_cache: std::collections::HashMap<ChartId, Option<ImageBuffer>>,
-    /// Blurred backdrop pictures (`beetle_render::backdrop`), made by the stage loader with the artwork.
-    pub stage_backdrop_cache: std::collections::HashMap<ChartId, Vec<u8>>,
+    /// The stage picture of each chart the app has loaded (shared with the other charts that show it).
+    pub stage_image_cache: std::collections::HashMap<ChartId, crate::loader::StagePicture>,
     pub bga_bank: std::collections::HashMap<beetle_core::BmpId, ImageBuffer>,
     pub bga_cursor: usize,
     pub current_bga_bmp: Option<beetle_core::BmpId>,
@@ -677,7 +676,6 @@ impl AppState {
             self.rescan_return = self.screen;
         }
         self.stage_image_cache.clear();
-        self.stage_backdrop_cache.clear();
         self.stage_image_receiver = None;
         self.stage_image_loading_id = None;
         self.thumbs.reset();

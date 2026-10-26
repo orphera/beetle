@@ -293,7 +293,6 @@ impl ApplicationHandler for BeetleApp {
             playback_cursor: 0,
             start_measure: 0,
             stage_image_cache: std::collections::HashMap::new(),
-            stage_backdrop_cache: std::collections::HashMap::new(),
             bga_bank: std::collections::HashMap::new(),
             bga_cursor: 0,
             current_bga_bmp: None,
@@ -561,11 +560,8 @@ impl ApplicationHandler for BeetleApp {
             AppScreen::SongSelect => {
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
-                    if let Ok((id, img, backdrop)) = rx.try_recv() {
-                        if let Some(px) = backdrop {
-                            state.stage_backdrop_cache.insert(id, px);
-                        }
-                        state.stage_image_cache.insert(id, img);
+                    if let Ok((id, pic)) = rx.try_recv() {
+                        state.stage_image_cache.insert(id, pic);
                         state.stage_image_receiver = None;
                         state.stage_image_loading_id = None;
                         state.window.request_redraw();

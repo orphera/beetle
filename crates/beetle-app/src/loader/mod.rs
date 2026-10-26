@@ -202,35 +202,84 @@ fn open_source(file_path: &str) -> Result<Box<dyn SongSource>, ChartLoadError> {
 /// IIDX discs have none there: their loading art is slow to read from the disc,
 /// so the select screen shows the text instead. Pop'n art is in the atlas and
 /// stays. Gameplay still loads the full stage image (`load_stage_image`).
-pub fn select_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
+pub fn select_stage_image(song: &SongMetadata) -> StagePicture {
     if let SongAddress::Disc { image, chart } = SongAddress::parse(&song.file_path) {
-        let source = disc::DiscSource::open(image, chart).ok()?;
-        if !source.is_popn() {
-            return None;
+        let popn = disc::DiscSource::open(image, chart)
+            .map(|source| source.is_popn())
+            .unwrap_or(false);
+        if !popn {
+            return StagePicture::none(song.id);
         }
     }
-    load_stage_image(song)
+    load_stage(song)
 }
 
-/// Stage art decoded once per key (`stage_key`), shared by every chart that
-/// has the same key. Entries are kept for the run.
-static STAGE_PICTURES: OnceLock<Mutex<HashMap<String, Option<ImageBuffer>>>> = OnceLock::new();
+/// A decoded stage picture, shared by every chart that shows it.
+pub type Picture = Arc<ImageBuffer>;
 
-pub fn load_stage_image(song: &SongMetadata) -> Option<ImageBuffer> {
-    let mut source = open_source(&song.file_path).ok()?;
-    let (Some(location), SongAddress::Disc { image, .. }) =
-        (source.stage_key(), SongAddress::parse(&song.file_path))
-    else {
-        return source.stage_image();
-    };
-    let key = format!("{image}@{location}");
-    let pictures = STAGE_PICTURES.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(hit) = pictures.lock().ok()?.get(&key) {
-        return hit.clone();
+/// A song's stage art: its identity (charts that show the same art share it,
+/// and the GPU and backdrop caches key on it), the picture (`None`: the song
+/// has none) and the blurred backdrop made from it.
+#[derive(Clone)]
+pub struct StagePicture {
+    pub id: ChartId,
+    pub image: Option<Picture>,
+    pub backdrop: Option<Arc<Vec<u8>>>,
+}
+
+impl StagePicture {
+    fn none(id: ChartId) -> Self {
+        StagePicture {
+            id,
+            image: None,
+            backdrop: None,
+        }
     }
-    let img = source.stage_image();
-    pictures.lock().ok()?.insert(key, img.clone());
-    img
+}
+
+/// Stage pictures decoded for the run, by identity. A disc's art is decoded
+/// once per place it is on the disc, however many charts show it.
+static STAGE_PICTURES: OnceLock<Mutex<HashMap<ChartId, StagePicture>>> = OnceLock::new();
+
+/// Loads a song's stage art, reusing the decode of any chart that shares it.
+pub fn load_stage(song: &SongMetadata) -> StagePicture {
+    let Ok(mut source) = open_source(&song.file_path) else {
+        return StagePicture::none(song.id);
+    };
+    let shared = match (source.stage_key(), SongAddress::parse(&song.file_path)) {
+        (Some(key), SongAddress::Disc { image, .. }) => {
+            Some(ChartId::of_bytes(format!("stage:{image}@{key}").as_bytes()))
+        }
+        _ => None,
+    };
+    let pictures = STAGE_PICTURES.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(id) = shared {
+        if let Some(hit) = pictures.lock().ok().and_then(|p| p.get(&id).cloned()) {
+            return hit;
+        }
+    }
+    let image = source.stage_image().map(Arc::new);
+    let backdrop = image
+        .as_deref()
+        .and_then(beetle_render::backdrop::blur_backdrop)
+        .map(Arc::new);
+    let pic = StagePicture {
+        id: shared.unwrap_or(song.id),
+        image,
+        backdrop,
+    };
+    if shared.is_some() {
+        if let Ok(mut p) = pictures.lock() {
+            p.insert(pic.id, pic.clone());
+        }
+    }
+    pic
+}
+
+/// The song's stage picture, or `None` when it has none.
+#[cfg(test)]
+pub fn load_stage_image(song: &SongMetadata) -> Option<Picture> {
+    load_stage(song).image
 }
 
 /// The chart bytes at a song address (a chart file, package entry or disc
@@ -348,10 +397,9 @@ pub fn spawn_background_song_loader(
     rx
 }
 
-/// What the stage image loader hands back: the song, its artwork (`None`
-/// when it has none), and the blurred backdrop picture of that artwork
-/// (`beetle_render::backdrop`), computed here so the render thread only copies it.
-pub type StageLoad = (ChartId, Option<ImageBuffer>, Option<Vec<u8>>);
+/// What the stage image loader hands back: the chart and its stage picture
+/// (`load_stage`), with the backdrop already made.
+pub type StageLoad = (ChartId, StagePicture);
 
 /// Spawns a background thread to load a song's stage image without blocking the UI thread.
 pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<StageLoad> {
@@ -360,11 +408,7 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
     let (tx, rx) = channel();
 
     thread::spawn(move || {
-        let img = select_stage_image(&song_clone);
-        let backdrop = img
-            .as_ref()
-            .and_then(beetle_render::backdrop::blur_backdrop);
-        let _ = tx.send((id, img, backdrop));
+        let _ = tx.send((id, select_stage_image(&song_clone)));
     });
 
     rx
