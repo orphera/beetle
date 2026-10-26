@@ -1224,8 +1224,9 @@ fn hud_panels(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, hud:
     if hud.song.w >= min_w {
         song_block(c, t, sk, f, hud.song, s);
     }
-    // Without a BGA of the chart's own the column under the song block would be empty.
-    if !f.chart_has_bga && hud.art.w >= min_w && hud.art.h >= 120.0 * s {
+    // The column under the song block always shows the song's stage art, with
+    // or without the chart's own BGA behind the track.
+    if hud.art.w >= min_w && hud.art.h >= 120.0 * s {
         jacket_card(c, t, sk, f, hud.art, s);
     }
     if hud.score.w >= min_w {
