@@ -22,6 +22,8 @@ fn disc2_is_premium_best_and_lists_anisakis() {
     assert_eq!(identify(&mut disc).unwrap(), Some(Edition::PremiumBest));
     let songs = Disc::open(&mut disc, &volume, Edition::PremiumBest).unwrap();
     assert_eq!(songs.songs.len(), 99);
+    // No CLASS or EXPERT mode on this disc.
+    assert!(songs.dan_courses.is_empty() && songs.expert_courses.is_empty());
     let anisakis = songs
         .songs
         .iter()

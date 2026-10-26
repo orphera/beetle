@@ -83,8 +83,11 @@ struct Layout {
     chart_key: Option<&'static [u8]>,
     record: Record,
     /// The dan course table (`DAN_PAIRS` song and chart pairs), where the
-    /// edition has one (14 on; docs/specs/iidx_ps2_disc.md, 8).
+    /// edition has one (14 on; docs/specs/iidx_ps2_disc.md, 7).
     dan: Option<usize>,
+    /// The EXPERT course table: (offset, courses), where the edition has one
+    /// (14 on; docs/specs/iidx_ps2_disc.md, 8).
+    expert: Option<(usize, usize)>,
 }
 
 /// How a DAT file table entry gives a file's span.
@@ -183,6 +186,7 @@ const TENTH_STYLE: Layout = Layout {
         },
     },
     dan: None,
+    expert: None,
 };
 
 const RED: Layout = Layout {
@@ -210,6 +214,7 @@ const RED: Layout = Layout {
         },
     },
     dan: None,
+    expert: None,
 };
 
 const HAPPY_SKY: Layout = Layout {
@@ -237,6 +242,7 @@ const HAPPY_SKY: Layout = Layout {
         },
     },
     dan: None,
+    expert: None,
 };
 
 const DISTORTED: Layout = Layout {
@@ -270,6 +276,7 @@ const DISTORTED: Layout = Layout {
         },
     },
     dan: None,
+    expert: None,
 };
 
 const GOLD: Layout = Layout {
@@ -301,6 +308,7 @@ const GOLD: Layout = Layout {
         },
     },
     dan: Some(0x145250),
+    expert: Some((0x144cc0, 16)),
 };
 
 const DJ_TROOPERS: Layout = Layout {
@@ -314,6 +322,7 @@ const DJ_TROOPERS: Layout = Layout {
     chart_key: Some(b"eqkBipx2wgExUAIG"),
     record: RECORD_15_16,
     dan: Some(0x15e200),
+    expert: Some((0x15dc70, 16)),
 };
 
 const EMPRESS: Layout = Layout {
@@ -330,6 +339,7 @@ const EMPRESS: Layout = Layout {
         ..RECORD_15_16
     },
     dan: Some(0x167fe0),
+    expert: Some((0x167b10, 10)),
 };
 
 const PREMIUM_BEST: Layout = Layout {
@@ -338,7 +348,10 @@ const PREMIUM_BEST: Layout = Layout {
     file_tables: &[(0x140e90, 0x2a0), (0x141130, 0x28f8), (0x143a28, 0x660)],
     songs: (0x17e0f0, 0x7850),
     data1: (0x139980, 0x5bd0),
-    dan: Some(0x16c530),
+    // The disc has the tables of EMPRESS's modes, filled with its own songs,
+    // but no STANDARD, EXPERT or CLASS mode to play them in (RemyWiki).
+    dan: None,
+    expert: None,
     ..EMPRESS
 };
 
@@ -533,6 +546,57 @@ pub struct Disc {
     word_refs: Vec<[(u16, u16); 4]>,
     /// The game's own dan courses (empty where none was found).
     pub dan_courses: Vec<DanCourse>,
+    /// The game's EXPERT courses (empty where none was found).
+    pub expert_courses: Vec<ExpertCourse>,
+}
+
+/// One EXPERT course of the game: songs in order; the player picks the
+/// style and difficulty they are played at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpertCourse {
+    pub name: String,
+    /// Song ids (`Song::id`).
+    pub songs: Vec<u32>,
+}
+
+/// Reads the EXPERT course table: 64-byte records of a pointer to the
+/// course name (an ASCII string in the executable) and five (song id, 1, 1)
+/// triples (the two 1s are not known). A record that does not read as one
+/// gives no courses rather than wrong ones.
+fn read_expert_courses(
+    exe: &[u8],
+    (at, count): (usize, usize),
+    songs: &[Song],
+) -> Vec<ExpertCourse> {
+    let mut courses = Vec::new();
+    for c in 0..count {
+        let Some(record) = exe.get(at + c * 64..at + c * 64 + 64) else {
+            return Vec::new();
+        };
+        let Some(name) = elf_string(exe, u32_at(record, 0)) else {
+            return Vec::new();
+        };
+        let ids: Vec<u32> = (0..5).map(|i| u32_at(record, 4 + 12 * i)).collect();
+        if !ids.iter().all(|id| songs.iter().any(|s| s.id == *id)) {
+            return Vec::new();
+        }
+        courses.push(ExpertCourse { name, songs: ids });
+    }
+    courses
+}
+
+/// The ASCII string at a virtual address of the executable's first loaded
+/// segment, or `None`.
+fn elf_string(exe: &[u8], address: u32) -> Option<String> {
+    let phoff = u32_at(exe.get(0x1c..0x20)?, 0) as usize;
+    let header = exe.get(phoff..phoff + 32)?;
+    let (offset, vaddr) = (u32_at(header, 4), u32_at(header, 8));
+    let at = address.checked_sub(vaddr)?.checked_add(offset)? as usize;
+    let bytes = exe.get(at..)?;
+    let end = bytes.iter().take(64).position(|&b| b == 0)?;
+    let text = &bytes[..end];
+    (end > 0 && text.iter().all(|b| (0x20..0x7f).contains(b)))
+        .then(|| String::from_utf8_lossy(text).into_owned())
 }
 
 /// One dan course of the game (段位認定, CLASS mode).
@@ -633,6 +697,10 @@ impl Disc {
             .dan
             .map(|at| read_dan_courses(&exe, at, &songs))
             .unwrap_or_default();
+        let expert_courses = layout
+            .expert
+            .map(|table| read_expert_courses(&exe, table, &songs))
+            .unwrap_or_default();
         // DATA1 records: id, sector, sectors, 0.
         let data1_files = table(&exe, layout.data1)?
             .chunks_exact(16)
@@ -656,6 +724,7 @@ impl Disc {
                 None => Vec::new(),
             },
             dan_courses,
+            expert_courses,
         })
     }
 
@@ -693,6 +762,7 @@ impl Disc {
             name_refs: crate::popn::read_name_refs(&exe, layout),
             word_refs: Vec::new(),
             dan_courses: Vec::new(),
+            expert_courses: Vec::new(),
         })
     }
 
@@ -1523,6 +1593,7 @@ mod tests {
             name_refs: Vec::new(),
             word_refs: Vec::new(),
             dan_courses: Vec::new(),
+            expert_courses: Vec::new(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);

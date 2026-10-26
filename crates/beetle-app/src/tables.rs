@@ -9,6 +9,7 @@ use beetle_core::{
     TableIndex,
 };
 use beetle_render::strings;
+use cs_disc::iidx::{Difficulty, Style};
 
 /// Where `bpm table` keeps the tables; the same folder it writes to.
 fn tables_dir() -> PathBuf {
@@ -46,10 +47,12 @@ pub fn build_index(songs: &[SongMetadata]) -> TableIndex {
     index
 }
 
-/// The dan courses of the game discs in the library, one course-only table
-/// per disc (after the installed tables). A course names its charts by the
-/// ids of the library songs read from that disc; a course with a chart the
-/// library does not list from that disc is left out.
+/// The courses of the game discs in the library, one course-only table per
+/// disc (after the installed tables): the dan courses, then each EXPERT
+/// course at every style and difficulty its songs all have (the game lets
+/// the player pick; here each pick is its own course). A course names its
+/// charts by the ids of the library songs read from that disc; a course with
+/// a chart the library does not list from that disc is left out.
 fn disc_dan_tables(songs: &[SongMetadata]) -> Vec<DifficultyTable> {
     let mut images: Vec<&str> = Vec::new();
     for song in songs {
@@ -77,33 +80,30 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
             .iter()
             .find(|s| s.file_path == address || s.also_on.iter().any(|p| p == address))
     };
-    let courses: Vec<CourseDef> = read
+    let chart_of = |id: u32, style: Style, difficulty: Difficulty| {
+        let song = read.songs.iter().find(|s| s.id == id)?;
+        let chart = song
+            .charts
+            .iter()
+            .find(|c| c.style == style && c.difficulty == difficulty)?;
+        let found = by_address(&disc_address(image, &chart.key(song)))?;
+        Some(CourseChart {
+            md5: Some(found.md5),
+            sha256: Some(found.id),
+            title: found.title.clone(),
+        })
+    };
+    let mut courses: Vec<CourseDef> = read
         .dan_courses
         .iter()
         .filter_map(|dan| {
             let charts = dan
                 .charts
                 .iter()
-                .map(|&(id, difficulty)| {
-                    let song = read.songs.iter().find(|s| s.id == id)?;
-                    let chart = song
-                        .charts
-                        .iter()
-                        .find(|c| c.style == dan.style && c.difficulty == difficulty)?;
-                    let found = by_address(&disc_address(image, &chart.key(song)))?;
-                    Some(CourseChart {
-                        md5: Some(found.md5),
-                        sha256: Some(found.id),
-                        title: found.title.clone(),
-                    })
-                })
+                .map(|&(id, difficulty)| chart_of(id, dan.style, difficulty))
                 .collect::<Option<Vec<_>>>()?;
-            let style = match dan.style {
-                cs_disc::iidx::Style::Single => "SP",
-                cs_disc::iidx::Style::Double => "DP",
-            };
             Some(CourseDef {
-                name: format!("{style} {}", dan.rank),
+                name: format!("{} {}", style_name(dan.style), dan.rank),
                 charts,
                 // The disc does not say which lane options its dan mode
                 // allows; mirror is assumed, as in most dan tables.
@@ -112,15 +112,57 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
             })
         })
         .collect();
+    for expert in &read.expert_courses {
+        for style in [Style::Single, Style::Double] {
+            for difficulty in [Difficulty::Normal, Difficulty::Hyper, Difficulty::Another] {
+                let Some(charts) = expert
+                    .songs
+                    .iter()
+                    .map(|&id| chart_of(id, style, difficulty))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
+                courses.push(CourseDef {
+                    name: format!(
+                        "{} ({} {})",
+                        expert.name,
+                        style_name(style),
+                        difficulty_name(difficulty)
+                    ),
+                    charts,
+                    constraints: Vec::new(),
+                    trophies: Vec::new(),
+                });
+            }
+        }
+    }
     if courses.is_empty() {
         return None;
     }
     Some(DifficultyTable {
-        name: strings::fill(strings::DISC_DAN_TABLE(), &[edition.name()]),
+        name: strings::fill(strings::DISC_COURSE_TABLE(), &[edition.name()]),
         source: disc_address(image, ""),
         courses,
         ..DifficultyTable::default()
     })
+}
+
+fn style_name(style: Style) -> &'static str {
+    match style {
+        Style::Single => "SP",
+        Style::Double => "DP",
+    }
+}
+
+fn difficulty_name(difficulty: Difficulty) -> &'static str {
+    match difficulty {
+        Difficulty::Beginner => "BEGINNER",
+        Difficulty::Normal => "NORMAL",
+        Difficulty::Hyper => "HYPER",
+        Difficulty::Another => "ANOTHER",
+        Difficulty::Black => "BLACK",
+    }
 }
 
 #[cfg(test)]
