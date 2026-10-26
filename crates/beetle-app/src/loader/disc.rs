@@ -140,11 +140,9 @@ impl SongSource for DiscSource {
                 bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())
                     .and_then(|b| decode_bgm(&b).ok())
             } else {
-                let entry = n.checked_sub(self.songs.edition.key_sound_shift());
                 key_sounds
                     .as_ref()
-                    .zip(entry)
-                    .and_then(|(bank, entry)| bank.decode(entry))
+                    .and_then(|bank| bank.decode(n))
                     .and_then(Result::ok)
             };
             if let Some(pcm) = pcm {

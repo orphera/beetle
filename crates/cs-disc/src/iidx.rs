@@ -358,16 +358,6 @@ impl Edition {
         matches!(self.tables(), Tables::Popn(_))
     }
 
-    /// How much a chart's key sound number is lower than its bank entry:
-    /// HAPPY SKY's charts number the sounds one past the bank's entries
-    /// (its drum roll 15 plays entry 14, the one that sounds).
-    pub fn key_sound_shift(self) -> u16 {
-        match self {
-            Edition::HappySky => 1,
-            _ => 0,
-        }
-    }
-
     /// The sound number a chart's BGM start plays: the song's BGM stream.
     pub fn bgm_sound(self) -> u16 {
         match self.tables() {
