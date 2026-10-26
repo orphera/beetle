@@ -778,7 +778,10 @@ impl AppState {
             &pass,
         );
         self.result_count =
-            (!self.search_query.trim().is_empty() || self.filter.is_active()).then(|| {
+            // A folder of courses only has no songs to count.
+            (!folders::holds_no_songs(&self.folder_tree, &self.folder_path)
+                && (!self.search_query.trim().is_empty() || self.filter.is_active()))
+            .then(|| {
                 folders::result_count(
                     &self.folder_tree,
                     &self.folder_path,

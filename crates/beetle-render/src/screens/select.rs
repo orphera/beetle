@@ -1552,7 +1552,13 @@ fn folder_row(
     );
 
     let chevron = 14.0 * s;
-    let count_text = strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)]);
+    // A folder of courses only (a game disc's course table) holds no songs
+    // and shows no count; every other folder has songs.
+    let count_text = if count == 0 {
+        String::new()
+    } else {
+        strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)])
+    };
     let count_w = t.measure(c, &count_text, &caption(12.0, s));
     let name_x = row.x + 24.0 * s;
     let name_w = row.w - (name_x - row.x) - count_w - chevron - 32.0 * s;
@@ -1603,13 +1609,15 @@ fn folder_panel(
     let name_st = TextStyle::new(30.0 * s).bold().color(theme::TEXT);
     let name = t.fit(c, label, inner.w, &name_st).into_owned();
     t.draw(c, &name, inner.x, inner.y + 40.0 * s, &name_st);
-    t.draw(
-        c,
-        &strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)]),
-        inner.x,
-        inner.y + 80.0 * s,
-        &TextStyle::new(16.0 * s).bold().color(theme::CYAN),
-    );
+    if count > 0 {
+        t.draw(
+            c,
+            &strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)]),
+            inner.x,
+            inner.y + 80.0 * s,
+            &TextStyle::new(16.0 * s).bold().color(theme::CYAN),
+        );
+    }
     t.draw_in(
         c,
         strings::FOLDER_OPEN_HINT(),
@@ -2582,10 +2590,13 @@ fn footer(
     let mut x = vp.x + PAD * s;
     let folders_only =
         !f.rows.is_empty() && f.rows.iter().all(|r| matches!(r, SelectRow::Folder { .. }));
+    // A list of courses has no songs to count.
+    let courses_only =
+        !f.rows.is_empty() && f.rows.iter().all(|r| matches!(r, SelectRow::Course(_)));
     if folders_only {
         let text = strings::fill(strings::FOLDER_COUNT(), &[&thousands(f.rows.len() as u32)]);
         x += t.draw(c, &text, x, base, &count_st);
-    } else {
+    } else if !courses_only {
         // Both numbers count charts ("곡" = chart, as in "N곡 찾음"): a group row
         // stands for its charts, and the total is the whole library.
         let shown: usize = f.rows.iter().map(row_charts).sum();

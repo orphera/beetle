@@ -404,7 +404,8 @@ pub fn build_tree(
                 Folder {
                     id: COURSES_ID.into(),
                     label: strings::FOLDER_COURSES().into(),
-                    count,
+                    // It holds no songs; the screen shows no count for it.
+                    count: 0,
                     body: Body::Courses { table: ti, count },
                     lamps: [0; LAMP_COUNT],
                 },
@@ -1050,6 +1051,12 @@ pub fn entries_for(
             _ => Vec::new(),
         },
     }
+}
+
+/// Whether `path` holds courses only and no songs: a table's course folder,
+/// a game disc's course table, or 난이도표 when only those are in it.
+pub fn holds_no_songs(tree: &[Folder], path: &FolderPath) -> bool {
+    node(tree, path).is_some_and(|f| f.count == 0)
 }
 
 /// Whether `path` is the 전곡 folder of a table: its charts are listed one row each,
