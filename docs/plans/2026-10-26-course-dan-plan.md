@@ -134,4 +134,20 @@
 | C4 | 옵션 제약 잠금·트로피·`courses.dat` |
 | C5 | 다음 곡 선로딩 |
 | C6 | CS 디스크 단위 조사 → `CourseSource::Disc` |
-| 이후 | 판정 변형, 사용자 정의 코스, `.lr2crs` |
+| C6+ | IIDX 10th~16 디스크의 단위·EXPERT 코스 (RemyWiki 목록을 실마리로 실행 파일에서 찾음, `docs/specs/iidx_ps2_disc.md` 7·8절) |
+| 이후 | 판정 변형, 사용자 정의 코스, `.lr2crs`, pop'n music 디스크 코스(6절) |
+
+## 6. 이후 과제: pop'n music 디스크 코스
+
+pop'n music CS(12 いろは, 13 カーニバル, 14 FEVER! — 플레이어가 곡을 읽는 디스크)에도 코스가 있다. 아직 조사하지 않았다.
+
+- 찾는 방법: IIDX에서 통한 방법을 그대로 쓴다.
+  1. RemyWiki의 각 CS 페이지에서 코스 목록(이름, 곡 순서)을 얻는다.
+  2. 곡 번호를 `examples/exe_dump.rs`로 꺼낸 곡 목록에서 찾는다.
+  3. 실행 파일에서 그 순서를 간격을 바꿔 가며 검색한다(32·16·8비트, 4~32바이트 간격).
+  4. 실행 파일에 없으면 `SD.DAT`·`IMAGE.DAT` 쪽을 본다.
+- 확인할 것:
+  - 코스 형식이 IIDX와 같은지(차트 고정 단위형인지, 난이도를 고르는 EXPERT형인지)
+  - pop'n의 게이지·합격 규칙. beatoraja CLASS 게이지(7키 기준)를 9버튼에 그대로 쓸지, `gauge_9k` 수치를 쓸지 정해야 한다.
+- 앱 쪽은 이미 갖춰져 있다. cs-disc가 `Disc`에 코스를 채우면 `tables.rs`의 디스크 코스 표가 그대로 보여 준다(`Layout`은 `popn::Layout`이라 읽는 자리만 추가하면 됨).
+
