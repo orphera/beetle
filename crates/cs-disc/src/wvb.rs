@@ -68,6 +68,21 @@ fn u32_at(b: &[u8], at: usize) -> Result<u32, SoundError> {
     ))
 }
 
+/// The rate a sound's stored length implies: its samples over its duration.
+/// The code table is off for some codes (pop'n 13's 34000 plays at 33000,
+/// IIDX 12's 36000 at 35000, and the same code differs between discs), while
+/// the durations agree with the table where it is right. Sounds shorter than
+/// `MEASURED_MIN_MS` are too short to measure, so they keep the table's rate.
+const MEASURED_MIN_MS: u32 = 500;
+
+fn measured_rate(samples: usize, duration_ms: u32) -> Option<u32> {
+    if duration_ms < MEASURED_MIN_MS {
+        return None;
+    }
+    let rate = (samples as u64 * 1000 + duration_ms as u64 / 2) / duration_ms as u64;
+    (8000..=96000).contains(&rate).then_some(rate as u32)
+}
+
 /// Sample rates by the code in a bank's file record ("Thanks Konami").
 fn rate(code: u8) -> Result<u32, SoundError> {
     Ok(match code {
@@ -118,6 +133,8 @@ pub struct KeySound {
     /// them out: GOLD's THE LEAST 100sec plays its sliced music at 34 and
     /// 60 against 86 to 127 for its other sounds.
     pub volume: u8,
+    /// Bytes 4 to 7: the sound's length in milliseconds.
+    pub duration_ms: u32,
 }
 
 /// A key sound bank, borrowed from its file's bytes.
@@ -167,6 +184,7 @@ impl<'a> Bank<'a> {
                     },
                     pan: if kind >> 8 == 1 { e[8] } else { CENTER },
                     volume: e[12],
+                    duration_ms: u32::from_le_bytes([e[4], e[5], e[6], e[7]]),
                 }
             });
             sounds.push(sound);
@@ -214,7 +232,8 @@ impl<'a> Bank<'a> {
     pub fn decode(&self, n: u16) -> Option<Result<Pcm, SoundError>> {
         let sound = self.sound(n)?;
         Some((|| {
-            let (rate, left) = self.decode_file(sound.file)?;
+            let (table_rate, left) = self.decode_file(sound.file)?;
+            let rate = measured_rate(left.len(), sound.duration_ms).unwrap_or(table_rate);
             let mut channels = vec![left];
             if let Placement::Stereo { right } = sound.placement {
                 channels.push(self.decode_file(right)?.1);
@@ -388,6 +407,17 @@ mod tests {
         let mut full = [32767i16, -32768];
         apply_volume(&mut full, 127);
         assert_eq!(full, [32767, -32768]);
+    }
+
+    #[test]
+    fn a_long_sound_plays_at_the_rate_its_length_gives() {
+        // 35000 samples in 1000 ms is 35000 Hz, whatever the code says.
+        assert_eq!(measured_rate(35000, 1000), Some(35000));
+        // Rounding the duration to the millisecond moves the rate by under 0.1%.
+        assert_eq!(measured_rate(44100, 1000), Some(44100));
+        assert_eq!(measured_rate(22050, 499), None);
+        assert_eq!(measured_rate(0, 1000), None);
+        assert_eq!(measured_rate(1000, 0), None);
     }
 
     #[test]
