@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 6th style | `SLPM_651.56` | `DX2_6/BM2DX6A/B.BIN` + 실행 파일(채보) | 0xa0 | 없음 (암호화 안 함) |
 | 7th style | `SLPM_655.93` | `DX2_7/BM2DX7B/C/A.BIN` | 0xa0 | 없음 (암호화 안 함) |
 | 8th style | `SLPM_657.68` | `DX2_8/BM2DX8B/C/A.BIN` | 0x9c | 없음 (암호화 안 함) |
 | 9th style | `SLPM_659.46` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
@@ -44,6 +45,15 @@
 - 곡 레코드 0xa0: 0x10 레벨 6바이트(8th와 같은 순서), 0x1a 영상 `u16`(MPEG-2), 0x58 채보 8개, 0x78 사운드 16개. iidx-ps2tools의 7th 읽기 순서로 셈한 위치(0x4c·0x6c)는 맞지 않아 레코드를 직접 보고 정했다.
 - 채보 22개가 뱅크에 없는 소리를 부른다(무음).
 - MAX 300의 끝부분은 한 마디 안에서 BPM이 277→12→300으로 여러 번 바뀐다. 마디 안 변화 위치를 BMS로 쓸 때 새 BPM으로 다시 스냅하면 더 굵은 격자로 옮겨져 뒤 노트가 223ms 일찍 나왔다. 맞춤 단계의 박자를 그대로 쓴다(`ply_bms::exact_pos`). 다른 디스크도 오차가 같거나 줄었다.
+
+### 1.3 6th style
+
+- 채보가 실행 파일 안에 있다. 채보 번호가 실행 파일 주소이고(주소 − 0xff000 = 파일 오프셋) LZ로 압축되어 있다. 실행 파일을 DAT 하나로 더하고, 채보마다 다음 채보 시작까지를 파일로 둔다(`exe_charts`). 형식은 Ps2Short(헤더 없는 4바이트 시간이 아니라 짧은 헤더).
+- 제목 주소의 기준은 0xff000이다.
+- 레코드 0x16의 `u16`이 곡의 사운드·영상이 든 BIN이다(0·1 A, 2 B). B의 번호는 A 345개 뒤로 이어진다(`FileNumbers::Archives`).
+- 레코드 0x10 레벨(7th와 같은 순서), 0x28 영상, 0x58 채보, 0x78 사운드.
+- 곡 표 215개 중 앞의 69개만 곡이다(RemyWiki 69곡과 같음). 그 뒤는 `D` 15개, `END`, `d001`~`d130`으로 모두 레벨 1인 자리 채움이라 읽지 않는다.
+- 단위인정이 없다(7th부터). 채보 71개가 뱅크에 없는 소리를 부른다(무음).
 
 ## 2. 곡 레코드
 
@@ -256,6 +266,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. 위키에 없는 3개(10~12번째)는 `#10`~`#12` |
 | 7th style | `0x1c59dc` | 9 (MORNING … SELECTION), 68바이트, 이름 없음 |
 | 8th style | `0x1a7e18` | 17 (FEEL … 7-SP10D), 이름 없음(아래) |
 | 9th style | `0xb6e08` | 17 (STYLISH … ASSAULT), 10th와 같은 형식 |

@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX7` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX6` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -130,9 +130,10 @@ fn slot_name(style: Style, difficulty: Difficulty) -> String {
 /// one frame of its time on the disc.
 #[test]
 fn every_chart_becomes_bms_with_its_notes_on_time() {
-    use cs_disc::ply::{Command, Ply, Side};
+    use cs_disc::ply::{Command, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX6", Edition::SixthStyle),
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
@@ -156,7 +157,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
                 let parsed =
                     beetle_core::parse_bms(&bms).unwrap_or_else(|e| panic!("{what}: {e:?}"));
                 let timing = beetle_core::TimingModel::from_chart(&parsed);
-                let ply = Ply::parse(&songs.read_chart(&mut disc, chart.file).unwrap()).unwrap();
+                let ply = songs.chart_ply(&mut disc, chart).unwrap();
                 let double = chart.style == Style::Double;
                 let mut expected: Vec<f64> = ply
                     .events
@@ -204,6 +205,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX6", Edition::SixthStyle),
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
@@ -234,7 +236,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
                     .entry(wvb)
                     .or_insert_with(|| songs.read_file(&mut disc, wvb).unwrap());
                 let bank = Bank::parse(data).unwrap_or_else(|e| panic!("{what}: {e}"));
-                let ply = Ply::parse(&songs.read_chart(&mut disc, chart.file).unwrap()).unwrap();
+                let ply = songs.chart_ply(&mut disc, chart).unwrap();
                 for e in &ply.events {
                     let sound = match e.command {
                         Command::Sample { sound, .. } | Command::Auto { sound, .. } => sound,
@@ -734,4 +736,34 @@ fn seventh_style_dan_courses_match_the_wiki() {
         titles(Style::Double, "十段"),
         ["ERA (NOSTALMIX)", "STOIC", "DXY!"]
     );
+}
+
+/// 6th style: 69 songs (the records after them are placeholders), charts
+/// inside the executable, no dan courses, 31 EXPERT courses (RemyWiki's
+/// CS_6th_style names 28 of them).
+#[test]
+fn sixth_style_songs_and_courses() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX6") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::SixthStyle).unwrap();
+    assert_eq!(songs.songs.len(), 69);
+    assert!(songs.dan_courses.is_empty());
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let expert = &songs.expert_courses;
+    assert_eq!(expert.len(), 31);
+    assert_eq!(
+        (expert[0].name.as_str(), expert[9].name.as_str()),
+        ("LOUNGE", "#10")
+    );
+    let hell: Vec<String> = expert[28].songs.iter().map(|&id| title(id)).collect();
+    assert_eq!(hell, ["G2", "R5", "DXY!", "THE SAFARI", "HOLIC"]);
 }

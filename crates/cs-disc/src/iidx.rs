@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 6th style, `SLPM_651.56`.
+    SixthStyle,
     /// 7th style, `SLPM_655.93`.
     SeventhStyle,
     /// 8th style, `SLPM_657.68`.
@@ -55,7 +57,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 14] = [
+const EDITIONS: [Edition; 15] = [
+    Edition::SixthStyle,
     Edition::SeventhStyle,
     Edition::EighthStyle,
     Edition::NinthStyle,
@@ -187,9 +190,10 @@ enum ExpertTable {
     /// 9th to 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
     /// five (song, 1, 1, 1) word quadruples.
     Inline { at: usize, count: usize },
-    /// 7th and 8th: records (68 and 72 bytes) of five (`u16` song, two
+    /// 6th to 8th: records (96, 68 and 72 bytes) of five (`u16` song, two
     /// `u16` fixing the chart) entries; the names are pictures, so they come
-    /// from RemyWiki (`CS_7th_style`, `CS_8th_style`), one per record.
+    /// from RemyWiki (`CS_6th_style` …), one per record, matched by songs.
+    /// An empty name (a course the wiki leaves out) becomes `#<number>`.
     Unnamed {
         at: usize,
         size: usize,
@@ -245,6 +249,11 @@ enum FileNumbers {
     /// number below `first` is a file of the first DAT, and `n` from `first`
     /// on file `n` of the second.
     Split { first: u32 },
+    /// 6th: a chart number is the executable address of the LZ-packed
+    /// chart (`Disc::open` gives it a file of the executable); a sound or
+    /// video number counts in the DAT the record's `u16` at `at` names (1 or
+    /// 0 the first, 2 the second, which follows the first's `first` files).
+    Archives { at: usize, first: u32 },
 }
 
 impl FileNumbers {
@@ -252,16 +261,26 @@ impl FileNumbers {
         match self {
             FileNumbers::Running => raw,
             FileNumbers::Split { first } => (raw & 0x0fff_ffff) + first,
+            FileNumbers::Archives { .. } => raw,
         }
     }
 
-    /// A sound or video number; 8th's are `u16`, the video one of a pair.
-    fn other(self, raw: u32) -> u32 {
+    /// A sound or video number of `record`; 6th to 8th's are `u16`, 8th's
+    /// video one of a pair.
+    fn other(self, raw: u32, record: &[u8]) -> u32 {
         match self {
             FileNumbers::Running => raw,
             FileNumbers::Split { first } => {
                 let raw = raw & 0xffff;
                 if raw >= first {
+                    raw + first
+                } else {
+                    raw
+                }
+            }
+            FileNumbers::Archives { at, first } => {
+                let raw = raw & 0xffff;
+                if u16_le(record, at) == Some(2) {
                     raw + first
                 } else {
                     raw
@@ -319,6 +338,73 @@ const RECORD_15_16: Record = Record {
             another: 2,
         }),
     },
+};
+
+/// 6th style: two `DX2_6` BINs, charts inside the executable.
+const SIXTH_STYLE: Layout = Layout {
+    executable: "SLPM_651.56",
+    slug: "iidx6",
+    file_tables: &[(0x180058, 0x1590), (0x1815e8, 0x5b0)],
+    dat_files: &["DX2_6/BM2DX6A.BIN", "DX2_6/BM2DX6B.BIN"],
+    // 69 songs; then 15 records named D, one END and d001 to d130, all
+    // level 1 placeholders.
+    songs: (0x1885b8, 69 * 0xa0),
+    titles: &[],
+    record: Record {
+        size: 0xa0,
+        title: TitleField::Pointer {
+            at: 0,
+            base: 0xff000,
+        },
+        numbers: FileNumbers::Archives {
+            at: 0x16,
+            first: 0x1590 / 16,
+        },
+        levels_at: 0x10,
+        video_at: 0x28,
+        charts_at: 0x58,
+        sounds_at: 0x78,
+        ..EIGHTH_STYLE.record
+    },
+    dan: None,
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x191da4,
+        size: 96,
+        names: &[
+            "LOUNGE",
+            "VIVID",
+            "RAVE",
+            "TRANCE",
+            "HEAVY",
+            "ALL-MIX",
+            "HOUSE",
+            "RESIDENT",
+            "SPECIAL",
+            "",
+            "",
+            "",
+            "NAOKI",
+            "EURO",
+            "VARIOUS",
+            "sampling masters",
+            "TAKA",
+            "HELL3",
+            "BONUS",
+            "L.E.D.-G",
+            "SPEEDY",
+            "FAREWELL",
+            "PARTY",
+            "HISTORY",
+            "月 VJ SHIRO",
+            "火 3rd style",
+            "水 VJ YUZ",
+            "木 4th style",
+            "金 HELL",
+            "土 VJ GYO",
+            "日 5th style",
+        ],
+    }),
+    ..EIGHTH_STYLE
 };
 
 /// 7th style: the 8th style form, 0xa0-byte records.
@@ -795,6 +881,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::SixthStyle => &SIXTH_STYLE,
             Edition::SeventhStyle => &SEVENTH_STYLE,
             Edition::EighthStyle => &EIGHTH_STYLE,
             Edition::NinthStyle => &NINTH_STYLE,
@@ -971,7 +1058,10 @@ fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<Ex
         let name = match table {
             ExpertTable::Pointers { .. } => elf_string(exe, u32_at(record, 0)),
             ExpertTable::Inline { .. } => ascii(&record[..first]),
-            ExpertTable::Unnamed { names, .. } => Some(names[c].to_string()),
+            ExpertTable::Unnamed { names, .. } => Some(match names[c] {
+                "" => format!("#{}", c + 1),
+                name => name.to_string(),
+            }),
         };
         let Some(name) = name else {
             return Vec::new();
@@ -1244,13 +1334,21 @@ impl Disc {
                 .find(disc, "DATA1.DAT")?
                 .ok_or_else(|| missing("DATA1.DAT"))?
         };
-        let files = read_file_tables(&exe, layout.file_tables, layout.file_records)?;
+        let mut files = read_file_tables(&exe, layout.file_tables, layout.file_records)?;
+        let mut dats: Vec<FileExtent> = dats;
         let mut songs = read_songs(&exe, layout.songs, &layout.record)?;
         for song in &mut songs {
             if let Some(&(_, title)) = layout.titles.iter().find(|&&(id, _)| id == song.id) {
                 if song.title.is_empty() {
                     song.title = title.to_string();
                 }
+            }
+        }
+        if let TitleField::Pointer { base, .. } = layout.record.title {
+            if matches!(layout.record.numbers, FileNumbers::Archives { .. }) {
+                exe_charts(
+                    &mut songs, &mut files, &mut dats, base, &exe, volume, disc, layout,
+                )?;
             }
         }
         let dan_courses = layout
@@ -1847,6 +1945,55 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 
 /// The file tables, numbered across the DAT files in order. Each record
 /// is 12 bytes: sector inside the DAT, an unused word, size in bytes.
+/// 6th: gives each chart (an executable address) a file of the executable,
+/// added as one more DAT, running to the next chart.
+#[allow(clippy::too_many_arguments)]
+fn exe_charts<R: Read + Seek>(
+    songs: &mut [Song],
+    files: &mut Vec<FileEntry>,
+    dats: &mut Vec<FileExtent>,
+    base: u32,
+    exe: &[u8],
+    volume: &Volume,
+    disc: &mut SectorReader<R>,
+    layout: &Layout,
+) -> io::Result<()> {
+    let extent = volume
+        .find(disc, layout.executable)?
+        .ok_or_else(|| missing(layout.executable))?;
+    let dat = dats.len() as u8;
+    dats.push(extent);
+    let mut starts: Vec<u32> = songs
+        .iter()
+        .flat_map(|s| s.charts.iter().map(|c| c.file.wrapping_sub(base)))
+        .filter(|&at| (at as usize) < exe.len())
+        .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    let first = files.len() as u32;
+    for (i, &at) in starts.iter().enumerate() {
+        let end = starts.get(i + 1).copied().unwrap_or(exe.len() as u32);
+        files.push(FileEntry {
+            dat,
+            offset: at as u64,
+            size: end - at,
+        });
+    }
+    for song in songs {
+        song.charts.retain_mut(|chart| {
+            let at = chart.file.wrapping_sub(base);
+            match starts.binary_search(&at) {
+                Ok(i) => {
+                    chart.file = first + i as u32;
+                    true
+                }
+                Err(_) => false,
+            }
+        });
+    }
+    Ok(())
+}
+
 fn read_file_tables(
     exe: &[u8],
     tables: &[(usize, usize)],
@@ -1918,7 +2065,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             *sound = if raw == NO_SOUND {
                 raw
             } else {
-                layout.numbers.other(raw as u32) as u16
+                layout.numbers.other(raw as u32, record) as u16
             };
         }
         let title = match layout.title {
@@ -1971,7 +2118,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             stage_picks: stage_picks.map(|(usual, another, _)| (usual, another)),
             video: {
                 let file = u32_at(record, layout.video_at);
-                (file != 0 && file & 0xffff != 0xffff).then(|| layout.numbers.other(file))
+                (file != 0 && file & 0xffff != 0xffff).then(|| layout.numbers.other(file, record))
             },
         });
         if stage_picks.is_some_and(|(_, _, second)| second) {
