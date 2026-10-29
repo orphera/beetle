@@ -50,18 +50,15 @@ pub(crate) struct Layout {
     pub streams: Option<Streams>,
 }
 
-/// A disc's BGM streams in a data file of their own (9's and 8's
-/// `SOUND/SD_02.DAT`, `"GbTs"` and `"MOVE"` streams). Nothing names a song's
-/// stream by number: they follow the chart files in their order, `first` on
-/// (`StreamOrder`). Checked against the charts by when their sounds start
-/// (`docs/specs/popn_ps2_disc.md`).
+/// A disc's BGM streams in a data file of their own (8's and 9's
+/// `SOUND/SD_02.DAT`, `"MOVE"` and `"GbTs"` streams, 10's `SDB.DAT`), named
+/// through the executable's tables (`StreamOrder`). Checked against the
+/// charts by when their sounds start (`docs/specs/popn_ps2_disc.md`).
 #[derive(Clone, Copy)]
 pub(crate) struct Streams {
     pub dat: &'static str,
     /// The sector table: (offset, entries).
     pub files: (usize, usize),
-    /// The stream of the first chart file.
-    pub first: u32,
     pub order: StreamOrder,
 }
 
@@ -76,9 +73,10 @@ pub(crate) enum StreamOrder {
         bgm_at: [usize; 4],
         streams: (usize, usize),
     },
-    /// 8: one per chart file on the disc (songs or not), two for these
-    /// chart files, which play the first.
-    Charts { two: &'static [u32] },
+    /// 8: each difficulty's slot of the chart table (`Record::slots`) has
+    /// its BGM number at 20, which names an 8-byte entry of `streams` (`u32`
+    /// stream, `u32` volume) as on 9.
+    Slots { streams: (usize, usize) },
     /// 10: the game's own tables, as its BGM loader (0x161cb0 in the
     /// executable) reads them: `songs` 12-byte entries (`u32` number,
     /// `u16` twice, `u16` the song's key sound bank, the chart file + 1),
@@ -109,6 +107,33 @@ pub(crate) struct Record {
     /// Whether a song has a BGM stream after its chart (12 to 14). 10's
     /// songs are key sounds alone, and its BGM start names a key sound.
     pub bgm: bool,
+    /// 8: the song's charts are not in the record but in a table of the
+    /// executable from here, `SLOTS_SIZE` bytes a song in record order
+    /// (`song_slots`).
+    pub slots: Option<usize>,
+}
+
+/// 8's chart table (`Record::slots`): per song, nine 28-byte slots in the
+/// order NORMAL, HYPER, 5-button, EX, battle NORMAL, three unknown, battle
+/// HYPER. A slot is `u32` chart file (0 in NORMAL's, which plays the same
+/// file), `u16` notes, `u16`, `u16` level, `u16` tempo, `u16` lowest and
+/// highest tempo, then three `u32`. The executable opens a song's files
+/// through it (0x1817a0); its notes, levels and tempos match the charts and
+/// RemyWiki (Midnight Yoghurt: chart file 184, 181 BPM, HYPER 24, EX 32).
+/// The record's 0x10 and 0x14 are character numbers, not files.
+const SLOTS_SIZE: usize = 0xfc;
+const SLOT_SIZE: usize = 28;
+
+/// A song's chart file and its six level bytes (NORMAL, HYPER, 5-button,
+/// EX, battle NORMAL, battle HYPER, as the other discs' records order them)
+/// from 8's chart table.
+fn song_slots(exe: &[u8], table: usize, id: usize) -> Option<(u32, [u8; 6])> {
+    let slot = |k: usize| table + id * SLOTS_SIZE + k * SLOT_SIZE;
+    let file = (1..9)
+        .filter_map(|k| u32_at(exe, slot(k)))
+        .find(|&f| f != 0)?;
+    let level = |k: usize| exe.get(slot(k) + 8).copied().unwrap_or(0);
+    Some((file, [0, 1, 2, 3, 4, 8].map(level)))
 }
 
 /// 12 to 14: 0x58 bytes.
@@ -120,6 +145,7 @@ const RECORD_12: Record = Record {
     banner_at: Some(0x40),
     genre_at: Some(0),
     bgm: true,
+    slots: None,
 };
 
 /// pop'n music 8: 9's form with titles, 0x38-byte records naming the chart
@@ -145,18 +171,20 @@ pub(crate) const POPN8: Layout = Layout {
     streams: Some(Streams {
         dat: "SOUND/SD_02.DAT",
         files: (0xb6f00, 126),
-        first: 15,
-        order: StreamOrder::Charts { two: &[104, 158] },
+        order: StreamOrder::Slots {
+            streams: (0xb6b20, 125),
+        },
     }),
     record: Record {
         size: 0x38,
-        chart_at: &[0x10, 0x14],
+        chart_at: &[],
         chart_u16: false,
         levels_at: None,
         banner_at: Some(0x1c),
         // The title (0x0c), not the genre: 8 records name the song.
         genre_at: Some(0x0c),
         bgm: false,
+        slots: Some(0xcbfbc),
     },
     ..POPN10
 };
@@ -182,7 +210,6 @@ pub(crate) const POPN9: Layout = Layout {
     streams: Some(Streams {
         dat: "SOUND/SD_02.DAT",
         files: (0xc4880, 128),
-        first: 0,
         order: StreamOrder::BgmNumbers {
             bgm_at: [0x58, 0x70, 0x88, 0xa0],
             streams: (0xc4480, 127),
@@ -196,6 +223,7 @@ pub(crate) const POPN9: Layout = Layout {
         banner_at: Some(0x40),
         genre_at: Some(8),
         bgm: false,
+        slots: None,
     },
     ..POPN10
 };
@@ -225,11 +253,11 @@ pub(crate) const POPN10: Layout = Layout {
         banner_at: Some(0x28),
         genre_at: None,
         bgm: false,
+        slots: None,
     },
     streams: Some(Streams {
         dat: "SDB.DAT",
         files: (0xbdf70, 137),
-        first: 0,
         order: StreamOrder::Table {
             songs: (0xbeca4, 149),
             streams: (0xbe550, 135),
@@ -375,6 +403,7 @@ pub(crate) fn read_songs(
     let mut songs = Vec::new();
     for id in 0..count {
         let record = exe.get(at + id * form.size..at + (id + 1) * form.size)?;
+        let slotted = form.slots.and_then(|table| song_slots(exe, table, id));
         let file = form
             .chart_at
             .iter()
@@ -388,11 +417,16 @@ pub(crate) fn read_songs(
             .filter(|&f| f != 0 && (f as usize) + 1 < files)
             // 8 names the bank for some songs; the chart follows it.
             .find_map(|f| [f, f + 1].into_iter().find(|&f| is_chart(f)))
+            .or(slotted.map(|(file, _)| file))
             .unwrap_or(0);
         if file == 0 || file as usize + 1 >= files {
             continue;
         }
-        let levels = form.levels_at.map(|at| &record[at..]);
+        let slot_levels = slotted.map(|(_, levels)| levels);
+        let levels = form
+            .levels_at
+            .map(|at| &record[at..])
+            .or(slot_levels.as_ref().map(|l| &l[..]));
         let charts: Vec<Chart> = LEVELS
             .iter()
             .filter(|&&(_, at)| levels.is_none_or(|l| l[at] != 0))
@@ -437,18 +471,10 @@ pub(crate) fn read_songs(
 
 /// Which stream file each song's charts play (`Streams`): sets every chart's
 /// BGM to `base` (the streams' first file number) plus its place.
-/// `chart_files`: every chart file of the data file, in order (8's order).
-pub(crate) fn assign_streams(
-    songs: &mut [Song],
-    exe: &[u8],
-    layout: &Layout,
-    base: u32,
-    chart_files: &[u32],
-) {
+pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, base: u32) {
     let Some(streams) = layout.streams else {
         return;
     };
-    let first_stream = base + streams.first;
     match streams.order {
         StreamOrder::Table {
             songs: (songs_at, song_count),
@@ -479,19 +505,24 @@ pub(crate) fn assign_streams(
                 }
             }
         }
-        StreamOrder::Charts { two } => {
+        StreamOrder::Slots {
+            streams: (streams_at, stream_count),
+        } => {
+            let Some(table) = layout.record.slots else {
+                return;
+            };
             for song in songs {
-                let Some(file) = song.charts.first().map(|c| c.file) else {
-                    continue;
-                };
-                let Some(rank) = chart_files.iter().position(|&f| f == file) else {
-                    continue;
-                };
-                let extra = two.iter().filter(|&&f| f < file).count();
-                let stream = first_stream + (rank + extra) as u32;
-                for &(difficulty, _) in &LEVELS {
+                // NORMAL, HYPER, 5-button and EX, in `LEVELS` level byte order.
+                for &(difficulty, level) in &LEVELS {
+                    let slot = table + song.id as usize * SLOTS_SIZE + level * SLOT_SIZE;
+                    let Some(stream) = u32_at(exe, slot + 20)
+                        .filter(|&n| (n as usize) < stream_count)
+                        .and_then(|n| u32_at(exe, streams_at + n as usize * 8))
+                    else {
+                        continue;
+                    };
                     let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
-                    song.set_sound_files(Style::Single, difficulty, bank, stream);
+                    song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
             }
         }
@@ -826,7 +857,7 @@ pub(crate) fn pick_sound_sets(
     };
     let difficulties: Vec<Difficulty> = song.charts.iter().map(|c| c.difficulty).collect();
     for difficulty in difficulties {
-        let most = chart(&bytes, difficulty, true)
+        let most = chart(&bytes, difficulty, BgmStart::Stream)
             .into_iter()
             .flat_map(|ply| ply.events)
             .filter_map(|e| match e.command {
@@ -872,7 +903,7 @@ fn pick_banks(song: &mut Song, peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8
     };
     let difficulties: Vec<Difficulty> = song.charts.iter().map(|c| c.difficulty).collect();
     for difficulty in difficulties {
-        let most = chart(&bytes, difficulty, false)
+        let most = chart(&bytes, difficulty, BgmStart::KeySound)
             .into_iter()
             .flat_map(|ply| ply.events)
             .filter_map(|e| match e.command {
@@ -892,9 +923,21 @@ fn pick_banks(song: &mut Song, peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8
 
 /// The chart of `difficulty` in a chart file, as `Ply` events in milliseconds.
 /// Buttons 0–8 are P1 lanes 0–8.
-/// `bgm`: whether the disc has BGM streams; without them (10) the BGM start
-/// plays the key sound its value names.
-pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: bool) -> Option<Ply> {
+/// What a chart's BGM start (command 3) does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BgmStart {
+    /// 12 to 14: starts the BGM stream there.
+    Stream,
+    /// 8 to 10: the stream starts at the chart's start. The command comes
+    /// up to 5.6 s later (9's モッズ: its 120.1 s stream then runs to 118.2
+    /// s, its last note); matching the chart's sounds against the stream
+    /// puts the stream at 0 (−0.1 s) on the clearest songs of 9 and 10.
+    StreamAtZero,
+    /// Without streams: plays the key sound its value names.
+    KeySound,
+}
+
+pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: BgmStart) -> Option<Ply> {
     let list = list_of(difficulty);
     let start = u32_at(file, list * 4)? as usize;
     let end = match list {
@@ -905,7 +948,10 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: bool) -> Option<Pl
         .get(start..end)?
         .chunks_exact(8)
         .filter_map(|e| {
-            let time = u32_at(e, 0)?;
+            let time = match (e[5], bgm) {
+                (3, BgmStart::StreamAtZero) => 0,
+                _ => u32_at(e, 0)?,
+            };
             let (button, value) = (e[4], u16::from_le_bytes([e[6], e[7]]));
             let command = match e[5] {
                 1 => Command::Note {
@@ -918,7 +964,7 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: bool) -> Option<Pl
                     lane: button,
                     sound: value,
                 },
-                3 if bgm => Command::Auto {
+                3 if bgm != BgmStart::KeySound => Command::Auto {
                     slot: 8,
                     sound: BGM_SOUND,
                 },
@@ -965,7 +1011,7 @@ pub(crate) fn real_charts(song: &mut Song, peek: &mut dyn FnMut(u32) -> Option<V
         return;
     };
     song.charts.retain(|c| {
-        chart(&bytes, c.difficulty, false).is_some_and(|ply| {
+        chart(&bytes, c.difficulty, BgmStart::KeySound).is_some_and(|ply| {
             ply.events
                 .iter()
                 .filter(|e| matches!(e.command, Command::Note { .. }))
@@ -1223,7 +1269,7 @@ mod tests {
                 file.extend(e);
             }
         }
-        let ply = chart(&file, Difficulty::Normal, true).unwrap();
+        let ply = chart(&file, Difficulty::Normal, BgmStart::Stream).unwrap();
         let commands: Vec<(u32, Command)> =
             ply.events.iter().map(|e| (e.time, e.command)).collect();
         assert_eq!(
@@ -1265,7 +1311,7 @@ mod tests {
             ]
         );
         assert_eq!(ply.millis(1714), 1714.0);
-        let hyper = chart(&file, Difficulty::Hyper, true).unwrap();
+        let hyper = chart(&file, Difficulty::Hyper, BgmStart::Stream).unwrap();
         assert_eq!(hyper.events[0].command, Command::End);
     }
 }
