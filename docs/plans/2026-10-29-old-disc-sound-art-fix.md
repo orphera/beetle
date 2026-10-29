@@ -48,13 +48,14 @@
 - 3rd~8th 전 곡 BGM을 vgmstream과 비교한다.
 - 결과: 3rd(R5)·6th(BLUEBERRY STREAM)·7th(GLORIOUS DAYS)·8th(GIUDECCA) BGM이 vgmstream과 샘플 단위로 같다. 단위 테스트 `an_old_bgm_takes_turns_per_channel_every_0x800_bytes`.
 
-### 2. IIDX 3rd~8th 키음에 남은 것
+### 2. IIDX 3rd~8th 키음에 남은 것 [완료, 고칠 것 없음]
 
 1단계 뒤 믹스를 다시 듣고, 잡음이 남으면 다음을 본다.
 
 - 옛 뱅크의 kind 2 소리는 뱅크 끝까지를 파일로 잡고 끝 프레임에서 멈춘다. iidx-ps2tools는 첫 프레임을 건너뛰고 끝 프레임이나 0 프레임에서 멈춘다(`find_num_samples`). 8th에서 1337개가 끝 표시 뒤에도 데이터가 이어진다.
 - 레이트 칸에 31183·35002·37084 같은 값이 있다(8th). 표의 값인지 측정값인지 확인한다.
 - 옛 항목의 음량(바이트 5)·팬(바이트 6)의 눈금이 새 형식과 같은지(iidx-ps2tools는 음량 × 0.75로 줄인다).
+- 결과: 3rd~8th 키음 72,702개 모두 끝나는 프레임이 iidx-ps2tools 규칙과 같고, 샘플은 vgmstream과 같다(8th GIUDECCA). 레이트는 iidx-ps2tools처럼 항목의 레이트 칸, 팬·음량도 같은 칸과 눈금이다. 3rd~8th 잡음은 1단계의 BGM이 원인으로 본다. 귀로 확인은 `BEETLE_DEV_MIX` WAV로 사용자에게 부탁한다.
 
 ### 3. pop'n 9 BGM (`SD_02.DAT`)
 
