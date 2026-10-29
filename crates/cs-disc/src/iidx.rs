@@ -1827,17 +1827,26 @@ impl Disc {
         let Some(&(title, artist)) = self.name_refs.get(song.id as usize) else {
             return Ok(None);
         };
-        let mut word = |file: u32, n: u16| -> io::Result<Option<crate::popn::Mask>> {
+        // Titles are white or coloured on black; anything else is a stand-in
+        // (`popn::on_black`).
+        let mut word = |file: u32, n: u16, title: bool| -> io::Result<Option<crate::popn::Mask>> {
             Ok(self
                 .read_data1(disc, file)?
                 .and_then(|bytes| crate::popn::rect_picture(&bytes, n as u32))
+                .filter(|picture| !title || crate::popn::on_black(picture))
                 .map(|picture| crate::popn::Mask::from_rgba(&picture)))
         };
         Ok(Some(crate::popn::SongNames {
-            title: word(files.title, title)?,
+            title: match files.title {
+                Some(file) => word(file, title, true)?,
+                None => None,
+            },
             small_title: None,
-            artist: word(files.artist, artist)?,
-            genre: None,
+            artist: word(files.artist, artist, false)?,
+            genre: match files.genre {
+                Some(file) => word(file, title, false)?,
+                None => None,
+            },
             popn: true,
         }))
     }

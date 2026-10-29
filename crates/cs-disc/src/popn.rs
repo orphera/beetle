@@ -133,6 +133,12 @@ pub(crate) const POPN8: Layout = Layout {
     images: (0xb41a0, 1002),
     // 244x88 banners (9 to 14: 244x58).
     banners: 35,
+    names: Some(NameFiles {
+        title: None,
+        artist: 34,
+        genre: None,
+        at: (0x1c, 0x1c),
+    }),
     dat: "SOUND/SD_01.DAT",
     // Seal's chart (also The tyro's reverie's) and 君と微笑みと…'s have two
     // streams each; the two of the latter are nearly the same.
@@ -166,6 +172,12 @@ pub(crate) const POPN9: Layout = Layout {
     songs: (0xd3210, 111),
     images: (0xc2d20, 714),
     banners: 1,
+    names: Some(NameFiles {
+        title: Some(621),
+        artist: 33,
+        genre: Some(622),
+        at: (0x40, 0x40),
+    }),
     dat: "SOUND/SD_01.DAT",
     streams: Some(Streams {
         dat: "SOUND/SD_02.DAT",
@@ -198,7 +210,12 @@ pub(crate) const POPN10: Layout = Layout {
     songs: (0xccae0, 106),
     images: (0xbffd0, 683),
     banners: 5,
-    names: None,
+    names: Some(NameFiles {
+        title: Some(45),
+        artist: 44,
+        genre: Some(610),
+        at: (0x28, 0x28),
+    }),
     dat: "SDS.DAT",
     record: Record {
         size: 0x38,
@@ -220,13 +237,22 @@ pub(crate) const POPN10: Layout = Layout {
     }),
 };
 
-/// The `IMAGE.DAT` files holding the title and artist word pictures. Each
-/// file's part 0 lists the words as rectangles (`rect_picture`).
+/// The `IMAGE.DAT` files holding the title and artist (and on 8 to 10 the
+/// genre) word pictures. Each file's part 0 lists the words as rectangles
+/// (`rect_picture`).
 #[derive(Clone, Copy)]
 pub(crate) struct NameFiles {
-    pub title: u32,
+    /// `None` where the record's text is the title (8).
+    pub title: Option<u32>,
     pub artist: u32,
+    pub genre: Option<u32>,
+    /// The record's `u16` rectangle numbers of the title (and genre) and of
+    /// the artist. 8 to 10 number every word picture as the banner.
+    pub at: (usize, usize),
 }
+
+/// 12 to 14: title and artist at 0x10 and 0x18 (checked by eye).
+const NAMES_AT_12: (usize, usize) = (0x10, 0x18);
 
 pub(crate) const POPN12: Layout = Layout {
     executable: "SLPM_663.14",
@@ -236,8 +262,10 @@ pub(crate) const POPN12: Layout = Layout {
     images: (0xde120, 600),
     banners: 3,
     names: Some(NameFiles {
-        title: 54,
+        title: Some(54),
         artist: 56,
+        genre: None,
+        at: NAMES_AT_12,
     }),
     dat: DAT_FILE,
     record: RECORD_12,
@@ -252,8 +280,10 @@ pub(crate) const POPN13: Layout = Layout {
     images: (0x10a420, 654),
     banners: 347,
     names: Some(NameFiles {
-        title: 349,
+        title: Some(349),
         artist: 160,
+        genre: None,
+        at: NAMES_AT_12,
     }),
     dat: DAT_FILE,
     record: RECORD_12,
@@ -268,8 +298,10 @@ pub(crate) const POPN14: Layout = Layout {
     images: (0x11ab20, 674),
     banners: 3,
     names: Some(NameFiles {
-        title: 68,
+        title: Some(68),
         artist: 71,
+        genre: None,
+        at: NAMES_AT_12,
     }),
     dat: DAT_FILE,
     record: RECORD_12,
@@ -285,10 +317,6 @@ pub(crate) const IMAGE_FILE: &str = "IMAGE.DAT";
 /// before the `ZZ` silent notes take. Key sounds run from 1 to under 700.
 pub const BGM_SOUND: u16 = 1294;
 
-/// The record's title and artist word rectangles (`u16` each), in the title
-/// and artist files of `NameFiles`. Found on 12, 13 and 14 (checked by eye).
-const TITLE_AT: usize = 0x10;
-const ARTIST_AT: usize = 0x18;
 /// The executable's load address, less its file offset.
 const LOAD: u32 = 0x100000 - 0x80;
 
@@ -594,7 +622,7 @@ fn parts(file: &[u8]) -> Option<Vec<Vec<u8>>> {
 /// rectangles `i16 x, y, w, h` from 0x10, `y` running down the 512-high pages
 /// that follow; a page is a 16-byte header (`u16 width, height`, 8 bits a
 /// pixel at 8) then a PSMT8 texture.
-pub(crate) fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
+pub fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
     let parts = parts(file)?;
     let at = 0x10 + n as usize * 8;
     let rect = parts.first()?.get(at..at + 8)?;
@@ -625,6 +653,29 @@ pub(crate) fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
     })
 }
 
+/// A picture's commonest colour.
+fn background(picture: &Rgba) -> [u8; 3] {
+    let mut counts = std::collections::HashMap::new();
+    for &[r, g, b, _] in &picture.pixels {
+        *counts.entry([r, g, b]).or_insert(0u32) += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|&(colour, n)| (n, colour))
+        .map_or([0; 3], |(colour, _)| colour)
+}
+
+fn is_dark(colour: [u8; 3]) -> bool {
+    colour.iter().map(|&c| c as u32).sum::<u32>() < 3 * 32
+}
+
+/// Whether a word picture is drawn on black. pop'n 9's title file fills the
+/// rectangles of 15 songs with `dummy!` on yellow: those songs have no title
+/// picture.
+pub(crate) fn on_black(picture: &Rgba) -> bool {
+    is_dark(background(picture))
+}
+
 /// The coverage from which a column of a word picture counts as ink.
 const INK_FLOOR: u8 = 64;
 
@@ -644,10 +695,30 @@ impl Mask {
     /// word of a row keeps its baseline.
     pub(crate) fn from_rgba(picture: &Rgba) -> Mask {
         let (w, h) = (picture.width as usize, picture.height as usize);
+        // Ink is what differs from the background, the picture's commonest
+        // colour. On black (most discs) it is the brightest channel, so
+        // coloured words (pop'n 9 and 10's green titles) come out as strong
+        // as white ones. On a box (pop'n 8 and 10's artists, purple on cream
+        // or white on cyan) it is what differs from both the box and the
+        // black around it.
+        let background = background(picture);
+        let dark = is_dark(background);
         let coverage: Vec<u8> = picture
             .pixels
             .iter()
-            .map(|&[r, g, b, _]| ((r as u32 + g as u32 + b as u32) / 3) as u8)
+            .map(|&[r, g, b, _]| {
+                let bright = r.max(g).max(b);
+                if dark {
+                    bright
+                } else {
+                    let off = [r, g, b]
+                        .iter()
+                        .zip(background)
+                        .map(|(&c, k)| (c as i32 - k as i32).unsigned_abs())
+                        .sum::<u32>();
+                    ((off * 2 / 3).min(255) as u8).min(bright)
+                }
+            })
             .collect();
         // The picture's background is not quite black: faint ink-free values
         // would keep a blank margin, so a column counts as ink from INK_FLOOR.
@@ -692,9 +763,9 @@ pub struct SongNames {
 /// past the table's end, and an empty table on a disc without `NameFiles`,
 /// read as none.
 pub(crate) fn read_name_refs(exe: &[u8], layout: &Layout) -> Vec<(u16, u16)> {
-    if layout.names.is_none() {
+    let Some(files) = layout.names else {
         return Vec::new();
-    }
+    };
     let (at, count) = layout.songs;
     (0..count)
         .map(|id| {
@@ -704,7 +775,7 @@ pub(crate) fn read_name_refs(exe: &[u8], layout: &Layout) -> Vec<(u16, u16)> {
                     .map(|b| u16::from_le_bytes([b[0], b[1]]))
                     .unwrap_or(0)
             };
-            (field(TITLE_AT), field(ARTIST_AT))
+            (field(files.at.0), field(files.at.1))
         })
         .collect()
 }
@@ -1075,16 +1146,19 @@ mod tests {
         // the executable zero.
         let mut exe = vec![0u8; 0x200];
         let record = |exe: &mut Vec<u8>, at: usize, title: u16, artist: u16| {
-            exe[at + TITLE_AT..at + TITLE_AT + 2].copy_from_slice(&title.to_le_bytes());
-            exe[at + ARTIST_AT..at + ARTIST_AT + 2].copy_from_slice(&artist.to_le_bytes());
+            let (title_at, artist_at) = NAMES_AT_12;
+            exe[at + title_at..at + title_at + 2].copy_from_slice(&title.to_le_bytes());
+            exe[at + artist_at..at + artist_at + 2].copy_from_slice(&artist.to_le_bytes());
         };
         record(&mut exe, 0x40, 50, 55);
         record(&mut exe, 0x40 + RECORD_12.size, 51, 56);
         let layout = Layout {
             songs: (0x40, 2),
             names: Some(NameFiles {
-                title: 68,
+                title: Some(68),
                 artist: 71,
+                genre: None,
+                at: NAMES_AT_12,
             }),
             ..POPN14
         };
