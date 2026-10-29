@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 3rd style, `SLPM_650.06`.
+    ThirdStyle,
     /// 4th style, `SLPM_650.26`.
     FourthStyle,
     /// 5th style, `SLPM_650.49`.
@@ -61,7 +63,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 17] = [
+const EDITIONS: [Edition; 18] = [
+    Edition::ThirdStyle,
     Edition::FourthStyle,
     Edition::FifthStyle,
     Edition::SixthStyle,
@@ -237,6 +240,9 @@ struct Record {
     /// 10 to 13 have no BLACK slots.
     chart_count: usize,
     sounds_at: usize,
+    /// How many sound file numbers it has (16; 4th 12, 3rd 4: SP and DP
+    /// HYPER).
+    sound_count: usize,
     stage: StageArt,
 }
 
@@ -344,6 +350,7 @@ const RECORD_15_16: Record = Record {
     charts_at: 0xc0,
     chart_count: 10,
     sounds_at: 0xe8,
+    sound_count: 16,
     stage: StageArt::Overlay {
         at: 0x94,
         picks: Some(Picks {
@@ -352,6 +359,51 @@ const RECORD_15_16: Record = Record {
             another: 2,
         }),
     },
+};
+
+/// 3rd style: the 4th style form, 0x7c-byte records with the HYPER key
+/// sounds and BGMs alone.
+const THIRD_STYLE: Layout = Layout {
+    executable: "SLPM_650.06",
+    slug: "iidx3",
+    file_tables: &[(0x145cd0, 0x1050)],
+    dat_files: &["DX2_3/BM2DX3.BIN"],
+    // 81 songs; then the ending roll.
+    songs: (0x77fc8, 81 * 0x7c),
+    record: Record {
+        size: 0x7c,
+        levels_at: 0x0c,
+        video_at: 0x0a,
+        charts_at: 0x54,
+        sounds_at: 0x6c,
+        sound_count: 4,
+        ..FOURTH_STYLE.record
+    },
+    // The wiki gives the second course no name.
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x7a780,
+        size: 20,
+        step: 4,
+        names: &[
+            "SOUL",
+            "",
+            "DANCE",
+            "TECHNO",
+            "CRY-MAX",
+            "PIANO",
+            "NAOKI",
+            "SPECIAL",
+            "U",
+            "CLASSIC",
+            "TAKA",
+            "UPPER",
+            "TaQ",
+            "2nd STYLE",
+            "GOOD-COOL",
+            "HELL",
+        ],
+    }),
+    ..FOURTH_STYLE
 };
 
 /// 4th style: the 5th style form, 0x90-byte records of six charts (no
@@ -373,6 +425,7 @@ const FOURTH_STYLE: Layout = Layout {
         charts_at: 0x58,
         chart_count: 6,
         sounds_at: 0x70,
+        sound_count: 12,
         ..FIFTH_STYLE.record
     },
     expert: Some(ExpertTable::Unnamed {
@@ -416,6 +469,7 @@ const FIFTH_STYLE: Layout = Layout {
         video_at: 0x12,
         charts_at: 0x5c,
         sounds_at: 0x7c,
+        sound_count: 16,
         ..SIXTH_STYLE.record
     },
     expert: Some(ExpertTable::Unnamed {
@@ -470,6 +524,7 @@ const SIXTH_STYLE: Layout = Layout {
         video_at: 0x28,
         charts_at: 0x58,
         sounds_at: 0x78,
+        sound_count: 16,
         ..EIGHTH_STYLE.record
     },
     dan: None,
@@ -544,6 +599,7 @@ const SEVENTH_STYLE: Layout = Layout {
         video_at: 0x1a,
         charts_at: 0x58,
         sounds_at: 0x78,
+        sound_count: 16,
         ..EIGHTH_STYLE.record
     },
     expert: Some(ExpertTable::Unnamed {
@@ -600,6 +656,7 @@ const EIGHTH_STYLE: Layout = Layout {
         charts_at: 0x54,
         chart_count: 8,
         sounds_at: 0x74,
+        sound_count: 16,
         stage: StageArt::None,
     },
     // SP 九段 draws four of twelve (0x199c00), so SP runs 7級 to 八段 and
@@ -688,6 +745,7 @@ const TENTH_STYLE: Layout = Layout {
         charts_at: 0x12c,
         chart_count: 8,
         sounds_at: 0x14c,
+        sound_count: 16,
         stage: StageArt::Overlay {
             at: 0xd4,
             // One 384x384 card; the words after it are not picture picks.
@@ -730,6 +788,7 @@ const RED: Layout = Layout {
         charts_at: 0x100,
         chart_count: 8,
         sounds_at: 0x120,
+        sound_count: 16,
         stage: StageArt::Overlay {
             at: 0xd8,
             // One 384x384 card; the words after it are not picture picks.
@@ -772,6 +831,7 @@ const HAPPY_SKY: Layout = Layout {
         charts_at: 0xec,
         chart_count: 8,
         sounds_at: 0x10c,
+        sound_count: 16,
         stage: StageArt::Overlay {
             at: 0xcc,
             // One 384x384 card; the words after it are not picture picks.
@@ -816,6 +876,7 @@ const DISTORTED: Layout = Layout {
         charts_at: 0xb8,
         chart_count: 8,
         sounds_at: 0xd8,
+        sound_count: 16,
         stage: StageArt::Overlay {
             at: 0x88,
             // The third pair is CARDINAL GATE's card.
@@ -863,6 +924,7 @@ const GOLD: Layout = Layout {
         charts_at: 0xb4,
         chart_count: 10,
         sounds_at: 0xdc,
+        sound_count: 16,
         stage: StageArt::Overlay {
             at: 0x84,
             picks: Some(Picks {
@@ -990,6 +1052,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::ThirdStyle => &THIRD_STYLE,
             Edition::FourthStyle => &FOURTH_STYLE,
             Edition::FifthStyle => &FIFTH_STYLE,
             Edition::SixthStyle => &SIXTH_STYLE,
@@ -1907,6 +1970,20 @@ impl Song {
         }
     }
 
+    /// Every key sound bank of the song, for a sound missing from the one a
+    /// chart plays (3rd's NORMAL charts take SP HYPER's bank but play a
+    /// few of DP HYPER's).
+    pub fn key_banks(&self) -> Vec<u32> {
+        let mut banks: Vec<u32> = SOUND_PAIRS
+            .iter()
+            .map(|&(key, _)| self.sounds[key])
+            .filter(|&f| f != NO_SOUND)
+            .map(u32::from)
+            .collect();
+        banks.dedup();
+        banks
+    }
+
     /// The (key sound bank, BGM stream) file numbers a chart plays. A chart
     /// slot without its own takes the other style's of its difficulty, then
     /// DP HYPER's (double) or SP HYPER's, field by field, as
@@ -2179,8 +2256,8 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             continue;
         }
         charts.sort_by_key(|c| (c.style, c.difficulty));
-        let mut sounds = [0u16; 16];
-        for (i, sound) in sounds.iter_mut().enumerate() {
+        let mut sounds = [NO_SOUND; 16];
+        for (i, sound) in sounds.iter_mut().enumerate().take(layout.sound_count) {
             let at = layout.sounds_at + i * 2;
             let raw = u16::from_le_bytes([record[at], record[at + 1]]);
             *sound = if raw == NO_SOUND {

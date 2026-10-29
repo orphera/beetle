@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX4` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX3` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -133,6 +133,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX3", Edition::ThirdStyle),
         ("CS_DISC_IIDX4", Edition::FourthStyle),
         ("CS_DISC_IIDX5", Edition::FifthStyle),
         ("CS_DISC_IIDX6", Edition::SixthStyle),
@@ -204,9 +205,10 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
 /// BGM cue) is in its bank and decodes, and every BGM stream decodes.
 #[test]
 fn every_chart_finds_and_decodes_its_sounds() {
-    use cs_disc::ply::{Command, Ply};
+    use cs_disc::ply::Command;
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX3", Edition::ThirdStyle),
         ("CS_DISC_IIDX4", Edition::FourthStyle),
         ("CS_DISC_IIDX5", Edition::FifthStyle),
         ("CS_DISC_IIDX6", Edition::SixthStyle),
@@ -230,6 +232,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
         let mut banks = std::collections::BTreeMap::new();
         let mut missing = Vec::new();
         let mut absent = 0;
+        let mut borrowed = 0;
         for song in &songs.songs {
             for chart in &song.charts {
                 let what = format!("{} {:?} {:?}", song.title, chart.style, chart.difficulty);
@@ -267,20 +270,21 @@ fn every_chart_finds_and_decodes_its_sounds() {
                         }
                         Some(Err(err)) => panic!("{what}: sound {sound}: {err}"),
                         // A sound no bank of the song holds is not on the
-                        // disc (8th GRAVITY SP NORMAL's 3); one in another
-                        // bank means the chart took the wrong one.
+                        // disc (8th GRAVITY SP NORMAL's 3). One in another
+                        // bank the player finds there (`Song::key_banks`):
+                        // 3rd's NORMAL charts play a few of DP HYPER's. Any
+                        // other means the chart took the wrong bank.
                         None => {
-                            let elsewhere = song.charts.iter().any(|c| {
-                                let Some(other) = song.sound_files(c.style, c.difficulty).0 else {
-                                    return false;
-                                };
+                            let elsewhere = song.key_banks().into_iter().any(|other| {
                                 let data = songs.read_file(&mut disc, other).unwrap();
                                 Bank::parse(&data).is_ok_and(|b| b.sound(sound).is_some())
                             });
-                            if elsewhere {
-                                missing.push(format!("{what}: sound {sound}"));
-                            } else {
+                            if !elsewhere {
                                 absent += 1;
+                            } else if edition == Edition::ThirdStyle {
+                                borrowed += 1;
+                            } else {
+                                missing.push(format!("{what}: sound {sound}"));
                             }
                         }
                     }
@@ -300,7 +304,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
             }
         }
         missing.dedup();
-        println!("{var}: {absent} sounds charts play are in no bank");
+        println!("{var}: {absent} sounds charts play are in no bank, {borrowed} in another of the song's");
         assert!(
             missing.is_empty(),
             "{var}: {} missing, first {:?}",
@@ -834,4 +838,35 @@ fn fourth_style_songs_and_courses() {
     let last: Vec<String> = expert[14].songs.iter().map(|&id| title(id)).collect();
     assert_eq!(last[0], "THE SHINING POLARIS");
     assert_eq!(expert[14].name, "L.E.D.");
+}
+
+/// 3rd style: 81 songs, the HYPER key sounds and BGMs alone, 16 EXPERT
+/// courses (RemyWiki's CS_3rd_style).
+#[test]
+fn third_style_songs_and_courses() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX3") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::ThirdStyle).unwrap();
+    assert_eq!(songs.songs.len(), 81);
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let expert = &songs.expert_courses;
+    assert_eq!(expert.len(), 16);
+    assert_eq!(
+        (expert[1].name.as_str(), expert[15].name.as_str()),
+        ("#2", "HELL")
+    );
+    let hell: Vec<String> = expert[15].songs.iter().map(|&id| title(id)).collect();
+    assert_eq!(
+        hell,
+        ["SCHLAGWERK", "R5", "ERA (NOSTALMIX)", "THE SAFARI", "HOLIC"]
+    );
 }

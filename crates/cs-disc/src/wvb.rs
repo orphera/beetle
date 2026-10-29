@@ -164,6 +164,10 @@ impl<'a> Bank<'a> {
         let count = u32_at(data, TABLE_END)? as usize;
         let scrambled = u32_at(data, TABLE_END + 8)? != 0;
         let records = TABLE_END + 0x10;
+        // Not a bank (a wrong file number): its count would not fit.
+        if count > (data.len().saturating_sub(records)) / ENTRY {
+            return Err(SoundError::TooShort);
+        }
         let base = records + count * ENTRY;
         let mut files = Vec::with_capacity(count);
         for i in 0..count {

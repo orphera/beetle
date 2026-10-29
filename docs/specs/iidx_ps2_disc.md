@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(4th style, 5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(3rd style, 4th style, 5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 3rd style | `SLPM_650.06` | `DX2_3/BM2DX3.BIN` + 실행 파일(채보) | 0x7c | 없음 (암호화 안 함) |
 | 4th style | `SLPM_650.26` | `DX2_4/BM2DX4.BIN` + 실행 파일(채보) | 0x90 | 없음 (암호화 안 함) |
 | 5th style | `SLPM_650.49` | `DX2_5/BM2DX5.BIN` + 실행 파일(채보) | 0xa4 | 없음 (암호화 안 함) |
 | 6th style | `SLPM_651.56` | `DX2_6/BM2DX6A/B.BIN` + 실행 파일(채보) | 0xa0 | 없음 (암호화 안 함) |
@@ -70,6 +71,13 @@
 - 곡 레코드 0x90: 0x09 레벨(HYPER·ANOTHER 공용, SP·DP 공용), 0x0a NORMAL 레벨, 0x0e 영상, 0x58 채보 6개(BEGINNER 없음, SP H/DP H/SP A/DP A/SP N/DP N), 0x70 사운드 12개.
 - 곡 표 앞 53개가 곡이다(RemyWiki 53곡). 그 뒤 `(ENDING)`과 `SUV. CONG.1~3`.
 - 채보 32개가 뱅크에 없는 소리를 부른다(무음).
+
+### 1.6 3rd style
+
+- 4th와 같은 틀이다. 곡 레코드 0x7c: 0x0a 영상, 0x0c 레벨(HYPER·ANOTHER, NORMAL), 0x54 채보 6개, 0x6c 사운드 4개(SP HYPER와 DP HYPER의 키음·BGM뿐, `Record::sound_count`). 다른 채보는 이 둘을 빌려 쓴다.
+- NORMAL 채보 4개(PANORAMA, OVERDOSER, E-MOTION)는 빌려 쓰는 SP HYPER 뱅크가 아니라 DP HYPER 뱅크의 소리를 몇 개 낸다. 플레이어는 채보의 뱅크에 없는 소리를 곡의 다른 뱅크에서 찾는다(`Song::key_banks`).
+- 곡 표 앞 81개가 곡이다(RemyWiki 81곡). 그 뒤 `(ENDING)`.
+- 4th의 사운드는 12개다(16개로 읽으면 레코드 끝의 다른 값을 뱅크 번호로 읽는다). 엉뚱한 파일을 뱅크로 읽어도 할당이 터지지 않게, 파일 개수가 파일 크기를 넘는 뱅크는 거부한다.
 
 ## 2. 곡 레코드
 
@@ -282,6 +290,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 3rd style | `0x7a780` | 16 (SOUL … HELL), 20바이트. 둘째 코스는 위키에 이름이 없어 `#2` |
 | 4th style | `0x13f5c8` | 15 (VOCAL … L.E.D.), 5th와 같은 20바이트 형식 |
 | 5th style | `0x18ebb8` | 18 (HEAVEN … L.E.D.), 20바이트(`u16` 곡, `u16` 차트 ×5), 이름 없음 |
 | 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. 위키에 없는 3개(10~12번째)는 `#10`~`#12` |

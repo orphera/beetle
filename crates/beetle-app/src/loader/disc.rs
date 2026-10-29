@@ -126,6 +126,8 @@ impl SongSource for DiscSource {
         let (wvb, bgm) = self.song().sound_files(slot.style, slot.difficulty);
         let wvb_bytes = wvb.and_then(|f| self.songs.read_file(&mut self.disc, f).ok());
         let key_sounds = wvb_bytes.as_deref().and_then(|b| Bank::parse(b).ok());
+        // The song's other banks, read when a sound is not in the chart's.
+        let mut other_bytes: Option<Vec<Vec<u8>>> = None;
 
         // Sound numbers by the names the synthesized chart gave them.
         let mut wanted: Vec<_> = chart.header.wav_table.iter().collect();
@@ -147,6 +149,19 @@ impl SongSource for DiscSource {
                     .as_ref()
                     .and_then(|bank| bank.decode(n))
                     .and_then(Result::ok)
+                    .or_else(|| {
+                        let song = &self.songs.songs[self.song];
+                        let others = other_bytes.get_or_insert_with(|| {
+                            song.key_banks()
+                                .into_iter()
+                                .filter(|&f| Some(f) != wvb)
+                                .filter_map(|f| self.songs.read_file(&mut self.disc, f).ok())
+                                .collect()
+                        });
+                        others
+                            .iter()
+                            .find_map(|bytes| Bank::parse(bytes).ok()?.decode(n)?.ok())
+                    })
             };
             if let Some(pcm) = pcm {
                 decoded.insert(wav_id, pcm);
