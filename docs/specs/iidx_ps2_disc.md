@@ -320,7 +320,8 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 - 9th는 10th와 같은 레코드(0x16c)의 같은 칸(0xdc 장르, 0xe0 큰 제목, 0xe4 아티스트, 0xec 작은 제목)과 같은 사각형 위치(0x90)를 쓴다. 선곡 캡처에서 5PM ETERNAL / GUHROOVY fw. NO+CHIN / RAGGA JUNGLE처럼 맞게 나온다.
 - 8th: 낱말 그림이 실행 파일 안에 압축 그림(`ps2tex::decode_old_picture`)으로 있다. 아티스트 1장(0x6e5720), 장르 2장(0x6ed7a0, 0x6f3141), 제목 9장(0x6f36c0~0x72ae8d)이고, 사각형 표(`u16 x, y, w, h`)가 0x1969b0(아티스트 63개)과 0x196bb0(장르 58개, 제목 172개, 시트 순서대로)에 있다. 레코드의 0x18이 장르, 0x1c가 제목, 0x20이 아티스트 번호(`u16`, 그 종류 시트들을 이어 센 번호)이다. 번호의 최댓값(57, 170, 62)이 사각형 수와 맞고, GIUDECCA / D.J.SETUP / PSYCHEDELIC TECHNO처럼 눈으로 확인했다(`Layout::old_words`).
-- 3rd~7th: 아직 보지 않았다. 8th와 같은 방법(실행 파일 그림, 사각형 표, 레코드 칸)으로 찾을 수 있을 것이다.
+- 7th: 8th와 같은 방식이고, 사각형 표의 항목이 `u16 w, h`를 앞에 둔 `x, y`라서 번호 n의 크기는 `x, y` 4바이트 앞에 있다(`OldWords::size_before`). 아티스트 시트 3장(0xa880a0, 0xa8c2bc, 0xa8e4a5, 표 0x1b63dc), 장르 2장(0xa845a0, 0xa877cd)과 제목 6장(0xa73e18, 0xa7a907, 0xa8151d, 0xa63cb0, 0xa6b70b, 0xa73096)이 표 0x1b65bc를 이어 쓴다. 레코드 0x1c 장르, 0x20 제목, 0x24 아티스트. 아티스트 시트는 256색 팔레트 중 앞 16색(회색)만 채워서 CSM1로 섞지 않는다(`decode_old_picture`는 16번 이후 색이 모두 검으면 섞지 않음). TOMORROW PERFUME / dj TAKA / TRANCE, MR.T. / Risky Men feat.Asuka-M / DANCE POP처럼 맞다.
+- 3rd~6th: 아직 보지 않았다. 같은 방법(실행 파일 그림, 사각형 표, 레코드 칸)으로 찾을 수 있을 것이다.
 - 3rd~8th 그림 전체: BIN 묶음의 그림은 8비트·4비트(`old_archive` 예제), `IFs` 파일은 번호 붙은 128×128 VRAM 칸(PSMT8·PSMT4, 팔레트는 그릴 때 정함, `ifs_dump` 예제), 실행 파일 안 그림은 `exe_textures` 예제로 푼다.
 
 ## 9. 알 수 없는 것

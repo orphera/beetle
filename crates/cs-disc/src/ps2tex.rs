@@ -146,10 +146,18 @@ pub fn decode_old_picture(p: &[u8]) -> Option<Rgba> {
             [c(0), c(5), c(10), 255]
         })
         .collect();
+    // A picture that only fills the first 16 colours (the 7th style artist
+    // sheet, 16 greys) indexes them straight; shuffled as CSM1, 8 to 15 would
+    // land on the empty entries 16 to 23.
+    let shuffled = palette[16..].iter().any(|c| c[..3] != [0, 0, 0]);
     let index = |i: usize| -> usize {
         if bits == 8 {
-            let v = p[start + i] as usize;
-            clut_index(v as u8)
+            let v = p[start + i];
+            if shuffled {
+                clut_index(v)
+            } else {
+                v as usize
+            }
         } else {
             let b = p[start + i / 2];
             (if i % 2 == 0 { b & 15 } else { b >> 4 }) as usize

@@ -137,6 +137,10 @@ struct Layout {
 /// exactly at the records' largest numbers (62, 57, 170) and checked by eye.
 #[derive(Clone, Copy)]
 struct OldWords {
+    /// 7th stores each rectangle's `w, h` in the 4 bytes before its `x, y`
+    /// (the previous entry's second half): "2002" at (0, 0) is 164 wide by
+    /// the entry before it, "AVE DE RAPINA" at (164, 0) 214 by its own.
+    size_before: bool,
     artist_at: usize,
     genre_at: usize,
     title_at: usize,
@@ -651,7 +655,32 @@ const SEVENTH_STYLE: Layout = Layout {
             "SELECTION",
         ],
     }),
-    old_words: None,
+    // Rectangles from 0x1b63dc: 59 artists, then the genre table's entry
+    // 0, 56 genres and 90 titles; the title sheets go in the table from the
+    // executable's fourth on.
+    old_words: Some(OldWords {
+        size_before: true,
+        artist_at: 0x24,
+        genre_at: 0x1c,
+        title_at: 0x20,
+        artist: &[
+            (0xa880a0, 0x1b63dc + 8, 39),
+            (0xa8c2bc, 0x1b63dc + 40 * 8, 16),
+            (0xa8e4a5, 0x1b63dc + 56 * 8, 4),
+        ],
+        genre: &[
+            (0xa845a0, 0x1b65bc + 8, 49),
+            (0xa877cd, 0x1b65bc + 50 * 8, 7),
+        ],
+        title: &[
+            (0xa73e18, 0x1b65bc + 57 * 8, 21),
+            (0xa7a907, 0x1b65bc + 78 * 8, 18),
+            (0xa8151d, 0x1b65bc + 96 * 8, 6),
+            (0xa63cb0, 0x1b65bc + 102 * 8, 24),
+            (0xa6b70b, 0x1b65bc + 126 * 8, 19),
+            (0xa73096, 0x1b65bc + 145 * 8, 2),
+        ],
+    }),
     ..EIGHTH_STYLE
 };
 
@@ -729,6 +758,7 @@ const EIGHTH_STYLE: Layout = Layout {
         ],
     }),
     old_words: Some(OldWords {
+        size_before: false,
         artist_at: 0x20,
         genre_at: 0x18,
         title_at: 0x1c,
@@ -1989,7 +2019,21 @@ impl Disc {
         let start = self.executable.offset() + picture_at as u64;
         let len = PACKED.min(self.executable.size.saturating_sub(picture_at as u64));
         let packed = disc.read_at(start, len as usize)?;
-        let rect = disc.read_at(self.executable.offset() + (rects_at + n * 8) as u64, 8)?;
+        let at = self.executable.offset() + (rects_at + n * 8) as u64;
+        let rect = match self.edition.tables() {
+            Tables::Iidx(Layout {
+                old_words:
+                    Some(OldWords {
+                        size_before: true, ..
+                    }),
+                ..
+            }) => {
+                let mut rect = disc.read_at(at, 4)?;
+                rect.extend(disc.read_at(at - 4, 4)?);
+                rect
+            }
+            _ => disc.read_at(at, 8)?,
+        };
         let Some(sheet) = crate::lz::decode(&packed)
             .as_deref()
             .and_then(crate::ps2tex::decode_old_picture)
