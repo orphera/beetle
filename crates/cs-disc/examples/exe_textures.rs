@@ -10,7 +10,9 @@ fn main() {
     std::fs::create_dir_all(out).unwrap();
     let head = [0x04, 0x10, 0x00, 0x80, 0x09];
     for at in (0..b.len() - 5).filter(|&i| b[i..i + 5] == head) {
-        let Some(p) = cs_disc::lz::decode(&b[at..]) else { continue };
+        let Some(p) = cs_disc::lz::decode(&b[at..]) else {
+            continue;
+        };
         if p.len() <= 0x220 {
             continue;
         }
@@ -25,7 +27,11 @@ fn main() {
         let pal: Vec<[u8; 3]> = (0..256)
             .map(|i| {
                 let v = u16::from_le_bytes([p[0x14 + 2 * i], p[0x15 + 2 * i]]);
-                [((v & 31) << 3) as u8, (((v >> 5) & 31) << 3) as u8, (((v >> 10) & 31) << 3) as u8]
+                [
+                    ((v & 31) << 3) as u8,
+                    (((v >> 5) & 31) << 3) as u8,
+                    (((v >> 10) & 31) << 3) as u8,
+                ]
             })
             .collect();
         let mut f = format!("P6 {width} {height} 255\n").into_bytes();
