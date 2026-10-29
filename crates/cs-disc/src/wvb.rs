@@ -51,7 +51,9 @@
 //! at 40, which is not applied to the stream (see `decode_bgm`)), then
 //! ADPCM frames interleaved per channel every 16 bytes. 8th and before:
 //! big-endian `u32 size, u16, u16 rate, u8 channels`, told by the size
-//! filling the file after the 0x800 header; not scrambled.
+//! filling the file after the 0x800 header; not scrambled, and the channels
+//! take turns every 0x800 bytes (read every 16, the whole song was noise;
+//! 0x800 matches vgmstream sample for sample on 8th's GIUDECCA).
 
 use std::fmt;
 
@@ -517,7 +519,14 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
     let old_size = u32::from_be_bytes(head[..4].try_into().unwrap()) as usize;
     let (start, size, rate, count, scrambled, interleave) = if old_size + 0x800 == data.len() {
         let rate = u16::from_be_bytes([head[6], head[7]]) as u32;
-        (0x800, old_size, rate, (head[8] as usize).max(1), false, 16)
+        (
+            0x800,
+            old_size,
+            rate,
+            (head[8] as usize).max(1),
+            false,
+            0x800,
+        )
     } else {
         (
             u32_at(data, 8)? as usize,
@@ -528,7 +537,7 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
             u32_at(data, 36)?,
         )
     };
-    if interleave != 16 {
+    if interleave != 16 && interleave != 0x800 {
         return Err(SoundError::BadInterleave(interleave));
     }
     let body = data
@@ -538,7 +547,7 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
     let channels = (0..count)
         .map(|c| {
             let frames: Vec<u8> = body
-                .chunks_exact(16)
+                .chunks_exact(interleave as usize)
                 .skip(c)
                 .step_by(count)
                 .flatten()
@@ -655,5 +664,31 @@ mod tests {
         let bank = Bank::parse(&data).unwrap();
         assert_eq!(bank.numbers().collect::<Vec<_>>(), [2]);
         assert!(bank.decode(1).is_none());
+    }
+
+    #[test]
+    fn an_old_bgm_takes_turns_per_channel_every_0x800_bytes() {
+        // Left block: frames of +7 nibbles; right block: frames of -8.
+        let frame = |nibble: u8| {
+            let mut f = [nibble * 0x11; 16];
+            (f[0], f[1]) = (0x0c, 0x02);
+            f
+        };
+        let mut body = Vec::new();
+        for nibble in [0x7, 0x8] {
+            for _ in 0..0x800 / 16 {
+                body.extend(frame(nibble));
+            }
+        }
+        let mut data = vec![0u8; 0x800];
+        data[..4].copy_from_slice(&(body.len() as u32).to_be_bytes());
+        data[6..8].copy_from_slice(&48000u16.to_be_bytes());
+        data[8] = 2;
+        data.extend(body);
+        let pcm = decode_bgm(&data).unwrap();
+        assert_eq!(pcm.rate, 48000);
+        assert_eq!(pcm.channels[0].len(), 0x800 / 16 * 28);
+        assert!(pcm.channels[0].iter().all(|&s| s > 0));
+        assert!(pcm.channels[1].iter().all(|&s| s < 0));
     }
 }

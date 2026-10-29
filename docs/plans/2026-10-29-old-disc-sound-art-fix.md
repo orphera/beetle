@@ -41,10 +41,11 @@
 - 잡음 지표: 원래 소리와 비교할 기준이 없으므로, vgmstream으로 뽑은 같은 파일과 샘플 비교(가능한 것), 그리고 클리핑 비율·고역 비율을 표로 남긴다.
 - 앱 캡처: 에디션마다 선곡, 로딩, 플레이(BGA) 화면. 무엇이 어떻게 틀렸는지 이 표로 정한다.
 
-### 1. IIDX 3rd~8th BGM (원인 확인됨)
+### 1. IIDX 3rd~8th BGM [완료]
 
 - `decode_bgm`의 옛 형식을 0x800바이트 인터리브로. vgmstream과 샘플 단위 비교를 단위 테스트(짧은 합성 스트림)와 `real_discs.rs`(실디스크)에 둔다.
 - 3rd~8th 전 곡 BGM을 vgmstream과 비교한다.
+- 결과: 3rd(R5)·6th(BLUEBERRY STREAM)·7th(GLORIOUS DAYS)·8th(GIUDECCA) BGM이 vgmstream과 샘플 단위로 같다. 단위 테스트 `an_old_bgm_takes_turns_per_channel_every_0x800_bytes`.
 
 ### 2. IIDX 3rd~8th 키음에 남은 것
 
