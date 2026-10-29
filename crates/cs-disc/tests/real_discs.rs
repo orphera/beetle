@@ -340,7 +340,7 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         let mut missing = Vec::new();
         let mut checked = std::collections::BTreeSet::new();
         let banners = !matches!(edition, Edition::Popn8 | Edition::Popn9 | Edition::Popn10);
-        let streams = !matches!(edition, Edition::Popn8 | Edition::Popn10);
+        let streams = edition != Edition::Popn10;
         let mut bgm_lengths = std::collections::HashMap::new();
         for song in &songs.songs {
             if !banners {
@@ -378,11 +378,11 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
                     bgm_lengths.insert(bgm, pcm.channels[0].len() as f64 / pcm.rate as f64);
                 }
                 let ply = songs.chart_ply(&mut disc, chart).unwrap();
-                // 9's streams are matched to songs by order alone
+                // 8's and 9's streams are matched to songs by order alone
                 // (`popn::Streams`): each plays from the BGM start to about
                 // the last note. (12 to 14 name theirs, and some end on key
                 // sounds: 12's テクノボー.)
-                let ordered = edition == Edition::Popn9;
+                let ordered = matches!(edition, Edition::Popn8 | Edition::Popn9);
                 if let Some(length) = bgm.filter(|_| ordered).and_then(|b| bgm_lengths.get(&b)) {
                     let start = ply
                         .events

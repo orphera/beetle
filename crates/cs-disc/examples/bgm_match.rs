@@ -1,6 +1,9 @@
-//! Temporary: how well BGM files line up with a song's chart (onsets of the
-//! sounds the chart plays against the stream's loudness rises).
-//! bgm_match <iso> <song id> <bgm file>...
+//! Research helper: how well BGM stream files line up with a song's chart
+//! (when the chart's sounds start against when the stream gets louder),
+//! for finding which stream is a song's where nothing names it. A right
+//! pair scores about 0.3 to 0.65, a wrong one about 0.1.
+//!
+//! cargo run -p cs-disc --release --example bgm_match -- <image.iso> <song id> <stream file>...
 use cs_disc::iidx::Disc;
 use cs_disc::ply::Command;
 use cs_disc::{identify, SectorReader, Volume};

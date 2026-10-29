@@ -1634,7 +1634,17 @@ impl Disc {
             let base = files.len() as u32;
             files.extend(stream_files.into_iter().map(|f| FileEntry { dat: 1, ..f }));
             dats.push(stream_dat);
-            crate::popn::assign_streams(&mut songs, &exe, layout, base);
+            let chart_files: Vec<u32> = match streams.order {
+                crate::popn::StreamOrder::Charts { .. } => (0..base)
+                    .filter(|&f| {
+                        let entry = files[f as usize];
+                        disc.read_at(dat.offset() + entry.offset, 1)
+                            .is_ok_and(|b| b.first() == Some(&0x20))
+                    })
+                    .collect(),
+                crate::popn::StreamOrder::BgmNumbers(_) => Vec::new(),
+            };
+            crate::popn::assign_streams(&mut songs, &exe, layout, base, &chart_files);
         }
         Ok(Self {
             edition,

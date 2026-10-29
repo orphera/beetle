@@ -57,7 +57,8 @@
 //! and 10 (`"GbTs"`): the same fields at 8, 12, 24 and 28, but 1 at 32 and
 //! 32 at 36 are not a scramble and an interleave: the stream is plain and
 //! takes turns every 16 bytes (the only interleave whose two channels come
-//! out alike, as a song's left and right do).
+//! out alike, as a song's left and right do). pop'n 8 (`"MOVE"`): rate at 8,
+//! size at 16, interleave at 20 (16), channels at 32, data from 0x800.
 
 use std::fmt;
 
@@ -530,6 +531,15 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
             (head[8] as usize).max(1),
             false,
             0x800,
+        )
+    } else if head.starts_with(b"MOVE") {
+        (
+            0x800,
+            u32_at(data, 16)? as usize,
+            u32_at(data, 8)?,
+            (u32_at(data, 32)? as usize).max(1),
+            false,
+            u32_at(data, 20)?,
         )
     } else if head.starts_with(b"GbTs") {
         (
