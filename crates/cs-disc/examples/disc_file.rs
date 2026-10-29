@@ -1,7 +1,7 @@
 //! Research helper: lists a disc's root, or writes one root file out.
 //!
 //! ```text
-//! cargo run -p cs-disc --example disc_file -- <image.iso> [<name> <out file>]
+//! cargo run -p cs-disc --example disc_file -- <image.iso> [<name> <out file> | <directory>]
 //! ```
 
 use std::io;
@@ -20,8 +20,17 @@ fn main() -> io::Result<()> {
             std::fs::write(out, bytes)
         }
         _ => {
-            for e in volume.root(&mut disc)? {
-                println!("{}\t{}", e.name, e.extent.size);
+            let entries = match args.get(1) {
+                Some(dir) => {
+                    let extent = volume
+                        .find_dir(&mut disc, dir)?
+                        .ok_or_else(|| io::Error::other("no such directory"))?;
+                    volume.list(&mut disc, extent)?
+                }
+                None => volume.root(&mut disc)?,
+            };
+            for e in entries {
+                println!("{}\t{}\t{}", e.name, e.extent.size, e.extent.lba);
             }
             Ok(())
         }

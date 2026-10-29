@@ -135,6 +135,26 @@ impl Volume {
         Ok(None)
     }
 
+    /// The directory at `path` (`/`- or `\`-separated, any case), or `None`.
+    pub fn find_dir<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        path: &str,
+    ) -> io::Result<Option<FileExtent>> {
+        let mut dir = self.root;
+        for part in path.split(['/', '\\']).filter(|p| !p.is_empty()) {
+            let found = self
+                .list(disc, dir)?
+                .into_iter()
+                .find(|e| e.is_dir && e.name.eq_ignore_ascii_case(part));
+            match found {
+                Some(entry) => dir = entry.extent,
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(dir))
+    }
+
     /// The whole file at `path`, or `None`.
     pub fn read_file<R: Read + Seek>(
         &self,
