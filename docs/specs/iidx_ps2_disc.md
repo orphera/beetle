@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(4th style, 5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 4th style | `SLPM_650.26` | `DX2_4/BM2DX4.BIN` + 실행 파일(채보) | 0x90 | 없음 (암호화 안 함) |
 | 5th style | `SLPM_650.49` | `DX2_5/BM2DX5.BIN` + 실행 파일(채보) | 0xa4 | 없음 (암호화 안 함) |
 | 6th style | `SLPM_651.56` | `DX2_6/BM2DX6A/B.BIN` + 실행 파일(채보) | 0xa0 | 없음 (암호화 안 함) |
 | 7th style | `SLPM_655.93` | `DX2_7/BM2DX7B/C/A.BIN` | 0xa0 | 없음 (암호화 안 함) |
@@ -62,6 +63,13 @@
 - 곡 레코드 0xa4: 0x08 레벨(6th와 같은 순서), 0x12 영상 `u16`(그다음 번호가 둘째 영상), 0x5c 채보 8개, 0x7c 사운드 16개.
 - 곡 표 앞 64개가 곡이다(RemyWiki 64곡). 그 뒤 `(ENDING)`, `SUV. CONG.1~3`(서바이벌 모드), `d01`~`d73`(드릴 모드로 보임)은 읽지 않는다.
 - 채보 81개가 뱅크에 없는 소리를 부른다(무음).
+
+### 1.5 4th style
+
+- 5th와 같은 틀이다. 파일 표는 12바이트(섹터, 바이트, 해시, `FileRecords::ShortHashed`), 채보 형식은 Ps2NoHeader.
+- 곡 레코드 0x90: 0x09 레벨(HYPER·ANOTHER 공용, SP·DP 공용), 0x0a NORMAL 레벨, 0x0e 영상, 0x58 채보 6개(BEGINNER 없음, SP H/DP H/SP A/DP A/SP N/DP N), 0x70 사운드 12개.
+- 곡 표 앞 53개가 곡이다(RemyWiki 53곡). 그 뒤 `(ENDING)`과 `SUV. CONG.1~3`.
+- 채보 32개가 뱅크에 없는 소리를 부른다(무음).
 
 ## 2. 곡 레코드
 
@@ -274,6 +282,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 4th style | `0x13f5c8` | 15 (VOCAL … L.E.D.), 5th와 같은 20바이트 형식 |
 | 5th style | `0x18ebb8` | 18 (HEAVEN … L.E.D.), 20바이트(`u16` 곡, `u16` 차트 ×5), 이름 없음 |
 | 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. 위키에 없는 3개(10~12번째)는 `#10`~`#12` |
 | 7th style | `0x1c59dc` | 9 (MORNING … SELECTION), 68바이트, 이름 없음 |

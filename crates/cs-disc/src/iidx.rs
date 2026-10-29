@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 4th style, `SLPM_650.26`.
+    FourthStyle,
     /// 5th style, `SLPM_650.49`.
     FifthStyle,
     /// 6th style, `SLPM_651.56`.
@@ -59,7 +61,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 16] = [
+const EDITIONS: [Edition; 17] = [
+    Edition::FourthStyle,
     Edition::FifthStyle,
     Edition::SixthStyle,
     Edition::SeventhStyle,
@@ -216,6 +219,8 @@ enum FileRecords {
     Bytes,
     /// 16 bytes: sector, an unused word, bytes, a hash (5th to 8th).
     Hashed,
+    /// 12 bytes: sector, bytes, a hash (3rd, 4th).
+    ShortHashed,
 }
 
 /// Where a song record keeps its fields.
@@ -347,6 +352,52 @@ const RECORD_15_16: Record = Record {
             another: 2,
         }),
     },
+};
+
+/// 4th style: the 5th style form, 0x90-byte records of six charts (no
+/// BEGINNER) and 12-byte file records.
+const FOURTH_STYLE: Layout = Layout {
+    executable: "SLPM_650.26",
+    slug: "iidx4",
+    file_tables: &[(0x137450, 0x9d8)],
+    file_records: FileRecords::ShortHashed,
+    dat_files: &["DX2_4/BM2DX4.BIN"],
+    // 53 songs; then the ending roll and three survival records.
+    songs: (0x8bc98, 53 * 0x90),
+    // Levels: HYPER and ANOTHER (both styles), then NORMAL.
+    record: Record {
+        size: 0x90,
+        levels_at: 0x09,
+        level_of: [0, 0, 0, 0, 1, 1, 1, 1, 0, 0],
+        video_at: 0x0e,
+        charts_at: 0x58,
+        chart_count: 6,
+        sounds_at: 0x70,
+        ..FIFTH_STYLE.record
+    },
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x13f5c8,
+        size: 20,
+        step: 4,
+        names: &[
+            "VOCAL",
+            "HAPPY",
+            "TRANCE",
+            "TRIP-TRAP",
+            "CLUB",
+            "TECHNO",
+            "7STARS",
+            "EURO",
+            "FLOWER",
+            "TURBO",
+            "HYPER",
+            "dj TAKA",
+            "MILLENNIUM",
+            "BONUS",
+            "L.E.D.",
+        ],
+    }),
+    ..FIFTH_STYLE
 };
 
 /// 5th style: one `DX2_5` BIN, charts inside the executable.
@@ -939,6 +990,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::FourthStyle => &FOURTH_STYLE,
             Edition::FifthStyle => &FIFTH_STYLE,
             Edition::SixthStyle => &SIXTH_STYLE,
             Edition::SeventhStyle => &SEVENTH_STYLE,
@@ -2071,12 +2123,14 @@ fn read_file_tables(
         FileRecords::Sectors => 8,
         FileRecords::Bytes => 12,
         FileRecords::Hashed => 16,
+        FileRecords::ShortHashed => 12,
     };
     for (dat, &span) in tables.iter().enumerate() {
         for record in table(exe, span)?.chunks_exact(len) {
             let size = match records {
                 FileRecords::Sectors => u32_at(record, 4) * crate::SECTOR_SIZE as u32,
                 FileRecords::Bytes | FileRecords::Hashed => u32_at(record, 8),
+                FileRecords::ShortHashed => u32_at(record, 4),
             };
             files.push(FileEntry {
                 dat: dat as u8,

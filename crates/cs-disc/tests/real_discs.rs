@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX5` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX4` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -133,6 +133,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX4", Edition::FourthStyle),
         ("CS_DISC_IIDX5", Edition::FifthStyle),
         ("CS_DISC_IIDX6", Edition::SixthStyle),
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
@@ -206,6 +207,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX4", Edition::FourthStyle),
         ("CS_DISC_IIDX5", Edition::FifthStyle),
         ("CS_DISC_IIDX6", Edition::SixthStyle),
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
@@ -803,4 +805,33 @@ fn fifth_style_songs_and_courses() {
         ]
     );
     assert_eq!(expert[17].name, "L.E.D.");
+}
+
+/// 4th style: 53 songs of six charts (no BEGINNER), 15 EXPERT courses
+/// (RemyWiki's CS_4th_style).
+#[test]
+fn fourth_style_songs_and_courses() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX4") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::FourthStyle).unwrap();
+    assert_eq!(songs.songs.len(), 53);
+    assert!(songs.songs.iter().all(|s| s
+        .charts
+        .iter()
+        .all(|c| c.difficulty != Difficulty::Beginner)));
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let expert = &songs.expert_courses;
+    assert_eq!(expert.len(), 15);
+    let last: Vec<String> = expert[14].songs.iter().map(|&id| title(id)).collect();
+    assert_eq!(last[0], "THE SHINING POLARIS");
+    assert_eq!(expert[14].name, "L.E.D.");
 }
