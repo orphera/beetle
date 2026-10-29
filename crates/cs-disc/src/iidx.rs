@@ -1642,7 +1642,7 @@ impl Disc {
                             .is_ok_and(|b| b.first() == Some(&0x20))
                     })
                     .collect(),
-                crate::popn::StreamOrder::BgmNumbers(_) => Vec::new(),
+                _ => Vec::new(),
             };
             crate::popn::assign_streams(&mut songs, &exe, layout, base, &chart_files);
         }

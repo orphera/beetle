@@ -75,6 +75,15 @@ pub(crate) enum StreamOrder {
     /// 8: one per chart file on the disc (songs or not), two for these
     /// chart files, which play the first.
     Charts { two: &'static [u32] },
+    /// 10: the game's own tables, as its BGM loader (0x161cb0 in the
+    /// executable) reads them: `songs` 12-byte entries (`u32` number,
+    /// `u16` twice, `u16` the song's key sound bank, the chart file + 1),
+    /// then the number's 8-byte entry in `streams` (`u32` stream, `u32`
+    /// volume) names the stream.
+    Table {
+        songs: (usize, usize),
+        streams: (usize, usize),
+    },
 }
 
 /// How a disc's song records read.
@@ -170,9 +179,8 @@ pub(crate) const POPN9: Layout = Layout {
 };
 
 /// pop'n music 10: the songs in `SDS.DAT` (a key sound bank, then the chart),
-/// 0x38-byte records. `SDB.DAT`'s streams are not the songs' BGMs (no record
-/// field matches them), and the charts play over a thousand background
-/// sounds each: the music is key sounds.
+/// 0x38-byte records, and their BGM streams in `SDB.DAT` (`"GbTs"`), named
+/// through two tables of the executable (`StreamOrder::Table`).
 pub(crate) const POPN10: Layout = Layout {
     executable: "SLPM_657.70",
     slug: "popn10",
@@ -191,7 +199,15 @@ pub(crate) const POPN10: Layout = Layout {
         genre_at: None,
         bgm: false,
     },
-    streams: None,
+    streams: Some(Streams {
+        dat: "SDB.DAT",
+        files: (0xbdf70, 137),
+        first: 0,
+        order: StreamOrder::Table {
+            songs: (0xbeca4, 149),
+            streams: (0xbe550, 135),
+        },
+    }),
 };
 
 /// The `IMAGE.DAT` files holding the title and artist word pictures. Each
@@ -396,6 +412,35 @@ pub(crate) fn assign_streams(
     };
     let first_stream = base + streams.first;
     match streams.order {
+        StreamOrder::Table {
+            songs: (songs_at, song_count),
+            streams: (streams_at, stream_count),
+        } => {
+            let u16_at = |at: usize| {
+                exe.get(at..at + 2)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            };
+            for song in songs {
+                let Some(file) = song.charts.first().map(|c| c.file) else {
+                    continue;
+                };
+                let Some(number) = (0..song_count)
+                    .map(|i| songs_at + i * 12)
+                    .find(|&at| u16_at(at + 8) == Some(file as u16 + 1))
+                    .and_then(|at| u32_at(exe, at))
+                    .filter(|&n| (n as usize) < stream_count)
+                else {
+                    continue;
+                };
+                let Some(stream) = u32_at(exe, streams_at + number as usize * 8) else {
+                    continue;
+                };
+                for &(difficulty, _) in &LEVELS {
+                    let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
+                    song.set_sound_files(Style::Single, difficulty, bank, base + stream);
+                }
+            }
+        }
         StreamOrder::Charts { two } => {
             for song in songs {
                 let Some(file) = song.charts.first().map(|c| c.file) else {
