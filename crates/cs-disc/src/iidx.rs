@@ -55,6 +55,8 @@ pub enum Edition {
     Empress,
     /// 16 EMPRESS, disc 2, `SLPM_552.22`.
     PremiumBest,
+    /// pop'n music 9, `SLPM_655.08`.
+    Popn9,
     /// pop'n music 10, `SLPM_657.70`.
     Popn10,
     /// pop'n music 12 いろは, `SLPM_663.14`.
@@ -65,7 +67,7 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 19] = [
+const EDITIONS: [Edition; 20] = [
     Edition::ThirdStyle,
     Edition::FourthStyle,
     Edition::FifthStyle,
@@ -81,6 +83,7 @@ const EDITIONS: [Edition; 19] = [
     Edition::DjTroopers,
     Edition::Empress,
     Edition::PremiumBest,
+    Edition::Popn9,
     Edition::Popn10,
     Edition::Popn12,
     Edition::Popn13,
@@ -1070,6 +1073,7 @@ impl Edition {
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
             Edition::PremiumBest => &PREMIUM_BEST,
+            Edition::Popn9 => return Tables::Popn(&crate::popn::POPN9),
             Edition::Popn10 => return Tables::Popn(&crate::popn::POPN10),
             Edition::Popn12 => return Tables::Popn(&crate::popn::POPN12),
             Edition::Popn13 => return Tables::Popn(&crate::popn::POPN13),

@@ -52,8 +52,9 @@ pub(crate) struct Layout {
 #[derive(Clone, Copy)]
 pub(crate) struct Record {
     pub size: usize,
-    /// The chart file number: `u32` on 12 to 14, `u16` on 10.
-    pub chart_at: usize,
+    /// The chart file number: `u32` on 12 to 14, `u16` on 9 and 10. 9 gives
+    /// one per difficulty, 0 where it has no chart; the first other is it.
+    pub chart_at: &'static [usize],
     pub chart_u16: bool,
     pub levels_at: usize,
     /// The banner's rectangle (`u16`), where the record names one.
@@ -69,12 +70,34 @@ pub(crate) struct Record {
 /// 12 to 14: 0x58 bytes.
 const RECORD_12: Record = Record {
     size: 0x58,
-    chart_at: 0x4c,
+    chart_at: &[0x4c],
     chart_u16: false,
     levels_at: 0x51,
     banner_at: Some(0x40),
     genre_at: Some(0),
     bgm: true,
+};
+
+/// pop'n music 9: 10's form in `SOUND/SD_01.DAT`, 0xe0-byte records with
+/// five pointers (the third the genre) and six 24-byte per-difficulty parts,
+/// each ending in the chart file number.
+pub(crate) const POPN9: Layout = Layout {
+    executable: "SLPM_655.08",
+    slug: "popn9",
+    files: (0xc40d0, 235),
+    songs: (0xd3210, 111),
+    images: (0xc2d20, 714),
+    dat: "SOUND/SD_01.DAT",
+    record: Record {
+        size: 0xe0,
+        chart_at: &[0x60, 0x78, 0x90, 0xa8, 0xc0, 0xd8],
+        chart_u16: true,
+        levels_at: 0x44,
+        banner_at: None,
+        genre_at: Some(8),
+        bgm: false,
+    },
+    ..POPN10
 };
 
 /// pop'n music 10: the songs in `SDS.DAT` (a key sound bank, then the chart),
@@ -92,7 +115,7 @@ pub(crate) const POPN10: Layout = Layout {
     dat: "SDS.DAT",
     record: Record {
         size: 0x38,
-        chart_at: 0x2c,
+        chart_at: &[0x2c],
         chart_u16: true,
         levels_at: 0x30,
         banner_at: None,
@@ -218,11 +241,18 @@ pub(crate) fn read_songs(exe: &[u8], layout: &Layout, files: usize) -> Option<Ve
     let mut songs = Vec::new();
     for id in 0..count {
         let record = exe.get(at + id * form.size..at + (id + 1) * form.size)?;
-        let file = if form.chart_u16 {
-            u16::from_le_bytes([record[form.chart_at], record[form.chart_at + 1]]) as u32
-        } else {
-            u32_at(record, form.chart_at)?
-        };
+        let file = form
+            .chart_at
+            .iter()
+            .map(|&at| {
+                if form.chart_u16 {
+                    u16::from_le_bytes([record[at], record[at + 1]]) as u32
+                } else {
+                    u32_at(record, at).unwrap_or(0)
+                }
+            })
+            .find(|&f| f != 0)
+            .unwrap_or(0);
         if file == 0 || file as usize + 1 >= files {
             continue;
         }
@@ -665,6 +695,18 @@ const ROW1: &str = "　、。，．・：；？！゛゜´｀¨＾￣＿ヽヾ�
 
 /// Shift-JIS text as far as genre names need it: ASCII, symbols, full-width
 /// letters and digits, hiragana and katakana. Anything else becomes `?`.
+/// The kanji genre names use (pop'n 9: 俺ポップ, 昭和ブギウギ, 大河ドラマ,
+/// 昭和歌謡REMIX), by Shift-JIS code.
+const KANJI: [([u8; 2], char); 7] = [
+    ([0x89, 0xb4], '俺'),
+    ([0x8f, 0xba], '昭'),
+    ([0x98, 0x61], '和'),
+    ([0x91, 0xe5], '大'),
+    ([0x89, 0xcd], '河'),
+    ([0x89, 0xcc], '歌'),
+    ([0x97, 0x77], '謡'),
+];
+
 pub fn shift_jis(bytes: &[u8]) -> String {
     let mut out = String::new();
     let mut i = 0;
@@ -679,6 +721,10 @@ pub fn shift_jis(bytes: &[u8]) -> String {
             break;
         };
         i += 2;
+        if let Some(&(_, c)) = KANJI.iter().find(|&&(code, _)| code == [b, second]) {
+            out.push(c);
+            continue;
+        }
         let (row, col) = match (b, second) {
             (0x81..=0x9f, 0x40..=0xfc) | (0xe0..=0xef, 0x40..=0xfc) => {
                 let pair = if b < 0xa0 { b - 0x81 } else { b - 0xc1 } as u32;

@@ -31,7 +31,7 @@ const fn title(code: &'static str, name: &'static str, charts: ChartFormat) -> T
 
 /// Every PS2 IIDX disc iidx-ps2tools knows, oldest first, then the pop'n
 /// music discs this crate reads.
-pub const IIDX_PS2: [Title; 20] = [
+pub const IIDX_PS2: [Title; 21] = [
     Title {
         playable: true,
         ..title(
@@ -154,6 +154,10 @@ pub const IIDX_PS2: [Title; 20] = [
     },
     // The 9th style chart code reads it.
     title("SLUS_212.39", "beatmania (US)", ChartFormat::Ps2Long),
+    Title {
+        playable: true,
+        ..title("SLPM_655.08", "pop'n music 9", ChartFormat::Popn)
+    },
     Title {
         playable: true,
         ..title("SLPM_657.70", "pop'n music 10", ChartFormat::Popn)

@@ -124,6 +124,9 @@ fn rate(code: u8) -> Result<u32, SoundError> {
         0x4d => 18000,
         0x50 => 16000,
         0x54 => 12000,
+        // The codes are semitones down from 44100 (0x4a is 22050); one the
+        // table lacks (pop'n 9's 0x68) takes that.
+        0x30..=0x7f => (44100.0 * 2f64.powf(-(code as f64 - 62.0) / 12.0)).round() as u32,
         _ => return Err(SoundError::UnknownRate(code)),
     })
 }
@@ -361,7 +364,13 @@ impl<'a> Bank<'a> {
             let rate = measured_rate(left.len(), sound.duration_ms).unwrap_or(table_rate);
             let mut channels = vec![left];
             if let Placement::Stereo { right } = sound.placement {
-                channels.push(self.decode_file(right)?.1);
+                // pop'n 9 has two right halves stored with a size of -48
+                // (ラテンポップ's 120, ホネホネ's 215): the left plays both.
+                let right = match self.decode_file(right) {
+                    Ok((_, right)) => right,
+                    Err(_) => channels[0].clone(),
+                };
+                channels.push(right);
             }
             if channels.len() == 1 && sound.pan != CENTER {
                 let (left, right) = pan_gains(sound.pan);

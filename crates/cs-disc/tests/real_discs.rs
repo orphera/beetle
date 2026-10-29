@@ -317,13 +317,14 @@ fn every_chart_finds_and_decodes_its_sounds() {
 /// Every pop'n chart becomes BMS the player reads as nine buttons, with every
 /// note of the chart on time; every sound a chart plays is in its bank and
 /// decodes, every BGM decodes, and every song has its banner. Set
-/// `CS_DISC_POPN10` to `CS_DISC_POPN14`. 10 has no banners read yet and no
+/// `CS_DISC_POPN9` to `CS_DISC_POPN14`. 9 and 10 have no banners read yet and no
 /// BGM streams (its music is key sounds).
 #[test]
 fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
     use cs_disc::ply::Command;
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_POPN9", Edition::Popn9),
         ("CS_DISC_POPN10", Edition::Popn10),
         ("CS_DISC_POPN12", Edition::Popn12),
         ("CS_DISC_POPN13", Edition::Popn13),
@@ -337,7 +338,7 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         let mut worst = (0.0f64, String::new());
         let mut missing = Vec::new();
         let mut checked = std::collections::BTreeSet::new();
-        let streams = edition != Edition::Popn10;
+        let streams = !matches!(edition, Edition::Popn9 | Edition::Popn10);
         for song in &songs.songs {
             if !streams {
                 // No banners yet.
