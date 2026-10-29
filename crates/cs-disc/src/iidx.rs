@@ -55,6 +55,8 @@ pub enum Edition {
     Empress,
     /// 16 EMPRESS, disc 2, `SLPM_552.22`.
     PremiumBest,
+    /// pop'n music 8, `SLPM_653.16`.
+    Popn8,
     /// pop'n music 9, `SLPM_655.08`.
     Popn9,
     /// pop'n music 10, `SLPM_657.70`.
@@ -67,7 +69,7 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 20] = [
+const EDITIONS: [Edition; 21] = [
     Edition::ThirdStyle,
     Edition::FourthStyle,
     Edition::FifthStyle,
@@ -83,6 +85,7 @@ const EDITIONS: [Edition; 20] = [
     Edition::DjTroopers,
     Edition::Empress,
     Edition::PremiumBest,
+    Edition::Popn8,
     Edition::Popn9,
     Edition::Popn10,
     Edition::Popn12,
@@ -1073,6 +1076,7 @@ impl Edition {
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
             Edition::PremiumBest => &PREMIUM_BEST,
+            Edition::Popn8 => return Tables::Popn(&crate::popn::POPN8),
             Edition::Popn9 => return Tables::Popn(&crate::popn::POPN9),
             Edition::Popn10 => return Tables::Popn(&crate::popn::POPN10),
             Edition::Popn12 => return Tables::Popn(&crate::popn::POPN12),
@@ -1589,7 +1593,23 @@ impl Disc {
         let dat = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
         let short = || invalid("the executable is shorter than its tables".to_string());
         let files = crate::popn::read_files(&exe, layout).ok_or_else(short)?;
-        let mut songs = crate::popn::read_songs(&exe, layout, files.len()).ok_or_else(short)?;
+        let mut songs = crate::popn::read_songs(&exe, layout, files.len(), &mut |file| {
+            files.get(file as usize).is_some_and(|entry| {
+                disc.read_at(dat.offset() + entry.offset, 4)
+                    .is_ok_and(|b| b.first() == Some(&0x20))
+            })
+        })
+        .ok_or_else(short)?;
+        if layout.record.levels_at.is_none() {
+            for song in &mut songs {
+                crate::popn::real_charts(song, &mut |file| {
+                    let entry = files.get(file as usize)?;
+                    disc.read_at(dat.offset() + entry.offset, entry.size as usize)
+                        .ok()
+                });
+            }
+            songs.retain(|s| !s.charts.is_empty());
+        }
         for song in &mut songs {
             crate::popn::pick_sound_sets(song, layout.record.bgm, &mut |file, bytes| {
                 let entry = files.get(file as usize)?;

@@ -36,6 +36,16 @@
 //! u16, u16 rate code (high byte), u32 size, u32`. File data follows the
 //! records. Not scrambled.
 //!
+//! pop'n music 8 bank: a 16-byte head `0x10, file table offset, size, 0`,
+//! then from 0x20 to 0x2010 one 16-byte entry per sound numbered from 1: `u8,
+//! u8 kind` (0 unused, 1 mono, 2 stereo), `u8, u8 0xff`, then one `u32` per
+//! channel: the offset from 0x2010 of its parameter list. A list is `u32`
+//! tokens, the tag in the high byte and the value below: 0xd2 the file, 0xdd
+//! the pan, 0xf8 the volume (bits 16 to 23), 0xff the end. At the file table:
+//! `u32, u32 count, u32, u32 data size`, then 16-byte records whose first
+//! `u32` is the offset; a file runs to the next one. No rate is stored that
+//! reads as one; 44100 Hz is assumed (not checked by ear).
+//!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
 //! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
 //! at 40, which is not applied to the stream (see `decode_bgm`)), then
@@ -177,6 +187,9 @@ impl<'a> Bank<'a> {
         if u32_at(data, 0)? == 0x10 && u32_at(data, 4)? == 0x4010 {
             return Self::parse_popn(&data[0x10..]);
         }
+        if u32_at(data, 0)? == 0x10 && u32_at(data, 0x14)? == 7 {
+            return Self::parse_popn8(data);
+        }
         let count = u32_at(data, TABLE_END)? as usize;
         let scrambled = u32_at(data, TABLE_END + 8)? != 0;
         let records = TABLE_END + 0x10;
@@ -263,6 +276,79 @@ impl<'a> Bank<'a> {
                 },
                 pan: if stereo { CENTER } else { data[at + 10] },
                 volume: data[at + 8],
+                duration_ms: 0,
+            }));
+        }
+        while sounds.last() == Some(&None) {
+            sounds.pop();
+        }
+        Ok(Bank {
+            data,
+            key: None,
+            files,
+            sounds,
+        })
+    }
+
+    /// The pop'n 8 bank form (module docs).
+    fn parse_popn8(data: &'a [u8]) -> Result<Self, SoundError> {
+        const PARAMS: usize = 0x2010;
+        let table = u32_at(data, 4)? as usize;
+        let count = u32_at(data, table + 4)? as usize;
+        let data_size = u32_at(data, table + 12)? as usize;
+        let records = table + 0x10;
+        if count > data.len().saturating_sub(records) / ENTRY {
+            return Err(SoundError::TooShort);
+        }
+        let base = records + count * ENTRY;
+        let offsets: Vec<usize> = (0..count)
+            .map(|i| u32_at(data, records + i * ENTRY).map(|o| o as usize))
+            .collect::<Result<_, _>>()?;
+        let files = (0..count)
+            .map(|i| {
+                let end = offsets.get(i + 1).copied().unwrap_or(data_size);
+                (base + offsets[i], end.saturating_sub(offsets[i]), 44100)
+            })
+            .collect::<Vec<_>>();
+        // (file, pan, volume) of a parameter list.
+        let params = |offset: u32| -> Option<(usize, u8, u8)> {
+            let mut at = PARAMS + offset as usize;
+            let (mut file, mut pan, mut volume) = (None, CENTER, 127);
+            loop {
+                let token = u32_at(data, at).ok()?;
+                let value = token & 0xff_ffff;
+                match token >> 24 {
+                    0xd2 => file = Some(value as usize),
+                    0xdd => pan = value as u8,
+                    0xf8 => volume = (value >> 16) as u8,
+                    0xff => break,
+                    _ => {}
+                }
+                at += 4;
+            }
+            Some((file?, pan, volume))
+        };
+        let mut sounds = Vec::new();
+        for at in (0x20..PARAMS).step_by(ENTRY) {
+            let kind = data[at + 1];
+            let left = (kind == 1 || kind == 2)
+                .then(|| params(u32_at(data, at + 4).ok()?))
+                .flatten()
+                .filter(|&(file, _, _)| file < files.len());
+            let right = (kind == 2)
+                .then(|| params(u32_at(data, at + 8).ok()?))
+                .flatten()
+                .filter(|&(file, _, _)| file < files.len());
+            sounds.push(left.map(|(file, pan, volume)| KeySound {
+                file: file as u16,
+                placement: match right {
+                    Some((right, _, _)) => Placement::Stereo {
+                        right: right as u16,
+                    },
+                    None => Placement::Mono,
+                },
+                pan: if right.is_some() { CENTER } else { pan },
+                volume,
                 duration_ms: 0,
             }));
         }

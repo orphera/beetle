@@ -56,7 +56,9 @@ pub(crate) struct Record {
     /// one per difficulty, 0 where it has no chart; the first other is it.
     pub chart_at: &'static [usize],
     pub chart_u16: bool,
-    pub levels_at: usize,
+    /// The six level bytes; 8's records have none, so its charts are those
+    /// with more than a few notes (`real_charts`), at level 0.
+    pub levels_at: Option<usize>,
     /// The banner's rectangle (`u16`), where the record names one.
     pub banner_at: Option<usize>,
     /// The genre name pointer (Shift-JIS), where the record has one. 10's
@@ -72,10 +74,33 @@ const RECORD_12: Record = Record {
     size: 0x58,
     chart_at: &[0x4c],
     chart_u16: false,
-    levels_at: 0x51,
+    levels_at: Some(0x51),
     banner_at: Some(0x40),
     genre_at: Some(0),
     bgm: true,
+};
+
+/// pop'n music 8: 9's form with titles, 0x38-byte records naming the chart
+/// and another file at 8 and 0xc (in either order), no levels, and its own
+/// bank form (`wvb`). `SOUND/SD_02.DAT` holds the videos (`MOVE`).
+pub(crate) const POPN8: Layout = Layout {
+    executable: "SLPM_653.16",
+    slug: "popn8",
+    files: (0xb66f0, 246),
+    songs: (0xc6d30, 104),
+    images: (0xb41a0, 1002),
+    dat: "SOUND/SD_01.DAT",
+    record: Record {
+        size: 0x38,
+        chart_at: &[0x10, 0x14],
+        chart_u16: false,
+        levels_at: None,
+        banner_at: None,
+        // The title (0x0c), not the genre: 8 records name the song.
+        genre_at: Some(0x0c),
+        bgm: false,
+    },
+    ..POPN10
 };
 
 /// pop'n music 9: 10's form in `SOUND/SD_01.DAT`, 0xe0-byte records with
@@ -92,7 +117,7 @@ pub(crate) const POPN9: Layout = Layout {
         size: 0xe0,
         chart_at: &[0x60, 0x78, 0x90, 0xa8, 0xc0, 0xd8],
         chart_u16: true,
-        levels_at: 0x44,
+        levels_at: Some(0x44),
         banner_at: None,
         genre_at: Some(8),
         bgm: false,
@@ -117,7 +142,7 @@ pub(crate) const POPN10: Layout = Layout {
         size: 0x38,
         chart_at: &[0x2c],
         chart_u16: true,
-        levels_at: 0x30,
+        levels_at: Some(0x30),
         banner_at: None,
         genre_at: None,
         bgm: false,
@@ -235,7 +260,14 @@ pub(crate) fn read_files(exe: &[u8], layout: &Layout) -> Option<Vec<FileEntry>> 
 }
 
 /// The songs: the records with a chart file and at least one level.
-pub(crate) fn read_songs(exe: &[u8], layout: &Layout, files: usize) -> Option<Vec<Song>> {
+/// `is_chart(file)`: whether a file is a chart file (8's records name a
+/// chart and another file in either order).
+pub(crate) fn read_songs(
+    exe: &[u8],
+    layout: &Layout,
+    files: usize,
+    is_chart: &mut dyn FnMut(u32) -> bool,
+) -> Option<Vec<Song>> {
     let (at, count) = layout.songs;
     let form = layout.record;
     let mut songs = Vec::new();
@@ -251,19 +283,21 @@ pub(crate) fn read_songs(exe: &[u8], layout: &Layout, files: usize) -> Option<Ve
                     u32_at(record, at).unwrap_or(0)
                 }
             })
-            .find(|&f| f != 0)
+            .filter(|&f| f != 0 && (f as usize) + 1 < files)
+            // 8 names the bank for some songs; the chart follows it.
+            .find_map(|f| [f, f + 1].into_iter().find(|&f| is_chart(f)))
             .unwrap_or(0);
         if file == 0 || file as usize + 1 >= files {
             continue;
         }
-        let levels = &record[form.levels_at..];
+        let levels = form.levels_at.map(|at| &record[at..]);
         let charts: Vec<Chart> = LEVELS
             .iter()
-            .filter(|&&(_, at)| levels[at] != 0)
+            .filter(|&&(_, at)| levels.is_none_or(|l| l[at] != 0))
             .map(|&(difficulty, at)| Chart {
                 style: Style::Single,
                 difficulty,
-                level: levels[at],
+                level: levels.map_or(0, |l| l[at]),
                 file,
             })
             .collect();
@@ -582,30 +616,25 @@ pub(crate) fn pick_sound_sets(
     }
 }
 
-/// The head of a pop'n 8 to 10 key sound bank (`wvb`).
-const SPLIT_BANK_HEAD: [u8; 8] = [0x10, 0, 0, 0, 0x10, 0x40, 0, 0];
-
-/// 10: a song with two banks before its chart (`bank, bank, chart`, one
-/// song: 33), each chart playing the one that holds every sound it names.
-/// Neither bank is a subset of the other's numbers, so the larger names win:
-/// a chart takes the second (the one before the chart) when its sounds fit
-/// it, the first otherwise.
+/// 8 to 10: a song with two banks before its chart (`bank, bank, chart`:
+/// 10's song 33, 8's Seal), each chart playing the one that holds every
+/// sound it names: the one before the chart when its sounds fit it, the
+/// first otherwise.
 fn pick_banks(song: &mut Song, peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8>>, file: u32) {
-    let is_bank = |b: &Option<Vec<u8>>| b.as_ref().is_some_and(|b| b.starts_with(&SPLIT_BANK_HEAD));
-    if file < 2 || !is_bank(&peek(file - 2, 8)) {
+    // The highest sound number a bank file has, or `None` if it is not one.
+    let last_sound = |peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8>>, f: u32| -> Option<u16> {
+        let bytes = peek(f, usize::MAX)?;
+        let bank = crate::wvb::Bank::parse(&bytes).ok()?;
+        bank.numbers().last()
+    };
+    // Most songs alternate `bank, chart`: two files back is a chart.
+    if file < 2 || peek(file - 2, 4).is_none_or(|b| !b.starts_with(&[0x10, 0, 0, 0])) {
         return;
     }
-    // The last sound the bank before the chart has: entries from 0x20 (past
-    // the 16-byte head), 16 bytes, `kind` at 0 is 0 when empty.
-    let Some(second) = peek(file - 1, 0x4010) else {
+    let (Some(in_second), Some(_)) = (last_sound(peek, file - 1), last_sound(peek, file - 2))
+    else {
         return;
     };
-    let in_second = second
-        .get(0x20..0x4010)
-        .unwrap_or_default()
-        .chunks_exact(16)
-        .rposition(|e| e[0] != 0 || e[1] != 0)
-        .map_or(0, |i| i as u16 + 1);
     let Some(bytes) = peek(file, usize::MAX) else {
         return;
     };
@@ -695,9 +724,29 @@ const ROW1: &str = "　、。，．・：；？！゛゜´｀¨＾￣＿ヽヾ�
 
 /// Shift-JIS text as far as genre names need it: ASCII, symbols, full-width
 /// letters and digits, hiragana and katakana. Anything else becomes `?`.
-/// The kanji genre names use (pop'n 9: 俺ポップ, 昭和ブギウギ, 大河ドラマ,
-/// 昭和歌謡REMIX), by Shift-JIS code.
-const KANJI: [([u8; 2], char); 7] = [
+/// 8's charts: the ones whose list has more than the 3-note placeholder.
+pub(crate) fn real_charts(song: &mut Song, peek: &mut dyn FnMut(u32) -> Option<Vec<u8>>) {
+    let Some(file) = song.charts.first().map(|c| c.file) else {
+        return;
+    };
+    let Some(bytes) = peek(file) else {
+        return;
+    };
+    song.charts.retain(|c| {
+        chart(&bytes, c.difficulty, false).is_some_and(|ply| {
+            ply.events
+                .iter()
+                .filter(|e| matches!(e.command, Command::Note { .. }))
+                .count()
+                > 3
+        })
+    });
+}
+
+/// The kanji the discs' names use, by Shift-JIS code: pop'n 9's genres
+/// (俺ポップ, 昭和ブギウギ, 大河ドラマ, 昭和歌謡REMIX) and pop'n 8's titles.
+/// Not a full kanji table, to keep the binary small.
+const KANJI: [([u8; 2], char); 74] = [
     ([0x89, 0xb4], '俺'),
     ([0x8f, 0xba], '昭'),
     ([0x98, 0x61], '和'),
@@ -705,6 +754,73 @@ const KANJI: [([u8; 2], char); 7] = [
     ([0x89, 0xcd], '河'),
     ([0x89, 0xcc], '歌'),
     ([0x97, 0x77], '謡'),
+    ([0x96, 0xe9], '夜'),
+    ([0x8a, 0xd4], '間'),
+    ([0x8d, 0x73], '行'),
+    ([0x93, 0xa7], '透'),
+    ([0x96, 0xbe], '明'),
+    ([0x97, 0xb4], '龍'),
+    ([0x95, 0x91], '舞'),
+    ([0x96, 0xb2], '夢'),
+    ([0x97, 0x4c], '有'),
+    ([0x92, 0x6e], '地'),
+    ([0x8b, 0x85], '球'),
+    ([0x89, 0xf4], '廻'),
+    ([0x8c, 0xa9], '見'),
+    ([0x89, 0xf0], '解'),
+    ([0x89, 0xef], '会'),
+    ([0x8e, 0xd0], '社'),
+    ([0x89, 0x69], '永'),
+    ([0x89, 0x93], '遠'),
+    ([0x96, 0xbc], '名'),
+    ([0x96, 0xf2], '薬'),
+    ([0x97, 0xf6], '恋'),
+    ([0x90, 0xd4], '赤'),
+    ([0x8d, 0xa1], '今'),
+    ([0x8f, 0xaa], '宵'),
+    ([0x8c, 0x4e], '君'),
+    ([0x89, 0xf3], '壊'),
+    ([0x8f, 0x6f], '出'),
+    ([0x8e, 0x9e], '時'),
+    ([0x89, 0xba], '下'),
+    ([0x8a, 0xd6], '関'),
+    ([0x89, 0x46], '宇'),
+    ([0x92, 0x88], '宙'),
+    ([0x8c, 0x59], '刑'),
+    ([0x8e, 0x96], '事'),
+    ([0x93, 0x6e], '渡'),
+    ([0x90, 0xa2], '世'),
+    ([0x8b, 0x53], '鬼'),
+    ([0x94, 0x52], '燃'),
+    ([0x93, 0xfa], '日'),
+    ([0x96, 0x7b], '本'),
+    ([0x88, 0xf3], '印'),
+    ([0x93, 0x78], '度'),
+    ([0x89, 0xbb], '化'),
+    ([0x8c, 0x76], '計'),
+    ([0x89, 0xe6], '画'),
+    ([0x8e, 0xdf], '釈'),
+    ([0x89, 0xde], '迦'),
+    ([0x96, 0xa3], '魅'),
+    ([0x98, 0x66], '惑'),
+    ([0x8e, 0xf4], '呪'),
+    ([0x95, 0xb6], '文'),
+    ([0x93, 0x73], '都'),
+    ([0x92, 0xa1], '庁'),
+    ([0x91, 0x4f], '前'),
+    ([0x94, 0xf7], '微'),
+    ([0x8f, 0xce], '笑'),
+    ([0x91, 0x7a], '想'),
+    ([0x8f, 0xcc], '称'),
+    ([0x97, 0xd1], '林'),
+    ([0x97, 0x5b], '夕'),
+    ([0x97, 0x83], '翼'),
+    ([0x93, 0x8d], '桃'),
+    ([0x90, 0x46], '色'),
+    ([0x8c, 0xc0], '限'),
+    ([0x94, 0x9a], '爆'),
+    ([0x92, 0x65], '弾'),
+    ([0x8a, 0xe7], '顔'),
 ];
 
 pub fn shift_jis(bytes: &[u8]) -> String {
