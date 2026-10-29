@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 9th style | `SLPM_659.46` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
 | 10th style | `SLPM_661.80` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
 | 11 IIDX RED | `SLPM_664.26` | `DATA2.DAT` 하나 | 0x140 | 없음 (암호화 안 함) |
 | 12 HAPPY SKY | `SLPM_666.21` | `BM2DX12A/B/C.DAT` | 0x144 | 없음 (암호화 안 함) |
@@ -182,6 +183,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 실행 파일 안 위치 |
 |---|---|
+| 9th style | SP `0xb5540`(7級~八段)·`0xb59b0`(十段), DP `0xb59f0` |
 | 10th style | SP `0xc6790`, DP `0xc6bd0` (형식이 다름, 아래) |
 | 11 IIDX RED | SP `0xe5dc0`, DP `0xe6200` |
 | 12 HAPPY SKY | SP `0xfd9c0`, DP `0xfde30` |
@@ -212,6 +214,10 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
   - 13은 皆伝까지 SP 18·DP 16개, 10th~12는 皆伝이 없어서 十段까지 SP 17·DP 15개다.
   - 12 HAPPY SKY는 SP 十段 뒤에 곡 2개(SCRIPTED CONNECTION HYPER, 冥 ANOTHER)짜리 레코드가 하나 더 있고, 그 뒤 빈 공간이 정렬 규칙보다 길다. 게임에 皆伝이 없으므로 쓰지 않는 자리로 보고, DP 시작 위치를 따로 둔다.
   - RemyWiki 단위 목록에서 SP 7級의 곡 순서를 검색해 찾았고, 네 에디션 모두 위키와 일치한다.
+- 9th style(`DanTable::Listed`, 구간 셋):
+  - 레코드는 10th와 같다. 곡 레코드 위치·파일 표만 다르다(`NINTH_STYLE`).
+  - SP 九段은 13곡 풀에서 4곡을 뽑는 단위라(`0xb58f0`, 칸 비트가 1·2·4·8이 아님) 고정 코스로 만들 수 없어 읽지 않는다. 그래서 SP는 7級~八段 15개와 十段 하나, DP는 5級~十段 15개다. RemyWiki 단위 목록과 곡 구성이 모두 같다.
+- 차트 값의 HYPER·NORMAL: 9th·10th·11은 0이 HYPER, 1이 NORMAL이다(`hyper_first`). 12부터 0 NORMAL, 1 HYPER. 고단위(七段 등)의 0번 차트가 레벨상 HYPER인 것으로 확인했다(10th 六段 LOVE IS ETERNITY 0 → HYPER 8, NORMAL 6). 전에는 10th·11에서 둘을 바꿔 읽고 있었다.
 - 모르는 것:
   - 게임이 단위에서 허용하는 배치 옵션. 플레이어는 미러까지 허용한다고 가정한다(`GradeMirror`).
   - 원작 단위 게이지의 수치. 플레이어는 beatoraja CLASS 게이지로 친다.
@@ -225,6 +231,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 9th style | `0xb6e08` | 17 (STYLISH … ASSAULT), 10th와 같은 형식 |
 | 10th style | `0xc7fb8` | 17 (INSTRUMENTAL … KING), 형식이 다름 |
 | 11 IIDX RED | `0xe7328` | 17 (J-POP … CORE) |
 | 12 HAPPY SKY | `0xfefd8` | 17 (FESTA … TEMPEST) |
@@ -236,6 +243,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 - 찾은 방법: RemyWiki `CS_EMPRESS`의 EXPERT 코스 목록(곡 순서)을 실행 파일에서 간격을 바꿔 가며 찾았다. 12바이트 간격으로 나왔고, 그 레코드 모양(이름 포인터 + 곡 5개)으로 다른 에디션도 찾았다.
 - EMPRESS 10개 코스는 이름과 곡 순서가 위키와 모두 같다.
+- 9th~13(`ExpertTable::Inline`): 9th는 곡 뒤 세 워드가 1이 아니라 0이나 1이다(뜻 모름, 위키의 LIGHT·ANOTHER 지정으로 보임).
 - 10th~13(`ExpertTable::Inline`): 코스 하나가 124바이트다. 이름이 0x00부터 ASCII로 직접 들어 있고(포인터가 아님), 0x24부터 (곡 번호, 1, 1, 1) 16바이트가 5번 온다. 0x74의 두 워드는 코스 번호(1, 1 … 17, 17)다. 17개 뒤에 이름이 `ABCDEFGH`·`IJKLMNOP`인 더미 코스가 있어서 개수(17)로 끊는다. 위키의 CARDINAL GATE는 표에서 `CARDINAL`, RED의 ACCESSION은 `CS`, HAPPY SKY의 Ryu☆는 `Ryu`다. 네 에디션 모두 위키 CS 페이지와 곡 순서가 같다.
 - 플레이어는 SP·DP × NORMAL·HYPER·ANOTHER 가운데 다섯 곡 모두에 차트가 있는 조합마다 코스를 하나씩 만든다.
 - 앞서 실행 파일 밖(`ROMRS.DAT`, `ROMRIVAL.DAT`, `DATA1.DAT`)도 찾아봤다. `ROMRS.DAT`는 녹화된 플레이로 보이고, `ROMRIVAL.DAT`는 압축된 라이벌 데이터로 보인다.

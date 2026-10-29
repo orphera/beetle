@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX10` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX9` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -133,6 +133,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Ply, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
         ("CS_DISC_IIDX12", Edition::HappySky),
@@ -201,6 +202,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
         ("CS_DISC_IIDX12", Edition::HappySky),
@@ -499,7 +501,90 @@ fn tenth_to_happy_sky_courses_match_the_wiki() {
             .unwrap();
         let titles: Vec<String> = sp_tenth.charts.iter().map(|&(id, _)| title(id)).collect();
         assert_eq!(titles, tenth_dan, "{var}");
+        // 9th to 11 number HYPER 0 and NORMAL 1: high ranks play HYPER.
+        let sp_seventh = dan
+            .iter()
+            .find(|c| c.style == Style::Single && c.rank == "七段")
+            .unwrap();
+        assert!(
+            sp_seventh
+                .charts
+                .iter()
+                .all(|&(_, d)| d != Difficulty::Normal),
+            "{var}"
+        );
         assert_eq!(songs.expert_courses.len(), 17, "{var}");
         assert_eq!(songs.expert_courses[0].name, first_expert, "{var}");
     }
+}
+
+/// 9th style: SP 7級 to 十段 but 九段, whose four songs the game draws from
+/// a pool; DP 5級 to 十段 of 3 songs (RemyWiki's CS dan course list).
+#[test]
+fn ninth_style_dan_courses_match_the_wiki() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX9") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::NinthStyle).unwrap();
+    assert_eq!(songs.songs.len(), 87);
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let dan = &songs.dan_courses;
+    let course = |style, rank| dan.iter().find(|c| c.style == style && c.rank == rank);
+    let count = |style| dan.iter().filter(|c| c.style == style).count();
+    assert_eq!((count(Style::Single), count(Style::Double)), (16, 15));
+    assert!(course(Style::Single, "九段").is_none());
+    let sp_first = course(Style::Single, "7級").unwrap();
+    assert_eq!(sp_first.charts[0].1, Difficulty::Beginner);
+    assert_eq!(sp_first.charts[2].1, Difficulty::Normal);
+    let titles = |style, rank| -> Vec<String> {
+        course(style, rank)
+            .unwrap()
+            .charts
+            .iter()
+            .map(|&(id, _)| title(id))
+            .collect()
+    };
+    assert_eq!(
+        titles(Style::Single, "十段"),
+        ["BEYOND THE EARTH", "ONE OR EIGHT", "V", "MOON_CHILD"]
+    );
+    assert_eq!(
+        titles(Style::Double, "十段"),
+        ["DISTRESS", "PHOTONGENIC", "ONE OR EIGHT"]
+    );
+    assert!(course(Style::Single, "六段")
+        .unwrap()
+        .charts
+        .iter()
+        .all(|&(_, d)| d == Difficulty::Hyper));
+    let expert: Vec<&str> = songs
+        .expert_courses
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(expert.len(), 17);
+    assert_eq!((expert[0], expert[16]), ("STYLISH", "ASSAULT"));
+    let stylish: Vec<String> = songs.expert_courses[0]
+        .songs
+        .iter()
+        .map(|&id| title(id))
+        .collect();
+    assert_eq!(
+        stylish,
+        [
+            "THE BIGGEST ROASTER",
+            "THE END OF MY SPIRITUALLY",
+            "CHARLOTTE",
+            "ATOMIC AGE",
+            "FUN"
+        ]
+    );
 }

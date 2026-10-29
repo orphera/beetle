@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 9th style, `SLPM_659.46`.
+    NinthStyle,
     /// 10th style, `SLPM_661.80`.
     TenthStyle,
     /// 11 IIDX RED, `SLPM_664.26`.
@@ -49,7 +51,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 11] = [
+const EDITIONS: [Edition; 12] = [
+    Edition::NinthStyle,
     Edition::TenthStyle,
     Edition::Red,
     Edition::HappySky,
@@ -83,10 +86,10 @@ struct Layout {
     chart_key: Option<&'static [u8]>,
     record: Record,
     /// The dan course table, where the edition has one
-    /// (13 on; docs/specs/iidx_ps2_disc.md, 7).
+    /// (9th on; docs/specs/iidx_ps2_disc.md, 7).
     dan: Option<DanTable>,
     /// The EXPERT course table, where the edition has one
-    /// (13 on; docs/specs/iidx_ps2_disc.md, 8).
+    /// (9th on; docs/specs/iidx_ps2_disc.md, 8).
     expert: Option<ExpertTable>,
 }
 
@@ -95,16 +98,33 @@ struct Layout {
 enum DanTable {
     /// 14 on: `DAN_PAIRS` (song, chart) word pairs at this offset.
     Pairs(usize),
-    /// 10th to 13: per course, (song, chart, slot bit) word triples ending
-    /// in -1, each course starting on a 16-byte boundary: `sp` SP courses
-    /// from 7級 at `at`, and `dp` DP courses from 5級 at `dp_at` (given
-    /// apart: HAPPY SKY keeps an unused two-song record between the two).
+    /// 9th to 13: per course, (song, chart, slot bit) word triples ending
+    /// in -1, each course starting on a 16-byte boundary, in runs of
+    /// consecutive ranks (`DanRun`). `hyper_first`: chart 0 is HYPER and 1
+    /// NORMAL (9th to 11), not the other way round.
     Listed {
-        at: usize,
-        sp: usize,
-        dp_at: usize,
-        dp: usize,
+        runs: &'static [DanRun],
+        hyper_first: bool,
     },
+}
+
+/// Consecutive courses of one style in a `DanTable::Listed` table.
+#[derive(Clone, Copy)]
+struct DanRun {
+    style: Style,
+    at: usize,
+    /// The first course's rank (`DAN_RANKS` index).
+    first: usize,
+    count: usize,
+}
+
+const fn run(style: Style, at: usize, first: usize, count: usize) -> DanRun {
+    DanRun {
+        style,
+        at,
+        first,
+        count,
+    }
 }
 
 /// How an edition stores its EXPERT courses.
@@ -113,7 +133,7 @@ enum ExpertTable {
     /// 14 on: 64-byte records of a pointer to the name and five
     /// (song, 1, 1) word triples.
     Pointers { at: usize, count: usize },
-    /// 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
+    /// 9th to 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
     /// five (song, 1, 1, 1) word quadruples.
     Inline { at: usize, count: usize },
 }
@@ -188,6 +208,31 @@ const RECORD_15_16: Record = Record {
     },
 };
 
+/// 9th style: the 10th style record, its tables elsewhere.
+const NINTH_STYLE: Layout = Layout {
+    executable: "SLPM_659.46",
+    slug: "iidx9",
+    file_tables: &[(0xbd230, 0x1928)],
+    data1: (0xb7c28, 0x1180),
+    songs: (0xc1500, 0x7bb4),
+    // SP 九段 draws four of a pool (0xb58f0, slot bits not 1/2/4/8), so
+    // SP runs 7級 to 八段 and 十段 apart.
+    dan: Some(DanTable::Listed {
+        runs: &[
+            run(Style::Single, 0xb5540, 0, 15),
+            run(Style::Single, 0xb59b0, 16, 1),
+            run(Style::Double, 0xb59f0, 2, 15),
+        ],
+        hyper_first: true,
+    }),
+    // STYLISH … ASSAULT; the three words after each song are 0 or 1.
+    expert: Some(ExpertTable::Inline {
+        at: 0xb6e08,
+        count: 17,
+    }),
+    ..TENTH_STYLE
+};
+
 const TENTH_STYLE: Layout = Layout {
     executable: "SLPM_661.80",
     slug: "iidx10",
@@ -214,10 +259,11 @@ const TENTH_STYLE: Layout = Layout {
         },
     },
     dan: Some(DanTable::Listed {
-        at: 0xc6790,
-        sp: 17,
-        dp_at: 0xc6bd0,
-        dp: 15,
+        runs: &[
+            run(Style::Single, 0xc6790, 0, 17),
+            run(Style::Double, 0xc6bd0, 2, 15),
+        ],
+        hyper_first: true,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xc7fb8,
@@ -250,10 +296,11 @@ const RED: Layout = Layout {
         },
     },
     dan: Some(DanTable::Listed {
-        at: 0xe5dc0,
-        sp: 17,
-        dp_at: 0xe6200,
-        dp: 15,
+        runs: &[
+            run(Style::Single, 0xe5dc0, 0, 17),
+            run(Style::Double, 0xe6200, 2, 15),
+        ],
+        hyper_first: true,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xe7328,
@@ -286,10 +333,11 @@ const HAPPY_SKY: Layout = Layout {
         },
     },
     dan: Some(DanTable::Listed {
-        at: 0xfd9c0,
-        sp: 17,
-        dp_at: 0xfde30,
-        dp: 15,
+        runs: &[
+            run(Style::Single, 0xfd9c0, 0, 17),
+            run(Style::Double, 0xfde30, 2, 15),
+        ],
+        hyper_first: false,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xfefd8,
@@ -328,10 +376,11 @@ const DISTORTED: Layout = Layout {
         },
     },
     dan: Some(DanTable::Listed {
-        at: 0x10af90,
-        sp: 18,
-        dp_at: 0x10b410,
-        dp: 16,
+        runs: &[
+            run(Style::Single, 0x10af90, 0, 18),
+            run(Style::Double, 0x10b410, 2, 16),
+        ],
+        hyper_first: false,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0x10c558,
@@ -472,6 +521,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::NinthStyle => &NINTH_STYLE,
             Edition::TenthStyle => &TENTH_STYLE,
             Edition::Red => &RED,
             Edition::HappySky => &HAPPY_SKY,
@@ -694,49 +744,47 @@ const DAN_RANKS: [&str; 18] = [
 
 /// Reads the dan table: (song id, chart) pairs of two words each, 4 per rank
 /// from 7級 to 皆伝, SP then DP. `(0, 0)` is an empty slot (DP has no 7級
-/// and 6級, and 3 songs a rank). Chart: 0 NORMAL, 1 HYPER, 2 ANOTHER,
+/// and 6級, and 3 songs a rank). Chart: 0 NORMAL, 1 HYPER (swapped in 9th to 11), 2 ANOTHER,
 /// 3 BEGINNER, 4 BLACK. A pair naming no song, or the table not fitting,
 /// gives no courses rather than wrong ones.
 fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCourse> {
     match table {
         DanTable::Pairs(at) => read_dan_pairs(exe, at, songs),
-        DanTable::Listed { at, sp, dp_at, dp } => {
-            let mut courses = read_dan_lists(exe, at, Style::Single, sp, songs);
-            let doubles = read_dan_lists(exe, dp_at, Style::Double, dp, songs);
-            if courses.is_empty() || doubles.is_empty() {
-                return Vec::new();
+        DanTable::Listed { runs, hyper_first } => {
+            let mut courses = Vec::new();
+            for run in runs {
+                let found = read_dan_lists(exe, run, hyper_first, songs);
+                if found.is_empty() {
+                    return Vec::new();
+                }
+                courses.extend(found);
             }
-            courses.extend(doubles);
+            courses.sort_by_key(|c| c.style);
             courses
         }
     }
 }
 
 /// A dan table chart number as a difficulty.
-fn dan_chart(chart: u32) -> Option<Difficulty> {
-    Some(match chart {
-        0 => Difficulty::Normal,
-        1 => Difficulty::Hyper,
-        2 => Difficulty::Another,
-        3 => Difficulty::Beginner,
-        4 => Difficulty::Black,
+fn dan_chart(chart: u32, hyper_first: bool) -> Option<Difficulty> {
+    Some(match (chart, hyper_first) {
+        (0, false) | (1, true) => Difficulty::Normal,
+        (1, false) | (0, true) => Difficulty::Hyper,
+        (2, _) => Difficulty::Another,
+        (3, _) => Difficulty::Beginner,
+        (4, _) => Difficulty::Black,
         _ => return None,
     })
 }
 
-/// `count` courses of one style of a `DanTable::Listed` table: SP from 7級,
-/// DP from 5級.
-fn read_dan_lists(
-    exe: &[u8],
-    mut at: usize,
-    style: Style,
-    count: usize,
-    songs: &[Song],
-) -> Vec<DanCourse> {
-    let first = match style {
-        Style::Single => 0,
-        Style::Double => 2,
-    };
+/// One run of a `DanTable::Listed` table.
+fn read_dan_lists(exe: &[u8], run: &DanRun, hyper_first: bool, songs: &[Song]) -> Vec<DanCourse> {
+    let DanRun {
+        style,
+        mut at,
+        first,
+        count,
+    } = *run;
     if first + count > DAN_RANKS.len() {
         return Vec::new();
     }
@@ -755,7 +803,7 @@ fn read_dan_lists(
                 return Vec::new();
             };
             let (song, chart) = (u32_at(triple, 0), u32_at(triple, 4));
-            let Some(difficulty) = dan_chart(chart) else {
+            let Some(difficulty) = dan_chart(chart, hyper_first) else {
                 return Vec::new();
             };
             if charts.len() == 4 || !songs.iter().any(|s| s.id == song) {
@@ -787,7 +835,7 @@ fn read_dan_pairs(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
             if (song, chart) == (0, 0) {
                 continue;
             }
-            let Some(difficulty) = dan_chart(chart) else {
+            let Some(difficulty) = dan_chart(chart, false) else {
                 return Vec::new();
             };
             if !songs.iter().any(|s| s.id == song) {
@@ -1279,8 +1327,9 @@ impl Song {
     }
 
     /// The (key sound bank, BGM stream) file numbers a chart plays. A chart
-    /// slot without its own takes DP HYPER's (double) or SP HYPER's, field by
-    /// field, as iidx-ps2tools resolves them.
+    /// slot without its own takes the other style's ANOTHER (for ANOTHER),
+    /// then DP HYPER's (double) or SP HYPER's, field by field, as
+    /// iidx-ps2tools resolves them.
     pub fn sound_files(&self, style: Style, difficulty: Difficulty) -> (Option<u32>, Option<u32>) {
         let own = |slot: usize, field: usize| -> Option<u32> {
             let pair = SOUND_PAIRS.get(slot)?;
@@ -1294,6 +1343,12 @@ impl Song {
             .unwrap();
         let pick = |field: usize| {
             own(slot, field)
+                // 9th GENOM SCREAMS DP ANOTHER plays SP ANOTHER's.
+                .or_else(|| {
+                    (difficulty == Difficulty::Another)
+                        .then(|| own(slot ^ 1, field))
+                        .flatten()
+                })
                 .or_else(|| (style == Style::Double).then(|| own(1, field)).flatten())
                 .or_else(|| own(0, field))
         };
