@@ -316,6 +316,11 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 - 플레이어는 SP·DP × NORMAL·HYPER·ANOTHER 가운데 다섯 곡 모두에 차트가 있는 조합마다 코스를 하나씩 만든다.
 - 앞서 실행 파일 밖(`ROMRS.DAT`, `ROMRIVAL.DAT`, `DATA1.DAT`)도 찾아봤다. `ROMRS.DAT`는 녹화된 플레이로 보이고, `ROMRIVAL.DAT`는 압축된 라이벌 데이터로 보인다.
 
+## 8.1 선곡 낱말 그림 (9th, 3rd~8th)
+
+- 9th는 10th와 같은 레코드(0x16c)의 같은 칸(0xdc 장르, 0xe0 큰 제목, 0xe4 아티스트, 0xec 작은 제목)과 같은 사각형 위치(0x90)를 쓴다. 선곡 캡처에서 5PM ETERNAL / GUHROOVY fw. NO+CHIN / RAGGA JUNGLE처럼 맞게 나온다.
+- 3rd~8th: BIN의 그림 묶음(`old_archive` 예제)과 실행 파일 안의 압축 텍스처(`exe_textures` 예제, 8th 94장)를 모두 풀어 봤다. 메뉴·결과 화면·캐릭터 그림뿐이고 곡 제목·아티스트·장르 그림은 없다. 선곡은 글자로 쓴다.
+
 ## 9. 알 수 없는 것
 
 - 배경음 팬 슬롯 0의 뜻, SATELLITE의 `c2` = 4.

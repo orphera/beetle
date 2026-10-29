@@ -1861,7 +1861,10 @@ impl Disc {
             return Ok(None);
         };
         let [genre, big, artist, small] = *refs;
-        let rect_base = if matches!(self.edition, Edition::Red | Edition::TenthStyle) {
+        let rect_base = if matches!(
+            self.edition,
+            Edition::Red | Edition::TenthStyle | Edition::NinthStyle
+        ) {
             0x90
         } else {
             0xd0
@@ -2172,7 +2175,7 @@ fn word_ref_offsets(edition: Edition) -> Option<[usize; 4]> {
         }
         Edition::Gold => Some([0xa0, 0xa4, 0xa8, 0xac]),
         Edition::Red => Some([0xec, 0xf0, 0xf4, 0xf8]),
-        Edition::TenthStyle => Some([0xdc, 0xe0, 0xe4, 0xec]),
+        Edition::TenthStyle | Edition::NinthStyle => Some([0xdc, 0xe0, 0xe4, 0xec]),
         Edition::Distorted => Some([0xa4, 0xa8, 0xac, 0xb0]),
         Edition::HappySky => Some([0xd8, 0xdc, 0xe0, 0xe4]),
         // RED (0xec..0xf8, sheets 281-284) and 10th style (0xdc..0xec, sheets
