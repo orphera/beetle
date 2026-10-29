@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 5th style | `SLPM_650.49` | `DX2_5/BM2DX5.BIN` + 실행 파일(채보) | 0xa4 | 없음 (암호화 안 함) |
 | 6th style | `SLPM_651.56` | `DX2_6/BM2DX6A/B.BIN` + 실행 파일(채보) | 0xa0 | 없음 (암호화 안 함) |
 | 7th style | `SLPM_655.93` | `DX2_7/BM2DX7B/C/A.BIN` | 0xa0 | 없음 (암호화 안 함) |
 | 8th style | `SLPM_657.68` | `DX2_8/BM2DX8B/C/A.BIN` | 0x9c | 없음 (암호화 안 함) |
@@ -54,6 +55,13 @@
 - 레코드 0x10 레벨(7th와 같은 순서), 0x28 영상, 0x58 채보, 0x78 사운드.
 - 곡 표 215개 중 앞의 69개만 곡이다(RemyWiki 69곡과 같음). 그 뒤는 `D` 15개, `END`, `d001`~`d130`으로 모두 레벨 1인 자리 채움이라 읽지 않는다.
 - 단위인정이 없다(7th부터). 채보 71개가 뱅크에 없는 소리를 부른다(무음).
+
+### 1.4 5th style
+
+- 6th처럼 채보가 실행 파일 안(LZ, 주소 − 0xff000)이고, BIN은 하나라 사운드·영상 번호가 그대로 파일 번호다(`FileNumbers::Executable`).
+- 곡 레코드 0xa4: 0x08 레벨(6th와 같은 순서), 0x12 영상 `u16`(그다음 번호가 둘째 영상), 0x5c 채보 8개, 0x7c 사운드 16개.
+- 곡 표 앞 64개가 곡이다(RemyWiki 64곡). 그 뒤 `(ENDING)`, `SUV. CONG.1~3`(서바이벌 모드), `d01`~`d73`(드릴 모드로 보임)은 읽지 않는다.
+- 채보 81개가 뱅크에 없는 소리를 부른다(무음).
 
 ## 2. 곡 레코드
 
@@ -266,6 +274,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 5th style | `0x18ebb8` | 18 (HEAVEN … L.E.D.), 20바이트(`u16` 곡, `u16` 차트 ×5), 이름 없음 |
 | 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. 위키에 없는 3개(10~12번째)는 `#10`~`#12` |
 | 7th style | `0x1c59dc` | 9 (MORNING … SELECTION), 68바이트, 이름 없음 |
 | 8th style | `0x1a7e18` | 17 (FEEL … 7-SP10D), 이름 없음(아래) |

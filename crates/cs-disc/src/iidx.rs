@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 5th style, `SLPM_650.49`.
+    FifthStyle,
     /// 6th style, `SLPM_651.56`.
     SixthStyle,
     /// 7th style, `SLPM_655.93`.
@@ -57,7 +59,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 15] = [
+const EDITIONS: [Edition; 16] = [
+    Edition::FifthStyle,
     Edition::SixthStyle,
     Edition::SeventhStyle,
     Edition::EighthStyle,
@@ -197,6 +200,9 @@ enum ExpertTable {
     Unnamed {
         at: usize,
         size: usize,
+        /// Bytes from one song to the next: 6, or 4 in 5th (`u16` song,
+        /// `u16` chart).
+        step: usize,
         names: &'static [&'static str],
     },
 }
@@ -254,6 +260,8 @@ enum FileNumbers {
     /// video number counts in the DAT the record's `u16` at `at` names (1 or
     /// 0 the first, 2 the second, which follows the first's `first` files).
     Archives { at: usize, first: u32 },
+    /// 5th: charts as 6th's, sounds and videos `u16` numbers of the one DAT.
+    Executable,
 }
 
 impl FileNumbers {
@@ -261,7 +269,7 @@ impl FileNumbers {
         match self {
             FileNumbers::Running => raw,
             FileNumbers::Split { first } => (raw & 0x0fff_ffff) + first,
-            FileNumbers::Archives { .. } => raw,
+            FileNumbers::Archives { .. } | FileNumbers::Executable => raw,
         }
     }
 
@@ -278,6 +286,7 @@ impl FileNumbers {
                     raw
                 }
             }
+            FileNumbers::Executable => raw & 0xffff,
             FileNumbers::Archives { at, first } => {
                 let raw = raw & 0xffff;
                 if u16_le(record, at) == Some(2) {
@@ -340,6 +349,52 @@ const RECORD_15_16: Record = Record {
     },
 };
 
+/// 5th style: one `DX2_5` BIN, charts inside the executable.
+const FIFTH_STYLE: Layout = Layout {
+    executable: "SLPM_650.49",
+    slug: "iidx5",
+    file_tables: &[(0x1837d8, 0x1230)],
+    dat_files: &["DX2_5/BM2DX5.BIN"],
+    // 64 songs; then the ending roll, three survival records and d01 to
+    // d73, which are not songs.
+    songs: (0xae520, 64 * 0xa4),
+    record: Record {
+        size: 0xa4,
+        numbers: FileNumbers::Executable,
+        levels_at: 0x08,
+        video_at: 0x12,
+        charts_at: 0x5c,
+        sounds_at: 0x7c,
+        ..SIXTH_STYLE.record
+    },
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x18ebb8,
+        size: 20,
+        step: 4,
+        names: &[
+            "HEAVEN",
+            "FLY HIGH",
+            "REGULAR",
+            "NEW-WAVE",
+            "UG",
+            "NAOKI",
+            "TRANCE",
+            "OutPhase",
+            "Osamu Kubota",
+            "good-cool",
+            "dj TAKA",
+            "TaQ",
+            "RAPID",
+            "HIDDEN",
+            "AKIRA YAMAOKA",
+            "HELL2",
+            "BONUS",
+            "L.E.D.",
+        ],
+    }),
+    ..SIXTH_STYLE
+};
+
 /// 6th style: two `DX2_6` BINs, charts inside the executable.
 const SIXTH_STYLE: Layout = Layout {
     executable: "SLPM_651.56",
@@ -370,6 +425,7 @@ const SIXTH_STYLE: Layout = Layout {
     expert: Some(ExpertTable::Unnamed {
         at: 0x191da4,
         size: 96,
+        step: 6,
         names: &[
             "LOUNGE",
             "VIVID",
@@ -442,6 +498,7 @@ const SEVENTH_STYLE: Layout = Layout {
     expert: Some(ExpertTable::Unnamed {
         at: 0x1c59dc,
         size: 68,
+        step: 6,
         names: &[
             "MORNING",
             "EVENING",
@@ -508,6 +565,7 @@ const EIGHTH_STYLE: Layout = Layout {
     expert: Some(ExpertTable::Unnamed {
         at: 0x1a7e18,
         size: 72,
+        step: 6,
         names: &[
             "FEEL",
             "EUROBEAT",
@@ -881,6 +939,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::FifthStyle => &FIFTH_STYLE,
             Edition::SixthStyle => &SIXTH_STYLE,
             Edition::SeventhStyle => &SEVENTH_STYLE,
             Edition::EighthStyle => &EIGHTH_STYLE,
@@ -1048,7 +1107,12 @@ fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<Ex
     let (at, count, size, first, step) = match table {
         ExpertTable::Pointers { at, count } => (at, count, 64, 4, 12),
         ExpertTable::Inline { at, count } => (at, count, 124, 0x24, 16),
-        ExpertTable::Unnamed { at, size, names } => (at, names.len(), size, 0, 6),
+        ExpertTable::Unnamed {
+            at,
+            size,
+            step,
+            names,
+        } => (at, names.len(), size, 0, step),
     };
     let mut courses = Vec::new();
     for c in 0..count {
@@ -1345,7 +1409,10 @@ impl Disc {
             }
         }
         if let TitleField::Pointer { base, .. } = layout.record.title {
-            if matches!(layout.record.numbers, FileNumbers::Archives { .. }) {
+            if matches!(
+                layout.record.numbers,
+                FileNumbers::Archives { .. } | FileNumbers::Executable
+            ) {
                 exe_charts(
                     &mut songs, &mut files, &mut dats, base, &exe, volume, disc, layout,
                 )?;
