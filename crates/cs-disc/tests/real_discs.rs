@@ -339,21 +339,24 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         let mut worst = (0.0f64, String::new());
         let mut missing = Vec::new();
         let mut checked = std::collections::BTreeSet::new();
-        let banners = !matches!(edition, Edition::Popn8 | Edition::Popn9 | Edition::Popn10);
         let streams = true;
         let mut bgm_lengths = std::collections::HashMap::new();
         for song in &songs.songs {
-            if !banners {
-                // No banners yet.
-            } else {
+            {
                 // The song's banner (genre and title) is its loading picture.
                 let banner = songs
                     .stage_image(&mut disc, song, false)
                     .unwrap()
                     .unwrap_or_else(|| panic!("{}: no banner", song.title));
-                // About 244x58 (13's アイドルポップ is 242 wide, 12's クラシック１１ 59 high).
+                // About 244x58 (13's アイドルポップ is 242 wide, 12's クラシック１１ 59 high);
+                // 8's are 244x88.
+                let heights = if edition == Edition::Popn8 {
+                    86..=90
+                } else {
+                    56..=60
+                };
                 assert!(
-                    (236..=248).contains(&banner.width) && (56..=60).contains(&banner.height),
+                    (236..=248).contains(&banner.width) && heights.contains(&banner.height),
                     "{}: {}x{}",
                     song.title,
                     banner.width,

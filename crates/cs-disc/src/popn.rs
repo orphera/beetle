@@ -131,6 +131,8 @@ pub(crate) const POPN8: Layout = Layout {
     files: (0xb66f0, 246),
     songs: (0xc6d30, 104),
     images: (0xb41a0, 1002),
+    // 244x88 banners (9 to 14: 244x58).
+    banners: 35,
     dat: "SOUND/SD_01.DAT",
     // Seal's chart (also The tyro's reverie's) and 君と微笑みと…'s have two
     // streams each; the two of the latter are nearly the same.
@@ -145,7 +147,7 @@ pub(crate) const POPN8: Layout = Layout {
         chart_at: &[0x10, 0x14],
         chart_u16: false,
         levels_at: None,
-        banner_at: None,
+        banner_at: Some(0x1c),
         // The title (0x0c), not the genre: 8 records name the song.
         genre_at: Some(0x0c),
         bgm: false,
@@ -163,6 +165,7 @@ pub(crate) const POPN9: Layout = Layout {
     files: (0xc40d0, 235),
     songs: (0xd3210, 111),
     images: (0xc2d20, 714),
+    banners: 1,
     dat: "SOUND/SD_01.DAT",
     streams: Some(Streams {
         dat: "SOUND/SD_02.DAT",
@@ -178,7 +181,7 @@ pub(crate) const POPN9: Layout = Layout {
         chart_at: &[0x60, 0x78, 0x90, 0xa8, 0xc0, 0xd8],
         chart_u16: true,
         levels_at: Some(0x44),
-        banner_at: None,
+        banner_at: Some(0x40),
         genre_at: Some(8),
         bgm: false,
     },
@@ -194,7 +197,7 @@ pub(crate) const POPN10: Layout = Layout {
     files: (0xbe1a0, 233),
     songs: (0xccae0, 106),
     images: (0xbffd0, 683),
-    banners: u32::MAX,
+    banners: 5,
     names: None,
     dat: "SDS.DAT",
     record: Record {
@@ -202,7 +205,7 @@ pub(crate) const POPN10: Layout = Layout {
         chart_at: &[0x2c],
         chart_u16: true,
         levels_at: Some(0x30),
-        banner_at: None,
+        banner_at: Some(0x28),
         genre_at: None,
         bgm: false,
     },
