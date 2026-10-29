@@ -17,10 +17,21 @@
 //!   per file: `u32 offset, u32 size, u16, u16 rate code (high byte), u32`.
 //!   File data follows the records.
 //!
+//! Older key sound bank (8th and before, `parse_wvb.parse_wvb_old`), told by
+//! its first word being the file's length: `u32 size, u32, u32 from end`
+//! (the third section starts that many bytes before the end), then from
+//! 0x20 to 0x4000 one 32-byte entry per sound: `u16 number, u16, u8,
+//! u8 volume, u8 pan, u8 kind (low nibble), u32 rate, u32, u32 start, u32
+//! end, u32 size, u32`. Kinds 2 and 4 start at `start - 0xf020` (4 ending at
+//! `end - 0xf020`, 2 at its end frame), kind 3 at `start` into the third
+//! section. Every sound is mono and not scrambled.
+//!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
 //! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
 //! at 40, which is not applied to the stream (see `decode_bgm`)), then
-//! ADPCM frames interleaved per channel every 16 bytes.
+//! ADPCM frames interleaved per channel every 16 bytes. 8th and before:
+//! big-endian `u32 size, u16, u16 rate, u8 channels`, told by the size
+//! filling the file after the 0x800 header; not scrambled.
 
 use std::fmt;
 
@@ -147,6 +158,9 @@ pub struct Bank<'a> {
 
 impl<'a> Bank<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self, SoundError> {
+        if u32_at(data, 0)? as usize == data.len() {
+            return Self::parse_old(data);
+        }
         let count = u32_at(data, TABLE_END)? as usize;
         let scrambled = u32_at(data, TABLE_END + 8)? != 0;
         let records = TABLE_END + 0x10;
@@ -191,6 +205,54 @@ impl<'a> Bank<'a> {
         Ok(Bank {
             data,
             key: scrambled.then(|| scramble_key(data, &files)),
+            files,
+            sounds,
+        })
+    }
+
+    /// The older bank form (module docs): one file per sound.
+    fn parse_old(data: &'a [u8]) -> Result<Self, SoundError> {
+        const OLD_START: usize = 0x20;
+        const OLD_END: usize = 0x4000;
+        const OLD_ENTRY: usize = 0x20;
+        const OLD_BASE: usize = 0xf020;
+        let third = data
+            .len()
+            .checked_sub(u32_at(data, 8)? as usize)
+            .ok_or(SoundError::TooShort)?;
+        let mut files = Vec::new();
+        let mut sounds = Vec::new();
+        for at in (OLD_START..OLD_END).step_by(OLD_ENTRY) {
+            let e = data.get(at..at + OLD_ENTRY).ok_or(SoundError::TooShort)?;
+            let word = |i: usize| u32::from_le_bytes(e[i..i + 4].try_into().unwrap()) as usize;
+            let number = u16::from_le_bytes([e[0], e[1]]) as usize;
+            let (start, end) = match e[7] & 0x0f {
+                2 => (word(16).wrapping_sub(OLD_BASE), data.len()),
+                4 => (
+                    word(16).wrapping_sub(OLD_BASE),
+                    word(20).wrapping_sub(OLD_BASE),
+                ),
+                3 => (third + word(16), third + word(16) + word(24)),
+                _ => continue,
+            };
+            if number == 0 || start >= end || end > data.len() {
+                continue;
+            }
+            if sounds.len() < number {
+                sounds.resize(number, None);
+            }
+            sounds[number - 1] = Some(KeySound {
+                file: files.len() as u16,
+                placement: Placement::Mono,
+                pan: e[6],
+                volume: e[5],
+                duration_ms: 0,
+            });
+            files.push((start, end - start, word(8) as u32));
+        }
+        Ok(Bank {
+            data,
+            key: None,
             files,
             sounds,
         })
@@ -292,12 +354,21 @@ fn apply_volume(samples: &mut [i16], volume: u8) {
 /// A BGM stream decoded at full level. Its header volume (40) is not applied:
 /// XENON's 48 would play it at 38%, too quiet under the key sounds.
 pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
-    let start = u32_at(data, 8)? as usize;
-    let size = u32_at(data, 12)? as usize;
-    let rate = u32_at(data, 24)?;
-    let count = (u32_at(data, 28)? as usize).max(1);
-    let scrambled = u32_at(data, 32)? != 0;
-    let interleave = u32_at(data, 36)?;
+    let head = data.get(..9).ok_or(SoundError::TooShort)?;
+    let old_size = u32::from_be_bytes(head[..4].try_into().unwrap()) as usize;
+    let (start, size, rate, count, scrambled, interleave) = if old_size + 0x800 == data.len() {
+        let rate = u16::from_be_bytes([head[6], head[7]]) as u32;
+        (0x800, old_size, rate, (head[8] as usize).max(1), false, 16)
+    } else {
+        (
+            u32_at(data, 8)? as usize,
+            u32_at(data, 12)? as usize,
+            u32_at(data, 24)?,
+            (u32_at(data, 28)? as usize).max(1),
+            u32_at(data, 32)? != 0,
+            u32_at(data, 36)?,
+        )
+    };
     if interleave != 16 {
         return Err(SoundError::BadInterleave(interleave));
     }

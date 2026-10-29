@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 8th style, `SLPM_657.68`.
+    EighthStyle,
     /// 9th style, `SLPM_659.46`.
     NinthStyle,
     /// 10th style, `SLPM_661.80`.
@@ -51,7 +53,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 12] = [
+const EDITIONS: [Edition; 13] = [
+    Edition::EighthStyle,
     Edition::NinthStyle,
     Edition::TenthStyle,
     Edition::Red,
@@ -77,13 +80,19 @@ struct Layout {
     dat_files: &'static [&'static str],
     /// The song table: (offset, bytes).
     songs: (usize, usize),
-    /// The `DATA1.DAT` file table: (offset, bytes).
+    /// The `DATA1.DAT` file table: (offset, bytes), `(0, 0)` without one.
     data1: (usize, usize),
     /// The Blowfish key of the chart files. iidx-ps2tools builds it from
     /// letters of song names in the game (`generate_encryption_key`); this is
     /// its result.
     /// `None` where charts are not encrypted (10 to 13).
     chart_key: Option<&'static [u8]>,
+    /// A sound number charts start with the BGM and no bank holds (8th: 2,
+    /// beside the BGM's 1; the stream is already stereo).
+    bgm_pair: Option<u16>,
+    /// Titles of records whose title is blank (`Song::id`, title): 8th's
+    /// unlockable songs, named only by pictures (RemyWiki, told apart by levels).
+    titles: &'static [(u32, &'static str)],
     record: Record,
     /// The dan course table, where the edition has one
     /// (9th on; docs/specs/iidx_ps2_disc.md, 7).
@@ -98,15 +107,50 @@ struct Layout {
 enum DanTable {
     /// 14 on: `DAN_PAIRS` (song, chart) word pairs at this offset.
     Pairs(usize),
-    /// 9th to 13: per course, (song, chart, slot bit) word triples ending
-    /// in -1, each course starting on a 16-byte boundary, in runs of
-    /// consecutive ranks (`DanRun`). `hyper_first`: chart 0 is HYPER and 1
-    /// NORMAL (9th to 11), not the other way round.
+    /// 7th to 13: per course, one entry per song ending in an end mark,
+    /// in runs of consecutive ranks (`DanRun`). `charts`: the difficulty of
+    /// each chart value.
     Listed {
+        form: ListForm,
         runs: &'static [DanRun],
-        hyper_first: bool,
+        charts: &'static [Option<Difficulty>],
     },
 }
+
+/// How a `DanTable::Listed` table stores a course.
+#[derive(Clone, Copy)]
+enum ListForm {
+    /// 9th to 13: (song, chart, slot bit) word triples ending in -1, each
+    /// course starting on a 16-byte boundary.
+    Triples,
+    /// 7th and 8th: 16-byte entries of `u16 song, u16 chart`, eight unknown
+    /// bytes and four slot flags, ending in an entry of song 0xffff.
+    Records,
+}
+
+/// Dan chart values (`DanTable::Listed::charts`).
+const DAN_CHARTS: &[Option<Difficulty>] = &[
+    Some(Difficulty::Normal),
+    Some(Difficulty::Hyper),
+    Some(Difficulty::Another),
+    Some(Difficulty::Beginner),
+    Some(Difficulty::Black),
+];
+/// 9th to 11: HYPER 0, NORMAL 1.
+const DAN_CHARTS_HYPER_FIRST: &[Option<Difficulty>] = &[
+    Some(Difficulty::Hyper),
+    Some(Difficulty::Normal),
+    Some(Difficulty::Another),
+    Some(Difficulty::Beginner),
+];
+/// 8th: HYPER 0, NORMAL 1, ANOTHER 3, BEGINNER 4.
+const DAN_CHARTS_EIGHTH: &[Option<Difficulty>] = &[
+    Some(Difficulty::Hyper),
+    Some(Difficulty::Normal),
+    None,
+    Some(Difficulty::Another),
+    Some(Difficulty::Beginner),
+];
 
 /// Consecutive courses of one style in a `DanTable::Listed` table.
 #[derive(Clone, Copy)]
@@ -136,6 +180,13 @@ enum ExpertTable {
     /// 9th to 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
     /// five (song, 1, 1, 1) word quadruples.
     Inline { at: usize, count: usize },
+    /// 8th: 72-byte records of five (`u16` song, two `u16` fixing the
+    /// chart) entries; the names are pictures, so they come from RemyWiki
+    /// (`CS_8th_style`), one per record.
+    Unnamed {
+        at: usize,
+        names: &'static [&'static str],
+    },
 }
 
 /// How a DAT file table entry gives a file's span.
@@ -145,11 +196,15 @@ enum FileRecords {
     Sectors,
     /// 12 bytes: sector, an unused word, bytes (14 on).
     Bytes,
+    /// 16 bytes: sector, an unused word, bytes, a hash (5th to 8th).
+    Hashed,
 }
 
 /// Where a song record keeps its fields.
 struct Record {
     size: usize,
+    title: TitleField,
+    numbers: FileNumbers,
     /// The level bytes and which of them each chart slot (`CHART_SLOTS` order) shows.
     levels_at: usize,
     level_of: [usize; 10],
@@ -160,6 +215,52 @@ struct Record {
     chart_count: usize,
     sounds_at: usize,
     stage: StageArt,
+}
+
+/// Where a record keeps the song title.
+#[derive(Clone, Copy)]
+enum TitleField {
+    /// ASCII, `TITLE_LEN` bytes from 0x00 (9th on).
+    Inline,
+    /// The executable address of the ASCII title at this field: the file
+    /// offset is the address less `base` (8th and older).
+    Pointer { at: usize, base: u32 },
+}
+
+/// How a record's file numbers count across the DAT files.
+#[derive(Clone, Copy)]
+enum FileNumbers {
+    /// One number from the first file of the first DAT on (9th on).
+    Running,
+    /// 8th: the first DAT has `first` files. A chart number is
+    /// `0xf0000000 | n` for file `n` of the second DAT; a sound or video
+    /// number below `first` is a file of the first DAT, and `n` from `first`
+    /// on file `n` of the second.
+    Split { first: u32 },
+}
+
+impl FileNumbers {
+    fn chart(self, raw: u32) -> u32 {
+        match self {
+            FileNumbers::Running => raw,
+            FileNumbers::Split { first } => (raw & 0x0fff_ffff) + first,
+        }
+    }
+
+    /// A sound or video number; 8th's are `u16`, the video one of a pair.
+    fn other(self, raw: u32) -> u32 {
+        match self {
+            FileNumbers::Running => raw,
+            FileNumbers::Split { first } => {
+                let raw = raw & 0xffff;
+                if raw >= first {
+                    raw + first
+                } else {
+                    raw
+                }
+            }
+        }
+    }
 }
 
 /// Where a song's stage art (the picture shown while it loads) is.
@@ -178,6 +279,8 @@ enum StageArt {
     },
     /// The DATA1 file a record field names, holding the loading card (16).
     Card { at: usize },
+    /// None read (8th and older: no DATA1).
+    None,
 }
 
 /// Where a record's stage picture choices are (`StageArt::Overlay`).
@@ -192,6 +295,8 @@ struct Picks {
 /// (DJ TROOPERS: DAZZLIN' DARLIN' DP BEGINNER 1, RISTACCIA DP BLACK 11).
 const RECORD_15_16: Record = Record {
     size: 0x134,
+    title: TitleField::Inline,
+    numbers: FileNumbers::Running,
     levels_at: 0x4a,
     level_of: [1, 6, 2, 7, 0, 5, 3, 8, 4, 9],
     video_at: 0x58,
@@ -206,6 +311,78 @@ const RECORD_15_16: Record = Record {
             another: 2,
         }),
     },
+};
+
+/// 8th style: files in `DX2_8`, titles by pointer, no DATA1.
+const EIGHTH_STYLE: Layout = Layout {
+    executable: "SLPM_657.68",
+    slug: "iidx8",
+    file_tables: &[(0x19a940, 0x740), (0x19b080, 0x2db0), (0x19a180, 0x790)],
+    file_records: FileRecords::Hashed,
+    dat_files: &[
+        "DX2_8/BM2DX8B.BIN",
+        "DX2_8/BM2DX8C.BIN",
+        "DX2_8/BM2DX8A.BIN",
+    ],
+    songs: (0x1a4060, 0x36e0),
+    data1: (0, 0),
+    chart_key: None,
+    bgm_pair: Some(2),
+    titles: &[
+        (87, "TAIYO"),
+        (88, "DON'T BE AFRAID MYSELF"),
+        (89, "SPIRAL GALAXY"),
+    ],
+    // Levels: SP H/A, DP H/A, SP N, DP N, SP B, DP B.
+    record: Record {
+        size: 0x9c,
+        title: TitleField::Pointer {
+            at: 0,
+            base: 0xfff80,
+        },
+        numbers: FileNumbers::Split { first: 116 },
+        levels_at: 0x08,
+        level_of: [0, 1, 0, 1, 2, 3, 4, 5, 0, 1],
+        // Two `u16` MPEG-2 files, much alike; 0x24 names one on 10 songs.
+        video_at: 0x14,
+        charts_at: 0x54,
+        chart_count: 8,
+        sounds_at: 0x74,
+        stage: StageArt::None,
+    },
+    // SP 九段 draws four of twelve (0x199c00), so SP runs 7級 to 八段 and
+    // 十段 apart. A course after DP 十段 (0x19a0e0) is not in the game.
+    dan: Some(DanTable::Listed {
+        form: ListForm::Records,
+        runs: &[
+            run(Style::Single, 0x199750, 0, 15),
+            run(Style::Single, 0x199cd0, 16, 1),
+            run(Style::Double, 0x199d20, 2, 15),
+        ],
+        charts: DAN_CHARTS_EIGHTH,
+    }),
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x1a7e18,
+        names: &[
+            "FEEL",
+            "EUROBEAT",
+            "VOCAL",
+            "TRANCE",
+            "NO.5",
+            "UG2",
+            "NIGHT",
+            "PARTY",
+            "V.A.",
+            "NEW COMER",
+            "RAPID2",
+            "TaQ",
+            "HIRATA",
+            "L.E.D.",
+            "HELL",
+            "ASSAULT",
+            "7-SP10D",
+        ],
+    }),
 };
 
 /// 9th style: the 10th style record, its tables elsewhere.
@@ -223,7 +400,8 @@ const NINTH_STYLE: Layout = Layout {
             run(Style::Single, 0xb59b0, 16, 1),
             run(Style::Double, 0xb59f0, 2, 15),
         ],
-        hyper_first: true,
+        form: ListForm::Triples,
+        charts: DAN_CHARTS_HYPER_FIRST,
     }),
     // STYLISH … ASSAULT; the three words after each song are 0 or 1.
     expert: Some(ExpertTable::Inline {
@@ -242,10 +420,14 @@ const TENTH_STYLE: Layout = Layout {
     songs: (0x10bae0, 0x7d20),
     data1: (0xc8e08, 0x11b0),
     chart_key: None,
+    bgm_pair: None,
+    titles: &[],
     // Levels: beginner (both styles), eight unused bytes, then SP H/A, SP N,
     // DP H/A, DP N: HYPER and ANOTHER share one, as RemyWiki lists the CS.
     record: Record {
         size: 0x16c,
+        title: TitleField::Inline,
+        numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [9, 11, 9, 11, 10, 12, 0, 0, 9, 11],
         video_at: 0x58,
@@ -263,7 +445,8 @@ const TENTH_STYLE: Layout = Layout {
             run(Style::Single, 0xc6790, 0, 17),
             run(Style::Double, 0xc6bd0, 2, 15),
         ],
-        hyper_first: true,
+        form: ListForm::Triples,
+        charts: DAN_CHARTS_HYPER_FIRST,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xc7fb8,
@@ -280,9 +463,13 @@ const RED: Layout = Layout {
     songs: (0x1c21f0, 0x6f40),
     data1: (0xe83e8, 0x19c0),
     chart_key: None,
+    bgm_pair: None,
+    titles: &[],
     // Levels: beginner (both styles), ten unused bytes, SP H/N/A, DP H/N/A.
     record: Record {
         size: 0x140,
+        title: TitleField::Inline,
+        numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [11, 14, 13, 16, 12, 15, 0, 0, 13, 16],
         video_at: 0x5c,
@@ -300,7 +487,8 @@ const RED: Layout = Layout {
             run(Style::Single, 0xe5dc0, 0, 17),
             run(Style::Double, 0xe6200, 2, 15),
         ],
-        hyper_first: true,
+        form: ListForm::Triples,
+        charts: DAN_CHARTS_HYPER_FIRST,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xe7328,
@@ -317,9 +505,13 @@ const HAPPY_SKY: Layout = Layout {
     songs: (0x115f10, 0x7470),
     data1: (0x100108, 0x1be0),
     chart_key: None,
+    bgm_pair: None,
+    titles: &[],
     // Levels: beginner (both styles), eight unused bytes, SP N/H/A, DP N/H/A.
     record: Record {
         size: 0x144,
+        title: TitleField::Inline,
+        numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [10, 13, 11, 14, 9, 12, 0, 0, 11, 14],
         video_at: 0x54,
@@ -337,7 +529,8 @@ const HAPPY_SKY: Layout = Layout {
             run(Style::Single, 0xfd9c0, 0, 17),
             run(Style::Double, 0xfde30, 2, 15),
         ],
-        hyper_first: false,
+        form: ListForm::Triples,
+        charts: DAN_CHARTS,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0xfefd8,
@@ -354,11 +547,15 @@ const DISTORTED: Layout = Layout {
     songs: (0x1353e0, 0x71c0),
     data1: (0x10d7f8, 0x1bf0),
     chart_key: None,
+    bgm_pair: None,
+    titles: &[],
     // Levels as GOLD; eight overlay slots instead of six and no BLACK charts.
     // The stage art is not the overlay file (0x60, BGA overlays on 27 songs)
     // but a DATA1 file every record names.
     record: Record {
         size: 0x118,
+        title: TitleField::Inline,
+        numbers: FileNumbers::Running,
         levels_at: 0x42,
         level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
         video_at: 0x54,
@@ -380,7 +577,8 @@ const DISTORTED: Layout = Layout {
             run(Style::Single, 0x10af90, 0, 18),
             run(Style::Double, 0x10b410, 2, 16),
         ],
-        hyper_first: false,
+        form: ListForm::Triples,
+        charts: DAN_CHARTS,
     }),
     expert: Some(ExpertTable::Inline {
         at: 0x10c558,
@@ -397,10 +595,14 @@ const GOLD: Layout = Layout {
     data1: (0x118500, 0x1e80),
     file_records: FileRecords::Bytes,
     chart_key: Some(b"sEk2I1Xq7bz09Mtv"),
+    bgm_pair: None,
+    titles: &[],
     // Levels: beginner (both styles), 9 unused bytes, SP N/H/A, DP N/H/A
     // (BLACK shares ANOTHER's).
     record: Record {
         size: 0x11c,
+        title: TitleField::Inline,
+        numbers: FileNumbers::Running,
         levels_at: 0x42,
         level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
         video_at: 0x54,
@@ -432,6 +634,8 @@ const DJ_TROOPERS: Layout = Layout {
     data1: (0x131680, 0x1f80),
     file_records: FileRecords::Bytes,
     chart_key: Some(b"eqkBipx2wgExUAIG"),
+    bgm_pair: None,
+    titles: &[],
     record: RECORD_15_16,
     dan: Some(DanTable::Pairs(0x15e200)),
     expert: Some(ExpertTable::Pointers {
@@ -449,6 +653,8 @@ const EMPRESS: Layout = Layout {
     data1: (0x139d00, 0x1cf0),
     file_records: FileRecords::Bytes,
     chart_key: Some(b"uYlFgVwOpaQmXdIR"),
+    bgm_pair: None,
+    titles: &[],
     record: Record {
         stage: StageArt::Card { at: 0x94 },
         ..RECORD_15_16
@@ -508,6 +714,15 @@ impl Edition {
         }
     }
 
+    /// A sound number that starts with the BGM and plays nothing of its own
+    /// (`Layout::bgm_pair`).
+    pub fn bgm_pair_sound(self) -> Option<u16> {
+        match self.tables() {
+            Tables::Iidx(layout) => layout.bgm_pair,
+            Tables::Popn(_) => None,
+        }
+    }
+
     fn executable(self) -> &'static str {
         match self.tables() {
             Tables::Iidx(layout) => layout.executable,
@@ -521,6 +736,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::EighthStyle => &EIGHTH_STYLE,
             Edition::NinthStyle => &NINTH_STYLE,
             Edition::TenthStyle => &TENTH_STYLE,
             Edition::Red => &RED,
@@ -685,6 +901,7 @@ fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<Ex
     let (at, count, size, first, step) = match table {
         ExpertTable::Pointers { at, count } => (at, count, 64, 4, 12),
         ExpertTable::Inline { at, count } => (at, count, 124, 0x24, 16),
+        ExpertTable::Unnamed { at, names } => (at, names.len(), 72, 0, 6),
     };
     let mut courses = Vec::new();
     for c in 0..count {
@@ -694,11 +911,17 @@ fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<Ex
         let name = match table {
             ExpertTable::Pointers { .. } => elf_string(exe, u32_at(record, 0)),
             ExpertTable::Inline { .. } => ascii(&record[..first]),
+            ExpertTable::Unnamed { names, .. } => Some(names[c].to_string()),
         };
         let Some(name) = name else {
             return Vec::new();
         };
-        let ids: Vec<u32> = (0..5).map(|i| u32_at(record, first + step * i)).collect();
+        let ids: Vec<u32> = (0..5)
+            .map(|i| match table {
+                ExpertTable::Unnamed { .. } => u16_le(record, first + step * i).unwrap() as u32,
+                _ => u32_at(record, first + step * i),
+            })
+            .collect();
         if !ids.iter().all(|id| songs.iter().any(|s| s.id == *id)) {
             return Vec::new();
         }
@@ -750,10 +973,10 @@ const DAN_RANKS: [&str; 18] = [
 fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCourse> {
     match table {
         DanTable::Pairs(at) => read_dan_pairs(exe, at, songs),
-        DanTable::Listed { runs, hyper_first } => {
+        DanTable::Listed { form, runs, charts } => {
             let mut courses = Vec::new();
             for run in runs {
-                let found = read_dan_lists(exe, run, hyper_first, songs);
+                let found = read_dan_lists(exe, form, run, charts, songs);
                 if found.is_empty() {
                     return Vec::new();
                 }
@@ -766,19 +989,18 @@ fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCours
 }
 
 /// A dan table chart number as a difficulty.
-fn dan_chart(chart: u32, hyper_first: bool) -> Option<Difficulty> {
-    Some(match (chart, hyper_first) {
-        (0, false) | (1, true) => Difficulty::Normal,
-        (1, false) | (0, true) => Difficulty::Hyper,
-        (2, _) => Difficulty::Another,
-        (3, _) => Difficulty::Beginner,
-        (4, _) => Difficulty::Black,
-        _ => return None,
-    })
+fn dan_chart(chart: u32, charts: &[Option<Difficulty>]) -> Option<Difficulty> {
+    charts.get(chart as usize).copied().flatten()
 }
 
 /// One run of a `DanTable::Listed` table.
-fn read_dan_lists(exe: &[u8], run: &DanRun, hyper_first: bool, songs: &[Song]) -> Vec<DanCourse> {
+fn read_dan_lists(
+    exe: &[u8],
+    form: ListForm,
+    run: &DanRun,
+    table: &[Option<Difficulty>],
+    songs: &[Song],
+) -> Vec<DanCourse> {
     let DanRun {
         style,
         mut at,
@@ -792,25 +1014,40 @@ fn read_dan_lists(exe: &[u8], run: &DanRun, hyper_first: bool, songs: &[Song]) -
     for i in 0..count {
         let mut charts = Vec::new();
         loop {
-            let Some(word) = exe.get(at..at + 4) else {
-                return Vec::new();
+            let (size, song, chart) = match form {
+                ListForm::Triples => {
+                    let Some(word) = exe.get(at..at + 4) else {
+                        return Vec::new();
+                    };
+                    if u32_at(word, 0) == u32::MAX {
+                        at += 4;
+                        break;
+                    }
+                    let Some(triple) = exe.get(at..at + 12) else {
+                        return Vec::new();
+                    };
+                    (12, u32_at(triple, 0), u32_at(triple, 4))
+                }
+                ListForm::Records => {
+                    let Some(entry) = exe.get(at..at + 16) else {
+                        return Vec::new();
+                    };
+                    let song = u16_le(entry, 0).unwrap();
+                    if song == 0xffff {
+                        at += 16;
+                        break;
+                    }
+                    (16, song as u32, u16_le(entry, 2).unwrap() as u32)
+                }
             };
-            if u32_at(word, 0) == u32::MAX {
-                at += 4;
-                break;
-            }
-            let Some(triple) = exe.get(at..at + 12) else {
-                return Vec::new();
-            };
-            let (song, chart) = (u32_at(triple, 0), u32_at(triple, 4));
-            let Some(difficulty) = dan_chart(chart, hyper_first) else {
+            let Some(difficulty) = dan_chart(chart, table) else {
                 return Vec::new();
             };
             if charts.len() == 4 || !songs.iter().any(|s| s.id == song) {
                 return Vec::new();
             }
             charts.push((song, difficulty));
-            at += 12;
+            at += size;
         }
         at = at.next_multiple_of(16);
         courses.push(DanCourse {
@@ -835,7 +1072,7 @@ fn read_dan_pairs(exe: &[u8], at: usize, songs: &[Song]) -> Vec<DanCourse> {
             if (song, chart) == (0, 0) {
                 continue;
             }
-            let Some(difficulty) = dan_chart(chart, false) else {
+            let Some(difficulty) = dan_chart(chart, DAN_CHARTS) else {
                 return Vec::new();
             };
             if !songs.iter().any(|s| s.id == song) {
@@ -885,11 +1122,23 @@ impl Disc {
             .iter()
             .map(|name| volume.find(disc, name)?.ok_or_else(|| missing(name)))
             .collect::<io::Result<_>>()?;
-        let data1 = volume
-            .find(disc, "DATA1.DAT")?
-            .ok_or_else(|| missing("DATA1.DAT"))?;
+        // 8th and older have no DATA1 (`data1` empty).
+        let data1 = if layout.data1.1 == 0 {
+            FileExtent { lba: 0, size: 0 }
+        } else {
+            volume
+                .find(disc, "DATA1.DAT")?
+                .ok_or_else(|| missing("DATA1.DAT"))?
+        };
         let files = read_file_tables(&exe, layout.file_tables, layout.file_records)?;
-        let songs = read_songs(&exe, layout.songs, &layout.record)?;
+        let mut songs = read_songs(&exe, layout.songs, &layout.record)?;
+        for song in &mut songs {
+            if let Some(&(_, title)) = layout.titles.iter().find(|&&(id, _)| id == song.id) {
+                if song.title.is_empty() {
+                    song.title = title.to_string();
+                }
+            }
+        }
         let dan_courses = layout
             .dan
             .map(|table| read_dan_courses(&exe, table, &songs))
@@ -1260,6 +1509,7 @@ impl Disc {
             }
         };
         match layout.record.stage {
+            StageArt::None => Ok(None),
             StageArt::Card { .. } => match song.stage {
                 Some(file) => self.card_image(disc, file),
                 None => Ok(None),
@@ -1327,8 +1577,8 @@ impl Song {
     }
 
     /// The (key sound bank, BGM stream) file numbers a chart plays. A chart
-    /// slot without its own takes the other style's ANOTHER (for ANOTHER),
-    /// then DP HYPER's (double) or SP HYPER's, field by field, as
+    /// slot without its own takes the other style's of its difficulty, then
+    /// DP HYPER's (double) or SP HYPER's, field by field, as
     /// iidx-ps2tools resolves them.
     pub fn sound_files(&self, style: Style, difficulty: Difficulty) -> (Option<u32>, Option<u32>) {
         let own = |slot: usize, field: usize| -> Option<u32> {
@@ -1343,12 +1593,9 @@ impl Song {
             .unwrap();
         let pick = |field: usize| {
             own(slot, field)
-                // 9th GENOM SCREAMS DP ANOTHER plays SP ANOTHER's.
-                .or_else(|| {
-                    (difficulty == Difficulty::Another)
-                        .then(|| own(slot ^ 1, field))
-                        .flatten()
-                })
+                // 9th GENOM SCREAMS DP ANOTHER plays SP ANOTHER's, 8th
+                // ABSTRACT DP NORMAL SP NORMAL's.
+                .or_else(|| own(slot ^ 1, field))
                 .or_else(|| (style == Style::Double).then(|| own(1, field)).flatten())
                 .or_else(|| own(0, field))
         };
@@ -1495,12 +1742,13 @@ fn read_file_tables(
     let len = match records {
         FileRecords::Sectors => 8,
         FileRecords::Bytes => 12,
+        FileRecords::Hashed => 16,
     };
     for (dat, &span) in tables.iter().enumerate() {
         for record in table(exe, span)?.chunks_exact(len) {
             let size = match records {
                 FileRecords::Sectors => u32_at(record, 4) * crate::SECTOR_SIZE as u32,
-                FileRecords::Bytes => u32_at(record, 8),
+                FileRecords::Bytes | FileRecords::Hashed => u32_at(record, 8),
             };
             files.push(FileEntry {
                 dat: dat as u8,
@@ -1541,7 +1789,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
                     style,
                     difficulty,
                     level: levels[layout.level_of[i]],
-                    file,
+                    file: layout.numbers.chart(file),
                 })
             })
             .collect();
@@ -1552,9 +1800,22 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
         let mut sounds = [0u16; 16];
         for (i, sound) in sounds.iter_mut().enumerate() {
             let at = layout.sounds_at + i * 2;
-            *sound = u16::from_le_bytes([record[at], record[at + 1]]);
+            let raw = u16::from_le_bytes([record[at], record[at + 1]]);
+            *sound = if raw == NO_SOUND {
+                raw
+            } else {
+                layout.numbers.other(raw as u32) as u16
+            };
         }
-        let title = record[..TITLE_LEN]
+        let title = match layout.title {
+            TitleField::Inline => &record[..TITLE_LEN],
+            TitleField::Pointer { at, base } => {
+                let start = u32_at(record, at).wrapping_sub(base) as usize;
+                exe.get(start..(start + TITLE_LEN).min(exe.len()))
+                    .unwrap_or(&[])
+            }
+        };
+        let title = title
             .iter()
             .take_while(|&&b| b != 0)
             .map(|&b| if b.is_ascii() { b as char } else { '?' })
@@ -1578,13 +1839,14 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
                 let second = (0..picks.count).any(|slot| pick(slot).is_some_and(|p| p != 0));
                 pick(0).map(|usual| (usual, pick(picks.another), second))
             }
-            StageArt::Card { .. } => None,
+            StageArt::Card { .. } | StageArt::None => None,
         };
         let stage = match layout.stage {
             StageArt::Overlay { at, .. } | StageArt::Card { at } => {
                 let file = u32_at(record, at);
                 (file != 0 && file != u32::MAX).then_some(file)
             }
+            StageArt::None => None,
         };
         songs.push(Song {
             id: id as u32,
@@ -1595,7 +1857,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             stage_picks: stage_picks.map(|(usual, another, _)| (usual, another)),
             video: {
                 let file = u32_at(record, layout.video_at);
-                (file != 0 && file & 0xffff != 0xffff).then_some(file)
+                (file != 0 && file & 0xffff != 0xffff).then(|| layout.numbers.other(file))
             },
         });
         if stage_picks.is_some_and(|(_, _, second)| second) {

@@ -135,6 +135,9 @@ impl SongSource for DiscSource {
             let Some(n) = sound_number(name) else {
                 continue;
             };
+            if Some(n) == self.songs.edition.bgm_pair_sound() {
+                continue;
+            }
             // The cue that starts the chart's BGM stream.
             let pcm = if n == self.songs.edition.bgm_sound() {
                 bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())

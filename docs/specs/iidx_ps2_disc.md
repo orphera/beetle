@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 8th style | `SLPM_657.68` | `DX2_8/BM2DX8B/C/A.BIN` | 0x9c | 없음 (암호화 안 함) |
 | 9th style | `SLPM_659.46` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
 | 10th style | `SLPM_661.80` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
 | 11 IIDX RED | `SLPM_664.26` | `DATA2.DAT` 하나 | 0x140 | 없음 (암호화 안 함) |
@@ -23,6 +24,18 @@
 - 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 10–13은 8바이트 레코드(섹터, 섹터 수). DAT 파일이 여럿이면 그 순서로 번호가 이어진다.
 - `DATA1.DAT` 표: 16바이트 레코드(id, 섹터, 섹터 수, 0).
 - 차트 파일은 Blowfish(위 키)로 암호화하고 LZ로 압축되어 있다. 10–13은 LZ 압축만 한다.
+
+### 1.1 8th style
+
+- `DATA1.DAT`가 없다. 파일 표는 16바이트(섹터, 미사용, 바이트, 해시)이고 B(116개), C, A 순서로 이어진다.
+- 파일 번호(`FileNumbers::Split`): 채보는 `0xf0000000 | n`으로 C의 n번(전체 116+n). 키음·BGM·영상은 `u16`이고 116 미만이면 B, 116 이상이면 C의 그 번호.
+- 곡 레코드 0x9c: 0x00 ASCII 제목 주소, 0x04 표시 제목 주소(주소 − 0xfff80 = 파일 오프셋), 0x08 레벨 6바이트(SP H/A, DP H/A, SP N, DP N, SP B, DP B), 0x14 영상 `u16` 둘(MPEG-2, 거의 같은 두 판, 첫째를 씀), 0x54 채보 8개, 0x74 사운드 16개.
+- 87~89번은 제목이 공백이다(그림으로만 이름이 있음). 레벨로 太陽(TAIYO)·Don't be afraid myself·spiral galaxy를 가려 `Layout::titles`에 둔다.
+- 키음 뱅크는 옛 형식(`wvb.rs` 모듈 설명: 첫 워드가 파일 길이, 0x20~0x4000에 32바이트 항목, 모노, 암호 없음). BGM은 빅엔디언 헤더(크기, ?, 레이트, 채널) 뒤 0x800부터, 암호 없음.
+- 채보는 시작에 BGM 1과 함께 소리 2를 낸다. 어느 뱅크에도 없고 BGM이 이미 스테레오라 아무것도 내지 않는다(`Layout::bgm_pair`, 추정).
+- 자기 키음이 없는 채보는 같은 난이도의 다른 스타일 것을 먼저 쓴다(ABSTRACT DP NORMAL → SP NORMAL). 9th~16에서도 결과가 같다.
+- 채보 7개가 뱅크 어디에도 없는 소리를 부른다(GRAVITY SP NORMAL의 3 등). 디스크에 없으므로 무음으로 둔다.
+- 첫 마디선이 여러 마디를 덮고 그 안에서 BPM이 바뀌는 채보(DUAL CONTROL)가 있다. 마디 길이는 템포 구간마다 따로 재어 더한다(`ply_bms::bars`).
 
 ## 2. 곡 레코드
 
@@ -183,6 +196,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 실행 파일 안 위치 |
 |---|---|
+| 8th style | SP `0x199750`(7級~八段)·`0x199cd0`(十段), DP `0x199d20` (16바이트 레코드, 아래) |
 | 9th style | SP `0xb5540`(7級~八段)·`0xb59b0`(十段), DP `0xb59f0` |
 | 10th style | SP `0xc6790`, DP `0xc6bd0` (형식이 다름, 아래) |
 | 11 IIDX RED | SP `0xe5dc0`, DP `0xe6200` |
@@ -217,6 +231,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 - 9th style(`DanTable::Listed`, 구간 셋):
   - 레코드는 10th와 같다. 곡 레코드 위치·파일 표만 다르다(`NINTH_STYLE`).
   - SP 九段은 13곡 풀에서 4곡을 뽑는 단위라(`0xb58f0`, 칸 비트가 1·2·4·8이 아님) 고정 코스로 만들 수 없어 읽지 않는다. 그래서 SP는 7級~八段 15개와 十段 하나, DP는 5級~十段 15개다. RemyWiki 단위 목록과 곡 구성이 모두 같다.
+- 8th style(`ListForm::Records`): 곡마다 16바이트(`u16 곡, u16 차트`, 모르는 8바이트, 칸 플래그 4바이트), 곡 0xffff 항목으로 끝난다. 차트 값은 0 HYPER, 1 NORMAL, 3 ANOTHER, 4 BEGINNER. SP 九段은 12곡 무작위 풀(`0x199c00`)이라 읽지 않고, DP 十段 뒤의 코스 하나(`0x19a0e0`)는 게임에 없다. 위키 단위 목록과 모두 같다.
 - 차트 값의 HYPER·NORMAL: 9th·10th·11은 0이 HYPER, 1이 NORMAL이다(`hyper_first`). 12부터 0 NORMAL, 1 HYPER. 고단위(七段 등)의 0번 차트가 레벨상 HYPER인 것으로 확인했다(10th 六段 LOVE IS ETERNITY 0 → HYPER 8, NORMAL 6). 전에는 10th·11에서 둘을 바꿔 읽고 있었다.
 - 모르는 것:
   - 게임이 단위에서 허용하는 배치 옵션. 플레이어는 미러까지 허용한다고 가정한다(`GradeMirror`).
@@ -231,6 +246,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 8th style | `0x1a7e18` | 17 (FEEL … 7-SP10D), 이름 없음(아래) |
 | 9th style | `0xb6e08` | 17 (STYLISH … ASSAULT), 10th와 같은 형식 |
 | 10th style | `0xc7fb8` | 17 (INSTRUMENTAL … KING), 형식이 다름 |
 | 11 IIDX RED | `0xe7328` | 17 (J-POP … CORE) |
@@ -243,6 +259,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 - 찾은 방법: RemyWiki `CS_EMPRESS`의 EXPERT 코스 목록(곡 순서)을 실행 파일에서 간격을 바꿔 가며 찾았다. 12바이트 간격으로 나왔고, 그 레코드 모양(이름 포인터 + 곡 5개)으로 다른 에디션도 찾았다.
 - EMPRESS 10개 코스는 이름과 곡 순서가 위키와 모두 같다.
+- 8th(`ExpertTable::Unnamed`): 72바이트 레코드에 (`u16` 곡, 차트를 정하는 `u16` 둘) 6바이트가 5번. 코스 이름은 그림뿐이라 RemyWiki `CS_8th_style`의 이름을 순서대로 붙인다. HELL 3곡째는 위키의 era (step mix)가 아니라 ERA (NOSTALMIX)다.
 - 9th~13(`ExpertTable::Inline`): 9th는 곡 뒤 세 워드가 1이 아니라 0이나 1이다(뜻 모름, 위키의 LIGHT·ANOTHER 지정으로 보임).
 - 10th~13(`ExpertTable::Inline`): 코스 하나가 124바이트다. 이름이 0x00부터 ASCII로 직접 들어 있고(포인터가 아님), 0x24부터 (곡 번호, 1, 1, 1) 16바이트가 5번 온다. 0x74의 두 워드는 코스 번호(1, 1 … 17, 17)다. 17개 뒤에 이름이 `ABCDEFGH`·`IJKLMNOP`인 더미 코스가 있어서 개수(17)로 끊는다. 위키의 CARDINAL GATE는 표에서 `CARDINAL`, RED의 ACCESSION은 `CS`, HAPPY SKY의 Ryu☆는 `Ryu`다. 네 에디션 모두 위키 CS 페이지와 곡 순서가 같다.
 - 플레이어는 SP·DP × NORMAL·HYPER·ANOTHER 가운데 다섯 곡 모두에 차트가 있는 조합마다 코스를 하나씩 만든다.

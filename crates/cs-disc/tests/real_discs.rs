@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX9` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX8` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -133,6 +133,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Ply, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
@@ -202,6 +203,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
@@ -219,6 +221,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
         let mut checked = std::collections::BTreeSet::new();
         let mut banks = std::collections::BTreeMap::new();
         let mut missing = Vec::new();
+        let mut absent = 0;
         for song in &songs.songs {
             for chart in &song.charts {
                 let what = format!("{} {:?} {:?}", song.title, chart.style, chart.difficulty);
@@ -235,7 +238,10 @@ fn every_chart_finds_and_decodes_its_sounds() {
                         Command::Sample { sound, .. } | Command::Auto { sound, .. } => sound,
                         _ => continue,
                     };
-                    if sound <= 1 || !checked.insert((wvb, sound)) {
+                    if sound <= 1
+                        || Some(sound) == edition.bgm_pair_sound()
+                        || !checked.insert((wvb, sound))
+                    {
                         continue;
                     }
                     match bank.decode(sound) {
@@ -252,7 +258,23 @@ fn every_chart_finds_and_decodes_its_sounds() {
                             );
                         }
                         Some(Err(err)) => panic!("{what}: sound {sound}: {err}"),
-                        None => missing.push(format!("{what}: sound {sound}")),
+                        // A sound no bank of the song holds is not on the
+                        // disc (8th GRAVITY SP NORMAL's 3); one in another
+                        // bank means the chart took the wrong one.
+                        None => {
+                            let elsewhere = song.charts.iter().any(|c| {
+                                let Some(other) = song.sound_files(c.style, c.difficulty).0 else {
+                                    return false;
+                                };
+                                let data = songs.read_file(&mut disc, other).unwrap();
+                                Bank::parse(&data).is_ok_and(|b| b.sound(sound).is_some())
+                            });
+                            if elsewhere {
+                                missing.push(format!("{what}: sound {sound}"));
+                            } else {
+                                absent += 1;
+                            }
+                        }
                     }
                 }
                 if decoded.insert(bgm) {
@@ -270,6 +292,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
             }
         }
         missing.dedup();
+        println!("{var}: {absent} sounds charts play are in no bank");
         assert!(
             missing.is_empty(),
             "{var}: {} missing, first {:?}",
@@ -587,4 +610,59 @@ fn ninth_style_dan_courses_match_the_wiki() {
             "FUN"
         ]
     );
+}
+
+/// 8th style: dan courses in 16-byte records (SP 九段 draws from a pool),
+/// HYPER 0, NORMAL 1, ANOTHER 3, BEGINNER 4; 17 EXPERT courses
+/// (RemyWiki's CS dan course list and CS_8th_style).
+#[test]
+fn eighth_style_courses_match_the_wiki() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX8") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::EighthStyle).unwrap();
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let dan = &songs.dan_courses;
+    let course = |style, rank| {
+        dan.iter()
+            .find(|c| c.style == style && c.rank == rank)
+            .unwrap()
+    };
+    let count = |style| dan.iter().filter(|c| c.style == style).count();
+    assert_eq!((count(Style::Single), count(Style::Double)), (16, 15));
+    let first = course(Style::Single, "7級");
+    let titles: Vec<String> = first.charts.iter().map(|&(id, _)| title(id)).collect();
+    assert_eq!(
+        titles,
+        [
+            "5.1.1.",
+            "NOTHING AIN'T STOPPIN'US",
+            "WORLD WIDE LOVE",
+            "FOUNDATION OF OUR LOVE"
+        ]
+    );
+    assert_eq!(first.charts[2].1, Difficulty::Beginner);
+    assert!(course(Style::Single, "十段")
+        .charts
+        .iter()
+        .all(|&(_, d)| d == Difficulty::Another));
+    let dp_tenth: Vec<String> = course(Style::Double, "十段")
+        .charts
+        .iter()
+        .map(|&(id, _)| title(id))
+        .collect();
+    assert_eq!(dp_tenth, ["THUNDER", "SYMBOLIC", "RADICAL FAITH"]);
+    let expert = &songs.expert_courses;
+    assert_eq!(expert.len(), 17);
+    assert_eq!(expert[0].name, "FEEL");
+    let last: Vec<String> = expert[16].songs.iter().map(|&id| title(id)).collect();
+    assert_eq!(last, ["B4U", "HOLIC", "COLORS (RADIO EDIT)", "V", "A"]);
 }

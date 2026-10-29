@@ -265,15 +265,25 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
     // Some 11 and 12 charts change meter by bar lines alone, under one 4/4
     // signature (GOLDEN HORN's 7/4, 100% minimoo-G's 3 to 9 beats). A bar
     // whose lines are far from its signature at the stored tempo takes the
-    // length they measure, in quarter beats.
+    // length they measure, in quarter beats. A tempo change inside a bar
+    // counts each part at its own tempo (8th DUAL CONTROL's first line spans
+    // eight bars, 131 BPM then 140).
     for (i, bar) in bars.iter_mut().enumerate() {
         let Some(&end) = lines.get(i + 1) else {
             continue;
         };
-        if tempos.iter().any(|&(t, _)| t > lines[i] && t < end) {
-            continue;
-        }
-        let measured = (end - lines[i]) * bar.segments[0].bpm / 60000.0;
+        let mut cuts: Vec<f64> = vec![lines[i]];
+        cuts.extend(
+            tempos
+                .iter()
+                .map(|&(t, _)| t)
+                .filter(|&t| t > lines[i] && t < end),
+        );
+        cuts.push(end);
+        let measured: f64 = cuts
+            .windows(2)
+            .map(|w| (w[1] - w[0]) * stored_at(w[0]) / 60000.0)
+            .sum();
         let quarters = (measured * 4.0).round() as u64;
         if (measured - bar.beats()).abs() > 0.2 + 0.03 * bar.beats() && quarters > 0 {
             let g = gcd(quarters, 4);
