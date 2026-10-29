@@ -211,6 +211,7 @@ impl SongSource for DiscSource {
         let source = VideoSource::Memory {
             bytes: bytes.into(),
             filename_hint: Some("bga.mpg".to_string()),
+            display_aspect: self.songs.edition.video_aspect(),
         };
         HashMap::from([(BmpId(1), source)])
     }

@@ -24,6 +24,8 @@ pub enum VideoSource {
     Memory {
         bytes: Arc<[u8]>,
         filename_hint: Option<String>,
+        /// Width over height to show it at, where its frames' own is wrong.
+        display_aspect: Option<f32>,
     },
 }
 
@@ -477,6 +479,7 @@ mod tests {
                 VideoSource::Memory {
                     bytes,
                     filename_hint,
+                    ..
                 } => {
                     eprintln!(
                         "[TEST BMSP] Memory video size: {} bytes, hint: {:?}",
@@ -1076,6 +1079,7 @@ mod tests {
         if let VideoSource::Memory {
             bytes,
             filename_hint,
+            ..
         } = vs
         {
             assert_eq!(bytes.as_ref(), &video_data);

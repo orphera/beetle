@@ -182,7 +182,17 @@ pub fn bga_texture(
 ) -> Option<SizedTexture> {
     if let Some(vp) = videos.get(&id) {
         if let Some(frame) = vp.current_frame() {
-            return gpu.video(backend, id, keyed, frame, vp.frame_serial());
+            // Drawing fits a texture by its size, so a video shown at
+            // another aspect reports the size it shows at.
+            return gpu
+                .video(backend, id, keyed, frame, vp.frame_serial())
+                .map(|tex| match vp.display_aspect() {
+                    Some(aspect) => SizedTexture {
+                        width: (tex.height as f32 * aspect).round() as u32,
+                        ..tex
+                    },
+                    None => tex,
+                });
         }
     }
     let img = bank.get(&id)?;

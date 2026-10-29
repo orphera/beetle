@@ -393,6 +393,7 @@ pub(super) fn load_videos_from_package_archive(
         Some(VideoSource::Memory {
             bytes: Arc::from(bytes.into_boxed_slice()),
             filename_hint: Some(name.to_string()),
+            display_aspect: None,
         })
     };
 

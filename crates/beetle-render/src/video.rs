@@ -618,6 +618,9 @@ mod wmf_backend {
 /// Unified BGA video player interface.
 pub struct BgaVideoPlayer {
     backend: Backend,
+    /// Width over height to show frames at, where it is not the frames' own
+    /// (`with_display_aspect`).
+    display_aspect: Option<f32>,
 }
 
 enum Backend {
@@ -645,6 +648,7 @@ impl BgaVideoPlayer {
             let bytes = std::fs::read(p).ok()?;
             return MpegPlayer::open(&bytes).map(|m| Self {
                 backend: Backend::Mpeg(Box::new(m)),
+                display_aspect: None,
             });
         }
 
@@ -653,6 +657,7 @@ impl BgaVideoPlayer {
             let backend = wmf_backend::WmfVideoPlayer::open(p)?;
             Some(Self {
                 backend: Backend::Wmf(backend),
+                display_aspect: None,
             })
         }
 
@@ -673,6 +678,7 @@ impl BgaVideoPlayer {
         if crate::mpeg_player::is_mpeg(bytes) {
             return MpegPlayer::open(bytes).map(|m| Self {
                 backend: Backend::Mpeg(Box::new(m)),
+                display_aspect: None,
             });
         }
 
@@ -681,6 +687,7 @@ impl BgaVideoPlayer {
             let backend = wmf_backend::WmfVideoPlayer::open_from_memory(bytes, filename_hint)?;
             Some(Self {
                 backend: Backend::Wmf(backend),
+                display_aspect: None,
             })
         }
 
@@ -688,6 +695,19 @@ impl BgaVideoPlayer {
         {
             None
         }
+    }
+
+    /// Shows frames at `aspect` (width over height) whatever their stored
+    /// size: PS2 IIDX 3rd to 8th store 4:3 videos squeezed to 192 or 320
+    /// pixels wide.
+    pub fn with_display_aspect(mut self, aspect: Option<f32>) -> Self {
+        self.display_aspect = aspect;
+        self
+    }
+
+    /// The aspect frames are shown at, if not their own.
+    pub fn display_aspect(&self) -> Option<f32> {
+        self.display_aspect
     }
 
     /// Advances video playback synchronized to `audio_time_seconds` and returns the current frame.

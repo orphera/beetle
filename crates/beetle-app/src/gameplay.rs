@@ -240,10 +240,12 @@ pub fn finalize_start_gameplay(
                 crate::loader::VideoSource::Memory {
                     bytes,
                     filename_hint,
+                    display_aspect,
                 } => beetle_render::BgaVideoPlayer::open_from_memory(
                     &bytes,
                     filename_hint.as_deref(),
-                ),
+                )
+                .map(|p| p.with_display_aspect(display_aspect)),
             };
             if let Some(player) = player {
                 video_players.insert(bmp_id, player);

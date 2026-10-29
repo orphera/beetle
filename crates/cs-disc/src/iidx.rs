@@ -1031,6 +1031,22 @@ impl Edition {
         matches!(self.tables(), Tables::Popn(_))
     }
 
+    /// Width over height to show the songs' background videos at, where it
+    /// is not their frames' own: 3rd to 8th store 4:3 videos squeezed to 192
+    /// (320 on 6th) pixels wide, 224 or 256 high, marked as square pixels.
+    pub fn video_aspect(self) -> Option<f32> {
+        matches!(
+            self,
+            Edition::ThirdStyle
+                | Edition::FourthStyle
+                | Edition::FifthStyle
+                | Edition::SixthStyle
+                | Edition::SeventhStyle
+                | Edition::EighthStyle
+        )
+        .then_some(4.0 / 3.0)
+    }
+
     /// The sound number a chart's BGM start plays: the song's BGM stream.
     pub fn bgm_sound(self) -> u16 {
         match self.tables() {
