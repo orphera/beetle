@@ -68,10 +68,14 @@ pub(crate) struct Streams {
 /// How many streams each chart file takes, in chart file order.
 #[derive(Clone, Copy)]
 pub(crate) enum StreamOrder {
-    /// 9: one per BGM number a song's record names (`u16` per difficulty
-    /// at these offsets, in `LEVELS` level byte order: NORMAL, HYPER,
-    /// 5-button, EX), lowest first; six songs have two. Songs only.
-    BgmNumbers([usize; 4]),
+    /// 9: the record's BGM number per difficulty (`u16` at these offsets,
+    /// in `LEVELS` level byte order: NORMAL, HYPER, 5-button, EX) names an
+    /// 8-byte entry of `streams` (`u32` stream, `u32` volume), as the game's
+    /// BGM loader (0x12fdd0, 0x130360 in the executable) reads them.
+    BgmNumbers {
+        bgm_at: [usize; 4],
+        streams: (usize, usize),
+    },
     /// 8: one per chart file on the disc (songs or not), two for these
     /// chart files, which play the first.
     Charts { two: &'static [u32] },
@@ -163,8 +167,11 @@ pub(crate) const POPN9: Layout = Layout {
     streams: Some(Streams {
         dat: "SOUND/SD_02.DAT",
         files: (0xc4880, 128),
-        first: 9,
-        order: StreamOrder::BgmNumbers([0x58, 0x70, 0x88, 0xa0]),
+        first: 0,
+        order: StreamOrder::BgmNumbers {
+            bgm_at: [0x58, 0x70, 0x88, 0xa0],
+            streams: (0xc4480, 127),
+        },
     }),
     record: Record {
         size: 0xe0,
@@ -457,33 +464,27 @@ pub(crate) fn assign_streams(
                 }
             }
         }
-        StreamOrder::BgmNumbers(bgm_at) => {
+        StreamOrder::BgmNumbers {
+            bgm_at,
+            streams: (streams_at, stream_count),
+        } => {
             let (at, _) = layout.songs;
             let size = layout.record.size;
-            let mut order: Vec<usize> = (0..songs.len()).collect();
-            order.sort_by_key(|&i| songs[i].charts.first().map_or(0, |c| c.file));
-            let mut next = first_stream;
-            for i in order {
-                let song = &mut songs[i];
+            for song in songs {
                 let Some(record) = exe.get(at + song.id as usize * size..) else {
                     continue;
                 };
-                let number = |level: usize| {
-                    u16::from_le_bytes([record[bgm_at[level]], record[bgm_at[level] + 1]])
-                };
-                let mut numbers: Vec<u16> = (0..4).map(number).filter(|&n| n != 0).collect();
-                numbers.sort_unstable();
-                numbers.dedup();
-                if numbers.is_empty() {
-                    numbers.push(number(0));
-                }
-                let first = next;
-                next += numbers.len() as u32;
                 for &(difficulty, level) in &LEVELS {
-                    let own = number(level);
-                    let place = numbers.iter().position(|&n| n == own).unwrap_or(0) as u32;
+                    let number =
+                        u16::from_le_bytes([record[bgm_at[level]], record[bgm_at[level] + 1]]);
+                    let Some(stream) = ((number as usize) < stream_count)
+                        .then(|| u32_at(exe, streams_at + number as usize * 8))
+                        .flatten()
+                    else {
+                        continue;
+                    };
                     let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
-                    song.set_sound_files(Style::Single, difficulty, bank, first + place);
+                    song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
             }
         }
