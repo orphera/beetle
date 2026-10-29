@@ -339,9 +339,11 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
         let mut worst = (0.0f64, String::new());
         let mut missing = Vec::new();
         let mut checked = std::collections::BTreeSet::new();
-        let streams = !matches!(edition, Edition::Popn8 | Edition::Popn9 | Edition::Popn10);
+        let banners = !matches!(edition, Edition::Popn8 | Edition::Popn9 | Edition::Popn10);
+        let streams = !matches!(edition, Edition::Popn8 | Edition::Popn10);
+        let mut bgm_lengths = std::collections::HashMap::new();
         for song in &songs.songs {
-            if !streams {
+            if !banners {
                 // No banners yet.
             } else {
                 // The song's banner (genre and title) is its loading picture.
@@ -373,8 +375,33 @@ fn every_popn_chart_plays_nine_buttons_with_its_sounds() {
                     let bytes = songs.read_file(&mut disc, bgm).unwrap();
                     let pcm = decode_bgm(&bytes).unwrap_or_else(|e| panic!("{what}: BGM {e}"));
                     assert!(pcm.channels[0].len() > 44100, "{what}: BGM too short");
+                    bgm_lengths.insert(bgm, pcm.channels[0].len() as f64 / pcm.rate as f64);
                 }
                 let ply = songs.chart_ply(&mut disc, chart).unwrap();
+                // 9's streams are matched to songs by order alone
+                // (`popn::Streams`): each plays from the BGM start to about
+                // the last note. (12 to 14 name theirs, and some end on key
+                // sounds: 12's テクノボー.)
+                let ordered = edition == Edition::Popn9;
+                if let Some(length) = bgm.filter(|_| ordered).and_then(|b| bgm_lengths.get(&b)) {
+                    let start = ply
+                        .events
+                        .iter()
+                        .find(|e| {
+                            matches!(e.command, Command::Auto { sound, .. } if sound == edition.bgm_sound())
+                        })
+                        .map_or(0.0, |e| ply.millis(e.time) / 1000.0);
+                    let last = ply
+                        .events
+                        .iter()
+                        .filter(|e| matches!(e.command, Command::Note { .. }))
+                        .map(|e| ply.millis(e.time) / 1000.0)
+                        .fold(0.0, f64::max);
+                    assert!(
+                        start + length + 5.0 > last && start + length < last + 40.0,
+                        "{what}: BGM from {start:.1} s for {length:.1} s, last note {last:.1} s"
+                    );
+                }
                 for e in &ply.events {
                     if let Command::Sample { sound, .. } | Command::Auto { sound, .. } = e.command {
                         if sound != 0

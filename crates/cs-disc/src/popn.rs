@@ -46,6 +46,26 @@ pub(crate) struct Layout {
     /// The data file of the key sounds, charts and BGMs.
     pub dat: &'static str,
     pub record: Record,
+    /// The BGM streams, where they are a file of their own (9).
+    pub streams: Option<Streams>,
+}
+
+/// A disc's BGM streams in a data file of their own (9's `SOUND/SD_02.DAT`,
+/// `"GbTs"` streams). Nothing names a song's stream by number: they follow
+/// the songs in the order of their chart files, `first` on, one per BGM a
+/// song's records name (`bgm_at`, the BGM numbers of its difficulties,
+/// lowest first; six songs have two). Checked against the charts by when
+/// their sounds start (`docs/specs/popn_ps2_disc.md`).
+#[derive(Clone, Copy)]
+pub(crate) struct Streams {
+    pub dat: &'static str,
+    /// The sector table: (offset, entries).
+    pub files: (usize, usize),
+    /// The stream of the song whose chart file comes first.
+    pub first: u32,
+    /// The record's BGM number (`u16`) per difficulty, in `LEVELS` level
+    /// byte order (NORMAL, HYPER, 5-button, EX).
+    pub bgm_at: [usize; 4],
 }
 
 /// How a disc's song records read.
@@ -105,7 +125,8 @@ pub(crate) const POPN8: Layout = Layout {
 
 /// pop'n music 9: 10's form in `SOUND/SD_01.DAT`, 0xe0-byte records with
 /// five pointers (the third the genre) and six 24-byte per-difficulty parts,
-/// each ending in the chart file number.
+/// each with the BGM number at 0x0c and ending in the chart file number. The
+/// BGMs are streams in `SOUND/SD_02.DAT` (`Streams`).
 pub(crate) const POPN9: Layout = Layout {
     executable: "SLPM_655.08",
     slug: "popn9",
@@ -113,6 +134,12 @@ pub(crate) const POPN9: Layout = Layout {
     songs: (0xd3210, 111),
     images: (0xc2d20, 714),
     dat: "SOUND/SD_01.DAT",
+    streams: Some(Streams {
+        dat: "SOUND/SD_02.DAT",
+        files: (0xc4880, 128),
+        first: 9,
+        bgm_at: [0x58, 0x70, 0x88, 0xa0],
+    }),
     record: Record {
         size: 0xe0,
         chart_at: &[0x60, 0x78, 0x90, 0xa8, 0xc0, 0xd8],
@@ -147,6 +174,7 @@ pub(crate) const POPN10: Layout = Layout {
         genre_at: None,
         bgm: false,
     },
+    streams: None,
 };
 
 /// The `IMAGE.DAT` files holding the title and artist word pictures. Each
@@ -170,6 +198,7 @@ pub(crate) const POPN12: Layout = Layout {
     }),
     dat: DAT_FILE,
     record: RECORD_12,
+    streams: None,
 };
 
 pub(crate) const POPN13: Layout = Layout {
@@ -185,6 +214,7 @@ pub(crate) const POPN13: Layout = Layout {
     }),
     dat: DAT_FILE,
     record: RECORD_12,
+    streams: None,
 };
 
 pub(crate) const POPN14: Layout = Layout {
@@ -200,6 +230,7 @@ pub(crate) const POPN14: Layout = Layout {
     }),
     dat: DAT_FILE,
     record: RECORD_12,
+    streams: None,
 };
 
 /// The data file every pop'n disc keeps its songs in.
@@ -331,6 +362,45 @@ pub(crate) fn read_songs(
         });
     }
     Some(songs)
+}
+
+/// Which stream file each song's charts play (`Streams`): sets every chart's
+/// BGM to `base` (the streams' first file number) plus its place.
+pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, base: u32) {
+    let Some(streams) = layout.streams else {
+        return;
+    };
+    let (at, _) = layout.songs;
+    let size = layout.record.size;
+    let mut order: Vec<usize> = (0..songs.len()).collect();
+    order.sort_by_key(|&i| songs[i].charts.first().map_or(0, |c| c.file));
+    let mut next = base + streams.first;
+    for i in order {
+        let song = &mut songs[i];
+        let Some(record) = exe.get(at + song.id as usize * size..) else {
+            continue;
+        };
+        let number = |level: usize| {
+            u16::from_le_bytes([
+                record[streams.bgm_at[level]],
+                record[streams.bgm_at[level] + 1],
+            ])
+        };
+        let mut numbers: Vec<u16> = (0..4).map(number).filter(|&n| n != 0).collect();
+        numbers.sort_unstable();
+        numbers.dedup();
+        if numbers.is_empty() {
+            numbers.push(number(0));
+        }
+        let first = next;
+        next += numbers.len() as u32;
+        for &(difficulty, level) in &LEVELS {
+            let own = number(level);
+            let place = numbers.iter().position(|&n| n == own).unwrap_or(0) as u32;
+            let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
+            song.set_sound_files(Style::Single, difficulty, bank, first + place);
+        }
+    }
 }
 
 /// The `IMAGE.DAT` files: (byte offset, bytes), each running from its sector

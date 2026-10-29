@@ -1617,11 +1617,30 @@ impl Disc {
                 disc.read_at(dat.offset() + entry.offset, len).ok()
             });
         }
+        let mut files = files;
+        let mut dats = vec![dat];
+        if let Some(streams) = layout.streams {
+            let stream_dat = volume
+                .find(disc, streams.dat)?
+                .ok_or_else(|| missing(streams.dat))?;
+            let stream_files = crate::popn::read_files(
+                &exe,
+                &crate::popn::Layout {
+                    files: streams.files,
+                    ..*layout
+                },
+            )
+            .ok_or_else(short)?;
+            let base = files.len() as u32;
+            files.extend(stream_files.into_iter().map(|f| FileEntry { dat: 1, ..f }));
+            dats.push(stream_dat);
+            crate::popn::assign_streams(&mut songs, &exe, layout, base);
+        }
         Ok(Self {
             edition,
             songs,
             files,
-            dats: vec![dat],
+            dats,
             // `IMAGE.DAT` stands in for DATA1: the song banners are there.
             data1: volume
                 .find(disc, crate::popn::IMAGE_FILE)?
@@ -1699,7 +1718,7 @@ impl Disc {
         let bytes = self.read_chart(disc, chart.file)?;
         if self.edition.is_popn() {
             let bgm = match self.edition.tables() {
-                Tables::Popn(layout) => layout.record.bgm,
+                Tables::Popn(layout) => layout.record.bgm || layout.streams.is_some(),
                 Tables::Iidx(_) => true,
             };
             return crate::popn::chart(&bytes, chart.difficulty, bgm)

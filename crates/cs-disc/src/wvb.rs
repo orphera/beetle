@@ -53,7 +53,11 @@
 //! big-endian `u32 size, u16, u16 rate, u8 channels`, told by the size
 //! filling the file after the 0x800 header; not scrambled, and the channels
 //! take turns every 0x800 bytes (read every 16, the whole song was noise;
-//! 0x800 matches vgmstream sample for sample on 8th's GIUDECCA).
+//! 0x800 matches vgmstream sample for sample on 8th's GIUDECCA). pop'n 9
+//! and 10 (`"GbTs"`): the same fields at 8, 12, 24 and 28, but 1 at 32 and
+//! 32 at 36 are not a scramble and an interleave: the stream is plain and
+//! takes turns every 16 bytes (the only interleave whose two channels come
+//! out alike, as a song's left and right do).
 
 use std::fmt;
 
@@ -526,6 +530,15 @@ pub fn decode_bgm(data: &[u8]) -> Result<Pcm, SoundError> {
             (head[8] as usize).max(1),
             false,
             0x800,
+        )
+    } else if head.starts_with(b"GbTs") {
+        (
+            u32_at(data, 8)? as usize,
+            u32_at(data, 12)? as usize,
+            u32_at(data, 24)?,
+            (u32_at(data, 28)? as usize).max(1),
+            false,
+            16,
         )
     } else {
         (
