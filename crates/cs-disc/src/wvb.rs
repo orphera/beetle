@@ -26,6 +26,16 @@
 //! `end - 0xf020`, 2 at its end frame), kind 3 at `start` into the third
 //! section. Every sound is mono and not scrambled.
 //!
+//! pop'n music 8 to 10 bank (`"6png"`/`"rpng"`): a 16-byte head `0x10,
+//! 0x4010, size, 0`, then the bank. In it, from 0x10 to 0x4000, one 16-byte
+//! entry per sound numbered from 1: `u16 kind` (0 unused, 0x100 mono, 0x200
+//! stereo of files `file` and `file + 1`), `u16` (0xff00 mostly), `u16 file`,
+//! `u16` (0 or 1),
+//! `u8 volume`, `u8`, `u8 pan`, `u8 pan`, `u32`. At 0x4000: `u32, u32 file
+//! count, u32, u32 data size`, then one 16-byte record per file: `u32 offset,
+//! u16, u16 rate code (high byte), u32 size, u32`. File data follows the
+//! records. Not scrambled.
+//!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
 //! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
 //! at 40, which is not applied to the stream (see `decode_bgm`)), then
@@ -161,6 +171,9 @@ impl<'a> Bank<'a> {
         if u32_at(data, 0)? as usize == data.len() {
             return Self::parse_old(data);
         }
+        if u32_at(data, 0)? == 0x10 && u32_at(data, 4)? == 0x4010 {
+            return Self::parse_popn(&data[0x10..]);
+        }
         let count = u32_at(data, TABLE_END)? as usize;
         let scrambled = u32_at(data, TABLE_END + 8)? != 0;
         let records = TABLE_END + 0x10;
@@ -209,6 +222,53 @@ impl<'a> Bank<'a> {
         Ok(Bank {
             data,
             key: scrambled.then(|| scramble_key(data, &files)),
+            files,
+            sounds,
+        })
+    }
+
+    /// The pop'n 8 to 10 bank form (module docs), past its 16-byte head.
+    fn parse_popn(data: &'a [u8]) -> Result<Self, SoundError> {
+        const END: usize = 0x4000;
+        let count = u32_at(data, END + 4)? as usize;
+        let records = END + 0x10;
+        if count > data.len().saturating_sub(records) / ENTRY {
+            return Err(SoundError::TooShort);
+        }
+        let base = records + count * ENTRY;
+        let mut files = Vec::with_capacity(count);
+        for i in 0..count {
+            let at = records + i * ENTRY;
+            let offset = base + u32_at(data, at)? as usize;
+            let code = (u16_at(data, at + 6)? >> 8) as u8;
+            let size = u32_at(data, at + 8)? as usize;
+            files.push((offset, size, rate(code)?));
+        }
+        let mut sounds = Vec::new();
+        for at in (TABLE_START..END).step_by(ENTRY) {
+            let kind = u16_at(data, at)?;
+            let file = u16_at(data, at + 4)? as usize;
+            let stereo = kind == 0x200 && file + 1 < files.len();
+            sounds.push((kind != 0 && file < files.len()).then(|| KeySound {
+                file: file as u16,
+                placement: if stereo {
+                    Placement::Stereo {
+                        right: file as u16 + 1,
+                    }
+                } else {
+                    Placement::Mono
+                },
+                pan: if stereo { CENTER } else { data[at + 10] },
+                volume: data[at + 8],
+                duration_ms: 0,
+            }));
+        }
+        while sounds.last() == Some(&None) {
+            sounds.pop();
+        }
+        Ok(Bank {
+            data,
+            key: None,
             files,
             sounds,
         })

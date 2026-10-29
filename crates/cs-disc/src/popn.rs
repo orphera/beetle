@@ -43,7 +43,63 @@ pub(crate) struct Layout {
     /// The `IMAGE.DAT` files of the title and artist word pictures, when the
     /// disc's records name them (`name_refs`). `None` where not yet read.
     pub names: Option<NameFiles>,
+    /// The data file of the key sounds, charts and BGMs.
+    pub dat: &'static str,
+    pub record: Record,
 }
+
+/// How a disc's song records read.
+#[derive(Clone, Copy)]
+pub(crate) struct Record {
+    pub size: usize,
+    /// The chart file number: `u32` on 12 to 14, `u16` on 10.
+    pub chart_at: usize,
+    pub chart_u16: bool,
+    pub levels_at: usize,
+    /// The banner's rectangle (`u16`), where the record names one.
+    pub banner_at: Option<usize>,
+    /// The genre name pointer (Shift-JIS), where the record has one. 10's
+    /// records point only at the comment; its songs are named by number.
+    pub genre_at: Option<usize>,
+    /// Whether a song has a BGM stream after its chart (12 to 14). 10's
+    /// songs are key sounds alone, and its BGM start names a key sound.
+    pub bgm: bool,
+}
+
+/// 12 to 14: 0x58 bytes.
+const RECORD_12: Record = Record {
+    size: 0x58,
+    chart_at: 0x4c,
+    chart_u16: false,
+    levels_at: 0x51,
+    banner_at: Some(0x40),
+    genre_at: Some(0),
+    bgm: true,
+};
+
+/// pop'n music 10: the songs in `SDS.DAT` (a key sound bank, then the chart),
+/// 0x38-byte records. `SDB.DAT`'s streams are not the songs' BGMs (no record
+/// field matches them), and the charts play over a thousand background
+/// sounds each: the music is key sounds.
+pub(crate) const POPN10: Layout = Layout {
+    executable: "SLPM_657.70",
+    slug: "popn10",
+    files: (0xbe1a0, 233),
+    songs: (0xccae0, 106),
+    images: (0xbffd0, 683),
+    banners: u32::MAX,
+    names: None,
+    dat: "SDS.DAT",
+    record: Record {
+        size: 0x38,
+        chart_at: 0x2c,
+        chart_u16: true,
+        levels_at: 0x30,
+        banner_at: None,
+        genre_at: None,
+        bgm: false,
+    },
+};
 
 /// The `IMAGE.DAT` files holding the title and artist word pictures. Each
 /// file's part 0 lists the words as rectangles (`rect_picture`).
@@ -64,6 +120,8 @@ pub(crate) const POPN12: Layout = Layout {
         title: 54,
         artist: 56,
     }),
+    dat: DAT_FILE,
+    record: RECORD_12,
 };
 
 pub(crate) const POPN13: Layout = Layout {
@@ -77,6 +135,8 @@ pub(crate) const POPN13: Layout = Layout {
         title: 349,
         artist: 160,
     }),
+    dat: DAT_FILE,
+    record: RECORD_12,
 };
 
 pub(crate) const POPN14: Layout = Layout {
@@ -90,6 +150,8 @@ pub(crate) const POPN14: Layout = Layout {
         title: 68,
         artist: 71,
     }),
+    dat: DAT_FILE,
+    record: RECORD_12,
 };
 
 /// The data file every pop'n disc keeps its songs in.
@@ -101,11 +163,6 @@ pub(crate) const IMAGE_FILE: &str = "IMAGE.DAT";
 /// before the `ZZ` silent notes take. Key sounds run from 1 to under 700.
 pub const BGM_SOUND: u16 = 1294;
 
-const RECORD: usize = 0x58;
-const CHART_AT: usize = 0x4c;
-const LEVELS_AT: usize = 0x51;
-/// The record's banner: its rectangle in the banner file.
-const BANNER_AT: usize = 0x40;
 /// The record's title and artist word rectangles (`u16` each), in the title
 /// and artist files of `NameFiles`. Found on 12, 13 and 14 (checked by eye).
 const TITLE_AT: usize = 0x10;
@@ -157,14 +214,19 @@ pub(crate) fn read_files(exe: &[u8], layout: &Layout) -> Option<Vec<FileEntry>> 
 /// The songs: the records with a chart file and at least one level.
 pub(crate) fn read_songs(exe: &[u8], layout: &Layout, files: usize) -> Option<Vec<Song>> {
     let (at, count) = layout.songs;
+    let form = layout.record;
     let mut songs = Vec::new();
     for id in 0..count {
-        let record = exe.get(at + id * RECORD..at + (id + 1) * RECORD)?;
-        let file = u32_at(record, CHART_AT)?;
+        let record = exe.get(at + id * form.size..at + (id + 1) * form.size)?;
+        let file = if form.chart_u16 {
+            u16::from_le_bytes([record[form.chart_at], record[form.chart_at + 1]]) as u32
+        } else {
+            u32_at(record, form.chart_at)?
+        };
         if file == 0 || file as usize + 1 >= files {
             continue;
         }
-        let levels = &record[LEVELS_AT..];
+        let levels = &record[form.levels_at..];
         let charts: Vec<Chart> = LEVELS
             .iter()
             .filter(|&&(_, at)| levels[at] != 0)
@@ -181,18 +243,25 @@ pub(crate) fn read_songs(exe: &[u8], layout: &Layout, files: usize) -> Option<Ve
         // The SP HYPER pair, which every chart falls back to.
         let mut sounds = [0xffff; 16];
         sounds[0] = (file - 1) as u16;
-        sounds[2] = (file + 1) as u16;
-        let genre = u32_at(record, 0)?
-            .checked_sub(LOAD)
-            .and_then(|o| exe.get(o as usize..))
-            .map(|s| shift_jis(&s[..s.iter().position(|&b| b == 0).unwrap_or(0)]))
-            .unwrap_or_default();
+        if form.bgm {
+            sounds[2] = (file + 1) as u16;
+        }
+        let title = match form.genre_at {
+            Some(genre_at) => u32_at(record, genre_at)?
+                .checked_sub(LOAD)
+                .and_then(|o| exe.get(o as usize..))
+                .map(|s| shift_jis(&s[..s.iter().position(|&b| b == 0).unwrap_or(0)]))
+                .unwrap_or_default(),
+            None => format!("No.{:03}", id + 1),
+        };
         songs.push(Song {
             id: id as u32,
-            title: genre,
+            title,
             charts,
             sounds,
-            stage: Some(u16::from_le_bytes([record[BANNER_AT], record[BANNER_AT + 1]]) as u32),
+            stage: form
+                .banner_at
+                .map(|b| u16::from_le_bytes([record[b], record[b + 1]]) as u32),
             stage_picks: None,
             video: None,
         });
@@ -404,7 +473,7 @@ pub(crate) fn read_name_refs(exe: &[u8], layout: &Layout) -> Vec<(u16, u16)> {
     let (at, count) = layout.songs;
     (0..count)
         .map(|id| {
-            let record = at + id * RECORD;
+            let record = at + id * layout.record.size;
             let field = |k: usize| {
                 exe.get(record + k..record + k + 2)
                     .map(|b| u16::from_le_bytes([b[0], b[1]]))
@@ -430,11 +499,15 @@ const BANK_TABLE_END: usize = 0x8000;
 /// file, the whole of it for `usize::MAX`.
 pub(crate) fn pick_sound_sets(
     song: &mut Song,
+    bgm: bool,
     peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8>>,
 ) {
     let Some(file) = song.charts.first().map(|c| c.file) else {
         return;
     };
+    if !bgm {
+        return pick_banks(song, peek, file);
+    }
     let is = |bytes: Option<Vec<u8>>, magics: &[&[u8]]| {
         bytes.is_some_and(|b| magics.iter().any(|m| b.starts_with(m)))
     };
@@ -457,7 +530,7 @@ pub(crate) fn pick_sound_sets(
     };
     let difficulties: Vec<Difficulty> = song.charts.iter().map(|c| c.difficulty).collect();
     for difficulty in difficulties {
-        let most = chart(&bytes, difficulty)
+        let most = chart(&bytes, difficulty, true)
             .into_iter()
             .flat_map(|ply| ply.events)
             .filter_map(|e| match e.command {
@@ -479,9 +552,58 @@ pub(crate) fn pick_sound_sets(
     }
 }
 
+/// The head of a pop'n 8 to 10 key sound bank (`wvb`).
+const SPLIT_BANK_HEAD: [u8; 8] = [0x10, 0, 0, 0, 0x10, 0x40, 0, 0];
+
+/// 10: a song with two banks before its chart (`bank, bank, chart`, one
+/// song: 33), each chart playing the one that holds every sound it names.
+/// Neither bank is a subset of the other's numbers, so the larger names win:
+/// a chart takes the second (the one before the chart) when its sounds fit
+/// it, the first otherwise.
+fn pick_banks(song: &mut Song, peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8>>, file: u32) {
+    let is_bank = |b: &Option<Vec<u8>>| b.as_ref().is_some_and(|b| b.starts_with(&SPLIT_BANK_HEAD));
+    if file < 2 || !is_bank(&peek(file - 2, 8)) {
+        return;
+    }
+    // The last sound the bank before the chart has: entries from 0x20 (past
+    // the 16-byte head), 16 bytes, `kind` at 0 is 0 when empty.
+    let Some(second) = peek(file - 1, 0x4010) else {
+        return;
+    };
+    let in_second = second
+        .get(0x20..0x4010)
+        .unwrap_or_default()
+        .chunks_exact(16)
+        .rposition(|e| e[0] != 0 || e[1] != 0)
+        .map_or(0, |i| i as u16 + 1);
+    let Some(bytes) = peek(file, usize::MAX) else {
+        return;
+    };
+    let difficulties: Vec<Difficulty> = song.charts.iter().map(|c| c.difficulty).collect();
+    for difficulty in difficulties {
+        let most = chart(&bytes, difficulty, false)
+            .into_iter()
+            .flat_map(|ply| ply.events)
+            .filter_map(|e| match e.command {
+                Command::Sample { sound, .. } | Command::Auto { sound, .. } => Some(sound),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let bank = if most <= in_second {
+            file - 1
+        } else {
+            file - 2
+        };
+        song.set_sound_files(Style::Single, difficulty, bank, u16::MAX as u32);
+    }
+}
+
 /// The chart of `difficulty` in a chart file, as `Ply` events in milliseconds.
 /// Buttons 0–8 are P1 lanes 0–8.
-pub(crate) fn chart(file: &[u8], difficulty: Difficulty) -> Option<Ply> {
+/// `bgm`: whether the disc has BGM streams; without them (10) the BGM start
+/// plays the key sound its value names.
+pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: bool) -> Option<Ply> {
     let list = list_of(difficulty);
     let start = u32_at(file, list * 4)? as usize;
     let end = match list {
@@ -505,9 +627,14 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty) -> Option<Ply> {
                     lane: button,
                     sound: value,
                 },
-                3 => Command::Auto {
+                3 if bgm => Command::Auto {
                     slot: 8,
                     sound: BGM_SOUND,
+                },
+                3 if value == 0 => return None,
+                3 => Command::Auto {
+                    slot: 8,
+                    sound: value,
                 },
                 4 => Command::Bpm { bpm: value as f64 },
                 5 => Command::TimeSignature {
@@ -629,7 +756,7 @@ mod tests {
             exe[at + ARTIST_AT..at + ARTIST_AT + 2].copy_from_slice(&artist.to_le_bytes());
         };
         record(&mut exe, 0x40, 50, 55);
-        record(&mut exe, 0x40 + RECORD, 51, 56);
+        record(&mut exe, 0x40 + RECORD_12.size, 51, 56);
         let layout = Layout {
             songs: (0x40, 2),
             names: Some(NameFiles {
@@ -699,7 +826,7 @@ mod tests {
                 file.extend(e);
             }
         }
-        let ply = chart(&file, Difficulty::Normal).unwrap();
+        let ply = chart(&file, Difficulty::Normal, true).unwrap();
         let commands: Vec<(u32, Command)> =
             ply.events.iter().map(|e| (e.time, e.command)).collect();
         assert_eq!(
@@ -741,7 +868,7 @@ mod tests {
             ]
         );
         assert_eq!(ply.millis(1714), 1714.0);
-        let hyper = chart(&file, Difficulty::Hyper).unwrap();
+        let hyper = chart(&file, Difficulty::Hyper, true).unwrap();
         assert_eq!(hyper.events[0].command, Command::End);
     }
 }

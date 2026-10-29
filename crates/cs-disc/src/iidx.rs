@@ -55,6 +55,8 @@ pub enum Edition {
     Empress,
     /// 16 EMPRESS, disc 2, `SLPM_552.22`.
     PremiumBest,
+    /// pop'n music 10, `SLPM_657.70`.
+    Popn10,
     /// pop'n music 12 いろは, `SLPM_663.14`.
     Popn12,
     /// pop'n music 13 カーニバル, `SLPM_665.33`.
@@ -63,7 +65,7 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 18] = [
+const EDITIONS: [Edition; 19] = [
     Edition::ThirdStyle,
     Edition::FourthStyle,
     Edition::FifthStyle,
@@ -79,6 +81,7 @@ const EDITIONS: [Edition; 18] = [
     Edition::DjTroopers,
     Edition::Empress,
     Edition::PremiumBest,
+    Edition::Popn10,
     Edition::Popn12,
     Edition::Popn13,
     Edition::Popn14,
@@ -1067,6 +1070,7 @@ impl Edition {
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
             Edition::PremiumBest => &PREMIUM_BEST,
+            Edition::Popn10 => return Tables::Popn(&crate::popn::POPN10),
             Edition::Popn12 => return Tables::Popn(&crate::popn::POPN12),
             Edition::Popn13 => return Tables::Popn(&crate::popn::POPN13),
             Edition::Popn14 => return Tables::Popn(&crate::popn::POPN14),
@@ -1577,13 +1581,13 @@ impl Disc {
         let exe = volume
             .read_file(disc, layout.executable)?
             .ok_or_else(|| missing(layout.executable))?;
-        let name = crate::popn::DAT_FILE;
+        let name = layout.dat;
         let dat = volume.find(disc, name)?.ok_or_else(|| missing(name))?;
         let short = || invalid("the executable is shorter than its tables".to_string());
         let files = crate::popn::read_files(&exe, layout).ok_or_else(short)?;
         let mut songs = crate::popn::read_songs(&exe, layout, files.len()).ok_or_else(short)?;
         for song in &mut songs {
-            crate::popn::pick_sound_sets(song, &mut |file, bytes| {
+            crate::popn::pick_sound_sets(song, layout.record.bgm, &mut |file, bytes| {
                 let entry = files.get(file as usize)?;
                 let len = (entry.size as usize).min(bytes);
                 disc.read_at(dat.offset() + entry.offset, len).ok()
@@ -1635,7 +1639,7 @@ impl Disc {
                 "file {file} runs past the end of {}",
                 match self.edition.tables() {
                     Tables::Iidx(layout) => layout.dat_files[entry.dat as usize],
-                    Tables::Popn(_) => crate::popn::DAT_FILE,
+                    Tables::Popn(layout) => layout.dat,
                 }
             )));
         }
@@ -1670,7 +1674,11 @@ impl Disc {
     ) -> io::Result<Ply> {
         let bytes = self.read_chart(disc, chart.file)?;
         if self.edition.is_popn() {
-            return crate::popn::chart(&bytes, chart.difficulty)
+            let bgm = match self.edition.tables() {
+                Tables::Popn(layout) => layout.record.bgm,
+                Tables::Iidx(_) => true,
+            };
+            return crate::popn::chart(&bytes, chart.difficulty, bgm)
                 .ok_or_else(|| invalid(format!("chart file {} is cut short", chart.file)));
         }
         Ply::parse_as(&bytes, self.edition.title().charts).map_err(|e| invalid(e.to_string()))
