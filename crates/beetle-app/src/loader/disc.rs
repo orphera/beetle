@@ -67,6 +67,69 @@ impl DiscSource {
     fn slot(&self) -> &cs_disc::iidx::Chart {
         &self.song().charts[self.chart]
     }
+
+    /// Every sound the chart plays, decoded at its bank volume (the BGM
+    /// stream under its cue), by the chart's sound ids.
+    fn decode_sounds(&mut self, chart: &BmsChart) -> HashMap<WavId, Pcm> {
+        let slot = self.slot();
+        let (wvb, bgm) = self.song().sound_files(slot.style, slot.difficulty);
+        let wvb_bytes = wvb.and_then(|f| self.songs.read_file(&mut self.disc, f).ok());
+        let key_sounds = wvb_bytes.as_deref().and_then(|b| Bank::parse(b).ok());
+        // The song's other banks, read when a sound is not in the chart's.
+        let mut other_bytes: Option<Vec<Vec<u8>>> = None;
+
+        // Sound numbers by the names the synthesized chart gave them.
+        let mut wanted: Vec<_> = chart.header.wav_table.iter().collect();
+        wanted.sort_by_key(|(id, _)| **id);
+        let mut decoded = HashMap::new();
+        for (&wav_id, name) in wanted {
+            let Some(n) = sound_number(name) else {
+                continue;
+            };
+            if Some(n) == self.songs.edition.bgm_pair_sound() {
+                continue;
+            }
+            // The cue that starts the chart's BGM stream.
+            let pcm = if n == self.songs.edition.bgm_sound() {
+                bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())
+                    .and_then(|b| decode_bgm(&b).ok())
+            } else {
+                key_sounds
+                    .as_ref()
+                    .and_then(|bank| bank.decode(n))
+                    .and_then(Result::ok)
+                    .or_else(|| {
+                        let song = &self.songs.songs[self.song];
+                        let others = other_bytes.get_or_insert_with(|| {
+                            song.key_banks()
+                                .into_iter()
+                                .filter(|&f| Some(f) != wvb)
+                                .filter_map(|f| self.songs.read_file(&mut self.disc, f).ok())
+                                .collect()
+                        });
+                        others
+                            .iter()
+                            .find_map(|bytes| Bank::parse(bytes).ok()?.decode(n)?.ok())
+                    })
+            };
+            if let Some(pcm) = pcm {
+                decoded.insert(wav_id, pcm);
+                progress::set_done(decoded.len());
+            }
+        }
+        decoded
+    }
+
+    /// The chart's BGM cue, if it has one.
+    fn bgm_id(&self, chart: &BmsChart) -> Option<WavId> {
+        let cue = self.songs.edition.bgm_sound();
+        chart
+            .header
+            .wav_table
+            .iter()
+            .find(|(_, name)| sound_number(name) == Some(cue))
+            .map(|(&id, _)| id)
+    }
 }
 
 /// 16-bit mono or stereo PCM as the mixer's interleaved stereo floats, at `gain`.
@@ -122,52 +185,7 @@ impl SongSource for DiscSource {
 
     fn sounds(&mut self, chart: &BmsChart) -> (SampleBank, usize) {
         let mut bank = SampleBank::new();
-        let slot = self.slot();
-        let (wvb, bgm) = self.song().sound_files(slot.style, slot.difficulty);
-        let wvb_bytes = wvb.and_then(|f| self.songs.read_file(&mut self.disc, f).ok());
-        let key_sounds = wvb_bytes.as_deref().and_then(|b| Bank::parse(b).ok());
-        // The song's other banks, read when a sound is not in the chart's.
-        let mut other_bytes: Option<Vec<Vec<u8>>> = None;
-
-        // Sound numbers by the names the synthesized chart gave them.
-        let mut wanted: Vec<_> = chart.header.wav_table.iter().collect();
-        wanted.sort_by_key(|(id, _)| **id);
-        let mut decoded = HashMap::new();
-        for (&wav_id, name) in wanted {
-            let Some(n) = sound_number(name) else {
-                continue;
-            };
-            if Some(n) == self.songs.edition.bgm_pair_sound() {
-                continue;
-            }
-            // The cue that starts the chart's BGM stream.
-            let pcm = if n == self.songs.edition.bgm_sound() {
-                bgm.and_then(|f| self.songs.read_file(&mut self.disc, f).ok())
-                    .and_then(|b| decode_bgm(&b).ok())
-            } else {
-                key_sounds
-                    .as_ref()
-                    .and_then(|bank| bank.decode(n))
-                    .and_then(Result::ok)
-                    .or_else(|| {
-                        let song = &self.songs.songs[self.song];
-                        let others = other_bytes.get_or_insert_with(|| {
-                            song.key_banks()
-                                .into_iter()
-                                .filter(|&f| Some(f) != wvb)
-                                .filter_map(|f| self.songs.read_file(&mut self.disc, f).ok())
-                                .collect()
-                        });
-                        others
-                            .iter()
-                            .find_map(|bytes| Bank::parse(bytes).ok()?.decode(n)?.ok())
-                    })
-            };
-            if let Some(pcm) = pcm {
-                decoded.insert(wav_id, pcm);
-                progress::set_done(decoded.len());
-            }
-        }
+        let decoded = self.decode_sounds(chart);
         let gain = song_gain(chart, &decoded);
         let loaded = decoded.len();
         for (wav_id, pcm) in decoded {
@@ -237,10 +255,37 @@ impl SongSource for DiscSource {
 /// limiter takes the rest, and a song that never gets that loud plays as
 /// mastered.
 fn song_gain(chart: &BmsChart, sounds: &HashMap<WavId, Pcm>) -> f32 {
-    const RATE: usize = 44100;
-    const BLOCK: usize = RATE / 100;
+    const BLOCK: usize = MIX_RATE / 100;
     /// The limiter's threshold.
     const TARGET: f32 = 0.9;
+    let mix = autoplay_mix(chart, sounds);
+    let mut peaks: Vec<f32> = mix
+        .chunks(BLOCK)
+        .map(|b| {
+            b.iter()
+                .map(|f| f[0].abs().max(f[1].abs()))
+                .fold(0.0, f32::max)
+                / 32768.0
+        })
+        .collect();
+    if peaks.is_empty() {
+        return 1.0;
+    }
+    let at = (peaks.len() * 99 / 100).min(peaks.len() - 1);
+    let loud = *peaks.select_nth_unstable_by(at, f32::total_cmp).1;
+    if loud > TARGET {
+        TARGET / loud
+    } else {
+        1.0
+    }
+}
+
+const MIX_RATE: usize = 44100;
+
+/// Every sound of `sounds` summed where the chart plays it (notes and
+/// background alike), at 44100 Hz in 16-bit sample units.
+fn autoplay_mix(chart: &BmsChart, sounds: &HashMap<WavId, Pcm>) -> Vec<[f32; 2]> {
+    const RATE: usize = MIX_RATE;
     let timing = beetle_core::TimingModel::from_chart(chart);
     let starts: Vec<(f64, WavId)> = chart
         .notes
@@ -295,25 +340,70 @@ fn song_gain(chart: &BmsChart, sounds: &HashMap<WavId, Pcm>) -> f32 {
             pos += step;
         }
     }
-    let mut peaks: Vec<f32> = mix
-        .chunks(BLOCK)
-        .map(|b| {
-            b.iter()
-                .map(|f| f[0].abs().max(f[1].abs()))
-                .fold(0.0, f32::max)
-                / 32768.0
-        })
-        .collect();
-    if peaks.is_empty() {
-        return 1.0;
+    mix
+}
+
+/// `BEETLE_DEV_MIX`: writes a disc chart's autoplay mix as the loader hears
+/// it, at the song's gain and before the limiter, as `<name>_mix.wav`,
+/// `<name>_bgm.wav` (the BGM stream alone) and `<name>_keys.wav`, and prints
+/// how much of it passes full scale. For listening to what a disc plays.
+pub(crate) fn write_mix(image: &str, key: &str, out: &std::path::Path) -> Result<(), String> {
+    let mut source = DiscSource::open(image, key).map_err(|e| format!("{e:?}"))?;
+    let chart = source
+        .native_chart()
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("no chart")?;
+    let sounds = source.decode_sounds(&chart);
+    let gain = song_gain(&chart, &sounds);
+    let bgm = source.bgm_id(&chart);
+    let name = key.replace('/', "_");
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    let parts: [(&str, Box<dyn Fn(&WavId) -> bool>); 3] = [
+        ("mix", Box::new(|_| true)),
+        ("bgm", Box::new(|id| Some(*id) == bgm)),
+        ("keys", Box::new(|id| Some(*id) != bgm)),
+    ];
+    for (part, keep) in parts {
+        let picked: HashMap<WavId, Pcm> = sounds
+            .iter()
+            .filter(|(id, _)| keep(id))
+            .map(|(&id, pcm)| (id, pcm.clone()))
+            .collect();
+        let mix = autoplay_mix(&chart, &picked);
+        let over = mix
+            .iter()
+            .filter(|f| f[0].abs().max(f[1].abs()) * gain > 32767.0)
+            .count();
+        println!(
+            "{name} {part}: {} sounds, {:.1} s, gain {gain:.2}, over full scale {:.2}%",
+            picked.len(),
+            mix.len() as f64 / MIX_RATE as f64,
+            over as f64 * 100.0 / mix.len().max(1) as f64
+        );
+        let mut wav = Vec::with_capacity(44 + mix.len() * 4);
+        let bytes = (mix.len() * 4) as u32;
+        wav.extend(b"RIFF");
+        wav.extend((36 + bytes).to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        for w in [
+            16u32,
+            0x0002_0001,
+            MIX_RATE as u32,
+            MIX_RATE as u32 * 4,
+            0x0010_0004,
+        ] {
+            wav.extend(w.to_le_bytes());
+        }
+        wav.extend(b"data");
+        wav.extend(bytes.to_le_bytes());
+        for f in &mix {
+            for c in f {
+                wav.extend(((c * gain).clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+            }
+        }
+        std::fs::write(out.join(format!("{name}_{part}.wav")), wav).map_err(|e| e.to_string())?;
     }
-    let at = (peaks.len() * 99 / 100).min(peaks.len() - 1);
-    let loud = *peaks.select_nth_unstable_by(at, f32::total_cmp).1;
-    if loud > TARGET {
-        TARGET / loud
-    } else {
-        1.0
-    }
+    Ok(())
 }
 
 fn native_ply_chart(

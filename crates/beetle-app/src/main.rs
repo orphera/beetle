@@ -1275,6 +1275,9 @@ fn main() {
     let _timer_guard = MultimediaTimerGuard::new();
 
     let args: Vec<String> = env::args().collect();
+    if devtools::write_mix_and_exit() {
+        return;
+    }
     let arg = args.get(1).cloned();
     // Archives, packages and folders are added (as when dropped); a chart opens.
     let cli_install = arg

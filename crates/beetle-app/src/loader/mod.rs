@@ -13,6 +13,7 @@ use beetle_core::{
 use beetle_render::{strings, ImageBuffer};
 
 mod disc;
+pub(crate) use disc::write_mix;
 mod folder;
 mod package;
 

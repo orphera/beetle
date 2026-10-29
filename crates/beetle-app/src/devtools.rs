@@ -27,6 +27,8 @@
 //!
 //! - `BEETLE_CAPTURE_FOLDER=<path>`: song select starts in this folder
 //!   (`dir`, `mode/7k`, ...) instead of the saved one.
+//! - `BEETLE_DEV_MIX=<image>|<out dir>|<chart key>,...`: writes those disc
+//!   charts' autoplay mixes as WAV (`loader::write_mix`) and quits.
 //! - `BEETLE_LANG=ko|en|ja`: the UI language for this run only (not saved).
 //! - `BEETLE_DEV_DROP=<path>;<path>...`: adds these as if they were dropped on
 //!   the window at startup (see `install.rs`).
@@ -377,4 +379,22 @@ mod tests {
             env(&[("BEETLE_CAPTURE_SCREEN", "songselect")])
         ));
     }
+}
+
+/// `BEETLE_DEV_MIX`: writes the disc charts' mixes and says to quit.
+pub fn write_mix_and_exit() -> bool {
+    let Ok(text) = std::env::var("BEETLE_DEV_MIX") else {
+        return false;
+    };
+    let mut parts = text.split('|');
+    let (Some(image), Some(out), Some(keys)) = (parts.next(), parts.next(), parts.next()) else {
+        eprintln!("BEETLE_DEV_MIX=<image>|<out dir>|<chart key>,...");
+        return true;
+    };
+    for key in keys.split(',') {
+        if let Err(e) = crate::loader::write_mix(image, key, std::path::Path::new(out)) {
+            eprintln!("{key}: {e}");
+        }
+    }
+    true
 }
