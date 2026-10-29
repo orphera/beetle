@@ -25,6 +25,8 @@ use crate::sector::SectorReader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edition {
+    /// 7th style, `SLPM_655.93`.
+    SeventhStyle,
     /// 8th style, `SLPM_657.68`.
     EighthStyle,
     /// 9th style, `SLPM_659.46`.
@@ -53,7 +55,8 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 13] = [
+const EDITIONS: [Edition; 14] = [
+    Edition::SeventhStyle,
     Edition::EighthStyle,
     Edition::NinthStyle,
     Edition::TenthStyle,
@@ -123,7 +126,11 @@ enum ListForm {
     /// 9th to 13: (song, chart, slot bit) word triples ending in -1, each
     /// course starting on a 16-byte boundary.
     Triples,
-    /// 7th and 8th: 16-byte entries of `u16 song, u16 chart`, eight unknown
+    /// 7th: 68-byte records of five (`u16` song, `u16` chart, `u16`)
+    /// entries, the first four (SP) or three (DP) used; song 0 is a song.
+    /// Ranks run down from `DanRun::first`.
+    Fixed,
+    /// 8th: 16-byte entries of `u16 song, u16 chart`, eight unknown
     /// bytes and four slot flags, ending in an entry of song 0xffff.
     Records,
 }
@@ -180,11 +187,12 @@ enum ExpertTable {
     /// 9th to 13: 124-byte records of the name (ASCII, inline) and, from 0x24,
     /// five (song, 1, 1, 1) word quadruples.
     Inline { at: usize, count: usize },
-    /// 8th: 72-byte records of five (`u16` song, two `u16` fixing the
-    /// chart) entries; the names are pictures, so they come from RemyWiki
-    /// (`CS_8th_style`), one per record.
+    /// 7th and 8th: records (68 and 72 bytes) of five (`u16` song, two
+    /// `u16` fixing the chart) entries; the names are pictures, so they come
+    /// from RemyWiki (`CS_7th_style`, `CS_8th_style`), one per record.
     Unnamed {
         at: usize,
+        size: usize,
         names: &'static [&'static str],
     },
 }
@@ -313,6 +321,56 @@ const RECORD_15_16: Record = Record {
     },
 };
 
+/// 7th style: the 8th style form, 0xa0-byte records.
+const SEVENTH_STYLE: Layout = Layout {
+    executable: "SLPM_655.93",
+    slug: "iidx7",
+    file_tables: &[(0x1b7460, 0x8a0), (0x1b9a30, 0x2bc0), (0x1b6a50, 0xa10)],
+    dat_files: &[
+        "DX2_7/BM2DX7B.BIN",
+        "DX2_7/BM2DX7C.BIN",
+        "DX2_7/BM2DX7A.BIN",
+    ],
+    songs: (0x1c1af0, 0x3840),
+    titles: &[],
+    // SP 十段 down to 7級, DP 十段 down to 5級, then SP 裏八段 and 裏九段.
+    dan: Some(DanTable::Listed {
+        form: ListForm::Fixed,
+        runs: &[
+            run(Style::Single, 0x1c5ee8, 16, 17),
+            run(Style::Double, 0x1c636c, 16, 15),
+            run(Style::Single, 0x1c6768, 18, 1),
+            run(Style::Single, 0x1c67ac, 19, 1),
+        ],
+        charts: DAN_CHARTS_EIGHTH,
+    }),
+    record: Record {
+        size: 0xa0,
+        numbers: FileNumbers::Split { first: 138 },
+        levels_at: 0x10,
+        video_at: 0x1a,
+        charts_at: 0x58,
+        sounds_at: 0x78,
+        ..EIGHTH_STYLE.record
+    },
+    expert: Some(ExpertTable::Unnamed {
+        at: 0x1c59dc,
+        size: 68,
+        names: &[
+            "MORNING",
+            "EVENING",
+            "EURO",
+            "TRANCE",
+            "JEWEL",
+            "STOIC",
+            "HOUSE",
+            "APPEARANCE",
+            "SELECTION",
+        ],
+    }),
+    ..EIGHTH_STYLE
+};
+
 /// 8th style: files in `DX2_8`, titles by pointer, no DATA1.
 const EIGHTH_STYLE: Layout = Layout {
     executable: "SLPM_657.68",
@@ -363,6 +421,7 @@ const EIGHTH_STYLE: Layout = Layout {
     }),
     expert: Some(ExpertTable::Unnamed {
         at: 0x1a7e18,
+        size: 72,
         names: &[
             "FEEL",
             "EUROBEAT",
@@ -736,6 +795,7 @@ impl Edition {
 
     fn tables(self) -> Tables {
         Tables::Iidx(match self {
+            Edition::SeventhStyle => &SEVENTH_STYLE,
             Edition::EighthStyle => &EIGHTH_STYLE,
             Edition::NinthStyle => &NINTH_STYLE,
             Edition::TenthStyle => &TENTH_STYLE,
@@ -901,7 +961,7 @@ fn read_expert_courses(exe: &[u8], table: ExpertTable, songs: &[Song]) -> Vec<Ex
     let (at, count, size, first, step) = match table {
         ExpertTable::Pointers { at, count } => (at, count, 64, 4, 12),
         ExpertTable::Inline { at, count } => (at, count, 124, 0x24, 16),
-        ExpertTable::Unnamed { at, names } => (at, names.len(), 72, 0, 6),
+        ExpertTable::Unnamed { at, size, names } => (at, names.len(), size, 0, 6),
     };
     let mut courses = Vec::new();
     for c in 0..count {
@@ -960,9 +1020,28 @@ pub struct DanCourse {
 
 /// Song and chart pairs in the dan table: 18 ranks of 4 per style, SP first.
 const DAN_PAIRS: usize = 2 * 18 * 4;
-const DAN_RANKS: [&str; 18] = [
-    "7級", "6級", "5級", "4級", "3級", "2級", "1級", "初段", "二段", "三段", "四段", "五段",
-    "六段", "七段", "八段", "九段", "十段", "皆伝",
+const DAN_RANKS: [&str; 20] = [
+    "7級",
+    "6級",
+    "5級",
+    "4級",
+    "3級",
+    "2級",
+    "1級",
+    "初段",
+    "二段",
+    "三段",
+    "四段",
+    "五段",
+    "六段",
+    "七段",
+    "八段",
+    "九段",
+    "十段",
+    "皆伝",
+    // 7th's SP-only extra courses.
+    "裏八段",
+    "裏九段",
 ];
 
 /// Reads the dan table: (song id, chart) pairs of two words each, 4 per rank
@@ -982,7 +1061,7 @@ fn read_dan_courses(exe: &[u8], table: DanTable, songs: &[Song]) -> Vec<DanCours
                 }
                 courses.extend(found);
             }
-            courses.sort_by_key(|c| c.style);
+            courses.sort_by_key(|c| (c.style, DAN_RANKS.iter().position(|&r| r == c.rank)));
             courses
         }
     }
@@ -1007,12 +1086,46 @@ fn read_dan_lists(
         first,
         count,
     } = *run;
-    if first + count > DAN_RANKS.len() {
+    let descending = matches!(form, ListForm::Fixed);
+    let fits = if descending {
+        first < DAN_RANKS.len() && count <= first + 1
+    } else {
+        first + count <= DAN_RANKS.len()
+    };
+    if !fits {
         return Vec::new();
     }
     let mut courses = Vec::new();
     for i in 0..count {
         let mut charts = Vec::new();
+        let rank = if descending { first - i } else { first + i };
+        if descending {
+            let used = match style {
+                Style::Single => 4,
+                Style::Double => 3,
+            };
+            let Some(record) = exe.get(at..at + 68) else {
+                return Vec::new();
+            };
+            for k in 0..used {
+                let song = u16_le(record, k * 6).unwrap() as u32;
+                let chart = u16_le(record, k * 6 + 2).unwrap() as u32;
+                let Some(difficulty) = dan_chart(chart, table) else {
+                    return Vec::new();
+                };
+                if !songs.iter().any(|s| s.id == song) {
+                    return Vec::new();
+                }
+                charts.push((song, difficulty));
+            }
+            at += 68;
+            courses.push(DanCourse {
+                style,
+                rank: DAN_RANKS[rank],
+                charts,
+            });
+            continue;
+        }
         loop {
             let (size, song, chart) = match form {
                 ListForm::Triples => {
@@ -1039,6 +1152,7 @@ fn read_dan_lists(
                     }
                     (16, song as u32, u16_le(entry, 2).unwrap() as u32)
                 }
+                ListForm::Fixed => unreachable!("read above"),
             };
             let Some(difficulty) = dan_chart(chart, table) else {
                 return Vec::new();
@@ -1052,7 +1166,7 @@ fn read_dan_lists(
         at = at.next_multiple_of(16);
         courses.push(DanCourse {
             style,
-            rank: DAN_RANKS[first + i],
+            rank: DAN_RANKS[rank],
             charts,
         });
     }

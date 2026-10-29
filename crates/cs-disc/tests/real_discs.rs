@@ -1,5 +1,5 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
-//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX8` to
+//! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX7` to
 //! `CS_DISC_IIDX14` for the chart and sound checks) to the
 //! `.iso` paths; without them these tests do nothing.
 
@@ -133,6 +133,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Ply, Side};
     let mut worst_overall = Vec::new();
     for (var, edition) in [
+        ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
@@ -175,13 +176,13 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
                 assert_eq!(got.len(), expected.len(), "{what}: note count");
                 expected.sort_by(f64::total_cmp);
                 got.sort_by(f64::total_cmp);
-                let chart_worst = got
+                let (chart_worst, at) = got
                     .iter()
                     .zip(&expected)
-                    .map(|(g, e)| (g - e).abs())
-                    .fold(0.0, f64::max);
+                    .map(|(g, e)| ((g - e).abs(), *e))
+                    .fold((0.0, 0.0), |a, b| if b.0 > a.0 { b } else { a });
                 if chart_worst > 1000.0 / 59.94 {
-                    println!("  {what}: {chart_worst:.1} ms");
+                    println!("  {what}: {chart_worst:.1} ms at {at:.0} ms");
                 }
                 if chart_worst > worst.0 {
                     worst = (chart_worst, what.clone());
@@ -203,6 +204,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
     use cs_disc::ply::{Command, Ply};
     use cs_disc::wvb::{decode_bgm, Bank};
     for (var, edition) in [
+        ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
@@ -665,4 +667,71 @@ fn eighth_style_courses_match_the_wiki() {
     assert_eq!(expert[0].name, "FEEL");
     let last: Vec<String> = expert[16].songs.iter().map(|&id| title(id)).collect();
     assert_eq!(last, ["B4U", "HOLIC", "COLORS (RADIO EDIT)", "V", "A"]);
+}
+
+/// 7th style, the first with dan courses: SP 7級 to 十段 and 裏八段·裏九段,
+/// DP 5級 to 十段 of 3 songs, in 68-byte records from 十段 down (RemyWiki's
+/// CS dan course list; song 0, TOMORROW PERFUME, opens SP 六段).
+#[test]
+fn seventh_style_dan_courses_match_the_wiki() {
+    let Some((mut disc, volume)) = open("CS_DISC_IIDX7") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::SeventhStyle).unwrap();
+    let title = |id: u32| {
+        songs
+            .songs
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .title
+            .clone()
+    };
+    let dan = &songs.dan_courses;
+    let course = |style, rank| {
+        dan.iter()
+            .find(|c| c.style == style && c.rank == rank)
+            .unwrap()
+    };
+    let titles = |style, rank| -> Vec<String> {
+        course(style, rank)
+            .charts
+            .iter()
+            .map(|&(id, _)| title(id))
+            .collect()
+    };
+    let count = |style| dan.iter().filter(|c| c.style == style).count();
+    assert_eq!((count(Style::Single), count(Style::Double)), (19, 15));
+    assert_eq!(dan[0].rank, "7級");
+    assert_eq!(
+        titles(Style::Single, "7級"),
+        [
+            "5.1.1.",
+            "DANCIN' INTO THE NIGHT",
+            "NOTHING AIN'T STOPPIN'US",
+            "BURNING UP FOR YOU"
+        ]
+    );
+    assert_eq!(titles(Style::Single, "六段")[0], "TOMORROW PERFUME");
+    assert_eq!(
+        titles(Style::Single, "十段"),
+        ["HOLIC", "COLORS (RADIO EDIT)", "V", "A"]
+    );
+    assert!(course(Style::Single, "十段")
+        .charts
+        .iter()
+        .all(|&(_, d)| d == Difficulty::Another));
+    assert_eq!(titles(Style::Single, "裏八段")[3], "MAX 300");
+    assert_eq!(
+        titles(Style::Double, "5級"),
+        [
+            "5.1.1.",
+            "NOTHING AIN'T STOPPIN'US",
+            "DANCIN' INTO THE NIGHT"
+        ]
+    );
+    assert_eq!(
+        titles(Style::Double, "十段"),
+        ["ERA (NOSTALMIX)", "STOIC", "DXY!"]
+    );
 }

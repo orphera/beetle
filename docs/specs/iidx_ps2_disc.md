@@ -1,6 +1,6 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 디스크(7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
 출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
@@ -10,6 +10,7 @@
 
 | 에디션 | 실행 파일 | DAT 파일 | 레코드 크기 | 차트 키 |
 |---|---|---|---|---|
+| 7th style | `SLPM_655.93` | `DX2_7/BM2DX7B/C/A.BIN` | 0xa0 | 없음 (암호화 안 함) |
 | 8th style | `SLPM_657.68` | `DX2_8/BM2DX8B/C/A.BIN` | 0x9c | 없음 (암호화 안 함) |
 | 9th style | `SLPM_659.46` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
 | 10th style | `SLPM_661.80` | `DATA2.DAT` 하나 | 0x16c | 없음 (암호화 안 함) |
@@ -36,6 +37,13 @@
 - 자기 키음이 없는 채보는 같은 난이도의 다른 스타일 것을 먼저 쓴다(ABSTRACT DP NORMAL → SP NORMAL). 9th~16에서도 결과가 같다.
 - 채보 7개가 뱅크 어디에도 없는 소리를 부른다(GRAVITY SP NORMAL의 3 등). 디스크에 없으므로 무음으로 둔다.
 - 첫 마디선이 여러 마디를 덮고 그 안에서 BPM이 바뀌는 채보(DUAL CONTROL)가 있다. 마디 길이는 템포 구간마다 따로 재어 더한다(`ply_bms::bars`).
+
+### 1.2 7th style
+
+- 8th와 같은 틀이다(`SEVENTH_STYLE`, 8th 레이아웃에서 바뀐 것만 둠). B.BIN이 138개라 나눔 기준이 138이다.
+- 곡 레코드 0xa0: 0x10 레벨 6바이트(8th와 같은 순서), 0x1a 영상 `u16`(MPEG-2), 0x58 채보 8개, 0x78 사운드 16개. iidx-ps2tools의 7th 읽기 순서로 셈한 위치(0x4c·0x6c)는 맞지 않아 레코드를 직접 보고 정했다.
+- 채보 22개가 뱅크에 없는 소리를 부른다(무음).
+- MAX 300의 끝부분은 한 마디 안에서 BPM이 277→12→300으로 여러 번 바뀐다. 마디 안 변화 위치를 BMS로 쓸 때 새 BPM으로 다시 스냅하면 더 굵은 격자로 옮겨져 뒤 노트가 223ms 일찍 나왔다. 맞춤 단계의 박자를 그대로 쓴다(`ply_bms::exact_pos`). 다른 디스크도 오차가 같거나 줄었다.
 
 ## 2. 곡 레코드
 
@@ -196,6 +204,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 실행 파일 안 위치 |
 |---|---|
+| 7th style | SP `0x1c5ee8`(十段부터 거꾸로), DP `0x1c636c`, 裏八段 `0x1c6768`·裏九段 `0x1c67ac` (68바이트 레코드, 아래) |
 | 8th style | SP `0x199750`(7級~八段)·`0x199cd0`(十段), DP `0x199d20` (16바이트 레코드, 아래) |
 | 9th style | SP `0xb5540`(7級~八段)·`0xb59b0`(十段), DP `0xb59f0` |
 | 10th style | SP `0xc6790`, DP `0xc6bd0` (형식이 다름, 아래) |
@@ -231,6 +240,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 - 9th style(`DanTable::Listed`, 구간 셋):
   - 레코드는 10th와 같다. 곡 레코드 위치·파일 표만 다르다(`NINTH_STYLE`).
   - SP 九段은 13곡 풀에서 4곡을 뽑는 단위라(`0xb58f0`, 칸 비트가 1·2·4·8이 아님) 고정 코스로 만들 수 없어 읽지 않는다. 그래서 SP는 7級~八段 15개와 十段 하나, DP는 5級~十段 15개다. RemyWiki 단위 목록과 곡 구성이 모두 같다.
+- 7th style(`ListForm::Fixed`, 단위인정이 처음 들어간 버전): 코스마다 68바이트에 (`u16 곡, u16 차트, u16`) 6바이트가 5번, SP는 앞 4개, DP는 앞 3개를 쓴다. 곡 번호 0(TOMORROW PERFUME, SP 六段)도 곡이라 빈 칸 표시가 없다. 순서는 SP 十段→7級, DP 十段→5級, 그다음 SP 전용 裏八段·裏九段. 차트 값은 8th와 같다. 위키 목록과 대부분 같지만 몇 곡이 다르다(예: 二段 3곡째가 위키는 THE EARTH LIGHT, 디스크는 ENTRANCE). 디스크를 따른다.
 - 8th style(`ListForm::Records`): 곡마다 16바이트(`u16 곡, u16 차트`, 모르는 8바이트, 칸 플래그 4바이트), 곡 0xffff 항목으로 끝난다. 차트 값은 0 HYPER, 1 NORMAL, 3 ANOTHER, 4 BEGINNER. SP 九段은 12곡 무작위 풀(`0x199c00`)이라 읽지 않고, DP 十段 뒤의 코스 하나(`0x19a0e0`)는 게임에 없다. 위키 단위 목록과 모두 같다.
 - 차트 값의 HYPER·NORMAL: 9th·10th·11은 0이 HYPER, 1이 NORMAL이다(`hyper_first`). 12부터 0 NORMAL, 1 HYPER. 고단위(七段 등)의 0번 차트가 레벨상 HYPER인 것으로 확인했다(10th 六段 LOVE IS ETERNITY 0 → HYPER 8, NORMAL 6). 전에는 10th·11에서 둘을 바꿔 읽고 있었다.
 - 모르는 것:
@@ -246,6 +256,7 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
+| 7th style | `0x1c59dc` | 9 (MORNING … SELECTION), 68바이트, 이름 없음 |
 | 8th style | `0x1a7e18` | 17 (FEEL … 7-SP10D), 이름 없음(아래) |
 | 9th style | `0xb6e08` | 17 (STYLISH … ASSAULT), 10th와 같은 형식 |
 | 10th style | `0xc7fb8` | 17 (INSTRUMENTAL … KING), 형식이 다름 |

@@ -491,6 +491,21 @@ fn position(bars: &[Bar], t: f64) -> Pos {
     }
 }
 
+/// `beat` of bar `bar` on the first grid that holds it exactly.
+fn exact_pos(bar: usize, beat: f64) -> Pos {
+    let (n, d) = FINE_GRIDS
+        .iter()
+        .map(|&d| ((beat * d as f64).round().max(0.0) as u64, d))
+        .find(|&(n, d)| (n as f64 / d as f64 - beat).abs() < 1e-6)
+        .unwrap_or_else(|| ((beat * 192.0).round() as u64, 192));
+    let g = gcd(n, d).max(1);
+    Pos {
+        bar,
+        n: n / g,
+        d: d / g,
+    }
+}
+
 /// Each bar's first tempo when it changes, and changes inside bars, as
 /// positions; the chart's starting tempo is `bars[0]`'s first and not listed.
 fn tempo_changes(bars: &[Bar]) -> Vec<(Pos, f64)> {
@@ -506,10 +521,13 @@ fn tempo_changes(bars: &[Bar]) -> Vec<(Pos, f64)> {
             if i == 0 && seg.start_ms == bar.start_ms {
                 continue;
             }
+            // A change inside a bar is already on the grid (`bars`); snapping
+            // it again at its new tempo could move it to a coarser point and
+            // stretch the tempos around it (7th MAX 300's slowdown: 223 ms).
             let pos = if seg.start_ms == bar.start_ms {
                 Pos { bar: i, n: 0, d: 1 }
             } else {
-                position(bars, seg.start_ms)
+                exact_pos(i, bar.beat_at(seg.start_ms).0)
             };
             changes.push((pos, seg.bpm));
         }
