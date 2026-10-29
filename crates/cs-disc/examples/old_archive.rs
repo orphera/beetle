@@ -1,8 +1,8 @@
 //! Research helper: the pictures in 3rd to 8th style archives. An archive
 //! is a `u32` part count, then from 0x10 the parts' offsets; each part is
-//! LZ-packed as the charts are. A picture part unpacks to a 0x14-byte head
-//! (`u32` 0x10, `u16`, `u16` width, ...), a 256-entry 16-bit palette (CSM1
-//! order) and, from 0x220, one index byte a pixel. Writes each as PPM.
+//! LZ-packed as the charts are, and a picture part unpacks to the form
+//! `ps2tex::decode_old_picture` reads (8 or 4 bits a pixel). Writes each as
+//! PPM and lists the parts that are not pictures it knows.
 //!
 //! cargo run -p cs-disc --release --example old_archive -- <image.iso> <out dir> <from file> <to file>
 use cs_disc::iidx::Disc;
@@ -17,6 +17,7 @@ fn main() {
     let out = std::path::Path::new(&a[1]);
     std::fs::create_dir_all(out).unwrap();
     let (from, to): (u32, u32) = (a[2].parse().unwrap(), a[3].parse().unwrap());
+    let (mut pictures, mut others) = (0, 0);
     for n in from..=to {
         let Some(entry) = disc.file(n) else { break };
         if entry.size > 8_000_000 {
@@ -29,7 +30,7 @@ fn main() {
             b.get(i..i + 4)
                 .map(|s| u32::from_le_bytes(s.try_into().unwrap()) as usize)
         };
-        let Some(count) = w(0).filter(|&c| (1..64).contains(&c)) else {
+        let Some(count) = w(0).filter(|&c| (1..4096).contains(&c)) else {
             continue;
         };
         let Some(offs) = (0..count)
@@ -46,31 +47,22 @@ fn main() {
             let Some(p) = cs_disc::lz::decode(&b[offs[k]..ends[k]]) else {
                 continue;
             };
-            if p.len() <= 0x220 || u32::from_le_bytes(p[..4].try_into().unwrap()) != 0x10 {
-                continue;
+            match cs_disc::ps2tex::decode_old_picture(&p) {
+                Some(img) => {
+                    let mut f = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
+                    for px in &img.pixels {
+                        f.extend(&px[..3]);
+                    }
+                    std::fs::write(out.join(format!("{n:04}_{k:02}.ppm")), f).unwrap();
+                    pictures += 1;
+                }
+                None => {
+                    let head: String = p.iter().take(12).map(|x| format!("{x:02x}")).collect();
+                    println!("{n} part {k}: {} bytes, not a picture: {head}", p.len());
+                    others += 1;
+                }
             }
-            let width = u16::from_le_bytes([p[6], p[7]]) as usize;
-            let pixels = p.len() - 0x220;
-            if width == 0 || pixels % width != 0 {
-                continue;
-            }
-            let height = pixels / width;
-            let swz = |i: usize| (i & 0xe7) | ((i & 8) << 1) | ((i & 16) >> 1);
-            let pal: Vec<[u8; 3]> = (0..256)
-                .map(|i| {
-                    let v = u16::from_le_bytes([p[0x14 + 2 * i], p[0x15 + 2 * i]]);
-                    [
-                        ((v & 31) << 3) as u8,
-                        (((v >> 5) & 31) << 3) as u8,
-                        (((v >> 10) & 31) << 3) as u8,
-                    ]
-                })
-                .collect();
-            let mut f = format!("P6 {width} {height} 255\n").into_bytes();
-            for &i in &p[0x220..] {
-                f.extend(pal[swz(i as usize)]);
-            }
-            std::fs::write(out.join(format!("{n:04}_{k:02}.ppm")), f).unwrap();
         }
     }
+    println!("{pictures} pictures, {others} other parts");
 }

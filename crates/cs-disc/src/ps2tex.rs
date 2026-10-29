@@ -107,6 +107,64 @@ pub fn decode_psmt8(data: &[u8], width: u32, height: u32) -> Option<Rgba> {
     })
 }
 
+/// A 3rd to 8th style picture, unpacked (`crate::lz`): `u32` 0x10, a byte,
+/// a byte, `u16` width at 6, the pixel format at 8 (0x0c 8 bits, 0x2c 4
+/// bits a pixel), `u16` palette size at 0x10 (256 or 16), the 16-bit palette
+/// (`1-5-5-5`, the 8-bit one in CSM1 order) from 0x14, then 12 bytes and the
+/// pixels, rows from the top, the low nibble first for 4 bits.
+pub fn decode_old_picture(p: &[u8]) -> Option<Rgba> {
+    let u16_at = |at: usize| {
+        p.get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+    };
+    if p.get(..4)? != [0x10, 0, 0, 0] {
+        return None;
+    }
+    let width = u16_at(6)?;
+    let bits = match *p.get(8)? {
+        0x0c => 8,
+        0x2c => 4,
+        _ => return None,
+    };
+    let colours = u16_at(0x10)?;
+    if width == 0 || colours != 1 << bits {
+        return None;
+    }
+    // Rows are stored the next power of two wide (a 92-wide picture in a
+    // 128-wide buffer); the picture is the left `width` of each.
+    let stride = width.next_power_of_two();
+    let start = 0x14 + colours * 2 + 12;
+    let stored = p.len().checked_sub(start)? * 8 / bits;
+    if stored == 0 || stored % stride != 0 {
+        return None;
+    }
+    let height = stored / stride;
+    let palette: Vec<[u8; 4]> = (0..colours)
+        .map(|i| {
+            let v = u16_at(0x14 + i * 2).unwrap_or(0);
+            let c = |shift: usize| (((v >> shift) & 31) << 3) as u8;
+            [c(0), c(5), c(10), 255]
+        })
+        .collect();
+    let index = |i: usize| -> usize {
+        if bits == 8 {
+            let v = p[start + i] as usize;
+            clut_index(v as u8)
+        } else {
+            let b = p[start + i / 2];
+            (if i % 2 == 0 { b & 15 } else { b >> 4 }) as usize
+        }
+    };
+    Some(Rgba {
+        width: width as u32,
+        height: height as u32,
+        pixels: (0..height)
+            .flat_map(|y| (0..width).map(move |x| y * stride + x))
+            .map(|i| palette[index(i)])
+            .collect(),
+    })
+}
+
 impl Rgba {
     /// A picture wider than 4:3 in the middle of a black 4:3 canvas of its
     /// width (a pop'n banner, 244x58, on 244x183), so a 4:3 frame shows all

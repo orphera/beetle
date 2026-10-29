@@ -1,6 +1,7 @@
-//! Research helper: the LZ-packed 8-bit textures (`old_archive`'s picture
-//! form) anywhere in a file, found by their packed head (`04 10 00 80 09`),
-//! written as PPM named by their offset.
+//! Research helper: the LZ-packed pictures (`ps2tex::decode_old_picture`)
+//! anywhere in a file such as a 3rd to 8th style executable, found by their
+//! packed head (`?? 10 00 80`: a control byte, then the picture's `u32`
+//! 0x10), written as PPM named by their offset.
 //!
 //! cargo run -p cs-disc --release --example exe_textures -- <file> <out dir>
 fn main() {
@@ -8,37 +9,20 @@ fn main() {
     let b = std::fs::read(&a[0]).unwrap();
     let out = std::path::Path::new(&a[1]);
     std::fs::create_dir_all(out).unwrap();
-    let head = [0x04, 0x10, 0x00, 0x80, 0x09];
-    for at in (0..b.len() - 5).filter(|&i| b[i..i + 5] == head) {
+    let mut found = 0;
+    for at in (0..b.len() - 4).filter(|&i| b[i + 1..i + 4] == [0x10, 0x00, 0x80]) {
         let Some(p) = cs_disc::lz::decode(&b[at..]) else {
             continue;
         };
-        if p.len() <= 0x220 {
+        let Some(img) = cs_disc::ps2tex::decode_old_picture(&p) else {
             continue;
-        }
-        let width = u16::from_le_bytes([p[6], p[7]]) as usize;
-        let pixels = p.len() - 0x220;
-        if width == 0 || pixels % width != 0 {
-            println!("{at:x}: {} bytes, width {width}?", p.len());
-            continue;
-        }
-        let height = pixels / width;
-        let swz = |i: usize| (i & 0xe7) | ((i & 8) << 1) | ((i & 16) >> 1);
-        let pal: Vec<[u8; 3]> = (0..256)
-            .map(|i| {
-                let v = u16::from_le_bytes([p[0x14 + 2 * i], p[0x15 + 2 * i]]);
-                [
-                    ((v & 31) << 3) as u8,
-                    (((v >> 5) & 31) << 3) as u8,
-                    (((v >> 10) & 31) << 3) as u8,
-                ]
-            })
-            .collect();
-        let mut f = format!("P6 {width} {height} 255\n").into_bytes();
-        for &i in &p[0x220..] {
-            f.extend(pal[swz(i as usize)]);
+        };
+        let mut f = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
+        for px in &img.pixels {
+            f.extend(&px[..3]);
         }
         std::fs::write(out.join(format!("{at:07x}.ppm")), f).unwrap();
-        println!("{at:x}: {width}x{height}");
+        found += 1;
     }
+    println!("{found} pictures");
 }

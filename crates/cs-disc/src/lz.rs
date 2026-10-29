@@ -38,6 +38,10 @@ pub fn decode(input: &[u8]) -> Option<Vec<u8>> {
             None
         };
         if let Some((distance, len)) = copy {
+            // A distance of 0 points past the output: not LZ data.
+            if distance == 0 {
+                return None;
+            }
             let start = out.len().checked_sub(distance)?;
             // Byte by byte: the copy may overlap what it writes.
             for k in 0..len {
@@ -74,6 +78,11 @@ mod tests {
         // literal 'x', then 0b0000_0100 << 0: code byte 0x04 + 0x01 → len 4, distance 1.
         let input = [0b0000_0110, b'x', 0x04, 0x01, 0xff];
         assert_eq!(decode(&input).unwrap(), b"xxxxx");
+    }
+
+    #[test]
+    fn a_copy_from_distance_0_is_none() {
+        assert_eq!(decode(&[0b0000_0001, 0x00, 0x00]), None);
     }
 
     #[test]
