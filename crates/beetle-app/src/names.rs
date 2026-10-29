@@ -7,7 +7,7 @@
 //! The list draws charts, so the file also maps each chart (its `ChartId`) to
 //! its disc song.
 //!
-//! Format (little endian): the magic `BNMA` (the small title and the genre too; ink cut from a faint floor, measured off the background colour where that is not black); `u32` song count, then per song
+//! Format (little endian): the magic `BNMB` (the small title and the genre too; ink cut from a faint floor, measured off the background colour where that is not black); `u32` song count, then per song
 //! `u32` song id and the title and the artist, each `u8` present (0 or 1) and,
 //! when present, `u32` width, `u32` height and width × height coverage bytes;
 //! then `u32` chart count, then per chart its 32-byte `ChartId` and `u32` song id.
@@ -23,7 +23,7 @@ use cs_disc::iidx::Disc;
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
-const MAGIC: &[u8; 4] = b"BNMA";
+const MAGIC: &[u8; 4] = b"BNMB";
 
 /// The names of a disc: its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

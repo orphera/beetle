@@ -124,7 +124,30 @@ struct Layout {
     /// The EXPERT course table, where the edition has one
     /// (9th on; docs/specs/iidx_ps2_disc.md, 8).
     expert: Option<ExpertTable>,
+    /// The song select's word pictures on 8th, which keeps them in the
+    /// executable (`OldWords`).
+    old_words: Option<OldWords>,
 }
+
+/// 8th's word pictures: LZ-packed pictures in the executable
+/// (`ps2tex::decode_old_picture`) cut by rectangle tables beside them
+/// (`u16 x, y, w, h`). The record numbers each word over its kind's sheets
+/// in order: the artist at `artist_at`, the genre at `genre_at`, the title
+/// at `title_at` (`u16` each). Found by the sheets' rectangles running out
+/// exactly at the records' largest numbers (62, 57, 170) and checked by eye.
+#[derive(Clone, Copy)]
+struct OldWords {
+    artist_at: usize,
+    genre_at: usize,
+    title_at: usize,
+    artist: &'static [Sheet],
+    genre: &'static [Sheet],
+    title: &'static [Sheet],
+}
+
+/// One word picture of `OldWords`: (picture's file offset in the
+/// executable, its rectangle table's, its rectangles).
+type Sheet = (usize, usize, usize);
 
 /// How an edition stores its dan courses.
 #[derive(Clone, Copy)]
@@ -575,6 +598,7 @@ const SIXTH_STYLE: Layout = Layout {
             "日 5th style",
         ],
     }),
+    old_words: None,
     ..EIGHTH_STYLE
 };
 
@@ -627,6 +651,7 @@ const SEVENTH_STYLE: Layout = Layout {
             "SELECTION",
         ],
     }),
+    old_words: None,
     ..EIGHTH_STYLE
 };
 
@@ -703,6 +728,24 @@ const EIGHTH_STYLE: Layout = Layout {
             "7-SP10D",
         ],
     }),
+    old_words: Some(OldWords {
+        artist_at: 0x20,
+        genre_at: 0x18,
+        title_at: 0x1c,
+        artist: &[(0x6e5720, 0x1969b0, 63)],
+        genre: &[(0x6ed7a0, 0x196bb0, 56), (0x6f3141, 0x196bb0 + 56 * 8, 2)],
+        title: &[
+            (0x6f36c0, 0x196bb0 + 58 * 8, 23),
+            (0x6fa9b0, 0x196bb0 + 81 * 8, 21),
+            (0x7016f5, 0x196bb0 + 102 * 8, 16),
+            (0x7077de, 0x196bb0 + 118 * 8, 18),
+            (0x70f6cb, 0x196bb0 + 136 * 8, 18),
+            (0x716c38, 0x196bb0 + 154 * 8, 22),
+            (0x71d74d, 0x196bb0 + 176 * 8, 24),
+            (0x723fad, 0x196bb0 + 200 * 8, 24),
+            (0x72ae8d, 0x196bb0 + 224 * 8, 6),
+        ],
+    }),
 };
 
 /// 9th style: the 10th style record, its tables elsewhere.
@@ -773,6 +816,7 @@ const TENTH_STYLE: Layout = Layout {
         at: 0xc7fb8,
         count: 17,
     }),
+    old_words: None,
 };
 
 const RED: Layout = Layout {
@@ -816,6 +860,7 @@ const RED: Layout = Layout {
         at: 0xe7328,
         count: 17,
     }),
+    old_words: None,
 };
 
 const HAPPY_SKY: Layout = Layout {
@@ -859,6 +904,7 @@ const HAPPY_SKY: Layout = Layout {
         at: 0xfefd8,
         count: 17,
     }),
+    old_words: None,
 };
 
 const DISTORTED: Layout = Layout {
@@ -908,6 +954,7 @@ const DISTORTED: Layout = Layout {
         at: 0x10c558,
         count: 17,
     }),
+    old_words: None,
 };
 
 const GOLD: Layout = Layout {
@@ -948,6 +995,7 @@ const GOLD: Layout = Layout {
         at: 0x144cc0,
         count: 16,
     }),
+    old_words: None,
 };
 
 const DJ_TROOPERS: Layout = Layout {
@@ -967,6 +1015,7 @@ const DJ_TROOPERS: Layout = Layout {
         at: 0x15dc70,
         count: 16,
     }),
+    old_words: None,
 };
 
 const EMPRESS: Layout = Layout {
@@ -989,6 +1038,7 @@ const EMPRESS: Layout = Layout {
         at: 0x167b10,
         count: 10,
     }),
+    old_words: None,
 };
 
 const PREMIUM_BEST: Layout = Layout {
@@ -1226,8 +1276,11 @@ pub struct Disc {
     data1_files: Vec<(u64, u64)>,
     /// pop'n: each record's title and artist word rectangles (`song_names`).
     name_refs: Vec<(u16, u16)>,
-    /// Each record's word sheet references (`word_ref_offsets`).
+    /// Each record's word sheet references (`word_ref_offsets`); on 8th
+    /// (`OldWords`) the genre, title and artist numbers, as `(n, 0)`.
     word_refs: Vec<[(u16, u16); 4]>,
+    /// Where the boot executable is (8th's word pictures are in it).
+    executable: FileExtent,
     /// The game's own dan courses (empty where none was found).
     pub dan_courses: Vec<DanCourse>,
     /// The game's EXPERT courses (empty where none was found).
@@ -1587,10 +1640,27 @@ impl Disc {
             data1,
             data1_files,
             name_refs: Vec::new(),
-            word_refs: match word_ref_offsets(edition) {
-                Some(offsets) => read_word_refs(&exe, layout.songs, layout.record.size, offsets),
-                None => Vec::new(),
+            word_refs: match (word_ref_offsets(edition), layout.old_words) {
+                (Some(offsets), _) => {
+                    read_word_refs(&exe, layout.songs, layout.record.size, offsets)
+                }
+                (None, Some(words)) => (0..layout.songs.1 / layout.record.size)
+                    .map(|id| {
+                        let at = layout.songs.0 + id * layout.record.size;
+                        let n = |k: usize| (u16_le(&exe, at + k).unwrap_or(u16::MAX), 0);
+                        [
+                            n(words.genre_at),
+                            n(words.title_at),
+                            n(words.artist_at),
+                            (u16::MAX, 0),
+                        ]
+                    })
+                    .collect(),
+                (None, None) => Vec::new(),
             },
+            executable: volume
+                .find(disc, layout.executable)?
+                .unwrap_or(FileExtent { lba: 0, size: 0 }),
             dan_courses,
             expert_courses,
         })
@@ -1664,6 +1734,7 @@ impl Disc {
             data1_files: crate::popn::read_images(&exe, layout).unwrap_or_default(),
             name_refs: crate::popn::read_name_refs(&exe, layout),
             word_refs: Vec::new(),
+            executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses: Vec::new(),
         })
@@ -1852,6 +1923,25 @@ impl Disc {
         let Some(refs) = self.word_refs.get(song.id as usize) else {
             return Ok(None);
         };
+        if let Tables::Iidx(Layout {
+            old_words: Some(words),
+            ..
+        }) = self.edition.tables()
+        {
+            let [(genre, _), (title, _), (artist, _), _] = *refs;
+            let mut word = |sheets: &[Sheet], n: u16| -> io::Result<Option<crate::popn::Mask>> {
+                Ok(self
+                    .old_word(disc, sheets, n)?
+                    .map(|picture| crate::popn::Mask::from_rgba(&picture)))
+            };
+            return Ok(Some(crate::popn::SongNames {
+                title: word(words.title, title)?,
+                small_title: None,
+                artist: word(words.artist, artist)?,
+                genre: word(words.genre, genre)?,
+                popn: false,
+            }));
+        }
         let [genre, big, artist, small] = *refs;
         let rect_base = if matches!(
             self.edition,
@@ -1873,6 +1963,54 @@ impl Disc {
             artist: mask(disc, artist)?,
             genre: mask(disc, genre)?,
             popn: false,
+        }))
+    }
+
+    /// Word `n` of 8th's `sheets` (`OldWords`): the sheet that holds it
+    /// unpacked from the executable, cut to its rectangle.
+    fn old_word<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        sheets: &[Sheet],
+        n: u16,
+    ) -> io::Result<Option<Rgba>> {
+        let mut n = n as usize;
+        let Some(&(picture_at, rects_at, _)) = sheets.iter().find(|&&(_, _, count)| {
+            let here = n < count;
+            if !here {
+                n -= count;
+            }
+            here
+        }) else {
+            return Ok(None);
+        };
+        // A sheet packs to well under this; the LZ stops at its end code.
+        const PACKED: u64 = 0x40000;
+        let start = self.executable.offset() + picture_at as u64;
+        let len = PACKED.min(self.executable.size.saturating_sub(picture_at as u64));
+        let packed = disc.read_at(start, len as usize)?;
+        let rect = disc.read_at(self.executable.offset() + (rects_at + n * 8) as u64, 8)?;
+        let Some(sheet) = crate::lz::decode(&packed)
+            .as_deref()
+            .and_then(crate::ps2tex::decode_old_picture)
+        else {
+            return Ok(None);
+        };
+        let field = |k: usize| u16_le(&rect, k * 2).unwrap_or(0) as u32;
+        let (x, y, w, h) = (field(0), field(1), field(2), field(3));
+        if w == 0 || h == 0 || x + w > sheet.width || y + h > sheet.height {
+            return Ok(None);
+        }
+        let pixels = (y..y + h)
+            .flat_map(|row| {
+                let at = (row * sheet.width + x) as usize;
+                sheet.pixels[at..at + w as usize].iter().copied()
+            })
+            .collect();
+        Ok(Some(Rgba {
+            width: w,
+            height: h,
+            pixels,
         }))
     }
 
@@ -2601,6 +2739,7 @@ mod tests {
             data1_files: Vec::new(),
             name_refs: Vec::new(),
             word_refs: Vec::new(),
+            executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses: Vec::new(),
         };
