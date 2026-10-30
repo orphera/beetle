@@ -67,8 +67,10 @@ pub(crate) struct Streams {
 pub(crate) enum StreamOrder {
     /// 9: the record's BGM number per difficulty (`u16` at these offsets,
     /// in `LEVELS` level byte order: NORMAL, HYPER, 5-button, EX) names an
-    /// 8-byte entry of `streams` (`u32` stream, `u32` volume), as the game's
-    /// BGM loader (0x12fdd0, 0x130360 in the executable) reads them.
+    /// 8-byte entry of `streams` (`u32` stream, `u32` lead in ms as on 10),
+    /// as the game's BGM loader (0x12fdd0, 0x130360 in the executable) reads
+    /// them. The lead (0x12fe00, kept at 0x15b0d0) comes off the stream's
+    /// position (0x12c170) at 0x15aea8.
     BgmNumbers {
         bgm_at: [usize; 4],
         streams: (usize, usize),
@@ -557,12 +559,21 @@ pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, ba
                 for &(difficulty, level) in &LEVELS {
                     let number =
                         u16::from_le_bytes([record[bgm_at[level]], record[bgm_at[level] + 1]]);
-                    let Some(stream) = ((number as usize) < stream_count)
-                        .then(|| u32_at(exe, streams_at + number as usize * 8))
-                        .flatten()
-                    else {
+                    let at = streams_at + number as usize * 8;
+                    let (true, Some(stream), Some(lead)) = (
+                        (number as usize) < stream_count,
+                        u32_at(exe, at),
+                        u32_at(exe, at + 4),
+                    ) else {
                         continue;
                     };
+                    for chart in song
+                        .charts
+                        .iter_mut()
+                        .filter(|c| c.difficulty == difficulty)
+                    {
+                        chart.bgm_lead = lead;
+                    }
                     let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
                     song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
