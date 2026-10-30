@@ -265,7 +265,14 @@ impl<'a> Bank<'a> {
             let offset = base + u32_at(data, at)? as usize;
             let code = (u16_at(data, at + 6)? >> 8) as u8;
             let size = u32_at(data, at + 8)? as usize;
-            files.push((offset, size, rate(code)?));
+            let rate = match code {
+                // pop'n 10 No.032 (`0x4102`; other songs' banks use 0x3e): its
+                // sounds fit the key and tuning of the song's BGM at 36000
+                // (37000 plays them about half a semitone sharp).
+                0x41 => 36000,
+                _ => rate(code)?,
+            };
+            files.push((offset, size, rate));
         }
         let mut sounds = Vec::new();
         for at in (TABLE_START..END).step_by(ENTRY) {

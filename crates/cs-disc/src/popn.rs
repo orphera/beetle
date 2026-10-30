@@ -81,7 +81,9 @@ pub(crate) enum StreamOrder {
     /// executable) reads them: `songs` 12-byte entries (`u32` number,
     /// `u16` twice, `u16` the song's key sound bank, the chart file + 1),
     /// then the number's 8-byte entry in `streams` (`u32` stream, `u32`
-    /// volume) names the stream.
+    /// lead in ms, `Chart::bgm_lead`) names the stream. The game's clock is
+    /// the stream's position (0x162070) less the lead (0x161c60, set at
+    /// 0x1719dc, taken off at 0x183148).
     Table {
         songs: (usize, usize),
         streams: (usize, usize),
@@ -435,6 +437,7 @@ pub(crate) fn read_songs(
                 difficulty,
                 level: levels.map_or(0, |l| l[at]),
                 file,
+                bgm_lead: 0,
             })
             .collect();
         if charts.is_empty() {
@@ -488,19 +491,33 @@ pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, ba
                 let Some(file) = song.charts.first().map(|c| c.file) else {
                     continue;
                 };
-                let Some(number) = (0..song_count)
-                    .map(|i| songs_at + i * 12)
-                    .find(|&at| u16_at(at + 8) == Some(file as u16 + 1))
-                    .and_then(|at| u32_at(exe, at))
-                    .filter(|&n| (n as usize) < stream_count)
-                else {
-                    continue;
-                };
-                let Some(stream) = u32_at(exe, streams_at + number as usize * 8) else {
-                    continue;
-                };
                 for &(difficulty, _) in &LEVELS {
                     let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
+                    // The entry names the file after the sounds it goes with:
+                    // with two banks (`pick_banks`), the first bank alone is
+                    // one song (No.033's NORMAL to 5-button, the file after
+                    // it the second bank) and the second bank with the chart
+                    // the other (its EX).
+                    let next = if bank + 2 == file { file - 1 } else { file + 1 };
+                    let Some(number) = (0..song_count)
+                        .map(|i| songs_at + i * 12)
+                        .find(|&at| u16_at(at + 8) == Some(next as u16))
+                        .and_then(|at| u32_at(exe, at))
+                        .filter(|&n| (n as usize) < stream_count)
+                    else {
+                        continue;
+                    };
+                    let at = streams_at + number as usize * 8;
+                    let (Some(stream), Some(lead)) = (u32_at(exe, at), u32_at(exe, at + 4)) else {
+                        continue;
+                    };
+                    for chart in song
+                        .charts
+                        .iter_mut()
+                        .filter(|c| c.difficulty == difficulty)
+                    {
+                        chart.bgm_lead = lead;
+                    }
                     song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
             }
@@ -928,11 +945,11 @@ fn pick_banks(song: &mut Song, peek: &mut dyn FnMut(u32, usize) -> Option<Vec<u8
 pub(crate) enum BgmStart {
     /// 12 to 14: starts the BGM stream there.
     Stream,
-    /// 8 to 10: the stream starts at the chart's start. The command comes
-    /// up to 5.6 s later (9's モッズ: its 120.1 s stream then runs to 118.2
-    /// s, its last note); matching the chart's sounds against the stream
-    /// puts the stream at 0 (−0.1 s) on the clearest songs of 9 and 10.
-    StreamAtZero,
+    /// 8 to 10: the stream starts at the chart's start, `lead` ms before
+    /// its time 0 (`Chart::bgm_lead`), so the chart's events come that much
+    /// later. The command comes up to 5.6 s later (9's モッズ: its 120.1 s
+    /// stream then runs to 118.2 s, its last note) and does not start it.
+    StreamLeads(u32),
     /// Without streams: plays the key sound its value names.
     KeySound,
 }
@@ -949,7 +966,8 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: BgmStart) -> Optio
         .chunks_exact(8)
         .filter_map(|e| {
             let time = match (e[5], bgm) {
-                (3, BgmStart::StreamAtZero) => 0,
+                (3, BgmStart::StreamLeads(_)) => 0,
+                (_, BgmStart::StreamLeads(lead)) => u32_at(e, 0)? + lead,
                 _ => u32_at(e, 0)?,
             };
             let (button, value) = (e[4], u16::from_le_bytes([e[6], e[7]]));
@@ -990,6 +1008,15 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: BgmStart) -> Optio
             Some(Event { time, command })
         })
         .collect();
+    // A bar line at 0 makes the lead a short bar of its own: the BMS
+    // conversion counts time from the first bar line, so without it the
+    // stream would start with the chart's first bar.
+    if matches!(bgm, BgmStart::StreamLeads(lead) if lead > 0) {
+        events.push(Event {
+            time: 0,
+            command: Command::Measure,
+        });
+    }
     events.sort_by_key(|e| e.time);
     Some(Ply {
         tick_ms: 1.0,

@@ -1413,6 +1413,9 @@ pub struct Chart {
     pub level: u8,
     /// The chart's file number.
     pub file: u32,
+    /// How long (ms) the BGM stream plays before the chart's time 0: pop'n
+    /// music 10 runs its clock as the stream's position less this. 0 elsewhere.
+    pub bgm_lead: u32,
 }
 
 impl Chart {
@@ -2011,7 +2014,9 @@ impl Disc {
         if self.edition.is_popn() {
             use crate::popn::BgmStart;
             let bgm = match self.edition.tables() {
-                Tables::Popn(layout) if layout.streams.is_some() => BgmStart::StreamAtZero,
+                Tables::Popn(layout) if layout.streams.is_some() => {
+                    BgmStart::StreamLeads(chart.bgm_lead)
+                }
                 Tables::Popn(layout) if layout.record.bgm => BgmStart::Stream,
                 _ => BgmStart::KeySound,
             };
@@ -2898,6 +2903,7 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
                     difficulty,
                     level: levels[layout.level_of[i]],
                     file: layout.numbers.chart(file),
+                    bgm_lead: 0,
                 })
             })
             .collect();
@@ -3060,6 +3066,7 @@ mod tests {
             difficulty: Difficulty::Beginner,
             level: 1,
             file,
+            bgm_lead: 0,
         };
         assert!(is_tutorial("TUTORIAL02", &[beginner(1)]));
         assert!(is_tutorial("PRACTICE", &[beginner(1)]));
