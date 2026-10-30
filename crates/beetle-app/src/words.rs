@@ -35,7 +35,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
     // Read again whenever the list has changed size, so a scan that finishes
     // after the first frame is still picked up.
     if disc_names.is_none() || *disc_names_songs != songs.len() {
-        *disc_names = Some(crate::names::load_all());
+        *disc_names = Some(crate::names::load_all(songs));
         *disc_names_songs = songs.len();
     }
     let Some(names) = disc_names.as_ref() else {

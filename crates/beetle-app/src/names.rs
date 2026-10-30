@@ -5,9 +5,10 @@
 //! rule `songs.cache` follows. Without it a song shows its text title.
 //!
 //! The list draws charts, so the file also maps each chart (its `ChartId`) to
-//! its disc song.
+//! its disc song, and names its disc: a chart on several discs takes the
+//! names of the disc it loads from (`load_all`).
 //!
-//! Format (little endian): the magic `BNMB` (the small title and the genre too; ink cut from a faint floor, measured off the background colour where that is not black); `u32` song count, then per song
+//! Format (little endian): the magic `BNMC` (the small title and the genre too; ink cut from a faint floor, measured off the background colour where that is not black; the disc); `u32` length and the disc image (or drive) in UTF-8; `u32` song count, then per song
 //! `u32` song id and the title and the artist, each `u8` present (0 or 1) and,
 //! when present, `u32` width, `u32` height and width × height coverage bytes;
 //! then `u32` chart count, then per chart its 32-byte `ChartId` and `u32` song id.
@@ -18,16 +19,18 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use beetle_core::ChartId;
+use beetle_core::{ChartId, SongAddress, SongMetadata};
 use cs_disc::iidx::Disc;
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
-const MAGIC: &[u8; 4] = b"BNMB";
+const MAGIC: &[u8; 4] = b"BNMC";
 
-/// The names of a disc: its songs by id, and which song each chart is.
+/// The names of a disc: the disc, its songs by id, and which song each chart is.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Names {
+    /// The disc image (or drive), as the charts' addresses name it.
+    pub source: String,
     pub songs: BTreeMap<u32, SongNames>,
     pub charts: Vec<(ChartId, u32)>,
 }
@@ -42,6 +45,8 @@ pub fn path(slug: &str) -> PathBuf {
 
 pub fn encode(names: &Names) -> Vec<u8> {
     let mut out = MAGIC.to_vec();
+    out.extend((names.source.len() as u32).to_le_bytes());
+    out.extend(names.source.as_bytes());
     out.extend((names.songs.len() as u32).to_le_bytes());
     for (id, song) in &names.songs {
         out.extend(id.to_le_bytes());
@@ -73,7 +78,12 @@ fn put_mask(out: &mut Vec<u8>, mask: Option<&Mask>) {
 /// The names `encode` wrote; `None` for a file that is not one (or is cut short).
 pub fn decode(bytes: &[u8]) -> Option<Names> {
     let mut at = bytes.strip_prefix(MAGIC)?;
-    let mut names = Names::default();
+    let length = take_u32(&mut at)? as usize;
+    let source = String::from_utf8(take(&mut at, length)?.to_vec()).ok()?;
+    let mut names = Names {
+        source,
+        ..Names::default()
+    };
     for _ in 0..take_u32(&mut at)? {
         let id = take_u32(&mut at)?;
         let title = take_mask(&mut at)?;
@@ -127,26 +137,51 @@ fn take_mask(at: &mut &[u8]) -> Option<Option<Mask>> {
     }
 }
 
-/// Every chart's song names, from every names file in the library folder.
-pub fn load_all() -> HashMap<ChartId, Arc<SongNames>> {
-    let mut by_chart = HashMap::new();
+/// Every chart's song names, from every names file in the library folder. A
+/// chart on several discs takes the names of the disc `songs` loads it from,
+/// so a 5th song shows 5th's pictures though 6th has the same chart; a chart
+/// that loads from elsewhere takes the first disc's.
+pub fn load_all(songs: &[SongMetadata]) -> HashMap<ChartId, Arc<SongNames>> {
     let files = fs::read_dir(DIR).into_iter().flatten().flatten();
-    for file in files {
+    let all = files.filter_map(|file| {
         let p = file.path();
         if p.extension().is_none_or(|e| e != "names") {
-            continue;
+            return None;
         }
-        let Some(names) = fs::read(&p).ok().and_then(|b| decode(&b)) else {
-            continue;
-        };
+        fs::read(&p).ok().and_then(|b| decode(&b))
+    });
+    by_chart(all, songs)
+}
+
+/// `load_all` for the names files `all`.
+fn by_chart(
+    all: impl Iterator<Item = Names>,
+    songs: &[SongMetadata],
+) -> HashMap<ChartId, Arc<SongNames>> {
+    let loads_from: HashMap<ChartId, &str> = songs
+        .iter()
+        .filter_map(|song| match SongAddress::parse(&song.file_path) {
+            SongAddress::Disc { image, .. } => Some((song.id, image)),
+            _ => None,
+        })
+        .collect();
+    let mut by_chart = HashMap::new();
+    for names in all {
         let songs: HashMap<u32, Arc<SongNames>> = names
             .songs
             .into_iter()
             .map(|(id, song)| (id, Arc::new(song)))
             .collect();
         for (chart, song) in names.charts {
-            if let Some(song_names) = songs.get(&song) {
+            let Some(song_names) = songs.get(&song) else {
+                continue;
+            };
+            if loads_from.get(&chart) == Some(&names.source.as_str()) {
                 by_chart.insert(chart, Arc::clone(song_names));
+            } else {
+                by_chart
+                    .entry(chart)
+                    .or_insert_with(|| Arc::clone(song_names));
             }
         }
     }
@@ -193,6 +228,7 @@ pub fn ensure<R: io::Read + io::Seek>(
         return;
     }
     let mut names = Names {
+        source: source.to_string(),
         charts: charts.to_vec(),
         ..Names::default()
     };
@@ -222,7 +258,10 @@ mod tests {
 
     #[test]
     fn names_round_trip() {
-        let mut names = Names::default();
+        let mut names = Names {
+            source: "D:/discs/5th.iso".to_string(),
+            ..Names::default()
+        };
         names.songs.insert(
             3,
             SongNames {
@@ -265,5 +304,42 @@ mod tests {
         assert_eq!(decode(b"NOPE"), None);
         assert_eq!(decode(&[]), None);
         assert_eq!(decode(MAGIC), None);
+    }
+    #[test]
+    fn a_chart_takes_the_names_of_the_disc_it_loads_from() {
+        let address = beetle_core::disc_address("5th.iso", "017/a");
+        let song = SongMetadata::from_bytes(
+            &address,
+            b"#TITLE a
+#00111:01
+",
+        )
+        .unwrap();
+        let chart = song.id;
+        let disc = |source: &str, fill: u8| {
+            let mut names = Names {
+                source: source.to_string(),
+                ..Names::default()
+            };
+            names.songs.insert(
+                1,
+                SongNames {
+                    title: Some(mask(1, 1, fill)),
+                    small_title: None,
+                    artist: None,
+                    genre: None,
+                    popn: false,
+                },
+            );
+            names.charts.push((chart, 1));
+            names
+        };
+        for order in [["5th.iso", "6th.iso"], ["6th.iso", "5th.iso"]] {
+            let all = order
+                .iter()
+                .map(|s| disc(s, if *s == "5th.iso" { 5 } else { 6 }));
+            let got = by_chart(all, std::slice::from_ref(&song));
+            assert_eq!(got[&chart].title.as_ref().unwrap().coverage, vec![5]);
+        }
     }
 }
