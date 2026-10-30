@@ -153,6 +153,11 @@ struct OldWords {
 /// executable, its rectangle table's, its rectangles).
 type Sheet = (usize, usize, usize);
 
+/// A `Sheet` rectangle table offset meaning there is none: 6th's title
+/// sheets hold one word a 28-pixel row, centred.
+const ROWS: usize = 0;
+const ROW_HEIGHT: u32 = 28;
+
 /// How an edition stores its dan courses.
 #[derive(Clone, Copy)]
 enum DanTable {
@@ -533,6 +538,7 @@ const FIFTH_STYLE: Layout = Layout {
             "L.E.D.",
         ],
     }),
+    old_words: None,
     ..SIXTH_STYLE
 };
 
@@ -602,7 +608,28 @@ const SIXTH_STYLE: Layout = Layout {
             "日 5th style",
         ],
     }),
-    old_words: None,
+    // Only the titles are pictures: nine 256x256 sheets of nine rows each
+    // (`ROWS`), the record's 0x20 counting rows over them. The genre and the
+    // artist are the strings at 0x08 and 0x0c, drawn in a font.
+    old_words: Some(OldWords {
+        size_before: false,
+        artist_at: 0x24,
+        genre_at: 0x1c,
+        title_at: 0x20,
+        artist: &[],
+        genre: &[],
+        title: &[
+            (0x6e51c0, ROWS, 9),
+            (0x6e773c, ROWS, 9),
+            (0x6e994a, ROWS, 9),
+            (0x6ec201, ROWS, 9),
+            (0x6ee5c8, ROWS, 9),
+            (0x6f0bfa, ROWS, 9),
+            (0x6f24bd, ROWS, 9),
+            (0x6f4d79, ROWS, 9),
+            (0x6f713e, ROWS, 3),
+        ],
+    }),
     ..EIGHTH_STYLE
 };
 
@@ -2019,6 +2046,15 @@ impl Disc {
         let start = self.executable.offset() + picture_at as u64;
         let len = PACKED.min(self.executable.size.saturating_sub(picture_at as u64));
         let packed = disc.read_at(start, len as usize)?;
+        let Some(sheet) = crate::lz::decode(&packed)
+            .as_deref()
+            .and_then(crate::ps2tex::decode_old_picture)
+        else {
+            return Ok(None);
+        };
+        if rects_at == ROWS {
+            return Ok(row_word(&sheet, n as u32));
+        }
         let at = self.executable.offset() + (rects_at + n * 8) as u64;
         let rect = match self.edition.tables() {
             Tables::Iidx(Layout {
@@ -2033,12 +2069,6 @@ impl Disc {
                 rect
             }
             _ => disc.read_at(at, 8)?,
-        };
-        let Some(sheet) = crate::lz::decode(&packed)
-            .as_deref()
-            .and_then(crate::ps2tex::decode_old_picture)
-        else {
-            return Ok(None);
         };
         let field = |k: usize| u16_le(&rect, k * 2).unwrap_or(0) as u32;
         let (x, y, w, h) = (field(0), field(1), field(2), field(3));
@@ -2377,6 +2407,21 @@ fn read_word_refs(
             })
         })
         .collect()
+}
+
+/// Row `n` of a 6th title sheet (`ROWS`), the sheet's full width
+/// (`popn::Mask` cuts the black on either side).
+fn row_word(sheet: &Rgba, n: u32) -> Option<Rgba> {
+    let top = n * ROW_HEIGHT;
+    if top + ROW_HEIGHT > sheet.height {
+        return None;
+    }
+    let at = (top * sheet.width) as usize;
+    Some(Rgba {
+        width: sheet.width,
+        height: ROW_HEIGHT,
+        pixels: sheet.pixels[at..at + (ROW_HEIGHT * sheet.width) as usize].to_vec(),
+    })
 }
 
 fn u16_le(bytes: &[u8], at: usize) -> Option<u16> {
