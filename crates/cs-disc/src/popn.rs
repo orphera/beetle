@@ -77,14 +77,20 @@ pub(crate) enum StreamOrder {
     /// its BGM number at 20, which names an 8-byte entry of `streams` (`u32`
     /// stream, `u32` volume) as on 9.
     Slots { streams: (usize, usize) },
-    /// 10: the game's own tables, as its BGM loader (0x161cb0 in the
-    /// executable) reads them: `songs` 12-byte entries (`u32` number,
-    /// `u16` twice, `u16` the song's key sound bank, the chart file + 1),
-    /// then the number's 8-byte entry in `streams` (`u32` stream, `u32`
-    /// lead in ms, `Chart::bgm_lead`) names the stream. The game's clock is
-    /// the stream's position (0x162070) less the lead (0x161c60, set at
+    /// 10: the game's own tables, as it reads them (0x15ac90, then its BGM
+    /// loader 0x161cb0): the record's byte at `pick_at` names a 0x60-byte
+    /// entry of `charts`, whose 16-byte slots (in level byte order) start
+    /// with the chart's `u32` place in `songs`. That 12-byte entry starts
+    /// with a `u32` number (then `u16` twice, `u16` the file after the
+    /// chart's sounds), and the number's 8-byte entry in `streams` (`u32`
+    /// stream, `u32` lead in ms, `Chart::bgm_lead`) names the stream. Some
+    /// charts have a BGM of their own (NORMAL and 5-button on No.047 and
+    /// 15 others, No.033's EX). The game's clock is the
+    /// stream's position (0x162070) less the lead (0x161c60, set at
     /// 0x1719dc, taken off at 0x183148).
     Table {
+        pick_at: usize,
+        charts: usize,
         songs: (usize, usize),
         streams: (usize, usize),
     },
@@ -261,6 +267,8 @@ pub(crate) const POPN10: Layout = Layout {
         dat: "SDB.DAT",
         files: (0xbdf70, 137),
         order: StreamOrder::Table {
+            pick_at: 0x36,
+            charts: 0xce21c,
             songs: (0xbeca4, 149),
             streams: (0xbe550, 135),
         },
@@ -480,29 +488,21 @@ pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, ba
     };
     match streams.order {
         StreamOrder::Table {
+            pick_at,
+            charts,
             songs: (songs_at, song_count),
             streams: (streams_at, stream_count),
         } => {
-            let u16_at = |at: usize| {
-                exe.get(at..at + 2)
-                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
-            };
+            let (at, _) = layout.songs;
+            let size = layout.record.size;
             for song in songs {
-                let Some(file) = song.charts.first().map(|c| c.file) else {
+                let Some(&pick) = exe.get(at + song.id as usize * size + pick_at) else {
                     continue;
                 };
-                for &(difficulty, _) in &LEVELS {
-                    let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
-                    // The entry names the file after the sounds it goes with:
-                    // with two banks (`pick_banks`), the first bank alone is
-                    // one song (No.033's NORMAL to 5-button, the file after
-                    // it the second bank) and the second bank with the chart
-                    // the other (its EX).
-                    let next = if bank + 2 == file { file - 1 } else { file + 1 };
-                    let Some(number) = (0..song_count)
-                        .map(|i| songs_at + i * 12)
-                        .find(|&at| u16_at(at + 8) == Some(next as u16))
-                        .and_then(|at| u32_at(exe, at))
+                for &(difficulty, level) in &LEVELS {
+                    let Some(number) = u32_at(exe, charts + pick as usize * 0x60 + level * 16)
+                        .filter(|&i| (i as usize) < song_count)
+                        .and_then(|i| u32_at(exe, songs_at + i as usize * 12))
                         .filter(|&n| (n as usize) < stream_count)
                     else {
                         continue;
@@ -518,6 +518,7 @@ pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, ba
                     {
                         chart.bgm_lead = lead;
                     }
+                    let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
                     song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
             }

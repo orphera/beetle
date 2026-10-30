@@ -120,6 +120,15 @@ fn measured_rate(samples: usize, duration_ms: u32) -> Option<u32> {
     (8000..=96000).contains(&rate).then_some(rate as u32)
 }
 
+/// A pop'n 8 to 10 bank's rate code as a rate: a pitch below 44100 in
+/// semitones (high byte, from 0x3e) and 128ths of one (low byte, from
+/// 0x44, upward). `0x4102` is 36000, `0x447d` 32000, `0x4800` 24000; the entries'
+/// lengths give the same rates for every code on 9 and 10.
+fn popn_rate(code: u16) -> u32 {
+    let steps = ((code >> 8) as f64 - 62.0) - ((code & 0xff) as f64 - 68.0) / 128.0;
+    (44100.0 * 2f64.powf(-steps / 12.0)).round() as u32
+}
+
 /// Sample rates by the code in a bank's file record ("Thanks Konami").
 fn rate(code: u8) -> Result<u32, SoundError> {
     Ok(match code {
@@ -263,15 +272,8 @@ impl<'a> Bank<'a> {
         for i in 0..count {
             let at = records + i * ENTRY;
             let offset = base + u32_at(data, at)? as usize;
-            let code = (u16_at(data, at + 6)? >> 8) as u8;
             let size = u32_at(data, at + 8)? as usize;
-            let rate = match code {
-                // pop'n 10 No.032 (`0x4102`; other songs' banks use 0x3e): its
-                // sounds fit the key and tuning of the song's BGM at 36000
-                // (37000 plays them about half a semitone sharp).
-                0x41 => 36000,
-                _ => rate(code)?,
-            };
+            let rate = popn_rate(u16_at(data, at + 6)?);
             files.push((offset, size, rate));
         }
         let mut sounds = Vec::new();
@@ -674,6 +676,15 @@ mod tests {
         let mut full = [32767i16, -32768];
         apply_volume(&mut full, 127);
         assert_eq!(full, [32767, -32768]);
+    }
+
+    #[test]
+    fn popn_rate_codes_are_semitones_and_128ths() {
+        assert_eq!(popn_rate(0x3e44), 44100);
+        assert_eq!(popn_rate(0x4a44), 22050);
+        assert_eq!(popn_rate(0x4102), 35995);
+        assert_eq!(popn_rate(0x4800), 24002);
+        assert_eq!(popn_rate(0x447d), 31996);
     }
 
     #[test]
