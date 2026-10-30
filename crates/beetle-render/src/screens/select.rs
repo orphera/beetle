@@ -909,7 +909,9 @@ fn song_list(
         let hot = !on && hs.hovered(view);
         let jacket = row_song_index(entry)
             .and_then(|i| f.songs.get(i))
-            .and_then(|song| jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)));
+            .and_then(|song| {
+                jackets.lookup(song.picture_key(), jacket_seed(&song.title, &song.artist))
+            });
         match *entry {
             SelectRow::Song(idx) => {
                 let Some(song) = f.songs.get(idx) else {
@@ -930,7 +932,7 @@ fn song_list(
                     on,
                     hot,
                     jacket,
-                    words.get(song.id),
+                    words.get(song.picture_key()),
                     s,
                 );
             }
@@ -975,7 +977,7 @@ fn song_list(
                 let group_words = charts
                     .get(selected)
                     .and_then(|&i| f.songs.get(i))
-                    .and_then(|song| words.get(song.id));
+                    .and_then(|song| words.get(song.picture_key()));
                 group_row(
                     c,
                     t,
@@ -2026,7 +2028,7 @@ fn detail_panel(
     jackets: &mut JacketAtlas,
     words: &WordAtlas,
 ) {
-    let word = words.get(song.id);
+    let word = words.get(song.picture_key());
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
     let inner = panel.inset(24.0 * s);
@@ -2086,43 +2088,45 @@ fn detail_panel(
                 c.fill_rect(jacket, theme::BG);
                 c.image(tex.id, jacket, cover_uv(tex, jacket), theme::WHITE);
             }
-            None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
-                // No stage image: the song's jacket thumbnail or placeholder, cropped to 4:3.
-                Some((region, _)) => {
-                    c.fill_rect(jacket, theme::SURF3);
-                    c.sprite_sub(
-                        region,
-                        Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
-                        jacket,
-                        theme::WHITE,
-                    );
+            None => {
+                match jackets.lookup(song.picture_key(), jacket_seed(&song.title, &song.artist)) {
+                    // No stage image: the song's jacket thumbnail or placeholder, cropped to 4:3.
+                    Some((region, _)) => {
+                        c.fill_rect(jacket, theme::SURF3);
+                        c.sprite_sub(
+                            region,
+                            Rect::new(0.0, 12.0, THUMB_PX as f32, 72.0),
+                            jacket,
+                            theme::WHITE,
+                        );
+                    }
+                    None => {
+                        c.fill_rect_corners(
+                            jacket,
+                            [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
+                        );
+                        c.set_additive(true);
+                        c.sprite_centered(
+                            sk.flare,
+                            jacket.x + jacket.w * 0.7,
+                            jacket.y + jacket.h * 0.3,
+                            160.0 * s,
+                            160.0 * s,
+                            theme::WHITE.with_alpha(90),
+                        );
+                        c.set_additive(false);
+                        t.draw_in(
+                            c,
+                            theme::mode_label(song.play_mode),
+                            jacket.inset(12.0 * s),
+                            Align::Left,
+                            &TextStyle::new(44.0 * s)
+                                .bold()
+                                .color(theme::WHITE.with_alpha(40)),
+                        );
+                    }
                 }
-                None => {
-                    c.fill_rect_corners(
-                        jacket,
-                        [tier_col, theme::SURF3, theme::BG, tier_col.with_alpha(160)],
-                    );
-                    c.set_additive(true);
-                    c.sprite_centered(
-                        sk.flare,
-                        jacket.x + jacket.w * 0.7,
-                        jacket.y + jacket.h * 0.3,
-                        160.0 * s,
-                        160.0 * s,
-                        theme::WHITE.with_alpha(90),
-                    );
-                    c.set_additive(false);
-                    t.draw_in(
-                        c,
-                        theme::mode_label(song.play_mode),
-                        jacket.inset(12.0 * s),
-                        Align::Left,
-                        &TextStyle::new(44.0 * s)
-                            .bold()
-                            .color(theme::WHITE.with_alpha(40)),
-                    );
-                }
-            },
+            }
         }
         c.stroke_rect(jacket, s.max(1.0), theme::LINE);
         if let Some(secs) = f.preview_secs {

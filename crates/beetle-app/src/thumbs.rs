@@ -271,16 +271,16 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
         else {
             continue;
         };
-        if ui.jackets.contains(JacketKey::Chart(song.id)) {
+        if ui.jackets.contains(JacketKey::Chart(song.picture_key())) {
             continue;
         }
-        if thumbs.missing.contains(&song.id) {
+        if thumbs.missing.contains(&song.picture_key()) {
             let seed = jacket_seed(&song.title, &song.artist);
             ui.jackets.ensure_placeholder(ui.canvas.atlas_mut(), seed);
             continue;
         }
         busy = true;
-        wanted.push((song.id, song));
+        wanted.push((song.picture_key(), song));
     }
     if settled {
         thumbs.set_wanted(&wanted);

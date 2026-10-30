@@ -98,6 +98,19 @@ pub struct SongMetadata {
 }
 
 impl SongMetadata {
+    /// What the pictures drawn for this entry (words, jacket, stage art) are
+    /// kept under. A game disc lists its own copy of a chart that other discs
+    /// also have, each with that disc's pictures, so a disc copy's key is its
+    /// address; any other copy's is its `id`. Records stay under `id`.
+    pub fn picture_key(&self) -> ChartId {
+        match crate::SongAddress::parse(&self.file_path) {
+            crate::SongAddress::Disc { .. } => {
+                ChartId::of_bytes(format!("picture:{}", self.file_path).as_bytes())
+            }
+            _ => self.id,
+        }
+    }
+
     /// Extracts metadata from a chart file's raw bytes. The identity is taken
     /// from the bytes exactly as stored; only parsing sees them decoded.
     pub fn from_bytes(file_path: &str, bytes: &[u8]) -> Option<Self> {

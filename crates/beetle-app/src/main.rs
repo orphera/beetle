@@ -306,6 +306,7 @@ impl ApplicationHandler for BeetleApp {
             active_chart: None,
             active_timing: None,
             active_chart_id: beetle_core::ChartId::default(),
+            active_picture_key: beetle_core::ChartId::default(),
             active_ln: None,
             active_hcn: false,
             active_judge: None,
@@ -600,7 +601,7 @@ impl ApplicationHandler for BeetleApp {
                 // 2. Dispatch background loading ONLY if cursor has settled for at least 150ms
                 let is_settled = state.cursor_settle_time.elapsed() >= Duration::from_millis(150);
                 let selected_song = state.current_selected_song().cloned();
-                let selected_id = selected_song.as_ref().map(|s| s.id);
+                let selected_id = selected_song.as_ref().map(|s| s.picture_key());
                 let preview_wait =
                     state
                         .preview

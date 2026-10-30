@@ -6,7 +6,8 @@
 //! with `cs_disc`). A copy of a chart is a file (or package entry) whose bytes have the
 //! same `ChartId`; the game lists each chart once, loading the copy that
 //! `beetle_core::choose_load_index` picks among the copies in the same order
-//! `bpm` uses: folders before packages before discs, then source, then path.
+//! `bpm` uses: folders before packages, then source, then path. Each game
+//! disc a chart is on lists it again, as that disc's song.
 
 use crate::boot_progress::{self, Stage};
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
@@ -256,7 +257,7 @@ fn read_disc_songs(
             let key = chart.key(song);
             let address = disc_address(&source, &key);
             if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
-                charts.push((meta.id, song.id));
+                charts.push((meta.picture_key(), song.id));
                 copies.push(Copy {
                     kind: Kind::Disc,
                     source: source.clone(),
@@ -360,26 +361,22 @@ fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>
     out.into_inner().unwrap_or_default()
 }
 
-/// One entry per chart: the copy the game loads, chosen from each group in
-/// placement order, naming the chart's other disc copies (`also_on`).
+/// One entry per chart, loaded from the copy `bpm` would load among its
+/// folder and package copies, and one more for each game disc it is on: a
+/// disc lists its own songs, with its own pictures, apart from other discs.
 fn select_copies(by_chart: BTreeMap<ChartId, Vec<Copy>>) -> Vec<SongMetadata> {
-    by_chart
-        .into_values()
-        .filter_map(|mut group| {
-            group.sort_by(|a, b| (a.kind, &a.source, &a.path).cmp(&(b.kind, &b.source, &b.path)));
-            let intact: Vec<bool> = group.iter().map(|c| c.missing == Some(0)).collect();
-            let chosen = choose_load_index(&intact)?;
-            let also_on = group
-                .iter()
-                .enumerate()
-                .filter(|&(i, c)| i != chosen && c.kind == Kind::Disc)
-                .map(|(_, c)| c.meta.file_path.clone())
-                .collect();
-            let mut meta = group.into_iter().nth(chosen)?.meta;
-            meta.also_on = also_on;
-            Some(meta)
-        })
-        .collect()
+    let mut out = Vec::new();
+    for (_, mut group) in by_chart {
+        group.sort_by(|a, b| (a.kind, &a.source, &a.path).cmp(&(b.kind, &b.source, &b.path)));
+        let (discs, files): (Vec<Copy>, Vec<Copy>) =
+            group.into_iter().partition(|c| c.kind == Kind::Disc);
+        let intact: Vec<bool> = files.iter().map(|c| c.missing == Some(0)).collect();
+        if let Some(chosen) = choose_load_index(&intact) {
+            out.extend(files.into_iter().nth(chosen).map(|c| c.meta));
+        }
+        out.extend(discs.into_iter().map(|c| c.meta));
+    }
+    out
 }
 
 /// The files directly in each folder the copy check has looked in, by

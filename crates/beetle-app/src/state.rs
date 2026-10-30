@@ -176,6 +176,9 @@ pub struct AppState {
     pub active_chart: Option<BmsChart>,
     pub active_timing: Option<TimingModel>,
     pub active_chart_id: ChartId,
+    /// The loaded entry's `SongMetadata::picture_key`: its stage art and BGA
+    /// fallback are kept under it (a disc's copy has that disc's art).
+    pub active_picture_key: ChartId,
     /// The long note rule the loaded chart is played under; `None` when it has no long notes.
     pub active_ln: Option<LnRule>,
     /// The loaded chart asked for HCN, which is played as CN.

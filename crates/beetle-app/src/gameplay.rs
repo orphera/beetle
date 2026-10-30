@@ -128,9 +128,10 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     // Cache stage image for loading screen. The select screen caches an IIDX
     // disc's art without a picture (it does not read it there), so such an
     // entry is loaded again here.
-    if !matches!(state.stage_image_cache.get(&song.id), Some(pic) if pic.image.is_some()) {
+    if !matches!(state.stage_image_cache.get(&song.picture_key()), Some(pic) if pic.image.is_some())
+    {
         let pic = load_stage(song);
-        state.stage_image_cache.insert(song.id, pic);
+        state.stage_image_cache.insert(song.picture_key(), pic);
     }
 
     // A replay re-rolls `#RANDOM` with the seed it was recorded with; a fresh
@@ -352,6 +353,7 @@ pub fn finalize_start_gameplay(
     state.active_chart = Some(play_chart);
     state.active_timing = Some(timing);
     state.active_chart_id = song.id;
+    state.active_picture_key = song.picture_key();
     state.active_ln = play_chart_has_long_notes.then_some(ruleset.ln);
     // After the practice fast-forward above: the notes it passed are judged.
     state.first_note_time = beetle_render::first_note_time(judge_engine.notes());
@@ -367,7 +369,7 @@ pub fn finalize_start_gameplay(
     // The stage art shows as the BGA fallback when the BGA option is on.
     let stage = state
         .stage_image_cache
-        .get(&song.id)
+        .get(&song.picture_key())
         .and_then(|pic| pic.image.clone());
     state.active_bga_image = stage
         .filter(|_| state.bga_enabled)

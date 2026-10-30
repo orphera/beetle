@@ -424,7 +424,7 @@ pub type StageLoad = (ChartId, StagePicture);
 
 /// Spawns a background thread to load a song's stage image without blocking the UI thread.
 pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<StageLoad> {
-    let id = song.id;
+    let id = song.picture_key();
     let song_clone = song.clone();
     let (tx, rx) = channel();
 

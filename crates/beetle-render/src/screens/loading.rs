@@ -88,7 +88,7 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
                 theme::WHITE.with_alpha(a(255)),
             );
         }
-        None => match jackets.lookup(song.id, jacket_seed(&song.title, &song.artist)) {
+        None => match jackets.lookup(song.picture_key(), jacket_seed(&song.title, &song.artist)) {
             // No stage image: the song's placeholder (or thumbnail), cropped to 4:3.
             Some((region, _)) => {
                 c.fill_rect(jacket, theme::SURF3.with_alpha(a(255)));

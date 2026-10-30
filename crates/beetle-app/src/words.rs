@@ -35,7 +35,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
     // Read again whenever the list has changed size, so a scan that finishes
     // after the first frame is still picked up.
     if disc_names.is_none() || *disc_names_songs != songs.len() {
-        *disc_names = Some(crate::names::load_all(songs));
+        *disc_names = Some(crate::names::load_all());
         *disc_names_songs = songs.len();
     }
     let Some(names) = disc_names.as_ref() else {
@@ -64,10 +64,10 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
             let Some(song) = songs.get(i) else {
                 continue;
             };
-            if ui.words.contains(song.id) {
+            if ui.words.contains(song.picture_key()) {
                 continue;
             }
-            let Some(song_names) = names.get(&song.id) else {
+            let Some(song_names) = names.get(&song.picture_key()) else {
                 continue;
             };
             let title = song_names.title.as_ref().map(word);
@@ -79,7 +79,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
             }
             ui.words.insert(
                 ui.canvas.atlas_mut(),
-                song.id,
+                song.picture_key(),
                 title,
                 small_title,
                 artist,

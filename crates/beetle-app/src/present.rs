@@ -245,7 +245,7 @@ pub fn gameplay(
             state.poor_bga_bmp,
             state.current_bga_bmp,
             state.active_bga_image.as_ref(),
-            state.active_chart_id,
+            state.active_picture_key,
             audio_time,
         )
     });
@@ -264,7 +264,7 @@ pub fn gameplay(
             )
         });
     // The stage image the loading screen showed, for the empty HUD column.
-    let jacket = stage_texture(state, state.active_chart_id);
+    let jacket = stage_texture(state, state.active_picture_key);
     state.view.clean_expired_hit_bursts(audio_time);
     let (badge, hint) = gameplay_badge_and_hint(
         state.is_replay_playback,
@@ -347,7 +347,7 @@ fn stage_texture(state: &mut AppState, id: ChartId) -> Option<beetle_render::Siz
 /// The rest of a load, on the play lane: the empty play screen of the song
 /// with the loading bar over the lane. Nothing plays and no clock runs.
 fn loading_lane(state: &mut AppState, size: PhysicalSize<u32>) {
-    let Some(id) = state.loading_song.as_ref().map(|s| s.id) else {
+    let Some(id) = state.loading_song.as_ref().map(|s| s.picture_key()) else {
         return;
     };
     let jacket = stage_texture(state, id);
@@ -484,7 +484,7 @@ fn option_lines(state: &AppState, table: &'static [OptionDesc]) -> Vec<OptionLin
 
 /// Song select plus its option / quit modals.
 pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
-    let selected_id = state.current_selected_song().map(|s| s.id);
+    let selected_id = state.current_selected_song().map(|s| s.picture_key());
     let ln_option = state.ln_option();
     let has_replay = state
         .current_selected_song()
@@ -513,7 +513,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     begin(state, size);
     let backdrop_song = state
         .current_selected_song()
-        .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
+        .map(|s| (s.picture_key(), jacket_seed(&s.title, &s.artist)));
     let now = Instant::now();
     show_backdrop(state, backdrop_song, now);
     let crumbs = crate::folders::crumbs(&state.folder_tree, &state.folder_path);
@@ -818,7 +818,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     let (jacket, ambient) = match state.loading_song.as_ref() {
         Some(song) => match state
             .stage_image_cache
-            .get(&song.id)
+            .get(&song.picture_key())
             .and_then(|pic| pic.image.clone().map(|img| (pic.id, img)))
         {
             Some((stage, img)) => (
@@ -840,7 +840,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     let backdrop_song = state
         .loading_song
         .as_ref()
-        .map(|s| (s.id, jacket_seed(&s.title, &s.artist)));
+        .map(|s| (s.picture_key(), jacket_seed(&s.title, &s.artist)));
     let now = Instant::now();
     show_loading_backdrop(state, backdrop_song, now);
     let (status, fraction) = loading_status();
@@ -914,7 +914,7 @@ fn show_result_backdrop(state: &mut AppState, now: Instant) {
     if state.gpu_ui.ui.current().lite {
         return;
     }
-    let played = state.active_chart_id;
+    let played = state.active_picture_key;
     let backdrop = state
         .stage_image_cache
         .get(&played)
@@ -966,7 +966,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     let jacket = state.active_bga_image.as_ref().and_then(|img| {
         state.gpu_ui.image(
             &mut state.d3d11,
-            ImageKey::Stage(state.active_chart_id),
+            ImageKey::Stage(state.active_picture_key),
             img,
         )
     });
