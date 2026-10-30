@@ -206,8 +206,7 @@ enum Ink {
     Auto,
 }
 
-/// An `OldWords` record field that is not there: 5th's artists are round
-/// record labels, not words, so its artist stays text.
+/// An `OldWords` record field that is not there.
 const NO_FIELD: usize = usize::MAX;
 const TEXTURE_SIDE: usize = 128;
 
@@ -502,8 +501,8 @@ const THIRD_STYLE: Layout = Layout {
             "HELL",
         ],
     }),
-    // One sprite (0x1c) holds the genre above the title; 0x14 is the
-    // artist's record label.
+    // One sprite (0x1c) holds the genre above the title; 0x18 is the
+    // artist's record label, shown as the artist (0x14 is another title).
     old_words: Some(OldWords {
         size_before: false,
         sprites: Some(Sprites {
@@ -519,7 +518,7 @@ const THIRD_STYLE: Layout = Layout {
             artist: Ink::Dark,
             genre_above_title: true,
         }),
-        artist_at: NO_FIELD,
+        artist_at: 0x18,
         genre_at: NO_FIELD,
         title_at: 0x1c,
         artist: &[],
@@ -574,7 +573,8 @@ const FOURTH_STYLE: Layout = Layout {
         ],
     }),
     // Title (0x20) and genre (0x1c) are sprites, as on 5th; 0x14 and 0x18
-    // are the artist's record label.
+    // are the artist's record label, large and small; the small one is shown
+    // as the artist.
     old_words: Some(OldWords {
         size_before: false,
         sprites: Some(Sprites {
@@ -590,7 +590,7 @@ const FOURTH_STYLE: Layout = Layout {
             artist: Ink::Dark,
             genre_above_title: false,
         }),
-        artist_at: NO_FIELD,
+        artist_at: 0x18,
         genre_at: 0x1c,
         title_at: 0x20,
         artist: &[],
@@ -645,7 +645,8 @@ const FIFTH_STYLE: Layout = Layout {
         ],
     }),
     // Title (0x20) and genre (0x1c) are sprites; 0x14 and 0x18 are the
-    // artist's record label, large and small.
+    // artist's record label, large and small; the small one is shown as the
+    // artist (the large one is drawn turning, cut by its frame).
     old_words: Some(OldWords {
         size_before: false,
         sprites: Some(Sprites {
@@ -661,7 +662,7 @@ const FIFTH_STYLE: Layout = Layout {
             artist: Ink::Dark,
             genre_above_title: false,
         }),
-        artist_at: NO_FIELD,
+        artist_at: 0x18,
         genre_at: 0x1c,
         title_at: 0x20,
         artist: &[],
