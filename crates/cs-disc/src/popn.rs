@@ -24,7 +24,7 @@
 //! lists them, and its banner (genre and title, from `IMAGE.DAT`) is its
 //! loading picture (`banner`). Format notes: `docs/specs/popn_ps2_disc.md`.
 
-use crate::iidx::{Chart, Difficulty, FileEntry, Song, Style};
+use crate::iidx::{Chart, Difficulty, Edition, FileEntry, Song, Style};
 use crate::ply::{Command, Event, Ply, Side};
 use crate::ps2tex::{decode_psmt8, Rgba};
 
@@ -48,6 +48,19 @@ pub(crate) struct Layout {
     pub record: Record,
     /// The BGM streams, where they are a file of their own (9).
     pub streams: Option<Streams>,
+}
+
+/// The pop'n layout for an edition, kept beside the pop'n layout definitions.
+pub(crate) fn layout_for(edition: Edition) -> Option<&'static Layout> {
+    match edition {
+        Edition::Popn8 => Some(&POPN8),
+        Edition::Popn9 => Some(&POPN9),
+        Edition::Popn10 => Some(&POPN10),
+        Edition::Popn12 => Some(&POPN12),
+        Edition::Popn13 => Some(&POPN13),
+        Edition::Popn14 => Some(&POPN14),
+        _ => None,
+    }
 }
 
 /// A disc's BGM streams in a data file of their own (8's and 9's

@@ -1373,6 +1373,9 @@ impl Edition {
     }
 
     fn tables(self) -> Tables {
+        if let Some(layout) = crate::popn::layout_for(self) {
+            return Tables::Popn(layout);
+        }
         Tables::Iidx(match self {
             Edition::ThirdStyle => &THIRD_STYLE,
             Edition::FourthStyle => &FOURTH_STYLE,
@@ -1389,12 +1392,7 @@ impl Edition {
             Edition::DjTroopers => &DJ_TROOPERS,
             Edition::Empress => &EMPRESS,
             Edition::PremiumBest => &PREMIUM_BEST,
-            Edition::Popn8 => return Tables::Popn(&crate::popn::POPN8),
-            Edition::Popn9 => return Tables::Popn(&crate::popn::POPN9),
-            Edition::Popn10 => return Tables::Popn(&crate::popn::POPN10),
-            Edition::Popn12 => return Tables::Popn(&crate::popn::POPN12),
-            Edition::Popn13 => return Tables::Popn(&crate::popn::POPN13),
-            Edition::Popn14 => return Tables::Popn(&crate::popn::POPN14),
+            _ => unreachable!("pop'n editions are handled by popn::layout_for"),
         })
     }
 }
