@@ -460,20 +460,12 @@ fn collection_of(file_path: &str) -> Option<(String, String)> {
 fn dir_folders(songs: &[SongMetadata], pass: &[bool]) -> Vec<Folder> {
     let mut by_dir: BTreeMap<String, (String, Vec<usize>)> = BTreeMap::new();
     for (i, s) in songs.iter().enumerate().filter(|(i, _)| pass[*i]) {
-        // A chart on several discs is in each disc's folder.
-        let mut seen = Vec::new();
-        for path in std::iter::once(&s.file_path).chain(&s.also_on) {
-            if let Some((id, label)) = collection_of(path) {
-                if seen.contains(&id) {
-                    continue;
-                }
-                seen.push(id.clone());
-                by_dir
-                    .entry(id)
-                    .or_insert_with(|| (label, Vec::new()))
-                    .1
-                    .push(i);
-            }
+        if let Some((id, label)) = collection_of(&s.file_path) {
+            by_dir
+                .entry(id)
+                .or_insert_with(|| (label, Vec::new()))
+                .1
+                .push(i);
         }
     }
     let mut label_uses: HashMap<String, usize> = HashMap::new();
@@ -882,39 +874,7 @@ pub fn group_entries(
         Song(usize),
         Group(u64),
     }
-    let mut keys = group_keys(songs);
-    // A chart listed once for several discs (`also_on`) carries the song
-    // folder of one disc. When every chart of a group is such a chart and
-    // the list holds the same song of another disc they are on, the group
-    // joins that song: one row (GAMBOL's five level 1 charts are on both
-    // RED and PREMIUM BEST, its ANOTHERs on RED alone).
-    let mut buckets: HashMap<u64, Vec<usize>> = HashMap::new();
-    for &i in indices {
-        if let Some(key) = keys[i] {
-            buckets.entry(key).or_default().push(i);
-        }
-    }
-    let elsewhere = |i: usize| -> Vec<u64> {
-        songs[i]
-            .also_on
-            .iter()
-            .filter_map(|path| song_folder(path))
-            .map(|folder| fnv(&folder))
-            .filter(|key| buckets.contains_key(key))
-            .collect()
-    };
-    let movable: HashSet<u64> = buckets
-        .iter()
-        .filter(|(_, charts)| charts.iter().all(|&i| !elsewhere(i).is_empty()))
-        .map(|(&key, _)| key)
-        .collect();
-    for key in &movable {
-        for &i in &buckets[key] {
-            if let Some(&target) = elsewhere(i).iter().find(|k| !movable.contains(k)) {
-                keys[i] = Some(target);
-            }
-        }
-    }
+    let keys = group_keys(songs);
     let mut members: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut order = Vec::new();
     for &i in indices {
@@ -1110,7 +1070,6 @@ mod tests {
             notes_count: 100,
             play_mode: mode,
             difficulty: None,
-            also_on: Vec::new(),
         }
     }
 
@@ -1811,29 +1770,6 @@ mod tests {
     }
 
     #[test]
-    fn a_chart_on_two_discs_is_in_both_disc_folders_and_listed_once() {
-        let songs = vec![SongMetadata {
-            also_on: vec!["disc:D:/iso/iidx16pb.iso::004/sp_another".into()],
-            ..chart(1, "disc:D:/iso/iidx16.iso::017/sp_another", "MENDES", 10)
-        }];
-        let pass = pass_all(&songs);
-        let dirs = dir_folders(&songs, &pass);
-        let labels: Vec<&str> = dirs.iter().map(|f| f.label.as_str()).collect();
-        assert_eq!(labels, ["iidx16", "iidx16pb"]);
-        assert!(dirs.iter().all(|f| f.body == Body::Leaf(vec![0])));
-        let tree = build_tree(
-            &songs,
-            &ScoreStore::new(),
-            &TableIndex::new(Vec::new()),
-            LnOption::Cn,
-            &pass,
-        );
-        // Disc songs are not in 전체 곡; they are in the 디스크 folder.
-        assert!(node(&tree, &FolderPath::top("all")).is_none());
-        assert!(node(&tree, &FolderPath::top("disc")).is_some());
-    }
-
-    #[test]
     fn the_charts_of_one_folder_share_a_group_key() {
         let songs = vec![
             chart(1, "songs/AIR/a.bms", "AIRSHAVER [7key, Another]", 12),
@@ -1865,51 +1801,6 @@ mod tests {
         assert_ne!(keys[2], keys[3]);
         let entries = group_entries(&songs, &[0, 1, 2, 3, 4], &ChartChoices::new());
         assert_eq!(entries.len(), 4);
-    }
-
-    #[test]
-    fn a_chart_shared_by_two_discs_joins_its_song_on_either_disc() {
-        let songs = vec![
-            SongMetadata {
-                also_on: vec!["disc:D:/iso/13.iso::056/dp_hyper".into()],
-                ..chart(1, "disc:D:/iso/12.iso::026/dp_hyper", "MEI", 9)
-            },
-            chart(2, "disc:D:/iso/12.iso::026/sp_hyper", "MEI", 8),
-            chart(3, "disc:D:/iso/13.iso::056/sp_hyper", "MEI", 8),
-        ];
-        // On 13's own list the 12 copy joins 13's MEI: one row, not two.
-        let on_13 = group_entries(&songs, &[0, 2], &ChartChoices::new());
-        assert_eq!(on_13.len(), 1);
-        // With both discs it stays with 12's MEI.
-        let all = group_entries(&songs, &[0, 1, 2], &ChartChoices::new());
-        assert!(
-            matches!(&all[0], ListEntry::Group { charts, .. } if charts.contains(&0) && charts.contains(&1))
-        );
-    }
-
-    #[test]
-    fn a_song_whose_charts_are_all_on_another_disc_joins_that_discs_song() {
-        let shared = |id, slot: &str, level| SongMetadata {
-            also_on: vec![format!("disc:D:/iso/red.iso::053/{slot}")],
-            ..chart(
-                id,
-                &format!("disc:D:/iso/pb.iso::093/{slot}"),
-                "GAMBOL",
-                level,
-            )
-        };
-        let songs = vec![
-            shared(1, "sp_normal", 1),
-            shared(2, "sp_hyper", 1),
-            chart(3, "disc:D:/iso/red.iso::053/sp_another", "GAMBOL", 9),
-            chart(4, "disc:D:/iso/red.iso::053/dp_another", "GAMBOL", 9),
-        ];
-        // RED's list, or both discs: one GAMBOL row of four charts.
-        let all = group_entries(&songs, &[0, 1, 2, 3], &ChartChoices::new());
-        assert!(matches!(&all[..], [ListEntry::Group { charts, .. }] if charts.len() == 4));
-        // PREMIUM BEST's own list keeps its two.
-        let pb = group_entries(&songs, &[0, 1], &ChartChoices::new());
-        assert!(matches!(&pb[..], [ListEntry::Group { charts, .. }] if charts.len() == 2));
     }
 
     #[test]

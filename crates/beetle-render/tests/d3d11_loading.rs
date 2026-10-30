@@ -33,7 +33,6 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
         notes_count: 1873,
         play_mode: PlayMode::Keys7,
         difficulty: None,
-        also_on: Vec::new(),
     };
     let chips = vec![
         strings::fill(strings::CHIP_GREEN(), &["500"]),

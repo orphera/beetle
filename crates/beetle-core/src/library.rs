@@ -91,10 +91,6 @@ pub struct SongMetadata {
     /// The chart's `#DIFFICULTY`: 1 BEGINNER, 2 NORMAL, 3 HYPER, 4 ANOTHER,
     /// 5 INSANE. `None` when the chart does not say.
     pub difficulty: Option<u32>,
-    /// The addresses (`file_path` form) of the same chart on other game
-    /// discs. The game lists a chart once and loads `file_path`; a disc's
-    /// folder still lists the charts it holds.
-    pub also_on: Vec<String>,
 }
 
 impl SongMetadata {
@@ -157,7 +153,6 @@ impl SongMetadata {
             ln_mode,
             play_mode,
             difficulty,
-            also_on: Vec::new(),
         })
     }
 
@@ -204,7 +199,7 @@ impl SongMetadata {
     /// Serializes to one `field=value` line, tab separated.
     pub fn serialize_line(&self) -> String {
         format!(
-            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tdiff={}\tid={}\tmd5={}\tlegacy={:016x}{}",
+            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tdiff={}\tid={}\tmd5={}\tlegacy={:016x}",
             escape_field(&self.file_path),
             escape_field(&self.title),
             escape_field(&self.subtitle),
@@ -222,12 +217,6 @@ impl SongMetadata {
             self.id,
             md5_to_hex(&self.md5),
             self.legacy_hash,
-            if self.also_on.is_empty() {
-                String::new()
-            } else {
-                // `|` cannot be in a Windows path.
-                format!("\talso={}", escape_field(&self.also_on.join("|")))
-            },
         )
     }
 
@@ -243,7 +232,6 @@ impl SongMetadata {
         let (mut ln_count, mut ln_mode) = (0, None);
         let mut play_mode = PlayMode::Keys7;
         let mut difficulty = None;
-        let mut also_on = Vec::new();
         let (mut id, mut md5, mut hash) = (None, None, None);
 
         for field in line.split('\t') {
@@ -279,12 +267,6 @@ impl SongMetadata {
                 "id" => id = ChartId::from_hex(value),
                 "md5" => md5 = md5_from_hex(value),
                 "legacy" => hash = u64::from_str_radix(value, 16).ok(),
-                "also" => {
-                    also_on = unescape_field(value)
-                        .split('|')
-                        .map(str::to_string)
-                        .collect()
-                }
                 _ => {}
             }
         }
@@ -307,7 +289,6 @@ impl SongMetadata {
             ln_mode,
             play_mode,
             difficulty,
-            also_on,
         })
     }
 }
@@ -427,10 +408,6 @@ mod tests {
             notes_count: 1200,
             play_mode: PlayMode::Keys7,
             difficulty: None,
-            also_on: vec![
-                "disc:D:/iso/a.iso::017/sp_another".to_string(),
-                "disc:E:::017/sp_another".to_string(),
-            ],
         };
 
         let line = meta.serialize_line();
@@ -460,7 +437,6 @@ mod tests {
                 notes_count: 100,
                 play_mode: PlayMode::Keys7,
                 difficulty: None,
-                also_on: Vec::new(),
             },
             SongMetadata {
                 id: ChartId::synthetic(2),
@@ -480,7 +456,6 @@ mod tests {
                 notes_count: 50,
                 play_mode: PlayMode::Keys7,
                 difficulty: None,
-                also_on: Vec::new(),
             },
         ];
         let store = ScoreStore::new();

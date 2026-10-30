@@ -50,7 +50,6 @@ fn song(n: u64) -> SongMetadata {
         notes_count: 1500,
         play_mode: PlayMode::Keys7,
         difficulty: None,
-        also_on: Vec::new(),
     }
 }
 

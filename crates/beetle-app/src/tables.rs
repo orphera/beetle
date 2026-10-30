@@ -56,11 +56,9 @@ pub fn build_index(songs: &[SongMetadata]) -> TableIndex {
 fn disc_dan_tables(songs: &[SongMetadata]) -> Vec<DifficultyTable> {
     let mut images: Vec<&str> = Vec::new();
     for song in songs {
-        for path in std::iter::once(&song.file_path).chain(&song.also_on) {
-            if let SongAddress::Disc { image, .. } = SongAddress::parse(path) {
-                if !images.contains(&image) {
-                    images.push(image);
-                }
+        if let SongAddress::Disc { image, .. } = SongAddress::parse(&song.file_path) {
+            if !images.contains(&image) {
+                images.push(image);
             }
         }
     }
@@ -75,11 +73,7 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
     let edition = cs_disc::identify(&mut disc).ok()??;
     let volume = cs_disc::Volume::open(&mut disc).ok()?;
     let read = cs_disc::iidx::Disc::open(&mut disc, &volume, edition).ok()?;
-    let by_address = |address: &str| {
-        songs
-            .iter()
-            .find(|s| s.file_path == address || s.also_on.iter().any(|p| p == address))
-    };
+    let by_address = |address: &str| songs.iter().find(|s| s.file_path == address);
     let chart_of = |id: u32, style: Style, difficulty: Difficulty| {
         let song = read.songs.iter().find(|s| s.id == id)?;
         let chart = song

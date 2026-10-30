@@ -301,7 +301,6 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
             difficulty: None,
-            also_on: Vec::new(),
         };
         let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);
@@ -348,7 +347,6 @@ mod tests {
             notes_count: 1500,
             play_mode: PlayMode::Keys7,
             difficulty: None,
-            also_on: Vec::new(),
         };
         let chips = vec![strings::fill(strings::CHIP_GREEN(), &["500"])];
         let mut ui = Ui::new(vp.scale);

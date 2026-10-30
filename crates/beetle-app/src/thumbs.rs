@@ -386,7 +386,6 @@ mod tests {
             notes_count: 0,
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
-            also_on: Vec::new(),
         }
     }
 

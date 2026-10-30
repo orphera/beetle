@@ -130,7 +130,6 @@ fn library() -> Vec<SongMetadata> {
                 notes_count: 900 + i * 137,
                 play_mode: *mode,
                 difficulty: None,
-                also_on: Vec::new(),
             }
         })
         .collect()
