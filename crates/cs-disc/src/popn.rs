@@ -233,7 +233,7 @@ pub(crate) const POPN9: Layout = Layout {
         chart_u16: true,
         levels_at: Some(0x44),
         banner_at: Some(0x40),
-        genre_at: Some(8),
+        genre_at: Some(0x0c),
         bgm: false,
         slots: None,
     },
@@ -1039,6 +1039,9 @@ pub(crate) fn chart(file: &[u8], difficulty: Difficulty, bgm: BgmStart) -> Optio
     })
 }
 
+/// Shift-JIS 0xa1 to 0xdf (half-width katakana) as full-width.
+const HALF_KANA: &str = "。「」、・ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン゛゜";
+
 /// JIS X 0208 row 1 (symbols), as Shift-JIS lays it out.
 const ROW1: &str = "　、。，．・：；？！゛゜´｀¨＾￣＿ヽヾゝゞ〃仝々〆〇ー―‐／＼～∥｜…‥‘’“”（）〔〕［］｛｝〈〉《》「」『』【】＋－±×÷＝≠＜＞≦≧∞∴♂♀°′″℃￥＄￠￡％＃＆＊＠§☆★○●◎◇";
 
@@ -1064,9 +1067,9 @@ pub(crate) fn real_charts(song: &mut Song, peek: &mut dyn FnMut(u32) -> Option<V
 }
 
 /// The kanji the discs' names use, by Shift-JIS code: pop'n 9's genres
-/// (俺ポップ, 昭和ブギウギ, 大河ドラマ, 昭和歌謡REMIX) and pop'n 8's titles.
-/// Not a full kanji table, to keep the binary small.
-const KANJI: [([u8; 2], char); 74] = [
+/// (俺ポップ, 昭和ブギウギ, 大河ドラマ, 昭和歌謡REMIX) and pop'n 8's and 9's
+/// titles. Not a full kanji table, to keep the binary small.
+const KANJI: [([u8; 2], char); 130] = [
     ([0x89, 0xb4], '俺'),
     ([0x8f, 0xba], '昭'),
     ([0x98, 0x61], '和'),
@@ -1141,6 +1144,62 @@ const KANJI: [([u8; 2], char); 74] = [
     ([0x94, 0x9a], '爆'),
     ([0x92, 0x65], '弾'),
     ([0x8a, 0xe7], '顔'),
+    ([0x90, 0x82], '垂'),
+    ([0x92, 0xbc], '直'),
+    ([0x90, 0x58], '森'),
+    ([0x8c, 0xdb], '鼓'),
+    ([0x93, 0xae], '動'),
+    ([0x98, 0x62], '話'),
+    ([0x90, 0xe1], '雪'),
+    ([0x89, 0xd8], '華'),
+    ([0x8f, 0xb6], '掌'),
+    ([0x8a, 0x76], '革'),
+    ([0x96, 0xbd], '命'),
+    ([0x96, 0xcf], '妄'),
+    ([0x8b, 0xf3], '空'),
+    ([0x89, 0xf1], '回'),
+    ([0x8b, 0xd6], '禁'),
+    ([0x8c, 0x5f], '契'),
+    ([0x96, 0xf1], '約'),
+    ([0x92, 0x6a], '男'),
+    ([0x93, 0xb9], '道'),
+    ([0x95, 0xfb], '方'),
+    ([0x93, 0x59], '添'),
+    ([0x8c, 0xf5], '光'),
+    ([0x8b, 0x47], '季'),
+    ([0x90, 0xdf], '節'),
+    ([0x8c, 0xe7], '檎'),
+    ([0x96, 0x49], '蜂'),
+    ([0x96, 0xa8], '蜜'),
+    ([0x94, 0xfc], '美'),
+    ([0x96, 0xa1], '味'),
+    ([0x94, 0x7b], '倍'),
+    ([0x91, 0x9d], '増'),
+    ([0x90, 0x85], '水'),
+    ([0x92, 0x86], '中'),
+    ([0x89, 0xc6], '家'),
+    ([0x91, 0xb0], '族'),
+    ([0x8e, 0xcc], '捨'),
+    ([0x93, 0x56], '天'),
+    ([0x8b, 0x43], '気'),
+    ([0x91, 0x44], '船'),
+    ([0x89, 0x66], '映'),
+    ([0x90, 0xc2], '青'),
+    ([0x8f, 0x74], '春'),
+    ([0x8b, 0xbe], '鏡'),
+    ([0x8e, 0x7e], '止'),
+    ([0x92, 0xb1], '蝶'),
+    ([0x8c, 0xbb], '現'),
+    ([0x8e, 0xc0], '実'),
+    ([0x92, 0xb4], '超'),
+    ([0x97, 0xac], '流'),
+    ([0x90, 0xaf], '星'),
+    ([0x96, 0xcd], '模'),
+    ([0x97, 0x6c], '様'),
+    ([0x92, 0x4e], '誰'),
+    ([0x90, 0x56], '新'),
+    ([0x91, 0xbe], '太'),
+    ([0x98, 0x59], '郎'),
 ];
 
 pub fn shift_jis(bytes: &[u8]) -> String {
@@ -1151,6 +1210,28 @@ pub fn shift_jis(bytes: &[u8]) -> String {
         if b < 0x80 {
             out.push(b as char);
             i += 1;
+            continue;
+        }
+        // Half-width katakana (9's はばたけ、ｻﾞ･ｸﾞﾚｰﾄｷﾞｬﾝﾌﾞﾗｰ), as full-width,
+        // a sound mark joining the kana before it.
+        if (0xa1..=0xdf).contains(&b) {
+            i += 1;
+            let c = HALF_KANA.chars().nth((b - 0xa1) as usize).unwrap_or('?');
+            let last = out.chars().last();
+            let joined = match (c, last) {
+                ('゛', Some('ウ')) => Some('ヴ'),
+                ('゛', Some(k)) if "カキクケコサシスセソタチツテトハヒフヘホ".contains(k) => {
+                    char::from_u32(k as u32 + 1)
+                }
+                ('゜', Some(k)) if "ハヒフヘホ".contains(k) => char::from_u32(k as u32 + 2),
+                _ => None,
+            };
+            if let Some(joined) = joined {
+                out.pop();
+                out.push(joined);
+            } else {
+                out.push(c);
+            }
             continue;
         }
         let Some(&second) = bytes.get(i + 1) else {
@@ -1211,6 +1292,17 @@ mod tests {
         assert_eq!(unpack(&input, 3).unwrap(), b"aba");
         assert_eq!(unpack(&[0x81, b'a'], 2), None);
         assert_eq!(unpack(&[], 0).unwrap(), b"");
+    }
+
+    #[test]
+    fn half_width_katakana_reads_as_full_width() {
+        // はばたけ、ｻﾞ･ｸﾞﾚｰﾄ (pop'n 9)
+        let bytes = [0x82, 0xcd, 0x82, 0xce, 0x82, 0xbd, 0x82, 0xaf, 0x81, 0x41];
+        let half = [0xbb, 0xde, 0xa5, 0xb8, 0xde, 0xda, 0xb0, 0xc4, 0xca, 0xdf];
+        assert_eq!(
+            shift_jis(&[&bytes[..], &half].concat()),
+            "はばたけ、ザ・グレートパ"
+        );
     }
 
     #[test]
