@@ -124,9 +124,21 @@ struct Layout {
     /// The EXPERT course table, where the edition has one
     /// (9th on; docs/specs/iidx_ps2_disc.md, 8).
     expert: Option<ExpertTable>,
+    /// Word-picture references in song records, where the edition has them.
+    word_layout: Option<WordLayout>,
     /// The song select's word pictures on 8th, which keeps them in the
     /// executable (`OldWords`).
     old_words: Option<OldWords>,
+}
+
+/// Song-record references to word-picture sheets and their rectangle base.
+/// RED and 10th's references were found but not verified; GOLD and DistorteD's
+/// genre and title pictures are also unverified.
+#[derive(Clone, Copy)]
+struct WordLayout {
+    /// Offsets of the index words for genre, big title, artist and small title.
+    offsets: [usize; 4],
+    rect_base: usize,
 }
 
 /// 8th's word pictures: LZ-packed pictures in the executable
@@ -948,6 +960,7 @@ const EIGHTH_STYLE: Layout = Layout {
             (0x72ae8d, 0x196bb0 + 224 * 8, 6),
         ],
     }),
+    word_layout: None,
 };
 
 /// 9th style: the 10th style record, its tables elsewhere.
@@ -1018,6 +1031,10 @@ const TENTH_STYLE: Layout = Layout {
         at: 0xc7fb8,
         count: 17,
     }),
+    word_layout: Some(WordLayout {
+        offsets: [0xdc, 0xe0, 0xe4, 0xec],
+        rect_base: 0x90,
+    }),
     old_words: None,
 };
 
@@ -1062,6 +1079,10 @@ const RED: Layout = Layout {
         at: 0xe7328,
         count: 17,
     }),
+    word_layout: Some(WordLayout {
+        offsets: [0xec, 0xf0, 0xf4, 0xf8],
+        rect_base: 0x90,
+    }),
     old_words: None,
 };
 
@@ -1105,6 +1126,10 @@ const HAPPY_SKY: Layout = Layout {
     expert: Some(ExpertTable::Inline {
         at: 0xfefd8,
         count: 17,
+    }),
+    word_layout: Some(WordLayout {
+        offsets: [0xd8, 0xdc, 0xe0, 0xe4],
+        rect_base: 0xd0,
     }),
     old_words: None,
 };
@@ -1156,6 +1181,10 @@ const DISTORTED: Layout = Layout {
         at: 0x10c558,
         count: 17,
     }),
+    word_layout: Some(WordLayout {
+        offsets: [0xa4, 0xa8, 0xac, 0xb0],
+        rect_base: 0xd0,
+    }),
     old_words: None,
 };
 
@@ -1197,6 +1226,10 @@ const GOLD: Layout = Layout {
         at: 0x144cc0,
         count: 16,
     }),
+    word_layout: Some(WordLayout {
+        offsets: [0xa0, 0xa4, 0xa8, 0xac],
+        rect_base: 0xd0,
+    }),
     old_words: None,
 };
 
@@ -1216,6 +1249,10 @@ const DJ_TROOPERS: Layout = Layout {
     expert: Some(ExpertTable::Pointers {
         at: 0x15dc70,
         count: 16,
+    }),
+    word_layout: Some(WordLayout {
+        offsets: [0xac, 0xb0, 0xb4, 0xb8],
+        rect_base: 0xd0,
     }),
     old_words: None,
 };
@@ -1239,6 +1276,10 @@ const EMPRESS: Layout = Layout {
     expert: Some(ExpertTable::Pointers {
         at: 0x167b10,
         count: 10,
+    }),
+    word_layout: Some(WordLayout {
+        offsets: [0xac, 0xb0, 0xb4, 0xb8],
+        rect_base: 0xd0,
     }),
     old_words: None,
 };
@@ -1845,9 +1886,9 @@ impl Disc {
             data1,
             data1_files,
             name_refs: Vec::new(),
-            word_refs: match (word_ref_offsets(edition), layout.old_words) {
-                (Some(offsets), _) => {
-                    read_word_refs(&exe, layout.songs, layout.record.size, offsets)
+            word_refs: match (layout.word_layout, layout.old_words) {
+                (Some(words), _) => {
+                    read_word_refs(&exe, layout.songs, layout.record.size, words.offsets)
                 }
                 (None, Some(words)) => (0..layout.songs.1 / layout.record.size)
                     .map(|id| {
@@ -2126,7 +2167,7 @@ impl Disc {
         }))
     }
 
-    /// The word pictures of an IIDX `song` (see `word_ref_offsets`).
+    /// The word pictures of an IIDX `song` (`WordLayout`).
     fn iidx_song_names<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
@@ -2189,13 +2230,12 @@ impl Disc {
             }));
         }
         let [genre, big, artist, small] = *refs;
-        let rect_base = if matches!(
-            self.edition,
-            Edition::Red | Edition::TenthStyle | Edition::NinthStyle
-        ) {
-            0x90
-        } else {
-            0xd0
+        let rect_base = match self.edition.tables() {
+            Tables::Iidx(layout) => layout.word_layout.map(|words| words.rect_base),
+            Tables::Popn(_) => None,
+        };
+        let Some(rect_base) = rect_base else {
+            return Ok(None);
         };
         let mask = |disc: &mut SectorReader<R>, (index, container): (u16, u16)| {
             Ok::<_, io::Error>(
@@ -2680,32 +2720,6 @@ fn archive_files(archive: &[u8]) -> Option<impl Iterator<Item = (usize, Option<&
         at += packed;
         Some((unpacked, bytes))
     }))
-}
-
-/// The record offsets of the word sheet references (see `word_ref_offsets`): each an
-/// `(index, container)` pair of u16s, for genre, big title, artist and small
-/// title (`iidx_ps2_disc.md`, found by checking the sheets by eye).
-/// Where each edition's record keeps the word references, as offsets of the
-/// index word (the container is two bytes on): genre, big title, artist,
-/// small title. The sheets of one song are consecutive containers: small
-/// title, big title, genre, artist (EMPRESS 298 to 301, DJ TROOPERS 330 to 333,
-/// GOLD 313 to 316, DistorteD 284 to 287), so the offsets follow the layout.
-fn word_ref_offsets(edition: Edition) -> Option<[usize; 4]> {
-    match edition {
-        Edition::Empress | Edition::PremiumBest | Edition::DjTroopers => {
-            Some([0xac, 0xb0, 0xb4, 0xb8])
-        }
-        Edition::Gold => Some([0xa0, 0xa4, 0xa8, 0xac]),
-        Edition::Red => Some([0xec, 0xf0, 0xf4, 0xf8]),
-        Edition::TenthStyle | Edition::NinthStyle => Some([0xdc, 0xe0, 0xe4, 0xec]),
-        Edition::Distorted => Some([0xa4, 0xa8, 0xac, 0xb0]),
-        Edition::HappySky => Some([0xd8, 0xdc, 0xe0, 0xe4]),
-        // RED (0xec..0xf8, sheets 281-284) and 10th style (0xdc..0xec, sheets
-        // 162-165) are found but not verified: 34 and 48 pictures are empty.
-        // GOLD (0xa0..0xac) and DistorteD (0xa4..0xb0) have the sheets at these
-        // offsets, but their genre and big title pictures are not verified yet.
-        _ => None,
-    }
 }
 
 /// Each song record's word references (`offsets`), in record order.
