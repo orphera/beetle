@@ -156,28 +156,40 @@ struct OldWords {
 /// executable, its rectangle table's, its rectangles).
 type Sheet = (usize, usize, usize);
 
-/// 6th's sprite tables, file offsets in the executable, as the select screen
-/// reads them (0x19ea58 places a sprite, 0x136470 sets the tables): sprite n
+/// 5th and 6th's sprite tables, file offsets in the executable, as the select
+/// screen reads them (6th: 0x19ea58 places a sprite, 0x136470 sets the
+/// tables; 5th: 0x135a14 sets them): sprite n
 /// is `u16` first frame and count at `anims + 4n`; a frame (10 bytes) names
 /// its part group by its first `u16`; a group is `u16` first part and count
 /// (4 bytes); a part (16 bytes) is `i16 x, y` against the sprite's place,
-/// `u16 w, h`, `u16` texture, `u8 u, v`. Textures from `FIRST_EXE_TEXTURE`
-/// on are in the executable (the rest in the loaded `IFs`), found by the
-/// `u32` addresses at `textures + 4n`: a `u32` kind, 0 for 4 bits a pixel,
+/// `u16 w, h`, `u16` texture, `u8 u, v`. Textures from `first_texture` on
+/// are in the executable (the rest in the loaded `IFs`), found by the `u32`
+/// addresses at `textures + 4n`: a `u32` kind, 0 for 4 bits a pixel,
 /// then 128x128 LZ-packed pixels, the low nibble first. Genre and artist
-/// words are grey ramps there, 1 the ink to 15 the box, 0 around it.
+/// words (and 5th's titles) are grey ramps there, 1 the ink to 15 the box, 0
+/// around it.
 #[derive(Clone, Copy)]
 struct Sprites {
     anims: usize,
     frames: usize,
     groups: usize,
     parts: usize,
+    /// Where texture 0's address would be (the table starts at
+    /// `first_texture`).
     textures: usize,
+    first_texture: usize,
     /// The executable's load address, less its file offset.
     base: usize,
+    /// 5th's titles are sprites too (6th's are `ROWS` sheets).
+    titles: bool,
+    /// 5th's genres are dark words on a shaded pill whose rim shares the
+    /// word's greys, so only the darkest grey (1) is ink.
+    genre_darkest: bool,
 }
 
-const FIRST_EXE_TEXTURE: usize = 1455;
+/// An `OldWords` record field that is not there: 5th's artists are round
+/// record labels, not words, so its artist stays text.
+const NO_FIELD: usize = usize::MAX;
 const TEXTURE_SIDE: usize = 128;
 
 /// A `Sheet` rectangle table offset meaning there is none: 6th's title
@@ -518,6 +530,7 @@ const FOURTH_STYLE: Layout = Layout {
             "L.E.D.",
         ],
     }),
+    old_words: None,
     ..FIFTH_STYLE
 };
 
@@ -565,7 +578,28 @@ const FIFTH_STYLE: Layout = Layout {
             "L.E.D.",
         ],
     }),
-    old_words: None,
+    // Title (0x20) and genre (0x1c) are sprites; 0x14 and 0x18 are the
+    // artist's record label, large and small.
+    old_words: Some(OldWords {
+        size_before: false,
+        sprites: Some(Sprites {
+            anims: 0x1b34a8 - 0xff000,
+            frames: 0x1b8608 - 0xff000,
+            groups: 0x262190 - 0xff000,
+            parts: 0x1d1c70 - 0xff000,
+            textures: 0x283a30 - 4 * 1709 - 0xff000,
+            first_texture: 1709,
+            base: 0xff000,
+            titles: true,
+            genre_darkest: true,
+        }),
+        artist_at: NO_FIELD,
+        genre_at: 0x1c,
+        title_at: 0x20,
+        artist: &[],
+        genre: &[],
+        title: &[],
+    }),
     ..SIXTH_STYLE
 };
 
@@ -646,7 +680,10 @@ const SIXTH_STYLE: Layout = Layout {
             groups: 0x25d298 - 0xff000,
             parts: 0x1ea3d8 - 0xff000,
             textures: 0x27f504 - 0xff000,
+            first_texture: 1455,
             base: 0xff000,
+            titles: false,
+            genre_darkest: false,
         }),
         artist_at: 0x24,
         genre_at: 0x1c,
@@ -1741,7 +1778,10 @@ impl Disc {
                 (None, Some(words)) => (0..layout.songs.1 / layout.record.size)
                     .map(|id| {
                         let at = layout.songs.0 + id * layout.record.size;
-                        let n = |k: usize| (u16_le(&exe, at + k).unwrap_or(u16::MAX), 0);
+                        let n = |k: usize| {
+                            let v = (k != NO_FIELD).then(|| u16_le(&exe, at + k)).flatten();
+                            (v.unwrap_or(u16::MAX), 0)
+                        };
                         [
                             n(words.genre_at),
                             n(words.title_at),
@@ -2032,14 +2072,21 @@ impl Disc {
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)))
             };
             return Ok(Some(crate::popn::SongNames {
-                title: word(disc, words.title, title)?,
+                title: match words.sprites {
+                    Some(sprites) if sprites.titles => {
+                        self.sprite_word(disc, sprites, title, false)?
+                    }
+                    _ => word(disc, words.title, title)?,
+                },
                 small_title: None,
                 artist: match words.sprites {
-                    Some(sprites) => self.sprite_word(disc, sprites, artist)?,
+                    Some(sprites) => self.sprite_word(disc, sprites, artist, false)?,
                     None => word(disc, words.artist, artist)?,
                 },
                 genre: match words.sprites {
-                    Some(sprites) => self.sprite_word(disc, sprites, genre)?,
+                    Some(sprites) => {
+                        self.sprite_word(disc, sprites, genre, sprites.genre_darkest)?
+                    }
                     None => word(disc, words.genre, genre)?,
                 },
                 popn: false,
@@ -2076,11 +2123,15 @@ impl Disc {
         disc: &mut SectorReader<R>,
         sprites: Sprites,
         n: u16,
+        darkest: bool,
     ) -> io::Result<Option<crate::popn::Mask>> {
         let exe = self.executable.offset();
         let u16_at = |disc: &mut SectorReader<R>, at: usize| -> io::Result<usize> {
             Ok(u16_le(&disc.read_at(exe + at as u64, 2)?, 0).unwrap_or(0) as usize)
         };
+        if n == u16::MAX {
+            return Ok(None);
+        }
         let frame = u16_at(disc, sprites.anims + 4 * n as usize)?;
         let group = u16_at(disc, sprites.frames + 10 * frame)?;
         let first = u16_at(disc, sprites.groups + 4 * group)?;
@@ -2094,6 +2145,7 @@ impl Disc {
             let f = |k: usize| u16_le(&e, k).unwrap_or(0);
             parts.push((
                 f(0) as i16 as i32,
+                f(2) as i16 as i32,
                 f(4) as usize,
                 f(6) as usize,
                 f(8) as usize,
@@ -2101,19 +2153,26 @@ impl Disc {
                 e[11] as usize,
             ));
         }
+        // A long word is cut into parts side by side, and some (5th's
+        // SOMETHING WONDERFUL) into two rows.
         let left = parts.iter().map(|p| p.0).min().unwrap_or(0);
+        let top = parts.iter().map(|p| p.1).min().unwrap_or(0);
         let width = parts
             .iter()
-            .map(|p| p.0 - left + p.1 as i32)
+            .map(|p| p.0 - left + p.2 as i32)
             .max()
             .unwrap_or(0) as usize;
-        let height = parts.iter().map(|p| p.2).max().unwrap_or(0);
+        let height = parts
+            .iter()
+            .map(|p| p.1 - top + p.3 as i32)
+            .max()
+            .unwrap_or(0) as usize;
         if width == 0 || height == 0 {
             return Ok(None);
         }
         let mut pixels = vec![[0, 0, 0, 255]; width * height];
-        for &(x, w, h, texture, u, v) in &parts {
-            if texture < FIRST_EXE_TEXTURE || u + w > TEXTURE_SIDE || v + h > TEXTURE_SIDE {
+        for &(x, y, w, h, texture, u, v) in &parts {
+            if texture < sprites.first_texture || u + w > TEXTURE_SIDE || v + h > TEXTURE_SIDE {
                 return Ok(None);
             }
             let address = disc.read_at(exe + (sprites.textures + 4 * texture) as u64, 4)?;
@@ -2136,13 +2195,19 @@ impl Disc {
                     let Some(&byte) = texels.get(i / 2) else {
                         return Ok(None);
                     };
-                    let index = if i.is_multiple_of(2) { byte & 15 } else { byte >> 4 };
-                    let ink = if index == 0 {
-                        0
+                    let index = if i.is_multiple_of(2) {
+                        byte & 15
                     } else {
-                        ((15 - index) as u32 * 255 / 14) as u8
+                        byte >> 4
                     };
-                    pixels[row * width + (x - left) as usize + col] = [ink, ink, ink, 255];
+                    let ink = match index {
+                        0 => 0,
+                        1 if darkest => 255,
+                        _ if darkest => 0,
+                        _ => ((15 - index) as u32 * 255 / 14) as u8,
+                    };
+                    pixels[(row + (y - top) as usize) * width + (x - left) as usize + col] =
+                        [ink, ink, ink, 255];
                 }
             }
         }
