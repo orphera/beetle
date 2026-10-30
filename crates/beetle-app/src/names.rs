@@ -27,8 +27,8 @@ use cs_disc::SectorReader;
 const MAGIC: &[u8; 4] = b"BNMD";
 /// Raised when the discs' names are read differently, so that older files
 /// read as unreadable and their discs are scanned again (`any_unreadable`).
-/// 1: pop'n 9's titles from record 0x3c. 2: its text titles from 0x0c.
-const VERSION: u32 = 2;
+/// 1: pop'n 9's titles from record 0x3c.
+const VERSION: u32 = 1;
 
 /// The names of a disc: its songs by id, and which song each chart entry
 /// (by picture key) is.
