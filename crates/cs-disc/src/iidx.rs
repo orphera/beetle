@@ -141,6 +141,9 @@ struct OldWords {
     /// (the previous entry's second half): "2002" at (0, 0) is 164 wide by
     /// the entry before it, "AVE DE RAPINA" at (164, 0) 214 by its own.
     size_before: bool,
+    /// 6th draws its genres and artists as sprites (`Sprites`), the record's
+    /// numbers being sprite numbers; its `artist` and `genre` sheets are empty.
+    sprites: Option<Sprites>,
     artist_at: usize,
     genre_at: usize,
     title_at: usize,
@@ -152,6 +155,30 @@ struct OldWords {
 /// One word picture of `OldWords`: (picture's file offset in the
 /// executable, its rectangle table's, its rectangles).
 type Sheet = (usize, usize, usize);
+
+/// 6th's sprite tables, file offsets in the executable, as the select screen
+/// reads them (0x19ea58 places a sprite, 0x136470 sets the tables): sprite n
+/// is `u16` first frame and count at `anims + 4n`; a frame (10 bytes) names
+/// its part group by its first `u16`; a group is `u16` first part and count
+/// (4 bytes); a part (16 bytes) is `i16 x, y` against the sprite's place,
+/// `u16 w, h`, `u16` texture, `u8 u, v`. Textures from `FIRST_EXE_TEXTURE`
+/// on are in the executable (the rest in the loaded `IFs`), found by the
+/// `u32` addresses at `textures + 4n`: a `u32` kind, 0 for 4 bits a pixel,
+/// then 128x128 LZ-packed pixels, the low nibble first. Genre and artist
+/// words are grey ramps there, 1 the ink to 15 the box, 0 around it.
+#[derive(Clone, Copy)]
+struct Sprites {
+    anims: usize,
+    frames: usize,
+    groups: usize,
+    parts: usize,
+    textures: usize,
+    /// The executable's load address, less its file offset.
+    base: usize,
+}
+
+const FIRST_EXE_TEXTURE: usize = 1455;
+const TEXTURE_SIDE: usize = 128;
 
 /// A `Sheet` rectangle table offset meaning there is none: 6th's title
 /// sheets hold one word a 28-pixel row, centred.
@@ -613,6 +640,14 @@ const SIXTH_STYLE: Layout = Layout {
     // artist are the strings at 0x08 and 0x0c, drawn in a font.
     old_words: Some(OldWords {
         size_before: false,
+        sprites: Some(Sprites {
+            anims: 0x1d0dc8 - 0xff000,
+            frames: 0x1d53a8 - 0xff000,
+            groups: 0x25d298 - 0xff000,
+            parts: 0x1ea3d8 - 0xff000,
+            textures: 0x27f504 - 0xff000,
+            base: 0xff000,
+        }),
         artist_at: 0x24,
         genre_at: 0x1c,
         title_at: 0x20,
@@ -687,6 +722,7 @@ const SEVENTH_STYLE: Layout = Layout {
     // executable's fourth on.
     old_words: Some(OldWords {
         size_before: true,
+        sprites: None,
         artist_at: 0x24,
         genre_at: 0x1c,
         title_at: 0x20,
@@ -786,6 +822,7 @@ const EIGHTH_STYLE: Layout = Layout {
     }),
     old_words: Some(OldWords {
         size_before: false,
+        sprites: None,
         artist_at: 0x20,
         genre_at: 0x18,
         title_at: 0x1c,
@@ -1986,16 +2023,25 @@ impl Disc {
         }) = self.edition.tables()
         {
             let [(genre, _), (title, _), (artist, _), _] = *refs;
-            let mut word = |sheets: &[Sheet], n: u16| -> io::Result<Option<crate::popn::Mask>> {
+            let word = |disc: &mut SectorReader<R>,
+                        sheets: &[Sheet],
+                        n: u16|
+             -> io::Result<Option<crate::popn::Mask>> {
                 Ok(self
                     .old_word(disc, sheets, n)?
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)))
             };
             return Ok(Some(crate::popn::SongNames {
-                title: word(words.title, title)?,
+                title: word(disc, words.title, title)?,
                 small_title: None,
-                artist: word(words.artist, artist)?,
-                genre: word(words.genre, genre)?,
+                artist: match words.sprites {
+                    Some(sprites) => self.sprite_word(disc, sprites, artist)?,
+                    None => word(disc, words.artist, artist)?,
+                },
+                genre: match words.sprites {
+                    Some(sprites) => self.sprite_word(disc, sprites, genre)?,
+                    None => word(disc, words.genre, genre)?,
+                },
                 popn: false,
             }));
         }
@@ -2025,6 +2071,88 @@ impl Disc {
 
     /// Word `n` of 8th's `sheets` (`OldWords`): the sheet that holds it
     /// unpacked from the executable, cut to its rectangle.
+    fn sprite_word<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        sprites: Sprites,
+        n: u16,
+    ) -> io::Result<Option<crate::popn::Mask>> {
+        let exe = self.executable.offset();
+        let u16_at = |disc: &mut SectorReader<R>, at: usize| -> io::Result<usize> {
+            Ok(u16_le(&disc.read_at(exe + at as u64, 2)?, 0).unwrap_or(0) as usize)
+        };
+        let frame = u16_at(disc, sprites.anims + 4 * n as usize)?;
+        let group = u16_at(disc, sprites.frames + 10 * frame)?;
+        let first = u16_at(disc, sprites.groups + 4 * group)?;
+        let count = u16_at(disc, sprites.groups + 4 * group + 2)?;
+        if count == 0 || count > 8 {
+            return Ok(None);
+        }
+        let mut parts = Vec::new();
+        for p in first..first + count {
+            let e = disc.read_at(exe + (sprites.parts + 16 * p) as u64, 16)?;
+            let f = |k: usize| u16_le(&e, k).unwrap_or(0);
+            parts.push((
+                f(0) as i16 as i32,
+                f(4) as usize,
+                f(6) as usize,
+                f(8) as usize,
+                e[10] as usize,
+                e[11] as usize,
+            ));
+        }
+        let left = parts.iter().map(|p| p.0).min().unwrap_or(0);
+        let width = parts
+            .iter()
+            .map(|p| p.0 - left + p.1 as i32)
+            .max()
+            .unwrap_or(0) as usize;
+        let height = parts.iter().map(|p| p.2).max().unwrap_or(0);
+        if width == 0 || height == 0 {
+            return Ok(None);
+        }
+        let mut pixels = vec![[0, 0, 0, 255]; width * height];
+        for &(x, w, h, texture, u, v) in &parts {
+            if texture < FIRST_EXE_TEXTURE || u + w > TEXTURE_SIDE || v + h > TEXTURE_SIDE {
+                return Ok(None);
+            }
+            let address = disc.read_at(exe + (sprites.textures + 4 * texture) as u64, 4)?;
+            let address = u32::from_le_bytes(address[..4].try_into().unwrap()) as usize;
+            let Some(at) = address.checked_sub(sprites.base) else {
+                return Ok(None);
+            };
+            // A texture packs to well under this; the LZ stops at its end code.
+            let len = 0x4000.min(self.executable.size.saturating_sub(at as u64 + 4));
+            let packed = disc.read_at(exe + at as u64, len as usize + 4)?;
+            if u32::from_le_bytes(packed[..4].try_into().unwrap()) != 0 {
+                return Ok(None);
+            }
+            let Some(texels) = crate::lz::decode(&packed[4..]) else {
+                return Ok(None);
+            };
+            for row in 0..h {
+                for col in 0..w {
+                    let i = (v + row) * TEXTURE_SIDE + u + col;
+                    let Some(&byte) = texels.get(i / 2) else {
+                        return Ok(None);
+                    };
+                    let index = if i.is_multiple_of(2) { byte & 15 } else { byte >> 4 };
+                    let ink = if index == 0 {
+                        0
+                    } else {
+                        ((15 - index) as u32 * 255 / 14) as u8
+                    };
+                    pixels[row * width + (x - left) as usize + col] = [ink, ink, ink, 255];
+                }
+            }
+        }
+        Ok(Some(crate::popn::Mask::from_rgba(&Rgba {
+            width: width as u32,
+            height: height as u32,
+            pixels,
+        })))
+    }
+
     fn old_word<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
