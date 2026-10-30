@@ -106,6 +106,8 @@ struct Layout {
     songs: (usize, usize),
     /// The `DATA1.DAT` file table: (offset, bytes), `(0, 0)` without one.
     data1: (usize, usize),
+    /// Aspect ratio for videos stored squeezed to square pixels.
+    video_aspect: Option<f32>,
     /// The Blowfish key of the chart files. iidx-ps2tools builds it from
     /// letters of song names in the game (`generate_encryption_key`); this is
     /// its result.
@@ -961,6 +963,7 @@ const EIGHTH_STYLE: Layout = Layout {
         ],
     }),
     word_layout: None,
+    video_aspect: Some(4.0 / 3.0),
 };
 
 /// 9th style: the 10th style record, its tables elsewhere.
@@ -1035,6 +1038,7 @@ const TENTH_STYLE: Layout = Layout {
         offsets: [0xdc, 0xe0, 0xe4, 0xec],
         rect_base: 0x90,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1083,6 +1087,7 @@ const RED: Layout = Layout {
         offsets: [0xec, 0xf0, 0xf4, 0xf8],
         rect_base: 0x90,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1131,6 +1136,7 @@ const HAPPY_SKY: Layout = Layout {
         offsets: [0xd8, 0xdc, 0xe0, 0xe4],
         rect_base: 0xd0,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1185,6 +1191,7 @@ const DISTORTED: Layout = Layout {
         offsets: [0xa4, 0xa8, 0xac, 0xb0],
         rect_base: 0xd0,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1230,6 +1237,7 @@ const GOLD: Layout = Layout {
         offsets: [0xa0, 0xa4, 0xa8, 0xac],
         rect_base: 0xd0,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1254,6 +1262,7 @@ const DJ_TROOPERS: Layout = Layout {
         offsets: [0xac, 0xb0, 0xb4, 0xb8],
         rect_base: 0xd0,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1281,6 +1290,7 @@ const EMPRESS: Layout = Layout {
         offsets: [0xac, 0xb0, 0xb4, 0xb8],
         rect_base: 0xd0,
     }),
+    video_aspect: None,
     old_words: None,
 };
 
@@ -1328,16 +1338,10 @@ impl Edition {
     /// is not their frames' own: 3rd to 8th store 4:3 videos squeezed to 192
     /// (320 on 6th) pixels wide, 224 or 256 high, marked as square pixels.
     pub fn video_aspect(self) -> Option<f32> {
-        matches!(
-            self,
-            Edition::ThirdStyle
-                | Edition::FourthStyle
-                | Edition::FifthStyle
-                | Edition::SixthStyle
-                | Edition::SeventhStyle
-                | Edition::EighthStyle
-        )
-        .then_some(4.0 / 3.0)
+        match self.tables() {
+            Tables::Iidx(layout) => layout.video_aspect,
+            Tables::Popn(_) => None,
+        }
     }
 
     /// The sound number a chart's BGM start plays: the song's BGM stream.
@@ -3208,6 +3212,39 @@ mod tests {
     fn sound_names_read_back() {
         assert_eq!(sound_number(&sound_name(42)), Some(42));
         assert_eq!(sound_number("0042.ogg"), None);
+    }
+
+    #[test]
+    fn video_aspect_comes_from_the_edition_layout() {
+        for edition in [
+            Edition::ThirdStyle,
+            Edition::FourthStyle,
+            Edition::FifthStyle,
+            Edition::SixthStyle,
+            Edition::SeventhStyle,
+            Edition::EighthStyle,
+        ] {
+            assert_eq!(edition.video_aspect(), Some(4.0 / 3.0));
+        }
+        for edition in [
+            Edition::NinthStyle,
+            Edition::TenthStyle,
+            Edition::Red,
+            Edition::HappySky,
+            Edition::Distorted,
+            Edition::Gold,
+            Edition::DjTroopers,
+            Edition::Empress,
+            Edition::PremiumBest,
+            Edition::Popn8,
+            Edition::Popn9,
+            Edition::Popn10,
+            Edition::Popn12,
+            Edition::Popn13,
+            Edition::Popn14,
+        ] {
+            assert_eq!(edition.video_aspect(), None);
+        }
     }
 
     #[test]
