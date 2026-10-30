@@ -156,7 +156,7 @@ struct OldWords {
 /// executable, its rectangle table's, its rectangles).
 type Sheet = (usize, usize, usize);
 
-/// 5th and 6th's sprite tables, file offsets in the executable, as the select
+/// 3rd to 6th's sprite tables, file offsets in the executable, as the select
 /// screen reads them (6th: 0x19ea58 places a sprite, 0x136470 sets the
 /// tables; 5th: 0x135a14 sets them): sprite n
 /// is `u16` first frame and count at `anims + 4n`; a frame (10 bytes) names
@@ -180,11 +180,30 @@ struct Sprites {
     first_texture: usize,
     /// The executable's load address, less its file offset.
     base: usize,
-    /// 5th's titles are sprites too (6th's are `ROWS` sheets).
-    titles: bool,
-    /// 5th's genres are dark words on a shaded pill whose rim shares the
-    /// word's greys, so only the darkest grey (1) is ink.
-    genre_darkest: bool,
+    /// How the title's greys are ink; `None` where titles are not sprites
+    /// (6th's are `ROWS` sheets).
+    title: Option<Ink>,
+    genre: Ink,
+    artist: Ink,
+    /// 3rd's title sprite holds the genre too, a smaller line above the title
+    /// with blank rows between (`split_rows`); `genre_at` is then unused.
+    genre_above_title: bool,
+}
+
+/// How a word texture's 4-bit greys (0 is around the word) become ink.
+#[derive(Clone, Copy)]
+enum Ink {
+    /// 5th and 6th: 1 the ink to 15 the box.
+    Dark,
+    /// 5th and 4th's genres: a dark word on a shaded pill whose rim shares
+    /// the word's greys, so only the darkest grey (1) is ink.
+    Darkest,
+    /// 4th's titles: bright words in a dim glow, 15 the ink.
+    Bright,
+    /// 3rd's titles, some bright words in a glow and some dark words on a
+    /// light box: `Bright`, or below 8 the ink where the picture's edge is
+    /// light (11 to 14 there on a box, 2 to 3 in a glow).
+    Auto,
 }
 
 /// An `OldWords` record field that is not there: 5th's artists are round
@@ -483,6 +502,30 @@ const THIRD_STYLE: Layout = Layout {
             "HELL",
         ],
     }),
+    // One sprite (0x1c) holds the genre above the title; 0x14 is the
+    // artist's record label.
+    old_words: Some(OldWords {
+        size_before: false,
+        sprites: Some(Sprites {
+            anims: 0x179c70 - 0xff000,
+            frames: 0x17cf48 - 0xff000,
+            groups: 0x22fac8 - 0xff000,
+            parts: 0x193ff8 - 0xff000,
+            textures: 0x245d48 - 4 * 2926 - 0xff000,
+            first_texture: 2926,
+            base: 0xff000,
+            title: Some(Ink::Auto),
+            genre: Ink::Auto,
+            artist: Ink::Dark,
+            genre_above_title: true,
+        }),
+        artist_at: NO_FIELD,
+        genre_at: NO_FIELD,
+        title_at: 0x1c,
+        artist: &[],
+        genre: &[],
+        title: &[],
+    }),
     ..FOURTH_STYLE
 };
 
@@ -530,7 +573,30 @@ const FOURTH_STYLE: Layout = Layout {
             "L.E.D.",
         ],
     }),
-    old_words: None,
+    // Title (0x20) and genre (0x1c) are sprites, as on 5th; 0x14 and 0x18
+    // are the artist's record label.
+    old_words: Some(OldWords {
+        size_before: false,
+        sprites: Some(Sprites {
+            anims: 0x18d108 - 0xff000,
+            frames: 0x190640 - 0xff000,
+            groups: 0x21dc50 - 0xff000,
+            parts: 0x1a5a80 - 0xff000,
+            textures: 0x236e50 - 4 * 655 - 0xff000,
+            first_texture: 655,
+            base: 0xff000,
+            title: Some(Ink::Bright),
+            genre: Ink::Darkest,
+            artist: Ink::Dark,
+            genre_above_title: false,
+        }),
+        artist_at: NO_FIELD,
+        genre_at: 0x1c,
+        title_at: 0x20,
+        artist: &[],
+        genre: &[],
+        title: &[],
+    }),
     ..FIFTH_STYLE
 };
 
@@ -590,8 +656,10 @@ const FIFTH_STYLE: Layout = Layout {
             textures: 0x283a30 - 4 * 1709 - 0xff000,
             first_texture: 1709,
             base: 0xff000,
-            titles: true,
-            genre_darkest: true,
+            title: Some(Ink::Dark),
+            genre: Ink::Darkest,
+            artist: Ink::Dark,
+            genre_above_title: false,
         }),
         artist_at: NO_FIELD,
         genre_at: 0x1c,
@@ -682,8 +750,10 @@ const SIXTH_STYLE: Layout = Layout {
             textures: 0x27f504 - 0xff000,
             first_texture: 1455,
             base: 0xff000,
-            titles: false,
-            genre_darkest: false,
+            title: None,
+            genre: Ink::Dark,
+            artist: Ink::Dark,
+            genre_above_title: false,
         }),
         artist_at: 0x24,
         genre_at: 0x1c,
@@ -2071,24 +2141,42 @@ impl Disc {
                     .old_word(disc, sheets, n)?
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)))
             };
+            let mask = |picture: Option<Rgba>| picture.map(|p| crate::popn::Mask::from_rgba(&p));
+            let Some(sprites) = words.sprites else {
+                return Ok(Some(crate::popn::SongNames {
+                    title: word(disc, words.title, title)?,
+                    small_title: None,
+                    artist: word(disc, words.artist, artist)?,
+                    genre: word(disc, words.genre, genre)?,
+                    popn: false,
+                }));
+            };
+            let title_picture = match sprites.title {
+                Some(ink) => self.sprite_word(disc, sprites, title, ink)?,
+                None => None,
+            };
+            let (title, genre) = if sprites.genre_above_title {
+                match title_picture.as_ref().and_then(split_rows) {
+                    Some((genre, title)) => (
+                        Some(crate::popn::Mask::from_rgba(&title)),
+                        mask(Some(genre)),
+                    ),
+                    None => (mask(title_picture), None),
+                }
+            } else {
+                (
+                    match sprites.title {
+                        Some(_) => mask(title_picture),
+                        None => word(disc, words.title, title)?,
+                    },
+                    mask(self.sprite_word(disc, sprites, genre, sprites.genre)?),
+                )
+            };
             return Ok(Some(crate::popn::SongNames {
-                title: match words.sprites {
-                    Some(sprites) if sprites.titles => {
-                        self.sprite_word(disc, sprites, title, false)?
-                    }
-                    _ => word(disc, words.title, title)?,
-                },
+                title,
                 small_title: None,
-                artist: match words.sprites {
-                    Some(sprites) => self.sprite_word(disc, sprites, artist, false)?,
-                    None => word(disc, words.artist, artist)?,
-                },
-                genre: match words.sprites {
-                    Some(sprites) => {
-                        self.sprite_word(disc, sprites, genre, sprites.genre_darkest)?
-                    }
-                    None => word(disc, words.genre, genre)?,
-                },
+                artist: mask(self.sprite_word(disc, sprites, artist, sprites.artist)?),
+                genre,
                 popn: false,
             }));
         }
@@ -2116,15 +2204,15 @@ impl Disc {
         }))
     }
 
-    /// Word `n` of 8th's `sheets` (`OldWords`): the sheet that holds it
-    /// unpacked from the executable, cut to its rectangle.
+    /// Sprite `n` (`Sprites`) put together from its parts, its ink white on
+    /// black.
     fn sprite_word<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         sprites: Sprites,
         n: u16,
-        darkest: bool,
-    ) -> io::Result<Option<crate::popn::Mask>> {
+        ink: Ink,
+    ) -> io::Result<Option<Rgba>> {
         let exe = self.executable.offset();
         let u16_at = |disc: &mut SectorReader<R>, at: usize| -> io::Result<usize> {
             Ok(u16_le(&disc.read_at(exe + at as u64, 2)?, 0).unwrap_or(0) as usize)
@@ -2170,7 +2258,8 @@ impl Disc {
         if width == 0 || height == 0 {
             return Ok(None);
         }
-        let mut pixels = vec![[0, 0, 0, 255]; width * height];
+        // The greys first, then ink by `ink` (`Auto` needs them all).
+        let mut greys = vec![0u8; width * height];
         for &(x, y, w, h, texture, u, v) in &parts {
             if texture < sprites.first_texture || u + w > TEXTURE_SIDE || v + h > TEXTURE_SIDE {
                 return Ok(None);
@@ -2200,24 +2289,52 @@ impl Disc {
                     } else {
                         byte >> 4
                     };
-                    let ink = match index {
-                        0 => 0,
-                        1 if darkest => 255,
-                        _ if darkest => 0,
-                        _ => ((15 - index) as u32 * 255 / 14) as u8,
-                    };
-                    pixels[(row + (y - top) as usize) * width + (x - left) as usize + col] =
-                        [ink, ink, ink, 255];
+                    greys[(row + (y - top) as usize) * width + (x - left) as usize + col] = index;
                 }
             }
         }
-        Ok(Some(crate::popn::Mask::from_rgba(&Rgba {
+        let ink = match ink {
+            Ink::Auto => {
+                let edge: Vec<u32> = (0..width)
+                    .flat_map(|x| [x, (height - 1) * width + x])
+                    .chain((0..height).flat_map(|y| [y * width, y * width + width - 1]))
+                    .map(|at| greys[at] as u32)
+                    .filter(|&g| g != 0)
+                    .collect();
+                let light = edge.iter().sum::<u32>() >= 8 * edge.len().max(1) as u32;
+                if light {
+                    None
+                } else {
+                    Some(Ink::Bright)
+                }
+            }
+            ink => Some(ink),
+        };
+        let pixels = greys
+            .iter()
+            .map(|&index| {
+                let v = match (ink, index) {
+                    (_, 0) => 0,
+                    (Some(Ink::Dark), _) => ((15 - index) as u32 * 255 / 14) as u8,
+                    (Some(Ink::Darkest), 1) => 255,
+                    (Some(Ink::Darkest), _) => 0,
+                    // The glow around the words reaches 7.
+                    (Some(Ink::Bright), _) => (index.saturating_sub(7) as u32 * 255 / 8) as u8,
+                    // `Auto` on a light box.
+                    _ => (8u8.saturating_sub(index) as u32 * 255 / 7) as u8,
+                };
+                [v, v, v, 255]
+            })
+            .collect();
+        Ok(Some(Rgba {
             width: width as u32,
             height: height as u32,
             pixels,
-        })))
+        }))
     }
 
+    /// Word `n` of 8th's `sheets` (`OldWords`): the sheet that holds it
+    /// unpacked from the executable, cut to its rectangle.
     fn old_word<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
@@ -2600,6 +2717,36 @@ fn read_word_refs(
             })
         })
         .collect()
+}
+
+/// 3rd's title sprite cut into the genre line above and the title below, at
+/// the first blank row after the genre's 9 or 10 rows or, where a tall
+/// letter of the title reaches up to it (Skyscraper, diving money), 10 rows
+/// below the genre's top. `None` without ink below the cut.
+fn split_rows(picture: &Rgba) -> Option<(Rgba, Rgba)> {
+    const GENRE_ROWS: std::ops::Range<usize> = 5..15;
+    const GENRE_HEIGHT: usize = 10;
+    let (w, h) = (picture.width as usize, picture.height as usize);
+    let ink = |y: usize| {
+        picture.pixels[y * w..(y + 1) * w]
+            .iter()
+            .filter(|p| p[0] >= 0x80)
+            .count()
+    };
+    let top = (0..h).find(|&y| ink(y) > 0)?;
+    let rows = top + GENRE_ROWS.start..(top + GENRE_ROWS.end).min(h);
+    let gap = rows
+        .clone()
+        .find(|&y| ink(y) == 0)
+        .unwrap_or(top + GENRE_HEIGHT)
+        .min(h - 1);
+    let below = (gap..h).find(|&y| ink(y) > 0)?;
+    let cut = |from: usize, to: usize| Rgba {
+        width: picture.width,
+        height: (to - from) as u32,
+        pixels: picture.pixels[from * w..to * w].to_vec(),
+    };
+    Some((cut(0, gap), cut(below, h)))
 }
 
 /// Row `n` of a 6th title sheet (`ROWS`), the sheet's full width
