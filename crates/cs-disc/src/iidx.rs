@@ -3246,6 +3246,51 @@ mod tests {
     }
 
     #[test]
+    fn edition_record_offsets_fit_their_layouts() {
+        for edition in EDITIONS {
+            match edition.tables() {
+                Tables::Iidx(layout) => {
+                    let size = layout.record.size;
+                    for offset in layout.record.levels_at..layout.record.levels_at + 10 {
+                        assert!(offset < size, "{edition:?} level offset {offset:#x}");
+                    }
+                    for offset in [layout.record.charts_at, layout.record.sounds_at] {
+                        assert!(offset < size, "{edition:?} field offset {offset:#x}");
+                    }
+                    if let Some(words) = layout.word_layout {
+                        for offset in words.offsets {
+                            assert!(offset + 4 <= size, "{edition:?} word reference {offset:#x}");
+                        }
+                    }
+                }
+                Tables::Popn(layout) => {
+                    let size = layout.record.size;
+                    let width = if layout.record.chart_u16 { 2 } else { 4 };
+                    for &offset in layout.record.chart_at {
+                        assert!(
+                            offset + width <= size,
+                            "{edition:?} chart reference {offset:#x}"
+                        );
+                    }
+                    if let Some(offset) = layout.record.levels_at {
+                        assert!(offset + 6 <= size, "{edition:?} level fields {offset:#x}");
+                    }
+                    if let Some(offset) = layout.record.banner_at {
+                        assert!(offset + 2 <= size, "{edition:?} banner field {offset:#x}");
+                    }
+                    if let Some(offset) = layout.record.genre_at {
+                        assert!(offset + 4 <= size, "{edition:?} genre field {offset:#x}");
+                    }
+                    if let Some(names) = layout.names {
+                        assert!(names.at.0 + 2 <= size, "{edition:?} title reference");
+                        assert!(names.at.1 + 2 <= size, "{edition:?} artist reference");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn editions_are_told_by_their_executable() {
         assert_eq!(Edition::from_executable("SLPM_669.95"), Some(Edition::Gold));
         assert_eq!(
