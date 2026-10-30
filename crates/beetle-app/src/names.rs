@@ -25,6 +25,10 @@ use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
 const MAGIC: &[u8; 4] = b"BNMD";
+/// Raised when the discs' names are read differently, so that older files
+/// read as unreadable and their discs are scanned again (`any_unreadable`).
+/// 1: pop'n 9's titles from record 0x3c.
+const VERSION: u32 = 1;
 
 /// The names of a disc: its songs by id, and which song each chart entry
 /// (by picture key) is.
@@ -44,6 +48,7 @@ pub fn path(slug: &str) -> PathBuf {
 
 pub fn encode(names: &Names) -> Vec<u8> {
     let mut out = MAGIC.to_vec();
+    out.extend(VERSION.to_le_bytes());
     out.extend((names.songs.len() as u32).to_le_bytes());
     for (id, song) in &names.songs {
         out.extend(id.to_le_bytes());
@@ -75,6 +80,9 @@ fn put_mask(out: &mut Vec<u8>, mask: Option<&Mask>) {
 /// The names `encode` wrote; `None` for a file that is not one (or is cut short).
 pub fn decode(bytes: &[u8]) -> Option<Names> {
     let mut at = bytes.strip_prefix(MAGIC)?;
+    if take_u32(&mut at)? != VERSION {
+        return None;
+    }
     let mut names = Names::default();
     for _ in 0..take_u32(&mut at)? {
         let id = take_u32(&mut at)?;
@@ -274,5 +282,9 @@ mod tests {
         assert_eq!(decode(b"NOPE"), None);
         assert_eq!(decode(&[]), None);
         assert_eq!(decode(MAGIC), None);
+        // A file from before the reading changed.
+        let mut old = bytes.clone();
+        old[4..8].copy_from_slice(&(VERSION - 1).to_le_bytes());
+        assert_eq!(decode(&old), None);
     }
 }

@@ -2116,8 +2116,10 @@ impl Disc {
             },
             small_title: None,
             artist: word(files.artist, artist, false)?,
+            // Genres are numbered as the banner, as artists are (9's titles
+            // are not).
             genre: match files.genre {
-                Some(file) => word(file, title, false)?,
+                Some(file) => word(file, artist, false)?,
                 None => None,
             },
             popn: true,

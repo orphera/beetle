@@ -214,7 +214,9 @@ pub(crate) const POPN9: Layout = Layout {
         title: Some(621),
         artist: 33,
         genre: Some(622),
-        at: (0x40, 0x40),
+        // The title file has one picture more (64, Streams), so titles have
+        // their own number from 64 on.
+        at: (0x3c, 0x40),
     }),
     dat: "SOUND/SD_01.DAT",
     streams: Some(Streams {
@@ -286,8 +288,9 @@ pub(crate) struct NameFiles {
     pub title: Option<u32>,
     pub artist: u32,
     pub genre: Option<u32>,
-    /// The record's `u16` rectangle numbers of the title (and genre) and of
-    /// the artist. 8 to 10 number every word picture as the banner.
+    /// The record's `u16` rectangle numbers of the title and of the artist
+    /// (and genre). 8 to 10 number every word picture as the banner, but
+    /// for 9's titles.
     pub at: (usize, usize),
 }
 
