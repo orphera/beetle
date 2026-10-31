@@ -63,6 +63,7 @@ pub enum OptionId {
     BgmVolume,
     KeyVolume,
     SfxVolume,
+    AudioDevice,
     JudgeOffset,
     VisualOffset,
     JudgePosition,
@@ -281,6 +282,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_SFX_VOLUME(),
             help: strings::HELP_SFX_VOLUME(),
+        },
+        OptionDesc {
+            id: OptionId::AudioDevice,
+            group: strings::GROUP_AUDIO(),
+            column: 0,
+            label: strings::ROW_AUDIO_DEVICE(),
+            help: strings::HELP_AUDIO_DEVICE(),
         },
         OptionDesc {
             id: OptionId::JudgeOffset,
@@ -513,6 +521,23 @@ pub fn cycle<T: Copy + PartialEq>(order: &[T], cur: T, forward: bool) -> T {
     }]
 }
 
+/// The output device after (or before) `cur` among the system default
+/// (`None`) and `names`, wrapping around. A device no longer present counts
+/// as the system default.
+pub fn audio_device_next(names: &[String], cur: Option<&str>, forward: bool) -> Option<String> {
+    let order: Vec<Option<&str>> = std::iter::once(None)
+        .chain(names.iter().map(|n| Some(n.as_str())))
+        .collect();
+    let i = order.iter().position(|&v| v == cur).unwrap_or(0);
+    let n = order.len();
+    let next = if forward {
+        (i + 1) % n
+    } else {
+        (i + n - 1) % n
+    };
+    order[next].map(str::to_owned)
+}
+
 // ---------------------------------------------------------------------------
 // Reading and changing the values in AppState
 // ---------------------------------------------------------------------------
@@ -582,6 +607,10 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::BgmVolume => format!("{:.0}%", state.bgm_volume * 100.0),
         OptionId::KeyVolume => format!("{:.0}%", state.key_volume * 100.0),
         OptionId::SfxVolume => format!("{:.0}%", state.sfx_volume * 100.0),
+        OptionId::AudioDevice => state
+            .audio_device
+            .clone()
+            .unwrap_or_else(|| strings::VALUE_SYSTEM_DEFAULT().to_string()),
         OptionId::JudgeOffset => format!("{:+.0} ms", o.judge_offset_ms),
         OptionId::VisualOffset => format!("{:+.0} ms", state.visual_offset_ms),
         OptionId::JudgePosition => judge_position_label(state.view.skin.judge_position).to_string(),
@@ -691,6 +720,14 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         OptionId::SfxVolume => {
             state.sfx_volume = bus_volume_next(state.sfx_volume, forward);
             state.menu_audio.set_volume(state.sfx_level());
+        }
+        OptionId::AudioDevice => {
+            let names = beetle_audio::output_device_names();
+            state.audio_device = audio_device_next(&names, state.audio_device.as_deref(), forward);
+            beetle_audio::set_output_device(state.audio_device.clone());
+            // The menu stream reopens on the new device; a play opens its own.
+            state.menu_audio.close();
+            state.menu_audio.open(state.sfx_level());
         }
         OptionId::JudgeOffset => {
             let o = &mut state.play_options;
@@ -1014,6 +1051,20 @@ mod tests {
         assert_eq!(start_measure_next(4, true), 5);
         assert_eq!(start_measure_next(5, false), 4);
         assert_eq!(start_measure_next(200, true), 200);
+    }
+
+    #[test]
+    fn the_audio_device_cycles_through_the_default_and_each_device() {
+        let names = vec!["A".to_string(), "B".to_string()];
+        assert_eq!(audio_device_next(&names, None, true).as_deref(), Some("A"));
+        assert_eq!(audio_device_next(&names, Some("B"), true), None);
+        assert_eq!(audio_device_next(&names, None, false).as_deref(), Some("B"));
+        // An unplugged device counts as the default.
+        assert_eq!(
+            audio_device_next(&names, Some("gone"), true).as_deref(),
+            Some("A")
+        );
+        assert_eq!(audio_device_next(&[], None, true), None);
     }
 
     #[test]

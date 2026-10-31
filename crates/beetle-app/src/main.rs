@@ -233,6 +233,7 @@ impl ApplicationHandler for BeetleApp {
         // Lane keys are read on their own thread (see `raw_input`). Raw
         // input has one target per process, so winit's is switched off first.
         event_loop.listen_device_events(DeviceEvents::Never);
+        beetle_audio::set_output_device(saved_config.audio_device.clone());
         let raw_keys = raw_input::RawKeyboard::spawn_for(&window, saved_config.turntable_axis);
 
         let mut app_state = AppState {
@@ -241,6 +242,7 @@ impl ApplicationHandler for BeetleApp {
             raw_keys,
             pad: xinput::XInputPad::load(),
             turntable_axis: saved_config.turntable_axis,
+            audio_device: saved_config.audio_device.clone(),
             lane_session: None,
             lane_session_seq: 0,
             audio_engine: None,

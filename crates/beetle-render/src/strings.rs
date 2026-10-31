@@ -1062,6 +1062,10 @@ table! {
         ko "효과음 볼륨",
         en "SFX Volume",
         ja "効果音の音量";
+    pub ROW_AUDIO_DEVICE =
+        ko "출력 장치",
+        en "Output Device",
+        ja "出力デバイス";
     pub ROW_VISUAL_OFFSET =
         ko "비주얼 오프셋",
         en "Visual Offset",
@@ -1150,6 +1154,10 @@ table! {
         ko "꺼짐",
         en "Off",
         ja "オフ";
+    pub VALUE_SYSTEM_DEFAULT =
+        ko "시스템 기본",
+        en "System Default",
+        ja "システム既定";
     pub VALUE_UNLIMITED =
         ko "무제한",
         en "Unlimited",
@@ -1319,6 +1327,10 @@ table! {
         ko "메뉴 효과음과 징글의 크기예요. 곡 미리듣기는 배경음 볼륨을 따라요.",
         en "Volume of menu sound effects and jingles. Song preview follows the BGM volume.",
         ja "メニューの効果音とジングルの音量です。曲の試聴は BGM 音量に従います。";
+    pub HELP_AUDIO_DEVICE =
+        ko "소리를 낼 장치예요. 메뉴 소리는 바로, 플레이는 다음 곡부터 바뀌어요. 장치가 없으면 시스템 기본으로 내요.",
+        en "Where sound plays. Menus switch at once, play from the next song. If the device is gone, the system default is used.",
+        ja "音を出すデバイスです。メニューはすぐに、プレイは次の曲から変わります。デバイスがないときはシステム既定を使います。";
     pub HELP_JUDGE_OFFSET =
         ko "판정 시각을 앞뒤로 옮겨서 판정 결과가 바뀌어요. 범위는 -100에서 +100 ms예요. 화면만 옮기려면 비주얼 오프셋을 써요.",
         en "Shifts judge timing earlier or later, which changes judge results. Range is -100 to +100 ms. To move only the picture, use Visual Offset.",

@@ -320,6 +320,8 @@ pub struct AppConfig {
     pub language: Option<Lang>,
     /// The controller axis that is a turntable (`turntable_axis=<0..7>`, `OFF` or absent for none).
     pub turntable_axis: Option<u8>,
+    /// The audio output device by name (`audio_device=<name>`; absent for the system default).
+    pub audio_device: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -358,6 +360,7 @@ impl Default for AppConfig {
             ui_scale: UI_SCALE_DEFAULT,
             language: None,
             turntable_axis: None,
+            audio_device: None,
         }
     }
 }
@@ -565,6 +568,9 @@ impl AppConfig {
                         .ok()
                         .filter(|&a| usize::from(a) < crate::hid::MAX_AXES);
                 }
+                "audio_device" => {
+                    config.audio_device = Some(val.to_string()).filter(|v| !v.is_empty());
+                }
                 _ => {
                     for (i, &mode) in MODE_SLOTS.iter().enumerate() {
                         let slot = mode_slot_name(mode);
@@ -668,6 +674,9 @@ filter_uncleared={}
         ));
         if let Some(axis) = self.turntable_axis {
             out.push_str(&format!("turntable_axis={axis}\n"));
+        }
+        if let Some(device) = &self.audio_device {
+            out.push_str(&format!("audio_device={device}\n"));
         }
         if let Some(lang) = self.language {
             out.push_str(&format!(
@@ -1139,5 +1148,20 @@ mod turntable_axis_tests {
             AppConfig::parse_str("turntable_axis=OFF\n").turntable_axis,
             None
         );
+    }
+
+    #[test]
+    fn the_audio_device_round_trips_and_absent_means_the_default() {
+        assert_eq!(AppConfig::parse_str("").audio_device, None);
+        let mut config = AppConfig::default();
+        config.audio_device = Some("Speakers (Realtek(R) Audio)".to_string());
+        let text = config.serialize_str();
+        assert_eq!(
+            AppConfig::parse_str(&text).audio_device,
+            config.audio_device
+        );
+        assert!(!AppConfig::default()
+            .serialize_str()
+            .contains("audio_device"));
     }
 }

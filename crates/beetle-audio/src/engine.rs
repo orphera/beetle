@@ -7,7 +7,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Producer, RingBuffer};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub const COMMAND_QUEUE_CAPACITY: usize = 512;
 
@@ -34,6 +34,37 @@ impl std::fmt::Display for AudioEngineError {
 }
 
 impl std::error::Error for AudioEngineError {}
+
+/// The output device new engines open, by name (`None`: the system default).
+/// Read only when an engine is built, never on the audio thread.
+static OUTPUT_DEVICE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Picks the output device for engines built from now on. A name no device
+/// has (unplugged) falls back to the system default.
+pub fn set_output_device(name: Option<String>) {
+    *OUTPUT_DEVICE.lock().unwrap_or_else(|e| e.into_inner()) = name;
+}
+
+/// The names of the output devices, as `set_output_device` takes them.
+/// Asks the OS each time (slow; call on a key press, not per frame).
+pub fn output_device_names() -> Vec<String> {
+    let Ok(devices) = cpal::default_host().output_devices() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
+    names.dedup();
+    names
+}
+
+fn chosen_output_device(host: &cpal::Host) -> Option<cpal::Device> {
+    let name = OUTPUT_DEVICE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()?;
+    host.output_devices()
+        .ok()?
+        .find(|d| d.name().is_ok_and(|n| n == name))
+}
 
 /// Starts samples from a thread other than the one holding the
 /// `AudioEngine`, on its own lock-free queue into the mixer.
@@ -71,8 +102,8 @@ impl AudioEngine {
     /// 0 (see `AudioClock::with_lead_in`): silence first, then the song.
     pub fn with_lead_in(sample_bank: SampleBank, lead_in: f64) -> Result<Self, AudioEngineError> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
+        let device = chosen_output_device(&host)
+            .or_else(|| host.default_output_device())
             .ok_or(AudioEngineError::NoOutputDevice)?;
 
         let supported_config = device

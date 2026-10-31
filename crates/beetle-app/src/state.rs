@@ -221,6 +221,8 @@ pub struct AppState {
     pub language: Option<strings::Lang>,
     /// The controller axis that is a turntable (kept as the config has it).
     pub turntable_axis: Option<u8>,
+    /// The audio output device by name (`None` = the system default).
+    pub audio_device: Option<String>,
     pub display_mode: DisplayMode,
     pub gpu_backend: GpuBackendSetting,
     pub target_fps: u32,
@@ -588,6 +590,7 @@ impl AppState {
             display_mode: self.display_mode,
             language: self.language,
             turntable_axis: self.turntable_axis,
+            audio_device: self.audio_device.clone(),
             gpu_backend: self.gpu_backend,
             window_width: size.width.max(640),
             window_height: size.height.max(480),
