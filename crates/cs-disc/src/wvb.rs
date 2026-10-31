@@ -42,9 +42,10 @@
 //! channel: the offset from 0x2010 of its parameter list. A list is `u32`
 //! tokens, the tag in the high byte and the value below: 0xd2 the file, 0xdd
 //! the pan, 0xf8 the volume (bits 16 to 23), 0xff the end. At the file table:
-//! `u32, u32 count, u32, u32 data size`, then 16-byte records whose first
-//! `u32` is the offset; a file runs to the next one. No rate is stored that
-//! reads as one; 44100 Hz is assumed (not checked by ear).
+//! `u32, u32 count, u32, u32 data size`, then 16-byte records: `u32 offset,
+//! u16 rate code, u16`; a file runs to the next one. The rate code is the 8
+//! to 10 bank's (`popn_rate`: `0x3e44` 44100, `0x447d` 32000). The `u16`
+//! after it is half that rate in Hz (0x5622, 0x3e80) and is not read.
 //!
 //! BGM stream: a 0x800-byte header (`u32` fields: data start at 8, size at
 //! 12, rate at 24, channels at 28, scrambled at 32, interleave at 36, volume
@@ -323,9 +324,10 @@ impl<'a> Bank<'a> {
         let files = (0..count)
             .map(|i| {
                 let end = offsets.get(i + 1).copied().unwrap_or(data_size);
-                (base + offsets[i], end.saturating_sub(offsets[i]), 44100)
+                let rate = popn_rate(u16_at(data, records + i * ENTRY + 4)?);
+                Ok((base + offsets[i], end.saturating_sub(offsets[i]), rate))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, SoundError>>()?;
         // (file, pan, volume) of a parameter list.
         let params = |offset: u32| -> Option<(usize, u8, u8)> {
             let mut at = PARAMS + offset as usize;
@@ -698,6 +700,7 @@ mod tests {
         data[table + 4..table + 8].copy_from_slice(&1u32.to_le_bytes());
         data[table + 12..table + 16].copy_from_slice(&16u32.to_le_bytes());
         data[records..records + 4].copy_from_slice(&0u32.to_le_bytes());
+        data[records + 4..records + 8].copy_from_slice(&0x3e80447du32.to_le_bytes());
         data[0x21] = 1;
         data[0x24..0x28].copy_from_slice(&0u32.to_le_bytes());
         for (i, token) in [0xd2000000u32, 0xdd000020, 0xf87f0000, 0xff000000]
@@ -716,7 +719,7 @@ mod tests {
         assert_eq!(sound.volume, 127);
         assert_eq!(bank.raw_file(0).unwrap().0.len(), 16);
         let pcm = bank.decode(1).unwrap().unwrap();
-        assert_eq!(pcm.rate, 44100);
+        assert_eq!(pcm.rate, 31996);
         assert_eq!(pcm.channels.len(), 2);
         assert_eq!(pcm.channels[0].len(), 28);
     }
