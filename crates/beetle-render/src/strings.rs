@@ -1,4 +1,4 @@
-//! Every user-visible UI string of beetle-app, in Korean (plan U1d, decision 1).
+//! User-visible beetle-app strings in Korean, English, and Japanese.
 //!
 //! One table, grouped by screen. Terms the BMS / rhythm-game scene keeps in
 //! English stay English: judge names, ranks, clear lamps, gauge and modifier

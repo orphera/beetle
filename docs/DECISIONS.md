@@ -169,7 +169,7 @@
 
 ## ADR-018: 다중 백엔드 지원을 위한 초경량 GPU 하드웨어 가속(HAL) 아키텍처
 
-> **⚠️ 일부 대체됨**: "Software Fallback (`tiny-skia` + `softbuffer`)" 항목은 ADR-026의 WARP 폴백으로 대체되었습니다. OpenGL / Vulkan / Metal 백엔드는 당분간 범위 밖입니다.
+> **⚠️ 대체됨 (Superseded)**: ADR-026이 Beetle 앱의 렌더링 경로 전체를 대체합니다. 아래 다중 백엔드 및 소프트웨어 폴백 설계는 역사 기록이며 현재 구현 지침이 아닙니다.
 
 - **결정**: `beetle-render`에 2D 리듬게임에 특화된 미니멀 하드웨어 추상화 계층(`trait GpuBackend`)을 구축하고, **Direct3D 11 (Windows 기본, Zero-Crate)**, **OpenGL (Linux/WebGL2)**, **Vulkan (저지연 고성능)**, **Metal (macOS/iOS)** 및 **Software Fallback (`tiny-skia` + `softbuffer`)**을 지원하는 모듈형 플러거블 아키텍처를 채택한다. SPIR-V/WGSL 런타임 셰이더 컴파일러(`wgpu`)를 배제하고 사전 컴파일된 바이트코드를 임베드하여 바이너리 크기를 엄격히 제어한다.
 - **배경 및 이유**:

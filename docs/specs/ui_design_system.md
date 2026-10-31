@@ -1,8 +1,10 @@
 # UI 디자인 시스템 (Beetle Bitmap UI) — Commercial Grade Refresh
 
-이 문서는 `beetle-render`의 모든 화면(`screens/*.rs`)이 공유해야 하는 **디자인 토큰(Color, Spacing, Typography, Shadow/Glow, Border Radius)**과 **컴포넌트 명세**를 정의합니다. 기존 "미니멀 일관성" 철학을 "상업 게임급 시각 계층 + 상태 피드백 + 컴포넌트 재사용"으로 확장합니다.
+> **상태와 권위**: 이 문서는 기존 UI 원칙과 상업급 디자인 리프레시 제안을 함께 담은 참고 문서다. 섹션 1–4는 구현 시 참고할 시각 설계 가이드이며 실제 적용 여부는 화면마다 다르다. 섹션 5–8의 토큰·컴포넌트·화면별 명세와 체크리스트는 미적용 제안을 포함하며, 현재 구현 규약으로 일괄 강제하지 않는다. 실제 변경은 [AGENTS.md](../../AGENTS.md)의 아키텍처 규칙과 `beetle-render`의 `theme.rs`, `components/`, `screens/` 구현을 기준으로 한다. 특히 Beetle 앱은 Windows D3D11 단일 렌더러와 WARP 폴백을 사용한다([ADR-026](../DECISIONS.md#adr-026-direct3d-11-단일-렌더러-채택-및-소프트웨어-렌더러-폐지-windows-전용)); 아래의 `SoftwareRenderer`, `tiny-skia`, GDI 관련 제안은 현재 렌더 아키텍처에 대한 지시가 아니다.
 
-> **중요**: 이 문서는 AGENTS.md §1 "바이너리 크기 최우선", §3 "금지 크레이트"를 준수합니다. 폰트 래스터라이저 의존성 추가 없이 비트맵 엔진과 Windows GDI 폴백으로만 구현합니다.
+이 문서는 `beetle-render` 화면에 적용할 수 있는 **디자인 토큰(Color, Spacing, Typography, Shadow/Glow, Border Radius)**과 **컴포넌트 명세의 초안**을 기록합니다. 기존 "미니멀 일관성" 철학을 "상업 게임급 시각 계층 + 상태 피드백 + 컴포넌트 재사용"으로 확장하려던 제안입니다.
+
+> **당시 구현 가정**: 이 제안은 폰트 래스터라이저 의존성을 추가하지 않고 비트맵 엔진과 Windows GDI 폴백을 가정했다. 현재 폰트·렌더 경로 설명은 [AGENTS.md](../../AGENTS.md)와 ADR-026을 따른다.
 
 ---
 
@@ -83,9 +85,9 @@
 
 ---
 
-## 5. 디자인 토큰 및 컴포넌트 명세 (Refresh)
+## 5. 제안: 디자인 토큰 및 컴포넌트 명세 (Refresh)
 
-모든 화면은 하드코딩된 색상/크기/간격 대신 아래 토큰을 참조합니다. `Viewport::scale`(`s`)을 곱해 스케일링합니다.
+아래는 디자인 리프레시를 위해 제안된 토큰 표다. 전체 화면에 채택되지 않았으며, `Viewport::scale`(`s`)를 곱하는 방식 등은 현재 구현의 `theme.rs`와 대조해 개별 변경에서 검토한다.
 
 ### 5.1 Color Tokens (Semantic Palette)
 
@@ -163,9 +165,9 @@
 
 > tiny-skia 는 라운드 렉트 네이티브 지원 안 함 → `draw_rounded_rect` 헬퍼로 근사 (4코너 각각 1px 단위 채움). 성능 위해 `radius_sm`까지만 라운드, `radius_md` 이상은 직각 + 글로우로 대체.
 
-### 5.6 컴포넌트 명세
+### 5.6 제안 컴포넌트 명세
 
-모든 컴포넌트는 `SoftwareRenderer`의 `impl` 블록에 `render_<component>` 메서드로 추가합니다. 기존 `draw_rect`, `draw_text`, `draw_badge`, `blit_glyph_aa`만 조합.
+아래는 제안된 API의 예시이며, 현재 `SoftwareRenderer` 구현 지시가 아니다. 실제 컴포넌트와 렌더 API는 `beetle-render` 구현을 확인한다.
 
 - **Panel**: `render_panel(rect, variant)` — `variant`: `Base`/`Card`/`Overlay`.
 - **Card**: `render_card(rect, title, children)` — 배경 `surface_card`, 상단 `border_subtle`.
@@ -193,9 +195,9 @@
 
 ---
 
-## 6. 기존 규칙 유지사항
+## 6. 제안 토큰과 기존 원칙의 관계
 
-기존 문서 섹션 2.3(배경 명도 사다리), 3(테두리 사용 정책), 4(리스트/모달 그룹핑 컨벤션)은 아래 토큰으로 매핑되므로 **삭제하지 않고 존중**합니다:
+섹션 2.3(배경 명도 사다리), 3(테두리 사용 정책), 4(리스트/모달 그룹핑 컨벤션)의 시각적 의도는 아래 제안 토큰에 대응한다. 이는 구현된 토큰 이름이나 현재 모든 화면의 사용을 보장하지 않는다.
 
 | 기존 규칙 | 새 토큰 매핑 |
 |---|---|
@@ -206,9 +208,9 @@
 
 ---
 
-## 7. 적용 현황 체크리스트 (v2 — Refresh)
+## 7. 리프레시 제안의 당시 체크리스트
 
-- [ ] `docs/proposals/ui-design-system-refresh.md` — 결정 로그 기록 완료
+- [ ] `docs/proposals/ui-design-system-refresh.md` — 제안 당시의 결정 로그 작업
 - [ ] 디자인 토큰 모듈 신설 (`beetle-render/src/design_tokens.rs`)
 - [ ] 컴포넌트 라이브러리 신설 (`beetle-render/src/components/`)
 - [ ] 비트맵 폰트 엔진 확장 (16x14 ASCII, 20x16 CJK, Bold variants)
@@ -219,11 +221,11 @@
 - [ ] Gameplay HUD 리디자인 (ProgressBar 게이지, 판정 팝업 Glow)
 - [ ] Loading/Options/Exit 모달 리디자인 (Modal 컴포넌트)
 
-> 새로 화면을 고칠 때마다 이 체크리스트를 갱신하세요.
+> 이 체크리스트는 활성 작업 목록이 아니다. 현재 적용 여부를 확인해야 할 때만 각 구현과 대조한다.
 
 ---
 
-## 8. 비고
+## 8. 제안의 비고 (현재 플랫폼 지침 아님)
 
 - **Linux CJK**: GDI 없음 → square-glyph fallback(기존) 유지. 향후 필요시 미리 렌더링된 한자 아틀라스(`.bmp` + 메타데이터) 로드 방식으로 확장 가능(런타임 힙 할당 없음, AGENTS.md §2 INV-3 준수).
 - **애니메이션**: 프레임 단위 인터폴레이션(`lerp`)만 사용, 외부 트윈 라이브러리 금지.

@@ -1,26 +1,28 @@
 # Gameplay HUD 리디자인 계획 (2026-10-03)
 
+> **역사 기록**: 이 계획의 HUD 작업은 당시 구현 결과를 기록한다. 렌더 경로 설명은 ADR-026 이전의 것으로 현재 지침이 아니다. Beetle 앱은 현재 D3D11 단일 렌더러와 WARP 폴백을 사용하며, 이 문서의 소프트웨어/GPU 이중 경로 지시는 적용하지 않는다. 현재 아키텍처는 [ADR-026](../DECISIONS.md#adr-026-direct3d-11-단일-렌더러-채택-및-소프트웨어-렌더러-폐지-windows-전용)을 기준으로 한다.
+
 ## 배경
 
 상업 리듬액션게임 수준 UI/UX를 목표로 전체 화면을 순차 리디자인한다.
-엔진 제약(AGENTS.md 불변식): tiny-skia + softbuffer 소프트웨어 렌더링,
+당시의 엔진 제약(당시 AGENTS.md 불변식): tiny-skia + softbuffer 소프트웨어 렌더링,
 bitmap font만 사용, GPU 셰이더/파티클 라이브러리 금지. 표현 수단은
 `draw_rect` 알파 블렌딩, `components/mod.rs`의 `render_panel` /
 `render_card` / `render_badge` / `render_progress_bar` / `render_header_bar`
 조합으로 제한된다. 새 크레이트 도입 없이 기존 컴포넌트 라이브러리를
 각 화면에 일관되게 적용하는 것이 핵심 작업.
 
-## 중요 발견: 렌더링 경로가 두 갈래다
+## 당시 발견: 렌더링 경로가 두 갈래였다
 
-`beetle-app`은 Windows에서 D3D11이 활성화되면 게임플레이 화면을
+2026-10-03 당시 `beetle-app`은 Windows에서 D3D11이 활성화되면 게임플레이 화면을
 `crates/beetle-render/src/screens/gameplay_gpu.rs`
-(`render_gameplay_gpu`, `SpriteBatcher` 기반)로 그린다. 소프트웨어 렌더러
+(`render_gameplay_gpu`, `SpriteBatcher` 기반)로 그렸다. 소프트웨어 렌더러
 경로(`crates/beetle-render/src/screens/gameplay.rs`, `render_gameplay`)는
-D3D11 비활성 시 또는 일시정지 중에만 쓰인다
+D3D11 비활성 시 또는 일시정지 중에만 쓰였다
 (`crates/beetle-app/src/main.rs`의 `is_gpu_gameplay` 분기 참고).
-**즉 게임플레이 화면 비주얼을 바꾸려면 두 파일을 모두 고쳐야 실제로
-눈에 보인다.** 소프트웨어 경로만 고치고 끝내면 Windows 실행 바이너리에서는
-변화가 전혀 나타나지 않는다 (이번 세션에서 실제로 겪은 삽질).
+**당시에는 게임플레이 화면 비주얼을 바꾸려면 두 파일을 모두 고쳐야 실제로
+눈에 보였다.** 소프트웨어 경로만 고치면 D3D11 실행 경로에는 변화가 나타나지
+않았다 (당시 세션에서 확인).
 
 `SpriteBatcher`는 바인딩된 텍스처가 바뀔 때마다(솔리드 rect = 텍스처 없음,
 텍스트 = 폰트 아틀라스 텍스처) GPU draw call을 플러시한다.
