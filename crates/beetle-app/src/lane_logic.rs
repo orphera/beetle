@@ -55,6 +55,8 @@ pub enum LogicCommand {
     Pause(bool),
     /// The judge offset changed (F8 / F9).
     Offset(f64),
+    /// The turntable axis changed in Settings (`None`: no turntable).
+    TurntableAxis(Option<u8>),
 }
 
 /// Everything the input thread needs to judge one play.

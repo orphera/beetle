@@ -449,6 +449,10 @@ impl Thread {
                     s.set_offset(ms);
                 }
             }
+            LogicCommand::TurntableAxis(axis) => {
+                self.turntable_axis = axis;
+                self.reset_turntables();
+            }
         }
     }
 }

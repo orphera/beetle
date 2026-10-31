@@ -75,6 +75,7 @@ pub enum OptionId {
     TrackBga,
     KeyHint,
     KeyLayout,
+    TurntableAxis,
 }
 
 /// One row of an option table.
@@ -367,6 +368,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             label: strings::ROW_KEY_LAYOUT(),
             help: strings::HELP_KEY_LAYOUT(),
         },
+        OptionDesc {
+            id: OptionId::TurntableAxis,
+            group: strings::GROUP_INPUT(),
+            column: 1,
+            label: strings::ROW_TURNTABLE(),
+            help: strings::HELP_TURNTABLE(),
+        },
     ]
 }
 
@@ -538,6 +546,14 @@ pub fn audio_device_next(names: &[String], cur: Option<&str>, forward: bool) -> 
     order[next].map(str::to_owned)
 }
 
+/// The turntable axis after (or before) `cur`: off, then axes 0..`MAX_AXES`, wrapping.
+pub fn turntable_axis_next(cur: Option<u8>, forward: bool) -> Option<u8> {
+    let order: Vec<Option<u8>> = std::iter::once(None)
+        .chain((0..crate::hid::MAX_AXES as u8).map(Some))
+        .collect();
+    cycle(&order, cur, forward)
+}
+
 // ---------------------------------------------------------------------------
 // Reading and changing the values in AppState
 // ---------------------------------------------------------------------------
@@ -631,6 +647,11 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::Bga => on_off(state.bga_enabled).to_string(),
         OptionId::TrackBga => track_bga_label(state.track_bga).to_string(),
         OptionId::KeyHint => key_hint_label(state.key_hint).to_string(),
+        // Shown from 1; the file keeps the HID index (`turntable_axis=0..7`).
+        OptionId::TurntableAxis => match state.turntable_axis {
+            Some(axis) => strings::fill(strings::VALUE_AXIS(), &[&(axis + 1).to_string()]),
+            None => strings::VALUE_OFF().to_string(),
+        },
         OptionId::KeyLayout => {
             // Layouts are per key mode; this row shows the selected song's.
             let mode = state.key_config_mode();
@@ -785,6 +806,14 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             let mode = state.key_config_mode();
             state.key_bindings.get_mut(mode).cycle_preset(mode);
             state.sync_eight_k_form();
+        }
+        OptionId::TurntableAxis => {
+            state.turntable_axis = turntable_axis_next(state.turntable_axis, forward);
+            if let Some(keys) = state.raw_keys.as_mut() {
+                keys.send(crate::lane_logic::LogicCommand::TurntableAxis(
+                    state.turntable_axis,
+                ));
+            }
         }
         // A list, not a value: ENTER opens it.
         OptionId::SongFolders | OptionId::HiddenSongs | OptionId::AdvancedTools => {}
@@ -1065,6 +1094,14 @@ mod tests {
             Some("A")
         );
         assert_eq!(audio_device_next(&[], None, true), None);
+    }
+
+    #[test]
+    fn the_turntable_axis_cycles_off_then_each_axis() {
+        assert_eq!(turntable_axis_next(None, true), Some(0));
+        assert_eq!(turntable_axis_next(Some(7), true), None);
+        assert_eq!(turntable_axis_next(None, false), Some(7));
+        assert_eq!(turntable_axis_next(Some(0), false), None);
     }
 
     #[test]

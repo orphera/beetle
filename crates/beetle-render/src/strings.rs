@@ -1146,6 +1146,10 @@ table! {
         ko "키 배치",
         en "Key Layout",
         ja "キー配置";
+    pub ROW_TURNTABLE =
+        ko "턴테이블 축",
+        en "Turntable Axis",
+        ja "ターンテーブル軸";
     pub VALUE_ON =
         ko "켜짐",
         en "On",
@@ -1219,6 +1223,10 @@ table! {
         en "{} (applies after restart)",
         ja "{}（再起動後に適用）";
     /// `{}` is the FPS number.
+    pub VALUE_AXIS =
+        ko "축 {}",
+        en "Axis {}",
+        ja "軸 {}";
     pub VALUE_FPS =
         ko "{} FPS",
         en "{} FPS",
@@ -1405,6 +1413,10 @@ table! {
         ko "선택한 곡의 키 모드에서 쓸 키 배치를 골라요. ENTER로 키 설정 화면을 열어요.",
         en "Chooses the key layout for the selected song's key mode. Press ENTER to open Key Config.",
         ja "選んだ曲のキーモードで使うキー配置を選びます。ENTER でキー設定画面を開きます。";
+    pub HELP_TURNTABLE =
+        ko "컨트롤러에서 스크래치로 쓸 축이에요. 축 번호는 장치마다 달라요. 게임패드 스틱이 스크래치를 누르면 끄기로 두세요.",
+        en "The controller axis played as the scratch. Axis numbers differ per device. Turn it off if a gamepad stick keeps pressing the scratch.",
+        ja "コントローラーでスクラッチに使う軸です。軸の番号はデバイスごとに違います。ゲームパッドのスティックがスクラッチを押すときはオフにします。";
 
     // Judge offset calibration (a Settings sub-screen).
     pub CALIBRATE_TITLE =
