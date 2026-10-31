@@ -9,7 +9,8 @@
 //! - `iso9660`: the disc's file system.
 //! - `ps2`: which game a PS2 disc is (its boot executable from `SYSTEM.CNF`).
 //! - `iidx`: where each IIDX edition (10th style to 16 EMPRESS) keeps its songs,
-//!   and `popn` the same for pop'n music 12 to 14 through the same `iidx::Disc`.
+//!   and `popn` the same for pop'n music 8 to 10 and 12 to 14 through the same
+//!   `iidx::Disc`.
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
 //! plain song records; turning them into charts and sounds is the caller's job.

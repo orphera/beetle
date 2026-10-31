@@ -688,6 +688,40 @@ mod tests {
     }
 
     #[test]
+    fn a_popn8_bank_reads_parameter_lists_and_decodes_its_sound() {
+        let table = 0x80;
+        let records = table + 0x10;
+        let mut data = vec![0u8; 0x2010 + 16 + 16];
+        data[0..4].copy_from_slice(&0x10u32.to_le_bytes());
+        data[4..8].copy_from_slice(&(table as u32).to_le_bytes());
+        data[0x14..0x18].copy_from_slice(&7u32.to_le_bytes());
+        data[table + 4..table + 8].copy_from_slice(&1u32.to_le_bytes());
+        data[table + 12..table + 16].copy_from_slice(&16u32.to_le_bytes());
+        data[records..records + 4].copy_from_slice(&0u32.to_le_bytes());
+        data[0x21] = 1;
+        data[0x24..0x28].copy_from_slice(&0u32.to_le_bytes());
+        for (i, token) in [0xd2000000u32, 0xdd000020, 0xf87f0000, 0xff000000]
+            .into_iter()
+            .enumerate()
+        {
+            let at = 0x2010 + i * 4;
+            data[at..at + 4].copy_from_slice(&token.to_le_bytes());
+        }
+
+        let bank = Bank::parse(&data).unwrap();
+        let sound = bank.sound(1).unwrap();
+        assert_eq!(sound.file, 0);
+        assert_eq!(sound.placement, Placement::Mono);
+        assert_eq!(sound.pan, 32);
+        assert_eq!(sound.volume, 127);
+        assert_eq!(bank.raw_file(0).unwrap().0.len(), 16);
+        let pcm = bank.decode(1).unwrap().unwrap();
+        assert_eq!(pcm.rate, 44100);
+        assert_eq!(pcm.channels.len(), 2);
+        assert_eq!(pcm.channels[0].len(), 28);
+    }
+
+    #[test]
     fn a_long_sound_plays_at_the_rate_its_length_gives() {
         // 35000 samples in 1000 ms is 35000 Hz, whatever the code says.
         assert_eq!(measured_rate(35000, 1000), Some(35000));

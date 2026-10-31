@@ -1,5 +1,5 @@
-//! The PS2 pop'n music discs this crate reads (12 いろは, 13 カーニバル,
-//! 14 FEVER!): where each song's files are and how its charts read.
+//! The PS2 pop'n music discs this crate reads (8 to 10, 12 いろは,
+//! 13 カーニバル, 14 FEVER!): where each song's files are and how its charts read.
 //!
 //! Found by reading the discs; no tool or document described them.
 //!
@@ -88,9 +88,8 @@ pub(crate) enum StreamOrder {
         bgm_at: [usize; 4],
         streams: (usize, usize),
     },
-    /// 8: each difficulty's slot of the chart table (`Record::slots`) has
-    /// its BGM number at 20, which names an 8-byte entry of `streams` (`u32`
-    /// stream, `u32` volume) as on 9.
+    /// 8: each chart slot's +20 number indexes the stream and lead pair.
+    /// The chart's command-3 value is not a stream-table index.
     Slots { streams: (usize, usize) },
     /// 10: the game's own tables, as it reads them (0x15ac90, then its BGM
     /// loader 0x161cb0): the record's byte at `pick_at` names a 0x60-byte
@@ -395,6 +394,20 @@ fn list_of(difficulty: Difficulty) -> usize {
     }
 }
 
+fn stream_entry(
+    exe: &[u8],
+    streams_at: usize,
+    stream_count: usize,
+    number: u16,
+) -> Option<(u32, u32)> {
+    let number = number as usize;
+    if number >= stream_count {
+        return None;
+    }
+    let at = streams_at.checked_add(number.checked_mul(8)?)?;
+    Some((u32_at(exe, at)?, u32_at(exe, at + 4)?))
+}
+
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
 }
@@ -544,19 +557,25 @@ pub(crate) fn assign_streams(songs: &mut [Song], exe: &[u8], layout: &Layout, ba
         StreamOrder::Slots {
             streams: (streams_at, stream_count),
         } => {
-            let Some(table) = layout.record.slots else {
+            let Some(slot_table) = layout.record.slots else {
                 return;
             };
             for song in songs {
-                // NORMAL, HYPER, 5-button and EX, in `LEVELS` level byte order.
                 for &(difficulty, level) in &LEVELS {
-                    let slot = table + song.id as usize * SLOTS_SIZE + level * SLOT_SIZE;
-                    let Some(stream) = u32_at(exe, slot + 20)
-                        .filter(|&n| (n as usize) < stream_count)
-                        .and_then(|n| u32_at(exe, streams_at + n as usize * 8))
+                    let slot = slot_table + song.id as usize * SLOTS_SIZE + level * SLOT_SIZE;
+                    let Some((stream, lead)) = u32_at(exe, slot + 20)
+                        .and_then(|number| u16::try_from(number).ok())
+                        .and_then(|number| stream_entry(exe, streams_at, stream_count, number))
                     else {
                         continue;
                     };
+                    for chart in song
+                        .charts
+                        .iter_mut()
+                        .filter(|chart| chart.difficulty == difficulty)
+                    {
+                        chart.bgm_lead = lead;
+                    }
                     let bank = song.sound_files(Style::Single, difficulty).0.unwrap_or(0);
                     song.set_sound_files(Style::Single, difficulty, bank, base + stream);
                 }
@@ -1368,5 +1387,81 @@ mod tests {
         assert_eq!(ply.millis(1714), 1714.0);
         let hyper = chart(&file, Difficulty::Hyper, BgmStart::Stream).unwrap();
         assert_eq!(hyper.events[0].command, Command::End);
+    }
+
+    #[test]
+    fn a_slot_bgm_number_selects_its_stream_and_lead() {
+        let mut exe = vec![0; 125 * 8];
+        let at = 8 * 8;
+        exe[at..at + 4].copy_from_slice(&29u32.to_le_bytes());
+        exe[at + 4..at + 8].copy_from_slice(&200u32.to_le_bytes());
+        assert_eq!(stream_entry(&exe, 0, 125, 8), Some((29, 200)));
+        assert_eq!(stream_entry(&exe, 0, 125, 125), None);
+    }
+
+    #[test]
+    fn popn8_slot_ids_assign_the_user_identified_bgm_streams() {
+        use crate::iidx::Chart;
+
+        let Streams {
+            order:
+                StreamOrder::Slots {
+                    streams: (streams_at, stream_count),
+                },
+            ..
+        } = POPN8.streams.unwrap()
+        else {
+            unreachable!()
+        };
+        let slots = POPN8.record.slots.unwrap();
+        let mut exe = vec![0; (streams_at + stream_count * 8).max(slots + 29 * SLOTS_SIZE)];
+        for (number, stream, lead) in [(8usize, 23u32, 208u32), (11, 26, 116)] {
+            let at = streams_at + number * 8;
+            exe[at..at + 4].copy_from_slice(&stream.to_le_bytes());
+            exe[at + 4..at + 8].copy_from_slice(&lead.to_le_bytes());
+        }
+        exe[slots + 20 * SLOTS_SIZE + 20..slots + 20 * SLOTS_SIZE + 24]
+            .copy_from_slice(&8u32.to_le_bytes());
+        exe[slots + 28 * SLOTS_SIZE + 20..slots + 28 * SLOTS_SIZE + 24]
+            .copy_from_slice(&11u32.to_le_bytes());
+
+        let make_song = |id, title: &str, bank| Song {
+            id,
+            title: title.to_string(),
+            charts: [Difficulty::Normal, Difficulty::Hyper]
+                .into_iter()
+                .map(|difficulty| Chart {
+                    style: Style::Single,
+                    difficulty,
+                    level: 1,
+                    file: 184,
+                    bgm_lead: 0,
+                })
+                .collect(),
+            sounds: [
+                bank, 0xffff, 0xffff, 0xffff, bank, 0xffff, 0xffff, 0xffff, bank, 0xffff, 0xffff,
+                0xffff, bank, 0xffff, 0xffff, 0xffff,
+            ],
+            stage: None,
+            stage_picks: None,
+            video: None,
+        };
+        let mut songs = [
+            make_song(20, "777", 183),
+            make_song(28, "Ninja Hero Shinobian", 184),
+        ];
+
+        assign_streams(&mut songs, &exe, &POPN8, 245);
+
+        assert_eq!(
+            songs[0].sound_files(Style::Single, Difficulty::Normal),
+            (Some(183), Some(268))
+        );
+        assert_eq!(
+            songs[1].sound_files(Style::Single, Difficulty::Normal),
+            (Some(184), Some(271))
+        );
+        assert_eq!(songs[0].charts[0].bgm_lead, 208);
+        assert_eq!(songs[1].charts[0].bgm_lead, 116);
     }
 }

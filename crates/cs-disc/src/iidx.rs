@@ -1456,8 +1456,8 @@ pub struct Chart {
     pub level: u8,
     /// The chart's file number.
     pub file: u32,
-    /// How long (ms) the BGM stream plays before the chart's time 0: pop'n
-    /// music 10 runs its clock as the stream's position less this. 0 elsewhere.
+    /// How long (ms) the BGM stream plays before the chart's time 0 on pop'n
+    /// music 8 to 10. 0 on discs without a stream lead.
     pub bgm_lead: u32,
 }
 
@@ -3318,6 +3318,14 @@ mod tests {
         );
         assert_eq!(Edition::from_executable("SLPM_000.00"), None);
         assert_eq!(Edition::Gold.name(), "beatmania IIDX 14 GOLD");
+    }
+
+    #[test]
+    fn popn8_is_told_by_its_executable() {
+        let edition = Edition::from_executable("slpm_653.16").unwrap();
+        assert_eq!(edition, Edition::Popn8);
+        assert_eq!(edition.name(), "pop'n music 8");
+        assert!(edition.is_popn());
     }
 
     #[test]
