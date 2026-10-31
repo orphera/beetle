@@ -380,6 +380,7 @@ impl GuiRenderer {
             self.hit(x, y, rw, row_h - 4.0, UiAction::SelectInstalled(idx));
         }
         self.scrollbar(
+            ScrollTarget::Installed,
             PAD + list_w - 8.0,
             list_top,
             list_h,
@@ -740,6 +741,7 @@ impl GuiRenderer {
             self.hit(x, y, rw, row_h - 2.0, UiAction::SelectTableRow(idx));
         }
         self.scrollbar(
+            ScrollTarget::Tables,
             PAD + list_w - 8.0,
             list_top,
             list_h,

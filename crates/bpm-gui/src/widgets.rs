@@ -68,6 +68,96 @@ pub enum ScrollTarget {
     Tables,
 }
 
+/// Width of the strip around a scroll bar that takes the mouse (the bar is 4 px).
+const SCROLLBAR_GRAB_W: f32 = 14.0;
+
+/// A scroll bar drawn this frame, kept so the mouse can drag it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scrollbar {
+    pub target: ScrollTarget,
+    pub x: f32,
+    pub y: f32,
+    pub h: f32,
+    pub len: usize,
+    pub visible: usize,
+    pub thumb_y: f32,
+    pub thumb_h: f32,
+}
+
+impl Scrollbar {
+    fn contains(&self, (mx, my): (f32, f32)) -> bool {
+        let cx = self.x + 2.0;
+        (mx - cx).abs() <= SCROLLBAR_GRAB_W / 2.0 && my >= self.y && my < self.y + self.h
+    }
+
+    /// Where on the thumb a press at `my` holds it: the offset from its top.
+    /// A press off the thumb holds its middle (the thumb jumps there).
+    pub fn grab(&self, my: f32) -> f32 {
+        if my >= self.thumb_y && my < self.thumb_y + self.thumb_h {
+            my - self.thumb_y
+        } else {
+            self.thumb_h / 2.0
+        }
+    }
+
+    /// The first row shown when the thumb's top is at `thumb_top`.
+    pub fn first_at(&self, thumb_top: f32) -> usize {
+        let track = self.h - self.thumb_h;
+        let max_first = self.len.saturating_sub(self.visible);
+        if track <= 0.0 || max_first == 0 {
+            return 0;
+        }
+        let t = ((thumb_top - self.y) / track).clamp(0.0, 1.0);
+        (t * max_first as f32).round() as usize
+    }
+}
+
+#[cfg(test)]
+mod scrollbar_tests {
+    use super::*;
+
+    fn bar() -> Scrollbar {
+        // 100 rows, 10 shown, a 200 px track: the thumb is 24 px (minimum).
+        Scrollbar {
+            target: ScrollTarget::Installed,
+            x: 100.0,
+            y: 50.0,
+            h: 200.0,
+            len: 100,
+            visible: 10,
+            thumb_y: 50.0,
+            thumb_h: 24.0,
+        }
+    }
+
+    #[test]
+    fn the_thumb_maps_the_track_onto_every_first_row() {
+        let b = bar();
+        assert_eq!(b.first_at(50.0), 0);
+        assert_eq!(b.first_at(50.0 + 176.0), 90);
+        assert_eq!(b.first_at(50.0 + 88.0), 45);
+        // Past either end it stops there.
+        assert_eq!(b.first_at(-500.0), 0);
+        assert_eq!(b.first_at(5000.0), 90);
+    }
+
+    #[test]
+    fn a_press_on_the_thumb_keeps_its_hold_and_off_it_holds_the_middle() {
+        let b = bar();
+        assert_eq!(b.grab(60.0), 10.0);
+        assert_eq!(b.grab(200.0), 12.0);
+    }
+
+    #[test]
+    fn the_grab_strip_is_wider_than_the_bar() {
+        let b = bar();
+        assert!(b.contains((96.0, 60.0)));
+        assert!(b.contains((108.0, 60.0)));
+        assert!(!b.contains((120.0, 60.0)));
+        assert!(!b.contains((102.0, 49.0)));
+    }
+}
+
 /// A clickable region drawn this frame.
 #[derive(Debug, Clone, Copy)]
 pub struct Hit {
@@ -244,6 +334,7 @@ pub struct GuiRenderer {
     /// Clickable regions in drawing order: the last one under the mouse wins.
     pub hits: Vec<Hit>,
     pub scroll_areas: Vec<(Hit, ScrollTarget)>,
+    pub scrollbars: Vec<Scrollbar>,
     pub cursor: (f32, f32),
     /// Off while a dialog covers the screen, so nothing behind it lights up.
     hover_enabled: bool,
@@ -256,6 +347,7 @@ impl GuiRenderer {
             pixmap,
             hits: Vec::new(),
             scroll_areas: Vec::new(),
+            scrollbars: Vec::new(),
             cursor: (-1.0, -1.0),
             hover_enabled: true,
         })
@@ -275,6 +367,7 @@ impl GuiRenderer {
     pub fn begin_frame(&mut self, hover_enabled: bool) {
         self.hits.clear();
         self.scroll_areas.clear();
+        self.scrollbars.clear();
         self.hover_enabled = hover_enabled;
         self.pixmap.fill(Color::from_rgba8(
             theme::BG.r,
@@ -295,6 +388,23 @@ impl GuiRenderer {
             .rev()
             .find(|hit| hit.contains(pos))
             .map(|hit| hit.action)
+    }
+
+    /// The scroll bar under `pos`, if any (only while hovering is on, so not under a dialog).
+    pub fn scrollbar_at(&self, pos: (f32, f32)) -> Option<Scrollbar> {
+        if !self.hover_enabled {
+            return None;
+        }
+        self.scrollbars
+            .iter()
+            .rev()
+            .find(|b| b.contains(pos))
+            .copied()
+    }
+
+    /// The scroll bar of `target` drawn this frame.
+    pub fn scrollbar_of(&self, target: ScrollTarget) -> Option<Scrollbar> {
+        self.scrollbars.iter().find(|b| b.target == target).copied()
     }
 
     pub fn scroll_target_at(&self, pos: (f32, f32)) -> Option<ScrollTarget> {
@@ -596,15 +706,41 @@ impl GuiRenderer {
         self.outline(x, y, w, h, 10.0, ColorRgba::new(34, 37, 50, 255), false);
     }
 
-    /// A thin scroll bar for a list showing `visible` of `len` rows from `first`.
+    /// A thin scroll bar for a list showing `visible` of `len` rows from
+    /// `first`. The mouse can drag it (`scrollbar_at`).
     #[allow(clippy::too_many_arguments)]
-    pub fn scrollbar(&mut self, x: f32, y: f32, h: f32, len: usize, visible: usize, first: usize) {
+    pub fn scrollbar(
+        &mut self,
+        target: ScrollTarget,
+        x: f32,
+        y: f32,
+        h: f32,
+        len: usize,
+        visible: usize,
+        first: usize,
+    ) {
         if len <= visible || len == 0 {
             return;
         }
-        let thumb_h = (h * visible as f32 / len as f32).max(24.0);
+        let thumb_h = (h * visible as f32 / len as f32).max(24.0).min(h);
         let max_first = (len - visible) as f32;
         let thumb_y = y + (h - thumb_h) * (first as f32 / max_first).min(1.0);
-        self.round(x, thumb_y, 4.0, thumb_h, 2.0, theme::SURFACE_3);
+        let bar = Scrollbar {
+            target,
+            x,
+            y,
+            h,
+            len,
+            visible,
+            thumb_y,
+            thumb_h,
+        };
+        let color = if self.hover_enabled && bar.contains(self.cursor) {
+            theme::TEXT_FAINT
+        } else {
+            theme::SURFACE_3
+        };
+        self.round(x, thumb_y, 4.0, thumb_h, 2.0, color);
+        self.scrollbars.push(bar);
     }
 }

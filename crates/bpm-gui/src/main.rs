@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tasks::{BgTask, TaskKind, TaskMessage};
 use ui::{ActiveTab, StatusKind};
-use widgets::{GuiRenderer, ListView, ScrollTarget, UiAction};
+use widgets::{GuiRenderer, ListView, ScrollTarget, Scrollbar, UiAction};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -78,6 +78,10 @@ struct AppState {
     tables: tables_tab::TablesTab,
     cursor_pos: (f32, f32),
     hover: Option<UiAction>,
+    /// The scroll bar being dragged, and where on its thumb it is held.
+    scroll_drag: Option<(Scrollbar, f32)>,
+    /// The mouse is over a scroll bar (its thumb is drawn lit).
+    on_scrollbar: bool,
     /// A file is being dragged over the window.
     drag_hover: bool,
     library: Vec<String>,
@@ -347,6 +351,8 @@ impl ApplicationHandler for BpmGuiApp {
             tables: tables_tab::TablesTab::load(),
             cursor_pos: (-1.0, -1.0),
             hover: None,
+            scroll_drag: None,
+            on_scrollbar: false,
             drag_hover: false,
             library: bms_package_manager::load_library().paths().to_vec(),
         };
@@ -423,7 +429,18 @@ impl ApplicationHandler for BpmGuiApp {
                     position.y as f32 / state.ui_scale,
                 );
                 state.renderer.cursor = state.cursor_pos;
+                if let Some((bar, grab)) = state.scroll_drag {
+                    drag_scrollbar(state, bar, grab);
+                    state.window.request_redraw();
+                    return;
+                }
                 let hover = state.renderer.hit_at(state.cursor_pos);
+                let on_bar = state.renderer.scrollbar_at(state.cursor_pos).is_some();
+                if on_bar != state.on_scrollbar {
+                    // The thumb lights up under the mouse.
+                    state.on_scrollbar = on_bar;
+                    state.window.request_redraw();
+                }
                 if hover != state.hover {
                     state.hover = hover;
                     state.window.request_redraw();
@@ -440,6 +457,15 @@ impl ApplicationHandler for BpmGuiApp {
                 button: MouseButton::Left,
                 ..
             } => {
+                if state.picker.is_none() && state.dialog.is_none() {
+                    if let Some(bar) = state.renderer.scrollbar_at(state.cursor_pos) {
+                        let grab = bar.grab(state.cursor_pos.1);
+                        state.scroll_drag = Some((bar, grab));
+                        drag_scrollbar(state, bar, grab);
+                        state.window.request_redraw();
+                        return;
+                    }
+                }
                 if state.picker.is_none() {
                     match state.renderer.hit_at(state.cursor_pos) {
                         Some(action) => {
@@ -453,6 +479,11 @@ impl ApplicationHandler for BpmGuiApp {
                     state.window.request_redraw();
                 }
             }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => state.scroll_drag = None,
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
@@ -781,6 +812,16 @@ fn library_remove(state: &mut AppState, index: usize) {
         }
     }
     state.library = list.paths().to_vec();
+}
+
+/// Scrolls the list of `bar` so its thumb, held `grab` px below its top,
+/// follows the mouse.
+fn drag_scrollbar(state: &mut AppState, bar: Scrollbar, grab: f32) {
+    let first = bar.first_at(state.cursor_pos.1 - grab);
+    match bar.target {
+        ScrollTarget::Installed => state.installed.scroll = first,
+        ScrollTarget::Tables => state.tables.view.scroll = first,
+    }
 }
 
 /// Runs what a click (or a key mapped to it) asks for.
