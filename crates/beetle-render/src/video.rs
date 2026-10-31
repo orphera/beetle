@@ -296,7 +296,7 @@ mod wmf_backend {
                     let audio_time = f64::from_bits(worker_time.load(Ordering::Relaxed)).max(0.0);
                     let before = player.frame_serial;
                     let started = Instant::now();
-                    let _ = player.update(audio_time + 0.1);
+                    let _ = player.update(audio_time);
                     let elapsed = started.elapsed();
                     let decoded = player.frame_serial.wrapping_sub(before);
                     if decoded > 0 {
