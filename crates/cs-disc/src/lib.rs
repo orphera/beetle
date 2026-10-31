@@ -33,7 +33,7 @@ pub mod wvb;
 
 pub use iidx::Edition;
 pub use iso9660::{FileExtent, Volume};
-pub use sector::{SectorReader, SECTOR_SIZE};
+pub use sector::{SectorReadStats, SectorReader, SECTOR_SIZE};
 
 use std::io::{self, Read, Seek};
 

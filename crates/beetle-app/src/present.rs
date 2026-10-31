@@ -6,8 +6,8 @@
 //! `RedrawRequested`; the event loop decides how often that is.
 
 use std::path::Path;
-use std::sync::OnceLock;
-use std::time::Instant;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use beetle_core::{ChartId, SongMetadata, SortMode};
 use beetle_render::backdrop::placeholder_backdrop;
@@ -30,6 +30,38 @@ use crate::transition::{self, show_toast};
 fn ambient_clock() -> f32 {
     static START: OnceLock<Instant> = OnceLock::new();
     beetle_render::ambient_time(START.get_or_init(Instant::now).elapsed().as_secs_f64())
+}
+
+#[cfg(debug_assertions)]
+#[derive(Default)]
+struct GameplayRenderStats {
+    started: Option<Instant>,
+    frames: u64,
+    total: Duration,
+    max: Duration,
+}
+
+#[cfg(debug_assertions)]
+fn record_gameplay_render(elapsed: Duration) {
+    static STATS: OnceLock<Mutex<GameplayRenderStats>> = OnceLock::new();
+    let mut stats = STATS
+        .get_or_init(|| Mutex::new(GameplayRenderStats::default()))
+        .lock()
+        .expect("gameplay render metrics lock poisoned");
+    let report_due =
+        stats.started.get_or_insert_with(Instant::now).elapsed() >= Duration::from_secs(5);
+    stats.frames += 1;
+    stats.total += elapsed;
+    stats.max = stats.max.max(elapsed);
+    if report_due {
+        println!(
+            "[render] gameplay_submit_avg_ms={:.3} max_ms={:.3} frames={}",
+            stats.total.as_secs_f64() * 1000.0 / stats.frames as f64,
+            stats.max.as_secs_f64() * 1000.0,
+            stats.frames
+        );
+        *stats = GameplayRenderStats::default();
+    }
 }
 
 /// Starts a frame on the backbuffer and the UI.
@@ -132,7 +164,13 @@ fn show_loading_backdrop(state: &mut AppState, song: Option<(ChartId, u64)>, now
 /// Submits the UI, serves screenshot / devtools capture requests (they read
 /// the backbuffer, so before present) and presents.
 fn finish(state: &mut AppState) {
+    #[cfg(debug_assertions)]
+    let started = (state.screen == AppScreen::Gameplay).then(Instant::now);
     state.gpu_ui.ui.current().end(&mut state.d3d11);
+    #[cfg(debug_assertions)]
+    if let Some(started) = started {
+        record_gameplay_render(started.elapsed());
+    }
     if let Some(path) = state.pending_screenshot.take() {
         match devtools::save_backbuffer(&mut state.d3d11, &path) {
             Ok(_) => {

@@ -8,6 +8,7 @@
 use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use mpeg_video::{ps, Decoder};
 
@@ -41,18 +42,43 @@ fn spawn(stream: Arc<Vec<u8>>, from: usize) -> Receiver<(usize, ImageBuffer)> {
     thread::spawn(move || {
         let mut decoder = Decoder::new(stream.to_vec());
         let mut index = 0usize;
-        while let Some(Ok(frame)) = decoder.next_frame() {
+        let mut last_report = Instant::now();
+        let mut decoded_frames = 0u64;
+        let mut decode_time = Duration::ZERO;
+        let mut max_frame = Duration::ZERO;
+        loop {
+            let started = Instant::now();
+            let Some(Ok(frame)) = decoder.next_frame() else {
+                break;
+            };
             if index >= from {
                 let mut image =
                     ImageBuffer::new(frame.width, frame.height, ColorRgba::new(0, 0, 0, 255));
                 for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(frame.to_rgba()) {
                     *out = ColorRgba::new(r, g, b, a);
                 }
+                let elapsed = started.elapsed();
+                decoded_frames += 1;
+                decode_time += elapsed;
+                max_frame = max_frame.max(elapsed);
                 if tx.send((index, image)).is_err() {
                     return;
                 }
             }
             index += 1;
+            if last_report.elapsed() >= Duration::from_secs(5) {
+                if decoded_frames > 0 {
+                    println!(
+                        "[bga] mpeg decoded={decoded_frames} decode_avg_ms={:.3} frame_max_ms={:.3}",
+                        decode_time.as_secs_f64() * 1000.0 / decoded_frames as f64,
+                        max_frame.as_secs_f64() * 1000.0
+                    );
+                }
+                decoded_frames = 0;
+                decode_time = Duration::ZERO;
+                max_frame = Duration::ZERO;
+                last_report = Instant::now();
+            }
         }
     });
     rx

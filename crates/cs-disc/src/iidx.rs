@@ -2277,9 +2277,9 @@ impl Disc {
         if count == 0 || count > 8 {
             return Ok(None);
         }
+        let part_bytes = disc.read_at(exe + (sprites.parts + 16 * first) as u64, 16 * count)?;
         let mut parts = Vec::new();
-        for p in first..first + count {
-            let e = disc.read_at(exe + (sprites.parts + 16 * p) as u64, 16)?;
+        for e in part_bytes.chunks_exact(16) {
             let f = |k: usize| u16_le(&e, k).unwrap_or(0);
             parts.push((
                 f(0) as i16 as i32,
@@ -2310,18 +2310,29 @@ impl Disc {
         }
         // The greys first, then ink by `ink` (`Auto` needs them all).
         let mut greys = vec![0u8; width * height];
-        for &(x, y, w, h, texture, u, v) in &parts {
+        let texture_ranges: Vec<_> = parts
+            .iter()
+            .map(|&(_, _, _, _, texture, _, _)| (exe + (sprites.textures + 4 * texture) as u64, 4))
+            .collect();
+        let texture_addresses = disc.read_at_many(&texture_ranges)?;
+        let mut packed_ranges = Vec::with_capacity(parts.len());
+        for (&(_, _, w, h, texture, u, v), address) in parts.iter().zip(texture_addresses) {
             if texture < sprites.first_texture || u + w > TEXTURE_SIDE || v + h > TEXTURE_SIDE {
                 return Ok(None);
             }
-            let address = disc.read_at(exe + (sprites.textures + 4 * texture) as u64, 4)?;
             let address = u32::from_le_bytes(address[..4].try_into().unwrap()) as usize;
             let Some(at) = address.checked_sub(sprites.base) else {
                 return Ok(None);
             };
             // A texture packs to well under this; the LZ stops at its end code.
-            let len = 0x4000.min(self.executable.size.saturating_sub(at as u64 + 4));
-            let packed = disc.read_at(exe + at as u64, len as usize + 4)?;
+            if at as u64 + 4 > self.executable.size {
+                return Ok(None);
+            }
+            let len = 0x4000.min(self.executable.size - at as u64 - 4);
+            packed_ranges.push((exe + at as u64, len as usize + 4));
+        }
+        let packed_textures = disc.read_at_many(&packed_ranges)?;
+        for (&(x, y, w, h, _, u, v), packed) in parts.iter().zip(packed_textures) {
             if u32::from_le_bytes(packed[..4].try_into().unwrap()) != 0 {
                 return Ok(None);
             }

@@ -5,6 +5,7 @@
 use crate::image::ImageBuffer;
 use crate::mpeg_player::MpegPlayer;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Standard video file extensions supported by the BGA video player.
 pub const VIDEO_EXTENSIONS: &[&str] = &[
@@ -28,6 +29,11 @@ mod wmf_backend {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
     use std::ptr;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::mpsc::{sync_channel, Receiver, TryRecvError, TrySendError};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     #[repr(C)]
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -231,6 +237,155 @@ mod wmf_backend {
         pub is_eof: bool,
         /// Incremented whenever `frame_buffer` receives a new decoded frame.
         pub frame_serial: u64,
+    }
+
+    pub struct WmfVideoWorker {
+        frames: Receiver<WorkerMessage>,
+        requested_time: Arc<AtomicU64>,
+        stop: Arc<AtomicBool>,
+        pub width: u32,
+        pub height: u32,
+        pub frame_buffer: Option<ImageBuffer>,
+        pub frame_serial: u64,
+        failed: bool,
+    }
+
+    enum WorkerMessage {
+        Ready(InitialFrame),
+        Frame(u64, ImageBuffer),
+        Failed,
+    }
+
+    struct InitialFrame {
+        width: u32,
+        height: u32,
+        frame_buffer: ImageBuffer,
+        frame_serial: u64,
+    }
+
+    impl WmfVideoWorker {
+        fn spawn(open: impl FnOnce() -> Option<WmfVideoPlayer> + Send + 'static) -> Option<Self> {
+            let (frame_tx, frames) = sync_channel(2);
+            let requested_time = Arc::new(AtomicU64::new(0.0f64.to_bits()));
+            let worker_time = requested_time.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = stop.clone();
+
+            thread::spawn(move || {
+                let Some(mut player) = open() else {
+                    let _ = frame_tx.try_send(WorkerMessage::Failed);
+                    return;
+                };
+                let initial = InitialFrame {
+                    width: player.width,
+                    height: player.height,
+                    frame_buffer: player.frame_buffer.clone(),
+                    frame_serial: player.frame_serial,
+                };
+                if frame_tx.send(WorkerMessage::Ready(initial)).is_err() {
+                    return;
+                }
+
+                let mut sent_serial = player.frame_serial;
+                let mut pending_frame: Option<(u64, ImageBuffer)> = None;
+                let mut last_report = Instant::now();
+                let mut decoded_frames = 0u64;
+                let mut decode_time = Duration::ZERO;
+                let mut max_update = Duration::ZERO;
+                while !worker_stop.load(Ordering::Relaxed) {
+                    let audio_time = f64::from_bits(worker_time.load(Ordering::Relaxed)).max(0.0);
+                    let before = player.frame_serial;
+                    let started = Instant::now();
+                    let _ = player.update(audio_time + 0.1);
+                    let elapsed = started.elapsed();
+                    let decoded = player.frame_serial.wrapping_sub(before);
+                    if decoded > 0 {
+                        decoded_frames += decoded;
+                        decode_time += elapsed;
+                        max_update = max_update.max(elapsed);
+                    }
+                    if pending_frame.is_none() && player.frame_serial != sent_serial {
+                        pending_frame = Some((player.frame_serial, player.frame_buffer.clone()));
+                    }
+                    if let Some((serial, frame)) = pending_frame.take() {
+                        match frame_tx.try_send(WorkerMessage::Frame(serial, frame)) {
+                            Ok(()) => sent_serial = serial,
+                            Err(TrySendError::Full(WorkerMessage::Frame(serial, frame))) => {
+                                pending_frame = Some((serial, frame))
+                            }
+                            Err(TrySendError::Disconnected(_)) => break,
+                            Err(TrySendError::Full(_)) => unreachable!(),
+                        }
+                    }
+                    if last_report.elapsed() >= Duration::from_secs(5) {
+                        if decoded_frames > 0 {
+                            println!(
+                                "[bga] wmf decoded={decoded_frames} decode_avg_ms={:.3} update_max_ms={:.3}",
+                                decode_time.as_secs_f64() * 1000.0 / decoded_frames as f64,
+                                max_update.as_secs_f64() * 1000.0
+                            );
+                        }
+                        decoded_frames = 0;
+                        decode_time = Duration::ZERO;
+                        max_update = Duration::ZERO;
+                        last_report = Instant::now();
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+            });
+
+            Some(Self {
+                frames,
+                requested_time,
+                stop,
+                width: 0,
+                height: 0,
+                frame_buffer: None,
+                frame_serial: 0,
+                failed: false,
+            })
+        }
+
+        pub fn open(path: &Path) -> Option<Self> {
+            let path = path.to_path_buf();
+            Self::spawn(move || WmfVideoPlayer::open(&path))
+        }
+
+        pub fn open_from_memory(bytes: Arc<[u8]>, filename_hint: Option<&str>) -> Option<Self> {
+            let filename_hint = filename_hint.map(str::to_owned);
+            Self::spawn(move || WmfVideoPlayer::open_from_memory(&bytes, filename_hint.as_deref()))
+        }
+
+        pub fn update(&mut self, audio_time_seconds: f64) -> Option<&ImageBuffer> {
+            if self.failed {
+                return None;
+            }
+            self.requested_time
+                .store(audio_time_seconds.to_bits(), Ordering::Relaxed);
+            loop {
+                match self.frames.try_recv() {
+                    Ok(WorkerMessage::Ready(initial)) => {
+                        self.width = initial.width;
+                        self.height = initial.height;
+                        self.frame_buffer = Some(initial.frame_buffer);
+                        self.frame_serial = initial.frame_serial;
+                    }
+                    Ok(WorkerMessage::Frame(serial, frame)) => {
+                        self.frame_serial = serial;
+                        self.frame_buffer = Some(frame);
+                    }
+                    Ok(WorkerMessage::Failed) => self.failed = true,
+                    Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+                }
+            }
+            self.frame_buffer.as_ref()
+        }
+    }
+
+    impl Drop for WmfVideoWorker {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+        }
     }
 
     impl WmfVideoPlayer {
@@ -628,14 +783,14 @@ enum Backend {
     Mpeg(Box<MpegPlayer>),
     /// Everything else, through Windows Media Foundation.
     #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-    Wmf(wmf_backend::WmfVideoPlayer),
+    Wmf(wmf_backend::WmfVideoWorker),
 }
 
 impl BgaVideoPlayer {
     /// Opens a video file from disk if supported and feature is active.
     pub fn open<P: AsRef<Path>>(path: P) -> Option<Self> {
         let p = path.as_ref();
-        if !is_video_path(p) {
+        if !is_video_path(p) || !p.is_file() {
             return None;
         }
         // MPEG is decoded here, by content: a `.mpg` may hold anything.
@@ -654,7 +809,7 @@ impl BgaVideoPlayer {
 
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
-            let backend = wmf_backend::WmfVideoPlayer::open(p)?;
+            let backend = wmf_backend::WmfVideoWorker::open(p)?;
             Some(Self {
                 backend: Backend::Wmf(backend),
                 display_aspect: None,
@@ -670,13 +825,24 @@ impl BgaVideoPlayer {
     /// Opens a video directly from an in-memory byte buffer (e.g. from a .bmsp archive)
     /// without extracting anything to disk.
     pub fn open_from_memory(bytes: &[u8], filename_hint: Option<&str>) -> Option<Self> {
+        if bytes.is_empty() || filename_hint.is_some_and(|hint| !is_video_path(hint)) {
+            return None;
+        }
+        Self::open_from_shared_memory(Arc::from(bytes), filename_hint)
+    }
+
+    /// Opens a video from shared bytes without copying them on the caller's thread.
+    pub fn open_from_shared_memory(bytes: Arc<[u8]>, filename_hint: Option<&str>) -> Option<Self> {
+        if bytes.is_empty() {
+            return None;
+        }
         if let Some(hint) = filename_hint {
             if !is_video_path(hint) {
                 return None;
             }
         }
-        if crate::mpeg_player::is_mpeg(bytes) {
-            return MpegPlayer::open(bytes).map(|m| Self {
+        if crate::mpeg_player::is_mpeg(&bytes) {
+            return MpegPlayer::open(&bytes).map(|m| Self {
                 backend: Backend::Mpeg(Box::new(m)),
                 display_aspect: None,
             });
@@ -684,7 +850,7 @@ impl BgaVideoPlayer {
 
         #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
         {
-            let backend = wmf_backend::WmfVideoPlayer::open_from_memory(bytes, filename_hint)?;
+            let backend = wmf_backend::WmfVideoWorker::open_from_memory(bytes, filename_hint)?;
             Some(Self {
                 backend: Backend::Wmf(backend),
                 display_aspect: None,
@@ -724,7 +890,7 @@ impl BgaVideoPlayer {
         match &self.backend {
             Backend::Mpeg(m) => Some(&m.frame_buffer),
             #[cfg(all(feature = "bga-enhanced", target_os = "windows"))]
-            Backend::Wmf(w) => Some(&w.frame_buffer),
+            Backend::Wmf(w) => w.frame_buffer.as_ref(),
         }
     }
 
@@ -760,6 +926,16 @@ impl BgaVideoPlayer {
 mod tests {
     use super::*;
 
+    fn wait_for_frame(player: &mut BgaVideoPlayer) {
+        for _ in 0..500 {
+            let _ = player.update(0.0);
+            if player.current_frame().is_some() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn test_is_video_path() {
         assert!(is_video_path("bga.mp4"));
@@ -783,15 +959,18 @@ mod tests {
     fn test_wmf_probe_real_video() {
         let sample_path = "sample_640x480.mp4";
         if std::path::Path::new(sample_path).exists() {
-            let player =
+            let mut player =
                 BgaVideoPlayer::open(sample_path).expect("Failed to open sample_640x480.mp4");
+            wait_for_frame(&mut player);
             assert_eq!(player.width(), 640);
             assert_eq!(player.height(), 480);
             assert!(player.current_frame().is_some());
 
             let bytes = std::fs::read(sample_path).unwrap();
-            let mem_player = BgaVideoPlayer::open_from_memory(&bytes, Some("sample_640x480.mp4"))
-                .expect("Failed to open from memory");
+            let mut mem_player =
+                BgaVideoPlayer::open_from_memory(&bytes, Some("sample_640x480.mp4"))
+                    .expect("Failed to open from memory");
+            wait_for_frame(&mut mem_player);
             assert_eq!(mem_player.width(), 640);
             assert_eq!(mem_player.height(), 480);
             assert!(mem_player.current_frame().is_some());
@@ -805,9 +984,9 @@ mod tests {
         for p in &test_paths {
             let path = std::path::Path::new(p);
             if path.exists() {
-                let player = BgaVideoPlayer::open(path);
-                if let Some(pl) = player {
-                    assert!(pl.current_frame().is_some());
+                if let Some(mut player) = BgaVideoPlayer::open(path) {
+                    wait_for_frame(&mut player);
+                    assert!(player.current_frame().is_some());
                 }
 
                 if let Ok(bytes) = std::fs::read(path) {

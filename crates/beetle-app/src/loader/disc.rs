@@ -34,6 +34,9 @@ impl DiscSource {
             std::io::ErrorKind::NotFound => ChartLoadError::NotFound,
             _ => ChartLoadError::Unreadable,
         })?;
+        if std::env::var_os("BEETLE_DISC_TRACE").is_some() {
+            disc.enable_trace();
+        }
         // The drive may hold another disc by now.
         let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
             return Err(ChartLoadError::NotFound);
@@ -129,6 +132,17 @@ impl DiscSource {
             .iter()
             .find(|(_, name)| sound_number(name) == Some(cue))
             .map(|(&id, _)| id)
+    }
+}
+
+impl Drop for DiscSource {
+    fn drop(&mut self) {
+        if let Some(stats) = self.disc.read_stats() {
+            println!(
+                "[disc] seeks={} sectors={} locations={:?}",
+                stats.seeks, stats.sectors, stats.locations
+            );
+        }
     }
 }
 

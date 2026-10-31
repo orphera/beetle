@@ -242,8 +242,8 @@ pub fn finalize_start_gameplay(
                     bytes,
                     filename_hint,
                     display_aspect,
-                } => beetle_render::BgaVideoPlayer::open_from_memory(
-                    &bytes,
+                } => beetle_render::BgaVideoPlayer::open_from_shared_memory(
+                    bytes.clone(),
                     filename_hint.as_deref(),
                 )
                 .map(|p| p.with_display_aspect(display_aspect)),

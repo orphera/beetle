@@ -17,6 +17,7 @@ scratch/
 *.log
 *.cache
 *.dat
+/songs.sources
 /replays/
 /tables/
 /songs/

@@ -10,6 +10,7 @@ use beetle_core::{BmpId, ChartId};
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::{BgaVideoPlayer, D3d11Backend, GpuBackend, ImageBuffer, SizedTexture, UiSet};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -43,15 +44,50 @@ struct VideoTexture {
     serial: u64,
 }
 
+#[derive(Default)]
+struct VideoUploadStats {
+    started: Option<Instant>,
+    frames: u64,
+    convert: Duration,
+    upload: Duration,
+}
+
+impl VideoUploadStats {
+    fn record(&mut self, convert: Duration, upload: Duration) {
+        let report_due =
+            self.started.get_or_insert_with(Instant::now).elapsed() >= Duration::from_secs(5);
+        self.frames += 1;
+        self.convert += convert;
+        self.upload += upload;
+        if report_due {
+            println!(
+                "[bga] uploads={} premultiply_avg_ms={:.3} texture_avg_ms={:.3}",
+                self.frames,
+                self.convert.as_secs_f64() * 1000.0 / self.frames as f64,
+                self.upload.as_secs_f64() * 1000.0 / self.frames as f64
+            );
+            *self = Self::default();
+        }
+    }
+}
+
 pub struct GpuUi {
     pub ui: UiSet,
     images: HashMap<ImageKey, SizedTexture>,
     videos: HashMap<(BmpId, bool), VideoTexture>,
+    video_pixels: Vec<u8>,
+    video_stats: VideoUploadStats,
 }
 
 /// RGBA8 premultiplied copy of `img`, optionally with pure black keyed out.
 fn premultiplied(img: &ImageBuffer, color_key_black: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(img.pixels.len() * 4);
+    premultiplied_into(img, color_key_black, &mut out);
+    out
+}
+
+fn premultiplied_into(img: &ImageBuffer, color_key_black: bool, out: &mut Vec<u8>) {
+    out.clear();
     for p in &img.pixels {
         let a = if color_key_black && p.r == 0 && p.g == 0 && p.b == 0 {
             0
@@ -61,7 +97,6 @@ fn premultiplied(img: &ImageBuffer, color_key_black: bool) -> Vec<u8> {
         let pm = |c: u8| ((c as u16 * a as u16 + 127) / 255) as u8;
         out.extend_from_slice(&[pm(p.r), pm(p.g), pm(p.b), a]);
     }
-    out
 }
 
 impl GpuUi {
@@ -70,6 +105,8 @@ impl GpuUi {
             ui: UiSet::new(scale),
             images: HashMap::new(),
             videos: HashMap::new(),
+            video_pixels: Vec::new(),
+            video_stats: VideoUploadStats::default(),
         }
     }
 
@@ -104,24 +141,33 @@ impl GpuUi {
         frame: &ImageBuffer,
         serial: u64,
     ) -> Option<SizedTexture> {
-        if let Some(v) = self.videos.get_mut(&(id, keyed)) {
-            if v.serial != serial && v.tex.width == frame.width && v.tex.height == frame.height {
-                backend.update_texture(
-                    v.tex.id,
-                    frame.width,
-                    frame.height,
-                    &premultiplied(frame, keyed),
-                );
-                v.serial = serial;
-            }
+        if let Some(v) = self.videos.get(&(id, keyed)) {
             if v.tex.width == frame.width && v.tex.height == frame.height {
-                return Some(v.tex);
+                let tex = v.tex;
+                let changed = v.serial != serial;
+                if changed {
+                    let started = Instant::now();
+                    premultiplied_into(frame, keyed, &mut self.video_pixels);
+                    let convert = started.elapsed();
+                    let started = Instant::now();
+                    backend.update_texture(tex.id, frame.width, frame.height, &self.video_pixels);
+                    self.video_stats.record(convert, started.elapsed());
+                    if let Some(v) = self.videos.get_mut(&(id, keyed)) {
+                        v.serial = serial;
+                    }
+                }
+                return Some(tex);
             }
-            backend.destroy_texture(v.tex.id);
-            self.videos.remove(&(id, keyed));
         }
-        let tex_id =
-            backend.create_texture(frame.width, frame.height, &premultiplied(frame, keyed))?;
+        if let Some(v) = self.videos.remove(&(id, keyed)) {
+            backend.destroy_texture(v.tex.id);
+        }
+        let started = Instant::now();
+        premultiplied_into(frame, keyed, &mut self.video_pixels);
+        let convert = started.elapsed();
+        let started = Instant::now();
+        let tex_id = backend.create_texture(frame.width, frame.height, &self.video_pixels)?;
+        self.video_stats.record(convert, started.elapsed());
         let tex = SizedTexture {
             id: tex_id,
             width: frame.width,
@@ -167,6 +213,7 @@ impl GpuUi {
         for (_, v) in self.videos.drain() {
             backend.destroy_texture(v.tex.id);
         }
+        self.video_stats = VideoUploadStats::default();
     }
 }
 
@@ -248,5 +295,17 @@ mod tests {
         let keyed = premultiplied(&img, true);
         assert_eq!(&keyed[0..4], &[0, 0, 0, 0], "pure black keyed out");
         assert_eq!(&keyed[8..12], &[10, 0, 0, 255], "near-black kept");
+    }
+
+    #[test]
+    fn video_pixel_buffer_reuses_its_allocation() {
+        let img = ImageBuffer::new(16, 8, ColorRgba::new(200, 100, 50, 128));
+        let mut pixels = Vec::new();
+        premultiplied_into(&img, false, &mut pixels);
+        let capacity = pixels.capacity();
+        premultiplied_into(&img, true, &mut pixels);
+        assert_eq!(pixels.len(), img.pixels.len() * 4);
+        assert_eq!(pixels.capacity(), capacity);
+        assert_eq!(&pixels[..4], &[100, 50, 25, 128]);
     }
 }
