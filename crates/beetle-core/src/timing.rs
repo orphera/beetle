@@ -333,6 +333,15 @@ impl TimingModel {
         }
     }
 
+    /// Where the BPM changes, in chart order: (beat position, new BPM). The
+    /// first BPM, a STOP and a change to the same BPM are not changes.
+    pub fn bpm_changes(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
+        self.segments
+            .windows(2)
+            .filter(|w| w[1].stop_duration_seconds == 0.0 && w[1].bpm != w[0].bpm)
+            .map(|w| (w[1].start_beat, w[1].bpm))
+    }
+
     /// The BPM in effect at `time_seconds`: the segment that holds that time.
     /// A STOP keeps the BPM from before it, and a time before the first
     /// segment reads the first BPM.
@@ -534,6 +543,31 @@ mod tests {
         assert_eq!(model.time_to_beat_position(4.5), 10.0);
         // Before the start, extrapolate at the first BPM.
         assert_eq!(model.time_to_beat_position(-1.0), -2.0);
+    }
+
+    #[test]
+    fn bpm_changes_skip_stops_and_repeats() {
+        let ev = |measure, kind| TimingEvent {
+            measure,
+            fraction: 0.0,
+            kind,
+        };
+        let chart = BmsChart {
+            header: BmsHeader {
+                bpm: 120.0,
+                ..Default::default()
+            },
+            timing_events: vec![
+                ev(1, TimingEventKind::BpmChange(240.0)),
+                ev(2, TimingEventKind::StopMeasures(1.0)),
+                ev(3, TimingEventKind::BpmChange(240.0)),
+                ev(4, TimingEventKind::BpmChange(150.0)),
+            ],
+            ..Default::default()
+        };
+        let model = TimingModel::from_chart(&chart);
+        let changes: Vec<_> = model.bpm_changes().collect();
+        assert_eq!(changes, [(4.0, 240.0), (16.0, 150.0)]);
     }
 
     #[test]

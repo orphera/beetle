@@ -145,6 +145,7 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
 
     backdrop(c, &sk, f, lite);
     playfield(c, &sk, f, lane_field, rail, danger, s);
+    bpm_marks(c, t, f, lane_field, rail, s);
     gauge(c, &sk, f, hud.gauge, danger, s);
     gear_strip(c, t, f, lane_field, danger, s);
     ready(c, t, &sk, f, lane_field, s);
@@ -791,6 +792,58 @@ fn playfield(
     }
 
     hit_bursts(c, sk, f, judge_y, s);
+}
+
+/// BPM changes (B5): a line across the lanes like a measure line, in gold,
+/// and the new BPM beside the field on the side away from the gauge rail,
+/// both scrolling with the notes. Hidden under the lane cover.
+fn bpm_marks(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, field: Rect, rail: Rect, s: f32) {
+    let l = f.layout;
+    let judge_y = l.judge_line_y;
+    let top = field.y + field.h * l.lane_cover_ratio.clamp(0.0, crate::skin::MAX_LANE_COVER);
+    // The same scroll as `playfield`.
+    let px_per_beat = (l.hi_speed * s) as f64 * 60.0 / f.scroll_bpm.max(1.0);
+    let now_beat = f
+        .timing
+        .time_to_beat_position(note_clock(f.audio_time, f.visual_offset_ms));
+    let hair = s.max(1.0);
+    let st = TextStyle::new(12.0 * s).bold().color(theme::GOLD);
+    let label_w = 34.0 * s;
+    let label_x = if rail.x < field.x {
+        field.right() + 10.0 * s
+    } else {
+        field.x - 10.0 * s - label_w
+    };
+    let align = if rail.x < field.x {
+        Align::Left
+    } else {
+        Align::Right
+    };
+    for (beat, bpm) in f.timing.bpm_changes() {
+        let y = judge_y - ((beat - now_beat) * px_per_beat) as f32;
+        if y > judge_y {
+            continue;
+        }
+        if y < top {
+            break;
+        }
+        c.fill_rect(
+            Rect::new(field.x, y.round() - hair, field.w, 2.0 * hair),
+            theme::GOLD.with_alpha(110),
+        );
+        t.draw_in(
+            c,
+            // 66.5 stays 66.5; whole BPMs show no decimals.
+            &if bpm.fract().abs() < 0.05 {
+                format!("{bpm:.0}")
+            } else {
+                format!("{bpm:.1}")
+            },
+            Rect::new(label_x, y - 16.0 * s, label_w, 16.0 * s),
+            align,
+            &st,
+        );
+    }
 }
 
 /// Which note head sprite a playfield note uses.
