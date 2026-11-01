@@ -213,6 +213,8 @@ fn skip_message(skip: &Skipped) -> String {
         SkipReason::Unpack(e) => format!("압축을 풀 수 없어요: {e}"),
         SkipReason::AlreadyInstalled => format!("{} 이미 설치되어 있어요", quoted_eun(&skip.name)),
         SkipReason::AlreadyLinked => format!("{} 이미 연결되어 있어요", quoted_eun(&skip.name)),
+        SkipReason::AlreadyThere { song } => format!("'{song}' 곡이 이미 있어요"),
+        SkipReason::Declined { song } => format!("'{song}' 곡의 다른 키음 묶음은 넣지 않았어요"),
         SkipReason::Failed(e) => format!("곡 추가 실패: {e}"),
     }
 }

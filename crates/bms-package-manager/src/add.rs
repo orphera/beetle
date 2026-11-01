@@ -6,6 +6,7 @@
 use crate::error::PackageManagerError;
 use crate::manager::PackageManager;
 use crate::pack::{find_bms_song_roots, PackProfile};
+use crate::same_song::{self, Incoming, KnownPlace, Verdict};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -118,6 +119,15 @@ pub enum SkipReason {
     /// The archive could not be unpacked.
     Unpack(String),
     AlreadyInstalled,
+    /// Every chart and the key sounds are already in the library, as song
+    /// `song`; the user chose not to add it again.
+    AlreadyThere {
+        song: String,
+    },
+    /// A key sound set of its own for song `song`; the user chose not to add it.
+    Declined {
+        song: String,
+    },
     /// The folder is already in `library.dat`.
     AlreadyLinked,
     Failed(PackageManagerError),
@@ -136,6 +146,11 @@ pub struct AddReport {
     /// Folders added to `library.dat`, in the form it stores them.
     pub linked: Vec<String>,
     pub skipped: Vec<Skipped>,
+    /// How what came in relates to the library (`same_song::judge`), by name,
+    /// when it joined a known song or is a candidate for one.
+    pub verdicts: Vec<(String, Verdict)>,
+    /// Packages removed because the user replaced their key sound set.
+    pub replaced: Vec<String>,
 }
 
 impl AddReport {
@@ -162,12 +177,52 @@ pub enum AddError {
     Library(std::io::Error),
 }
 
+/// What the user answers about a song already in the library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answer {
+    Add,
+    Skip,
+    /// Add it, and remove the installed packages that held the old key sound
+    /// set (`Verdict::OtherSet::replaceable`).
+    Replace,
+}
+
+/// What [`add_path_judged`] checks songs against, and how it asks.
+pub struct Judge<'a> {
+    pub known: &'a [KnownPlace],
+    /// Called for `Verdict::AlreadyThere` and `Verdict::OtherSet`, with the
+    /// name of what is being added. Blocks until the user answers.
+    pub ask: &'a mut dyn FnMut(&str, &Verdict) -> Answer,
+}
+
 /// Adds `path`. Anything that could not be added is listed in the report's
 /// `skipped` rather than failing the whole call.
 pub fn add_path<F>(
     mgr: &mut PackageManager,
     path: &Path,
     options: &AddOptions,
+    cancel: Option<&AtomicBool>,
+    on_progress: F,
+) -> Result<AddReport, AddError>
+where
+    F: FnMut(AddProgress<'_>),
+{
+    let mut add = |_: &str, _: &Verdict| Answer::Add;
+    let judge = Judge {
+        known: &[],
+        ask: &mut add,
+    };
+    add_path_judged(mgr, path, options, judge, cancel, on_progress)
+}
+
+/// [`add_path`], checking each song folder and package against the library
+/// first (B18, `same_song::judge`). Linked folders are not checked: they stay
+/// the user's own folders.
+pub fn add_path_judged<F>(
+    mgr: &mut PackageManager,
+    path: &Path,
+    options: &AddOptions,
+    mut judge: Judge<'_>,
     cancel: Option<&AtomicBool>,
     mut on_progress: F,
 ) -> Result<AddReport, AddError>
@@ -184,6 +239,7 @@ where
                 path,
                 &name,
                 options.profile,
+                &mut judge,
                 cancel,
                 &mut on_progress,
                 &mut report,
@@ -199,6 +255,10 @@ where
             Err(e) => report.skip(&name, SkipReason::Failed(e)),
         },
         AddSource::Package => {
+            let incoming = Incoming::package(path);
+            let Some(answer) = decide(&mut judge, incoming.as_ref(), &name, &mut report) else {
+                return Ok(report);
+            };
             let mut step = steps(&mut on_progress);
             match mgr.install_with_progress(path, cancel, &mut step) {
                 Ok(song) => {
@@ -216,6 +276,7 @@ where
                         name: song.name,
                         how,
                     });
+                    replace(mgr, answer, &mut report);
                 }
                 Err(e) => skip_error(&mut report, &name, e)?,
             }
@@ -238,6 +299,7 @@ where
                     &folder,
                     &name,
                     options.profile,
+                    &mut judge,
                     cancel,
                     &mut on_progress,
                     &mut report,
@@ -255,6 +317,58 @@ where
         }
     }
     Ok(report)
+}
+
+/// What to do with something being added, from its verdict: `None` to leave
+/// it out (recorded as skipped), else the answer and the packages a replace
+/// removes. Verdicts that join or may join a known song are recorded.
+fn decide(
+    judge: &mut Judge<'_>,
+    incoming: Option<&Incoming>,
+    name: &str,
+    report: &mut AddReport,
+) -> Option<Vec<String>> {
+    let (Some(incoming), false) = (incoming, judge.known.is_empty()) else {
+        return Some(Vec::new());
+    };
+    let verdict = same_song::judge(incoming, judge.known);
+    let answer = match &verdict {
+        Verdict::AlreadyThere { .. } | Verdict::OtherSet { .. } => (judge.ask)(name, &verdict),
+        _ => Answer::Add,
+    };
+    let replaceable = match (answer, &verdict) {
+        (Answer::Skip, Verdict::AlreadyThere { song }) => {
+            report.skip(name, SkipReason::AlreadyThere { song: song.clone() });
+            return None;
+        }
+        (Answer::Skip, Verdict::OtherSet { song, .. }) => {
+            report.skip(name, SkipReason::Declined { song: song.clone() });
+            return None;
+        }
+        (Answer::Replace, Verdict::OtherSet { replaceable, .. }) => replaceable.clone(),
+        _ => Vec::new(),
+    };
+    if verdict != Verdict::NewSong {
+        report.verdicts.push((name.to_string(), verdict));
+    }
+    Some(replaceable)
+}
+
+/// After a replace: uninstalls every version of the packages that held the
+/// old key sound set.
+fn replace(mgr: &mut PackageManager, packages: Vec<String>, report: &mut AddReport) {
+    for id in packages {
+        let hashes: Vec<String> = mgr
+            .registry()
+            .list_packages()
+            .into_iter()
+            .find(|r| r.id == id)
+            .map(|r| r.state_hashes.keys().cloned().collect())
+            .unwrap_or_default();
+        if hashes.iter().all(|hash| mgr.uninstall(&id, hash).is_ok()) {
+            report.replaced.push(id);
+        }
+    }
 }
 
 /// A folder of its own under the temp directory for unpacking one archive.
@@ -304,6 +418,7 @@ fn import_folders<F: FnMut(AddProgress<'_>)>(
     folder: &Path,
     name: &str,
     profile: PackProfile,
+    judge: &mut Judge<'_>,
     cancel: Option<&AtomicBool>,
     on_progress: &mut F,
     report: &mut AddReport,
@@ -319,6 +434,10 @@ fn import_folders<F: FnMut(AddProgress<'_>)>(
             return Err(AddError::Cancelled(std::mem::take(report)));
         }
         let song_name = file_name(song);
+        let incoming = Incoming::folder(song);
+        let Some(answer) = decide(judge, Some(&incoming), &song_name, report) else {
+            continue;
+        };
         let result = if total == 1 {
             import_one(mgr, song, profile, cancel, steps(on_progress))
         } else {
@@ -330,11 +449,14 @@ fn import_folders<F: FnMut(AddProgress<'_>)>(
             import_one(mgr, song, profile, cancel, |_, _, _, _| {})
         };
         match result {
-            Ok(installed) => report.installed.push(InstalledSong {
-                id: installed.id,
-                name: installed.name,
-                how: Added::Imported,
-            }),
+            Ok(installed) => {
+                report.installed.push(InstalledSong {
+                    id: installed.id,
+                    name: installed.name,
+                    how: Added::Imported,
+                });
+                replace(mgr, answer, report);
+            }
             Err(e) => skip_error(report, &song_name, e)?,
         }
     }
@@ -601,6 +723,57 @@ mod tests {
         let result = add_path(&mut mgr, &src, &import(), Some(&cancel), |_| {});
         assert!(matches!(result, Err(AddError::Cancelled(r)) if r.added() == 0));
         assert!(mgr.list_active_packages().is_empty());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_song_already_there_is_asked_about_and_skipped() {
+        let dir = temp("judged");
+        let have = dir.join("have");
+        let again = dir.join("again");
+        for d in [&have, &again] {
+            fs::create_dir_all(d).unwrap();
+            fs::write(
+                d.join("song.bms"),
+                "#TITLE Foo
+#ARTIST Bar
+#BPM 150
+#WAV01 a.wav
+#00111:01
+",
+            )
+            .unwrap();
+            fs::write(d.join("a.wav"), b"same bytes").unwrap();
+        }
+        let charts = Incoming::folder(&have).charts;
+        let known = [KnownPlace {
+            song: 0,
+            at: crate::key_sets::PlaceAt::Folder(have.clone()),
+            chart_file: "song.bms".into(),
+            charts: charts.iter().map(|c| c.id).collect(),
+            title: "Foo".into(),
+            artist: "Bar".into(),
+            label: "have".into(),
+            package: None,
+        }];
+        let mut asked = Vec::new();
+        let mut ask = |name: &str, v: &Verdict| {
+            asked.push((name.to_string(), v.clone()));
+            Answer::Skip
+        };
+        let judge = Judge {
+            known: &known,
+            ask: &mut ask,
+        };
+        let mut mgr = PackageManager::new(dir.join("store")).unwrap();
+        let report = add_path_judged(&mut mgr, &again, &import(), judge, None, |_| {}).unwrap();
+        assert_eq!(asked.len(), 1);
+        assert!(matches!(asked[0].1, Verdict::AlreadyThere { .. }));
+        assert_eq!(report.added(), 0);
+        assert!(matches!(
+            report.skipped[0].reason,
+            SkipReason::AlreadyThere { .. }
+        ));
         let _ = fs::remove_dir_all(dir);
     }
 }

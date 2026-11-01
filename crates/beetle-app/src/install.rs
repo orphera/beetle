@@ -213,7 +213,9 @@ fn skip_reason(reason: &SkipReason) -> &'static str {
     match reason {
         SkipReason::NoCharts => strings::SKIP_NO_CHARTS(),
         SkipReason::Unpack(_) => strings::SKIP_UNPACK(),
-        SkipReason::AlreadyInstalled => strings::SKIP_ALREADY_INSTALLED(),
+        SkipReason::AlreadyInstalled
+        | SkipReason::AlreadyThere { .. }
+        | SkipReason::Declined { .. } => strings::SKIP_ALREADY_INSTALLED(),
         SkipReason::AlreadyLinked => strings::SKIP_ALREADY_LINKED(),
         SkipReason::Failed(_) => strings::SKIP_FAILED(),
     }
@@ -457,6 +459,8 @@ mod tests {
                 })
                 .collect(),
             linked: linked.iter().map(|s| s.to_string()).collect(),
+            verdicts: Vec::new(),
+            replaced: Vec::new(),
             skipped: skipped
                 .iter()
                 .map(|n| Skipped {

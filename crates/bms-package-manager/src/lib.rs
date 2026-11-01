@@ -18,6 +18,7 @@ pub mod manager;
 pub mod net;
 pub mod pack;
 pub mod registry;
+pub mod same_song;
 pub mod serve;
 pub mod song_tree;
 pub mod songs;

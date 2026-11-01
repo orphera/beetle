@@ -26,6 +26,7 @@ fn print_usage() {
     println!("  bpm song link|unlink <chart>...        Group charts by hand, or split a chart from its song for good");
     println!("  bpm song clean [--yes]                 List (and with --yes remove) clearly worse key sound sets");
     println!("  bpm charts [filters]                   List charts with their song, mode, level and copies");
+    println!("  bpm add <path> [--yes|--skip-existing] Add a song folder, archive or package, asking about songs already there");
     println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
     println!("  bpm search <query>                     Search remote packages across configured registries");
@@ -482,6 +483,116 @@ fn truncate(text: &str, width: usize) -> String {
         let kept: String = text.chars().take(width.saturating_sub(1)).collect();
         format!("{kept}~")
     }
+}
+
+/// `bpm add`: adds a folder, archive or package, judging each song against
+/// the collection index first (B18). `--yes` adds everything without asking,
+/// `--skip-existing` skips songs already there and adds other key sound sets.
+fn run_add(manager: &mut PackageManager, args: &[String]) {
+    use bms_package_manager::add::{add_path_judged, Answer, Judge};
+    use bms_package_manager::same_song::{self, Verdict};
+    let yes = args.iter().any(|a| a == "--yes");
+    let skip_existing = args.iter().any(|a| a == "--skip-existing");
+    let Some(path) = args.iter().find(|a| !a.starts_with("--")) else {
+        exit_with(&"usage: bpm add <path> [--yes|--skip-existing]");
+    };
+    let index = load_index_or_exit();
+    let collection = songs::build(&index, &load_manual());
+    let known = same_song::known_from_collection(&collection, manager);
+    let mut ask = |name: &str, verdict: &Verdict| -> Answer {
+        match verdict {
+            Verdict::AlreadyThere { song } => {
+                println!("{name}: already in the library as '{song}'.");
+                if yes {
+                    return Answer::Add;
+                }
+                if skip_existing || !confirm("  Add it anyway? [y/N] ") {
+                    return Answer::Skip;
+                }
+                Answer::Add
+            }
+            Verdict::OtherSet {
+                song,
+                existing,
+                new,
+                replaceable,
+                ..
+            } => {
+                println!("{name}: another key sound set for '{song}'.");
+                for set in existing {
+                    println!("  have  {}", describe_set(set));
+                }
+                println!("  new   {}", describe_set(new));
+                if yes || skip_existing {
+                    return Answer::Add;
+                }
+                let question = if replaceable.is_empty() {
+                    "  [a]dd / [s]kip? "
+                } else {
+                    "  [a]dd / [r]eplace / [s]kip? "
+                };
+                match prompt(question).as_str() {
+                    "r" if !replaceable.is_empty() => Answer::Replace,
+                    "s" => Answer::Skip,
+                    _ => Answer::Add,
+                }
+            }
+            _ => Answer::Add,
+        }
+    };
+    let options = bms_package_manager::AddOptions {
+        folders: bms_package_manager::add::FolderMode::Import,
+        profile: bms_package_manager::pack::PackProfile::Classic,
+    };
+    let judge = Judge {
+        known: &known,
+        ask: &mut ask,
+    };
+    let report = add_path_judged(manager, Path::new(path), &options, judge, None, |_| {})
+        .unwrap_or_else(|e| exit_with(&format!("{e:?}")));
+    for song in &report.installed {
+        println!("Added {} ({})", song.name, song.id);
+    }
+    for (name, verdict) in &report.verdicts {
+        match verdict {
+            Verdict::NewCharts { song, count } => {
+                println!("  {name}: {count} new chart(s) for '{song}'")
+            }
+            Verdict::Candidate { song } => {
+                println!("  {name}: same title and artist as '{song}', kept apart")
+            }
+            _ => {}
+        }
+    }
+    for id in &report.replaced {
+        println!("Removed {id} (replaced)");
+    }
+    for skipped in &report.skipped {
+        println!("Skipped {}: {:?}", skipped.name, skipped.reason);
+    }
+    if report.added() > 0 {
+        run_scan(manager);
+    }
+}
+
+fn describe_set(set: &bms_package_manager::same_song::SetInfo) -> String {
+    format!(
+        "{:<28} {} file(s), {:.1} MB{}  {}",
+        set.description,
+        set.files,
+        set.bytes as f64 / 1_048_576.0,
+        if set.better { ", clearly better" } else { "" },
+        set.label
+    )
+}
+
+fn prompt(question: &str) -> String {
+    use std::io::Write;
+    print!("{question}");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+    line.trim().to_ascii_lowercase()
 }
 
 /// A chart named by its full id (with or without `sha256:`) or by a unique hex prefix of at least 8 characters.
@@ -2201,6 +2312,7 @@ fn main() -> Result<(), PackageManagerError> {
                 );
             }
         }
+        "add" => run_add(&mut manager, &args[2..]),
         "import" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing folder path or zip archive.");
