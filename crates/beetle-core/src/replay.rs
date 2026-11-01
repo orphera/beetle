@@ -2,8 +2,8 @@ use crate::bms::Lane;
 use crate::identity::{ChartId, ChartKey};
 use crate::judge::GaugeType;
 use crate::modifier::LaneModifier;
+use crate::msgpack::{self, Value, Writer};
 use crate::rules::LnRule;
-use std::fmt::Write;
 
 /// A single timestamped key input event in a replay.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,59 +57,73 @@ impl ReplayData {
         self.max_combo = max_combo;
     }
 
-    /// Serializes replay into compact flat string format.
-    pub fn serialize_to_string(&self) -> String {
-        let mut buf = String::with_capacity(64 + self.events.len() * 24);
-        let _ = writeln!(buf, "#BEETLE_REPLAY_V1");
-        let _ = writeln!(buf, "chart={}", self.chart);
-        let _ = writeln!(buf, "ex_score={}", self.ex_score);
-        let _ = writeln!(buf, "max_combo={}", self.max_combo);
-        if let Some(seed) = self.random_seed {
-            let _ = writeln!(buf, "seed={seed:016x}");
-        }
-        if let Some(modifier) = self.modifier {
-            let _ = writeln!(buf, "modifier={}", modifier.as_str());
-        }
-        if let Some(gauge) = self.gauge {
-            let _ = writeln!(buf, "gauge={}", gauge.as_str());
-        }
-        if let Some(ln) = self.ln {
-            let _ = writeln!(buf, "ln={}", ln.as_str());
-        }
-        let _ = writeln!(buf, "#EVENTS");
-
+    /// Writes the replay file (see `msgpack`). The events are one binary
+    /// field of 5-byte records: the time in microseconds as a little-endian
+    /// `i32`, then the lane index with the top bit set for a press.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.file(REPLAY_FORMAT, REPLAY_VERSION, 8);
+        w.str("chart");
+        self.chart.write_msgpack(&mut w);
+        w.str("ex");
+        w.uint(u64::from(self.ex_score));
+        w.str("combo");
+        w.uint(u64::from(self.max_combo));
+        w.str("seed");
+        w.opt_uint(self.random_seed);
+        w.str("mod");
+        w.opt_str(self.modifier.map(LaneModifier::as_str));
+        w.str("gauge");
+        w.opt_str(self.gauge.map(GaugeType::as_str));
+        w.str("ln");
+        w.opt_str(self.ln.map(LnRule::as_str));
+        let mut events = Vec::with_capacity(self.events.len() * 5);
         for ev in &self.events {
-            let lane_idx = match ev.lane {
-                Lane::Scratch => 0,
-                Lane::Key1 => 1,
-                Lane::Key2 => 2,
-                Lane::Key3 => 3,
-                Lane::Key4 => 4,
-                Lane::Key5 => 5,
-                Lane::Key6 => 6,
-                Lane::Key7 => 7,
-                // Appended after the original 8 values (INVARIANT in
-                // bms.rs::Lane) so existing 5K/7K replays stay byte-stable.
-                Lane::Key8 => 8,
-                Lane::Key9 => 9,
-                Lane::P2Scratch => 10,
-                Lane::P2Key1 => 11,
-                Lane::P2Key2 => 12,
-                Lane::P2Key3 => 13,
-                Lane::P2Key4 => 14,
-                Lane::P2Key5 => 15,
-                Lane::P2Key6 => 16,
-                Lane::P2Key7 => 17,
-            };
-            let action = if ev.is_down { 'D' } else { 'U' };
-            let _ = writeln!(buf, "{:.4}\t{}\t{}", ev.time_seconds, lane_idx, action);
+            let micros = (ev.time_seconds * 1_000_000.0).round() as i32;
+            events.extend_from_slice(&micros.to_le_bytes());
+            events.push(lane_index(ev.lane) | if ev.is_down { 0x80 } else { 0 });
         }
-
-        buf
+        w.str("events");
+        w.bin(&events);
+        w.into_bytes()
     }
 
-    /// Parses replay from serialized string.
-    pub fn parse_from_str(data: &str) -> Option<Self> {
+    /// Reads a replay file: the current format, or the text one replays
+    /// were saved in before (they are rewritten when the replay is replaced).
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        match msgpack::decode_file(bytes, REPLAY_FORMAT, REPLAY_VERSION) {
+            Some(file) => Self::from_file(&file),
+            None => Self::parse_text(std::str::from_utf8(bytes).ok()?),
+        }
+    }
+
+    fn from_file(file: &Value) -> Option<Self> {
+        let name = |key| file.get(key).and_then(Value::as_str);
+        let events = file
+            .get("events")?
+            .as_bin()?
+            .chunks_exact(5)
+            .map(|rec| ReplayEvent {
+                time_seconds: f64::from(i32::from_le_bytes([rec[0], rec[1], rec[2], rec[3]]))
+                    / 1_000_000.0,
+                lane: lane_from_index(rec[4] & 0x7f),
+                is_down: rec[4] & 0x80 != 0,
+            })
+            .collect();
+        Some(Self {
+            chart: ChartKey::read_msgpack(file.get("chart")?)?,
+            ex_score: file.get("ex").and_then(Value::as_u32).unwrap_or(0),
+            max_combo: file.get("combo").and_then(Value::as_u32).unwrap_or(0),
+            random_seed: file.get("seed").and_then(Value::as_u64),
+            modifier: name("mod").and_then(LaneModifier::from_name),
+            gauge: name("gauge").and_then(GaugeType::from_name),
+            ln: name("ln").and_then(LnRule::from_name),
+            events,
+        })
+    }
+
+    /// Reads a replay in the text format of earlier builds.
+    fn parse_text(data: &str) -> Option<Self> {
         let mut lines = data.lines();
         let first = lines.next()?.trim();
         if first != "#BEETLE_REPLAY_V1" {
@@ -164,26 +178,7 @@ impl ReplayData {
                     let lane_idx = parts[1].parse::<u8>().unwrap_or(0);
                     let is_down = parts[2] == "D";
 
-                    let lane = match lane_idx {
-                        0 => Lane::Scratch,
-                        1 => Lane::Key1,
-                        2 => Lane::Key2,
-                        3 => Lane::Key3,
-                        4 => Lane::Key4,
-                        5 => Lane::Key5,
-                        6 => Lane::Key6,
-                        7 => Lane::Key7,
-                        8 => Lane::Key8,
-                        9 => Lane::Key9,
-                        10 => Lane::P2Scratch,
-                        11 => Lane::P2Key1,
-                        12 => Lane::P2Key2,
-                        13 => Lane::P2Key3,
-                        14 => Lane::P2Key4,
-                        15 => Lane::P2Key5,
-                        16 => Lane::P2Key6,
-                        _ => Lane::P2Key7,
-                    };
+                    let lane = lane_from_index(lane_idx);
 
                     events.push(ReplayEvent {
                         time_seconds: time,
@@ -207,6 +202,57 @@ impl ReplayData {
     }
 }
 
+const REPLAY_FORMAT: &str = "beetle-replay";
+const REPLAY_VERSION: u64 = 2;
+
+/// The lane's number in a replay. Lanes past Key7 were appended after the
+/// original 8 (INVARIANT in bms.rs::Lane), so the first numbers never change.
+fn lane_index(lane: Lane) -> u8 {
+    match lane {
+        Lane::Scratch => 0,
+        Lane::Key1 => 1,
+        Lane::Key2 => 2,
+        Lane::Key3 => 3,
+        Lane::Key4 => 4,
+        Lane::Key5 => 5,
+        Lane::Key6 => 6,
+        Lane::Key7 => 7,
+        Lane::Key8 => 8,
+        Lane::Key9 => 9,
+        Lane::P2Scratch => 10,
+        Lane::P2Key1 => 11,
+        Lane::P2Key2 => 12,
+        Lane::P2Key3 => 13,
+        Lane::P2Key4 => 14,
+        Lane::P2Key5 => 15,
+        Lane::P2Key6 => 16,
+        Lane::P2Key7 => 17,
+    }
+}
+
+fn lane_from_index(index: u8) -> Lane {
+    match index {
+        0 => Lane::Scratch,
+        1 => Lane::Key1,
+        2 => Lane::Key2,
+        3 => Lane::Key3,
+        4 => Lane::Key4,
+        5 => Lane::Key5,
+        6 => Lane::Key6,
+        7 => Lane::Key7,
+        8 => Lane::Key8,
+        9 => Lane::Key9,
+        10 => Lane::P2Scratch,
+        11 => Lane::P2Key1,
+        12 => Lane::P2Key2,
+        13 => Lane::P2Key3,
+        14 => Lane::P2Key4,
+        15 => Lane::P2Key5,
+        16 => Lane::P2Key6,
+        _ => Lane::P2Key7,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,7 +266,7 @@ max_combo=5
 #EVENTS
 1.0000	1	D
 ";
-        let replay = ReplayData::parse_from_str(old).expect("old replay parses");
+        let replay = ReplayData::from_bytes(old.as_bytes()).expect("old replay parses");
         assert_eq!(replay.chart, ChartKey::Legacy(0xab));
         assert_eq!(replay.events.len(), 1);
     }
@@ -239,8 +285,8 @@ max_combo=5
         replay.record(2.0000, Lane::Scratch, true);
         replay.record(2.1000, Lane::Scratch, false);
 
-        let serialized = replay.serialize_to_string();
-        let parsed = ReplayData::parse_from_str(&serialized).expect("Failed to parse replay");
+        let bytes = replay.to_bytes();
+        let parsed = ReplayData::from_bytes(&bytes).expect("Failed to read replay");
 
         assert_eq!(replay.chart, parsed.chart);
         assert_eq!(replay.ex_score, parsed.ex_score);
@@ -252,6 +298,17 @@ max_combo=5
         assert_eq!(replay.events.len(), parsed.events.len());
         assert_eq!(replay.events[0].lane, parsed.events[0].lane);
         assert_eq!(replay.events[0].is_down, parsed.events[0].is_down);
-        assert!((replay.events[0].time_seconds - parsed.events[0].time_seconds).abs() < 0.001);
+        assert!((replay.events[0].time_seconds - parsed.events[0].time_seconds).abs() < 1e-6);
+        assert_eq!(parsed.events[2].lane, Lane::Scratch);
+        assert!(!parsed.events[3].is_down);
+    }
+
+    #[test]
+    fn old_keys_and_lead_in_presses_round_trip() {
+        let mut replay = ReplayData::new(ChartId::synthetic(1));
+        replay.chart = ChartKey::Legacy(0xdead_beef);
+        replay.record(-0.25, Lane::P2Key7, true);
+        let parsed = ReplayData::from_bytes(&replay.to_bytes()).unwrap();
+        assert_eq!(parsed, replay);
     }
 }

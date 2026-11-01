@@ -977,18 +977,18 @@ pub fn replay_path(id: ChartId, ln: Option<LnRule>) -> String {
     }
 }
 
-/// Writes the score file. The first save over a file in the original format
-/// keeps a copy of it, and the write goes through a temporary file so an
-/// interrupted save cannot leave a half-written `scores.dat`.
+/// Writes the score file. The first save over a file in a text format of
+/// earlier builds keeps a copy of it, and the write goes through a temporary
+/// file so an interrupted save cannot leave a half-written `scores.dat`.
 pub fn save_scores(store: &ScoreStore) {
-    if let Ok(old) = fs::read_to_string(SCORES_FILE) {
-        let backup = format!("{SCORES_FILE}.v1.bak");
-        if ScoreStore::is_legacy_format(&old) && !Path::new(&backup).exists() {
+    if let Ok(old) = fs::read(SCORES_FILE) {
+        let backup = format!("{SCORES_FILE}.text.bak");
+        if ScoreStore::is_text_format(&old) && !Path::new(&backup).exists() {
             let _ = fs::write(backup, old);
         }
     }
     let temp = format!("{SCORES_FILE}.tmp");
-    if fs::write(&temp, store.save_to_string()).is_ok() {
+    if fs::write(&temp, store.to_bytes()).is_ok() {
         let _ = fs::rename(&temp, SCORES_FILE);
     }
 }
@@ -1009,9 +1009,7 @@ pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
     if ln_pending {
         let backup = format!("{SCORES_FILE}.pre-ln.bak");
         if !Path::new(&backup).exists() {
-            if let Ok(old) = fs::read_to_string(SCORES_FILE) {
-                let _ = fs::write(backup, old);
-            }
+            let _ = fs::copy(SCORES_FILE, backup);
         }
     }
 
@@ -1019,9 +1017,7 @@ pub fn migrate_chart_keys(songs: &[SongMetadata], store: &mut ScoreStore) {
         // Keep the file as it was before the keys change, once.
         let backup = format!("{SCORES_FILE}.pre-id.bak");
         if !Path::new(&backup).exists() {
-            if let Ok(old) = fs::read_to_string(SCORES_FILE) {
-                let _ = fs::write(backup, old);
-            }
+            let _ = fs::copy(SCORES_FILE, backup);
         }
         if store.migrate(&pairs) > 0 {
             save_scores(store);
@@ -1160,8 +1156,8 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     boot_progress::begin(Stage::Scores, 0);
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
-        if let Ok(score_data) = fs::read_to_string(SCORES_FILE) {
-            score_store.load_from_str(&score_data);
+        if let Ok(score_data) = fs::read(SCORES_FILE) {
+            score_store.load_bytes(&score_data);
         }
     }
 

@@ -9,6 +9,7 @@
 
 use crate::identity::ChartId;
 use crate::judge::{ClassGaugeSet, GaugeType, JudgeGrade, ScoreTracker};
+use crate::msgpack::{self, Value, Writer};
 use bms_hash::Sha256Hasher;
 
 /// A rule a course imposes, by its beatoraja `constraint` name.
@@ -377,7 +378,11 @@ pub struct CourseRecord {
     pub plays: u32,
 }
 
-const COURSE_RECORDS_HEADER: &str = "#BEETLE_COURSES_V1";
+/// First line of `courses.dat` in the text format of earlier builds.
+const TEXT_HEADER: &str = "#BEETLE_COURSES_V1";
+/// `format` and `version` of `courses.dat`.
+const RECORDS_FORMAT: &str = "beetle-courses";
+const RECORDS_VERSION: u64 = 2;
 
 /// Every course record, by course id; kept in `courses.dat`.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -425,33 +430,71 @@ impl CourseRecords {
         }
     }
 
-    pub fn serialize(&self) -> String {
+    /// Writes `courses.dat` (see `msgpack`): one map per course, ordered by id.
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut ids: Vec<&CourseId> = self.records.keys().collect();
         ids.sort_by_key(|id| id.0);
-        let mut out = String::from(COURSE_RECORDS_HEADER);
-        out.push('\n');
+        let mut w = Writer::new();
+        w.file(RECORDS_FORMAT, RECORDS_VERSION, 1);
+        w.str("courses");
+        w.array(ids.len());
         for id in ids {
             let r = &self.records[id];
-            out.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                id.to_hex(),
-                u8::from(r.passed),
-                crate::escape::escape_field(r.trophy.as_deref().unwrap_or("")),
-                r.ex_score,
-                r.max_ex_score,
-                r.min_misses.map_or(String::new(), |m| m.to_string()),
-                r.stages_cleared,
-                r.plays,
-            ));
+            w.map(8);
+            w.str("id");
+            w.bin(&id.0);
+            w.str("passed");
+            w.bool(r.passed);
+            w.str("trophy");
+            w.opt_str(r.trophy.as_deref());
+            w.str("ex");
+            w.uint(u64::from(r.ex_score));
+            w.str("max_ex");
+            w.uint(u64::from(r.max_ex_score));
+            w.str("min_miss");
+            w.opt_uint(r.min_misses.map(u64::from));
+            w.str("stages");
+            w.uint(r.stages_cleared as u64);
+            w.str("plays");
+            w.uint(u64::from(r.plays));
         }
-        out
+        w.into_bytes()
     }
 
-    /// Reads `courses.dat`; anything that is not one is no records. Lines
-    /// it cannot read are skipped.
-    pub fn parse(text: &str) -> Self {
+    /// Reads `courses.dat`: the current format, or the text one of earlier
+    /// builds. Anything else is no records; courses it cannot read are skipped.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let Some(file) = msgpack::decode_file(bytes, RECORDS_FORMAT, RECORDS_VERSION) else {
+            return std::str::from_utf8(bytes).map_or_else(|_| Self::default(), Self::parse_text);
+        };
+        let courses = file.get("courses").and_then(Value::as_array);
+        let records = courses
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|c| {
+                let num = |key| c.get(key).and_then(Value::as_u32);
+                Some((
+                    CourseId(c.get("id")?.as_bin()?.try_into().ok()?),
+                    CourseRecord {
+                        passed: c.get("passed")?.as_bool()?,
+                        trophy: c.get("trophy")?.as_str().map(str::to_string),
+                        ex_score: num("ex")?,
+                        max_ex_score: num("max_ex")?,
+                        min_misses: num("min_miss"),
+                        stages_cleared: num("stages")? as usize,
+                        plays: num("plays")?,
+                    },
+                ))
+            })
+            .collect();
+        Self { records }
+    }
+
+    /// Reads `courses.dat` in the text format of earlier builds. Lines it
+    /// cannot read are skipped.
+    fn parse_text(text: &str) -> Self {
         let mut lines = text.lines();
-        if lines.next().map(str::trim) != Some(COURSE_RECORDS_HEADER) {
+        if lines.next().map(str::trim) != Some(TEXT_HEADER) {
             return Self::default();
         }
         let records = lines
@@ -525,8 +568,25 @@ mod tests {
         assert_eq!((r.min_misses, r.stages_cleared, r.plays), (Some(0), 2, 3));
         assert_eq!(r.ex_score, 8);
 
-        assert_eq!(CourseRecords::parse(&records.serialize()), records);
-        assert_eq!(CourseRecords::parse("garbage"), CourseRecords::default());
+        assert_eq!(CourseRecords::from_bytes(&records.to_bytes()), records);
+        assert_eq!(
+            CourseRecords::from_bytes(b"garbage"),
+            CourseRecords::default()
+        );
+        assert_eq!(CourseRecords::from_bytes(&[0xc1]), CourseRecords::default());
+    }
+
+    #[test]
+    fn course_records_of_earlier_builds_still_read() {
+        let id = CourseId([7; 32]);
+        let text = format!(
+            "#BEETLE_COURSES_V1\n{}\t1\tgold\t1160\t1542\t15\t3\t2\n",
+            id.to_hex()
+        );
+        let records = CourseRecords::from_bytes(text.as_bytes());
+        let r = records.get(&id).unwrap();
+        assert_eq!(r.trophy.as_deref(), Some("gold"));
+        assert_eq!((r.ex_score, r.min_misses, r.plays), (1160, Some(15), 2));
     }
 
     fn dan(songs: usize, constraints: Vec<Constraint>) -> CourseDef {

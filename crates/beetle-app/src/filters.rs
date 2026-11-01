@@ -174,20 +174,15 @@ mod tests {
 
     /// A store where song `n` has a record with `clear` (no record for the rest).
     fn store_with(records: &[(u64, ClearType)]) -> ScoreStore {
-        // An empty store writes the file header; the record lines follow it.
-        let mut text = ScoreStore::new().save_to_string();
+        let mut store = ScoreStore::new();
         for &(n, clear) in records {
-            let record = ScoreRecord {
+            store.insert(ScoreRecord {
                 chart: ChartKey::Id(ChartId::synthetic(n)),
                 clear_type: clear,
                 play_count: 1,
                 ..Default::default()
-            };
-            text.push_str(&record.serialize_line());
-            text.push('\n');
+            });
         }
-        let mut store = ScoreStore::new();
-        store.load_from_str(&text);
         store
     }
 

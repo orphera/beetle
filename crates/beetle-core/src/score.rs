@@ -2,9 +2,9 @@ use crate::identity::{ChartId, ChartKey};
 use crate::judge::{GaugeType, ScoreTracker};
 use crate::library::SongMetadata;
 use crate::modifier::LaneModifier;
+use crate::msgpack::{self, Value, Writer};
 use crate::rules::{LnOption, LnRule};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Version of the play and judgment rules a record was made under. Records
 /// from before rules were tracked are 0. Version 2 added the long note rule
@@ -236,50 +236,74 @@ impl ScoreRecord {
         self.last_played = play.played_at;
     }
 
-    /// Serializes to one `field=value` line, tab separated. Optional fields
-    /// that are not known are left out, so a record that never had them
-    /// round-trips unchanged.
-    pub fn serialize_line(&self) -> String {
-        let mut line = String::with_capacity(160);
-        let _ = write!(line, "chart={}", self.chart);
-        if let Some(ln) = self.ln {
-            let _ = write!(line, "\tln={}", ln.as_str());
-        }
-        line.push('\t');
-        let _ = write!(
-            line,
-            "lamp={}\tex={}\tcombo={}\tbp={}\tn={}\tpg={}\tgr={}\tgd={}\tbd={}\tpr={}\tms={}",
-            self.clear_type.code(),
-            self.ex_score,
-            self.max_combo,
-            self.min_bp,
-            self.total_notes,
-            self.pgreat_count,
-            self.great_count,
-            self.good_count,
-            self.bad_count,
-            self.poor_count,
-            self.miss_count,
-        );
-        if let Some(modifier) = self.modifier {
-            let _ = write!(line, "\tmod={}", modifier.as_str());
-        }
-        if let Some(gauge) = self.gauge {
-            let _ = write!(line, "\tgauge={}", gauge.as_str());
-        }
-        if let Some(seed) = self.random_seed {
-            let _ = write!(line, "\tseed={seed:016x}");
-        }
-        let _ = write!(
-            line,
-            "\tplays={}\tclears={}\tlast={}\tengine={}",
-            self.play_count, self.clear_count, self.last_played, self.engine
-        );
-        line
+    /// Writes the record as a map (see `msgpack`). Optional fields that
+    /// are not known are written as nil, so they stay unknown when read back.
+    pub fn write_msgpack(&self, w: &mut Writer) {
+        let u = |w: &mut Writer, key: &str, n: u32| {
+            w.str(key);
+            w.uint(u64::from(n));
+        };
+        w.map(20);
+        w.str("chart");
+        self.chart.write_msgpack(w);
+        w.str("ln");
+        w.opt_str(self.ln.map(LnRule::as_str));
+        w.str("lamp");
+        w.str(self.clear_type.code());
+        u(w, "ex", self.ex_score);
+        u(w, "combo", self.max_combo);
+        u(w, "bp", self.min_bp);
+        u(w, "n", self.total_notes);
+        u(w, "pg", self.pgreat_count);
+        u(w, "gr", self.great_count);
+        u(w, "gd", self.good_count);
+        u(w, "bd", self.bad_count);
+        u(w, "pr", self.poor_count);
+        u(w, "ms", self.miss_count);
+        w.str("mod");
+        w.opt_str(self.modifier.map(LaneModifier::as_str));
+        w.str("gauge");
+        w.opt_str(self.gauge.map(GaugeType::as_str));
+        w.str("seed");
+        w.opt_uint(self.random_seed);
+        u(w, "plays", self.play_count);
+        u(w, "clears", self.clear_count);
+        w.str("last");
+        w.uint(self.last_played);
+        u(w, "engine", self.engine);
     }
 
-    /// Parses a line written by `serialize_line`. Fields it does not know are
+    /// Reads a map written by `write_msgpack`. Keys it does not know are
     /// ignored, so files written by a newer version still load.
+    pub fn read_msgpack(v: &Value) -> Option<Self> {
+        let num = |key| v.get(key).and_then(Value::as_u32).unwrap_or(0);
+        let name = |key| v.get(key).and_then(Value::as_str);
+        Some(Self {
+            chart: ChartKey::read_msgpack(v.get("chart")?)?,
+            ln: name("ln").and_then(LnRule::from_name),
+            clear_type: ClearType::from_code(name("lamp").unwrap_or_default()),
+            ex_score: num("ex"),
+            max_combo: num("combo"),
+            min_bp: num("bp"),
+            total_notes: num("n"),
+            pgreat_count: num("pg"),
+            great_count: num("gr"),
+            good_count: num("gd"),
+            bad_count: num("bd"),
+            poor_count: num("pr"),
+            miss_count: num("ms"),
+            modifier: name("mod").and_then(LaneModifier::from_name),
+            gauge: name("gauge").and_then(GaugeType::from_name),
+            random_seed: v.get("seed").and_then(Value::as_u64),
+            play_count: num("plays"),
+            clear_count: num("clears"),
+            last_played: v.get("last").and_then(Value::as_u64).unwrap_or(0),
+            engine: num("engine"),
+        })
+    }
+
+    /// Reads a line of the text format (version 2) score files had before.
+    /// Fields it does not know are ignored.
     pub fn parse_line(line: &str) -> Option<Self> {
         let mut record = Self::default();
         let mut has_chart = false;
@@ -397,8 +421,11 @@ impl ScoreUpdate {
     }
 }
 
-/// First line of a version 2 score file.
-const FILE_HEADER: &str = "#BEETLE_SCORES_V2";
+/// First line of a score file in the text format of earlier builds.
+const TEXT_HEADER: &str = "#BEETLE_SCORES_V2";
+/// `format` and `version` of a score file.
+const FILE_FORMAT: &str = "beetle-scores";
+const FILE_VERSION: u64 = 3;
 
 /// Local flat-file score storage manager (no SQLite / embedded DB dependencies).
 #[derive(Debug, Default, Clone)]
@@ -547,15 +574,41 @@ impl ScoreStore {
         update
     }
 
+    /// Adds a record, replacing any of the same chart and rule.
+    pub fn insert(&mut self, record: ScoreRecord) {
+        self.records.insert((record.chart, record.ln), record);
+    }
+
     /// True when `data` is a score file in the original (version 1) format.
     pub fn is_legacy_format(data: &str) -> bool {
         data.lines()
             .map(str::trim)
             .find(|l| !l.is_empty())
-            .is_some_and(|first| first != FILE_HEADER)
+            .is_some_and(|first| first != TEXT_HEADER)
     }
 
-    /// Loads a score file of either format into the store.
+    /// True when `bytes` is a score file in one of the text formats of
+    /// earlier builds (the next save replaces it with the current format).
+    pub fn is_text_format(bytes: &[u8]) -> bool {
+        !bytes.is_empty() && msgpack::decode_file(bytes, FILE_FORMAT, FILE_VERSION).is_none()
+    }
+
+    /// Loads a score file into the store: the current format, or either
+    /// text format of earlier builds.
+    pub fn load_bytes(&mut self, bytes: &[u8]) {
+        if let Some(file) = msgpack::decode_file(bytes, FILE_FORMAT, FILE_VERSION) {
+            let records = file.get("records").and_then(Value::as_array);
+            for record in records.unwrap_or_default() {
+                if let Some(record) = ScoreRecord::read_msgpack(record) {
+                    self.insert(record);
+                }
+            }
+        } else if let Ok(text) = std::str::from_utf8(bytes) {
+            self.load_from_str(text);
+        }
+    }
+
+    /// Loads a score file of either text format into the store.
     pub fn load_from_str(&mut self, data: &str) {
         let legacy = Self::is_legacy_format(data);
         for line in data.lines() {
@@ -569,25 +622,25 @@ impl ScoreStore {
                 ScoreRecord::parse_line(line)
             };
             if let Some(record) = record {
-                self.records.insert((record.chart, record.ln), record);
+                self.insert(record);
             }
         }
     }
 
-    /// Serializes the store as a version 2 file. Records are ordered by chart
-    /// so the same contents always give the same text.
-    pub fn save_to_string(&self) -> String {
+    /// Serializes the store as a score file. Records are ordered by chart
+    /// so the same contents always give the same bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut records: Vec<&ScoreRecord> = self.records.values().collect();
         records.sort_by_key(|r| (r.chart, r.ln));
 
-        let mut out = String::with_capacity(32 + records.len() * 160);
-        out.push_str(FILE_HEADER);
-        out.push('\n');
+        let mut w = Writer::new();
+        w.file(FILE_FORMAT, FILE_VERSION, 1);
+        w.str("records");
+        w.array(records.len());
         for record in records {
-            out.push_str(&record.serialize_line());
-            out.push('\n');
+            record.write_msgpack(&mut w);
         }
-        out
+        w.into_bytes()
     }
 }
 
@@ -734,8 +787,11 @@ mod tests {
             last_played: 1_791_500_000,
             engine: ENGINE_VERSION,
         };
+        let mut w = Writer::new();
+        record.write_msgpack(&mut w);
+        let bytes = w.into_bytes();
         assert_eq!(
-            ScoreRecord::parse_line(&record.serialize_line()),
+            ScoreRecord::read_msgpack(&msgpack::decode(&bytes).unwrap()),
             Some(record)
         );
     }
@@ -746,9 +802,14 @@ mod tests {
             chart: ChartKey::Legacy(5),
             ..ScoreRecord::default()
         };
-        let line = record.serialize_line();
-        assert!(!line.contains("mod=") && !line.contains("gauge=") && !line.contains("seed="));
-        assert_eq!(ScoreRecord::parse_line(&line), Some(record));
+        let mut w = Writer::new();
+        record.write_msgpack(&mut w);
+        let bytes = w.into_bytes();
+        let v = msgpack::decode(&bytes).unwrap();
+        for key in ["mod", "gauge", "seed", "ln"] {
+            assert_eq!(v.get(key), Some(&Value::Nil), "{key}");
+        }
+        assert_eq!(ScoreRecord::read_msgpack(&v), Some(record));
     }
 
     #[test]
@@ -762,31 +823,42 @@ mod tests {
     }
 
     #[test]
-    fn store_text_is_deterministic_and_roundtrips() {
+    fn store_bytes_are_deterministic_and_roundtrip() {
         let mut store = ScoreStore::new();
         for hash in [9u64, 3, 7, 1] {
             store.update(play(hash, ClearType::Clear, 100 + hash as u32, 50, 2));
         }
-        let text = store.save_to_string();
-        assert!(text.starts_with("#BEETLE_SCORES_V2\n"));
-        // Lines come out ordered by chart id, whatever order the plays came in.
-        let mut ids: Vec<ChartId> = [9u64, 3, 7, 1]
-            .into_iter()
-            .map(ChartId::synthetic)
-            .collect();
-        ids.sort();
-        let order: Vec<&str> = text
-            .lines()
-            .skip(1)
-            .map(|l| l.split('\t').next().unwrap())
-            .collect();
-        let expected: Vec<String> = ids.iter().map(|id| format!("chart={id}")).collect();
-        assert_eq!(order, expected);
+        // The same records give the same bytes, whatever order the plays came in.
+        let mut other = ScoreStore::new();
+        for hash in [1u64, 7, 3, 9] {
+            other.update(play(hash, ClearType::Clear, 100 + hash as u32, 50, 2));
+        }
+        let bytes = store.to_bytes();
+        assert_eq!(other.to_bytes(), bytes);
 
         let mut loaded = ScoreStore::new();
-        loaded.load_from_str(&text);
-        assert_eq!(loaded.save_to_string(), text);
-        assert!(!ScoreStore::is_legacy_format(&text));
+        loaded.load_bytes(&bytes);
+        assert_eq!(loaded.to_bytes(), bytes);
+        assert!(!ScoreStore::is_text_format(&bytes));
+    }
+
+    #[test]
+    fn text_files_of_earlier_builds_load_and_save_in_the_current_format() {
+        let line = format!(
+            "chart={}\tlamp=H\tex=150\tcombo=70\tmod=MIRROR\tplays=3",
+            ChartId::synthetic(8)
+        );
+        let text = format!("#BEETLE_SCORES_V2\n{line}\n");
+        assert!(ScoreStore::is_text_format(text.as_bytes()));
+        let mut store = ScoreStore::new();
+        store.load_bytes(text.as_bytes());
+        let record = store.get(ChartId::synthetic(8)).unwrap().clone();
+        assert_eq!((record.clear_type, record.ex_score), (ClearType::Hard, 150));
+        assert_eq!(record.modifier, Some(LaneModifier::Mirror));
+
+        let mut again = ScoreStore::new();
+        again.load_bytes(&store.to_bytes());
+        assert_eq!(again.get(ChartId::synthetic(8)), Some(&record));
     }
 
     #[test]
@@ -811,10 +883,10 @@ mod tests {
         );
 
         // Saving upgrades the file, and loading it back changes nothing.
-        let upgraded = store.save_to_string();
-        assert!(!ScoreStore::is_legacy_format(&upgraded));
+        let upgraded = store.to_bytes();
+        assert!(!ScoreStore::is_text_format(&upgraded));
         let mut again = ScoreStore::new();
-        again.load_from_str(&upgraded);
+        again.load_bytes(&upgraded);
         assert_eq!(
             again.get_key(ChartKey::Legacy(0xaa)),
             store.get_key(ChartKey::Legacy(0xaa))
@@ -864,8 +936,9 @@ mod tests {
 
     fn store_with(records: &[ScoreRecord]) -> ScoreStore {
         let mut store = ScoreStore::new();
-        let text: String = records.iter().map(|r| r.serialize_line() + "\n").collect();
-        store.load_from_str(&format!("#BEETLE_SCORES_V2\n{text}"));
+        for record in records {
+            store.insert(record.clone());
+        }
         store
     }
 
@@ -908,7 +981,7 @@ mod tests {
         let mut store = ScoreStore::new();
         store.update(play(5, ClearType::Easy, 90, 80, 2)); // played since the keys changed
         let old = legacy_record(0xc3, ClearType::Hard, 140, 40, 9);
-        store.load_from_str(&format!("#BEETLE_SCORES_V2\n{}\n", old.serialize_line()));
+        store.insert(old);
 
         store.migrate(&[(0xc3, id)]);
         let record = store.get(id).unwrap();
@@ -938,14 +1011,12 @@ mod tests {
     }
 
     #[test]
-    fn migrated_store_text_has_no_old_keys_left() {
+    fn migrated_store_has_no_old_keys_left() {
         let mut store = store_with(&[legacy_record(0xe5, ClearType::Clear, 100, 30, 5)]);
         store.migrate(&[(0xe5, ChartId::synthetic(50))]);
-        let text = store.save_to_string();
-        assert!(text.contains("chart=sha256:"));
-        assert!(!text.contains("chart=00000000000000e5"));
         let mut reloaded = ScoreStore::new();
-        reloaded.load_from_str(&text);
+        reloaded.load_bytes(&store.to_bytes());
+        assert_eq!(reloaded.legacy_count(), 0);
         assert_eq!(
             reloaded.get(ChartId::synthetic(50)),
             store.get(ChartId::synthetic(50))
@@ -1083,17 +1154,15 @@ mod tests {
         store.update(ln_play(20, Some(LnRule::Ln), ClearType::Clear, 100));
         store.update(ln_play(20, Some(LnRule::Cn), ClearType::Clear, 190));
         store.update(ln_play(21, None, ClearType::Clear, 90));
-        let text = store.save_to_string();
-        assert!(text.contains("\tln=LN\t") && text.contains("\tln=CN\t"));
-        assert_eq!(
-            text.lines().filter(|l| l.contains("\tln=")).count(),
-            2,
-            "the rule-less record has no ln field"
-        );
-
+        let bytes = store.to_bytes();
         let mut loaded = ScoreStore::new();
-        loaded.load_from_str(&text);
-        assert_eq!(loaded.save_to_string(), text);
+        loaded.load_bytes(&bytes);
+        assert_eq!(loaded.to_bytes(), bytes);
+        assert_eq!(
+            loaded.get_for(ChartId::synthetic(21), None).unwrap().ln,
+            None,
+            "the rule-less record stays rule-less"
+        );
         assert_eq!(
             loaded
                 .get_for(ChartId::synthetic(20), Some(LnRule::Cn))
@@ -1125,6 +1194,8 @@ mod tests {
         let mut store = ScoreStore::new();
         store.load_from_str("");
         store.load_from_str("#BEETLE_SCORES_V2\nnot a record\n");
+        store.load_bytes(&[0x81, 0xa1, b'x', 0xc0]);
+        store.load_bytes(&[0xff, 0x00, 0x13]);
         assert!(store.get(ChartId::synthetic(0)).is_none());
         assert!(!ScoreStore::is_legacy_format(""));
     }

@@ -1,6 +1,6 @@
 use crate::bms::{decode_bms_text, parse_bms, NoteType, PlayMode};
-use crate::escape::{escape_field, unescape_field};
-use crate::identity::{hash_chart_bytes, md5_from_hex, md5_to_hex, ChartId};
+use crate::identity::{hash_chart_bytes, ChartId};
+use crate::msgpack::{self, Value, Writer};
 use crate::rules::LnRule;
 use crate::score::ScoreStore;
 
@@ -196,99 +196,86 @@ impl SongMetadata {
         }
     }
 
-    /// Serializes to one `field=value` line, tab separated.
-    pub fn serialize_line(&self) -> String {
-        format!(
-            "path={}\ttitle={}\tsub={}\tartist={}\tgenre={}\tbpm={}\tbpmmin={}\tbpmmax={}\tlevel={}\tnotes={}\tlns={}\tlnmode={}\tmode={}\tdiff={}\tid={}\tmd5={}\tlegacy={:016x}",
-            escape_field(&self.file_path),
-            escape_field(&self.title),
-            escape_field(&self.subtitle),
-            escape_field(&self.artist),
-            escape_field(&self.genre),
-            self.bpm,
-            self.bpm_min,
-            self.bpm_max,
-            self.play_level,
-            self.notes_count,
-            self.ln_count,
-            self.ln_mode.map_or(String::new(), |m| m.to_string()),
-            self.play_mode.as_str(),
-            self.difficulty.map_or(String::new(), |d| d.to_string()),
-            self.id,
-            md5_to_hex(&self.md5),
-            self.legacy_hash,
-        )
+    /// Writes the song as a map of its fields (see `msgpack`). Fields that
+    /// can be missing are written as nil, so every song has the same keys.
+    pub fn write_msgpack(&self, w: &mut Writer) {
+        w.map(17);
+        w.str("path");
+        w.str(&self.file_path);
+        w.str("title");
+        w.str(&self.title);
+        w.str("sub");
+        w.str(&self.subtitle);
+        w.str("artist");
+        w.str(&self.artist);
+        w.str("genre");
+        w.str(&self.genre);
+        w.str("bpm");
+        w.f64(self.bpm);
+        w.str("bpmmin");
+        w.f64(self.bpm_min);
+        w.str("bpmmax");
+        w.f64(self.bpm_max);
+        w.str("level");
+        w.uint(u64::from(self.play_level));
+        w.str("notes");
+        w.uint(self.notes_count as u64);
+        w.str("lns");
+        w.uint(u64::from(self.ln_count));
+        w.str("lnmode");
+        w.opt_uint(self.ln_mode.map(u64::from));
+        w.str("mode");
+        w.str(self.play_mode.as_str());
+        w.str("diff");
+        w.opt_uint(self.difficulty.map(u64::from));
+        w.str("id");
+        w.bin(self.id.as_bytes());
+        w.str("md5");
+        w.bin(&self.md5);
+        w.str("legacy");
+        w.uint(self.legacy_hash);
     }
 
-    /// Parses a line written by `serialize_line`. A line missing its path,
-    /// identity or legacy key is rejected, so a cache that predates any of
-    /// them is rebuilt rather than half-trusted. Unknown fields are ignored.
-    pub fn parse_line(line: &str) -> Option<Self> {
-        let mut file_path = None;
-        let (mut title, mut subtitle, mut artist, mut genre) =
-            (String::new(), String::new(), String::new(), String::new());
-        let (mut bpm, mut bpm_min, mut bpm_max) = (130.0, None, None);
-        let (mut play_level, mut notes_count) = (1, 0);
-        let (mut ln_count, mut ln_mode) = (0, None);
-        let mut play_mode = PlayMode::Keys7;
-        let mut difficulty = None;
-        let (mut id, mut md5, mut hash) = (None, None, None);
-
-        for field in line.split('\t') {
-            let Some((key, value)) = field.split_once('=') else {
-                continue;
-            };
-            match key {
-                "path" => file_path = Some(unescape_field(value)),
-                "title" => title = unescape_field(value),
-                "sub" => subtitle = unescape_field(value),
-                "artist" => artist = unescape_field(value),
-                "genre" => genre = unescape_field(value),
-                "bpm" => bpm = value.parse().unwrap_or(130.0),
-                "bpmmin" => bpm_min = value.parse().ok(),
-                "bpmmax" => bpm_max = value.parse().ok(),
-                "level" => play_level = value.parse().unwrap_or(1),
-                "notes" => notes_count = value.parse().unwrap_or(0),
-                "lns" => ln_count = value.parse().unwrap_or(0),
-                "lnmode" => ln_mode = value.parse().ok(),
-                "mode" => {
-                    play_mode = match value {
-                        "4KEYS" => PlayMode::Keys4,
-                        "5KEYS" => PlayMode::Keys5,
-                        "6KEYS" => PlayMode::Keys6,
-                        "8KEYS" => PlayMode::Keys8,
-                        "9KEYS" => PlayMode::Keys9,
-                        "10KEYS" => PlayMode::Keys10,
-                        "14KEYS" => PlayMode::Keys14,
-                        _ => PlayMode::Keys7,
-                    }
-                }
-                "diff" => difficulty = value.parse().ok(),
-                "id" => id = ChartId::from_hex(value),
-                "md5" => md5 = md5_from_hex(value),
-                "legacy" => hash = u64::from_str_radix(value, 16).ok(),
-                _ => {}
-            }
-        }
-
+    /// Reads a map written by `write_msgpack`. A song missing its path,
+    /// identity or legacy key is rejected. Unknown keys are ignored.
+    pub fn read_msgpack(v: &Value) -> Option<Self> {
+        let text = |key| {
+            v.get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let num = |key| v.get(key).and_then(Value::as_u32);
+        let opt = |key| v.get(key).and_then(Value::non_nil).and_then(Value::as_u32);
+        let bpm = v.get("bpm").and_then(Value::as_f64).unwrap_or(130.0);
+        let play_mode = match v.get("mode").and_then(Value::as_str) {
+            Some("4KEYS") => PlayMode::Keys4,
+            Some("5KEYS") => PlayMode::Keys5,
+            Some("6KEYS") => PlayMode::Keys6,
+            Some("8KEYS") => PlayMode::Keys8,
+            Some("9KEYS") => PlayMode::Keys9,
+            Some("10KEYS") => PlayMode::Keys10,
+            Some("14KEYS") => PlayMode::Keys14,
+            _ => PlayMode::Keys7,
+        };
         Some(Self {
-            id: id?,
-            md5: md5?,
-            legacy_hash: hash?,
-            file_path: file_path?,
-            title,
-            subtitle,
-            artist,
-            genre,
+            id: ChartId::from_digest(v.get("id")?.as_bin()?.try_into().ok()?),
+            md5: v.get("md5")?.as_bin()?.try_into().ok()?,
+            legacy_hash: v.get("legacy")?.as_u64()?,
+            file_path: v.get("path")?.as_str()?.to_string(),
+            title: text("title"),
+            subtitle: text("sub"),
+            artist: text("artist"),
+            genre: text("genre"),
             bpm,
-            bpm_min: bpm_min.unwrap_or(bpm),
-            bpm_max: bpm_max.unwrap_or(bpm),
-            play_level,
-            notes_count,
-            ln_count,
-            ln_mode,
+            bpm_min: v.get("bpmmin").and_then(Value::as_f64).unwrap_or(bpm),
+            bpm_max: v.get("bpmmax").and_then(Value::as_f64).unwrap_or(bpm),
+            play_level: num("level").unwrap_or(1),
+            notes_count: num("notes").unwrap_or(0) as usize,
+            ln_count: num("lns").unwrap_or(0),
+            ln_mode: opt("lnmode"),
             play_mode,
-            difficulty,
+            difficulty: opt("diff"),
         })
     }
 }
@@ -349,29 +336,37 @@ pub fn sort_songs(
 /// `bpm scan` deletes it so the game rebuilds it from the same copies bpm indexed.
 pub const SONGS_CACHE_FILE: &str = "songs.cache";
 
-/// First line of a song list cache.
-const SONG_CACHE_HEADER: &str = "#BEETLE_SONGS_V9";
+/// `format` and `version` of a song list cache. A cache of any other
+/// version is not trusted: the app rescans and rewrites it.
+const SONG_CACHE_FORMAT: &str = "beetle-songs";
+const SONG_CACHE_VERSION: u64 = 10;
 
-/// Serializes song list to flat cache text.
-pub fn serialize_song_cache(songs: &[SongMetadata]) -> String {
-    let mut out = String::with_capacity(32 + songs.len() * 256);
-    out.push_str(SONG_CACHE_HEADER);
-    out.push('\n');
+/// Serializes the song list as a cache file.
+pub fn serialize_song_cache(songs: &[SongMetadata]) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION, 1);
+    w.str("songs");
+    w.array(songs.len());
     for song in songs {
-        out.push_str(&song.serialize_line());
-        out.push('\n');
+        song.write_msgpack(&mut w);
     }
-    out
+    w.into_bytes()
 }
 
-/// Deserializes a song list from cache text. A cache in an older format (no
-/// header) gives an empty list, which makes the app rescan and rewrite it.
-pub fn deserialize_song_cache(cache_text: &str) -> Vec<SongMetadata> {
-    let mut lines = cache_text.lines();
-    if lines.next().map(str::trim) != Some(SONG_CACHE_HEADER) {
-        return Vec::new();
-    }
-    lines.filter_map(SongMetadata::parse_line).collect()
+/// Reads a song list cache. A cache in any other format or version gives
+/// an empty list, which makes the app rescan and rewrite it.
+pub fn deserialize_song_cache(bytes: &[u8]) -> Vec<SongMetadata> {
+    msgpack::decode_file(bytes, SONG_CACHE_FORMAT, SONG_CACHE_VERSION)
+        .and_then(|file| {
+            let songs = file.get("songs")?.as_array()?;
+            Some(
+                songs
+                    .iter()
+                    .filter_map(SongMetadata::read_msgpack)
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -389,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn test_song_metadata_tsv_serialization() {
+    fn song_metadata_round_trips() {
         let meta = SongMetadata {
             id: ChartId::synthetic(0x123456789abcdef0),
             md5: [0; 16],
@@ -410,8 +405,11 @@ mod tests {
             difficulty: None,
         };
 
-        let line = meta.serialize_line();
-        let decoded = SongMetadata::parse_line(&line).expect("Failed to parse cache line");
+        let mut w = Writer::new();
+        meta.write_msgpack(&mut w);
+        let bytes = w.into_bytes();
+        let decoded = SongMetadata::read_msgpack(&msgpack::decode(&bytes).unwrap())
+            .expect("Failed to read cached song");
 
         assert_eq!(meta, decoded);
     }
@@ -523,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn song_cache_v3_roundtrips_and_old_caches_are_dropped() {
+    fn song_cache_round_trips_and_old_caches_are_dropped() {
         let songs = vec![
             SongMetadata::from_bytes("a.bms", CHART).unwrap(),
             SongMetadata::from_bytes(
@@ -532,17 +530,17 @@ mod tests {
             )
             .unwrap(),
         ];
-        let text = serialize_song_cache(&songs);
-        assert!(text.starts_with("#BEETLE_SONGS_V9\n"));
-        assert_eq!(deserialize_song_cache(&text), songs);
+        let bytes = serialize_song_cache(&songs);
+        assert_eq!(deserialize_song_cache(&bytes), songs);
 
-        // Earlier caches lack fields (long notes, #DIFFICULTY): not trusted, so the app rescans.
-        for old_header in ["#BEETLE_SONGS_V4", "#BEETLE_SONGS_V7"] {
-            let older = text.replacen("#BEETLE_SONGS_V9", old_header, 1);
-            assert!(deserialize_song_cache(&older).is_empty());
-        }
-        let old = "0000000000000001\ta.bms\tT\t\tA\tG\t140.00\t5\t100\t7KEYS\n";
+        // Text caches from before, and other versions, are not trusted, so the app rescans.
+        let old = b"#BEETLE_SONGS_V9\npath=a.bms\ttitle=T\n";
         assert!(deserialize_song_cache(old).is_empty());
+        let mut w = Writer::new();
+        w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION - 1, 1);
+        w.str("songs");
+        w.array(0);
+        assert!(deserialize_song_cache(&w.into_bytes()).is_empty());
     }
 
     #[test]
@@ -552,8 +550,8 @@ mod tests {
         assert_eq!(hyper.difficulty, Some(3));
         let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
         assert_eq!(plain.difficulty, None);
-        let text = serialize_song_cache(&[hyper.clone(), plain.clone()]);
-        assert_eq!(deserialize_song_cache(&text), vec![hyper, plain]);
+        let bytes = serialize_song_cache(&[hyper.clone(), plain.clone()]);
+        assert_eq!(deserialize_song_cache(&bytes), vec![hyper, plain]);
     }
 
     #[test]
@@ -602,16 +600,25 @@ mod tests {
     }
 
     #[test]
-    fn a_cache_line_without_identity_is_rejected() {
-        let line = SongMetadata::from_bytes("a.bms", CHART)
+    fn a_cached_song_without_identity_is_rejected() {
+        let mut w = Writer::new();
+        SongMetadata::from_bytes("a.bms", CHART)
             .unwrap()
-            .serialize_line();
-        let without_id: Vec<&str> = line.split('\t').filter(|f| !f.starts_with("id=")).collect();
-        assert!(SongMetadata::parse_line(&without_id.join("	")).is_none());
-        let without_md5: Vec<&str> = line
-            .split('\t')
-            .filter(|f| !f.starts_with("md5="))
-            .collect();
-        assert!(SongMetadata::parse_line(&without_md5.join("	")).is_none());
+            .write_msgpack(&mut w);
+        let bytes = w.into_bytes();
+        let Value::Map(entries) = msgpack::decode(&bytes).unwrap() else {
+            panic!("a song is a map");
+        };
+        for key in ["id", "md5", "legacy", "path"] {
+            let without: Vec<_> = entries
+                .iter()
+                .filter(|(k, _)| k.as_str() != Some(key))
+                .cloned()
+                .collect();
+            assert!(
+                SongMetadata::read_msgpack(&Value::Map(without)).is_none(),
+                "{key}"
+            );
+        }
     }
 }

@@ -7,6 +7,7 @@
 //! difficulty tables. MD5 of the same bytes is kept only as the alias those
 //! tables and LR2 score databases use; it is never a key.
 
+use crate::msgpack::{Value, Writer};
 use bms_hash::{md5_digest, sha256_digest, to_hex, Md5Hasher, Sha256Hasher};
 use std::fmt;
 use std::str::FromStr;
@@ -110,6 +111,23 @@ impl ChartKey {
             u64::from_str_radix(text, 16).ok().map(Self::Legacy)
         } else {
             None
+        }
+    }
+}
+
+impl ChartKey {
+    /// A chart id as its 32 bytes, an old key as a number (see `msgpack`).
+    pub fn write_msgpack(self, w: &mut Writer) {
+        match self {
+            Self::Id(id) => w.bin(id.as_bytes()),
+            Self::Legacy(key) => w.uint(key),
+        }
+    }
+
+    pub fn read_msgpack(v: &Value) -> Option<Self> {
+        match v {
+            Value::Bin(bytes) => Some(Self::Id(ChartId::from_digest((*bytes).try_into().ok()?))),
+            _ => v.as_u64().map(Self::Legacy),
         }
     }
 }

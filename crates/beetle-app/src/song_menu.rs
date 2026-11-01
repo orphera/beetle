@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use beetle_audio::UiSound;
+use beetle_core::msgpack::{self, Value, Writer};
 use beetle_core::{ChartId, SongAddress, SongMetadata};
 use beetle_render::{strings, HitId, ToastKind};
 use bms_package::installed::packages_root;
@@ -425,30 +426,47 @@ pub fn click(state: &mut AppState, id: HitId) {
 // hidden.dat
 // ---------------------------------------------------------------------------
 
-/// `hidden.dat` in the working directory: one chart id (hex) per line.
+/// `hidden.dat` in the working directory: the hidden charts' ids.
 fn hidden_file() -> PathBuf {
     std::env::var("BEETLE_HIDDEN_FILE").map_or_else(|_| PathBuf::from("hidden.dat"), PathBuf::from)
 }
 
-pub fn parse_hidden(text: &str) -> HashSet<ChartId> {
-    text.lines()
-        .filter_map(|l| ChartId::from_hex(l.trim()))
-        .collect()
+const HIDDEN_FORMAT: &str = "beetle-hidden";
+const HIDDEN_VERSION: u64 = 1;
+
+/// Reads `hidden.dat`: an array of 32-byte ids, or the text of earlier
+/// builds (one hex id per line).
+pub fn parse_hidden(bytes: &[u8]) -> HashSet<ChartId> {
+    match msgpack::decode_file(bytes, HIDDEN_FORMAT, HIDDEN_VERSION) {
+        Some(file) => file
+            .get("charts")
+            .and_then(Value::as_array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|id| Some(ChartId::from_digest(id.as_bin()?.try_into().ok()?)))
+            .collect(),
+        None => String::from_utf8_lossy(bytes)
+            .lines()
+            .filter_map(|l| ChartId::from_hex(l.trim()))
+            .collect(),
+    }
 }
 
-pub fn serialize_hidden(hidden: &HashSet<ChartId>) -> String {
-    let mut lines: Vec<String> = hidden.iter().map(|id| id.to_hex()).collect();
-    lines.sort();
-    let mut out = String::from("# Charts hidden from the song list\n");
-    for l in lines {
-        out.push_str(&l);
-        out.push('\n');
+pub fn serialize_hidden(hidden: &HashSet<ChartId>) -> Vec<u8> {
+    let mut ids: Vec<&ChartId> = hidden.iter().collect();
+    ids.sort();
+    let mut w = Writer::new();
+    w.file(HIDDEN_FORMAT, HIDDEN_VERSION, 1);
+    w.str("charts");
+    w.array(ids.len());
+    for id in ids {
+        w.bin(id.as_bytes());
     }
-    out
+    w.into_bytes()
 }
 
 pub fn load_hidden() -> HashSet<ChartId> {
-    parse_hidden(&fs::read_to_string(hidden_file()).unwrap_or_default())
+    parse_hidden(&fs::read(hidden_file()).unwrap_or_default())
 }
 
 fn save_hidden(hidden: &HashSet<ChartId>) -> std::io::Result<()> {
@@ -561,5 +579,10 @@ mod tests {
         set.insert(ChartId::synthetic(1));
         set.insert(ChartId::synthetic(2));
         assert_eq!(parse_hidden(&serialize_hidden(&set)), set);
+        let text = format!(
+            "# Charts hidden from the song list\n{}\n",
+            ChartId::synthetic(1).to_hex()
+        );
+        assert_eq!(parse_hidden(text.as_bytes()).len(), 1);
     }
 }

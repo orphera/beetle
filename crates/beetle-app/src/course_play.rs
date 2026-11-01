@@ -154,15 +154,15 @@ pub fn locked_value(state: &AppState, id: OptionId) -> Option<String> {
 const RECORDS_FILE: &str = "courses.dat";
 
 pub fn load_records() -> CourseRecords {
-    std::fs::read_to_string(RECORDS_FILE)
-        .map(|text| CourseRecords::parse(&text))
+    std::fs::read(RECORDS_FILE)
+        .map(|bytes| CourseRecords::from_bytes(&bytes))
         .unwrap_or_default()
 }
 
 /// Through a temporary file, as `scores.dat` is saved.
 fn save_records(records: &CourseRecords) {
     let temp = format!("{RECORDS_FILE}.tmp");
-    if std::fs::write(&temp, records.serialize()).is_ok() {
+    if std::fs::write(&temp, records.to_bytes()).is_ok() {
         let _ = std::fs::rename(&temp, RECORDS_FILE);
     }
 }

@@ -11,6 +11,7 @@
 
 use crate::boot_progress::{self, Stage};
 use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
+use beetle_core::msgpack::{self, Value, Writer};
 use beetle_core::{
     choose_load_index, collection_folders, deserialize_song_cache, disc_address, display_path,
     package_address, serialize_song_cache, ChartId, LibraryPaths, SongAddress, SongMetadata,
@@ -132,125 +133,94 @@ fn source_cache_path() -> PathBuf {
 }
 
 fn load_source_cache() -> Option<SourceCache> {
-    let text = fs::read_to_string(source_cache_path()).ok()?;
-    parse_source_cache(&text)
+    parse_source_cache(&fs::read(source_cache_path()).ok()?)
 }
 
-fn parse_source_cache(text: &str) -> Option<SourceCache> {
-    let mut lines = text.lines();
-    if lines.next()? != "#BEETLE_SOURCES_V1" {
-        return None;
-    }
+const SOURCE_CACHE_FORMAT: &str = "beetle-sources";
+const SOURCE_CACHE_VERSION: u64 = 2;
+
+/// Reads `songs.sources`: `folders` maps each folder root to its
+/// fingerprint, `copies` holds one map per folder or package copy.
+fn parse_source_cache(bytes: &[u8]) -> Option<SourceCache> {
+    let file = msgpack::decode_file(bytes, SOURCE_CACHE_FORMAT, SOURCE_CACHE_VERSION)?;
     let mut cache = SourceCache::default();
-    for line in lines {
-        let fields: Vec<_> = line.split('\t').collect();
-        match fields.as_slice() {
-            ["dir", root, fingerprint] => {
-                cache.folder_fingerprints.insert(
-                    String::from_utf8(hex_decode(root)?).ok()?,
-                    u64::from_str_radix(fingerprint, 16).ok()?,
-                );
-            }
-            [kind, source, path, missing, length, modified, metadata] => {
-                let kind = match *kind {
-                    "F" => Kind::Folder,
-                    "P" => Kind::Package,
-                    _ => return None,
-                };
-                let source = String::from_utf8(hex_decode(source)?).ok()?;
-                let path = String::from_utf8(hex_decode(path)?).ok()?;
-                let metadata = String::from_utf8(hex_decode(metadata)?).ok()?;
-                let meta = SongMetadata::parse_line(&metadata)?;
-                let missing = if *missing == "-" {
-                    None
-                } else {
-                    Some(missing.parse().ok()?)
-                };
-                let stamp = if kind != Kind::Disc {
-                    Some(FileStamp {
-                        length: length.parse().ok()?,
-                        modified_ns: modified.parse().ok()?,
-                    })
-                } else {
-                    None
-                };
-                cache.copies.push(CachedCopy {
-                    kind,
-                    source,
-                    path,
-                    meta,
-                    missing,
-                    stamp,
-                });
-            }
+    let Value::Map(folders) = file.get("folders")? else {
+        return None;
+    };
+    for (root, fingerprint) in folders {
+        cache
+            .folder_fingerprints
+            .insert(root.as_str()?.to_string(), fingerprint.as_u64()?);
+    }
+    for copy in file.get("copies")?.as_array()? {
+        let kind = match copy.get("kind")?.as_str()? {
+            "F" => Kind::Folder,
+            "P" => Kind::Package,
             _ => return None,
-        }
+        };
+        cache.copies.push(CachedCopy {
+            kind,
+            source: copy.get("source")?.as_str()?.to_string(),
+            path: copy.get("path")?.as_str()?.to_string(),
+            meta: SongMetadata::read_msgpack(copy.get("meta")?)?,
+            missing: copy.get("missing")?.non_nil().and_then(Value::as_u32),
+            stamp: Some(FileStamp {
+                length: copy.get("len")?.as_u64()?,
+                modified_ns: u128::from(copy.get("mtime")?.as_u64()?),
+            }),
+        });
     }
     Some(cache)
 }
 
-fn serialize_source_cache(cache: &SourceCache) -> String {
-    use std::fmt::Write;
-
-    let mut text = String::from("#BEETLE_SOURCES_V1\n");
+fn serialize_source_cache(cache: &SourceCache) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.file(SOURCE_CACHE_FORMAT, SOURCE_CACHE_VERSION, 2);
+    w.str("folders");
+    w.map(cache.folder_fingerprints.len());
     for (root, fingerprint) in &cache.folder_fingerprints {
-        let _ = writeln!(
-            text,
-            "dir\t{}\t{fingerprint:016x}",
-            hex_encode(root.as_bytes())
-        );
+        w.str(root);
+        w.uint(*fingerprint);
     }
-    for copy in &cache.copies {
-        let kind = match copy.kind {
-            Kind::Folder => "F",
-            Kind::Package => "P",
-            Kind::Disc => continue,
-        };
+    // Disc copies are identified again on every scan, so they are not kept.
+    let copies: Vec<_> = cache
+        .copies
+        .iter()
+        .filter(|c| c.kind != Kind::Disc)
+        .collect();
+    w.str("copies");
+    w.array(copies.len());
+    for copy in copies {
         let (length, modified) = copy
             .stamp
             .map_or((0, 0), |stamp| (stamp.length, stamp.modified_ns));
-        let missing = copy
-            .missing
-            .map_or_else(|| "-".to_string(), |n| n.to_string());
-        let _ = writeln!(
-            text,
-            "{kind}\t{}\t{}\t{missing}\t{length}\t{modified}\t{}",
-            hex_encode(copy.source.as_bytes()),
-            hex_encode(copy.path.as_bytes()),
-            hex_encode(copy.meta.serialize_line().as_bytes())
-        );
+        w.map(7);
+        w.str("kind");
+        w.str(if copy.kind == Kind::Folder { "F" } else { "P" });
+        w.str("source");
+        w.str(&copy.source);
+        w.str("path");
+        w.str(&copy.path);
+        w.str("missing");
+        match copy.missing {
+            Some(n) => w.uint(u64::from(n)),
+            None => w.nil(),
+        }
+        w.str("len");
+        w.uint(length);
+        w.str("mtime");
+        w.uint(u64::try_from(modified).unwrap_or(u64::MAX));
+        w.str("meta");
+        copy.meta.write_msgpack(&mut w);
     }
-    text
+    w.into_bytes()
 }
 
 fn write_source_cache(cache: &SourceCache) {
-    let text = serialize_source_cache(cache);
-    if let Err(error) = fs::write(source_cache_path(), text) {
+    let bytes = serialize_source_cache(cache);
+    if let Err(error) = fs::write(source_cache_path(), bytes) {
         eprintln!("[library] failed to write source cache: {error}");
     }
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 15) as usize] as char);
-    }
-    out
-}
-
-fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    hex.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            let digit = |byte: u8| (byte as char).to_digit(16).map(|d| d as u8);
-            Some(digit(pair[0])? * 16 + digit(pair[1])?)
-        })
-        .collect()
 }
 
 /// Lists the charts a scan of `folders` and the active packages finds, one
@@ -901,8 +871,8 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
         &dir_path.join(SONGS_CACHE_FILE),
     ] {
         if candidate.exists() && !cache_is_stale(candidate) {
-            if let Ok(cache_text) = fs::read_to_string(candidate) {
-                let cached = deserialize_song_cache(&cache_text);
+            if let Ok(cache_bytes) = fs::read(candidate) {
+                let cached = deserialize_song_cache(&cache_bytes);
                 if !cached.is_empty() {
                     return cached;
                 }

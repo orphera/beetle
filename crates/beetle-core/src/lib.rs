@@ -14,6 +14,7 @@ pub mod library;
 pub mod library_paths;
 pub mod load_location;
 pub mod modifier;
+pub mod msgpack;
 pub mod replay;
 pub mod resolver;
 pub mod rules;
