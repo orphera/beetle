@@ -913,7 +913,7 @@ fn run_song_clean(args: &[String]) {
             .iter()
             .filter_map(|(key, (copy, _))| Some((key.clone(), place_at(copy)?)))
             .collect();
-        let (sets, all_whole) = key_sets::compare(&list, &names);
+        let (sets, partial) = key_sets::compare(&list, &names);
         let charts: BTreeMap<String, Vec<ChartId>> = places
             .iter()
             .map(|(k, (_, c))| (k.clone(), c.clone()))
@@ -922,13 +922,13 @@ fn run_song_clean(args: &[String]) {
             .iter()
             .find(|s| !s.worse)
             .map_or(String::new(), |s| s.description.clone());
-        let going = key_sets::going(&sets, all_whole, &charts);
+        let going = key_sets::going(&sets, &partial, &list, &names, &charts);
         for set in sets.iter().filter(|s| s.worse) {
             if set.same.iter().all(|p| !going.contains(&p.as_str())) {
-                let why = if all_whole {
-                    "it has charts found nowhere else"
+                let why = if going.is_empty() && !partial.is_empty() {
+                    "a difference folder would lose its key sounds"
                 } else {
-                    "a place of the song has no whole set"
+                    "it has charts found nowhere else"
                 };
                 kept.push(format!(
                     "{} / {}: {} is worse than {better}, kept because {why}",

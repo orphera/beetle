@@ -56,6 +56,15 @@ impl Files {
         self.0.is_empty()
     }
 
+    /// The names not found at the place.
+    pub fn missing(&self, names: &[String]) -> Vec<String> {
+        names
+            .iter()
+            .filter(|n| !self.0.contains_key(&n.to_lowercase()))
+            .cloned()
+            .collect()
+    }
+
     /// The found files' bytes in all.
     pub fn total_size(&self) -> u64 {
         self.0.values().map(|f| f.size).sum()
@@ -220,16 +229,17 @@ pub struct Set {
 }
 
 /// The sets a chart declaring `names` can play with among `places` (key and
-/// where), in the given order, and whether every place is one of them.
-pub fn compare(places: &[(String, PlaceAt)], names: &[String]) -> (Vec<Set>, bool) {
+/// where), in the given order, and the places that are not one of them
+/// (difference folders, or sets with other names: B18 plan 4.4).
+pub fn compare(places: &[(String, PlaceAt)], names: &[String]) -> (Vec<Set>, Vec<String>) {
     let mut found: Vec<(Set, &PlaceAt, Files)> = Vec::new();
-    let mut whole_places = 0;
+    let mut partial = Vec::new();
     for (key, at) in places {
         let files = files_at(at, names);
         if !files.whole(names) {
+            partial.push(key.clone());
             continue;
         }
-        whole_places += 1;
         if let Some((set, _, _)) = found.iter_mut().find(|(_, _, f)| f.same(&files)) {
             set.same.push(key.clone());
             continue;
@@ -254,21 +264,48 @@ pub fn compare(places: &[(String, PlaceAt)], names: &[String]) -> (Vec<Set>, boo
         set.worse = worse;
     }
     let sets = found.into_iter().map(|(set, _, _)| set).collect();
-    (sets, whole_places == places.len())
+    (sets, partial)
 }
 
 /// The places a cleanup may remove: those of the worse sets whose every chart
-/// has a copy at a place that stays. Nothing when some place is not a whole
-/// set (`all_whole` false), since a difference folder may draw on any of them.
-/// `charts` lists each place's charts.
+/// has a copy at a place that stays. `charts` lists each place's charts.
+/// The places of `partial` (`compare`) borrow key sounds: nothing goes unless
+/// each still finds 90% of what it lacks at one whole place that stays
+/// (`places` says where each place is, `names` what the chart declares).
 pub fn going<'a>(
     sets: &'a [Set],
-    all_whole: bool,
+    partial: &[String],
+    places: &[(String, PlaceAt)],
+    names: &[String],
     charts: &BTreeMap<String, Vec<ChartId>>,
 ) -> Vec<&'a str> {
-    if !all_whole {
-        return Vec::new();
+    let out = going_whole(sets, charts);
+    if out.is_empty() || partial.is_empty() {
+        return out;
     }
+    let at = |key: &str| places.iter().find(|(k, _)| k == key).map(|(_, a)| a);
+    let kept: Vec<&PlaceAt> = sets
+        .iter()
+        .flat_map(|s| &s.same)
+        .filter(|k| !out.contains(&k.as_str()))
+        .filter_map(|k| at(k))
+        .collect();
+    let covered = partial.iter().all(|p| {
+        let Some(own) = at(p) else {
+            return false;
+        };
+        let missing = files_at(own, names).missing(names);
+        missing.is_empty() || kept.iter().any(|k| files_at(k, &missing).whole(&missing))
+    });
+    if covered {
+        out
+    } else {
+        Vec::new()
+    }
+}
+
+/// [`going`] without the borrowing places.
+fn going_whole<'a>(sets: &'a [Set], charts: &BTreeMap<String, Vec<ChartId>>) -> Vec<&'a str> {
     let worse: HashSet<&str> = sets
         .iter()
         .filter(|s| s.worse)
@@ -361,7 +398,7 @@ mod tests {
             ),
         ];
         let names = vec!["a.wav".to_string(), "b.wav".to_string()];
-        let (sets, all_whole) = compare(&places, &names);
+        let (sets, partial) = compare(&places, &names);
         let shown: Vec<(&str, &str, bool)> = sets
             .iter()
             .map(|s| (s.place.as_str(), s.description.as_str(), s.worse))
@@ -374,7 +411,7 @@ mod tests {
             ]
         );
         assert_eq!(sets[0].same, ["copy", "wav"]);
-        assert!(all_whole);
+        assert!(partial.is_empty());
 
         let id = |n: u8| ChartId::of_bytes(&[n]);
         let mut charts = BTreeMap::from([
@@ -382,10 +419,25 @@ mod tests {
             ("ogg".to_string(), vec![id(2)]),
             ("wav".to_string(), vec![id(1)]),
         ]);
-        assert!(going(&sets, all_whole, &charts).is_empty());
+        let go = |partial: &[String], places: &[(String, PlaceAt)], charts: &BTreeMap<_, _>| {
+            going(&sets, partial, places, &names, charts)
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert!(go(&[], &places, &charts).is_empty());
         charts.insert("ogg".into(), vec![id(1)]);
-        assert_eq!(going(&sets, all_whole, &charts), ["ogg"]);
-        assert!(going(&sets, false, &charts).is_empty());
+        assert_eq!(go(&[], &places, &charts), ["ogg"]);
+
+        // A difference folder with only `a.wav` borrows `b.wav`: the WAV
+        // sets that stay still have it, so the OGG set may go.
+        let mut with_diff = places.clone();
+        with_diff.push(mk("diff", &[("a.wav", wav_bytes(44100))]));
+        let (_, partial) = compare(&with_diff, &names);
+        assert_eq!(partial, ["diff"]);
+        assert_eq!(go(&partial, &with_diff, &charts), ["ogg"]);
+        // Where the borrowing place is not known, nothing goes.
+        assert!(go(&partial, &places, &charts).is_empty());
 
         let PlaceAt::Folder(dir) = &places[1].1 else {
             unreachable!()

@@ -110,6 +110,11 @@ pub struct Sets {
     /// Every place of the song has a whole set for the chart: none of them is
     /// a difference folder (or a set with other names) that draws on the rest.
     pub all_whole: bool,
+    /// The places that are not whole sets (they borrow), and where every
+    /// place is, for the cleanup (`key_sets::going`).
+    pub partial: Vec<String>,
+    places: Vec<(String, PlaceAt)>,
+    names: Vec<String>,
 }
 
 /// The library's places for judging songs being added (B18,
@@ -199,7 +204,7 @@ pub fn sets(groups: &SongGroups, song_places: &SongPlaces, song: &SongMetadata) 
         .into_iter()
         .filter_map(|(key, p)| Some((key, place_at(&p.address)?)))
         .collect();
-    let (found, all_whole) = key_sets::compare(&places, &names);
+    let (found, partial) = key_sets::compare(&places, &names);
     Sets {
         sets: found
             .into_iter()
@@ -210,7 +215,10 @@ pub fn sets(groups: &SongGroups, song_places: &SongPlaces, song: &SongMetadata) 
                 worse: set.worse,
             })
             .collect(),
-        all_whole,
+        all_whole: partial.is_empty(),
+        partial,
+        places,
+        names,
     }
 }
 
@@ -290,9 +298,10 @@ pub fn cleanup(
         .iter()
         .map(|(k, p)| (k.clone(), p.charts.clone()))
         .collect();
-    let going: HashSet<&str> = key_sets::going(&found, sets.all_whole, &charts)
-        .into_iter()
-        .collect();
+    let going: HashSet<&str> =
+        key_sets::going(&found, &sets.partial, &sets.places, &sets.names, &charts)
+            .into_iter()
+            .collect();
     let mut out = Vec::new();
     for key in &going {
         let trash = match key.split_once("::") {
