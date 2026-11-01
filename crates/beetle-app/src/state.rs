@@ -227,6 +227,8 @@ pub struct AppState {
     /// Reduce Motion: plain fades, frozen backdrops, snapping list scroll and
     /// no result shake. Read each frame by the presenter and the song select motion.
     pub reduce_motion: bool,
+    /// Choosing an edition applies to the source's other songs too.
+    pub edition_same_source: bool,
     /// High-contrast notes in gameplay.
     pub high_contrast: bool,
     /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
@@ -597,6 +599,7 @@ impl AppState {
             reduce_flashes: self.reduce_flashes,
             speed_anchor: self.speed_anchor,
             reduce_motion: self.reduce_motion,
+            edition_same_source: self.edition_same_source,
             high_contrast_notes: self.high_contrast,
             ui_scale: self.view.ui_scale,
             display_mode: self.display_mode,

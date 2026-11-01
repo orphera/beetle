@@ -50,6 +50,7 @@ pub enum OptionId {
     Language,
     SongFolders,
     HiddenSongs,
+    EditionSameSource,
     FileAssoc,
     AdvancedTools,
     DisplayMode,
@@ -192,6 +193,13 @@ fn build_settings_options() -> Vec<OptionDesc> {
             column: 0,
             label: strings::ROW_HIDDEN_SONGS(),
             help: strings::HELP_HIDDEN_SONGS(),
+        },
+        OptionDesc {
+            id: OptionId::EditionSameSource,
+            group: strings::GROUP_SYSTEM(),
+            column: 0,
+            label: strings::ROW_EDITION_SAME_SOURCE(),
+            help: strings::HELP_EDITION_SAME_SOURCE(),
         },
         OptionDesc {
             id: OptionId::FileAssoc,
@@ -596,6 +604,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             &[&state.linked_folders.to_string()],
         ),
         OptionId::FileAssoc => on_off(state.file_assoc).to_string(),
+        OptionId::EditionSameSource => on_off(state.edition_same_source).to_string(),
         OptionId::AdvancedTools => strings::VALUE_OPEN().to_string(),
         OptionId::HiddenSongs => {
             strings::fill(strings::VALUE_FOLDERS(), &[&state.hidden_songs.to_string()])
@@ -771,6 +780,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         OptionId::ReduceFlashes => state.reduce_flashes = !state.reduce_flashes,
         OptionId::ReduceMotion => state.reduce_motion = !state.reduce_motion,
+        OptionId::EditionSameSource => state.edition_same_source = !state.edition_same_source,
         OptionId::HighContrast => state.high_contrast = !state.high_contrast,
         OptionId::UiScale => {
             let percent = ui_scale_next(state.view.ui_scale, forward);

@@ -19,6 +19,19 @@ use bms_package_manager::key_sets::{self, PlaceAt};
 
 use crate::loader::SoundPlaces;
 
+/// Where a place came from, for choosing editions by source: the installed
+/// package (`packages/<id>`) of a package place, the folder holding a folder
+/// place (the pack it came in).
+pub fn source_of(place: &str) -> Option<String> {
+    match place.split_once("::") {
+        Some((bmsp, _)) => Path::new(bmsp)
+            .parent()?
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned()),
+        None => Some(parent(place).to_string()).filter(|p| !p.is_empty()),
+    }
+}
+
 /// A place's key: the same text for every chart there. `None` for a disc song.
 pub fn place_of(file_path: &str) -> Option<String> {
     match SongAddress::parse(file_path) {
@@ -371,6 +384,38 @@ impl Choices {
             .filter(|c| places.contains_key(*c))
     }
 
+    /// Also chooses `place`'s source for every other song that has a place
+    /// there (B18 plan 4.3, the Settings option). How many songs changed.
+    pub fn choose_same_source(
+        &mut self,
+        groups: &SongGroups,
+        song_places: &SongPlaces,
+        chart: ChartId,
+        place: &str,
+    ) -> usize {
+        let Some(source) = source_of(place) else {
+            return 0;
+        };
+        let own = groups.get(&chart);
+        let mut count = 0;
+        for (song, places) in song_places {
+            let Some(id) = self.ids.get(song).copied().filter(|_| Some(song) != own) else {
+                continue;
+            };
+            let there = places
+                .iter()
+                .filter_map(|p| place_of(&p.address))
+                .find(|key| source_of(key).as_deref() == Some(source.as_str()));
+            if let (Some(key), Some(record)) = (there, self.records.get_mut(id)) {
+                if record.sound_set.as_deref() != Some(key.as_str()) {
+                    record.sound_set = Some(key);
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     /// Chooses `place` for `chart`'s song.
     pub fn choose(&mut self, groups: &SongGroups, chart: ChartId, place: &str) {
         let id = self.id(groups, chart);
@@ -456,6 +501,40 @@ mod tests {
         // From the chosen place itself nothing is swapped.
         let own = plan(&groups, &places_of, &choices, &songs[2]);
         assert_eq!((own.chosen, own.decided), (None, true));
+    }
+
+    #[test]
+    fn choosing_by_source_picks_the_same_pack_for_other_songs() {
+        let songs = [
+            song("D:/old/one/1.bms", 1),
+            song("D:/hq/one/1.bms", 2),
+            song("D:/old/two/2.bms", 3),
+            song("D:/hq/two/2.bms", 4),
+            song("D:/other/3.bms", 5),
+        ];
+        let groups: SongGroups = songs
+            .iter()
+            .zip([1, 1, 2, 2, 3])
+            .map(|(s, g)| (s.id, g))
+            .collect();
+        let mut song_places = SongPlaces::new();
+        for (s, g) in songs.iter().zip([1u32, 1, 2, 2, 3]) {
+            song_places.entry(g).or_default().push(SongPlace {
+                address: s.file_path.clone(),
+                charts: vec![s.id],
+            });
+        }
+        let mut c = Choices::default();
+        c.assign(&groups);
+        c.choose(&groups, songs[0].id, "D:/hq/one");
+        let n = c.choose_same_source(&groups, &song_places, songs[0].id, "D:/hq/one");
+        assert_eq!(n, 1);
+        let two = places(&groups, &song_places, &songs[2]);
+        assert_eq!(c.chosen(&groups, songs[2].id, &two), Some("D:/hq/two"));
+        assert_eq!(
+            source_of("D:/p/id/st/package.bmsp::s").as_deref(),
+            Some("D:/p/id")
+        );
     }
 
     fn wav_bytes(rate: u32) -> Vec<u8> {

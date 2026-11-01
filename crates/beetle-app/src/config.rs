@@ -311,6 +311,9 @@ pub struct AppConfig {
     /// No shutter, no backdrop drift or title sweep, snapping list scroll and no
     /// result shake (`reduce_motion=ON`). Reduce Flashes is separate.
     pub reduce_motion: bool,
+    /// Choosing an edition also picks it for other songs from the same
+    /// source (`edition_same_source=ON`, B18 plan 4.3).
+    pub edition_same_source: bool,
     /// High-contrast notes in gameplay (`high_contrast_notes=ON`).
     pub high_contrast_notes: bool,
     /// Menu UI scale in percent (`ui_scale=80..=150`, steps of 10; 100 = default).
@@ -355,6 +358,7 @@ impl Default for AppConfig {
             judge_position: JudgePosition::Upper,
             reduce_flashes: false,
             reduce_motion: false,
+            edition_same_source: false,
             high_contrast_notes: false,
             speed_anchor: SpeedAnchor::Start,
             ui_scale: UI_SCALE_DEFAULT,
@@ -555,6 +559,7 @@ impl AppConfig {
                 "reduce_flashes" => config.reduce_flashes = val == "ON",
                 "speed_anchor" => config.speed_anchor = SpeedAnchor::parse(val).unwrap_or_default(),
                 "reduce_motion" => config.reduce_motion = val == "ON",
+                "edition_same_source" => config.edition_same_source = val == "ON",
                 "high_contrast_notes" => config.high_contrast_notes = val == "ON",
                 "ui_scale" => {
                     if let Ok(v) = val.parse::<u32>() {
@@ -638,6 +643,9 @@ impl AppConfig {
             if self.high_contrast_notes { "ON" } else { "OFF" },
         );
         out.push_str(&format!("speed_anchor={}\n", self.speed_anchor.as_str()));
+        if self.edition_same_source {
+            out.push_str("edition_same_source=ON\n");
+        }
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
                 let slot = mode_slot_name(mode);

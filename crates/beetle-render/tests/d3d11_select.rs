@@ -12,9 +12,9 @@ use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
     draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_install_question,
-    draw_options_modal, draw_screen_fade, draw_song_select, draw_toast, D3d11Backend, FilterBar,
-    GpuBackend, OptionLine, SelectFrame, SelectMotion, SelectRow, SortMenu, ToastAnchor,
-    ToastFrame, ToastKind, Ui, Viewport,
+    draw_options_modal, draw_screen_fade, draw_song_menu, draw_song_select, draw_toast,
+    D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame, SelectMotion, SelectRow,
+    SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{assert_repeatable, write_bmp, HiddenWindow};
 
@@ -187,6 +187,8 @@ enum Overlay {
     Drop,
     /// The question about a song being added with another key sound set.
     Question,
+    /// The song menu's edition page.
+    Editions,
 }
 
 fn render(
@@ -405,6 +407,25 @@ fn render_ex(
         Overlay::Fade => draw_screen_fade(ui, 0.5),
         Overlay::Help => draw_help_overlay(ui, &vp),
         Overlay::Drop => draw_drop_overlay(ui, &vp),
+        Overlay::Editions => draw_song_menu(
+            ui,
+            &vp,
+            "FREEDOM DiVE",
+            None,
+            &[
+                &strings::fill(
+                    strings::MENU_SOUND_SET_ACTIVE(),
+                    &["freedom_dive_hq · WAV 44.1kHz/16bit"],
+                ),
+                &strings::fill(
+                    strings::MENU_SOUND_SET_WORSE(),
+                    &["freedom_dive · MP3 192kbps"],
+                ),
+                &strings::fill(strings::MENU_EDITION_VERSION(), &["2026-10-02 (3fa9c1d0)"]),
+            ],
+            0,
+            None,
+        ),
         Overlay::Question => draw_install_question(
             ui,
             &vp,
@@ -821,6 +842,7 @@ fn song_select_u3d_views() {
         1
     );
     render(&mut gpu, &mut ui, 5, "", "", Overlay::Question, "question");
+    render(&mut gpu, &mut ui, 5, "", "", Overlay::Editions, "editions");
     // The first-run guide: the library has no songs.
     let guide = render_ex(
         &mut gpu,

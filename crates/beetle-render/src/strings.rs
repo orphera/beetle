@@ -970,14 +970,15 @@ table! {
         ko "폴더 열기",
         en "Open Folder",
         ja "フォルダを開く";
-    pub MENU_VERSIONS =
-        ko "버전 고르기",
-        en "Choose Version",
-        ja "バージョンを選ぶ";
-    pub MENU_SOUND_SETS =
-        ko "키음 세트 고르기",
-        en "Choose Key Sounds",
-        ja "キー音セットを選ぶ";
+    pub MENU_EDITIONS =
+        ko "판 고르기",
+        en "Choose Edition",
+        ja "版を選ぶ";
+    /// `{}` is a package version's label (install date and hash).
+    pub MENU_EDITION_VERSION =
+        ko "{} - 패키지의 다른 버전",
+        en "{} - other package version",
+        ja "{} - パッケージの別バージョン";
     pub MENU_CLEANUP =
         ko "음질 낮은 키음 세트 정리",
         en "Clean Up Worse Key Sounds",
@@ -1013,10 +1014,6 @@ table! {
         en "All {} charts that came with it are deleted. This cannot be undone.",
         ja "一緒に追加された譜面{}件がすべて削除されます。元に戻せません。";
     /// `{}` is the version label; marks the version that plays.
-    pub MENU_VERSION_ACTIVE =
-        ko "{} - 지금 쓰는 버전",
-        en "{} - in use",
-        ja "{} - 使用中";
     /// `{}` is the key sound set's label; marks the set that plays.
     pub MENU_SOUND_SET_ACTIVE =
         ko "{} - 지금 쓰는 세트",
@@ -1062,6 +1059,11 @@ table! {
         ko "{}의 음질 낮은 키음 세트를 정리했어요",
         en "Cleaned up the worse key sounds of {}",
         ja "{}の低音質キー音セットを整理しました";
+    /// `{}` is the set's label, `{}` how many other songs took it too.
+    pub TOAST_SOUND_SET_SAME_SOURCE =
+        ko "이제 {} 키음으로 플레이해요 (같은 출처 {}곡도)",
+        en "Now playing with {} key sounds (and {} songs from the same source)",
+        ja "これから{}のキー音でプレイします（同じ出所の{}曲も）";
     pub TOAST_SOUND_SET_SAVE_FAILED =
         ko "키음 세트 선택(songs.dat)을 저장하지 못했어요",
         en "Could not save the key sound choice (songs.dat)",
@@ -1473,6 +1475,16 @@ table! {
         ko "빨간 경고 번쩍임, 판정 불빛, 배너의 빛 줄기와 흔들림을 줄여요. 판정과 소리는 그대로예요.",
         en "Reduces the red warning flash, judge lights, and the banner's light rays and shaking. Judgement and sound stay the same.",
         ja "赤い警告の点滅、判定の光、バナーの光の筋と揺れを抑えます。判定と音は変わりません。";
+
+    pub ROW_EDITION_SAME_SOURCE =
+        ko "같은 출처에 판 같이 적용",
+        en "Editions Follow Source",
+        ja "同じ出所の曲にも版を適用";
+
+    pub HELP_EDITION_SAME_SOURCE =
+        ko "곡 메뉴에서 판을 고르면, 같은 폴더 묶음이나 패키지에서 온 다른 곡도 그 출처의 판으로 쳐요. 끄면 고른 곡만 바뀌어요.",
+        en "Choosing an edition in the song menu also picks the same source's edition for the other songs it has. Off: only that song changes.",
+        ja "曲メニューで版を選ぶと、同じフォルダーやパッケージから来たほかの曲もその版でプレイします。オフにすると選んだ曲だけが変わります。";
 
     pub ROW_REDUCE_MOTION =
         ko "모션 줄이기",

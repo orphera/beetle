@@ -339,6 +339,7 @@ impl ApplicationHandler for BeetleApp {
             speed_anchor: saved_config.speed_anchor,
             scroll_bpm: 130.0,
             reduce_motion: saved_config.reduce_motion,
+            edition_same_source: saved_config.edition_same_source,
             high_contrast: saved_config.high_contrast_notes,
             language: saved_config.language,
             display_mode: saved_config.display_mode,

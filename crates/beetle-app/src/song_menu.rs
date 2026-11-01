@@ -62,12 +62,11 @@ pub enum Action {
     AskDelete,
     Delete,
     Hide,
-    /// Goes to the version page.
-    Versions,
+    /// Goes to the edition page: the key sound sets and the package's other
+    /// versions (B18 plan 4.3).
+    Editions,
     /// Makes this state of the package the one that plays.
     UseVersion(String),
-    /// Goes to the key sound set page.
-    SoundSets,
     /// Plays the song with the key sound set at this place.
     UseSoundSet(String),
     /// Goes to the cleanup confirm page.
@@ -129,10 +128,11 @@ pub fn first_page(
         label: strings::MENU_OPEN_FOLDER().to_string(),
         action: Action::OpenFolder,
     }];
-    if sets > 1 {
+    let versions = package.map_or(0, |p| p.versions.len());
+    if sets > 1 || versions > 1 {
         items.push(Item {
-            label: strings::MENU_SOUND_SETS().to_string(),
-            action: Action::SoundSets,
+            label: strings::MENU_EDITIONS().to_string(),
+            action: Action::Editions,
         });
     }
     if cleanup {
@@ -142,13 +142,7 @@ pub fn first_page(
         });
     }
     match (source, package) {
-        (Source::Package { .. }, Some(p)) => {
-            if p.versions.len() > 1 {
-                items.push(Item {
-                    label: strings::MENU_VERSIONS().to_string(),
-                    action: Action::Versions,
-                });
-            }
+        (Source::Package { .. }, Some(_)) => {
             items.push(Item {
                 label: strings::MENU_DELETE().to_string(),
                 action: Action::AskDelete,
@@ -164,24 +158,23 @@ pub fn first_page(
     items
 }
 
-/// The version page: one row per installed version, the playing one marked.
-pub fn version_page(package: &PackageInfo) -> Vec<Item> {
-    package
-        .versions
-        .iter()
-        .map(|(hash, label)| Item {
-            label: if *hash == package.active {
-                strings::fill(strings::MENU_VERSION_ACTIVE(), &[label])
-            } else {
-                label.clone()
+/// The edition page: one row per key sound set (the playing one marked),
+/// then the package's versions that are not installed as the active one.
+pub fn edition_page(sets: &[SoundSet], playing: &str, package: Option<&PackageInfo>) -> Vec<Item> {
+    let mut items = sound_set_page(sets, playing);
+    for p in package {
+        items.extend(p.versions.iter().filter(|(hash, _)| *hash != p.active).map(
+            |(hash, label)| Item {
+                label: strings::fill(strings::MENU_EDITION_VERSION(), &[label]),
+                action: Action::UseVersion(hash.clone()),
             },
-            action: Action::UseVersion(hash.clone()),
-        })
-        .collect()
+        ));
+    }
+    items
 }
 
-/// The key sound set page: one row per set, the playing one marked.
-pub fn sound_set_page(sets: &[SoundSet], playing: &str) -> Vec<Item> {
+/// The key sound set rows, the playing one marked.
+fn sound_set_page(sets: &[SoundSet], playing: &str) -> Vec<Item> {
     sets.iter()
         .map(|set| Item {
             label: {
@@ -422,10 +415,10 @@ fn run(state: &mut AppState, i: usize) {
             });
             changed(state, ok, strings::TOAST_CLEANED(), &title);
         }
-        Action::SoundSets => {
+        Action::Editions => {
             let playing = playing_set(menu, &state.song_groups, &state.sound_choices).to_string();
             let menu = state.song_menu.as_mut().expect("menu is open");
-            menu.items = sound_set_page(&menu.sets, &playing);
+            menu.items = edition_page(&menu.sets, &playing, menu.package.as_ref());
             menu.row = menu
                 .sets
                 .iter()
@@ -437,6 +430,16 @@ fn run(state: &mut AppState, i: usize) {
             state
                 .sound_choices
                 .choose(&state.song_groups, menu.chart, &place);
+            let others = if state.edition_same_source {
+                state.sound_choices.choose_same_source(
+                    &state.song_groups,
+                    &state.song_places,
+                    menu.chart,
+                    &place,
+                )
+            } else {
+                0
+            };
             let label = menu
                 .sets
                 .iter()
@@ -452,22 +455,15 @@ fn run(state: &mut AppState, i: usize) {
                     strings::TOAST_SOUND_SET_SAVE_FAILED(),
                 );
             } else {
-                show_toast(
-                    state,
-                    ToastKind::Success,
-                    strings::fill(strings::TOAST_SOUND_SET(), &[&label]),
-                );
-            }
-        }
-        Action::Versions => {
-            if let Some(p) = &menu.package {
-                menu.items = version_page(p);
-                menu.row = p
-                    .versions
-                    .iter()
-                    .position(|(h, _)| *h == p.active)
-                    .unwrap_or(0);
-                play_ui(state, UiSound::Open);
+                let text = if others > 0 {
+                    strings::fill(
+                        strings::TOAST_SOUND_SET_SAME_SOURCE(),
+                        &[&label, &others.to_string()],
+                    )
+                } else {
+                    strings::fill(strings::TOAST_SOUND_SET(), &[&label])
+                };
+                show_toast(state, ToastKind::Success, text);
             }
         }
         Action::Delete => {
@@ -730,7 +726,7 @@ mod tests {
         );
         assert_eq!(
             actions(&first_page(&src, Some(&package(2)), 1, false)),
-            vec![Action::OpenFolder, Action::Versions, Action::AskDelete]
+            vec![Action::OpenFolder, Action::Editions, Action::AskDelete]
         );
         assert_eq!(
             actions(&first_page(&src, None, 1, false)),
@@ -739,12 +735,25 @@ mod tests {
     }
 
     #[test]
-    fn the_version_page_marks_the_playing_one() {
-        let page = version_page(&package(2));
-        assert_eq!(page.len(), 2);
-        assert_ne!(page[0].label, "v0");
-        assert_eq!(page[1].label, "v1");
-        assert_eq!(page[1].action, Action::UseVersion("h1".into()));
+    fn the_edition_page_lists_the_sets_then_the_other_versions() {
+        let set = |place: &str| SoundSet {
+            place: place.into(),
+            label: place.into(),
+            same: vec![place.into()],
+            worse: false,
+        };
+        let page = edition_page(&[set("a"), set("b")], "b", Some(&package(2)));
+        let actions = actions(&page);
+        assert_eq!(
+            actions,
+            vec![
+                Action::UseSoundSet("a".into()),
+                Action::UseSoundSet("b".into()),
+                Action::UseVersion("h1".into()),
+            ]
+        );
+        assert_eq!(page[0].label, "a");
+        assert_ne!(page[1].label, "b");
     }
 
     #[test]
