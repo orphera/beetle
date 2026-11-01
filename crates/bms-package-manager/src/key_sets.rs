@@ -47,6 +47,20 @@ impl Files {
         !names.is_empty() && self.0.len() * 10 >= names.len() * 9
     }
 
+    /// How many of the names were found.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The found files' bytes in all.
+    pub fn total_size(&self) -> u64 {
+        self.0.values().map(|f| f.size).sum()
+    }
+
     /// Whether two places hold the same files: every name both have is the
     /// same size, and they have at least one name in common.
     pub fn same(&self, other: &Files) -> bool {
