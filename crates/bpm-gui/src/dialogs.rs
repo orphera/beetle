@@ -50,6 +50,10 @@ pub enum DialogKind {
         title: String,
     },
     AddTable,
+    /// Remove an installed difficulty table.
+    ConfirmRemoveTable {
+        name: String,
+    },
     /// A song being added is already in the library: one button per answer
     /// (`UiAction::DialogAnswer`). The reply waits in `AppState::question`.
     AddQuestion {
@@ -367,6 +371,17 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                 v.buttons = vec![
                     button("취소", Btn::Ghost, UiAction::DialogCancel),
                     button("지우기", Btn::Danger, UiAction::DialogConfirm),
+                ];
+            }
+            DialogKind::ConfirmRemoveTable { name } => {
+                v.title = "난이도표를 삭제할까요?".into();
+                v.body = vec![
+                    format!("'{name}' 난이도표를 이 컴퓨터에서 삭제해요."),
+                    "삭제한 표는 다시 주소를 넣어 추가해야 해요.".into(),
+                ];
+                v.buttons = vec![
+                    button("취소", Btn::Ghost, UiAction::DialogCancel),
+                    button("삭제", Btn::Danger, UiAction::DialogConfirm),
                 ];
             }
             DialogKind::TableFetchDiff { title, folder } => {

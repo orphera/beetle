@@ -592,21 +592,7 @@ impl GuiRenderer {
                 );
                 return;
             }
-            TablesState::NoIndex => {
-                self.empty_state(
-                    w,
-                    row_y,
-                    bottom,
-                    "먼저 내 곡을 확인해야 해요",
-                    &[
-                        "어떤 곡이 없는지 알려면 갖고 있는 곡을 한 번 훑어봐야 해요.",
-                        "곡이 많으면 조금 걸릴 수 있어요.",
-                    ],
-                    ("지금 확인하기", UiAction::ScanCollection),
-                );
-                return;
-            }
-            TablesState::Ready => {}
+            TablesState::NoIndex | TablesState::Ready => {}
         }
 
         // Table picker: < name >
@@ -643,22 +629,59 @@ impl GuiRenderer {
             Btn::Secondary,
             UiAction::NextTable,
         );
+        let delete_w = 72.0;
+        self.button(
+            w - PAD - delete_w,
+            row_y,
+            delete_w,
+            36.0,
+            "표 삭제",
+            Btn::Danger,
+            UiAction::AskRemoveTable,
+        );
         let mut info_x = PAD + 96.0 + name_w;
         if t.tables.len() > 1 {
             let pos = format!("{} / {}", t.table_idx + 1, t.tables.len());
             self.text(&pos, info_x, row_y + 12.0, PX_SMALL, theme::TEXT_FAINT);
             info_x += text_w(&pos, PX_SMALL) + 16.0;
         }
+        if t.state() == TablesState::NoIndex {
+            let hint = fit(
+                "내 곡 확인 필요",
+                (w - PAD - delete_w - 12.0 - info_x).max(0.0),
+                PX_SMALL,
+                false,
+            );
+            self.text(&hint, info_x, row_y + 12.0, PX_SMALL, theme::TEXT_DIM);
+            self.empty_state(
+                w,
+                row_y + 48.0,
+                bottom,
+                "먼저 내 곡을 확인해야 해요",
+                &[
+                    "어떤 곡이 없는지 알려면 갖고 있는 곡을 한 번 훑어봐야 해요.",
+                    "곡이 많으면 조금 걸릴 수 있어요.",
+                ],
+                ("지금 확인하기", UiAction::ScanCollection),
+            );
+            return;
+        }
         let total = t.table().map_or(0, |table| table.entries.len());
         let summary = format!("{total}곡 중 {}곡이 아직 없어요", t.rows.len());
+        let summary = fit(
+            &summary,
+            (w - PAD - delete_w - 12.0 - info_x).max(0.0),
+            PX_SMALL,
+            false,
+        );
         self.text(&summary, info_x, row_y + 12.0, PX_SMALL, theme::TEXT_DIM);
         if t.stale {
             let note = "곡을 추가했어요. '내 곡 다시 확인'을 누르면 목록이 맞춰져요";
             let nw = text_w(note, PX_SMALL) + 14.0;
-            if w - PAD - nw > info_x + text_w(&summary, PX_SMALL) + 16.0 {
+            if w - PAD - delete_w - nw > info_x + text_w(&summary, PX_SMALL) + 16.0 {
                 self.chip(
                     note,
-                    w - PAD - nw,
+                    w - PAD - delete_w - nw,
                     row_y + 8.0,
                     theme::WARN,
                     theme::WARN_SOFT,

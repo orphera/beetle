@@ -916,6 +916,13 @@ fn dispatch(state: &mut AppState, action: UiAction) {
                 state.open_dialog(DialogKind::ConfirmRemoveBga { id, name });
             }
         }
+        UiAction::AskRemoveTable => {
+            if let Some(table) = state.tables.table() {
+                state.open_dialog(DialogKind::ConfirmRemoveTable {
+                    name: table.name.clone(),
+                });
+            }
+        }
         UiAction::PrevTable => state.tables.switch_table(false),
         UiAction::NextTable => state.tables.switch_table(true),
         UiAction::SelectTableRow(i) => state.tables.view.select(i),
@@ -1073,6 +1080,19 @@ fn confirm_dialog(state: &mut AppState) {
                 Err(e) => state.err(format!("배경 영상을 지우지 못했어요: {e}")),
             }
             state.refresh_packages();
+        }
+        DialogKind::ConfirmRemoveTable { name } => {
+            state.dialog = None;
+            if state.busy() {
+                return;
+            }
+            match tables_tab::store().remove(&name) {
+                Ok(removed) => {
+                    state.tables.reload_tables();
+                    state.ok(format!("'{}' 난이도표를 삭제했어요", removed));
+                }
+                Err(e) => state.err(format!("난이도표를 삭제하지 못했어요: {e}")),
+            }
         }
         DialogKind::TableFetchDiff { .. } => {
             state.dialog = None;

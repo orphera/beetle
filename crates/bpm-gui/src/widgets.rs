@@ -48,6 +48,7 @@ pub enum UiAction {
     AskAddFromArchive,
     ScanCollection,
     AskAddTable,
+    AskRemoveTable,
     // The open dialog
     DialogFocus(usize),
     DialogBrowse(usize),
