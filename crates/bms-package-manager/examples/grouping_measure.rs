@@ -5,6 +5,7 @@
 
 use beetle_core::ChartId;
 use bms_package_manager::collection::{index_file, Index, Location, LocationKind};
+use bms_package_manager::grouping;
 use bms_package_manager::songs::{self, artist_key, sounds_match, title_base, Manual};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -318,6 +319,38 @@ fn main() {
             }
         }
     }
+
+    // Cross-check: the shared rule function must give the same songs.
+    let keys: Vec<String> = locs.iter().map(|l| place_name(&place_of(l))).collect();
+    let copies: Vec<grouping::Copy> = locs
+        .iter()
+        .zip(&keys)
+        .map(|(l, k)| grouping::Copy {
+            place: k,
+            chart: l.chart,
+            title: &l.title,
+            artist: &l.artist,
+            key_stems: &l.key_stems,
+            intact: l.is_intact(),
+        })
+        .collect();
+    let shared = grouping::group(&copies, &manual.links, &manual.splits);
+    let mut agree = true;
+    for (i, a) in locs.iter().enumerate() {
+        for (j, b) in locs.iter().enumerate().skip(i + 1).step_by(7) {
+            let proto = dsu.find(place_ids[&place_of(a)]) == dsu.find(place_ids[&place_of(b)]);
+            let real = shared.song_of(&keys[i]) == shared.song_of(&keys[j]);
+            if proto != real {
+                agree = false;
+                println!("  MISMATCH {} | {}", keys[i], keys[j]);
+            }
+        }
+    }
+    println!(
+        "shared rule: {} songs, {} candidates, agrees with prototype: {agree}",
+        shared.songs.len(),
+        shared.candidates.len()
+    );
 
     let mut new_songs: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for p in 0..places.len() {

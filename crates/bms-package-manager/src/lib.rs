@@ -10,6 +10,7 @@ pub mod error;
 pub mod export;
 pub mod file_dialog;
 pub mod flac;
+pub mod grouping;
 pub mod ir;
 pub mod library;
 pub mod manager;

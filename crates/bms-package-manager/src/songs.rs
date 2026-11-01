@@ -446,7 +446,7 @@ pub(crate) fn mostly_serial(names: &[String]) -> bool {
 }
 
 /// `mostly_serial` over any sequence of names, without collecting them first.
-pub(crate) fn mostly_serial_names<'a>(names: impl Iterator<Item = &'a str>) -> bool {
+pub fn mostly_serial_names<'a>(names: impl Iterator<Item = &'a str>) -> bool {
     let (mut total, mut serial) = (0usize, 0usize);
     for name in names {
         total += 1;
