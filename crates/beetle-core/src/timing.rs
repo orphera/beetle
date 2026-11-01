@@ -333,13 +333,13 @@ impl TimingModel {
         }
     }
 
-    /// Where the BPM changes, in chart order: (beat position, new BPM). The
-    /// first BPM, a STOP and a change to the same BPM are not changes.
-    pub fn bpm_changes(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
+    /// Where the BPM changes, in chart order: (beat position, BPM before,
+    /// new BPM). The first BPM, a STOP and a change to the same BPM are not changes.
+    pub fn bpm_changes(&self) -> impl Iterator<Item = (f64, f64, f64)> + '_ {
         self.segments
             .windows(2)
             .filter(|w| w[1].stop_duration_seconds == 0.0 && w[1].bpm != w[0].bpm)
-            .map(|w| (w[1].start_beat, w[1].bpm))
+            .map(|w| (w[1].start_beat, w[0].bpm, w[1].bpm))
     }
 
     /// The BPM in effect at `time_seconds`: the segment that holds that time.
@@ -567,7 +567,7 @@ mod tests {
         };
         let model = TimingModel::from_chart(&chart);
         let changes: Vec<_> = model.bpm_changes().collect();
-        assert_eq!(changes, [(4.0, 240.0), (16.0, 150.0)]);
+        assert_eq!(changes, [(4.0, 120.0, 240.0), (16.0, 240.0, 150.0)]);
     }
 
     #[test]

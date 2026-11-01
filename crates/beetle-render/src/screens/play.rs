@@ -807,7 +807,6 @@ fn bpm_marks(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, field: Rect, rai
         .timing
         .time_to_beat_position(note_clock(f.audio_time, f.visual_offset_ms));
     let hair = s.max(1.0);
-    let st = TextStyle::new(12.0 * s).bold().color(theme::GOLD);
     let label_w = 34.0 * s;
     let label_x = if rail.x < field.x {
         field.right() + 10.0 * s
@@ -819,7 +818,7 @@ fn bpm_marks(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, field: Rect, rai
     } else {
         Align::Right
     };
-    for (beat, bpm) in f.timing.bpm_changes() {
+    for (beat, from, bpm) in f.timing.bpm_changes() {
         let y = judge_y - ((beat - now_beat) * px_per_beat) as f32;
         if y > judge_y {
             continue;
@@ -829,7 +828,7 @@ fn bpm_marks(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, field: Rect, rai
         }
         c.fill_rect(
             Rect::new(field.x, y.round() - hair, field.w, 2.0 * hair),
-            theme::GOLD.with_alpha(110),
+            bpm_change_color(from, bpm).with_alpha(150),
         );
         t.draw_in(
             c,
@@ -839,10 +838,36 @@ fn bpm_marks(c: &mut Canvas, t: &mut TextEngine, f: &PlayFrame, field: Rect, rai
             } else {
                 format!("{bpm:.1}")
             },
-            Rect::new(label_x, y - 16.0 * s, label_w, 16.0 * s),
+            // Centred on the line.
+            Rect::new(label_x, y - 8.0 * s, label_w, 16.0 * s),
             align,
-            &st,
+            &TextStyle::new(12.0 * s)
+                .bold()
+                .color(bpm_change_color(from, bpm)),
         );
+    }
+}
+
+/// Colour of a BPM change: red when it speeds up, blue when it slows down,
+/// pale for a small step and full at double (or half) the BPM or more.
+pub(crate) fn bpm_change_color(from: f64, to: f64) -> ColorRgba {
+    let (pale, full) = if to > from {
+        (rgb_mix(theme::RED, theme::WHITE, 0.6), theme::RED)
+    } else {
+        (rgb_mix(theme::BLUE, theme::WHITE, 0.6), theme::BLUE)
+    };
+    let strength = ((to / from.max(1e-3)).ln().abs() / std::f64::consts::LN_2).clamp(0.0, 1.0);
+    rgb_mix(pale, full, strength as f32)
+}
+
+/// `a` moved towards `b` by `t` (0..=1), per channel.
+fn rgb_mix(a: ColorRgba, b: ColorRgba, t: f32) -> ColorRgba {
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    ColorRgba {
+        r: m(a.r, b.r),
+        g: m(a.g, b.g),
+        b: m(a.b, b.b),
+        a: m(a.a, b.a),
     }
 }
 
@@ -2686,6 +2711,18 @@ mod tests {
         assert!(ui.canvas.debug_batches().len() <= 2);
         let verts = ui.canvas.debug_vertices().len();
         assert!(verts < 8192, "{verts} vertices fit one batch");
+    }
+
+    #[test]
+    fn bpm_changes_are_red_up_blue_down_and_deeper_when_bigger() {
+        let up_small = bpm_change_color(150.0, 160.0);
+        let up_big = bpm_change_color(150.0, 300.0);
+        assert!(up_small.r > up_small.b && up_big.r > up_big.b);
+        assert_eq!(up_big, theme::RED);
+        assert!(up_small.g > up_big.g, "a small step is paler");
+        let down = bpm_change_color(150.0, 50.0);
+        assert_eq!(down, theme::BLUE);
+        assert!(bpm_change_color(150.0, 140.0).b > bpm_change_color(150.0, 140.0).r);
     }
 
     #[test]
