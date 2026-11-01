@@ -3,6 +3,8 @@
 //! and ends with one message for the status bar.
 
 use crate::josa::{quoted_eul, quoted_eun};
+use bms_package_manager::add::{add_path_judged, Answer, Judge};
+use bms_package_manager::same_song::{self, KnownPlace, SetInfo, Verdict};
 use bms_package_manager::{
     AddError, AddOptions, AddProgress, AddReport, AddSource, Added, BgaPackMode, FolderMode,
     PackOptions, PackProfile, PackSource, PackageManager, PackageManagerError, SkipReason, Skipped,
@@ -22,6 +24,14 @@ pub enum TaskMessage {
         detail: String,
     },
     Done(Result<String, String>),
+    /// A song being added is already in the library (B18). The worker waits
+    /// for one of `answers` on `reply`.
+    Ask {
+        title: String,
+        body: Vec<String>,
+        answers: Vec<(&'static str, Answer)>,
+        reply: Sender<Answer>,
+    },
 }
 
 /// What finishing a task changes besides the song list.
@@ -66,6 +76,22 @@ impl Reporter {
             total,
             detail: detail.to_string(),
         });
+    }
+
+    /// Asks about a song already in the library and waits for the answer
+    /// (skip when the window is gone).
+    fn ask(&self, name: &str, verdict: &Verdict) -> Answer {
+        let Some((title, body, answers)) = question(name, verdict) else {
+            return Answer::Add;
+        };
+        let (reply, answer) = channel();
+        let _ = self.tx.send(TaskMessage::Ask {
+            title,
+            body,
+            answers,
+            reply,
+        });
+        answer.recv().unwrap_or(Answer::Skip)
     }
 
     pub fn cancelled(&self) -> bool {
@@ -146,6 +172,68 @@ pub fn add_title(path: &Path) -> Result<String, String> {
     }
 }
 
+type Question = (String, Vec<String>, Vec<(&'static str, Answer)>);
+
+/// The dialog for a verdict that asks: title, lines and buttons.
+fn question(name: &str, verdict: &Verdict) -> Option<Question> {
+    let set = |set: &SetInfo| {
+        let mut line = format!(
+            "{}, {}개, {:.1} MB, {}",
+            set.description,
+            set.files,
+            set.bytes as f64 / 1_048_576.0,
+            set.label
+        );
+        if set.better {
+            line.push_str(" (음질 더 좋음)");
+        }
+        line
+    };
+    match verdict {
+        Verdict::AlreadyThere { song } => Some((
+            format!("'{song}' 곡은 이미 있어요"),
+            vec![
+                format!("추가하려는 것: {name}"),
+                "채보와 키음이 모두 이미 들어 있어요.".into(),
+            ],
+            vec![("그래도 넣기", Answer::Add), ("건너뛰기", Answer::Skip)],
+        )),
+        Verdict::OtherSet {
+            song,
+            existing,
+            new,
+            replaceable,
+            ..
+        } => {
+            let mut body = vec![format!("추가하려는 것: {name}")];
+            body.extend(existing.iter().map(|s| format!("있는 것: {}", set(s))));
+            body.push(format!("새 것: {}", set(new)));
+            let mut answers = vec![("따로 넣기", Answer::Add)];
+            if !replaceable.is_empty() {
+                answers.push(("바꾸기", Answer::Replace));
+            }
+            answers.push(("건너뛰기", Answer::Skip));
+            Some((format!("'{song}' 곡의 다른 키음이에요"), body, answers))
+        }
+        _ => None,
+    }
+}
+
+/// The library's places from the collection index, for judging what is
+/// added. Empty when there is no index yet (`bpm scan`).
+fn known_places(mgr: &PackageManager) -> Vec<KnownPlace> {
+    use bms_package_manager::collection::{index_file, Index};
+    use bms_package_manager::songs::{self, Manual};
+    let Some(index) = fs::read_to_string(index_file())
+        .ok()
+        .and_then(|text| Index::parse(&text))
+    else {
+        return Vec::new();
+    };
+    let collection = songs::build(&index, &Manual::load().unwrap_or_default());
+    same_song::known_from_collection(&collection, mgr)
+}
+
 /// Adds whatever `path` is: a song folder (or a folder of song folders), an
 /// archive of one, a `.bmsp` package or a `.bmdp` update. Folders are copied
 /// into the store, as this tool always has.
@@ -155,8 +243,19 @@ pub fn add_path(root: PathBuf, path: PathBuf, r: &Reporter) -> Result<String, St
         folders: FolderMode::Import,
         profile: PackProfile::Classic,
     };
-    let result =
-        bms_package_manager::add_path(&mut mgr, &path, &options, Some(&r.cancel), |p| match p {
+    let known = known_places(&mgr);
+    let mut ask = |name: &str, verdict: &Verdict| r.ask(name, verdict);
+    let judge = Judge {
+        known: &known,
+        ask: &mut ask,
+    };
+    let result = add_path_judged(
+        &mut mgr,
+        &path,
+        &options,
+        judge,
+        Some(&r.cancel),
+        |p| match p {
             AddProgress::Unpacking { name } => r.progress("압축 푸는 중...", 0, 0, name),
             AddProgress::Song { index, total, name } => r.progress(
                 &format!("{total}곡 중 {}번째 추가하는 중", index + 1),
@@ -170,7 +269,8 @@ pub fn add_path(root: PathBuf, path: PathBuf, r: &Reporter) -> Result<String, St
                 total,
                 detail,
             } => r.progress(phase, current, total, detail),
-        });
+        },
+    );
     match result {
         Ok(report) => add_message(&report),
         Err(AddError::Unsupported) => Err(add_title(&path).err().unwrap_or_default()),

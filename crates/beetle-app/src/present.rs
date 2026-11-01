@@ -718,6 +718,10 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             .collect();
         beetle_render::draw_skipped_overlay(ui, &vp, &rows);
     }
+    if let Some(q) = &state.installs.question {
+        let (title, lines, buttons) = q.view();
+        beetle_render::draw_install_question(ui, &vp, &title, &lines, &buttons, q.row);
+    }
     if state.drop_hover {
         beetle_render::draw_drop_overlay(ui, &vp);
     }

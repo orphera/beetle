@@ -85,7 +85,8 @@ pub fn handle_right_press(state: &mut AppState) {
         || state.show_exit_modal
         || state.show_help
         || state.sort_menu.is_some()
-        || state.installs.show_skipped;
+        || state.installs.show_skipped
+        || state.installs.question.is_some();
     if state.screen != AppScreen::SongSelect || blocked {
         return;
     }
@@ -117,6 +118,9 @@ pub fn handle_click(state: &mut AppState, id: HitId) {
 }
 
 fn song_select_click(state: &mut AppState, id: HitId) {
+    if crate::install::question_click(state, id) {
+        return;
+    }
     if state.song_menu.is_some() {
         crate::song_menu::click(state, id);
         return;

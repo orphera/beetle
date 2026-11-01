@@ -50,6 +50,13 @@ pub enum DialogKind {
         title: String,
     },
     AddTable,
+    /// A song being added is already in the library: one button per answer
+    /// (`UiAction::DialogAnswer`). The reply waits in `AppState::question`.
+    AddQuestion {
+        title: String,
+        body: Vec<String>,
+        buttons: Vec<String>,
+    },
 }
 
 pub struct Dialog {
@@ -410,6 +417,23 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                 v.fields = vec![field(0, "", "받은 압축 파일 경로")];
                 v.footnote = "채보를 바로 받을 수 있는 곡이면 채보도 함께 받아서 추가해요.".into();
                 v.buttons = cancel_ok("추가");
+            }
+            DialogKind::AddQuestion {
+                title,
+                body,
+                buttons,
+            } => {
+                v.title = title.clone();
+                v.wide = true;
+                v.body = body.clone();
+                v.buttons = buttons
+                    .iter()
+                    .enumerate()
+                    .map(|(i, label)| {
+                        let style = if i == 0 { Btn::Primary } else { Btn::Ghost };
+                        button(label, style, UiAction::DialogAnswer(i))
+                    })
+                    .collect();
             }
             DialogKind::AddTable => {
                 v.title = "난이도표 추가".into();

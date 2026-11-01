@@ -27,10 +27,10 @@ pub use overlay::{
 pub use play::{draw_gameplay, first_note_time, LaneLoading, PlayFrame, SizedTexture};
 pub use select::{
     centred_start, clamp_into_window, draw_drop_overlay, draw_exit_modal, draw_folders_overlay,
-    draw_help_overlay, draw_options_modal, draw_options_panel, draw_skipped_overlay,
-    draw_song_menu, draw_song_select, filter_items, scroll_by, top_bar_buttons, visible_rows,
-    window_start, CourseView, FilterBar, FilterItem, OptionsFooter, OptionsPreview, SelectFrame,
-    SelectMotion, SelectRow, SortMenu, LAMP_COUNT,
+    draw_help_overlay, draw_install_question, draw_options_modal, draw_options_panel,
+    draw_skipped_overlay, draw_song_menu, draw_song_select, filter_items, scroll_by,
+    top_bar_buttons, visible_rows, window_start, CourseView, FilterBar, FilterItem, OptionsFooter,
+    OptionsPreview, SelectFrame, SelectMotion, SelectRow, SortMenu, LAMP_COUNT,
 };
 pub use settings::{draw_settings, follow_settings_scroll, SettingsFrame};
 pub use stage_result::{draw_result, ResultFrame};

@@ -11,13 +11,15 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 
 use beetle_render::{strings, ToastKind};
+use bms_package_manager::add::{add_path_judged, Answer, Judge};
+use bms_package_manager::same_song::{KnownPlace, SetInfo, Verdict};
 use bms_package_manager::{
-    add_path, AddError, AddOptions, AddProgress, AddReport, AddSource, Added, FolderMode,
-    PackProfile, PackageManager, SkipReason,
+    AddError, AddOptions, AddProgress, AddReport, AddSource, Added, FolderMode, PackProfile,
+    PackageManager, SkipReason,
 };
 
 use crate::state::{AppScreen, AppState};
@@ -35,6 +37,91 @@ enum Msg {
     /// The item is done. With it, where the songs it added load from: the
     /// installed packages' `.bmsp` paths and the linked folders.
     Done(Result<AddReport, AddError>, Vec<String>),
+    /// A song being added is already in the library (B18): the worker waits
+    /// for the answer on `reply`.
+    Ask(String, Verdict, Sender<Answer>),
+}
+
+/// The open question about a song being added, answered on song select.
+pub struct Question {
+    /// What is being added (a file or folder name).
+    name: String,
+    verdict: Verdict,
+    reply: Sender<Answer>,
+    pub row: usize,
+}
+
+impl Question {
+    /// The answers offered, in the order shown.
+    fn answers(&self) -> Vec<Answer> {
+        match &self.verdict {
+            Verdict::OtherSet { replaceable, .. } if !replaceable.is_empty() => {
+                vec![Answer::Add, Answer::Replace, Answer::Skip]
+            }
+            Verdict::OtherSet { .. } => vec![Answer::Add, Answer::Skip],
+            _ => vec![Answer::Skip, Answer::Add],
+        }
+    }
+
+    /// The title, the info lines (`true`: clearly better) and the buttons.
+    pub fn view(&self) -> (String, Vec<(String, bool)>, Vec<&'static str>) {
+        let item = (strings::fill(strings::ASK_ITEM(), &[&self.name]), false);
+        let (title, lines) = match &self.verdict {
+            Verdict::OtherSet {
+                song,
+                existing,
+                new,
+                ..
+            } => {
+                let mut lines = vec![item];
+                for set in existing {
+                    lines.push((
+                        strings::fill(strings::ASK_HAVE(), &[&set_line(set)]),
+                        set.better,
+                    ));
+                }
+                lines.push((
+                    strings::fill(strings::ASK_NEW(), &[&set_line(new)]),
+                    new.better,
+                ));
+                (strings::fill(strings::ASK_OTHER_SET(), &[song]), lines)
+            }
+            Verdict::AlreadyThere { song }
+            | Verdict::NewCharts { song, .. }
+            | Verdict::Candidate { song } => (
+                strings::fill(strings::ASK_ALREADY_THERE(), &[song]),
+                vec![item],
+            ),
+            Verdict::NewSong => (String::new(), vec![item]),
+        };
+        let buttons = self
+            .answers()
+            .iter()
+            .map(|a| match (a, &self.verdict) {
+                (Answer::Skip, _) => strings::ASK_SKIP(),
+                (Answer::Replace, _) => strings::ASK_REPLACE(),
+                (Answer::Add, Verdict::OtherSet { .. }) => strings::ASK_ADD_BOTH(),
+                (Answer::Add, _) => strings::ASK_ADD_ANYWAY(),
+            })
+            .collect();
+        (title, lines, buttons)
+    }
+}
+
+/// One key sound set: format and quality, files and size, where, and whether
+/// it is clearly better.
+fn set_line(set: &SetInfo) -> String {
+    let size = format!("{:.1}", set.bytes as f64 / 1_048_576.0);
+    let mut line = format!(
+        "{}  {}  {}",
+        set.description,
+        strings::fill(strings::ASK_FILES(), &[&set.files.to_string(), &size]),
+        set.label
+    );
+    if set.better {
+        line = format!("{line}  ({})", strings::ASK_BETTER());
+    }
+    line
 }
 
 struct Running {
@@ -85,6 +172,8 @@ pub struct Installs {
     pub skipped: Vec<SkipRow>,
     /// The list of skipped items is open (song select).
     pub show_skipped: bool,
+    /// A song being added waits for the player's answer (song select).
+    pub question: Option<Question>,
 }
 
 impl Installs {
@@ -129,6 +218,16 @@ pub fn poll(state: &mut AppState) {
                     changed |= run.percent != Some(p);
                     run.percent = Some(p);
                 }
+                Ok(Msg::Ask(name, verdict, reply)) => {
+                    state.installs.question = Some(Question {
+                        name,
+                        verdict,
+                        reply,
+                        row: 0,
+                    });
+                    changed = true;
+                    break;
+                }
                 Ok(Msg::Done(result, focus)) => {
                     let name = run.name.clone();
                     state.installs.running = None;
@@ -157,7 +256,8 @@ pub fn poll(state: &mut AppState) {
             state.installs.queue.clear();
         }
         if let Some(path) = state.installs.queue.pop_front() {
-            state.installs.running = Some(spawn(path));
+            let known = crate::sound_sets::known(&state.songs, &state.song_places);
+            state.installs.running = Some(spawn(path, known));
             changed = true;
         } else if state.installs.batch.items > 0 {
             finish(state);
@@ -213,15 +313,16 @@ fn skip_reason(reason: &SkipReason) -> &'static str {
     match reason {
         SkipReason::NoCharts => strings::SKIP_NO_CHARTS(),
         SkipReason::Unpack(_) => strings::SKIP_UNPACK(),
-        SkipReason::AlreadyInstalled
-        | SkipReason::AlreadyThere { .. }
-        | SkipReason::Declined { .. } => strings::SKIP_ALREADY_INSTALLED(),
+        SkipReason::AlreadyInstalled | SkipReason::AlreadyThere { .. } => {
+            strings::SKIP_ALREADY_INSTALLED()
+        }
+        SkipReason::Declined { .. } => strings::SKIP_DECLINED(),
         SkipReason::AlreadyLinked => strings::SKIP_ALREADY_LINKED(),
         SkipReason::Failed(_) => strings::SKIP_FAILED(),
     }
 }
 
-fn spawn(path: PathBuf) -> Running {
+fn spawn(path: PathBuf, known: Vec<KnownPlace>) -> Running {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -250,7 +351,17 @@ fn spawn(path: PathBuf) -> Running {
             profile: PackProfile::Turbo,
         };
         let mut last = None;
-        let result = add_path(&mut mgr, &path, &options, Some(&flag), |p| {
+        let asker = tx.clone();
+        let mut ask = |name: &str, verdict: &Verdict| {
+            let (reply, answer) = channel();
+            let _ = asker.send(Msg::Ask(name.to_string(), verdict.clone(), reply));
+            answer.recv().unwrap_or(Answer::Skip)
+        };
+        let judge = Judge {
+            known: &known,
+            ask: &mut ask,
+        };
+        let result = add_path_judged(&mut mgr, &path, &options, judge, Some(&flag), |p| {
             // A single song's steps each count from 0 to 100 on their own,
             // so only the share of songs in a folder or archive is shown.
             let percent = match p {
@@ -431,6 +542,51 @@ pub fn focus_new_song(state: &mut AppState, focus: &[String]) {
 
 /// A click on the toast: cancels the item being added, or opens the list of
 /// items the last batch left out.
+/// Sends the answer to the open question and closes it.
+fn answer(state: &mut AppState, row: usize) {
+    if let Some(q) = state.installs.question.take() {
+        let answer = q.answers().get(row).copied().unwrap_or(Answer::Skip);
+        let _ = q.reply.send(answer);
+        state.window.request_redraw();
+    }
+}
+
+/// A key while the question is open: up and down move, Enter answers, ESC
+/// skips. Returns whether the question took the key.
+pub fn question_key(state: &mut AppState, code: winit::keyboard::KeyCode) -> bool {
+    use winit::keyboard::KeyCode;
+    let Some(q) = &mut state.installs.question else {
+        return false;
+    };
+    let count = q.answers().len();
+    match code {
+        KeyCode::ArrowUp => q.row = (q.row + count - 1) % count,
+        KeyCode::ArrowDown => q.row = (q.row + 1) % count,
+        KeyCode::Enter => {
+            let row = q.row;
+            answer(state, row);
+        }
+        KeyCode::Escape => {
+            let skip = q.answers().iter().position(|a| *a == Answer::Skip);
+            answer(state, skip.unwrap_or(0));
+        }
+        _ => {}
+    }
+    state.window.request_redraw();
+    true
+}
+
+/// A click while the question is open: a button answers; anything else waits.
+pub fn question_click(state: &mut AppState, id: beetle_render::HitId) -> bool {
+    if state.installs.question.is_none() {
+        return false;
+    }
+    if let beetle_render::HitId::MenuItem(i) = id {
+        answer(state, i);
+    }
+    true
+}
+
 pub fn toast_clicked(state: &mut AppState) {
     if let Some(run) = &state.installs.running {
         run.cancel.store(true, Ordering::SeqCst);

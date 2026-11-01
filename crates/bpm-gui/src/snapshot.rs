@@ -160,6 +160,20 @@ fn snapshot_screens() {
         }),
         &shot("09-dialog-uninstall"),
     );
+    render(
+        &mut r,
+        &mut tables,
+        with_dialog(DialogKind::AddQuestion {
+            title: "'FREEDOM DiVE' 곡의 다른 키음이에요".into(),
+            body: vec![
+                "추가하려는 것: freedom_dive_wav.zip".into(),
+                "있는 것: MP3 192kbps, 412개, 38.2 MB, freedom-dive".into(),
+                "새 것: WAV 44.1kHz/16bit, 412개, 201.5 MB, freedom_dive_wav (음질 더 좋음)".into(),
+            ],
+            buttons: vec!["따로 넣기".into(), "바꾸기".into(), "건너뛰기".into()],
+        }),
+        &shot("09b-dialog-add-question"),
+    );
     let mut scene = with_dialog(DialogKind::Library);
     scene.library = vec![
         "D:\\BMS\\songs".into(),

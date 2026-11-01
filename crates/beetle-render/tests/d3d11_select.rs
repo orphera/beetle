@@ -11,9 +11,10 @@ use beetle_core::{
 use beetle_render::backend::d3d11::com::D3D_DRIVER_TYPE_WARP;
 use beetle_render::strings;
 use beetle_render::{
-    draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_options_modal, draw_screen_fade,
-    draw_song_select, draw_toast, D3d11Backend, FilterBar, GpuBackend, OptionLine, SelectFrame,
-    SelectMotion, SelectRow, SortMenu, ToastAnchor, ToastFrame, ToastKind, Ui, Viewport,
+    draw_drop_overlay, draw_exit_modal, draw_help_overlay, draw_install_question,
+    draw_options_modal, draw_screen_fade, draw_song_select, draw_toast, D3d11Backend, FilterBar,
+    GpuBackend, OptionLine, SelectFrame, SelectMotion, SelectRow, SortMenu, ToastAnchor,
+    ToastFrame, ToastKind, Ui, Viewport,
 };
 use common::{assert_repeatable, write_bmp, HiddenWindow};
 
@@ -184,6 +185,8 @@ enum Overlay {
     Help,
     /// The drag overlay: a file is held over the window.
     Drop,
+    /// The question about a song being added with another key sound set.
+    Question,
 }
 
 fn render(
@@ -402,6 +405,37 @@ fn render_ex(
         Overlay::Fade => draw_screen_fade(ui, 0.5),
         Overlay::Help => draw_help_overlay(ui, &vp),
         Overlay::Drop => draw_drop_overlay(ui, &vp),
+        Overlay::Question => draw_install_question(
+            ui,
+            &vp,
+            &strings::fill(strings::ASK_OTHER_SET(), &["FREEDOM DiVE"]),
+            &[
+                (
+                    strings::fill(strings::ASK_ITEM(), &["freedom_dive_wav.zip"]),
+                    false,
+                ),
+                (
+                    strings::fill(
+                        strings::ASK_HAVE(),
+                        &["MP3 192kbps  412개, 38.2 MB  D:/BMS/freedom_dive"],
+                    ),
+                    false,
+                ),
+                (
+                    strings::fill(
+                        strings::ASK_NEW(),
+                        &["WAV 44.1kHz/16bit  412개, 201.5 MB  (음질 더 좋음)"],
+                    ),
+                    true,
+                ),
+            ],
+            &[
+                strings::ASK_ADD_BOTH(),
+                strings::ASK_REPLACE(),
+                strings::ASK_SKIP(),
+            ],
+            1,
+        ),
     }
     let calls = ui.end(gpu);
     let (w, h, px) = gpu.capture_frame().expect("readback");
@@ -786,6 +820,7 @@ fn song_select_u3d_views() {
         render(&mut gpu, &mut ui, 5, "", "", Overlay::Drop, "drop"),
         1
     );
+    render(&mut gpu, &mut ui, 5, "", "", Overlay::Question, "question");
     // The first-run guide: the library has no songs.
     let guide = render_ex(
         &mut gpu,

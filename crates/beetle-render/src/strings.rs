@@ -878,6 +878,59 @@ table! {
         ko "압축을 풀지 못했어요",
         en "could not be unpacked",
         ja "展開できませんでした";
+    pub SKIP_DECLINED =
+        ko "넣지 않기로 했어요",
+        en "left out by choice",
+        ja "入れないことにしました";
+    /// `{}` is the song's title.
+    pub ASK_ALREADY_THERE =
+        ko "'{}' 곡은 이미 있어요",
+        en "'{}' is already in the library",
+        ja "「{}」はすでにあります";
+    /// `{}` is the song's title.
+    pub ASK_OTHER_SET =
+        ko "'{}' 곡의 다른 키음이에요",
+        en "Another key sound set for '{}'",
+        ja "「{}」の別のキー音です";
+    /// `{}` is what is being added (file or folder name).
+    pub ASK_ITEM =
+        ko "추가하려는 것: {}",
+        en "Adding: {}",
+        ja "追加するもの: {}";
+    /// `{}`: format and quality, file count, size, where.
+    pub ASK_HAVE =
+        ko "있는 것  {}",
+        en "Have  {}",
+        ja "既存  {}";
+    pub ASK_NEW =
+        ko "새 것  {}",
+        en "New  {}",
+        ja "新規  {}";
+    /// `{}` files, `{}` MB.
+    pub ASK_FILES =
+        ko "{}개, {} MB",
+        en "{} files, {} MB",
+        ja "{}個、{} MB";
+    pub ASK_BETTER =
+        ko "음질 더 좋음",
+        en "clearly better",
+        ja "高音質";
+    pub ASK_SKIP =
+        ko "건너뛰기",
+        en "Skip",
+        ja "スキップ";
+    pub ASK_ADD_ANYWAY =
+        ko "그래도 넣기",
+        en "Add anyway",
+        ja "それでも入れる";
+    pub ASK_ADD_BOTH =
+        ko "따로 넣기 (둘 다 둠)",
+        en "Add alongside (keep both)",
+        ja "別に入れる（両方残す）";
+    pub ASK_REPLACE =
+        ko "바꾸기 (있는 패키지 지움)",
+        en "Replace (removes the installed package)",
+        ja "置き換える（既存パッケージを削除）";
     pub SKIP_ALREADY_INSTALLED =
         ko "이미 있는 곡이에요",
         en "already installed",

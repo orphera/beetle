@@ -96,6 +96,11 @@ pub fn handle_song_select_input(
         return;
     }
 
+    // A song being added waits for an answer.
+    if crate::install::question_key(state, code) {
+        return;
+    }
+
     // The list of songs an install left out: ESC or Enter closes it.
     if state.installs.show_skipped {
         if matches!(code, KeyCode::Escape | KeyCode::Enter) {

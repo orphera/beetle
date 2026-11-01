@@ -14,6 +14,7 @@ mod widgets;
 mod snapshot;
 
 use beetle_render::image::ImageBuffer;
+use bms_package_manager::add::Answer;
 use bms_package_manager::{BgaPackMode, PackageManager, PackageRecord};
 use dialogs::{Dialog, DialogKind};
 use softbuffer::{Context, Surface};
@@ -21,7 +22,7 @@ use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tasks::{BgTask, TaskKind, TaskMessage};
@@ -66,6 +67,8 @@ struct AppState {
     /// Which package state the preview image belongs to.
     preview_key: Option<(String, String)>,
     task: Option<BgTask>,
+    /// The add task waits for an answer to the open `AddQuestion` dialog.
+    question: Option<(Sender<Answer>, Vec<Answer>)>,
     /// The IR lookup that is running, and where its links go when it ends.
     ir_pending: Option<IrPending>,
     /// The entry the open IR download dialog is for.
@@ -342,6 +345,7 @@ impl ApplicationHandler for BpmGuiApp {
             preview_key: None,
             task: None,
             ir_pending: None,
+            question: None,
             ir_entry: None,
             picker: None,
             modifiers: ModifiersState::default(),
@@ -656,6 +660,22 @@ fn enlarge_into(buf: &mut [u32], width: u32, height: u32, pix: &tiny_skia::Pixma
     }
 }
 
+/// Sends the answer by button (`None`: skip) and closes the question.
+fn answer_question(state: &mut AppState, button: Option<usize>) {
+    if let Some((reply, answers)) = state.question.take() {
+        let answer = button
+            .and_then(|i| answers.get(i).copied())
+            .unwrap_or(Answer::Skip);
+        let _ = reply.send(answer);
+        if matches!(
+            state.dialog.as_ref().map(|d| &d.kind),
+            Some(DialogKind::AddQuestion { .. })
+        ) {
+            state.dialog = None;
+        }
+    }
+}
+
 fn poll_task(state: &mut AppState) {
     let Some(task) = &mut state.task else {
         return;
@@ -678,7 +698,30 @@ fn poll_task(state: &mut AppState) {
                 done = Some(result);
                 break;
             }
+            TaskMessage::Ask {
+                title,
+                body,
+                answers,
+                reply,
+            } => {
+                let buttons = answers.iter().map(|(l, _)| l.to_string()).collect();
+                state.question = Some((reply, answers.iter().map(|(_, a)| *a).collect()));
+                state.dialog = Some(Dialog::new(DialogKind::AddQuestion {
+                    title,
+                    body,
+                    buttons,
+                }));
+                break;
+            }
         }
+    }
+    // A question closed without an answer (Esc, cancel) skips the song.
+    let asking = matches!(
+        state.dialog.as_ref().map(|d| &d.kind),
+        Some(DialogKind::AddQuestion { .. })
+    );
+    if !asking {
+        answer_question(state, None);
     }
     let Some(result) = done else {
         return;
@@ -924,6 +967,7 @@ fn dispatch(state: &mut AppState, action: UiAction) {
             }
         }
         UiAction::DialogListRemove(i) => library_remove(state, i),
+        UiAction::DialogAnswer(i) => answer_question(state, Some(i)),
         UiAction::DialogCard(i) => {
             let Some(dialog) = &state.dialog else {
                 return;
@@ -959,6 +1003,7 @@ fn confirm_dialog(state: &mut AppState) {
     let second = dialog.field(1);
     match kind {
         DialogKind::Help | DialogKind::Advanced => state.dialog = None,
+        DialogKind::AddQuestion { .. } => answer_question(state, Some(0)),
         DialogKind::Add | DialogKind::ApplyDelta => {
             if first.is_empty() {
                 state.err("경로를 넣거나 골라 주세요");

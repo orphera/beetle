@@ -3718,6 +3718,75 @@ pub fn draw_skipped_overlay(ui: &mut Ui, vp: &Viewport, rows: &[(String, String)
     }
 }
 
+/// A question about a song being added that is already in the library (B18):
+/// the title, info lines (`true` draws one highlighted: the clearly better
+/// key sound set), then one button per answer. It stays until answered: a
+/// click outside does nothing.
+pub fn draw_install_question(
+    ui: &mut Ui,
+    vp: &Viewport,
+    title: &str,
+    lines: &[(String, bool)],
+    items: &[&str],
+    selected: usize,
+) {
+    const ROW_H: f32 = 44.0;
+    const LINE_H: f32 = 24.0;
+    let sk = ui.skin;
+    let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
+    let (c, t) = (&mut ui.canvas, &mut ui.text);
+    let s = vp.scale;
+    let lines_h = LINE_H * lines.len() as f32;
+    let h = (104.0 + lines_h + ROW_H * items.len() as f32) * s;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 640.0 * s, h, s);
+    let inner = panel.inset(28.0 * s);
+    let title_style = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
+    let fitted = t.fit(c, title, inner.w, &title_style).into_owned();
+    t.draw(c, &fitted, inner.x, inner.y + 24.0 * s, &title_style);
+    t.draw(
+        c,
+        strings::MENU_KEYS(),
+        inner.x,
+        inner.y + 48.0 * s,
+        &TextStyle::new(12.0 * s).color(theme::MUTED),
+    );
+    for (i, (line, hot)) in lines.iter().enumerate() {
+        let st = TextStyle::new(13.0 * s).color(if *hot { theme::CYAN } else { theme::TEXT });
+        let line = t.fit(c, line, inner.w, &st).into_owned();
+        t.draw(
+            c,
+            &line,
+            inner.x,
+            inner.y + (78.0 + LINE_H * i as f32) * s,
+            &st,
+        );
+    }
+    let top = inner.y + (70.0 + lines_h) * s;
+    for (i, label) in items.iter().enumerate() {
+        let r = Rect::new(
+            inner.x,
+            top + i as f32 * ROW_H * s,
+            inner.w,
+            (ROW_H - 8.0) * s,
+        );
+        hs.add(r, HitId::MenuItem(i));
+        let hot = hs.hovered(r) || i == selected;
+        chip_frame(c, &sk, r, i == selected, hot, false, s);
+        let st = TextStyle::new(14.0 * s).bold().color(if hot {
+            theme::TEXT
+        } else {
+            theme::TEXT.with_alpha(200)
+        });
+        t.draw_in(
+            c,
+            label,
+            Rect::new(r.x + 14.0 * s, r.y, r.w - 28.0 * s, r.h),
+            Align::Left,
+            &st,
+        );
+    }
+}
+
 /// The song menu: the song's title, an optional warning line, then one
 /// button per row. `danger` marks the row drawn in the warning colour (the
 /// confirm page's delete). A click outside closes it (`Blocker`).

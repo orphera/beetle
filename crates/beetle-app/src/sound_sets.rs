@@ -99,6 +99,56 @@ pub struct Sets {
     pub all_whole: bool,
 }
 
+/// The library's places for judging songs being added (B18,
+/// `same_song::judge`), from the scan's places and the song list. Disc
+/// songs have no place and are left out.
+pub fn known(
+    songs: &[SongMetadata],
+    song_places: &SongPlaces,
+) -> Vec<bms_package_manager::same_song::KnownPlace> {
+    let by_id: HashMap<ChartId, &SongMetadata> = songs.iter().map(|s| (s.id, s)).collect();
+    let mut known = Vec::new();
+    for (&song, places) in song_places {
+        for place in places {
+            let (Some(at), Some(meta)) = (
+                place_at(&place.address),
+                place.charts.iter().find_map(|c| by_id.get(c)),
+            ) else {
+                continue;
+            };
+            let (chart_file, label, package) = match SongAddress::parse(&place.address) {
+                SongAddress::Folder { file } => {
+                    let name = file.rsplit(['/', '\\']).next().unwrap_or(file);
+                    (name.to_string(), parent(file).to_string(), None)
+                }
+                SongAddress::Package { bmsp, entry } => {
+                    // packages/<id>/<state>/package.bmsp
+                    let id = Path::new(bmsp)
+                        .parent()
+                        .and_then(Path::parent)
+                        .and_then(Path::file_name)
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let name = entry.rsplit('/').next().unwrap_or(entry);
+                    (name.to_string(), id.clone(), Some(id))
+                }
+                SongAddress::Disc { .. } => continue,
+            };
+            known.push(bms_package_manager::same_song::KnownPlace {
+                song: song as usize,
+                at,
+                chart_file,
+                charts: place.charts.clone(),
+                title: meta.title.clone(),
+                artist: meta.artist.clone(),
+                label,
+                package,
+            });
+        }
+    }
+    known
+}
+
 /// Where a chart address's files are. `None` for a disc song.
 fn place_at(address: &str) -> Option<PlaceAt> {
     match SongAddress::parse(address) {
