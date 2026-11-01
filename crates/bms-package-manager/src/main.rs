@@ -694,23 +694,9 @@ fn run_song_unlink(args: &[String]) {
     let chart = resolve_chart(&index, &args[0]);
     let mut manual = load_manual();
     let collection = songs::build(&index, &manual);
-    // Everything else in the chart's current song must stop being its song-mate.
-    let mates: Vec<ChartId> = collection
-        .songs
-        .iter()
-        .find(|s| {
-            s.charts
-                .iter()
-                .any(|&i| collection.records[i].chart == chart)
-        })
-        .map(|s| {
-            s.charts
-                .iter()
-                .map(|&i| collection.records[i].chart)
-                .filter(|&c| c != chart)
-                .collect()
-        })
-        .unwrap_or_default();
+    // The charts in other places of its song stop being its song-mates; the
+    // ones in its own folder stay (a folder is always one song).
+    let mates = songs::unlink_mates(&collection, chart).unwrap_or_else(|e| exit_with(&e));
 
     for group in &mut manual.links {
         group.retain(|id| *id != chart);
@@ -727,7 +713,7 @@ fn run_song_unlink(args: &[String]) {
     }
     manual.save().unwrap_or_else(|e| exit_with(&e));
     println!(
-        "Separated {} from {} other chart(s) in its song.",
+        "Separated {} from {} chart(s) in other folders of its song.",
         chart.short(),
         mates.len()
     );

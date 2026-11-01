@@ -2,16 +2,12 @@
 //! (`bpm songs`, `bpm song`, `bpm charts`).
 //!
 //! Grouping is computed from the index when it is needed, so the index stays a
-//! plain record of copies. Rules, applied in order (see the design notes in
-//! `docs/plans/2026-10-09-bpm-collection-manager-design.md`, §3 and §3.1):
-//!
-//! 0. Links the user made with `bpm song link` always join their charts.
-//! 1. Charts in one place (folder or package directory): when a title covers at least
-//!    half of them, that title is the anchor and the others join only on key-sound
-//!    overlap with it. Without such a title, only charts with the same title join.
-//! 2. Charts in different places join when title and artist match and their
-//!    key sounds overlap (`sounds_match`). Title and artist alone only make a
-//!    candidate, which is shown but not merged.
+//! plain record of copies. The rule is the one the game uses,
+//! `grouping::group` (docs/plans/2026-11-01-song-grouping-plan.md): every
+//! chart in one place (folder or package directory) is one song, and places
+//! join on the user's links, a shared chart, borrowed key sounds, or the same
+//! title and artist with overlapping key sounds. Title and artist alone only
+//! make a candidate, which is shown but not merged.
 
 use crate::collection::{Index, Location, LocationKind};
 use beetle_core::ChartId;
@@ -131,6 +127,13 @@ pub fn splits_file() -> PathBuf {
         .map_or_else(|_| PathBuf::from("collection-splits.txt"), PathBuf::from)
 }
 
+/// A copy's place: the same text for every copy in one directory of one
+/// source, as the game keys places.
+pub fn place_key(copy: &Location) -> String {
+    let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    format!("{:?}	{}	{dir}", copy.kind, copy.source)
+}
+
 /// One chart as the song view sees it: its copies plus the values the grouping uses.
 #[derive(Debug)]
 pub struct ChartRecord<'a> {
@@ -141,11 +144,6 @@ pub struct ChartRecord<'a> {
     pub mode: String,
     pub play_level: u32,
     pub copies: Vec<&'a Location>,
-    /// Lowercase `title`, the grouping key.
-    title_key: String,
-    /// Artist before any `obj` credit, lowercase; the grouping key.
-    artist_key: String,
-    stems: Vec<String>,
 }
 
 impl ChartRecord<'_> {
@@ -191,135 +189,54 @@ pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
             let title = title_base(&first.title);
             ChartRecord {
                 chart,
-                title_key: title.to_ascii_lowercase(),
                 artist: first.artist.clone(),
-                artist_key: artist_key(&first.artist),
                 title,
                 mode: first.mode.clone(),
                 play_level: first.play_level,
-                stems: first.key_stems.clone(),
                 copies,
             }
         })
         .collect();
-    let position: BTreeMap<ChartId, usize> = records
+    // The shared rule (`grouping::group`): every place is one song, and places
+    // join on links, shared charts, borrowed key sounds, or title and artist
+    // with overlapping key sounds.
+    let keys: Vec<Vec<String>> = records
         .iter()
-        .enumerate()
-        .map(|(i, r)| (r.chart, i))
+        .map(|r| r.copies.iter().map(|c| place_key(c)).collect())
         .collect();
-
-    let mut forbidden = HashSet::new();
-    for (a, b) in &manual.splits {
-        if let (Some(&x), Some(&y)) = (position.get(a), position.get(b)) {
-            forbidden.insert((x, y));
-            forbidden.insert((y, x));
-        }
-    }
+    let copies: Vec<crate::grouping::Copy> = records
+        .iter()
+        .zip(&keys)
+        .flat_map(|(r, keys)| {
+            r.copies
+                .iter()
+                .zip(keys)
+                .map(move |(c, place)| crate::grouping::Copy {
+                    place,
+                    chart: r.chart,
+                    title: &c.title,
+                    artist: &c.artist,
+                    key_stems: &c.key_stems,
+                    intact: c.is_intact(),
+                })
+        })
+        .collect();
+    let grouped = crate::grouping::group(&copies, &manual.links, &manual.splits);
+    // A chart is in one song, whichever of its places is asked.
+    let song_of = |i: usize| grouped.song_of(&keys[i][0]);
     let mut sets = DisjointSets::new(records.len());
-
-    // Rule 0: manual links.
-    for group in &manual.links {
-        let members: Vec<usize> = group
-            .iter()
-            .filter_map(|id| position.get(id).copied())
-            .collect();
-        for pair in members.windows(2) {
-            sets.try_union(pair[0], pair[1], &forbidden);
+    let mut first_of_song: BTreeMap<usize, usize> = BTreeMap::new();
+    for i in 0..records.len() {
+        if let Some(song) = song_of(i) {
+            let first = *first_of_song.entry(song).or_insert(i);
+            sets.union(first, i);
         }
     }
-
-    // Rule 1: charts in one place (folder or package directory).
-    //
-    // A place with a majority title (the title covers at least half of its
-    // charts) is one song: the anchor. Other charts there join only when their
-    // key sounds overlap the anchor's. Without a majority, charts join only with
-    // the same title.
-    let mut unmatched_pairs = Vec::new();
-    let mut by_place: BTreeMap<(LocationKind, &str, &str), BTreeSet<usize>> = BTreeMap::new();
-    for (i, record) in records.iter().enumerate() {
-        for copy in &record.copies {
-            let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-            by_place
-                .entry((copy.kind, copy.source.as_str(), dir))
-                .or_default()
-                .insert(i);
-        }
-    }
-    for charts in by_place.values() {
-        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for &i in charts {
-            if !records[i].title_key.is_empty() {
-                *counts.entry(records[i].title_key.as_str()).or_insert(0) += 1;
-            }
-        }
-        // Most common title; ties go to the smaller title.
-        let anchor = counts
-            .iter()
-            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
-            .map(|(key, count)| (*key, *count));
-        match anchor {
-            Some((key, count)) if count * 2 >= charts.len() => {
-                let members: Vec<usize> = charts
-                    .iter()
-                    .copied()
-                    .filter(|&i| records[i].title_key == key)
-                    .collect();
-                join_in_order(&mut sets, &members, &forbidden);
-                let anchor_stems: BTreeSet<&str> = members
-                    .iter()
-                    .flat_map(|&i| records[i].stems.iter().map(String::as_str))
-                    .collect();
-                for &i in charts {
-                    if records[i].title_key != key {
-                        if folder_sounds_match(&records[i].stems, &anchor_stems) {
-                            sets.try_union(i, members[0], &forbidden);
-                        } else {
-                            unmatched_pairs.push((i, members[0]));
-                        }
-                    }
-                }
-            }
-            _ => {
-                // No majority: a folder of several songs. Join the same title only.
-                let mut by_title: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-                for &i in charts {
-                    if !records[i].title_key.is_empty() {
-                        by_title
-                            .entry(records[i].title_key.as_str())
-                            .or_default()
-                            .push(i);
-                    }
-                }
-                for members in by_title.values() {
-                    join_in_order(&mut sets, members, &forbidden);
-                }
-            }
-        }
-    }
-    // Rule 2: same title and artist in different places, joined only by key sounds.
-    let mut by_name: BTreeMap<(&str, &str), Vec<usize>> = BTreeMap::new();
-    for (i, record) in records.iter().enumerate() {
-        if !record.title_key.is_empty() {
-            by_name
-                .entry((record.title_key.as_str(), record.artist_key.as_str()))
-                .or_default()
-                .push(i);
-        }
-    }
-    for members in by_name.values() {
-        for (k, &a) in members.iter().enumerate() {
-            for &b in &members[k + 1..] {
-                if sets.find(a) == sets.find(b) {
-                    continue;
-                }
-                if sounds_match(&records[a].stems, &records[b].stems) {
-                    sets.try_union(a, b, &forbidden);
-                } else {
-                    unmatched_pairs.push((a, b));
-                }
-            }
-        }
-    }
+    let unmatched_pairs: Vec<(usize, usize)> = grouped
+        .candidates
+        .iter()
+        .filter_map(|(a, b)| Some((*first_of_song.get(a)?, *first_of_song.get(b)?)))
+        .collect();
 
     let songs = assemble_songs(&records, &mut sets, &unmatched_pairs);
     Collection { records, songs }
@@ -408,6 +325,41 @@ fn assemble_songs(
     result
 }
 
+/// The charts `bpm song unlink <chart>` separates `chart` from: the others in
+/// its song that share no place with it. Charts in one place are always one
+/// song, so when every other chart shares a place with it, unlink is refused.
+pub fn unlink_mates(collection: &Collection, chart: ChartId) -> Result<Vec<ChartId>, String> {
+    let Some(record) = collection.records.iter().find(|r| r.chart == chart) else {
+        return Ok(Vec::new());
+    };
+    let own: BTreeSet<String> = record.copies.iter().map(|c| place_key(c)).collect();
+    let Some(song) = collection.songs.iter().find(|s| {
+        s.charts
+            .iter()
+            .any(|&i| collection.records[i].chart == chart)
+    }) else {
+        return Ok(Vec::new());
+    };
+    let others: Vec<&ChartRecord> = song
+        .charts
+        .iter()
+        .map(|&i| &collection.records[i])
+        .filter(|r| r.chart != chart)
+        .collect();
+    let apart: Vec<ChartId> = others
+        .iter()
+        .filter(|r| !r.copies.iter().any(|c| own.contains(&place_key(c))))
+        .map(|r| r.chart)
+        .collect();
+    if apart.is_empty() && !others.is_empty() {
+        return Err(format!(
+            "{} shares its folder with the rest of its song; charts in one folder are always one song",
+            chart.short()
+        ));
+    }
+    Ok(apart)
+}
+
 /// Whether two charts' key-sound sets say they are the same song's charts.
 ///
 /// Jaccard of at least 0.5 with an intersection of at least 8, or containment of
@@ -423,22 +375,6 @@ pub fn sounds_match(a: &[String], b: &[String]) -> bool {
     let union = a.len() + b.len() - inter;
     let small = a.len().min(b.len());
     (inter * 2 >= union && inter >= 8) || (inter * 10 >= small * 9 && small >= 16)
-}
-
-/// Joins each chart to the previous one in `members`, so a refused join never strands the rest.
-fn join_in_order(sets: &mut DisjointSets, members: &[usize], forbidden: &HashSet<(usize, usize)>) {
-    for pair in members.windows(2) {
-        sets.try_union(pair[0], pair[1], forbidden);
-    }
-}
-
-/// Whether a chart in a folder belongs to the folder's anchor song: at least 4 key
-/// sounds in common, covering at least 80% of the chart's own key sounds. Serial
-/// names count here: charts in one folder share the same files.
-fn folder_sounds_match(outlier: &[String], anchor: &BTreeSet<&str>) -> bool {
-    let own: BTreeSet<&str> = outlier.iter().map(String::as_str).collect();
-    let common = own.iter().filter(|name| anchor.contains(*name)).count();
-    common >= 4 && common * 10 >= own.len() * 8
 }
 
 pub(crate) fn mostly_serial(names: &[String]) -> bool {
@@ -513,19 +449,15 @@ pub fn artist_key(raw: &str) -> String {
         .join(" ")
 }
 
-/// Union-find over chart records that also remembers each set's members, so a
-/// join can be refused when it would put a forbidden pair in one song.
+/// Union-find over chart records.
 struct DisjointSets {
     parent: Vec<usize>,
-    /// Members of each root's set; empty for non-roots.
-    members: Vec<Vec<usize>>,
 }
 
 impl DisjointSets {
     fn new(n: usize) -> Self {
         Self {
             parent: (0..n).collect(),
-            members: (0..n).map(|i| vec![i]).collect(),
         }
     }
 
@@ -537,27 +469,11 @@ impl DisjointSets {
         x
     }
 
-    /// Joins the sets of `a` and `b` unless a forbidden pair would end up together.
-    /// Returns whether they are in one set afterwards.
-    fn try_union(&mut self, a: usize, b: usize, forbidden: &HashSet<(usize, usize)>) -> bool {
+    /// Joins the sets of `a` and `b`, keeping the smaller index as root.
+    fn union(&mut self, a: usize, b: usize) {
         let (ra, rb) = (self.find(a), self.find(b));
-        if ra == rb {
-            return true;
-        }
-        let clash = self.members[ra].iter().any(|&x| {
-            self.members[rb]
-                .iter()
-                .any(|&y| forbidden.contains(&(x, y)))
-        });
-        if clash {
-            return false;
-        }
-        // Keep the smaller index as root so results do not depend on call order.
         let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
-        let moved = std::mem::take(&mut self.members[hi]);
-        self.members[lo].extend(moved);
         self.parent[hi] = lo;
-        true
     }
 }
 
@@ -598,26 +514,6 @@ mod tests {
     fn serial_names_never_decide_a_match() {
         let serial: Vec<String> = (0..40).map(|i| format!("{i:02}")).collect();
         assert!(!sounds_match(&serial, &serial));
-    }
-
-    #[test]
-    fn disjoint_sets_join_and_find() {
-        let none = HashSet::new();
-        let mut sets = DisjointSets::new(4);
-        sets.try_union(3, 1, &none);
-        sets.try_union(1, 2, &none);
-        assert_eq!(sets.find(3), sets.find(2));
-        assert_ne!(sets.find(0), sets.find(3));
-    }
-
-    #[test]
-    fn a_join_that_would_pair_split_charts_is_refused() {
-        // 0 and 2 must stay apart. Joining 0-1 and then 1-2 would put them together.
-        let forbidden: HashSet<(usize, usize)> = [(0, 2), (2, 0)].into_iter().collect();
-        let mut sets = DisjointSets::new(3);
-        assert!(sets.try_union(0, 1, &forbidden));
-        assert!(!sets.try_union(1, 2, &forbidden));
-        assert_ne!(sets.find(0), sets.find(2));
     }
 }
 
@@ -670,26 +566,59 @@ mod place_rule_tests {
     }
 
     #[test]
-    fn a_variant_without_shared_sounds_stays_a_separate_song() {
+    fn a_folder_is_one_song_whatever_its_titles_and_sounds() {
         let shared = sound_names(12);
         let own = ["zz1", "zz2", "zz3", "zz4", "zz5", "zz6"];
         let mut locations: Vec<Location> = (0..4)
             .map(|n| copy(n, "Foo", &format!("f/{n}.bme"), &with_stems(&shared)))
             .collect();
         locations.push(copy(9, "Foo (sabun by X)", "f/v.bme", &own));
-        assert_eq!(song_count(locations), 2);
+        locations.push(copy(10, "Bar", "f/b.bme", &own));
+        assert_eq!(song_count(locations), 1);
     }
 
     #[test]
-    fn a_folder_without_a_majority_joins_only_the_same_title() {
+    fn folders_join_on_title_artist_and_sounds_only() {
         let shared = sound_names(12);
         let stems = with_stems(&shared);
-        let locations = vec![
-            copy(1, "Aa", "p/1.bme", &stems),
-            copy(2, "Bb", "p/2.bme", &stems),
-            copy(3, "Cc", "p/3.bme", &stems),
+        let joined = vec![
+            copy(1, "Foo", "a/1.bme", &stems),
+            copy(2, "Foo", "b/2.bme", &stems),
         ];
-        assert_eq!(song_count(locations), 3);
+        assert_eq!(song_count(joined), 1);
+        let apart = vec![
+            copy(1, "Foo", "a/1.bme", &stems),
+            copy(2, "Foo", "b/2.bme", &["zz1", "zz2"]),
+        ];
+        assert_eq!(song_count(apart), 2);
+    }
+
+    #[test]
+    fn unlink_separates_other_places_and_refuses_inside_one() {
+        let shared = sound_names(12);
+        let stems = with_stems(&shared);
+        let index = Index {
+            locations: vec![
+                copy(1, "Foo", "a/1.bme", &stems),
+                copy(2, "Foo", "a/2.bme", &stems),
+                copy(3, "Foo", "b/3.bme", &stems),
+            ],
+            ..Index::default()
+        };
+        let collection = build(&index, &Manual::default());
+        let id = |n: u8| ChartId::of_bytes(&[n]);
+        assert_eq!(unlink_mates(&collection, id(1)), Ok(vec![id(3)]));
+        let one_folder = Index {
+            locations: index.locations[..2].to_vec(),
+            ..Index::default()
+        };
+        assert!(unlink_mates(&build(&one_folder, &Manual::default()), id(1)).is_err());
+
+        let manual = Manual {
+            splits: vec![(id(1), id(3))],
+            ..Manual::default()
+        };
+        assert_eq!(build(&index, &manual).songs.len(), 2);
     }
 
     #[test]
