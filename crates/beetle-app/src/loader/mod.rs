@@ -294,8 +294,13 @@ pub fn read_chart_bytes(file_path: &str) -> Result<Vec<u8>, ChartLoadError> {
 /// `load_chart_and_audio_with_seed` with the library's fixed `#RANDOM` seed.
 #[cfg(test)]
 pub fn load_chart_and_audio(song: &SongMetadata) -> LoadedSongData {
-    load_chart_and_audio_with_seed(song, beetle_core::bms::DEFAULT_RANDOM_SEED, true)
-        .expect("test chart should load")
+    load_chart_and_audio_with_seed(
+        song,
+        beetle_core::bms::DEFAULT_RANDOM_SEED,
+        true,
+        &SoundPlaces::default(),
+    )
+    .expect("test chart should load")
 }
 
 /// Loads and parses the BMS chart file and pre-decodes the entire keysound samplebank and BGA images into memory.
@@ -305,6 +310,7 @@ pub fn load_chart_and_audio_with_seed(
     song: &SongMetadata,
     seed: u64,
     load_bga: bool,
+    places: &SoundPlaces,
 ) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
     let mut source = open_source(&song.file_path)?;
@@ -320,7 +326,7 @@ pub fn load_chart_and_audio_with_seed(
 
     let started = std::time::Instant::now();
     progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
-    let (soundbank, loaded) = source.sounds(&chart);
+    let (soundbank, loaded) = load_sounds(source.as_mut(), &chart, places);
     let sounds_ms = started.elapsed().as_millis();
 
     // BGA OFF: nothing to decode, so no image or video work.
@@ -357,6 +363,70 @@ pub fn load_chart_and_audio_with_seed(
     Ok((chart, timing, soundbank, bga_bank, video_sources))
 }
 
+/// The song's other places to take key sounds from (B17, P2), as the
+/// address of a chart in each.
+#[derive(Debug, Clone, Default)]
+pub struct SoundPlaces {
+    /// The key sound set the player chose, when it is not the chart's own place.
+    pub chosen: Option<String>,
+    /// The rest, in the order to look in.
+    pub others: Vec<String>,
+}
+
+/// Whether `loaded` of `total` declared sounds is a whole set (90%, P2).
+fn whole_set(loaded: usize, total: usize) -> bool {
+    total > 0 && loaded * 10 >= total * 9
+}
+
+/// The chart's key sounds. When the chart's own place has a whole set and the
+/// chosen set has one too, the chosen set plays and the own place fills its
+/// gaps. Otherwise (a difference chart, or a set the chart cannot use) the
+/// own place comes first. Sounds still missing are looked for in the chosen
+/// set, then the other places.
+fn load_sounds(
+    source: &mut dyn SongSource,
+    chart: &BmsChart,
+    places: &SoundPlaces,
+) -> (SampleBank, usize) {
+    let total = chart.header.wav_table.len();
+    let (mut bank, _) = source.sounds(chart);
+    let mut chosen = places.chosen.as_deref();
+    if let Some(address) = chosen.filter(|_| whole_set(bank.len(), total)) {
+        chosen = None;
+        if let Ok(mut set) = open_source(address) {
+            progress::begin(progress::Stage::Sounds, total);
+            let (mut swapped, _) = set.sounds(chart);
+            if whole_set(swapped.len(), total) {
+                swapped.fill_from(bank);
+                bank = swapped;
+            }
+        }
+    }
+    for address in chosen
+        .into_iter()
+        .chain(places.others.iter().map(String::as_str))
+    {
+        let missing: HashMap<_, _> = chart
+            .header
+            .wav_table
+            .iter()
+            .filter(|(id, _)| !bank.contains_key(**id))
+            .map(|(&id, name)| (id, name.clone()))
+            .collect();
+        if missing.is_empty() {
+            break;
+        }
+        let Ok(mut other) = open_source(address) else {
+            continue;
+        };
+        let mut part = BmsChart::default();
+        part.header.wav_table = missing;
+        bank.fill_from(other.sounds(&part).0);
+    }
+    let loaded = bank.len();
+    (bank, loaded)
+}
+
 /// Parses chart text. Text that is not a BMS chart, and a chart with no notes at
 /// all, have nothing to play, so both count as not a chart.
 fn parse_playable_chart(content: &str, seed: u64) -> Result<BmsChart, ChartLoadError> {
@@ -389,12 +459,18 @@ pub fn spawn_background_song_loader(
     song: &SongMetadata,
     seed: u64,
     load_bga: bool,
+    places: SoundPlaces,
 ) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let _ = tx.send(load_chart_and_audio_with_seed(&song_clone, seed, load_bga));
+        let _ = tx.send(load_chart_and_audio_with_seed(
+            &song_clone,
+            seed,
+            load_bga,
+            &places,
+        ));
     });
 
     rx
@@ -406,12 +482,17 @@ const BACKGROUND_WORKERS: usize = 2;
 /// Like `spawn_background_song_loader`, for a load that runs while a song
 /// plays (a course's next song): it decodes on fewer threads, so the play
 /// keeps its cores.
-pub fn spawn_quiet_song_loader(song: &SongMetadata, seed: u64, load_bga: bool) -> SongLoadReceiver {
+pub fn spawn_quiet_song_loader(
+    song: &SongMetadata,
+    seed: u64,
+    load_bga: bool,
+    places: SoundPlaces,
+) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
     thread::spawn(move || {
         let result = beetle_audio::with_decode_workers(BACKGROUND_WORKERS, || {
-            load_chart_and_audio_with_seed(&song_clone, seed, load_bga)
+            load_chart_and_audio_with_seed(&song_clone, seed, load_bga, &places)
         });
         let _ = tx.send(result);
     });
@@ -1337,7 +1418,7 @@ mod tests {
     fn missing_chart_is_an_error_not_an_empty_play() {
         let path = scratch_dir("missing").join("gone.bms");
         let meta = meta_at(&path.to_string_lossy());
-        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        let result = load_chart_and_audio_with_seed(&meta, 1, false, &SoundPlaces::default());
         assert_eq!(result.err(), Some(ChartLoadError::NotFound));
     }
 
@@ -1351,7 +1432,7 @@ mod tests {
         )
         .unwrap();
         let meta = meta_at(&path.to_string_lossy());
-        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        let result = load_chart_and_audio_with_seed(&meta, 1, false, &SoundPlaces::default());
         assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
     }
 
@@ -1360,7 +1441,7 @@ mod tests {
         let path = scratch_dir("empty").join("empty.bms");
         fs::write(&path, b"").unwrap();
         let meta = meta_at(&path.to_string_lossy());
-        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        let result = load_chart_and_audio_with_seed(&meta, 1, false, &SoundPlaces::default());
         assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
     }
 
@@ -1375,7 +1456,7 @@ mod tests {
         )
         .unwrap();
         let meta = meta_at(&path.to_string_lossy());
-        let result = load_chart_and_audio_with_seed(&meta, 1, false);
+        let result = load_chart_and_audio_with_seed(&meta, 1, false, &SoundPlaces::default());
         assert_eq!(result.err(), Some(ChartLoadError::NotAChart));
     }
 
@@ -1384,7 +1465,7 @@ mod tests {
         let path = scratch_dir("ok").join("ok.bms");
         fs::write(&path, valid_chart_text()).unwrap();
         let meta = meta_at(&path.to_string_lossy());
-        let loaded = load_chart_and_audio_with_seed(&meta, 1, false);
+        let loaded = load_chart_and_audio_with_seed(&meta, 1, false, &SoundPlaces::default());
         assert!(loaded.is_ok());
     }
 
@@ -1407,7 +1488,7 @@ mod tests {
     fn a_disc_that_is_not_there_is_not_found() {
         let meta = meta_at("disc:no-such-disc.iso::000/sp_normal");
         assert_eq!(
-            load_chart_and_audio_with_seed(&meta, 0, true).err(),
+            load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).err(),
             Some(ChartLoadError::NotFound)
         );
     }
@@ -1430,7 +1511,8 @@ mod tests {
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "ANISAKIS");
 
-        let (chart, _, bank, bga, videos) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        let (chart, _, bank, bga, videos) =
+            load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
         assert_eq!(bank.len(), chart.header.wav_table.len());
         let bgm = chart
             .header
@@ -1467,7 +1549,8 @@ mod tests {
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "BLI");
 
-        let (chart, _, bank, _, videos) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        let (chart, _, bank, _, videos) =
+            load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
         assert_eq!(bank.len(), chart.header.wav_table.len());
         let bgm = chart
             .header
@@ -1502,7 +1585,8 @@ mod tests {
         let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
         assert_eq!(meta.title, "ハードＰｆ");
 
-        let (chart, _, bank, _, _) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        let (chart, _, bank, _, _) =
+            load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
         use beetle_core::{Lane, PlayMode};
         assert_eq!(chart.header.declared_mode, Some(PlayMode::Keys9));
         for lane in [Lane::Key1, Lane::Key5, Lane::Key6, Lane::Key9] {
@@ -1539,7 +1623,8 @@ mod tests {
         let meta =
             SongMetadata::from_bytes(&beetle_core::disc_address(&image, key), bms.as_bytes())
                 .unwrap();
-        let (chart, ..) = load_chart_and_audio_with_seed(&meta, 0, true).unwrap();
+        let (chart, ..) =
+            load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
         let timing = beetle_core::timing::TimingModel::from_chart(&chart);
         let ms = |m: u32, f: f64| timing.beat_to_time_seconds(m, f) * 1000.0;
         let mut want: Vec<f64> = ply
@@ -1568,5 +1653,70 @@ mod tests {
         for (w, g) in want.iter().zip(&got) {
             assert!((w - g).abs() < 15.0, "{w} ms plays at {g} ms");
         }
+    }
+
+    /// A chart whose place has a whole set plays the chosen set; a difference
+    /// chart keeps its own sounds and takes the rest from the chosen set.
+    #[test]
+    fn the_chosen_key_sound_set_plays() {
+        let root = std::env::temp_dir().join(format!("beetle-swap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let wav = |rate: u32| {
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut cur = std::io::Cursor::new(Vec::new());
+            {
+                let mut w = hound::WavWriter::new(&mut cur, spec).unwrap();
+                for s in [1000i16, 2000, 3000] {
+                    w.write_sample(s).unwrap();
+                }
+                w.finalize().unwrap();
+            }
+            cur.into_inner()
+        };
+        let place = |dir: &str, chart: &str, files: &[(&str, u32)]| {
+            let d = root.join(dir);
+            fs::create_dir_all(&d).unwrap();
+            for (name, rate) in files {
+                fs::write(d.join(name), wav(*rate)).unwrap();
+            }
+            let file = d.join("x.bms");
+            fs::write(&file, chart).unwrap();
+            SongMetadata::from_bytes(&file.to_string_lossy(), chart.as_bytes()).unwrap()
+        };
+        let both = "#TITLE t
+#WAV01 a.wav
+#WAV02 b.wav
+#00111:0102
+";
+        let own = place("own", both, &[("a.wav", 44100), ("b.wav", 44100)]);
+        let chosen = place("chosen", both, &[("a.wav", 22050), ("b.wav", 22050)]);
+        let diff = place(
+            "diff",
+            "#TITLE t
+#WAV01 a.wav
+#WAV02 d.wav
+#00111:0102
+",
+            &[("d.wav", 44100)],
+        );
+        let places = SoundPlaces {
+            chosen: Some(chosen.file_path.clone()),
+            others: vec![own.file_path.clone()],
+        };
+        let rate = |song: &SongMetadata, id: u16| {
+            let (_, _, bank, _, _) =
+                load_chart_and_audio_with_seed(song, 0, false, &places).unwrap();
+            bank.get(beetle_core::WavId(id)).unwrap().sample_rate
+        };
+        assert_eq!(rate(&own, 1), 22050);
+        assert_eq!(rate(&own, 2), 22050);
+        assert_eq!(rate(&diff, 1), 22050);
+        assert_eq!(rate(&diff, 2), 44100);
+        let _ = fs::remove_dir_all(&root);
     }
 }

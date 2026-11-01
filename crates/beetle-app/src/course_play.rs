@@ -332,7 +332,7 @@ pub fn starting_score(state: &AppState, total_notes: u32, total: f64) -> Option<
 /// now, on few threads, so the next stage needs little or no loading.
 pub fn preload_next(state: &mut AppState) {
     let load_bga = state.bga_visible();
-    let Some(course) = &mut state.course else {
+    let Some(course) = &state.course else {
         return;
     };
     let next = course.run.stage() + 1;
@@ -342,10 +342,10 @@ pub fn preload_next(state: &mut AppState) {
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(42, |d| d.as_nanos() as u64);
-    course.preload = Some((
-        next,
-        crate::loader::spawn_quiet_song_loader(song, seed, load_bga),
-    ));
+    let rx = crate::loader::spawn_quiet_song_loader(song, seed, load_bga, state.sound_plan(song));
+    if let Some(course) = &mut state.course {
+        course.preload = Some((next, rx));
+    }
 }
 
 /// The load already started for the song about to load, if it is the

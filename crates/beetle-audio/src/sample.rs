@@ -143,6 +143,13 @@ impl SampleBank {
         self.samples.contains_key(&id)
     }
 
+    /// Adds the sounds of `other` that this bank does not have yet.
+    pub fn fill_from(&mut self, other: SampleBank) {
+        for (id, pcm) in other.samples {
+            self.samples.entry(id).or_insert(pcm);
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.samples.len()
     }

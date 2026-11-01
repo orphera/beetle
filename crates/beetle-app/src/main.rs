@@ -29,6 +29,7 @@ mod shell;
 mod single_instance;
 mod song_folders;
 mod song_menu;
+mod sound_sets;
 mod state;
 mod tables;
 mod thumbs;
@@ -249,6 +250,7 @@ impl ApplicationHandler for BeetleApp {
             screen: AppScreen::Boot,
             songs: Vec::new(),
             song_groups: Default::default(),
+            sound_choices: sound_sets::Choices::load(),
             play_style: Default::default(),
             content_source: Default::default(),
             has_disc_songs: false,

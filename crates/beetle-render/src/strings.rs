@@ -921,6 +921,10 @@ table! {
         ko "버전 고르기",
         en "Choose Version",
         ja "バージョンを選ぶ";
+    pub MENU_SOUND_SETS =
+        ko "키음 세트 고르기",
+        en "Choose Key Sounds",
+        ja "キー音セットを選ぶ";
     pub MENU_DELETE =
         ko "삭제",
         en "Delete",
@@ -945,6 +949,11 @@ table! {
     /// `{}` is the version label; marks the version that plays.
     pub MENU_VERSION_ACTIVE =
         ko "{} - 지금 쓰는 버전",
+        en "{} - in use",
+        ja "{} - 使用中";
+    /// `{}` is the key sound set's label; marks the set that plays.
+    pub MENU_SOUND_SET_ACTIVE =
+        ko "{} - 지금 쓰는 세트",
         en "{} - in use",
         ja "{} - 使用中";
     pub MENU_KEYS =
@@ -972,6 +981,15 @@ table! {
         ko "곡을 바꾸지 못했어요. 곡을 재생 중이면 잠시 뒤 다시 해 보세요",
         en "Could not change the song. If it is playing, try again in a moment",
         ja "曲を変更できませんでした。再生中の場合は少し待ってから再試行してください";
+    /// `{}` is the key sound set's label.
+    pub TOAST_SOUND_SET =
+        ko "이제 {} 키음으로 플레이해요",
+        en "Now playing with {} key sounds",
+        ja "これから{}のキー音でプレイします";
+    pub TOAST_SOUND_SET_SAVE_FAILED =
+        ko "키음 세트 선택(sound_sets.dat)을 저장하지 못했어요",
+        en "Could not save the key sound choice (sound_sets.dat)",
+        ja "キー音セットの選択（sound_sets.dat）を保存できませんでした";
     pub TOAST_HIDDEN_SAVE_FAILED =
         ko "숨긴 곡 목록(hidden.dat)을 저장하지 못했어요",
         en "Could not save the hidden list (hidden.dat)",

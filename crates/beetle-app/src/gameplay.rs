@@ -147,8 +147,9 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
     if state.capture.is_some() {
         crate::devtools::log(&format!("load preloaded={}", preloaded.is_some()));
     }
-    let rx =
-        preloaded.unwrap_or_else(|| spawn_background_song_loader(song, seed, state.bga_visible()));
+    let rx = preloaded.unwrap_or_else(|| {
+        spawn_background_song_loader(song, seed, state.bga_visible(), state.sound_plan(song))
+    });
     state.loading_receiver = Some(rx);
     state.window.request_redraw();
 }

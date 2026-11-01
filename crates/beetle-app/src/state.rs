@@ -74,6 +74,8 @@ pub struct AppState {
     pub songs: Vec<SongMetadata>,
     /// Which charts are one song, from the scan (`ScannedLibrary::groups`).
     pub song_groups: SongGroups,
+    /// The key sound set chosen for each song (`sound_sets.dat`).
+    pub sound_choices: crate::sound_sets::Choices,
     /// The folder the list shows (see `folders.rs`).
     pub folder_path: FolderPath,
     /// Free play or courses, picked on the title (B9).
@@ -772,6 +774,11 @@ impl AppState {
 
     /// Rebuilds the folder tree and the rows of the current folder. A saved
     /// folder that no longer exists falls back to its nearest existing parent.
+    /// Where `song`'s key sounds come from besides its own place.
+    pub fn sound_plan(&self, song: &SongMetadata) -> crate::loader::SoundPlaces {
+        crate::sound_sets::plan(&self.songs, &self.song_groups, &self.sound_choices, song)
+    }
+
     pub fn recompute_entries(&mut self) {
         let ln_option = self.ln_option();
         self.present_modes = folders::present_modes(&self.songs);
