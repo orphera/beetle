@@ -12,7 +12,8 @@ use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{
-    is_side_track, ColorRgba, FieldPosition, JudgePosition, SkinConfig, JUDGE_WORD_BASELINE_720,
+    is_side_track, px_per_sec_to_green_ms, ColorRgba, FieldPosition, JudgePosition, SkinConfig,
+    JUDGE_WORD_BASELINE_720,
 };
 use crate::strings;
 use crate::text::{Align, Fx, TextEngine, TextStyle};
@@ -137,11 +138,15 @@ pub fn draw_gameplay(ui: &mut Ui, f: &PlayFrame) {
     // With flashes reduced the danger stays red but stops blinking.
     let danger = is_danger(f.score) && (f.reduce_flashes || (f.audio_time * 6.0).sin() > 0.0);
 
-    let hud = hud_layout(f.viewport, skin_field, l.effective_position(), s);
+    let mut hud = hud_layout(f.viewport, skin_field, l.effective_position(), s);
+    // The gauge ends a little above the judge line, inside the rail.
+    hud.gauge.h = (l.judge_line_y - 18.0 * s - hud.gauge.y).max(hud.gauge.w);
+    let rail = Rect::new(hud.rail.x, lane_field.y, hud.rail.w, lane_field.h);
 
     backdrop(c, &sk, f, lite);
-    playfield(c, &sk, f, lane_field, danger, s);
-    gauge(c, t, &sk, f, hud.gauge, danger, s);
+    playfield(c, &sk, f, lane_field, rail, danger, s);
+    gauge(c, &sk, f, hud.gauge, danger, s);
+    gear_strip(c, t, f, lane_field, danger, s);
     ready(c, t, &sk, f, lane_field, s);
     if let Some(loading) = &f.loading {
         lane_loading(c, t, &sk, loading, lane_field, cue_top(f, s), s);
@@ -276,6 +281,8 @@ fn is_danger(score: &ScoreTracker) -> bool {
 /// key hint, along the bottom of whichever column holds `song`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Hud {
+    /// The gear rail beside the field that holds the gauge.
+    pub rail: Rect,
     pub gauge: Rect,
     pub song: Rect,
     pub score: Rect,
@@ -287,6 +294,10 @@ pub(crate) struct Hud {
 
 /// Widest a HUD column gets, in 720p pixels: slim, so the field stays the focus.
 const HUD_COLUMN_MAX: f32 = 300.0;
+/// Width of the gear rail that holds the gauge (720p pixels).
+const GEAR_RAIL: f32 = 34.0;
+/// Height of the gear status strip along the field bottom (720p pixels).
+const GEAR_STRIP: f32 = 22.0;
 /// Space between the playfield (or its gauge) and a HUD column (720p pixels).
 const HUD_GAP: f32 = 48.0;
 /// Margin between the viewport edge and a HUD column (720p pixels).
@@ -302,11 +313,20 @@ const HUD_STACK_GAP: f32 = 14.0;
 /// viewport, so letterboxed and pillarboxed windows get the same design).
 /// `position` is the playfield's effective position (Double Play is `Left`).
 pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s: f32) -> Hud {
-    let gauge_x = match position {
-        FieldPosition::Right => field.x - 34.0 * s,
-        _ => field.right() + 16.0 * s,
+    // The gear rail holding the gauge: on the field's right, or its left
+    // when the field sits at the right edge.
+    let rail_w = GEAR_RAIL * s;
+    let rail_x = match position {
+        FieldPosition::Right => field.x - rail_w,
+        _ => field.right(),
     };
-    let gauge = Rect::new(gauge_x, field.y + 18.0 * s, 18.0 * s, field.h - 52.0 * s);
+    let rail = Rect::new(rail_x, field.y, rail_w, field.h);
+    let gauge = Rect::new(
+        rail_x + 6.0 * s,
+        field.y + 18.0 * s,
+        rail_w - 12.0 * s,
+        field.h - 52.0 * s,
+    );
 
     let max_w = HUD_COLUMN_MAX * s;
     let left_edge = vp.x + HUD_EDGE * s;
@@ -330,6 +350,7 @@ pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s:
             let art_y = field.y + song_h + 2.0 * HUD_STACK_GAP * s;
             let art_bottom = field.bottom() - hint_h - 2.0 * HUD_STACK_GAP * s;
             Hud {
+                rail,
                 gauge,
                 song: Rect::new(left_x, field.y, left_w, song_h),
                 hint: Rect::new(left_x, field.bottom() - hint_h, left_w, hint_h),
@@ -346,6 +367,7 @@ pub(crate) fn hud_layout(vp: &Viewport, field: Rect, position: FieldPosition, s:
             let score_y = field.y + song_h + HUD_STACK_GAP * s;
             let score_bottom = field.bottom() - hint_h - HUD_STACK_GAP * s;
             Hud {
+                rail,
                 gauge,
                 song: Rect::new(x, field.y, w, song_h),
                 score: Rect::new(x, score_y, w, (score_bottom - score_y).max(0.0)),
@@ -431,7 +453,15 @@ fn backdrop(c: &mut Canvas, sk: &Skin, f: &PlayFrame, lite: bool) {
     c.sprite(sk.vignette, full, theme::WHITE.with_alpha(200));
 }
 
-fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool, s: f32) {
+fn playfield(
+    c: &mut Canvas,
+    sk: &Skin,
+    f: &PlayFrame,
+    field: Rect,
+    rail: Rect,
+    danger: bool,
+    s: f32,
+) {
     let l = f.layout;
     let judge_y = l.judge_line_y;
     let hair = s.max(1.0);
@@ -474,12 +504,25 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
             c.fill_rect(Rect::new(x, field.y, hair, judge_y - field.y), sep);
         }
     }
+    // Gear frame: the gauge rail on one side, a thin rail on the other, each
+    // with an edge line next to the lanes and on the outside.
     let edge = if danger { theme::RED } else { theme::LINE };
-    c.fill_rect(
-        Rect::new(field.x - 2.0 * hair, field.y, 2.0 * hair, field.h),
-        edge,
-    );
-    c.fill_rect(Rect::new(field.right(), field.y, 2.0 * hair, field.h), edge);
+    let thin = 6.0 * s;
+    let other = if rail.x < field.x {
+        Rect::new(field.right(), field.y, thin, field.h)
+    } else {
+        Rect::new(field.x - thin, field.y, thin, field.h)
+    };
+    c.fill_rect(rail, theme::SURF2);
+    c.fill_rect(other, theme::SURF3);
+    for x in [
+        field.x - 2.0 * hair,
+        field.right(),
+        rail.x.min(other.x),
+        rail.right().max(other.right()) - 2.0 * hair,
+    ] {
+        c.fill_rect(Rect::new(x, field.y, 2.0 * hair, field.h), edge);
+    }
     if let Some(gap) = dp_gap {
         c.fill_rect(Rect::new(gap.x, gap.y, 2.0 * hair, gap.h), edge);
         c.fill_rect(
@@ -690,13 +733,13 @@ fn playfield(c: &mut Canvas, sk: &Skin, f: &PlayFrame, field: Rect, danger: bool
     );
     c.set_additive(false);
 
-    // Key indicators below the judge line.
+    // Key indicators below the judge line, above the status strip.
     let key_top = judge_y + 8.0 * s;
-    let key_h = (field.bottom() - key_top - 8.0 * s).max(6.0 * s);
+    let key_h = (gear_strip_rect(field, s).y - key_top - 6.0 * s).max(6.0 * s);
     c.fill_rect_vgradient(
         Rect::from_ltrb(field.x, judge_y + 3.0 * hair, field.right(), field.bottom()),
+        theme::SURF2,
         theme::SURF1,
-        theme::BG,
     );
     // 8K side tracks: a wide strip under the six keys.
     let side_h = if l.eight_k_triggers() {
@@ -929,27 +972,10 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-fn gauge(
-    c: &mut Canvas,
-    t: &mut TextEngine,
-    sk: &Skin,
-    f: &PlayFrame,
-    r: Rect,
-    danger: bool,
-    s: f32,
-) {
+fn gauge(c: &mut Canvas, sk: &Skin, f: &PlayFrame, r: Rect, danger: bool, s: f32) {
     let score = f.score;
     c.nine(&sk.panel_sm, r, theme::SURF2);
-    let col = match score.gauge_type {
-        GaugeType::Easy | GaugeType::Groove if score.gauge >= 80.0 => theme::CYAN,
-        GaugeType::Easy => theme::GREEN,
-        GaugeType::Groove => theme::BLUE,
-        GaugeType::Hard if danger || score.gauge < 30.0 => theme::RED,
-        GaugeType::Hard => theme::ORANGE,
-        GaugeType::Hazard => theme::MAGENTA,
-        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass if danger => theme::RED,
-        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => theme::GOLD,
-    };
+    let col = gauge_color(score, danger);
     let segs = 50;
     let inner = r.inset(3.0 * s);
     let seg_h = inner.h / segs as f32;
@@ -975,20 +1001,62 @@ fn gauge(
             theme::GOLD,
         );
     }
-    let pct = format!("{:.0}%", score.gauge.floor());
+}
+
+fn gauge_color(score: &ScoreTracker, danger: bool) -> ColorRgba {
+    match score.gauge_type {
+        GaugeType::Easy | GaugeType::Groove if score.gauge >= 80.0 => theme::CYAN,
+        GaugeType::Easy => theme::GREEN,
+        GaugeType::Groove => theme::BLUE,
+        GaugeType::Hard if danger || score.gauge < 30.0 => theme::RED,
+        GaugeType::Hard => theme::ORANGE,
+        GaugeType::Hazard => theme::MAGENTA,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass if danger => theme::RED,
+        GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => theme::GOLD,
+    }
+}
+
+/// The status strip along the bottom of the gear.
+fn gear_strip_rect(field: Rect, s: f32) -> Rect {
+    let h = GEAR_STRIP * s;
+    Rect::new(field.x, field.bottom() - h, field.w, h)
+}
+
+/// Gear status strip: green number and BPM now on the left, gauge on the right.
+fn gear_strip(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    f: &PlayFrame,
+    field: Rect,
+    danger: bool,
+    s: f32,
+) {
+    let l = f.layout;
+    let r = gear_strip_rect(field, s);
+    c.fill_rect(r, theme::BG);
+    c.fill_rect(Rect::new(r.x, r.y, r.w, s.max(1.0)), theme::LINE);
+    let bpm = f.timing.bpm_at_time(f.audio_time.max(0.0));
+    let px_per_sec = l.hi_speed * (bpm / f.scroll_bpm.max(1.0)) as f32;
+    let green = px_per_sec_to_green_ms(px_per_sec, l.lane_cover_ratio).round();
+    let st = TextStyle::new(12.0 * s).bold();
+    let text = r.inset_by(crate::canvas::Insets::new(8.0 * s, 0.0, 8.0 * s, 0.0));
     t.draw_in(
         c,
-        &pct,
-        Rect::new(
-            r.x - 12.0 * s,
-            r.bottom() + 6.0 * s,
-            r.w + 24.0 * s,
-            20.0 * s,
-        ),
-        Align::Center,
-        &TextStyle::new(13.0 * s)
-            .bold()
-            .color(if danger { theme::RED } else { theme::TEXT }),
+        &format!("GN {green:.0}   BPM {bpm:.0}"),
+        text,
+        Align::Left,
+        &st.clone().color(theme::GREEN),
+    );
+    t.draw_in(
+        c,
+        &format!("{:.0}%", f.score.gauge.floor()),
+        text,
+        Align::Right,
+        &st.color(if danger {
+            theme::RED
+        } else {
+            gauge_color(f.score, false)
+        }),
     );
 }
 
