@@ -3081,13 +3081,15 @@ pub struct OptionsPreview {
 }
 
 /// Width of the lane preview column on the panel's right (720p pixels).
-const PREVIEW_W: f32 = 150.0;
+const PREVIEW_W: f32 = 72.0;
 /// Seconds between two preview notes.
 const PREVIEW_STEP: f64 = 0.125;
-/// Lane of each preview note, cycling: a stair with a scratch now and then.
-const PREVIEW_LANES: [usize; 8] = [1, 2, 3, 4, 5, 6, 7, 0];
+/// Lanes in the preview: only enough to read the speed, not the whole field.
+const PREVIEW_LANE_COUNT: usize = 3;
+/// Lane of each preview note, cycling: a stair up and back.
+const PREVIEW_LANES: [usize; 4] = [0, 1, 2, 1];
 
-/// A small 7+1 lane over `r` with notes scrolling at the green number and the
+/// A few lanes over `r` with notes scrolling at the green number and the
 /// lane cover drawn at its ratio, like the play field (`skin::visible_lane_720`).
 fn options_preview(
     c: &mut Canvas,
@@ -3099,22 +3101,16 @@ fn options_preview(
 ) {
     c.fill_rect(r, theme::PLAYFIELD);
     let hair = s.max(1.0);
-    let lanes = 8;
-    let scratch_w = r.w * 0.2;
-    let key_w = (r.w - scratch_w) / 7.0;
-    let lane_rect = |i: usize| {
-        if i == 0 {
-            (r.x, scratch_w)
+    let key_w = r.w / PREVIEW_LANE_COUNT as f32;
+    let lane_rect = |i: usize| (r.x + i as f32 * key_w, key_w);
+    let lane_col = |i: usize| {
+        if i % 2 == 1 {
+            theme::NOTE_BLUE
         } else {
-            (r.x + scratch_w + (i - 1) as f32 * key_w, key_w)
+            theme::NOTE_WHITE
         }
     };
-    let lane_col = |i: usize| match i {
-        0 => theme::NOTE_SCRATCH,
-        i if i % 2 == 0 => theme::NOTE_BLUE,
-        _ => theme::NOTE_WHITE,
-    };
-    for i in 1..lanes {
+    for i in 1..PREVIEW_LANE_COUNT {
         let (x, _) = lane_rect(i);
         c.fill_rect(Rect::new(x, r.y, hair, r.h), theme::LINE.with_alpha(150));
     }
