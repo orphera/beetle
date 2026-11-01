@@ -470,7 +470,7 @@ pub fn load_hidden() -> HashSet<ChartId> {
 }
 
 fn save_hidden(hidden: &HashSet<ChartId>) -> std::io::Result<()> {
-    fs::write(hidden_file(), serialize_hidden(hidden))
+    beetle_core::write_atomic(hidden_file(), serialize_hidden(hidden))
 }
 
 /// Drops the hidden charts from a freshly read library. Returns how many

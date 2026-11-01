@@ -87,7 +87,7 @@
 - [ ] **B12** ASIO 지원 (cpal `asio` 기능은 ASIO SDK가 필요 — 빌드·배포 방법부터 검토)
 
 ### 저장·패키지
-- [ ] **B14** 저장 방식 검토 (B10 기획 정리 뒤에): 평문 저장(`scores.dat`, `courses.dat`, `library.dat`, `songs.cache` 등)은 깨지기 쉽고 오히려 느림. 기획에서 필요한 질의(기록 통계 등)가 정해지면 고름. 후보: SQLite(질의 자유, 크기 큼, 지금 의존성 정책상 금지라 도입 시 ADR 필요) / redb(순수 Rust 키-값, ACID) / 데이터별로 나누기 — 기록은 추가 전용 로그+스냅샷, 곡 캐시는 이진 형식+원자적 쓰기, 설정은 텍스트+원자적 쓰기. 첫 단계는 지금 파일들의 크기·쓰기 방식·깨진 사례 조사
+- [x] **B14** 저장 방식 검토 (B10 기획 정리 뒤에): 평문 저장(`scores.dat`, `courses.dat`, `library.dat`, `songs.cache` 등)은 깨지기 쉽고 오히려 느림. 기획에서 필요한 질의(기록 통계 등)가 정해지면 고름. 후보: SQLite(질의 자유, 크기 큼, 지금 의존성 정책상 금지라 도입 시 ADR 필요) / redb(순수 Rust 키-값, ACID) / 데이터별로 나누기 — 기록은 추가 전용 로그+스냅샷, 곡 캐시는 이진 형식+원자적 쓰기, 설정은 텍스트+원자적 쓰기. 첫 단계는 지금 파일들의 크기·쓰기 방식·깨진 사례 조사 — 데이터별로 나누기로 정함. 캐시(`songs.cache`, `songs.sources`)·리플레이·기록(`scores.dat`, `courses.dat`, `hidden.dat`)은 MessagePack(크레이트 없이 `beetle-core`의 `msgpack.rs`, 파일마다 `format`·`version` 맵), 설정(`config.dat`, `library.dat`)은 텍스트. 저장은 모두 `write_atomic`(임시 파일 → 이름 바꾸기). 옛 텍스트 기록·리플레이는 계속 읽고 다음 저장에서 바뀜. 기록의 추가 전용 로그는 보류: 지금은 수십 KB라 통째로 다시 써도 되고, 기록 통계 같은 질의가 정해지면 다시 봄
 - [ ] **B15** libarchive 도입 검토: 지원 압축 형식(rar/7z 등) 대비 바이너리 크기·정적 링크 가능 여부(원칙 1·2)
 
 ### BPM (bms-package-manager / bpm-gui)

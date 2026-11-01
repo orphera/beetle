@@ -383,7 +383,7 @@ impl AppConfig {
     /// Saves configuration to `config.dat`.
     pub fn save(&self) {
         let content = self.serialize_str();
-        let _ = fs::write(CONFIG_FILE, content);
+        let _ = beetle_core::write_atomic(CONFIG_FILE, content);
     }
 
     fn parse_str(data: &str) -> Self {

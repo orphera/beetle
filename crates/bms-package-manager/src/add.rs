@@ -380,7 +380,7 @@ fn link_folder(
         report.skip(name, SkipReason::AlreadyLinked);
         return Ok(());
     }
-    fs::write(library, list.serialize()).map_err(AddError::Library)?;
+    beetle_core::write_atomic(library, list.serialize()).map_err(AddError::Library)?;
     report.linked.push(dir);
     Ok(())
 }

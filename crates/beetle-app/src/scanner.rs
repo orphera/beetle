@@ -218,7 +218,7 @@ fn serialize_source_cache(cache: &SourceCache) -> Vec<u8> {
 
 fn write_source_cache(cache: &SourceCache) {
     let bytes = serialize_source_cache(cache);
-    if let Err(error) = fs::write(source_cache_path(), bytes) {
+    if let Err(error) = beetle_core::write_atomic(source_cache_path(), bytes) {
         eprintln!("[library] failed to write source cache: {error}");
     }
 }
@@ -893,9 +893,9 @@ pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
     write_source_cache(&source_cache);
     if !songs.is_empty() {
         let cache_data = serialize_song_cache(&songs);
-        let _ = fs::write(SONGS_CACHE_FILE, &cache_data);
+        let _ = beetle_core::write_atomic(SONGS_CACHE_FILE, &cache_data);
         if dir_path.is_dir() {
-            let _ = fs::write(dir_path.join(SONGS_CACHE_FILE), &cache_data);
+            let _ = beetle_core::write_atomic(dir_path.join(SONGS_CACHE_FILE), &cache_data);
         }
     }
     songs

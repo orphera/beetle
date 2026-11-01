@@ -161,10 +161,7 @@ pub fn load_records() -> CourseRecords {
 
 /// Through a temporary file, as `scores.dat` is saved.
 fn save_records(records: &CourseRecords) {
-    let temp = format!("{RECORDS_FILE}.tmp");
-    if std::fs::write(&temp, records.to_bytes()).is_ok() {
-        let _ = std::fs::rename(&temp, RECORDS_FILE);
-    }
+    let _ = beetle_core::write_atomic(RECORDS_FILE, records.to_bytes());
 }
 
 /// The id a course's records are kept under.

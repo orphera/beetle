@@ -987,10 +987,7 @@ pub fn save_scores(store: &ScoreStore) {
             let _ = fs::write(backup, old);
         }
     }
-    let temp = format!("{SCORES_FILE}.tmp");
-    if fs::write(&temp, store.to_bytes()).is_ok() {
-        let _ = fs::rename(&temp, SCORES_FILE);
-    }
+    let _ = beetle_core::write_atomic(SCORES_FILE, store.to_bytes());
 }
 
 /// Moves records and replays made under the old chart keys over to chart ids,

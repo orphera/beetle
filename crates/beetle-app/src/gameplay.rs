@@ -571,7 +571,7 @@ fn record_play(state: &mut AppState) {
                 rep.set_score(ex_score, max_combo);
                 rep.ln = state.active_ln;
                 let _ = fs::create_dir_all(REPLAYS_DIR);
-                let _ = fs::write(&rep_path, rep.to_bytes());
+                let _ = beetle_core::write_atomic(&rep_path, rep.to_bytes());
             }
         }
     } else {

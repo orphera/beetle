@@ -18,7 +18,7 @@ pub fn load_library() -> LibraryPaths {
 }
 
 pub fn save_library(list: &LibraryPaths) -> std::io::Result<()> {
-    fs::write(library_file(), list.serialize())
+    beetle_core::write_atomic(library_file(), list.serialize())
 }
 
 /// Absolute form of an existing folder, as the collection stores it (`beetle_core::display_path`).

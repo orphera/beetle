@@ -4,6 +4,7 @@
 //! note lane modifiers, song library indexing, and flat-file score management.
 //! Designed with zero GUI/Audio dependencies for maximum portability and fast testing.
 
+mod atomic_file;
 pub mod bms;
 pub mod course;
 mod escape;
@@ -24,6 +25,7 @@ pub mod table;
 pub mod timing;
 pub mod title;
 
+pub use atomic_file::write_atomic;
 pub use bms::{
     decode_base36, decode_bms_text, encode_base36, parse_bms, parse_bms_with_seed, BgaChannel,
     BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType,
