@@ -24,6 +24,7 @@ fn print_usage() {
     println!("  bpm songs [filters]                    List songs (charts grouped by title, artist and key sounds)");
     println!("  bpm song <id|title>                    Show one song: its charts, copies, the copy that loads, candidates");
     println!("  bpm song link|unlink <chart>...        Group charts by hand, or split a chart from its song for good");
+    println!("  bpm song clean [--yes]                 List (and with --yes remove) clearly worse key sound sets");
     println!("  bpm charts [filters]                   List charts with their song, mode, level and copies");
     println!("  bpm install <package.bmsp_or_id> [--with-bga] Install local package or download from remote registry");
     println!("  bpm update [delta.bmdp]                Update remote registry indexes (or apply a delta package)");
@@ -541,7 +542,10 @@ fn run_song(args: &[String]) {
     match args.first().map(String::as_str) {
         Some("link") => return run_song_link(&args[1..]),
         Some("unlink") => return run_song_unlink(&args[1..]),
-        None => exit_with(&"usage: bpm song <song id or title> | link <chart>... | unlink <chart>"),
+        Some("clean") => return run_song_clean(&args[1..]),
+        None => exit_with(
+            &"usage: bpm song <song id or title> | link <chart>... | unlink <chart> | clean [--yes]",
+        ),
         _ => {}
     }
     let query = args.join(" ");
@@ -717,6 +721,192 @@ fn run_song_unlink(args: &[String]) {
         chart.short(),
         mates.len()
     );
+}
+
+/// `bpm song clean [--yes]`: lists the key sound sets that are clearly worse
+/// than another set of the same song (`key_sets`), and with `--yes` removes
+/// them. A folder moves into `.bpm-trash` beside it; a package is
+/// uninstalled, only when all of its places go. A place goes only when every
+/// chart there has a copy that stays, and only in songs whose every place has
+/// a whole set (no difference folder that may draw on them).
+fn run_song_clean(args: &[String]) {
+    use bms_package_manager::key_sets::{self, PlaceAt};
+    use std::collections::BTreeMap;
+
+    let apply = match args {
+        [] => false,
+        [flag] if flag == "--yes" => true,
+        _ => exit_with(&"usage: bpm song clean [--yes]"),
+    };
+    let index = load_index_or_exit();
+    let collection = songs::build(&index, &load_manual());
+    let manager = PackageManager::new(get_default_packages_dir()).ok();
+    // `<id>@<state hash>` to the installed package file.
+    let package_file = |source: &str| -> Option<PathBuf> {
+        let (id, hash) = source.split_once('@')?;
+        let mgr = manager.as_ref()?;
+        let record = mgr
+            .registry()
+            .list_packages()
+            .into_iter()
+            .find(|r| r.id == id)?;
+        let state = &record.state_hashes.get(hash)?.path;
+        Some(
+            mgr.root_dir()
+                .join(state)
+                .join(bms_package::installed::PACKAGE_FILENAME),
+        )
+    };
+    let place_at = |copy: &collection::Location| -> Option<PlaceAt> {
+        let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        match copy.kind {
+            LocationKind::Folder => Some(PlaceAt::Folder(Path::new(&copy.source).join(dir))),
+            LocationKind::Package => Some(PlaceAt::Package {
+                bmsp: package_file(&copy.source)?,
+                dir: dir.to_string(),
+            }),
+        }
+    };
+
+    // Places that go: folders to move, and package places by package source.
+    let mut folders: Vec<(String, PathBuf, String)> = Vec::new();
+    let mut package_places: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let mut kept: Vec<String> = Vec::new();
+    for song in &collection.songs {
+        let mut places: BTreeMap<String, (&collection::Location, Vec<ChartId>)> = BTreeMap::new();
+        for &i in &song.charts {
+            let record = &collection.records[i];
+            for copy in &record.copies {
+                places
+                    .entry(songs::place_key(copy))
+                    .or_insert_with(|| (copy, Vec::new()))
+                    .1
+                    .push(record.chart);
+            }
+        }
+        if places.len() < 2 {
+            continue;
+        }
+        // The key sounds of the song's chart that declares the most.
+        let Some(names) = song
+            .charts
+            .iter()
+            .flat_map(|&i| &collection.records[i].copies)
+            .map(|c| &c.key_stems)
+            .max_by_key(|stems| stems.len())
+            .map(|stems| stems.iter().map(|s| format!("{s}.wav")).collect::<Vec<_>>())
+        else {
+            continue;
+        };
+        let list: Vec<(String, PlaceAt)> = places
+            .iter()
+            .filter_map(|(key, (copy, _))| Some((key.clone(), place_at(copy)?)))
+            .collect();
+        let (sets, all_whole) = key_sets::compare(&list, &names);
+        let charts: BTreeMap<String, Vec<ChartId>> = places
+            .iter()
+            .map(|(k, (_, c))| (k.clone(), c.clone()))
+            .collect();
+        let better = sets
+            .iter()
+            .find(|s| !s.worse)
+            .map_or(String::new(), |s| s.description.clone());
+        let going = key_sets::going(&sets, all_whole, &charts);
+        for set in sets.iter().filter(|s| s.worse) {
+            if set.same.iter().all(|p| !going.contains(&p.as_str())) {
+                let why = if all_whole {
+                    "it has charts found nowhere else"
+                } else {
+                    "a place of the song has no whole set"
+                };
+                kept.push(format!(
+                    "{} / {}: {} is worse than {better}, kept because {why}",
+                    song.title, song.artist, set.description
+                ));
+            }
+        }
+        for key in going {
+            let (copy, _) = places[key];
+            let set = sets.iter().find(|s| s.same.iter().any(|p| p == key));
+            let note = format!(
+                "{} / {}: {} (kept: {better})",
+                song.title,
+                song.artist,
+                set.map_or("", |s| s.description.as_str())
+            );
+            match (copy.kind, list.iter().find(|(k, _)| k == key)) {
+                (LocationKind::Folder, Some((_, PlaceAt::Folder(dir)))) => {
+                    folders.push((key.to_string(), dir.clone(), note))
+                }
+                _ => package_places
+                    .entry(copy.source.clone())
+                    .or_default()
+                    .push((key.to_string(), note)),
+            }
+        }
+    }
+    // A package goes only when every place of it in the index goes.
+    let mut packages: Vec<(String, Vec<String>)> = Vec::new();
+    for (source, going) in package_places {
+        let all: BTreeSet<String> = index
+            .locations
+            .iter()
+            .filter(|l| l.kind == LocationKind::Package && l.source == source)
+            .map(songs::place_key)
+            .collect();
+        if all.iter().all(|k| going.iter().any(|(g, _)| g == k)) {
+            packages.push((source, going.into_iter().map(|(_, n)| n).collect()));
+        }
+    }
+
+    for line in &kept {
+        println!("kept    {line}");
+    }
+    if folders.is_empty() && packages.is_empty() {
+        println!("No key sound set to clean up.");
+        return;
+    }
+    for (_, dir, note) in &folders {
+        println!("folder  {}  {note}", dir.display());
+    }
+    for (source, notes) in &packages {
+        for note in notes {
+            println!("package {source}  {note}");
+        }
+    }
+    if !apply {
+        println!("Run bpm song clean --yes to remove them.");
+        return;
+    }
+    let mut failed = 0;
+    for (_, dir, _) in &folders {
+        if let Err(e) = key_sets::trash_folder(dir) {
+            eprintln!("could not move {}: {e}", dir.display());
+            failed += 1;
+        }
+    }
+    for (source, _) in &packages {
+        let id = source.split_once('@').map_or(source.as_str(), |(id, _)| id);
+        let result = PackageManager::new(get_default_packages_dir()).and_then(|mut mgr| {
+            let hashes: Vec<String> = mgr
+                .registry()
+                .list_packages()
+                .into_iter()
+                .find(|r| r.id == id)
+                .map(|r| r.state_hashes.keys().cloned().collect())
+                .unwrap_or_default();
+            hashes.iter().try_for_each(|hash| mgr.uninstall(id, hash))
+        });
+        if let Err(e) = result {
+            eprintln!("could not uninstall {id}: {e}");
+            failed += 1;
+        }
+    }
+    let done = folders.len() + packages.len() - failed;
+    println!("Cleaned up {done} place(s); run bpm scan to update the index.");
+    if failed > 0 {
+        std::process::exit(1);
+    }
 }
 
 fn describe_location(copy: &collection::Location) -> String {

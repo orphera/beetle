@@ -12,6 +12,7 @@ pub mod file_dialog;
 pub mod flac;
 pub mod grouping;
 pub mod ir;
+pub mod key_sets;
 pub mod library;
 pub mod manager;
 pub mod net;

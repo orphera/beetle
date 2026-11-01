@@ -11,13 +11,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use beetle_core::audio_info::{self, AudioInfo};
-use beetle_core::key_sounds::folder_sound_candidates;
 use beetle_core::msgpack::{self, Value, Writer};
-use beetle_core::{SongAddress, SongGroups, SongMetadata, SongPlace, SongPlaces};
+use beetle_core::{ChartId, SongAddress, SongGroups, SongMetadata, SongPlace, SongPlaces};
+use bms_package_manager::key_sets::{self, PlaceAt};
 
 use crate::loader::SoundPlaces;
 
@@ -84,7 +82,7 @@ pub fn plan(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SoundSet {
     pub place: String,
-    /// The place's folder name and the files' format, e.g. `xi · WAV`.
+    /// The place's folder name and what its files are, e.g. `xi · WAV 44.1kHz/16bit`.
     pub label: String,
     /// Places with the same files (`place` first).
     pub same: Vec<String>,
@@ -101,21 +99,21 @@ pub struct Sets {
     pub all_whole: bool,
 }
 
-/// One declared key sound found at a place.
-#[derive(Debug, Clone)]
-struct FileAt {
-    size: u64,
-    ext: String,
-    /// Folder: the file's path. Package: the entry path.
-    path: String,
-}
-
-/// A place's files for some declared names, by lowercased name.
-type Files = HashMap<String, FileAt>;
-
-/// Whether a place has 90% of the names (P2).
-fn whole(files: &Files, names: &[String]) -> bool {
-    !names.is_empty() && files.len() * 10 >= names.len() * 9
+/// Where a chart address's files are. `None` for a disc song.
+fn place_at(address: &str) -> Option<PlaceAt> {
+    match SongAddress::parse(address) {
+        SongAddress::Folder { file } => Some(PlaceAt::Folder(
+            Path::new(file)
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .into(),
+        )),
+        SongAddress::Package { bmsp, entry } => Some(PlaceAt::Package {
+            bmsp: bmsp.into(),
+            dir: parent(entry).to_string(),
+        }),
+        SongAddress::Disc { .. } => None,
+    }
 }
 
 /// The key sound names a chart declares, sorted.
@@ -131,136 +129,51 @@ fn declared(address: &str) -> Vec<String> {
     names
 }
 
-/// The sets `song`'s chart can play with, in place order. A place is a set
-/// for the chart when it has 90% of the names the chart declares. Places
-/// whose shared files all have the same sizes are one set.
+/// The sets `song`'s chart can play with, in place order (`key_sets::compare`).
 pub fn sets(groups: &SongGroups, song_places: &SongPlaces, song: &SongMetadata) -> Sets {
     let names = declared(&song.file_path);
-    let places = places(groups, song_places, song);
-    let mut found: Vec<(SoundSet, String, Files)> = Vec::new();
-    let mut whole_places = 0;
-    for (place, at) in &places {
-        let files = files_at(&at.address, &names);
-        if !whole(&files, &names) {
-            continue;
-        }
-        whole_places += 1;
-        if let Some((set, _, _)) = found.iter_mut().find(|(_, _, f)| same_files(f, &files)) {
-            set.same.push(place.clone());
-            continue;
-        }
-        let label = format!("{} · {}", place_name(place), describe(&at.address, &files));
-        let set = SoundSet {
-            place: place.clone(),
-            label,
-            same: vec![place.clone()],
-            worse: false,
-        };
-        found.push((set, at.address.clone(), files));
-    }
-    let worse: Vec<bool> = (0..found.len())
-        .map(|i| {
-            (0..found.len()).any(|j| {
-                let (a, b) = (&found[j], &found[i]);
-                j != i && clearly_better((&a.1, &a.2), (&b.1, &b.2))
-            })
-        })
+    let places: Vec<(String, PlaceAt)> = places(groups, song_places, song)
+        .into_iter()
+        .filter_map(|(key, p)| Some((key, place_at(&p.address)?)))
         .collect();
-    for ((set, _, _), worse) in found.iter_mut().zip(worse) {
-        set.worse = worse;
-    }
+    let (found, all_whole) = key_sets::compare(&places, &names);
     Sets {
-        sets: found.into_iter().map(|(set, _, _)| set).collect(),
-        all_whole: whole_places == places.len(),
+        sets: found
+            .into_iter()
+            .map(|set| SoundSet {
+                label: format!("{} · {}", place_name(&set.place), set.description),
+                place: set.place,
+                same: set.same,
+                worse: set.worse,
+            })
+            .collect(),
+        all_whole,
     }
 }
 
 /// A set clearly better than the chart's own place, for a song whose player
 /// has not chosen one: the first of `others` that is (P2.1). Reads only headers.
 pub fn better_set(own: &str, others: &[String], names: &[String]) -> Option<String> {
-    let mine = files_at(own, names);
-    if !whole(&mine, names) {
+    let own_at = place_at(own)?;
+    let mine = key_sets::files_at(&own_at, names);
+    if !mine.whole(names) {
         return None;
     }
     others
         .iter()
         .find(|other| {
-            let theirs = files_at(other, names);
-            whole(&theirs, names)
-                && !same_files(&theirs, &mine)
-                && clearly_better((other.as_str(), &theirs), (own, &mine))
+            let Some(at) = place_at(other) else {
+                return false;
+            };
+            let theirs = key_sets::files_at(&at, names);
+            theirs.whole(names)
+                && !theirs.same(&mine)
+                && key_sets::clearly_better((&at, &theirs), (&own_at, &mine))
         })
         .cloned()
 }
 
-/// How many shared files a comparison reads at most, spread over the names.
-const SAMPLE: usize = 32;
-
-/// Whether set `a` is clearly better than set `b` (P2.1): on 95% of the
-/// files both have (a spread sample of them), `a` is no worse in anything
-/// and better in something (`audio_info::better`).
-fn clearly_better(a: (&str, &Files), b: (&str, &Files)) -> bool {
-    let mut shared: Vec<&String> = a.1.keys().filter(|n| b.1.contains_key(*n)).collect();
-    shared.sort();
-    let step = shared.len().div_ceil(SAMPLE).max(1);
-    let sample: Vec<&String> = shared.into_iter().step_by(step).collect();
-    let infos_a = infos(a.0, a.1, &sample);
-    let infos_b = infos(b.0, b.1, &sample);
-    let mut compared = 0;
-    let mut wins = 0;
-    for name in &sample {
-        if let (Some(x), Some(y)) = (infos_a.get(*name), infos_b.get(*name)) {
-            compared += 1;
-            wins += usize::from(audio_info::better(x, y));
-        }
-    }
-    compared > 0 && wins * 100 >= compared * 95
-}
-
-/// The headers of some files at a place, by name.
-fn infos(address: &str, files: &Files, names: &[&String]) -> HashMap<String, AudioInfo> {
-    let mut out = HashMap::new();
-    let mut pkg = match SongAddress::parse(address) {
-        SongAddress::Package { bmsp, .. } => bms_package::PackageReader::open_file(bmsp).ok(),
-        _ => None,
-    };
-    for name in names {
-        let Some(file) = files.get(*name) else {
-            continue;
-        };
-        let head = match &mut pkg {
-            Some(pkg) => pkg.read_entry(&file.path).ok(),
-            None => fs::File::open(&file.path).ok().and_then(|f| {
-                let mut head = Vec::new();
-                f.take(audio_info::PROBE_BYTES as u64)
-                    .read_to_end(&mut head)
-                    .ok()?;
-                Some(head)
-            }),
-        };
-        if let Some(info) = head.as_deref().and_then(audio_info::probe) {
-            out.insert((*name).clone(), info);
-        }
-    }
-    out
-}
-
-/// Whether two places hold the same files: every name both have is the same
-/// size, and they have at least one name in common.
-fn same_files(a: &Files, b: &Files) -> bool {
-    let mut shared = 0;
-    for (name, file) in a {
-        if let Some(other) = b.get(name) {
-            if file.size != other.size {
-                return false;
-            }
-            shared += 1;
-        }
-    }
-    shared > 0
-}
-
-/// The last folder name of a place (for a package's root, the package file's name).
+/// The last folder name of a place (for a package's root, the package's id).
 fn place_name(place: &str) -> &str {
     let (pkg, inner) = place.split_once("::").unwrap_or(("", place));
     let inner = inner.rsplit(['/', '\\']).next().unwrap_or("");
@@ -280,86 +193,6 @@ fn place_name(place: &str) -> &str {
     }
 }
 
-/// What a set's files are, from the header of the first one
-/// (`AudioInfo::describe`), or their extension when it cannot be read.
-fn describe(address: &str, files: &Files) -> String {
-    let Some(first) = files.keys().min() else {
-        return String::new();
-    };
-    match infos(address, files, &[first]).get(first) {
-        Some(info) => info.describe(),
-        None => files[first].ext.to_uppercase(),
-    }
-}
-
-fn extension(path: &str) -> String {
-    Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-}
-
-/// The files at a chart's address for `names`, found as the loader finds them.
-fn files_at(address: &str, names: &[String]) -> Files {
-    let mut out = Files::new();
-    match SongAddress::parse(address) {
-        SongAddress::Folder { file } => {
-            let dir = Path::new(file).parent().unwrap_or_else(|| Path::new("."));
-            let listing: HashMap<String, (u64, PathBuf)> = fs::read_dir(dir)
-                .map(|entries| {
-                    entries
-                        .flatten()
-                        .filter_map(|e| {
-                            let meta = e.metadata().ok().filter(|m| m.is_file())?;
-                            let name = e.file_name().to_string_lossy().to_lowercase();
-                            Some((name, (meta.len(), e.path())))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            for name in names {
-                let hit = folder_sound_candidates(name).into_iter().find_map(|c| {
-                    let (size, path) = if c.contains('/') {
-                        let path = dir.join(&c);
-                        (fs::metadata(&path).ok()?.len(), path)
-                    } else {
-                        listing.get(&c.to_lowercase()).cloned()?
-                    };
-                    Some(FileAt {
-                        size,
-                        ext: extension(&c),
-                        path: path.to_string_lossy().into_owned(),
-                    })
-                });
-                if let Some(hit) = hit {
-                    out.insert(name.to_lowercase(), hit);
-                }
-            }
-        }
-        SongAddress::Package { bmsp, entry } => {
-            let Ok(pkg) = bms_package::PackageReader::open_file(bmsp) else {
-                return out;
-            };
-            let sizes: HashMap<&str, u64> = pkg
-                .entries()
-                .iter()
-                .map(|e| (e.path.as_str(), e.size))
-                .collect();
-            for name in names {
-                if let Some(path) = pkg.find_entry_path(parent(entry), name) {
-                    if let Some(&size) = sizes.get(path.as_str()) {
-                        let ext = extension(&path);
-                        out.insert(name.to_lowercase(), FileAt { size, ext, path });
-                    }
-                }
-            }
-        }
-        SongAddress::Disc { .. } => {}
-    }
-    out
-}
-
 // ---------------------------------------------------------------------------
 // Cleanup (P2.1)
 // ---------------------------------------------------------------------------
@@ -373,37 +206,29 @@ pub enum Trash {
     Package(PathBuf),
 }
 
-/// What cleaning up the worse sets of a chart removes. Nothing when a place
-/// of the song is not a whole set (a difference folder may draw on any of
-/// them). A worse place goes only when every chart there has a copy at a
-/// place that stays, and a package only when all of its places go.
+/// What cleaning up the worse sets of a chart removes (`key_sets::going`):
+/// a folder, or a package when all of its places go.
 pub fn cleanup(
     sets: &Sets,
     places: &BTreeMap<String, SongPlace>,
     song_places: &SongPlaces,
 ) -> Vec<Trash> {
-    if !sets.all_whole {
-        return Vec::new();
-    }
-    let worse: HashSet<&str> = sets
+    let found: Vec<key_sets::Set> = sets
         .sets
         .iter()
-        .filter(|s| s.worse)
-        .flat_map(|s| s.same.iter().map(String::as_str))
-        .collect();
-    let kept_charts: HashSet<_> = places
-        .iter()
-        .filter(|(k, _)| !worse.contains(k.as_str()))
-        .flat_map(|(_, p)| p.charts.iter().copied())
-        .collect();
-    let going: HashSet<&str> = worse
-        .iter()
-        .copied()
-        .filter(|k| {
-            places
-                .get(*k)
-                .is_some_and(|p| p.charts.iter().all(|c| kept_charts.contains(c)))
+        .map(|s| key_sets::Set {
+            place: s.place.clone(),
+            description: String::new(),
+            same: s.same.clone(),
+            worse: s.worse,
         })
+        .collect();
+    let charts: BTreeMap<String, Vec<ChartId>> = places
+        .iter()
+        .map(|(k, p)| (k.clone(), p.charts.clone()))
+        .collect();
+    let going: HashSet<&str> = key_sets::going(&found, sets.all_whole, &charts)
+        .into_iter()
         .collect();
     let mut out = Vec::new();
     for key in &going {
@@ -429,21 +254,7 @@ pub fn cleanup(
     out
 }
 
-/// Moves a folder into `.bpm-trash` in its parent folder, under a free name.
-pub fn trash_folder(dir: &Path) -> std::io::Result<PathBuf> {
-    let parent = dir.parent().unwrap_or_else(|| Path::new("."));
-    let trash = parent.join(bms_package_manager::collection::TRASH_DIR);
-    fs::create_dir_all(&trash)?;
-    let name = dir.file_name().unwrap_or_default().to_string_lossy();
-    let mut target = trash.join(&*name);
-    let mut n = 1;
-    while target.exists() {
-        n += 1;
-        target = trash.join(format!("{name} ({n})"));
-    }
-    fs::rename(dir, &target)?;
-    Ok(target)
-}
+pub use key_sets::trash_folder;
 
 // ---------------------------------------------------------------------------
 // sound_sets.dat
@@ -598,26 +409,6 @@ mod tests {
         c.0.insert("D:\\a".into(), "D:\\b".into());
         assert_eq!(Choices::parse(&c.serialize()), c);
         assert_eq!(Choices::parse(b"junk"), Choices::default());
-    }
-
-    #[test]
-    fn sets_with_the_same_sizes_are_one() {
-        let f = |pairs: &[(&str, u64)]| -> Files {
-            pairs
-                .iter()
-                .map(|&(n, size)| {
-                    let file = FileAt {
-                        size,
-                        ext: "wav".into(),
-                        path: n.into(),
-                    };
-                    (n.to_string(), file)
-                })
-                .collect()
-        };
-        assert!(same_files(&f(&[("a", 1), ("b", 2)]), &f(&[("a", 1)])));
-        assert!(!same_files(&f(&[("a", 1)]), &f(&[("a", 3)])));
-        assert!(!same_files(&f(&[("a", 1)]), &f(&[("b", 1)])));
     }
 
     fn wav_bytes(rate: u32) -> Vec<u8> {
