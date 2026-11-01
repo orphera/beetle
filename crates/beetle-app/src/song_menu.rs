@@ -203,7 +203,11 @@ pub fn sound_set_page(sets: &[SoundSet], playing: &str) -> Vec<Item> {
 
 /// The set that plays: the chosen one, else the chart's own place's unless
 /// another is clearly better (as the loader picks), else the first.
-fn playing_set<'a>(menu: &'a SongMenu, choices: &crate::sound_sets::Choices) -> &'a str {
+fn playing_set<'a>(
+    menu: &'a SongMenu,
+    groups: &beetle_core::SongGroups,
+    choices: &crate::sound_sets::Choices,
+) -> &'a str {
     let of = |place: &str| menu.sets.iter().find(|s| s.same.iter().any(|p| p == place));
     let own = crate::sound_sets::place_of(&menu.address)
         .and_then(|own| of(&own))
@@ -212,7 +216,7 @@ fn playing_set<'a>(menu: &'a SongMenu, choices: &crate::sound_sets::Choices) -> 
             false => own,
         });
     choices
-        .chosen(&menu.places)
+        .chosen(groups, menu.chart, &menu.places)
         .and_then(of)
         .or(own)
         .or(menu.sets.first())
@@ -419,7 +423,7 @@ fn run(state: &mut AppState, i: usize) {
             changed(state, ok, strings::TOAST_CLEANED(), &title);
         }
         Action::SoundSets => {
-            let playing = playing_set(menu, &state.sound_choices).to_string();
+            let playing = playing_set(menu, &state.song_groups, &state.sound_choices).to_string();
             let menu = state.song_menu.as_mut().expect("menu is open");
             menu.items = sound_set_page(&menu.sets, &playing);
             menu.row = menu
@@ -430,7 +434,9 @@ fn run(state: &mut AppState, i: usize) {
             play_ui(state, UiSound::Open);
         }
         Action::UseSoundSet(place) => {
-            state.sound_choices.choose(&menu.places, &place);
+            state
+                .sound_choices
+                .choose(&state.song_groups, menu.chart, &place);
             let label = menu
                 .sets
                 .iter()

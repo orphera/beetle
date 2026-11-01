@@ -1063,9 +1063,9 @@ table! {
         en "Cleaned up the worse key sounds of {}",
         ja "{}の低音質キー音セットを整理しました";
     pub TOAST_SOUND_SET_SAVE_FAILED =
-        ko "키음 세트 선택(sound_sets.dat)을 저장하지 못했어요",
-        en "Could not save the key sound choice (sound_sets.dat)",
-        ja "キー音セットの選択（sound_sets.dat）を保存できませんでした";
+        ko "키음 세트 선택(songs.dat)을 저장하지 못했어요",
+        en "Could not save the key sound choice (songs.dat)",
+        ja "キー音セットの選択（songs.dat）を保存できませんでした";
     pub TOAST_HIDDEN_SAVE_FAILED =
         ko "숨긴 곡 목록(hidden.dat)을 저장하지 못했어요",
         en "Could not save the hidden list (hidden.dat)",

@@ -22,6 +22,7 @@ pub mod resolver;
 pub mod rules;
 pub mod score;
 pub mod song_address;
+pub mod song_records;
 pub mod table;
 pub mod timing;
 pub mod title;

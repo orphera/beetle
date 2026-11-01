@@ -76,7 +76,7 @@ pub struct AppState {
     pub song_groups: SongGroups,
     /// Every place of each song (`scanner::ScannedLibrary::places`).
     pub song_places: SongPlaces,
-    /// The key sound set chosen for each song (`sound_sets.dat`).
+    /// The key sound set chosen for each song (`songs.dat`).
     pub sound_choices: crate::sound_sets::Choices,
     /// The folder the list shows (see `folders.rs`).
     pub folder_path: FolderPath,
@@ -630,6 +630,9 @@ impl AppState {
         self.library_receiver = None;
         self.songs = load.songs;
         self.song_groups = load.groups;
+        if self.sound_choices.assign(&self.song_groups) {
+            let _ = self.sound_choices.save();
+        }
         self.song_places = load.places;
         // The scan may have written new names files: read them again, and
         // drop the word pictures already in the atlas.

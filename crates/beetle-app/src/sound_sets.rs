@@ -7,13 +7,13 @@
 //! chose (else one clearly better than the own place's), and then the other
 //! places (`loader::SoundPlaces`). The song menu lists the sets a chart can
 //! play with, marks the clearly worse ones, and moves them to the trash on
-//! request. The choice is kept in `sound_sets.dat`, under the song's first place.
+//! request. The choice is kept in `songs.dat`, under the song's lasting id.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use beetle_core::msgpack::{self, Value, Writer};
+use beetle_core::song_records::{SongRecord, SongRecords};
 use beetle_core::{ChartId, SongAddress, SongGroups, SongMetadata, SongPlace, SongPlaces};
 use bms_package_manager::key_sets::{self, PlaceAt};
 
@@ -65,7 +65,7 @@ pub fn plan(
         return SoundPlaces::default();
     };
     let places = places(groups, song_places, song);
-    let choice = choices.chosen(&places);
+    let choice = choices.chosen(groups, song.id, &places);
     let chosen = choice.filter(|c| *c != own);
     SoundPlaces {
         chosen: chosen.map(|c| places[c].address.clone()),
@@ -307,82 +307,86 @@ pub fn cleanup(
 pub use key_sets::trash_folder;
 
 // ---------------------------------------------------------------------------
-// sound_sets.dat
+// songs.dat
 // ---------------------------------------------------------------------------
 
-/// The chosen set of each song: the song's first place to the chosen place.
+/// The chosen set of each song, kept in `songs.dat` under the song's lasting
+/// id (`beetle_core::song_records`, B18 plan 4.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Choices(pub HashMap<String, String>);
+pub struct Choices {
+    pub records: SongRecords,
+    /// Each song of the current library read (its `SongGroups` number) to its id.
+    ids: HashMap<u32, ChartId>,
+}
 
-const FORMAT: &str = "beetle-sound-sets";
-const VERSION: u64 = 1;
-
-fn choices_file() -> PathBuf {
-    std::env::var("BEETLE_SOUND_SETS_FILE")
-        .map_or_else(|_| PathBuf::from("sound_sets.dat"), PathBuf::from)
+fn songs_file() -> PathBuf {
+    std::env::var("BEETLE_SONGS_FILE").map_or_else(|_| PathBuf::from("songs.dat"), PathBuf::from)
 }
 
 impl Choices {
-    pub fn parse(bytes: &[u8]) -> Self {
-        let Some(file) = msgpack::decode_file(bytes, FORMAT, VERSION) else {
-            return Self::default();
-        };
-        let pairs = file
-            .get("choices")
-            .and_then(Value::as_array)
-            .unwrap_or_default();
-        Choices(
-            pairs
-                .iter()
-                .filter_map(|pair| match pair.as_array()? {
-                    [song, chosen] => {
-                        Some((song.as_str()?.to_string(), chosen.as_str()?.to_string()))
-                    }
-                    _ => None,
-                })
-                .collect(),
-        )
-    }
-
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut pairs: Vec<_> = self.0.iter().collect();
-        pairs.sort();
-        let mut w = Writer::new();
-        w.file(FORMAT, VERSION, 1);
-        w.str("choices");
-        w.array(pairs.len());
-        for (song, chosen) in pairs {
-            w.array(2);
-            w.str(song);
-            w.str(chosen);
-        }
-        w.into_bytes()
-    }
-
     pub fn load() -> Self {
-        Self::parse(&fs::read(choices_file()).unwrap_or_default())
+        Choices {
+            records: SongRecords::parse(&fs::read(songs_file()).unwrap_or_default()),
+            ids: HashMap::new(),
+        }
     }
 
     pub fn save(&self) -> std::io::Result<()> {
-        beetle_core::write_atomic(choices_file(), self.serialize())
+        beetle_core::write_atomic(songs_file(), self.records.serialize())
     }
 
-    /// The chosen place for `song`, or the first set (the song's own order).
-    pub fn chosen<'a, V>(&'a self, places: &'a BTreeMap<String, V>) -> Option<&'a str> {
-        let first = places.keys().next()?;
-        self.0
-            .get(first)
+    /// After a library read: gives each song its lasting id. Whether a
+    /// record changed (and wants saving).
+    pub fn assign(&mut self, groups: &SongGroups) -> bool {
+        let mut songs: BTreeMap<u32, Vec<ChartId>> = BTreeMap::new();
+        for (chart, song) in groups {
+            songs.entry(*song).or_default().push(*chart);
+        }
+        let charts: Vec<Vec<ChartId>> = songs.values().cloned().collect();
+        let (ids, changed) = self.records.assign(&charts);
+        self.ids = songs.keys().copied().zip(ids).collect();
+        changed
+    }
+
+    /// The lasting id of `chart`'s song; a chart in no song stands for itself.
+    fn id(&self, groups: &SongGroups, chart: ChartId) -> ChartId {
+        groups
+            .get(&chart)
+            .and_then(|g| self.ids.get(g))
+            .copied()
+            .unwrap_or(chart)
+    }
+
+    /// The chosen place for `chart`'s song, when it is still one of `places`.
+    pub fn chosen<'a, V>(
+        &'a self,
+        groups: &SongGroups,
+        chart: ChartId,
+        places: &BTreeMap<String, V>,
+    ) -> Option<&'a str> {
+        self.records
+            .get(self.id(groups, chart))?
+            .sound_set
+            .as_deref()
             .filter(|c| places.contains_key(*c))
-            .map(String::as_str)
     }
 
-    /// Chooses `place` for the song whose places are `places`.
-    pub fn choose<V>(&mut self, places: &BTreeMap<String, V>, place: &str) {
-        if let Some(first) = places.keys().next() {
-            self.0.insert(first.clone(), place.to_string());
+    /// Chooses `place` for `chart`'s song.
+    pub fn choose(&mut self, groups: &SongGroups, chart: ChartId, place: &str) {
+        let id = self.id(groups, chart);
+        if self.records.get(id).is_none() {
+            self.records.records.push(SongRecord {
+                id,
+                charts: [id].into(),
+                sound_set: None,
+            });
+        }
+        if let Some(record) = self.records.get_mut(id) {
+            record.sound_set = Some(place.to_string());
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,26 +443,19 @@ mod tests {
         ];
         let (groups, places_of) = library(&songs);
         let mut choices = Choices::default();
+        assert!(choices.assign(&groups));
         let plan_for = |c: &Choices| plan(&groups, &places_of, c, &songs[0]);
         assert_eq!(plan_for(&choices).chosen, None);
         assert!(!plan_for(&choices).decided);
         assert_eq!(plan_for(&choices).others, ["D:\\b\\2.bms", "D:\\c\\3.bms"]);
 
-        choices.choose(&places(&groups, &places_of, &songs[0]), "D:\\c");
+        choices.choose(&groups, songs[0].id, "D:\\c");
         let p = plan_for(&choices);
         assert_eq!(p.chosen.as_deref(), Some("D:\\c\\3.bms"));
         assert_eq!(p.others, ["D:\\b\\2.bms"]);
         // From the chosen place itself nothing is swapped.
         let own = plan(&groups, &places_of, &choices, &songs[2]);
         assert_eq!((own.chosen, own.decided), (None, true));
-    }
-
-    #[test]
-    fn choices_round_trip() {
-        let mut c = Choices::default();
-        c.0.insert("D:\\a".into(), "D:\\b".into());
-        assert_eq!(Choices::parse(&c.serialize()), c);
-        assert_eq!(Choices::parse(b"junk"), Choices::default());
     }
 
     fn wav_bytes(rate: u32) -> Vec<u8> {
