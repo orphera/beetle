@@ -1341,7 +1341,7 @@ mod tests {
             panic!("mode is a branch");
         };
         let labels: Vec<&str> = modes.iter().map(|f| f.label.as_str()).collect();
-        assert_eq!(labels, ["4K", "5K", "7K", "8K", "9K", "14K"]);
+        assert_eq!(labels, ["4K", "5+1K", "7+1K", "8K", "9K", "14+2K"]);
         assert_eq!(mode.count, 7);
     }
 
@@ -1953,7 +1953,11 @@ mod tests {
                     title: "AIR".into(),
                     charts: vec![3, 2, 0],
                     selected: 0,
-                    labels: vec!["7K 11 5key".into(), "7K 11 7key".into(), "7K 12".into()],
+                    labels: vec![
+                        "7+1K 11 5key".into(),
+                        "7+1K 11 7key".into(),
+                        "7+1K 12".into()
+                    ],
                 },
                 ListEntry::Song(1),
             ]
@@ -2105,7 +2109,7 @@ mod tests {
             tagged(1, "S", "", PlayMode::Keys7, 5),
             tagged(2, "S [A]", "", PlayMode::Keys7, 6),
         ];
-        assert_eq!(chip_labels(&songs, &[0, 1]), ["7K 5", "7K 6"]);
+        assert_eq!(chip_labels(&songs, &[0, 1]), ["7+1K 5", "7+1K 6"]);
     }
 
     #[test]

@@ -989,11 +989,11 @@ mod tests {
         );
         assert_eq!(
             KeyPreset::HomeRow.layout_name(PlayMode::Keys7),
-            "7K HomeRow (S D F Space J K L)"
+            "7+1K HomeRow (S D F Space J K L)"
         );
         assert_eq!(
             KeyPreset::Custom.layout_name(PlayMode::Keys14),
-            "14K Custom Layout"
+            "14+2K Custom Layout"
         );
     }
 

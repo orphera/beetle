@@ -388,7 +388,7 @@ table! {
         en "Help",
         ja "ヘルプ";
 
-    // Folder tree (song select). Mode tags (7K) and lamp names (PERFECT) stay in English.
+    // Folder tree (song select). Mode tags (7+1K) and lamp names (PERFECT) stay in English.
     /// The root of the breadcrumb, above the top-level folders.
     pub FOLDER_ROOT =
         ko "전체",
@@ -1414,9 +1414,9 @@ table! {
         en "Places the playfield in the center, on the left, or on the right of the screen.",
         ja "プレイフィールドを画面の中央、左、右のどこに置くか決めます。";
     pub HELP_SCRATCH =
-        ko "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5K, 7K, 8K에서만 적용돼요.",
-        en "Puts the scratch lane on the left or right edge. Applies only to 5K, 7K and 8K.",
-        ja "スクラッチレーンを左右の端のどちらに置くか決めます。5K、7K、8K でのみ適用されます。";
+        ko "스크래치 레인을 왼쪽이나 오른쪽 가장자리에 둬요. 5+1K, 7+1K, 8K에서만 적용돼요.",
+        en "Puts the scratch lane on the left or right edge. Applies only to 5+1K, 7+1K and 8K.",
+        ja "スクラッチレーンを左右の端のどちらに置くか決めます。5+1K、7+1K、8K でのみ適用されます。";
     pub HELP_BGA =
         ko "곡의 배경 영상과 이미지를 보여 줘요. 끄면 이 파일들을 읽지 않아 메모리와 CPU를 아껴요.",
         en "Shows the song's background movies and images. Off skips reading these files, saving memory and CPU.",

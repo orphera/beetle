@@ -179,17 +179,19 @@ pub fn clear_lamp(clear: Option<ClearType>) -> (&'static str, ColorRgba) {
     }
 }
 
-/// Short key-mode tag: "7K", "14K", ...
+/// Short key-mode tag shown to the player (B8): the turntables are counted
+/// apart ("7+1K", "14+2K"); modes without one keep their name ("9K"). Saved
+/// files use `folders::mode_id` and the like, never this.
 pub fn mode_label(mode: PlayMode) -> &'static str {
     match mode {
         PlayMode::Keys4 => "4K",
-        PlayMode::Keys5 => "5K",
+        PlayMode::Keys5 => "5+1K",
         PlayMode::Keys6 => "6K",
         PlayMode::Keys8 => "8K",
-        PlayMode::Keys7 => "7K",
+        PlayMode::Keys7 => "7+1K",
         PlayMode::Keys9 => "9K",
-        PlayMode::Keys10 => "10K",
-        PlayMode::Keys14 => "14K",
+        PlayMode::Keys10 => "10+2K",
+        PlayMode::Keys14 => "14+2K",
     }
 }
 
