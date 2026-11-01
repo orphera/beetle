@@ -299,6 +299,10 @@ fn options_panel_over_the_result() {
         &lines,
         2,
         (strings::ROW_GAUGE(), strings::HELP_GAUGE()),
+        beetle_render::OptionsPreview {
+            green_ms: 500.0,
+            lane_cover: 0.2,
+        },
         OptionsFooter::Retry,
     );
     let calls = ui.end(&mut gpu);

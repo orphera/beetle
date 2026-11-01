@@ -176,7 +176,17 @@ fn main_screens_draw_one_batch_in_every_language() {
             let lines = option_lines();
             let help = (strings::ROW_GREEN(), strings::HELP_GREEN());
             let calls = one_frame(&mut gpu, &mut ui, (w, h), |ui, vp| {
-                draw_options_modal(ui, vp, &lines, 0, help);
+                draw_options_modal(
+                    ui,
+                    vp,
+                    &lines,
+                    0,
+                    help,
+                    beetle_render::OptionsPreview {
+                        green_ms: 500.0,
+                        lane_cover: 0.2,
+                    },
+                );
             });
             assert_eq!(calls, 1, "options modal {at}");
 

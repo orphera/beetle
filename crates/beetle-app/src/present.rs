@@ -32,6 +32,14 @@ fn ambient_clock() -> f32 {
     beetle_render::ambient_time(START.get_or_init(Instant::now).elapsed().as_secs_f64())
 }
 
+/// The play options panel's lane preview: the values as chosen right now.
+fn options_preview(state: &AppState) -> beetle_render::OptionsPreview {
+    beetle_render::OptionsPreview {
+        green_ms: state.play_options.green_ms as f32,
+        lane_cover: state.view.skin.lane_cover_ratio,
+    }
+}
+
 #[cfg(debug_assertions)]
 #[derive(Default)]
 struct GameplayRenderStats {
@@ -528,6 +536,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         .current_selected_song()
         .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
     let chips = option_chips(state, state.current_selected_song());
+    let preview = options_preview(state);
     let option_panel = state
         .show_option_modal
         .then(|| option_lines(state, play_options()));
@@ -666,7 +675,14 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     );
     if let Some(lines) = &option_panel {
         let d = &play_options()[state.modal_row.min(play_options().len() - 1)];
-        beetle_render::draw_options_modal(ui, &vp, lines, state.modal_row, (d.label, d.help));
+        beetle_render::draw_options_modal(
+            ui,
+            &vp,
+            lines,
+            state.modal_row,
+            (d.label, d.help),
+            preview,
+        );
     }
     if state.show_exit_modal {
         beetle_render::draw_exit_modal(ui, &vp);
@@ -1036,6 +1052,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     // song select); ENTER there plays again with the options as changed.
     if state.show_option_modal {
         let lines = option_lines(state, play_options());
+        let preview = options_preview(state);
         let row = state.modal_row.min(play_options().len() - 1);
         let d = &play_options()[row];
         beetle_render::draw_options_panel(
@@ -1044,6 +1061,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
             &lines,
             row,
             (d.label, d.help),
+            preview,
             beetle_render::OptionsFooter::Retry,
         );
     }

@@ -40,9 +40,9 @@ pub use screens::{
     filter_items, first_note_time, follow_settings_scroll, scroll_by, shutter_geometry,
     top_bar_buttons, visible_rows, window_start, BootFrame, CalibrateFrame, CalibratePhase,
     FilterBar, FilterItem, KeyBinding, KeyConfigFrame, KeyConfigRects, LaneLoading, LoadingFrame,
-    OptionLine, OptionsFooter, PlayFrame, Rebind, ResultFrame, SelectFrame, SelectMotion,
-    SelectRow, SettingsFrame, ShutterGeometry, ShutterPanel, ShutterPhase, SizedTexture, SortMenu,
-    TitleFrame, ToastAnchor, ToastFrame, ToastKind, KEY_MODES,
+    OptionLine, OptionsFooter, OptionsPreview, PlayFrame, Rebind, ResultFrame, SelectFrame,
+    SelectMotion, SelectRow, SettingsFrame, ShutterGeometry, ShutterPanel, ShutterPhase,
+    SizedTexture, SortMenu, TitleFrame, ToastAnchor, ToastFrame, ToastKind, KEY_MODES,
 };
 pub use screens::{
     draw_course_result, CourseNumbers, CourseResultFrame, CourseStageLine, CourseView,

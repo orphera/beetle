@@ -357,6 +357,10 @@ fn render_ex(
                 &lines,
                 2,
                 (strings::ROW_GAUGE(), strings::HELP_GAUGE()),
+                beetle_render::OptionsPreview {
+                    green_ms: 500.0,
+                    lane_cover: 0.2,
+                },
             );
         }
         Overlay::Exit => draw_exit_modal(ui, &vp),

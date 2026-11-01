@@ -12,7 +12,7 @@ use crate::canvas::{AtlasRegion, Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::jacket::{jacket_seed, JacketAtlas, THUMB_PX};
 use crate::screens::play::{cover_uv, SizedTexture};
-use crate::skin::ColorRgba;
+use crate::skin::{ColorRgba, FIELD_HEIGHT_720, FIELD_TOP_720, JUDGE_LINE_720, MAX_LANE_COVER};
 use crate::strings;
 use crate::text::{Align, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
@@ -3065,8 +3065,97 @@ pub fn draw_options_modal(
     lines: &[OptionLine],
     selected: usize,
     help: (&str, &str),
+    preview: OptionsPreview,
 ) {
-    draw_options_panel(ui, vp, lines, selected, help, OptionsFooter::Close);
+    draw_options_panel(ui, vp, lines, selected, help, preview, OptionsFooter::Close);
+}
+
+/// What the play options panel's lane preview shows (B7): the values as
+/// currently chosen in the panel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OptionsPreview {
+    /// Green number: a note takes this long to cross the visible lane.
+    pub green_ms: f32,
+    /// Lane cover (SUDDEN+), 0..=1 of the field height.
+    pub lane_cover: f32,
+}
+
+/// Width of the lane preview column on the panel's right (720p pixels).
+const PREVIEW_W: f32 = 150.0;
+/// Seconds between two preview notes.
+const PREVIEW_STEP: f64 = 0.125;
+/// Lane of each preview note, cycling: a stair with a scratch now and then.
+const PREVIEW_LANES: [usize; 8] = [1, 2, 3, 4, 5, 6, 7, 0];
+
+/// A small 7+1 lane over `r` with notes scrolling at the green number and the
+/// lane cover drawn at its ratio, like the play field (`skin::visible_lane_720`).
+fn options_preview(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    r: Rect,
+    p: OptionsPreview,
+    clock: f32,
+    s: f32,
+) {
+    c.fill_rect(r, theme::PLAYFIELD);
+    let hair = s.max(1.0);
+    let lanes = 8;
+    let scratch_w = r.w * 0.2;
+    let key_w = (r.w - scratch_w) / 7.0;
+    let lane_rect = |i: usize| {
+        if i == 0 {
+            (r.x, scratch_w)
+        } else {
+            (r.x + scratch_w + (i - 1) as f32 * key_w, key_w)
+        }
+    };
+    let lane_col = |i: usize| match i {
+        0 => theme::NOTE_SCRATCH,
+        i if i % 2 == 0 => theme::NOTE_BLUE,
+        _ => theme::NOTE_WHITE,
+    };
+    for i in 1..lanes {
+        let (x, _) = lane_rect(i);
+        c.fill_rect(Rect::new(x, r.y, hair, r.h), theme::LINE.with_alpha(150));
+    }
+    // Same proportions as the field: the cover is a share of the whole
+    // height, the judge line sits near the bottom.
+    let judge_y = r.y + r.h * (JUDGE_LINE_720 - FIELD_TOP_720) / FIELD_HEIGHT_720;
+    let cover_h = r.h * p.lane_cover.clamp(0.0, MAX_LANE_COVER);
+    let visible = (judge_y - r.y - cover_h).max(1.0);
+    let travel = (p.green_ms.max(1.0) / 1000.0) as f64;
+    let now = clock as f64;
+    c.push_clip(Rect::from_ltrb(r.x, r.y, r.right(), judge_y));
+    let first = (now / PREVIEW_STEP).floor() as i64;
+    let count = (travel / PREVIEW_STEP).ceil() as i64 + 1;
+    let note_h = 4.0 * s;
+    for k in first..=first + count {
+        let at = k as f64 * PREVIEW_STEP;
+        let y = judge_y - ((at - now) / travel) as f32 * visible;
+        let lane = PREVIEW_LANES[k.rem_euclid(PREVIEW_LANES.len() as i64) as usize];
+        let (x, w) = lane_rect(lane);
+        c.fill_rect(
+            Rect::new(x + hair, y - note_h, w - 2.0 * hair, note_h),
+            lane_col(lane),
+        );
+    }
+    c.pop_clip();
+    if cover_h > 0.0 {
+        let cover = Rect::new(r.x, r.y, r.w, cover_h);
+        c.fill_rect_vgradient(cover, theme::SURF1, theme::SURF2);
+        c.fill_rect(
+            Rect::new(r.x, cover.bottom() - 2.0 * hair, r.w, 2.0 * hair),
+            theme::CYAN,
+        );
+    }
+    c.fill_rect(Rect::new(r.x, judge_y, r.w, 2.0 * hair), theme::CYAN);
+    t.draw_in(
+        c,
+        &format!("GN {:.0}", p.green_ms),
+        Rect::new(r.x, judge_y + 4.0 * s, r.w, r.bottom() - judge_y - 4.0 * s),
+        Align::Center,
+        &TextStyle::new(12.0 * s).bold().color(theme::GREEN),
+    );
 }
 
 /// What the play options panel offers besides the rows.
@@ -3086,9 +3175,11 @@ pub fn draw_options_panel(
     lines: &[OptionLine],
     selected: usize,
     help: (&str, &str),
+    preview: OptionsPreview,
     footer: OptionsFooter,
 ) {
     let sk = ui.skin;
+    let clock = ui.clock;
     let mut hs = HitSink::new(&mut ui.hits, ui.pointer);
     let (c, t) = (&mut ui.canvas, &mut ui.text);
     let s = vp.scale;
@@ -3104,8 +3195,18 @@ pub fn draw_options_panel(
         .map(|l| row_h + if l.section.is_some() { section_h } else { 0.0 })
         .sum();
     let h = (body + (widgets::HELP_CARD_H + 136.0) * s + start_h).min(vp.height - 32.0 * s);
-    let panel = modal_panel(c, &sk, vp, &mut hs, 500.0 * s, h, s);
-    let inner = panel.inset(28.0 * s);
+    let preview_w = PREVIEW_W * s;
+    let panel = modal_panel(c, &sk, vp, &mut hs, 500.0 * s + preview_w + 20.0 * s, h, s);
+    let full = panel.inset(28.0 * s);
+    // Rows and help on the left; the lane preview fills the right column.
+    let inner = Rect::new(full.x, full.y, full.w - preview_w - 20.0 * s, full.h);
+    let lane = Rect::new(
+        inner.right() + 20.0 * s,
+        inner.y + 40.0 * s,
+        preview_w,
+        (full.bottom() - 52.0 * s - inner.y - 40.0 * s).max(40.0 * s),
+    );
+    options_preview(c, t, lane, preview, clock, s);
 
     t.draw(
         c,
@@ -4169,7 +4270,17 @@ mod tests {
         // position outside the panel reaches the blocker, not the row.
         ui.begin(1280, 720, vp.scale);
         draw_song_select(&mut ui, &frame);
-        draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
+        draw_options_modal(
+            &mut ui,
+            &vp,
+            &panel_lines(),
+            1,
+            ("GAUGE", "help"),
+            OptionsPreview {
+                green_ms: 500.0,
+                lane_cover: 0.2,
+            },
+        );
         let (rx, ry) = (rows[0].1.x + 10.0, rows[0].1.y + 10.0);
         assert_eq!(hit_at(&ui.hits, rx, ry), Some(HitId::Blocker));
         assert_eq!(hit_at(&ui.hits, 2.0, 2.0), Some(HitId::Blocker));
@@ -4295,7 +4406,17 @@ mod tests {
                 show_help: false,
             };
             draw_song_select(&mut ui, &frame);
-            draw_options_modal(&mut ui, &vp, &panel_lines(), 1, ("GAUGE", "help"));
+            draw_options_modal(
+                &mut ui,
+                &vp,
+                &panel_lines(),
+                1,
+                ("GAUGE", "help"),
+                OptionsPreview {
+                    green_ms: 500.0,
+                    lane_cover: 0.2,
+                },
+            );
             draw_exit_modal(&mut ui, &vp);
             assert_eq!(
                 ui.canvas.debug_batches().len(),
