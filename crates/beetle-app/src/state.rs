@@ -1159,7 +1159,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     }
 
     boot_progress::begin(Stage::Cache, 0);
-    let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR);
+    let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR).songs;
 
     migrate_chart_keys(&songs, &mut score_store);
     sort_songs(&mut songs, sort_mode, &score_store, LnOption::Cn);
@@ -1169,7 +1169,7 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
 
 /// Scans the song folders again, ignoring `songs.cache`; unsorted.
 fn rescan_songs() -> Vec<SongMetadata> {
-    crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR)
+    crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR).songs
 }
 
 #[cfg(test)]

@@ -41,8 +41,8 @@ pub use judge::{
     JudgeWindow, PlayNote, ScoreTracker, GAUGE_TREND_MAX_POINTS,
 };
 pub use library::{
-    compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongMetadata,
-    SortMode, SONGS_CACHE_FILE,
+    compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongGroups,
+    SongMetadata, SortMode, SONGS_CACHE_FILE,
 };
 pub use library_paths::{collection_folders, display_path, LibraryPaths};
 pub use load_location::choose_load_index;

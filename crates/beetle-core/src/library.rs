@@ -3,6 +3,7 @@ use crate::identity::{hash_chart_bytes, ChartId};
 use crate::msgpack::{self, Value, Writer};
 use crate::rules::LnRule;
 use crate::score::ScoreStore;
+use std::collections::HashMap;
 
 /// High-speed FNV-1a 64-bit hash for chart identification without external cryptographic dependencies.
 pub fn compute_chart_hash(data: &[u8]) -> u64 {
@@ -110,8 +111,17 @@ impl SongMetadata {
     /// Extracts metadata from a chart file's raw bytes. The identity is taken
     /// from the bytes exactly as stored; only parsing sees them decoded.
     pub fn from_bytes(file_path: &str, bytes: &[u8]) -> Option<Self> {
+        Self::from_bytes_with_sounds(file_path, bytes).map(|(meta, _)| meta)
+    }
+
+    /// `from_bytes`, with the key sounds the chart declares (as
+    /// `key_sounds::declared_key_sounds` gives them) from the same parse.
+    pub fn from_bytes_with_sounds(file_path: &str, bytes: &[u8]) -> Option<(Self, Vec<String>)> {
         let content = decode_bms_text(bytes);
         let chart = parse_bms(&content).ok()?;
+        let mut sounds: Vec<String> = chart.header.wav_table.values().cloned().collect();
+        sounds.sort();
+        sounds.dedup();
         let legacy_hash = compute_chart_hash(content.as_bytes());
         let (id, md5) = hash_chart_bytes(bytes);
         // Every non-landmine note is judged under CN (the judge's own total).
@@ -135,7 +145,7 @@ impl SongMetadata {
             chart.header.title
         };
 
-        Some(Self {
+        let meta = Self {
             id,
             md5,
             legacy_hash,
@@ -153,7 +163,8 @@ impl SongMetadata {
             ln_mode,
             play_mode,
             difficulty,
-        })
+        };
+        Some((meta, sounds))
     }
 
     /// How many notes the song has under a long note rule: the same as
@@ -339,32 +350,56 @@ pub const SONGS_CACHE_FILE: &str = "songs.cache";
 /// `format` and `version` of a song list cache. A cache of any other
 /// version is not trusted: the app rescans and rewrites it.
 const SONG_CACHE_FORMAT: &str = "beetle-songs";
-const SONG_CACHE_VERSION: u64 = 10;
+const SONG_CACHE_VERSION: u64 = 11;
 
-/// Serializes the song list as a cache file.
-pub fn serialize_song_cache(songs: &[SongMetadata]) -> Vec<u8> {
+/// The song each chart belongs to, by chart id: charts with the same number
+/// are one song (see `bms_package_manager::grouping`). Numbers mean nothing
+/// beyond equality and change from scan to scan. Only folder and package
+/// copies are grouped; a game disc's entries are not in it.
+pub type SongGroups = HashMap<ChartId, u32>;
+
+/// Serializes the song list and its grouping as a cache file.
+pub fn serialize_song_cache(songs: &[SongMetadata], groups: &SongGroups) -> Vec<u8> {
     let mut w = Writer::new();
-    w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION, 1);
+    w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION, 2);
     w.str("songs");
     w.array(songs.len());
     for song in songs {
         song.write_msgpack(&mut w);
+    }
+    // Ordered by chart id, so the same scan always writes the same bytes.
+    let mut grouped: Vec<(&ChartId, &u32)> = groups.iter().collect();
+    grouped.sort();
+    w.str("groups");
+    w.map(grouped.len());
+    for (id, song) in grouped {
+        w.bin(id.as_bytes());
+        w.uint(u64::from(*song));
     }
     w.into_bytes()
 }
 
 /// Reads a song list cache. A cache in any other format or version gives
 /// an empty list, which makes the app rescan and rewrite it.
-pub fn deserialize_song_cache(bytes: &[u8]) -> Vec<SongMetadata> {
+pub fn deserialize_song_cache(bytes: &[u8]) -> (Vec<SongMetadata>, SongGroups) {
     msgpack::decode_file(bytes, SONG_CACHE_FORMAT, SONG_CACHE_VERSION)
         .and_then(|file| {
             let songs = file.get("songs")?.as_array()?;
-            Some(
-                songs
-                    .iter()
-                    .filter_map(SongMetadata::read_msgpack)
-                    .collect(),
-            )
+            let songs = songs
+                .iter()
+                .filter_map(SongMetadata::read_msgpack)
+                .collect();
+            let Value::Map(entries) = file.get("groups")? else {
+                return None;
+            };
+            let groups = entries
+                .iter()
+                .filter_map(|(id, song)| {
+                    let id = ChartId::from_digest(id.as_bin()?.try_into().ok()?);
+                    Some((id, song.as_u32()?))
+                })
+                .collect();
+            Some((songs, groups))
         })
         .unwrap_or_default()
 }
@@ -530,17 +565,18 @@ mod tests {
             )
             .unwrap(),
         ];
-        let bytes = serialize_song_cache(&songs);
-        assert_eq!(deserialize_song_cache(&bytes), songs);
+        let groups = SongGroups::from([(songs[0].id, 3), (songs[1].id, 3)]);
+        let bytes = serialize_song_cache(&songs, &groups);
+        assert_eq!(deserialize_song_cache(&bytes), (songs.clone(), groups));
 
         // Text caches from before, and other versions, are not trusted, so the app rescans.
         let old = b"#BEETLE_SONGS_V9\npath=a.bms\ttitle=T\n";
-        assert!(deserialize_song_cache(old).is_empty());
+        assert!(deserialize_song_cache(old).0.is_empty());
         let mut w = Writer::new();
         w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION - 1, 1);
         w.str("songs");
         w.array(0);
-        assert!(deserialize_song_cache(&w.into_bytes()).is_empty());
+        assert!(deserialize_song_cache(&w.into_bytes()).0.is_empty());
     }
 
     #[test]
@@ -550,8 +586,8 @@ mod tests {
         assert_eq!(hyper.difficulty, Some(3));
         let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
         assert_eq!(plain.difficulty, None);
-        let bytes = serialize_song_cache(&[hyper.clone(), plain.clone()]);
-        assert_eq!(deserialize_song_cache(&bytes), vec![hyper, plain]);
+        let bytes = serialize_song_cache(&[hyper.clone(), plain.clone()], &SongGroups::new());
+        assert_eq!(deserialize_song_cache(&bytes).0, vec![hyper, plain]);
     }
 
     #[test]

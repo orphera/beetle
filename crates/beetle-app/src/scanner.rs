@@ -10,15 +10,18 @@
 //! disc a chart is on lists it again, as that disc's song.
 
 use crate::boot_progress::{self, Stage};
-use beetle_core::key_sounds::{count_missing, declared_key_sounds, folder_sound_candidates};
+use beetle_core::key_sounds::{count_missing, folder_sound_candidates};
 use beetle_core::msgpack::{self, Value, Writer};
 use beetle_core::{
     choose_load_index, collection_folders, deserialize_song_cache, disc_address, display_path,
-    package_address, serialize_song_cache, ChartId, LibraryPaths, SongAddress, SongMetadata,
-    SONGS_CACHE_FILE,
+    package_address, serialize_song_cache, ChartId, LibraryPaths, SongAddress, SongGroups,
+    SongMetadata, SONGS_CACHE_FILE,
 };
 use bms_package::installed::{self, REGISTRY_FILENAME};
 use bms_package::PackageReader;
+use bms_package_manager::collection::normalize_stem;
+use bms_package_manager::grouping;
+use bms_package_manager::songs::Manual;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -57,8 +60,10 @@ struct Copy {
     /// path. Disc: the chart's key on the disc.
     path: String,
     meta: SongMetadata,
-    /// Declared key sounds missing next to this copy. Only worked out for
-    /// charts that have more than one copy.
+    /// The key sounds the chart declares (`declared_key_sounds`). Empty for a
+    /// disc chart, whose sounds are on the disc.
+    sounds: Vec<String>,
+    /// Declared key sounds missing next to this copy.
     missing: Option<u32>,
 }
 
@@ -74,6 +79,7 @@ struct CachedCopy {
     source: String,
     path: String,
     meta: SongMetadata,
+    sounds: Vec<String>,
     missing: Option<u32>,
     stamp: Option<FileStamp>,
 }
@@ -98,6 +104,7 @@ impl CachedCopy {
             source: copy.source.clone(),
             path: copy.path.clone(),
             meta: copy.meta.clone(),
+            sounds: copy.sounds.clone(),
             missing: copy.missing,
             stamp,
         }
@@ -109,6 +116,7 @@ impl CachedCopy {
             source: self.source,
             path: self.path,
             meta: self.meta,
+            sounds: self.sounds,
             missing: self.missing,
         }
     }
@@ -137,7 +145,7 @@ fn load_source_cache() -> Option<SourceCache> {
 }
 
 const SOURCE_CACHE_FORMAT: &str = "beetle-sources";
-const SOURCE_CACHE_VERSION: u64 = 2;
+const SOURCE_CACHE_VERSION: u64 = 4;
 
 /// Reads `songs.sources`: `folders` maps each folder root to its
 /// fingerprint, `copies` holds one map per folder or package copy.
@@ -152,6 +160,19 @@ fn parse_source_cache(bytes: &[u8]) -> Option<SourceCache> {
             .folder_fingerprints
             .insert(root.as_str()?.to_string(), fingerprint.as_u64()?);
     }
+    // Charts of one song mostly declare the same sounds, so each distinct
+    // list is kept once and copies refer to it by position.
+    let sound_lists: Vec<Vec<String>> = file
+        .get("sound_lists")?
+        .as_array()?
+        .iter()
+        .map(|list| {
+            list.as_array()?
+                .iter()
+                .map(|s| s.as_str().map(str::to_string))
+                .collect()
+        })
+        .collect::<Option<_>>()?;
     for copy in file.get("copies")?.as_array()? {
         let kind = match copy.get("kind")?.as_str()? {
             "F" => Kind::Folder,
@@ -163,6 +184,9 @@ fn parse_source_cache(bytes: &[u8]) -> Option<SourceCache> {
             source: copy.get("source")?.as_str()?.to_string(),
             path: copy.get("path")?.as_str()?.to_string(),
             meta: SongMetadata::read_msgpack(copy.get("meta")?)?,
+            sounds: sound_lists
+                .get(copy.get("sounds")?.as_u64()? as usize)?
+                .clone(),
             missing: copy.get("missing")?.non_nil().and_then(Value::as_u32),
             stamp: Some(FileStamp {
                 length: copy.get("len")?.as_u64()?,
@@ -175,7 +199,7 @@ fn parse_source_cache(bytes: &[u8]) -> Option<SourceCache> {
 
 fn serialize_source_cache(cache: &SourceCache) -> Vec<u8> {
     let mut w = Writer::new();
-    w.file(SOURCE_CACHE_FORMAT, SOURCE_CACHE_VERSION, 2);
+    w.file(SOURCE_CACHE_FORMAT, SOURCE_CACHE_VERSION, 3);
     w.str("folders");
     w.map(cache.folder_fingerprints.len());
     for (root, fingerprint) in &cache.folder_fingerprints {
@@ -188,13 +212,29 @@ fn serialize_source_cache(cache: &SourceCache) -> Vec<u8> {
         .iter()
         .filter(|c| c.kind != Kind::Disc)
         .collect();
+    let mut list_of: HashMap<&[String], usize> = HashMap::new();
+    let mut lists: Vec<&[String]> = Vec::new();
+    for copy in &copies {
+        list_of.entry(&copy.sounds).or_insert_with(|| {
+            lists.push(&copy.sounds);
+            lists.len() - 1
+        });
+    }
+    w.str("sound_lists");
+    w.array(lists.len());
+    for list in &lists {
+        w.array(list.len());
+        for sound in *list {
+            w.str(sound);
+        }
+    }
     w.str("copies");
     w.array(copies.len());
     for copy in copies {
         let (length, modified) = copy
             .stamp
             .map_or((0, 0), |stamp| (stamp.length, stamp.modified_ns));
-        w.map(7);
+        w.map(8);
         w.str("kind");
         w.str(if copy.kind == Kind::Folder { "F" } else { "P" });
         w.str("source");
@@ -212,6 +252,8 @@ fn serialize_source_cache(cache: &SourceCache) -> Vec<u8> {
         w.uint(u64::try_from(modified).unwrap_or(u64::MAX));
         w.str("meta");
         copy.meta.write_msgpack(&mut w);
+        w.str("sounds");
+        w.uint(list_of[copy.sounds.as_slice()] as u64);
     }
     w.into_bytes()
 }
@@ -253,13 +295,14 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     }
     boot_progress::begin(Stage::Charts, jobs.len());
     let read = read_charts_parallel(&jobs);
-    for ((folder, file), meta) in jobs.iter().zip(read) {
-        if let Some(meta) = meta {
+    for ((folder, file), chart) in jobs.iter().zip(read) {
+        if let Some((meta, sounds)) = chart {
             copies.push(Copy {
                 kind: Kind::Folder,
                 source: (*folder).clone(),
                 path: relative_path(Path::new(folder), file),
                 meta,
+                sounds,
                 missing: None,
             });
         }
@@ -278,14 +321,14 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     boot_progress::begin(Stage::Discs, discs.len());
     copies.extend(read_discs_parallel(&discs));
 
-    finish_scan(copies, readers, None).0
+    finish_scan(copies, readers, None).songs
 }
 
 fn scan_sources_incremental(
     folders: &[String],
     packages_root: Option<&Path>,
     previous: Option<SourceCache>,
-) -> (Vec<SongMetadata>, SourceCache) {
+) -> (ScannedLibrary, SourceCache) {
     let previous = previous.unwrap_or_default();
     let mut old_folders = HashMap::new();
     let mut old_packages: BTreeMap<String, Vec<CachedCopy>> = BTreeMap::new();
@@ -346,16 +389,17 @@ fn scan_sources_incremental(
         }
     }
     boot_progress::begin(Stage::Charts, changed_jobs.len());
-    for ((source, path), meta) in changed_info
+    for ((source, path), chart) in changed_info
         .into_iter()
         .zip(read_charts_parallel(&changed_jobs))
     {
-        if let Some(meta) = meta {
+        if let Some((meta, sounds)) = chart {
             copies.push(Copy {
                 kind: Kind::Folder,
                 source: source.clone(),
                 path: path.clone(),
                 meta,
+                sounds,
                 missing: None,
             });
         }
@@ -401,7 +445,8 @@ fn scan_sources_incremental(
 
     boot_progress::begin(Stage::Discs, discs.len());
     copies.extend(read_discs_parallel(&discs));
-    let (songs, mut cached_copies) = finish_scan(copies, readers, Some(&refresh_folders));
+    let scanned = finish_scan(copies, readers, Some(&refresh_folders));
+    let mut cached_copies = scanned.cached;
     for cached in &mut cached_copies {
         if cached.kind == Kind::Folder {
             let key = (cached.source.clone(), cached.path.clone());
@@ -411,14 +456,25 @@ fn scan_sources_incremental(
         }
     }
     source_cache.copies = cached_copies;
-    (songs, source_cache)
+    let library = ScannedLibrary {
+        songs: scanned.songs,
+        groups: scanned.groups,
+    };
+    (library, source_cache)
+}
+
+/// What `finish_scan` works out from the copies.
+struct Finished {
+    songs: Vec<SongMetadata>,
+    groups: SongGroups,
+    cached: Vec<CachedCopy>,
 }
 
 fn finish_scan(
     copies: Vec<Copy>,
     readers: BTreeMap<String, PackageReader>,
     refresh_folders: Option<&HashSet<String>>,
-) -> (Vec<SongMetadata>, Vec<CachedCopy>) {
+) -> Finished {
     let mut by_chart: BTreeMap<ChartId, Vec<Copy>> = BTreeMap::new();
     for copy in copies {
         by_chart.entry(copy.meta.id).or_default().push(copy);
@@ -430,13 +486,71 @@ fn finish_scan(
         .flatten()
         .map(CachedCopy::from_copy)
         .collect();
+    let groups = song_groups(&by_chart);
     let mut songs = select_copies(by_chart);
     songs.sort_by(|a, b| {
         a.title
             .cmp(&b.title)
             .then_with(|| a.file_path.cmp(&b.file_path))
     });
-    (songs, cached)
+    Finished {
+        songs,
+        groups,
+        cached,
+    }
+}
+
+/// Which charts are one song, by the rule `bpm` uses
+/// (`bms_package_manager::grouping`): every chart in a folder (or package
+/// directory) is the same song, and places join on shared charts and key
+/// sounds. Disc copies are left out; a disc lists its songs on its own.
+fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> SongGroups {
+    let files: Vec<&Copy> = by_chart
+        .values()
+        .flatten()
+        .filter(|c| c.kind != Kind::Disc)
+        .collect();
+    let places: Vec<String> = files
+        .iter()
+        .map(|c| {
+            let dir = c.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+            format!("{:?}\t{}\t{dir}", c.kind, c.source)
+        })
+        .collect();
+    let stems: Vec<Vec<String>> = files
+        .iter()
+        .map(|c| {
+            let mut stems: Vec<String> = c
+                .sounds
+                .iter()
+                .map(|s| normalize_stem(s))
+                .filter(|s| !s.is_empty())
+                .collect();
+            stems.sort();
+            stems.dedup();
+            stems
+        })
+        .collect();
+    let copies: Vec<grouping::Copy> = files
+        .iter()
+        .zip(&places)
+        .zip(&stems)
+        .map(|((c, place), stems)| grouping::Copy {
+            place,
+            chart: c.meta.id,
+            title: &c.meta.title,
+            artist: &c.meta.artist,
+            key_stems: stems,
+            intact: c.missing == Some(0),
+        })
+        .collect();
+    let manual = Manual::load().unwrap_or_default();
+    let grouped = grouping::group(&copies, &manual.links, &manual.splits);
+    files
+        .iter()
+        .zip(&places)
+        .filter_map(|(c, place)| Some((c.meta.id, grouped.song_of(place)? as u32)))
+        .collect()
 }
 
 /// How many threads a stage of the scan uses for `jobs` items.
@@ -493,7 +607,8 @@ fn read_package(state: &installed::ActiveState) -> Option<PackageCopies> {
             continue;
         };
         let virtual_path = package_address(&package_path, &path);
-        let Some(meta) = SongMetadata::from_bytes(&virtual_path, &bytes) else {
+        let Some((meta, sounds)) = SongMetadata::from_bytes_with_sounds(&virtual_path, &bytes)
+        else {
             continue;
         };
         copies.push(Copy {
@@ -501,6 +616,7 @@ fn read_package(state: &installed::ActiveState) -> Option<PackageCopies> {
             source: source.clone(),
             path,
             meta,
+            sounds,
             missing: None,
         });
     }
@@ -580,6 +696,7 @@ fn read_disc_songs(
                     source: source.clone(),
                     path: key,
                     meta,
+                    sounds: Vec::new(),
                     missing: Some(0),
                 });
             }
@@ -611,11 +728,7 @@ fn check_copies_parallel(
     }
     let mut by_source: BTreeMap<String, Vec<&mut Copy>> = BTreeMap::new();
     let mut jobs: Vec<Job> = Vec::new();
-    for copy in by_chart
-        .values_mut()
-        .filter(|g| g.len() > 1)
-        .flat_map(|g| g.iter_mut())
-    {
+    for copy in by_chart.values_mut().flat_map(|g| g.iter_mut()) {
         let needs_check = match copy.kind {
             Kind::Folder => {
                 copy.missing.is_none()
@@ -655,10 +768,10 @@ fn check_copies_parallel(
                         Some(Job::Folder(copy)) => {
                             copy.missing = folder_missing(copy, &mut lookups);
                         }
-                        Some(Job::Package(mut reader, copies)) => {
+                        Some(Job::Package(reader, copies)) => {
                             let index = reader.entry_index();
                             for copy in copies {
-                                copy.missing = package_missing(copy, &mut reader, &index);
+                                copy.missing = package_missing(copy, &index);
                             }
                         }
                     }
@@ -668,14 +781,17 @@ fn check_copies_parallel(
     });
 }
 
+/// A chart read from a file: its metadata and declared key sounds.
+type ReadChart = (SongMetadata, Vec<String>);
+
 /// Reads and parses each chart file on several threads. The result is in
 /// `jobs` order; `None` for a file that cannot be read or is not a chart.
-fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>> {
+fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<ReadChart>> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     let next = AtomicUsize::new(0);
-    let out: Mutex<Vec<Option<SongMetadata>>> = Mutex::new(vec![None; jobs.len()]);
+    let out: Mutex<Vec<Option<ReadChart>>> = Mutex::new(vec![None; jobs.len()]);
     std::thread::scope(|scope| {
         for _ in 0..workers_for(jobs.len()) {
             scope.spawn(|| loop {
@@ -683,11 +799,11 @@ fn read_charts_parallel(jobs: &[(&String, PathBuf)]) -> Vec<Option<SongMetadata>
                 let Some((_, file)) = jobs.get(i) else {
                     break;
                 };
-                let meta = fs::read(file)
-                    .ok()
-                    .and_then(|bytes| SongMetadata::from_bytes(&file.to_string_lossy(), &bytes));
+                let chart = fs::read(file).ok().and_then(|bytes| {
+                    SongMetadata::from_bytes_with_sounds(&file.to_string_lossy(), &bytes)
+                });
                 if let Ok(mut out) = out.lock() {
-                    out[i] = meta;
+                    out[i] = chart;
                 }
                 boot_progress::step();
             });
@@ -747,10 +863,8 @@ impl Lookups {
 /// counts them. `None` when the copy cannot be read or does not parse.
 fn folder_missing(copy: &Copy, lookups: &mut Lookups) -> Option<u32> {
     let file = Path::new(&copy.meta.file_path);
-    let bytes = fs::read(file).ok()?;
-    let names = declared_key_sounds(&bytes)?;
     let dir = file.parent().unwrap_or_else(|| Path::new("."));
-    Some(count_missing(&names, |name| {
+    Some(count_missing(&copy.sounds, |name| {
         folder_sound_candidates(name)
             .iter()
             .any(|candidate| lookups.folder_has(dir, candidate))
@@ -758,15 +872,9 @@ fn folder_missing(copy: &Copy, lookups: &mut Lookups) -> Option<u32> {
 }
 
 /// `folder_missing` for a copy inside a package (`index` is the package's).
-fn package_missing(
-    copy: &Copy,
-    reader: &mut PackageReader,
-    index: &bms_package::EntryIndex,
-) -> Option<u32> {
-    let bytes = reader.read_entry(&copy.path).ok()?;
-    let names = declared_key_sounds(&bytes)?;
+fn package_missing(copy: &Copy, index: &bms_package::EntryIndex) -> Option<u32> {
     let base = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    Some(count_missing(&names, |name| index.has(base, name)))
+    Some(count_missing(&copy.sounds, |name| index.has(base, name)))
 }
 
 /// The folders to scan now: `library.dat` and the songs folder.
@@ -863,8 +971,14 @@ fn cache_is_stale(cache: &Path) -> bool {
             .any(|changed| cached < changed)
 }
 
+/// The charts a scan lists, and which of them are one song.
+pub struct ScannedLibrary {
+    pub songs: Vec<SongMetadata>,
+    pub groups: SongGroups,
+}
+
 /// Scans the song folders and packages, using `songs.cache` when it is current.
-pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
+pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> ScannedLibrary {
     let dir_path = dir.as_ref();
     for candidate in &[
         Path::new(SONGS_CACHE_FILE),
@@ -872,9 +986,9 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
     ] {
         if candidate.exists() && !cache_is_stale(candidate) {
             if let Ok(cache_bytes) = fs::read(candidate) {
-                let cached = deserialize_song_cache(&cache_bytes);
-                if !cached.is_empty() {
-                    return cached;
+                let (songs, groups) = deserialize_song_cache(&cache_bytes);
+                if !songs.is_empty() {
+                    return ScannedLibrary { songs, groups };
                 }
             }
         }
@@ -884,21 +998,21 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
 
 /// Rechecks folder and package sources against `songs.sources`, then overwrites
 /// the visible song list cache. Discs are identified on every rescan.
-pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> Vec<SongMetadata> {
+pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> ScannedLibrary {
     let dir_path = dir.as_ref();
     let folders = current_folders(dir_path);
     let packages = installed::packages_root();
-    let (songs, source_cache) =
+    let (library, source_cache) =
         scan_sources_incremental(&folders, Some(&packages), load_source_cache());
     write_source_cache(&source_cache);
-    if !songs.is_empty() {
-        let cache_data = serialize_song_cache(&songs);
+    if !library.songs.is_empty() {
+        let cache_data = serialize_song_cache(&library.songs, &library.groups);
         let _ = beetle_core::write_atomic(SONGS_CACHE_FILE, &cache_data);
         if dir_path.is_dir() {
             let _ = beetle_core::write_atomic(dir_path.join(SONGS_CACHE_FILE), &cache_data);
         }
     }
-    songs
+    library
 }
 
 fn collect_folder_files(
@@ -1018,6 +1132,7 @@ mod tests {
             source: source.to_string(),
             path: path.to_string(),
             meta: SongMetadata::from_bytes(file_path, CHART).unwrap(),
+            sounds: Vec::new(),
             missing: Some(missing),
         }
     }
@@ -1177,6 +1292,14 @@ mod tests {
             .collect();
 
         let (first, cache) = scan_sources_incremental(&folders, None, None);
+        // A chart in both folders makes them one song, so the chart only
+        // `one` has joins it.
+        let group = |title: &str| {
+            let song = first.songs.iter().find(|s| s.title == title).unwrap();
+            first.groups[&song.id]
+        };
+        assert_eq!(group("Shared"), group("T"));
+        let first = first.songs;
         assert_eq!(first, scan_sources(&folders, None));
         let persisted = parse_source_cache(&serialize_source_cache(&cache)).unwrap();
         assert_eq!(persisted, cache);
@@ -1203,6 +1326,7 @@ mod tests {
         )
         .unwrap();
         let (updated, cache) = scan_sources_incremental(&folders, None, Some(persisted));
+        let updated = updated.songs;
         assert_eq!(updated, scan_sources(&folders, None));
         assert_eq!(
             Path::new(
@@ -1217,6 +1341,7 @@ mod tests {
 
         fs::remove_file(two.join("shared.bms")).unwrap();
         let (removed, _) = scan_sources_incremental(&folders, None, Some(cache));
+        let removed = removed.songs;
         assert_eq!(removed, scan_sources(&folders, None));
         assert_eq!(removed.len(), 3);
         let _ = fs::remove_dir_all(&dir);
