@@ -162,7 +162,7 @@ pub fn first_page(
 /// then the package's versions that are not installed as the active one.
 pub fn edition_page(sets: &[SoundSet], playing: &str, package: Option<&PackageInfo>) -> Vec<Item> {
     let mut items = sound_set_page(sets, playing);
-    for p in package {
+    if let Some(p) = package {
         items.extend(p.versions.iter().filter(|(hash, _)| *hash != p.active).map(
             |(hash, label)| Item {
                 label: strings::fill(strings::MENU_EDITION_VERSION(), &[label]),

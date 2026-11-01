@@ -103,13 +103,10 @@ pub struct SoundSet {
     pub worse: bool,
 }
 
-/// The sets of a chart, and whether every place of the song is one of them.
+/// The sets of a chart, and the places that borrow files from another set.
 #[derive(Debug, Clone, Default)]
 pub struct Sets {
     pub sets: Vec<SoundSet>,
-    /// Every place of the song has a whole set for the chart: none of them is
-    /// a difference folder (or a set with other names) that draws on the rest.
-    pub all_whole: bool,
     /// The places that are not whole sets (they borrow), and where every
     /// place is, for the cleanup (`key_sets::going`).
     pub partial: Vec<String>,
@@ -215,7 +212,6 @@ pub fn sets(groups: &SongGroups, song_places: &SongPlaces, song: &SongMetadata) 
                 worse: set.worse,
             })
             .collect(),
-        all_whole: partial.is_empty(),
         partial,
         places,
         names,
@@ -617,7 +613,7 @@ mod tests {
             ]
         );
         assert_eq!(found.sets[0].same.len(), 2);
-        assert!(!found.all_whole);
+        assert!(!found.partial.is_empty());
         let names = vec!["a.wav".to_string(), "b.wav".to_string()];
         assert_eq!(
             better_set(&ogg, &[copy.clone()], &names),
@@ -632,7 +628,7 @@ mod tests {
         // Without it, the worse place goes only when its charts stay elsewhere.
         places_of.get_mut(&1).unwrap().retain(|p| p.address != diff);
         let found = sets(&groups, &places_of, &songs[0]);
-        assert!(found.all_whole);
+        assert!(found.partial.is_empty());
         assert!(cleanup(&found, &at(&places_of, &songs[0]), &places_of).is_empty());
         for p in places_of.get_mut(&1).unwrap() {
             if p.address == ogg {

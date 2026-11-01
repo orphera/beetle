@@ -404,11 +404,6 @@ impl GuiRenderer {
             .copied()
     }
 
-    /// The scroll bar of `target` drawn this frame.
-    pub fn scrollbar_of(&self, target: ScrollTarget) -> Option<Scrollbar> {
-        self.scrollbars.iter().find(|b| b.target == target).copied()
-    }
-
     pub fn scroll_target_at(&self, pos: (f32, f32)) -> Option<ScrollTarget> {
         if self.hit_at(pos) == Some(UiAction::None) {
             return None;
