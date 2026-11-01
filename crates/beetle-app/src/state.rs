@@ -8,8 +8,8 @@ use std::time::Instant;
 use beetle_audio::AudioEngine;
 use beetle_core::{
     sort_songs, BmsChart, ChartId, JudgeEngine, Lane, LnOption, LnRule, PlayMode, PlayOptions,
-    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongMetadata, SortMode, TableIndex,
-    TimingModel,
+    ReplayData, ScoreRecord, ScoreStore, ScoreUpdate, SongGroups, SongMetadata, SortMode,
+    TableIndex, TimingModel,
 };
 use beetle_render::motion::{self, DETAIL_FADE_SECS, SELECT_EMPHASIS_SECS, SNAP_EPSILON};
 use beetle_render::{strings, EightKForm, ImageBuffer, Rect, SelectMotion, ViewState};
@@ -72,6 +72,8 @@ pub struct AppState {
     pub audio_engine: Option<AudioEngine>,
     pub screen: AppScreen,
     pub songs: Vec<SongMetadata>,
+    /// Which charts are one song, from the scan (`ScannedLibrary::groups`).
+    pub song_groups: SongGroups,
     /// The folder the list shows (see `folders.rs`).
     pub folder_path: FolderPath,
     /// Free play or courses, picked on the title (B9).
@@ -623,6 +625,7 @@ impl AppState {
         };
         self.library_receiver = None;
         self.songs = load.songs;
+        self.song_groups = load.groups;
         // The scan may have written new names files: read them again, and
         // drop the word pictures already in the atlas.
         self.disc_names = None;
@@ -789,10 +792,12 @@ impl AppState {
             self.content_source,
         );
         self.folder_path = folders::normalize(&self.folder_tree, &self.folder_path);
+        let keys = folders::group_keys(&self.songs, &self.song_groups);
         self.entries = folders::entries_for(
             &self.folder_tree,
             &self.folder_path,
             &self.songs,
+            &keys,
             &self.search_query,
             &self.chart_choice,
             &pass,
@@ -1069,6 +1074,7 @@ fn migrate_replays(pairs: &[(u64, ChartId)]) {
 #[derive(Default)]
 pub struct LibraryLoad {
     pub songs: Vec<SongMetadata>,
+    pub groups: SongGroups,
     pub tables: TableIndex,
     /// Present at startup (the scores are read with the library); a rescan keeps the current ones.
     pub score_store: Option<ScoreStore>,
@@ -1101,7 +1107,7 @@ pub enum LibraryJob {
 pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let (songs, score_store) = init_songs_and_scores(sort_mode);
+        let (songs, groups, score_store) = init_songs_and_scores(sort_mode);
         boot_progress::begin(Stage::Tables, 0);
         let tables = crate::tables::build_index(&songs);
         boot_progress::begin(Stage::Uninstalled, 0);
@@ -1109,6 +1115,7 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
         boot_progress::begin(Stage::Done, 0);
         let _ = tx.send(LibraryLoad {
             songs,
+            groups,
             tables,
             score_store: Some(score_store),
             uninstalled,
@@ -1133,7 +1140,8 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         boot_progress::begin(Stage::Listing, 0);
-        let songs = rescan_songs();
+        let library = rescan_songs();
+        let (songs, groups) = (library.songs, library.groups);
         boot_progress::begin(Stage::Tables, 0);
         let tables = crate::tables::build_index(&songs);
         boot_progress::begin(Stage::Uninstalled, 0);
@@ -1141,6 +1149,7 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
         boot_progress::begin(Stage::Done, 0);
         let _ = tx.send(LibraryLoad {
             songs,
+            groups,
             tables,
             score_store: None,
             uninstalled,
@@ -1149,7 +1158,7 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
     rx
 }
 
-pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreStore) {
+pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, SongGroups, ScoreStore) {
     boot_progress::begin(Stage::Scores, 0);
     let mut score_store = ScoreStore::new();
     if Path::new(SCORES_FILE).exists() {
@@ -1159,17 +1168,18 @@ pub fn init_songs_and_scores(sort_mode: SortMode) -> (Vec<SongMetadata>, ScoreSt
     }
 
     boot_progress::begin(Stage::Cache, 0);
-    let mut songs = load_or_scan_songs(DEFAULT_SONGS_DIR).songs;
+    let library = load_or_scan_songs(DEFAULT_SONGS_DIR);
+    let (mut songs, groups) = (library.songs, library.groups);
 
     migrate_chart_keys(&songs, &mut score_store);
     sort_songs(&mut songs, sort_mode, &score_store, LnOption::Cn);
 
-    (songs, score_store)
+    (songs, groups, score_store)
 }
 
 /// Scans the song folders again, ignoring `songs.cache`; unsorted.
-fn rescan_songs() -> Vec<SongMetadata> {
-    crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR).songs
+fn rescan_songs() -> crate::scanner::ScannedLibrary {
+    crate::scanner::force_rescan_songs(DEFAULT_SONGS_DIR)
 }
 
 #[cfg(test)]

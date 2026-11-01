@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use beetle_core::{
     disc_address, package_address, ChartId, ClearType, DifficultyTable, LnOption, PlayMode,
-    ScoreStore, SongAddress, SongMetadata, TableIndex,
+    ScoreStore, SongAddress, SongGroups, SongMetadata, TableIndex,
 };
 use beetle_render::{strings, theme};
 
@@ -742,13 +742,6 @@ fn split_trailing_bracket(title: &str) -> Option<(&str, &str)> {
     None
 }
 
-/// The title without its trailing `[...]` or `(...)` part:
-/// `AIRSHAVER [7key, Another]` → `AIRSHAVER`. The whole title when stripping
-/// would leave nothing.
-pub fn base_title(title: &str) -> &str {
-    split_trailing_bracket(title).map_or(title.trim(), |(base, _)| base)
-}
-
 /// Most characters of a chart's tag in its chip label.
 const CHIP_TAG_MAX: usize = 8;
 
@@ -846,51 +839,36 @@ fn fnv(text: &str) -> u64 {
     })
 }
 
-/// The key of a song's group when its folder is split by title: its folder
-/// and base title, FNV-1a 64. `None` when the song has no folder (a loose
-/// chart file), so it always gets its own row.
-pub fn group_key(song: &SongMetadata) -> Option<u64> {
-    let folder = song_folder(&song.file_path)?;
-    Some(fnv(&format!("{folder}\n{}", base_title(&song.title))))
-}
-
-/// The first few letters and digits of a title, lowercased: charts of one
-/// song (`Song -A-`, `Song [H]`) share them, different songs mostly do not.
-fn title_stem(title: &str) -> String {
-    base_title(title)
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .take(4)
-        .collect()
-}
-
-/// Each song's group key. The charts of one folder are one song and share
-/// the folder's key, unless the folder is a dump of many songs (more than two
-/// title stems, and more stems than half its charts): then they are grouped
-/// by folder and base title (`group_key`). A loose chart has none.
-pub fn group_keys(songs: &[SongMetadata]) -> Vec<Option<u64>> {
+/// Each song's group key: songs with the same key share one row. A song
+/// in `groups` (folder and package copies, grouped by the rule `bpm` uses)
+/// takes the key of its group's first folder, so a song in one folder keeps
+/// that folder's key, and with it the chart remembered for it. Any other
+/// song (a disc's, or one the scan did not group) takes its own folder's key.
+/// A loose chart file has none.
+///
+/// Built when the list is rebuilt, never per frame (INV-7).
+pub fn group_keys(songs: &[SongMetadata], groups: &SongGroups) -> Vec<Option<u64>> {
     let folders: Vec<Option<String>> = songs.iter().map(|s| song_folder(&s.file_path)).collect();
-    let mut stems: HashMap<&str, (HashSet<String>, usize)> = HashMap::new();
+    let grouped = |song: &SongMetadata| {
+        (!is_disc_song(song))
+            .then(|| groups.get(&song.id).copied())
+            .flatten()
+    };
+    let mut first: HashMap<u32, &str> = HashMap::new();
     for (song, folder) in songs.iter().zip(&folders) {
-        if let Some(folder) = folder {
-            let entry = stems.entry(folder.as_str()).or_default();
-            entry.0.insert(title_stem(&song.title));
-            entry.1 += 1;
+        if let (Some(group), Some(folder)) = (grouped(song), folder) {
+            let entry = first.entry(group).or_insert(folder);
+            if folder.as_str() < *entry {
+                *entry = folder;
+            }
         }
     }
     songs
         .iter()
         .zip(&folders)
-        .map(|(song, folder)| {
-            let folder = folder.as_deref()?;
-            let (distinct, charts) = &stems[folder];
-            let mixed = distinct.len() > 2 && distinct.len() * 2 > *charts;
-            if mixed {
-                group_key(song)
-            } else {
-                Some(fnv(folder))
-            }
+        .map(|(song, folder)| match grouped(song) {
+            Some(group) => first.get(&group).map(|f| fnv(f)),
+            None => folder.as_deref().map(fnv),
         })
         .collect()
 }
@@ -903,11 +881,12 @@ fn group_title(songs: &[SongMetadata], charts: &[usize]) -> String {
 }
 
 /// The rows for `indices` (song indices in list order). Charts with the same
-/// group key (`group_keys`) share one row, which takes the place of its first
-/// chart. A group of one chart is a plain song row. The charts run by level,
-/// then title, and the row shows the remembered chart (or the first one).
+/// group key (`keys`, from `group_keys`) share one row, which takes the place
+/// of its first chart. A group of one chart is a plain song row. The charts
+/// run by level, then title, and the row shows the remembered chart (or the first one).
 pub fn group_entries(
     songs: &[SongMetadata],
+    keys: &[Option<u64>],
     indices: &[usize],
     choices: &ChartChoices,
 ) -> Vec<ListEntry> {
@@ -915,7 +894,6 @@ pub fn group_entries(
         Song(usize),
         Group(u64),
     }
-    let keys = group_keys(songs);
     let mut members: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut order = Vec::new();
     for &i in indices {
@@ -1018,10 +996,12 @@ pub fn result_count(
 /// leaf when the folder is one, otherwise from every passing song in the
 /// library (a branch has no songs of its own to search in). Matches are
 /// grouped too. `pass` is the filter mask; a leaf already holds only passing songs.
+/// `keys` are the songs' group keys (`group_keys`).
 pub fn entries_for(
     tree: &[Folder],
     path: &FolderPath,
     songs: &[SongMetadata],
+    keys: &[Option<u64>],
     query: &str,
     choices: &ChartChoices,
     pass: &[bool],
@@ -1032,7 +1012,7 @@ pub fn entries_for(
         if flat {
             indices.iter().map(|&i| ListEntry::Song(i)).collect()
         } else {
-            group_entries(songs, indices, choices)
+            group_entries(songs, keys, indices, choices)
         }
     };
     if !q.is_empty() {
@@ -1090,6 +1070,11 @@ pub fn focus_index(entries: &[ListEntry], came_from: Option<&str>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Group keys without a scan's grouping: each folder is a song.
+    fn keys(songs: &[SongMetadata]) -> Vec<Option<u64>> {
+        group_keys(songs, &SongGroups::new())
+    }
     use beetle_core::{ChartId, DifficultyTable, TableEntry};
 
     fn song(n: u64, title: &str, level: u32, mode: PlayMode) -> SongMetadata {
@@ -1438,6 +1423,7 @@ mod tests {
                 &tree,
                 &path,
                 &songs,
+                &keys(&songs),
                 "",
                 &ChartChoices::new(),
                 &pass_all(&songs),
@@ -1465,6 +1451,7 @@ mod tests {
             &tree,
             &all,
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -1492,20 +1479,37 @@ mod tests {
         );
         let pass = pass_all(&songs);
         let all = FolderPath::top("table").child("T").child(TABLE_ALL_ID);
-        let rows = entries_for(&tree, &all, &songs, "", &ChartChoices::new(), &pass);
+        let rows = entries_for(
+            &tree,
+            &all,
+            &songs,
+            &keys(&songs),
+            "",
+            &ChartChoices::new(),
+            &pass,
+        );
         assert_eq!(rows, [ListEntry::Song(0), ListEntry::Song(1)]);
         // The same charts in the top-level 전곡 folder stay one group row.
         let top = entries_for(
             &tree,
             &FolderPath::top("all"),
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass,
         );
         assert!(matches!(top[0], ListEntry::Group { .. }));
         // Search inside the table's 전곡 folder is flat too.
-        let found = entries_for(&tree, &all, &songs, "air", &ChartChoices::new(), &pass);
+        let found = entries_for(
+            &tree,
+            &all,
+            &songs,
+            &keys(&songs),
+            "air",
+            &ChartChoices::new(),
+            &pass,
+        );
         assert_eq!(found, [ListEntry::Song(0), ListEntry::Song(1)]);
     }
 
@@ -1546,6 +1550,7 @@ mod tests {
             &tree,
             &FolderPath::default(),
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -1585,6 +1590,7 @@ mod tests {
             &tree,
             &level12,
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -1598,6 +1604,7 @@ mod tests {
                 &tree,
                 &modes,
                 &songs,
+                &keys(&songs),
                 "",
                 &ChartChoices::new(),
                 &pass_all(&songs)
@@ -1647,6 +1654,7 @@ mod tests {
                 &tree,
                 &level12,
                 &songs,
+                &keys(&songs),
                 "artist 3",
                 &ChartChoices::new(),
                 &pass_all(&songs)
@@ -1657,6 +1665,7 @@ mod tests {
             &tree,
             &level12,
             &songs,
+            &keys(&songs),
             "banana",
             &ChartChoices::new(),
             &pass_all(&songs)
@@ -1674,6 +1683,7 @@ mod tests {
             &tree,
             &level,
             &songs,
+            &keys(&songs),
             "BANANA",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -1685,6 +1695,7 @@ mod tests {
                 &tree,
                 &FolderPath::default(),
                 &songs,
+                &keys(&songs),
                 "e",
                 &ChartChoices::new(),
                 &pass_all(&songs)
@@ -1739,8 +1750,8 @@ mod tests {
         assert!(tree.is_empty());
         let root = FolderPath::default();
         let choices = ChartChoices::new();
-        assert!(entries_for(&tree, &root, &songs, "", &choices, &[]).is_empty());
-        assert!(entries_for(&tree, &root, &songs, "air", &choices, &[]).is_empty());
+        assert!(entries_for(&tree, &root, &songs, &keys(&songs), "", &choices, &[]).is_empty());
+        assert!(entries_for(&tree, &root, &songs, &keys(&songs), "air", &choices, &[]).is_empty());
         assert!(node(&tree, &FolderPath::parse("level/12")).is_none());
         assert_eq!(result_count(&tree, &root, &songs, "", &[]), 0);
         assert_eq!(result_count(&tree, &root, &songs, "air", &[]), 0);
@@ -1819,6 +1830,7 @@ mod tests {
             &tree,
             &FolderPath::default(),
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -1852,16 +1864,6 @@ mod tests {
             file_path: path.into(),
             ..song(n, title, level, PlayMode::Keys7)
         }
-    }
-
-    #[test]
-    fn base_title_strips_the_trailing_bracket_only() {
-        assert_eq!(base_title("AIRSHAVER [7key, Another]"), "AIRSHAVER");
-        assert_eq!(base_title("AIRSHAVER [14key, Another]"), "AIRSHAVER");
-        assert_eq!(base_title("Song (Remix) [SP]"), "Song (Remix)");
-        assert_eq!(base_title("Plain"), "Plain");
-        // Nothing left after stripping: keep the title.
-        assert_eq!(base_title("[only]"), "[only]");
     }
 
     #[test]
@@ -1910,7 +1912,7 @@ mod tests {
             chart(4, "songs/AIR/d.bms", "AIRSHAVER 2", 12),
             chart(5, "loose.bms", "Loose", 1),
         ];
-        let keys = group_keys(&songs);
+        let keys = keys(&songs);
         // Different titles in one song folder are still one song.
         assert_eq!(keys[0], keys[1]);
         assert_eq!(keys[0], keys[3]);
@@ -1919,7 +1921,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_of_many_songs_is_grouped_by_title() {
+    fn a_folder_of_many_titles_is_still_one_song() {
         let songs = vec![
             chart(1, "dump/a.bms", "Alpha [N]", 5),
             chart(2, "dump/b.bms", "Alpha [H]", 9),
@@ -1927,12 +1929,30 @@ mod tests {
             chart(4, "dump/d.bms", "Charlie", 5),
             chart(5, "dump/e.bms", "Delta", 5),
         ];
-        let keys = group_keys(&songs);
+        let entries = group_entries(
+            &songs,
+            &keys(&songs),
+            &[0, 1, 2, 3, 4],
+            &ChartChoices::new(),
+        );
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn grouped_songs_share_a_row_keyed_by_their_first_folder() {
+        let songs = vec![
+            chart(1, "D:/BMS/song/a.bms", "Song", 5),
+            chart(2, "packages/p.bmsp::song/b.bms", "Song [ANOTHER]", 12),
+            chart(3, "D:/BMS/other/c.bms", "Other", 3),
+        ];
+        let groups = SongGroups::from([(songs[0].id, 7), (songs[1].id, 7), (songs[2].id, 8)]);
+        let keys = group_keys(&songs, &groups);
         assert_eq!(keys[0], keys[1]);
         assert_ne!(keys[0], keys[2]);
-        assert_ne!(keys[2], keys[3]);
-        let entries = group_entries(&songs, &[0, 1, 2, 3, 4], &ChartChoices::new());
-        assert_eq!(entries.len(), 4);
+        // The first folder's key, as the folder alone had: remembered charts still match.
+        assert_eq!(keys[0], self::keys(&songs)[0]);
+        let entries = group_entries(&songs, &keys, &[0, 1, 2], &ChartChoices::new());
+        assert_eq!(entries.len(), 2);
     }
 
     #[test]
@@ -1943,13 +1963,13 @@ mod tests {
             chart(3, "x/AIR/c.bms", "AIR [7key]", 11),
             chart(4, "x/AIR/d.bms", "AIR [5key]", 11),
         ];
-        let entries = group_entries(&songs, &[0, 1, 2, 3], &ChartChoices::new());
+        let entries = group_entries(&songs, &keys(&songs), &[0, 1, 2, 3], &ChartChoices::new());
         // The group sits where its first chart (index 0) was; its charts run by level, then title.
         assert_eq!(
             entries,
             [
                 ListEntry::Group {
-                    key: group_keys(&songs)[0].unwrap(),
+                    key: keys(&songs)[0].unwrap(),
                     title: "AIR".into(),
                     charts: vec![3, 2, 0],
                     selected: 0,
@@ -1971,10 +1991,10 @@ mod tests {
             chart(2, "x/AIR/b.bms", "AIR [14key]", 12),
             chart(9, "loose.bms", "Loose", 5),
         ];
-        let key = group_keys(&songs)[0].unwrap();
+        let key = keys(&songs)[0].unwrap();
         let mut choices = ChartChoices::new();
         choices.insert(key, songs[1].id);
-        let entries = group_entries(&songs, &[0, 1, 2], &choices);
+        let entries = group_entries(&songs, &keys(&songs), &[0, 1, 2], &choices);
         assert_eq!(entries.len(), 2);
         match &entries[0] {
             ListEntry::Group {
@@ -1988,7 +2008,10 @@ mod tests {
         assert_eq!(entries[0].song(), Some(1));
         assert_eq!(entries[1], ListEntry::Song(2));
         // A group with one chart in this list is a plain song row.
-        assert_eq!(group_entries(&songs, &[1], &choices), [ListEntry::Song(1)]);
+        assert_eq!(
+            group_entries(&songs, &keys(&songs), &[1], &choices),
+            [ListEntry::Song(1)]
+        );
     }
 
     #[test]
@@ -2012,6 +2035,7 @@ mod tests {
             &tree,
             &all,
             &songs,
+            &keys(&songs),
             "",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -2024,6 +2048,7 @@ mod tests {
             &tree,
             &FolderPath::default(),
             &songs,
+            &keys(&songs),
             "air",
             &ChartChoices::new(),
             &pass_all(&songs),
@@ -2070,11 +2095,27 @@ mod tests {
 
         // A search from the root looks only at the passing songs.
         let root = FolderPath::default();
-        let found = entries_for(&tree, &root, &songs, "apple", &ChartChoices::new(), &pass);
+        let found = entries_for(
+            &tree,
+            &root,
+            &songs,
+            &keys(&songs),
+            "apple",
+            &ChartChoices::new(),
+            &pass,
+        );
         assert_eq!(songs_of(&found), [0]);
         assert_eq!(result_count(&tree, &root, &songs, "apple", &pass), 1);
         assert_eq!(result_count(&tree, &root, &songs, "", &pass), 2);
-        let hidden = entries_for(&tree, &root, &songs, "date", &ChartChoices::new(), &pass);
+        let hidden = entries_for(
+            &tree,
+            &root,
+            &songs,
+            &keys(&songs),
+            "date",
+            &ChartChoices::new(),
+            &pass,
+        );
         assert!(hidden.is_empty(), "a song the filter hides is not searched");
     }
 

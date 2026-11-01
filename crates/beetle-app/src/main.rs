@@ -248,6 +248,7 @@ impl ApplicationHandler for BeetleApp {
             audio_engine: None,
             screen: AppScreen::Boot,
             songs: Vec::new(),
+            song_groups: Default::default(),
             play_style: Default::default(),
             content_source: Default::default(),
             has_disc_songs: false,
