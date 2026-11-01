@@ -1,5 +1,5 @@
-//! The title screen: a menu of four entries (start, settings, key
-//! configuration, quit). Keys and clicks run the same actions. Escape asks to
+//! The title screen: a menu of five entries (free play, course, settings,
+//! key configuration, quit). The first two pick the play style (B9). Keys and clicks run the same actions. Escape asks to
 //! quit, as it does on the song select root.
 
 use beetle_audio::UiSound;
@@ -7,10 +7,11 @@ use beetle_render::HitId;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
+use crate::folders::PlayStyle;
 use crate::handlers::key_config::open_key_config_from;
 use crate::handlers::options::move_row;
 use crate::handlers::settings::open_settings;
-use crate::handlers::song_select::open_exit_prompt;
+use crate::handlers::song_select::{enter_song_select, open_exit_prompt};
 use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 
@@ -18,16 +19,19 @@ use crate::state::{AppScreen, AppState};
 /// render crate's `title::MENU_LABELS`, in the same order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitleAction {
-    /// Opens song select.
-    Start,
+    /// Opens song select with every song.
+    FreePlay,
+    /// Opens song select with the courses only.
+    Course,
     Settings,
     KeyConfig,
     /// Asks to quit (the quit prompt), like Escape.
     Quit,
 }
 
-pub const TITLE_ACTIONS: [TitleAction; 4] = [
-    TitleAction::Start,
+pub const TITLE_ACTIONS: [TitleAction; 5] = [
+    TitleAction::FreePlay,
+    TitleAction::Course,
     TitleAction::Settings,
     TitleAction::KeyConfig,
     TitleAction::Quit,
@@ -91,9 +95,14 @@ fn activate(state: &mut AppState, row: usize) {
         return;
     };
     match action {
-        TitleAction::Start => {
+        TitleAction::FreePlay | TitleAction::Course => {
             play_ui(state, UiSound::Confirm);
-            state.screen = AppScreen::SongSelect;
+            let style = if action == TitleAction::Course {
+                PlayStyle::Course
+            } else {
+                PlayStyle::Free
+            };
+            enter_song_select(state, style);
         }
         TitleAction::Settings => open_settings(state),
         TitleAction::KeyConfig => open_key_config_from(state, AppScreen::Title),
@@ -110,7 +119,8 @@ mod tests {
         assert_eq!(
             TITLE_ACTIONS,
             [
-                TitleAction::Start,
+                TitleAction::FreePlay,
+                TitleAction::Course,
                 TitleAction::Settings,
                 TitleAction::KeyConfig,
                 TitleAction::Quit,

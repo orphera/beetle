@@ -126,14 +126,16 @@ pub fn handle_song_select_input(
 
     // Normal SongSelect navigation & hotkeys
     match code {
-        // ESC goes up a folder; at the root it asks to quit.
+        // ESC goes up a folder; at the root it goes back to the title.
         KeyCode::Escape => {
             if state.folder_path.is_root() {
-                open_exit_prompt(state)
+                play_ui(state, UiSound::Close);
+                state.screen = AppScreen::Title;
             } else {
                 go_up(state)
             }
         }
+        KeyCode::F6 => set_source(state, state.content_source.other()),
         KeyCode::Slash => set_search_active(state, true),
         KeyCode::F1 => cycle_folder(state, false),
         KeyCode::F3 => cycle_folder(state, true),
@@ -417,6 +419,27 @@ pub fn go_to_crumb(state: &mut AppState, depth: usize) {
     let came_from = state.folder_path.segments().get(depth).cloned();
     let target = state.folder_path.truncated(depth);
     set_folder(state, target, came_from.as_deref());
+}
+
+/// Switches the content source (F6, or a click on its tab) and opens its
+/// root. Does nothing without discs in the library.
+pub fn set_source(state: &mut AppState, source: folders::ContentSource) {
+    if !state.has_disc_songs || source == state.content_source {
+        return;
+    }
+    play_ui(state, UiSound::Move);
+    state.content_source = source;
+    set_folder(state, FolderPath::default(), None);
+}
+
+/// Enters song select in `style` from the title. A different style starts at
+/// its root; the same one keeps the folder the player left.
+pub fn enter_song_select(state: &mut AppState, style: folders::PlayStyle) {
+    if style != state.play_style {
+        state.play_style = style;
+        set_folder(state, FolderPath::default(), None);
+    }
+    state.screen = AppScreen::SongSelect;
 }
 
 /// Moves to the next (or previous) folder at the same depth, wrapping.

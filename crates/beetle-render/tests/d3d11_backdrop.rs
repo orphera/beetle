@@ -202,6 +202,7 @@ fn select_draw(
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,

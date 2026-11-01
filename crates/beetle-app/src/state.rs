@@ -74,6 +74,12 @@ pub struct AppState {
     pub songs: Vec<SongMetadata>,
     /// The folder the list shows (see `folders.rs`).
     pub folder_path: FolderPath,
+    /// Free play or courses, picked on the title (B9).
+    pub play_style: folders::PlayStyle,
+    /// Library or console discs, switched on song select (B9).
+    pub content_source: folders::ContentSource,
+    /// Whether any library song comes from a disc (the source tab shows then).
+    pub has_disc_songs: bool,
     /// The whole folder tree of the library, rebuilt with the list.
     pub folder_tree: Vec<Folder>,
     /// The rows of the current folder (folders or songs), rebuilt with the list.
@@ -766,6 +772,10 @@ impl AppState {
     pub fn recompute_entries(&mut self) {
         let ln_option = self.ln_option();
         self.present_modes = folders::present_modes(&self.songs);
+        self.has_disc_songs = self.songs.iter().any(folders::is_disc_song);
+        if !self.has_disc_songs {
+            self.content_source = folders::ContentSource::Library;
+        }
         self.level_steps = crate::filters::level_steps(&self.songs);
         let pass =
             crate::filters::pass_mask(&self.songs, &self.score_store, ln_option, &self.filter);
@@ -775,6 +785,8 @@ impl AppState {
             &self.tables,
             ln_option,
             &pass,
+            self.play_style,
+            self.content_source,
         );
         self.folder_path = folders::normalize(&self.folder_tree, &self.folder_path);
         self.entries = folders::entries_for(

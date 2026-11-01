@@ -667,6 +667,9 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             has_replay,
             preview_secs: state.preview.playing_for(),
             filter,
+            disc_source: state
+                .has_disc_songs
+                .then_some(state.content_source == crate::folders::ContentSource::Disc),
             result_count: state.result_count,
             sort_menu,
             show_help: state.show_help,

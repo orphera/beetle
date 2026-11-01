@@ -53,6 +53,8 @@ pub enum HitId {
     KeyConfig,
     /// A title menu entry (its index in `title::MENU_LABELS`).
     TitleItem(usize),
+    /// Song select content source tab: `true` for the console discs (B9).
+    Source(bool),
     /// Opens (or the overlay's own close) the help overlay (the footer `?`).
     Help,
     /// Opens the folder picker to link a BMS folder (the first-run guide, the

@@ -322,6 +322,7 @@ fn render_ex(
             has_replay: selected == 5,
             preview_secs: (selected == 5 && search.is_empty()).then_some(0.4),
             filter: extra.filter,
+            disc_source: None,
             result_count: extra.result_count,
             sort_menu: extra.sort_menu,
             library_empty: extra.library_empty,

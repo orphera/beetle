@@ -208,11 +208,31 @@ table! {
         ko "곡 {}개",
         en "Songs: {}",
         ja "{}曲";
-    /// The first menu entry: song select. Also the label after the prompt's keycap.
+    /// The label after the prompt's keycap.
     pub TITLE_START =
         ko "시작",
         en "Start",
         ja "スタート";
+    /// Title menu: song select with every song (the free play style).
+    pub TITLE_FREE_PLAY =
+        ko "프리 플레이",
+        en "Free Play",
+        ja "フリープレイ";
+    /// Title menu: song select with only courses (dan courses among them).
+    pub TITLE_COURSE =
+        ko "코스",
+        en "Course",
+        ja "コース";
+    /// Song select source tab: songs from folders and packages.
+    pub SOURCE_LIBRARY =
+        ko "서재",
+        en "Library",
+        ja "ライブラリ";
+    /// Song select source tab: songs from console game discs.
+    pub SOURCE_DISC =
+        ko "CS 디스크",
+        en "CS Disc",
+        ja "CSディスク";
     /// The prompt before its keycap: PRESS [ENTER] 시작.
     pub TITLE_PRESS =
         ko "PRESS",

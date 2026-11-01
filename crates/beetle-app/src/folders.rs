@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use beetle_core::{
-    disc_address, package_address, ChartId, ClearType, LnOption, PlayMode, ScoreStore, SongAddress,
-    SongMetadata, TableIndex,
+    disc_address, package_address, ChartId, ClearType, DifficultyTable, LnOption, PlayMode,
+    ScoreStore, SongAddress, SongMetadata, TableIndex,
 };
 use beetle_render::{strings, theme};
 
@@ -191,7 +191,6 @@ pub const LAMP_COUNT: usize = beetle_render::LAMP_COUNT;
 /// The id of the 전곡 folder at the top of 난이도표 (no table may take it).
 const TABLE_ALL_ID: &str = "all";
 /// The id of a table's course folder (`~` keeps it apart from level names).
-const COURSES_ID: &str = "~courses";
 
 /// The stable id of a key mode folder.
 pub fn mode_id(mode: PlayMode) -> &'static str {
@@ -280,9 +279,47 @@ fn collect_songs(folder: &Folder, out: &mut HashSet<usize>) {
     }
 }
 
-/// The whole tree for the current library. Top level: 전체 곡, 키 모드, 레벨,
-/// 클리어 램프, 난이도표. Folders with no songs are left out; 난이도표 is left
-/// out when no table has a song in the library.
+/// How the player plays, picked on the title (B9): every song, or courses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlayStyle {
+    #[default]
+    Free,
+    /// Only courses: the difficulty tables' and the discs' (dan courses are
+    /// courses with constraints).
+    Course,
+}
+
+/// Where the songs come from, switched on song select (B9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContentSource {
+    /// Songs read from folders and packages.
+    #[default]
+    Library,
+    /// Songs read from console game discs.
+    Disc,
+}
+
+impl ContentSource {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Library => Self::Disc,
+            Self::Disc => Self::Library,
+        }
+    }
+}
+
+/// Whether `table` is a disc's course-only table (`tables.rs`).
+fn is_disc_table(table: &DifficultyTable) -> bool {
+    matches!(SongAddress::parse(&table.source), SongAddress::Disc { .. })
+}
+
+/// The whole tree for the current library, for one play style and source.
+///
+/// Free play: 전체 곡, 폴더, 키 모드, 레벨, 클리어 램프, then 난이도표 (library
+/// only, without its courses). Folders with no songs are left out. For the
+/// disc source the 폴더 branch holds one folder per disc image.
+///
+/// Course: one folder of courses per table of that source.
 ///
 /// `pass[i]` says whether song `i` passes the filter (see `filters.rs`). Only
 /// passing songs are listed, so the counts are the counts of the filtered list.
@@ -292,13 +329,32 @@ pub fn build_tree(
     tables: &TableIndex,
     ln_option: LnOption,
     pass: &[bool],
+    style: PlayStyle,
+    source: ContentSource,
 ) -> Vec<Folder> {
-    // Game disc songs live in their own 디스크 folder; every other folder
-    // holds only the songs read from folders and packages.
-    let is_disc: Vec<bool> = songs.iter().map(is_disc_song).collect();
-    let plain: Vec<bool> = (0..songs.len()).map(|i| pass[i] && !is_disc[i]).collect();
-    let disc: Vec<bool> = (0..songs.len()).map(|i| pass[i] && is_disc[i]).collect();
-    let pass = plain.as_slice();
+    let want_disc = source == ContentSource::Disc;
+    if style == PlayStyle::Course {
+        return tables
+            .tables()
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| is_disc_table(t) == want_disc && !t.courses.is_empty())
+            .map(|(ti, t)| Folder {
+                id: format!("{}~{ti}", id_piece(&t.name)),
+                label: t.name.clone(),
+                count: 0,
+                body: Body::Courses {
+                    table: ti,
+                    count: t.courses.len(),
+                },
+                lamps: [0; LAMP_COUNT],
+            })
+            .collect();
+    }
+    let pass: Vec<bool> = (0..songs.len())
+        .map(|i| pass.get(i).copied().unwrap_or(true) && is_disc_song(&songs[i]) == want_disc)
+        .collect();
+    let pass = pass.as_slice();
     let mut root = Vec::new();
     root.extend(leaf(
         "all".into(),
@@ -307,18 +363,15 @@ pub fn build_tree(
     ));
 
     // Folders on disk: the folder holding each song's folder (an event or a
-    // collection), and the installed packages together.
+    // collection), the installed packages together, or one per disc image.
     root.extend(branch(
         "dir",
-        strings::FOLDER_DIRS(),
+        if want_disc {
+            strings::FOLDER_DISC()
+        } else {
+            strings::FOLDER_DIRS()
+        },
         dir_folders(songs, pass),
-    ));
-
-    // Game discs: one folder per disc image, as the folder view shows them.
-    root.extend(branch(
-        "disc",
-        strings::FOLDER_DISC(),
-        dir_folders(songs, &disc),
     ));
 
     // Key modes.
@@ -373,6 +426,9 @@ pub fn build_tree(
     let mut table_folders = Vec::new();
     let mut used_ids: HashMap<String, usize> = HashMap::new();
     for (ti, table) in tables.tables().iter().enumerate() {
+        if is_disc_table(table) {
+            continue;
+        }
         let mut by_level: HashMap<&str, Vec<usize>> = HashMap::new();
         let order = table.levels();
         let mut all_of_table = Vec::new();
@@ -396,21 +452,6 @@ pub fn build_tree(
         )
         .into_iter()
         .collect();
-        // A table's courses come first, in one folder.
-        if !table.courses.is_empty() {
-            let count = table.courses.len();
-            levels.insert(
-                0,
-                Folder {
-                    id: COURSES_ID.into(),
-                    label: strings::FOLDER_COURSES().into(),
-                    // It holds no songs; the screen shows no count for it.
-                    count: 0,
-                    body: Body::Courses { table: ti, count },
-                    lamps: [0; LAMP_COUNT],
-                },
-            );
-        }
         levels.extend(order.iter().copied().filter_map(|level| {
             let idx = by_level.remove(level)?;
             leaf(id_piece(level), format!("{}{}", table.symbol, level), idx)
@@ -676,7 +717,7 @@ fn chart_order(song: &SongMetadata, by_difficulty: bool) -> (u32, u32, u32, &str
 }
 
 /// Whether a chart is read from a game disc (a `disc` address), not a folder or package.
-fn is_disc_song(song: &SongMetadata) -> bool {
+pub fn is_disc_song(song: &SongMetadata) -> bool {
     matches!(
         SongAddress::parse(&song.file_path),
         SongAddress::Disc { .. }
@@ -1106,6 +1147,77 @@ mod tests {
         ]
     }
 
+    fn tree_in(
+        songs: &[SongMetadata],
+        tables: &TableIndex,
+        style: PlayStyle,
+        source: ContentSource,
+    ) -> Vec<Folder> {
+        build_tree(
+            songs,
+            &ScoreStore::new(),
+            tables,
+            LnOption::Cn,
+            &pass_all(songs),
+            style,
+            source,
+        )
+    }
+
+    fn course(name: &str) -> beetle_core::CourseDef {
+        beetle_core::CourseDef {
+            name: name.into(),
+            charts: Vec::new(),
+            constraints: Vec::new(),
+            trophies: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn free_play_lists_one_source_and_no_courses() {
+        let mut songs = library();
+        songs[1].file_path = disc_address("iidx.iso", "1/7a");
+        let mut t = table("Insane", "sl", &["1"], &[(1, "1")]);
+        t.courses.push(course("dan"));
+        let tables = TableIndex::new(vec![t]);
+        let lib = tree_in(&songs, &tables, PlayStyle::Free, ContentSource::Library);
+        assert_eq!(lib[0].count, 4, "the disc song is not in the library");
+        fn has_courses(f: &Folder) -> bool {
+            match &f.body {
+                Body::Courses { .. } => true,
+                Body::Branch(c) => c.iter().any(has_courses),
+                Body::Leaf(_) => false,
+            }
+        }
+        assert!(!lib.iter().any(has_courses));
+        let disc = tree_in(&songs, &tables, PlayStyle::Free, ContentSource::Disc);
+        assert_eq!(disc[0].count, 1, "only the disc song");
+    }
+
+    #[test]
+    fn course_style_lists_the_course_tables_of_its_source() {
+        let songs = library();
+        let mut lib = table("Insane", "sl", &[], &[]);
+        lib.courses.push(course("a"));
+        let mut disc = table("IIDX 9th", "", &[], &[]);
+        disc.source = disc_address("iidx.iso", "");
+        disc.courses.push(course("dan"));
+        disc.courses.push(course("expert"));
+        let empty = table("No courses", "", &[], &[]);
+        let tables = TableIndex::new(vec![lib, disc, empty]);
+        let labels = |source| -> Vec<(String, usize)> {
+            tree_in(&songs, &tables, PlayStyle::Course, source)
+                .into_iter()
+                .map(|f| match f.body {
+                    Body::Courses { count, .. } => (f.label, count),
+                    _ => panic!("only course folders"),
+                })
+                .collect()
+        };
+        assert_eq!(labels(ContentSource::Library), [("Insane".to_string(), 1)]);
+        assert_eq!(labels(ContentSource::Disc), [("IIDX 9th".to_string(), 2)]);
+    }
+
     fn tree_of(songs: &[SongMetadata], tables: &TableIndex) -> Vec<Folder> {
         build_tree(
             songs,
@@ -1113,6 +1225,8 @@ mod tests {
             tables,
             LnOption::Cn,
             &pass_all(songs),
+            PlayStyle::Free,
+            ContentSource::Library,
         )
     }
 
@@ -1373,6 +1487,8 @@ mod tests {
             &tables,
             LnOption::Cn,
             &pass_all(&songs),
+            PlayStyle::Free,
+            ContentSource::Library,
         );
         let pass = pass_all(&songs);
         let all = FolderPath::top("table").child("T").child(TABLE_ALL_ID);
@@ -1401,7 +1517,15 @@ mod tests {
         tables.match_songs(songs.iter().map(|s| (s.id, s.md5)));
         // Only the level-12 songs pass: Apple (in the table) passes, Banana does not.
         let pass: Vec<bool> = songs.iter().map(|s| s.play_level == 12).collect();
-        let tree = build_tree(&songs, &ScoreStore::new(), &tables, LnOption::Cn, &pass);
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &tables,
+            LnOption::Cn,
+            &pass,
+            PlayStyle::Free,
+            ContentSource::Library,
+        );
         let table_folder = tree.iter().find(|f| f.id == "table").unwrap();
         let Body::Branch(list) = &table_folder.body else {
             panic!("table is a branch");
@@ -1603,7 +1727,15 @@ mod tests {
     fn an_empty_library_builds_an_empty_tree_and_no_rows() {
         let songs: Vec<SongMetadata> = Vec::new();
         let tables = TableIndex::default();
-        let tree = build_tree(&songs, &ScoreStore::new(), &tables, LnOption::Cn, &[]);
+        let tree = build_tree(
+            &songs,
+            &ScoreStore::new(),
+            &tables,
+            LnOption::Cn,
+            &[],
+            PlayStyle::Free,
+            ContentSource::Library,
+        );
         assert!(tree.is_empty());
         let root = FolderPath::default();
         let choices = ChartChoices::new();
@@ -1868,6 +2000,8 @@ mod tests {
             &TableIndex::default(),
             LnOption::Cn,
             &pass_all(&songs),
+            PlayStyle::Free,
+            ContentSource::Library,
         );
         let all = FolderPath::top("all");
         let rows = entries_for(
@@ -1904,6 +2038,8 @@ mod tests {
             &TableIndex::default(),
             LnOption::Cn,
             &pass,
+            PlayStyle::Free,
+            ContentSource::Library,
         );
 
         // The 전체 곡 count and the level branch count only the passing songs.

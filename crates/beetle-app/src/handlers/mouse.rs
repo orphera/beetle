@@ -180,6 +180,14 @@ fn song_select_click(state: &mut AppState, id: HitId) {
             state.selected_entry = i;
             state.cursor_settle_time = Instant::now();
         }
+        HitId::Source(disc) => crate::handlers::song_select::set_source(
+            state,
+            if disc {
+                crate::folders::ContentSource::Disc
+            } else {
+                crate::folders::ContentSource::Library
+            },
+        ),
         HitId::FolderPrev => cycle_folder(state, false),
         HitId::FolderNext => cycle_folder(state, true),
         HitId::FolderUp => go_up(state),

@@ -248,6 +248,9 @@ impl ApplicationHandler for BeetleApp {
             audio_engine: None,
             screen: AppScreen::Boot,
             songs: Vec::new(),
+            play_style: Default::default(),
+            content_source: Default::default(),
+            has_disc_songs: false,
             folder_path: devtools::start_folder()
                 .unwrap_or_else(|| saved_config.folder_path.clone()),
             folder_tree: Vec::new(),

@@ -29,10 +29,14 @@ const SWEEP_SHARE: f32 = 0.5;
 /// Lowest alpha of the ENTER prompt's text.
 const PROMPT_MIN: f32 = 0.45;
 
+/// Entries in the title menu.
+pub const MENU_COUNT: usize = 5;
+
 /// The menu's labels, top to bottom (the app maps each index to an action).
-pub fn menu_labels() -> [&'static str; 4] {
+pub fn menu_labels() -> [&'static str; MENU_COUNT] {
     [
-        strings::TITLE_START(),
+        strings::TITLE_FREE_PLAY(),
+        strings::TITLE_COURSE(),
         strings::SETTINGS(),
         strings::KEY_CONFIG(),
         strings::QUIT(),
@@ -75,7 +79,7 @@ pub fn prompt_alpha(time: f32) -> f32 {
 }
 
 /// Bottom of the last menu row in 720-unit layout space (`menu_rects`).
-const MENU_BOTTOM_UNITS: f32 = 592.0;
+const MENU_BOTTOM_UNITS: f32 = 604.0;
 
 /// The scale the title layout is drawn at: the viewport scale, shrunk when
 /// the wordmark and the menu would run off the bottom at a large UI scale
@@ -85,12 +89,12 @@ pub fn title_scale(vp: &Viewport) -> f32 {
     vp.scale.min(vp.height * 0.9 / MENU_BOTTOM_UNITS)
 }
 
-/// The four menu rows in viewport pixels, top to bottom.
-pub fn menu_rects(vp: &Viewport) -> [Rect; 4] {
+/// The menu rows in viewport pixels, top to bottom.
+pub fn menu_rects(vp: &Viewport) -> [Rect; MENU_COUNT] {
     let s = title_scale(vp);
-    let (w, h, pitch) = (300.0 * s, 40.0 * s, 50.0 * s);
+    let (w, h, pitch) = (300.0 * s, 36.0 * s, 44.0 * s);
     let x = vp.x + (vp.width - w) / 2.0;
-    let top = vp.y + 402.0 * s;
+    let top = vp.y + 392.0 * s;
     std::array::from_fn(|i| Rect::new(x, top + pitch * i as f32, w, h))
 }
 
@@ -105,7 +109,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
 
     // Hover and hits are read before the canvas and text are borrowed.
     let rows = menu_rects(vp);
-    let hot: [bool; 4] = std::array::from_fn(|i| !f.modal && ui.hovered(rows[i]));
+    let hot: [bool; MENU_COUNT] = std::array::from_fn(|i| !f.modal && ui.hovered(rows[i]));
     if !f.modal {
         for (i, r) in rows.iter().enumerate() {
             ui.hit(*r, HitId::TitleItem(i));
@@ -239,7 +243,7 @@ pub fn draw_title(ui: &mut Ui, f: &TitleFrame) {
     let start_w = t.measure(c, strings::TITLE_START(), &label);
     let gap = 10.0 * s;
     let total = press_w + gap + key_w + gap + start_w;
-    let py = vp.y + 640.0 * s;
+    let py = vp.y + 652.0 * s;
     let mut x = cx - total / 2.0;
     t.draw(c, strings::TITLE_PRESS(), x, py, &label);
     x += press_w + gap;
@@ -332,7 +336,7 @@ mod tests {
             let vp = Viewport::new(w, h);
             let mut ui = Ui::new(vp.scale);
             for clock in [0.0_f32, 0.9, 2.2, 3.7, 4.9, 6.5, 599.5] {
-                for selected in 0..4 {
+                for selected in 0..MENU_COUNT {
                     ui.begin(w, h, vp.scale);
                     ui.clock = clock;
                     draw_title(&mut ui, &frame(&vp, selected, false));
@@ -410,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_rows_are_four_disjoint_rects_inside_the_viewport() {
+    fn menu_rows_are_disjoint_rects_inside_the_viewport() {
         for (w, h) in SIZES {
             let vp = Viewport::new(w, h);
             let rows = menu_rects(&vp);
@@ -443,7 +447,10 @@ mod tests {
             .map(|h| h.id)
             .filter(|id| matches!(id, HitId::TitleItem(_)))
             .collect();
-        assert_eq!(items, (0..4).map(HitId::TitleItem).collect::<Vec<_>>());
+        assert_eq!(
+            items,
+            (0..MENU_COUNT).map(HitId::TitleItem).collect::<Vec<_>>()
+        );
 
         ui.begin(1280, 720, vp.scale);
         draw_title(&mut ui, &frame(&vp, 0, true));
@@ -451,9 +458,9 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_starts_with_start_and_ends_with_quit() {
-        assert_eq!(menu_labels().len(), 4);
-        assert_eq!(menu_labels()[0], strings::TITLE_START());
-        assert_eq!(menu_labels()[3], strings::QUIT());
+    fn the_menu_starts_with_the_play_styles_and_ends_with_quit() {
+        assert_eq!(menu_labels()[0], strings::TITLE_FREE_PLAY());
+        assert_eq!(menu_labels()[1], strings::TITLE_COURSE());
+        assert_eq!(menu_labels()[MENU_COUNT - 1], strings::QUIT());
     }
 }

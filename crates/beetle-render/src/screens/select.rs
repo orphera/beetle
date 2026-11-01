@@ -145,6 +145,9 @@ pub struct SelectFrame<'a> {
     pub preview_secs: Option<f32>,
     /// The filter row (mode chips, level bounds, toggles).
     pub filter: FilterBar<'a>,
+    /// The content source tab (B9): `Some(true)` on the console discs,
+    /// `Some(false)` on the library, `None` when no disc is in the library.
+    pub disc_source: Option<bool>,
     /// The "N곡 찾음" count while a search or a filter is on.
     pub result_count: Option<usize>,
     /// The sort menu, while it is open.
@@ -2761,6 +2764,37 @@ fn filter_row(
     let cap = caption(12.0, s);
     let mut x = bar.x;
 
+    // Content source tab (F6), before the filter: library or console discs.
+    if let Some(disc) = f.disc_source {
+        for (label, is_disc) in [
+            (strings::SOURCE_LIBRARY(), false),
+            (strings::SOURCE_DISC(), true),
+        ] {
+            let r = Rect::new(x, bar.y, chip_width(c, t, label, s), bar.h);
+            hs.add(r, HitId::Source(is_disc));
+            let hot = hs.hovered(r);
+            let on = disc == is_disc;
+            chip_frame(c, sk, r, on, hot, false, s);
+            chip_label(c, t, r, label, on || hot, s);
+            x += r.w + 6.0 * s;
+        }
+        let key_w = keycap_width(c, t, "F6", s);
+        keycap(
+            c,
+            t,
+            sk,
+            "F6",
+            Rect::new(x, bar.y + (bar.h - 20.0 * s) / 2.0, key_w, 20.0 * s),
+            s,
+        );
+        x += key_w + 10.0 * s;
+        c.fill_rect(
+            Rect::new(x, bar.y + 4.0 * s, s.max(1.0), bar.h - 8.0 * s),
+            theme::LINE,
+        );
+        x += 12.0 * s;
+    }
+
     let label_w = t.measure(c, strings::FILTER(), &cap);
     t.draw_in(
         c,
@@ -4013,6 +4047,7 @@ mod tests {
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
@@ -4073,6 +4108,7 @@ mod tests {
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
@@ -4214,6 +4250,7 @@ mod tests {
             has_replay: true,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
@@ -4397,6 +4434,7 @@ mod tests {
                 has_replay: selected == 5,
                 preview_secs: None,
                 filter: FilterBar::default(),
+                disc_source: None,
                 result_count: None,
                 sort_menu: None,
                 show_help: false,
@@ -4456,6 +4494,7 @@ mod tests {
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
@@ -4591,6 +4630,7 @@ mod tests {
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
@@ -4700,6 +4740,7 @@ mod jacket_tests {
             has_replay: false,
             preview_secs: None,
             filter: FilterBar::default(),
+            disc_source: None,
             result_count: None,
             sort_menu: None,
             show_help: false,
