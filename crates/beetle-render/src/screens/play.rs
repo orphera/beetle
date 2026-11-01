@@ -560,6 +560,7 @@ fn playfield(
     // Measure lines.
     c.push_clip(Rect::from_ltrb(field.x, field.y, field.right(), judge_y));
     let (beat_measure, _) = f.timing.time_to_beat(f.audio_time);
+    let measure_line_alpha = if f.high_contrast { 180 } else { 100 };
     for measure in beat_measure.saturating_sub(1)..=f.chart.max_measure + 1 {
         let y = y_at_beat(f.timing.beat_position(measure, 0.0));
         if y < field.y {
@@ -567,8 +568,8 @@ fn playfield(
         }
         if y <= judge_y {
             c.fill_rect(
-                Rect::new(field.x, y.round(), field.w, hair),
-                theme::WHITE.with_alpha(34),
+                Rect::new(field.x, y.round(), field.w, 2.0 * hair),
+                theme::WHITE.with_alpha(measure_line_alpha),
             );
         }
     }
