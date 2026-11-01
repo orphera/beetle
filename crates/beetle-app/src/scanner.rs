@@ -15,7 +15,7 @@ use beetle_core::msgpack::{self, Value, Writer};
 use beetle_core::{
     choose_load_index, collection_folders, deserialize_song_cache, disc_address, display_path,
     package_address, serialize_song_cache, ChartId, LibraryPaths, SongAddress, SongGroups,
-    SongMetadata, SONGS_CACHE_FILE,
+    SongMetadata, SongPlace, SongPlaces, SONGS_CACHE_FILE,
 };
 use bms_package::installed::{self, REGISTRY_FILENAME};
 use bms_package::PackageReader;
@@ -459,6 +459,7 @@ fn scan_sources_incremental(
     let library = ScannedLibrary {
         songs: scanned.songs,
         groups: scanned.groups,
+        places: scanned.places,
     };
     (library, source_cache)
 }
@@ -467,6 +468,7 @@ fn scan_sources_incremental(
 struct Finished {
     songs: Vec<SongMetadata>,
     groups: SongGroups,
+    places: SongPlaces,
     cached: Vec<CachedCopy>,
 }
 
@@ -486,7 +488,7 @@ fn finish_scan(
         .flatten()
         .map(CachedCopy::from_copy)
         .collect();
-    let groups = song_groups(&by_chart);
+    let (groups, places) = song_groups(&by_chart);
     let mut songs = select_copies(by_chart);
     songs.sort_by(|a, b| {
         a.title
@@ -496,6 +498,7 @@ fn finish_scan(
     Finished {
         songs,
         groups,
+        places,
         cached,
     }
 }
@@ -504,7 +507,7 @@ fn finish_scan(
 /// (`bms_package_manager::grouping`): every chart in a folder (or package
 /// directory) is the same song, and places join on shared charts and key
 /// sounds. Disc copies are left out; a disc lists its songs on its own.
-fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> SongGroups {
+fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> (SongGroups, SongPlaces) {
     let files: Vec<&Copy> = by_chart
         .values()
         .flatten()
@@ -546,11 +549,33 @@ fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> SongGroups {
         .collect();
     let manual = Manual::load().unwrap_or_default();
     let grouped = grouping::group(&copies, &manual.links, &manual.splits);
-    files
+    let groups: SongGroups = files
         .iter()
         .zip(&places)
         .filter_map(|(c, place)| Some((c.meta.id, grouped.song_of(place)? as u32)))
-        .collect()
+        .collect();
+    // Each song's places in place order, with the first copy at each as its address.
+    let mut by_place: BTreeMap<&str, (u32, SongPlace)> = BTreeMap::new();
+    for (c, place) in files.iter().zip(&places) {
+        let Some(song) = grouped.song_of(place) else {
+            continue;
+        };
+        let (_, at) = by_place.entry(place).or_insert_with(|| {
+            (
+                song as u32,
+                SongPlace {
+                    address: c.meta.file_path.clone(),
+                    charts: Vec::new(),
+                },
+            )
+        });
+        at.charts.push(c.meta.id);
+    }
+    let mut song_places = SongPlaces::new();
+    for (_, (song, place)) in by_place {
+        song_places.entry(song).or_default().push(place);
+    }
+    (groups, song_places)
 }
 
 /// How many threads a stage of the scan uses for `jobs` items.
@@ -975,6 +1000,8 @@ fn cache_is_stale(cache: &Path) -> bool {
 pub struct ScannedLibrary {
     pub songs: Vec<SongMetadata>,
     pub groups: SongGroups,
+    /// Every place of each song, including copies the list does not load.
+    pub places: SongPlaces,
 }
 
 /// Scans the song folders and packages, using `songs.cache` when it is current.
@@ -986,9 +1013,13 @@ pub fn load_or_scan_songs<P: AsRef<Path>>(dir: P) -> ScannedLibrary {
     ] {
         if candidate.exists() && !cache_is_stale(candidate) {
             if let Ok(cache_bytes) = fs::read(candidate) {
-                let (songs, groups) = deserialize_song_cache(&cache_bytes);
+                let (songs, groups, places) = deserialize_song_cache(&cache_bytes);
                 if !songs.is_empty() {
-                    return ScannedLibrary { songs, groups };
+                    return ScannedLibrary {
+                        songs,
+                        groups,
+                        places,
+                    };
                 }
             }
         }
@@ -1006,7 +1037,7 @@ pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> ScannedLibrary {
         scan_sources_incremental(&folders, Some(&packages), load_source_cache());
     write_source_cache(&source_cache);
     if !library.songs.is_empty() {
-        let cache_data = serialize_song_cache(&library.songs, &library.groups);
+        let cache_data = serialize_song_cache(&library.songs, &library.groups, &library.places);
         let _ = beetle_core::write_atomic(SONGS_CACHE_FILE, &cache_data);
         if dir_path.is_dir() {
             let _ = beetle_core::write_atomic(dir_path.join(SONGS_CACHE_FILE), &cache_data);

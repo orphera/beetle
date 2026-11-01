@@ -19,9 +19,10 @@ use bms_package_manager::PackageManager;
 use winit::keyboard::KeyCode;
 
 use crate::menu_audio::play_ui;
-use crate::sound_sets::SoundSet;
+use crate::sound_sets::{SoundSet, Trash};
 use crate::state::AppState;
 use crate::transition::show_toast;
+use beetle_core::SongPlace;
 
 /// Where the selected song is loaded from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,10 @@ pub enum Action {
     SoundSets,
     /// Plays the song with the key sound set at this place.
     UseSoundSet(String),
+    /// Goes to the cleanup confirm page.
+    AskCleanup,
+    /// Moves the worse key sound sets to the trash.
+    Cleanup,
     /// Back to the first page (the confirm page's cancel).
     Back,
 }
@@ -104,13 +109,22 @@ pub struct SongMenu {
     /// The key sound sets the chart can play with (`sound_sets::sets`).
     sets: Vec<SoundSet>,
     /// The song's places (`sound_sets::places`), where the choice is kept.
-    places: BTreeMap<String, String>,
+    places: BTreeMap<String, SongPlace>,
+    /// What cleaning up the worse sets removes (`sound_sets::cleanup`).
+    trash: Vec<Trash>,
     /// The selected chart's address.
     address: String,
 }
 
 /// The first page's rows for a song from `source`.
-pub fn first_page(source: &Source, package: Option<&PackageInfo>, sets: usize) -> Vec<Item> {
+/// `sets` is how many key sound sets the chart can play with, and `cleanup`
+/// whether some of them can be cleaned up.
+pub fn first_page(
+    source: &Source,
+    package: Option<&PackageInfo>,
+    sets: usize,
+    cleanup: bool,
+) -> Vec<Item> {
     let mut items = vec![Item {
         label: strings::MENU_OPEN_FOLDER().to_string(),
         action: Action::OpenFolder,
@@ -119,6 +133,12 @@ pub fn first_page(source: &Source, package: Option<&PackageInfo>, sets: usize) -
         items.push(Item {
             label: strings::MENU_SOUND_SETS().to_string(),
             action: Action::SoundSets,
+        });
+    }
+    if cleanup {
+        items.push(Item {
+            label: strings::MENU_CLEANUP().to_string(),
+            action: Action::AskCleanup,
         });
     }
     match (source, package) {
@@ -164,28 +184,39 @@ pub fn version_page(package: &PackageInfo) -> Vec<Item> {
 pub fn sound_set_page(sets: &[SoundSet], playing: &str) -> Vec<Item> {
     sets.iter()
         .map(|set| Item {
-            label: if set.place == playing {
-                strings::fill(strings::MENU_SOUND_SET_ACTIVE(), &[&set.label])
-            } else {
-                set.label.clone()
+            label: {
+                let label = if set.worse {
+                    strings::fill(strings::MENU_SOUND_SET_WORSE(), &[&set.label])
+                } else {
+                    set.label.clone()
+                };
+                if set.place == playing {
+                    strings::fill(strings::MENU_SOUND_SET_ACTIVE(), &[&label])
+                } else {
+                    label
+                }
             },
             action: Action::UseSoundSet(set.place.clone()),
         })
         .collect()
 }
 
-/// The set that plays: the chosen one, else the chart's own place, else the first.
-fn playing_set<'a>(menu: &'a SongMenu, choices: &'a crate::sound_sets::Choices) -> &'a str {
-    let own = menu
-        .sets
-        .iter()
-        .find(|s| Some(&s.place) == crate::sound_sets::place_of(&menu.address).as_ref());
+/// The set that plays: the chosen one, else the chart's own place's unless
+/// another is clearly better (as the loader picks), else the first.
+fn playing_set<'a>(menu: &'a SongMenu, choices: &crate::sound_sets::Choices) -> &'a str {
+    let of = |place: &str| menu.sets.iter().find(|s| s.same.iter().any(|p| p == place));
+    let own = crate::sound_sets::place_of(&menu.address)
+        .and_then(|own| of(&own))
+        .map(|own| match own.worse {
+            true => menu.sets.iter().find(|s| !s.worse).unwrap_or(own),
+            false => own,
+        });
     choices
         .chosen(&menu.places)
-        .filter(|c| menu.sets.iter().any(|s| s.place == *c))
-        .or(own.map(|s| s.place.as_str()))
-        .or(menu.sets.first().map(|s| s.place.as_str()))
-        .unwrap_or("")
+        .and_then(of)
+        .or(own)
+        .or(menu.sets.first())
+        .map_or("", |s| s.place.as_str())
 }
 
 /// Finds the package whose installed file is `bmsp`.
@@ -254,14 +285,16 @@ pub fn open(state: &mut AppState) {
         }
         Source::Folder { .. } => 0,
     };
-    let sets = crate::sound_sets::sets(&state.songs, &state.song_groups, song);
-    let places = crate::sound_sets::places(&state.songs, &state.song_groups, song);
+    let found = crate::sound_sets::sets(&state.song_groups, &state.song_places, song);
+    let places = crate::sound_sets::places(&state.song_groups, &state.song_places, song);
+    let trash = crate::sound_sets::cleanup(&found, &places, &state.song_places);
+    let sets = found.sets;
     let address = song.file_path.clone();
     play_ui(state, UiSound::Open);
     state.song_menu = Some(SongMenu {
         title,
         note: None,
-        items: first_page(&source, package.as_ref(), sets.len()),
+        items: first_page(&source, package.as_ref(), sets.len(), !trash.is_empty()),
         row: 0,
         source,
         package,
@@ -269,6 +302,7 @@ pub fn open(state: &mut AppState) {
         charts_in_package,
         sets,
         places,
+        trash,
         address,
     });
 }
@@ -340,9 +374,49 @@ fn run(state: &mut AppState, i: usize) {
         }
         Action::Back => {
             menu.note = None;
-            menu.items = first_page(&menu.source, menu.package.as_ref(), menu.sets.len());
+            menu.items = first_page(
+                &menu.source,
+                menu.package.as_ref(),
+                menu.sets.len(),
+                !menu.trash.is_empty(),
+            );
             menu.row = 0;
             play_ui(state, UiSound::Cancel);
+        }
+        Action::AskCleanup => {
+            let count = menu.trash.len().to_string();
+            menu.note = Some(strings::fill(strings::MENU_CLEANUP_NOTE(), &[&count]));
+            menu.items = vec![
+                Item {
+                    label: strings::CANCEL().to_string(),
+                    action: Action::Back,
+                },
+                Item {
+                    label: strings::MENU_CLEANUP_CONFIRM().to_string(),
+                    action: Action::Cleanup,
+                },
+            ];
+            menu.row = 0;
+            play_ui(state, UiSound::Open);
+        }
+        Action::Cleanup => {
+            let trash = std::mem::take(&mut menu.trash);
+            let title = menu.title.clone();
+            state.song_menu = None;
+            let ok = trash.iter().all(|t| match t {
+                Trash::Folder(dir) => crate::sound_sets::trash_folder(dir).is_ok(),
+                Trash::Package(bmsp) => PackageManager::new(packages_root())
+                    .ok()
+                    .and_then(|mut mgr| {
+                        let p = find_package(&mgr, bmsp)?;
+                        p.versions
+                            .iter()
+                            .try_for_each(|(hash, _)| mgr.uninstall(&p.id, hash))
+                            .ok()
+                    })
+                    .is_some(),
+            });
+            changed(state, ok, strings::TOAST_CLEANED(), &title);
         }
         Action::SoundSets => {
             let playing = playing_set(menu, &state.sound_choices).to_string();
@@ -493,7 +567,12 @@ fn is_version_page(menu: &SongMenu) -> bool {
 fn run_back(state: &mut AppState) {
     if let Some(menu) = &mut state.song_menu {
         menu.note = None;
-        menu.items = first_page(&menu.source, menu.package.as_ref(), menu.sets.len());
+        menu.items = first_page(
+            &menu.source,
+            menu.package.as_ref(),
+            menu.sets.len(),
+            !menu.trash.is_empty(),
+        );
         menu.row = 0;
     }
     play_ui(state, UiSound::Cancel);
@@ -631,7 +710,7 @@ mod tests {
     fn a_folder_song_is_hidden_never_deleted() {
         let src = Source::of("D:/BMS/song/x.bms");
         assert_eq!(
-            actions(&first_page(&src, None, 1)),
+            actions(&first_page(&src, None, 1, false)),
             vec![Action::OpenFolder, Action::Hide]
         );
     }
@@ -640,15 +719,15 @@ mod tests {
     fn versions_show_only_with_two_or_more() {
         let src = Source::of("a.bmsp::x.bms");
         assert_eq!(
-            actions(&first_page(&src, Some(&package(1)), 1)),
+            actions(&first_page(&src, Some(&package(1)), 1, false)),
             vec![Action::OpenFolder, Action::AskDelete]
         );
         assert_eq!(
-            actions(&first_page(&src, Some(&package(2)), 1)),
+            actions(&first_page(&src, Some(&package(2)), 1, false)),
             vec![Action::OpenFolder, Action::Versions, Action::AskDelete]
         );
         assert_eq!(
-            actions(&first_page(&src, None, 1)),
+            actions(&first_page(&src, None, 1, false)),
             vec![Action::OpenFolder]
         );
     }

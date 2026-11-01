@@ -350,7 +350,7 @@ pub const SONGS_CACHE_FILE: &str = "songs.cache";
 /// `format` and `version` of a song list cache. A cache of any other
 /// version is not trusted: the app rescans and rewrites it.
 const SONG_CACHE_FORMAT: &str = "beetle-songs";
-const SONG_CACHE_VERSION: u64 = 11;
+const SONG_CACHE_VERSION: u64 = 12;
 
 /// The song each chart belongs to, by chart id: charts with the same number
 /// are one song (see `bms_package_manager::grouping`). Numbers mean nothing
@@ -358,10 +358,26 @@ const SONG_CACHE_VERSION: u64 = 11;
 /// copies are grouped; a game disc's entries are not in it.
 pub type SongGroups = HashMap<ChartId, u32>;
 
+/// One place of a song (a folder, or a folder inside a package): the address
+/// of a chart copy there, and every chart with a copy there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SongPlace {
+    pub address: String,
+    pub charts: Vec<ChartId>,
+}
+
+/// Each song's places by its number in `SongGroups`, every copy counted (the
+/// song list holds only the copy each chart loads from). In place order.
+pub type SongPlaces = HashMap<u32, Vec<SongPlace>>;
+
 /// Serializes the song list and its grouping as a cache file.
-pub fn serialize_song_cache(songs: &[SongMetadata], groups: &SongGroups) -> Vec<u8> {
+pub fn serialize_song_cache(
+    songs: &[SongMetadata],
+    groups: &SongGroups,
+    places: &SongPlaces,
+) -> Vec<u8> {
     let mut w = Writer::new();
-    w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION, 2);
+    w.file(SONG_CACHE_FORMAT, SONG_CACHE_VERSION, 3);
     w.str("songs");
     w.array(songs.len());
     for song in songs {
@@ -376,12 +392,28 @@ pub fn serialize_song_cache(songs: &[SongMetadata], groups: &SongGroups) -> Vec<
         w.bin(id.as_bytes());
         w.uint(u64::from(*song));
     }
+    let mut by_song: Vec<(&u32, &Vec<SongPlace>)> = places.iter().collect();
+    by_song.sort_by_key(|(song, _)| **song);
+    w.str("places");
+    w.map(by_song.len());
+    for (song, places) in by_song {
+        w.uint(u64::from(*song));
+        w.array(places.len());
+        for place in places {
+            w.array(2);
+            w.str(&place.address);
+            w.array(place.charts.len());
+            for id in &place.charts {
+                w.bin(id.as_bytes());
+            }
+        }
+    }
     w.into_bytes()
 }
 
 /// Reads a song list cache. A cache in any other format or version gives
 /// an empty list, which makes the app rescan and rewrite it.
-pub fn deserialize_song_cache(bytes: &[u8]) -> (Vec<SongMetadata>, SongGroups) {
+pub fn deserialize_song_cache(bytes: &[u8]) -> (Vec<SongMetadata>, SongGroups, SongPlaces) {
     msgpack::decode_file(bytes, SONG_CACHE_FORMAT, SONG_CACHE_VERSION)
         .and_then(|file| {
             let songs = file.get("songs")?.as_array()?;
@@ -399,7 +431,28 @@ pub fn deserialize_song_cache(bytes: &[u8]) -> (Vec<SongMetadata>, SongGroups) {
                     Some((id, song.as_u32()?))
                 })
                 .collect();
-            Some((songs, groups))
+            let Value::Map(entries) = file.get("places")? else {
+                return None;
+            };
+            let read_id = |v: &Value| Some(ChartId::from_digest(v.as_bin()?.try_into().ok()?));
+            let places = entries
+                .iter()
+                .filter_map(|(song, places)| {
+                    let places = places
+                        .as_array()?
+                        .iter()
+                        .filter_map(|place| match place.as_array()? {
+                            [address, charts] => Some(SongPlace {
+                                address: address.as_str()?.to_string(),
+                                charts: charts.as_array()?.iter().filter_map(read_id).collect(),
+                            }),
+                            _ => None,
+                        })
+                        .collect();
+                    Some((song.as_u32()?, places))
+                })
+                .collect();
+            Some((songs, groups, places))
         })
         .unwrap_or_default()
 }
@@ -566,8 +619,18 @@ mod tests {
             .unwrap(),
         ];
         let groups = SongGroups::from([(songs[0].id, 3), (songs[1].id, 3)]);
-        let bytes = serialize_song_cache(&songs, &groups);
-        assert_eq!(deserialize_song_cache(&bytes), (songs.clone(), groups));
+        let places = SongPlaces::from([(
+            3,
+            vec![SongPlace {
+                address: songs[0].file_path.clone(),
+                charts: vec![songs[0].id, songs[1].id],
+            }],
+        )]);
+        let bytes = serialize_song_cache(&songs, &groups, &places);
+        assert_eq!(
+            deserialize_song_cache(&bytes),
+            (songs.clone(), groups, places)
+        );
 
         // Text caches from before, and other versions, are not trusted, so the app rescans.
         let old = b"#BEETLE_SONGS_V9\npath=a.bms\ttitle=T\n";
@@ -586,7 +649,11 @@ mod tests {
         assert_eq!(hyper.difficulty, Some(3));
         let plain = SongMetadata::from_bytes("p.bms", CHART).unwrap();
         assert_eq!(plain.difficulty, None);
-        let bytes = serialize_song_cache(&[hyper.clone(), plain.clone()], &SongGroups::new());
+        let bytes = serialize_song_cache(
+            &[hyper.clone(), plain.clone()],
+            &SongGroups::new(),
+            &SongPlaces::new(),
+        );
         assert_eq!(deserialize_song_cache(&bytes).0, vec![hyper, plain]);
     }
 

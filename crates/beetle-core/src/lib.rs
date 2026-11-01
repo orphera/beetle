@@ -5,6 +5,7 @@
 //! Designed with zero GUI/Audio dependencies for maximum portability and fast testing.
 
 mod atomic_file;
+pub mod audio_info;
 pub mod bms;
 pub mod course;
 mod escape;
@@ -42,7 +43,7 @@ pub use judge::{
 };
 pub use library::{
     compute_chart_hash, deserialize_song_cache, serialize_song_cache, sort_songs, SongGroups,
-    SongMetadata, SortMode, SONGS_CACHE_FILE,
+    SongMetadata, SongPlace, SongPlaces, SortMode, SONGS_CACHE_FILE,
 };
 pub use library_paths::{collection_folders, display_path, LibraryPaths};
 pub use load_location::choose_load_index;

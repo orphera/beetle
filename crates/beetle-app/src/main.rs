@@ -250,6 +250,7 @@ impl ApplicationHandler for BeetleApp {
             screen: AppScreen::Boot,
             songs: Vec::new(),
             song_groups: Default::default(),
+            song_places: Default::default(),
             sound_choices: sound_sets::Choices::load(),
             play_style: Default::default(),
             content_source: Default::default(),

@@ -925,6 +925,19 @@ table! {
         ko "키음 세트 고르기",
         en "Choose Key Sounds",
         ja "キー音セットを選ぶ";
+    pub MENU_CLEANUP =
+        ko "음질 낮은 키음 세트 정리",
+        en "Clean Up Worse Key Sounds",
+        ja "音質の低いキー音セットを整理";
+    pub MENU_CLEANUP_CONFIRM =
+        ko "정리하기",
+        en "Clean Up",
+        ja "整理する";
+    /// `{}` is how many folders or packages go.
+    pub MENU_CLEANUP_NOTE =
+        ko "음질이 확실히 낮은 키음 세트 {}곳을 치워요. 폴더는 .bpm-trash로 옮기고 패키지는 지워요.",
+        en "Removes {} clearly worse key sound sets: folders move to .bpm-trash, packages are deleted.",
+        ja "音質が明らかに低いキー音セット{}件を片付けます。フォルダは.bpm-trashへ移し、パッケージは削除します。";
     pub MENU_DELETE =
         ko "삭제",
         en "Delete",
@@ -956,6 +969,11 @@ table! {
         ko "{} - 지금 쓰는 세트",
         en "{} - in use",
         ja "{} - 使用中";
+    /// `{}` is the key sound set's label; marks a set another is clearly better than.
+    pub MENU_SOUND_SET_WORSE =
+        ko "{} (음질 낮음)",
+        en "{} (worse)",
+        ja "{}（低音質）";
     pub MENU_KEYS =
         ko "ENTER 선택 / ESC 닫기",
         en "ENTER select / ESC close",
@@ -986,6 +1004,11 @@ table! {
         ko "이제 {} 키음으로 플레이해요",
         en "Now playing with {} key sounds",
         ja "これから{}のキー音でプレイします";
+    /// `{}` is the song title.
+    pub TOAST_CLEANED =
+        ko "{}의 음질 낮은 키음 세트를 정리했어요",
+        en "Cleaned up the worse key sounds of {}",
+        ja "{}の低音質キー音セットを整理しました";
     pub TOAST_SOUND_SET_SAVE_FAILED =
         ko "키음 세트 선택(sound_sets.dat)을 저장하지 못했어요",
         en "Could not save the key sound choice (sound_sets.dat)",

@@ -326,7 +326,7 @@ pub fn load_chart_and_audio_with_seed(
 
     let started = std::time::Instant::now();
     progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
-    let (soundbank, loaded) = load_sounds(source.as_mut(), &chart, places);
+    let (soundbank, loaded) = load_sounds(source.as_mut(), &song.file_path, &chart, places);
     let sounds_ms = started.elapsed().as_millis();
 
     // BGA OFF: nothing to decode, so no image or video work.
@@ -371,6 +371,9 @@ pub struct SoundPlaces {
     pub chosen: Option<String>,
     /// The rest, in the order to look in.
     pub others: Vec<String>,
+    /// The player chose a set (maybe the own place). When not, a set clearly
+    /// better than the own place's plays (`sound_sets::better_set`).
+    pub decided: bool,
 }
 
 /// Whether `loaded` of `total` declared sounds is a whole set (90%, P2).
@@ -385,12 +388,20 @@ fn whole_set(loaded: usize, total: usize) -> bool {
 /// set, then the other places.
 fn load_sounds(
     source: &mut dyn SongSource,
+    address: &str,
     chart: &BmsChart,
     places: &SoundPlaces,
 ) -> (SampleBank, usize) {
     let total = chart.header.wav_table.len();
     let (mut bank, _) = source.sounds(chart);
-    let mut chosen = places.chosen.as_deref();
+    let better = match (&places.chosen, places.decided, places.others.is_empty()) {
+        (None, false, false) => {
+            let names: Vec<String> = chart.header.wav_table.values().cloned().collect();
+            crate::sound_sets::better_set(address, &places.others, &names)
+        }
+        _ => None,
+    };
+    let mut chosen = places.chosen.as_deref().or(better.as_deref());
     if let Some(address) = chosen.filter(|_| whole_set(bank.len(), total)) {
         chosen = None;
         if let Ok(mut set) = open_source(address) {
@@ -1707,6 +1718,7 @@ mod tests {
         let places = SoundPlaces {
             chosen: Some(chosen.file_path.clone()),
             others: vec![own.file_path.clone()],
+            decided: true,
         };
         let rate = |song: &SongMetadata, id: u16| {
             let (_, _, bank, _, _) =
