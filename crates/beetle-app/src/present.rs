@@ -6,8 +6,12 @@
 //! `RedrawRequested`; the event loop decides how often that is.
 
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+#[cfg(debug_assertions)]
+use std::sync::Mutex;
+use std::sync::OnceLock;
+#[cfg(debug_assertions)]
+use std::time::Duration;
+use std::time::Instant;
 
 use beetle_core::{ChartId, SongMetadata, SortMode};
 use beetle_render::backdrop::placeholder_backdrop;
