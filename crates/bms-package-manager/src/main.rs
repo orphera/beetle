@@ -839,7 +839,10 @@ fn run_song_unlink(args: &[String]) {
 /// them. A folder moves into `.bpm-trash` beside it; a package is
 /// uninstalled, only when all of its places go. A place goes only when every
 /// chart there has a copy that stays, and only in songs whose every place has
-/// a whole set (no difference folder that may draw on them).
+/// a whole set (no difference folder that may draw on them). A place of a
+/// worse set with charts found nowhere else keeps them and loses the key
+/// sounds a better set has (B18 plan 4.5): a folder's move into the trash, a
+/// package is built again without them.
 fn run_song_clean(args: &[String]) {
     use bms_package_manager::key_sets::{self, PlaceAt};
     use std::collections::BTreeMap;
@@ -882,6 +885,9 @@ fn run_song_clean(args: &[String]) {
     // Places that go: folders to move, and package places by package source.
     let mut folders: Vec<(String, PathBuf, String)> = Vec::new();
     let mut package_places: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    // Places that keep their charts: folders, and package entries by source.
+    let mut folder_strips: Vec<(PathBuf, Vec<String>, String)> = Vec::new();
+    let mut package_strips: BTreeMap<String, (BTreeSet<String>, Vec<String>)> = BTreeMap::new();
     let mut kept: Vec<String> = Vec::new();
     for song in &collection.songs {
         let mut places: BTreeMap<String, (&collection::Location, Vec<ChartId>)> = BTreeMap::new();
@@ -923,8 +929,32 @@ fn run_song_clean(args: &[String]) {
             .find(|s| !s.worse)
             .map_or(String::new(), |s| s.description.clone());
         let going = key_sets::going(&sets, &partial, &list, &names, &charts);
+        let strips = key_sets::stripping(&sets, &partial, &list, &names, &charts);
+        for strip in &strips {
+            let set = sets.iter().find(|s| s.same.contains(&strip.place));
+            let note = format!(
+                "{} / {}: {} key sounds, {} MB (kept: {better}; its charts stay)",
+                song.title,
+                song.artist,
+                set.map_or("", |s| s.description.as_str()),
+                strip.bytes.div_ceil(1 << 20)
+            );
+            let (copy, _) = places[strip.place.as_str()];
+            match list.iter().find(|(k, _)| *k == strip.place) {
+                Some((_, PlaceAt::Folder(dir))) => {
+                    folder_strips.push((dir.clone(), strip.files.clone(), note))
+                }
+                _ => {
+                    let entry = package_strips.entry(copy.source.clone()).or_default();
+                    entry.0.extend(strip.files.iter().cloned());
+                    entry.1.push(note);
+                }
+            }
+        }
         for set in sets.iter().filter(|s| s.worse) {
-            if set.same.iter().all(|p| !going.contains(&p.as_str())) {
+            let handled =
+                |p: &String| going.contains(&p.as_str()) || strips.iter().any(|s| s.place == *p);
+            if set.same.iter().all(|p| !handled(p)) {
                 let why = if going.is_empty() && !partial.is_empty() {
                     "a difference folder would lose its key sounds"
                 } else {
@@ -973,7 +1003,13 @@ fn run_song_clean(args: &[String]) {
     for line in &kept {
         println!("kept    {line}");
     }
-    if folders.is_empty() && packages.is_empty() {
+    // A package that goes whole is not built again.
+    package_strips.retain(|source, _| packages.iter().all(|(s, _)| s != source));
+    if folders.is_empty()
+        && packages.is_empty()
+        && folder_strips.is_empty()
+        && package_strips.is_empty()
+    {
         println!("No key sound set to clean up.");
         return;
     }
@@ -983,6 +1019,14 @@ fn run_song_clean(args: &[String]) {
     for (source, notes) in &packages {
         for note in notes {
             println!("package {source}  {note}");
+        }
+    }
+    for (dir, _, note) in &folder_strips {
+        println!("strip   {}  {note}", dir.display());
+    }
+    for (source, (_, notes)) in &package_strips {
+        for note in notes {
+            println!("strip   {source}  {note}");
         }
     }
     if !apply {
@@ -1013,7 +1057,22 @@ fn run_song_clean(args: &[String]) {
             failed += 1;
         }
     }
-    let done = folders.len() + packages.len() - failed;
+    for (dir, files, _) in &folder_strips {
+        if let Err(e) = key_sets::trash_files(dir, files) {
+            eprintln!("could not move key sounds of {}: {e}", dir.display());
+            failed += 1;
+        }
+    }
+    for (source, (entries, _)) in &package_strips {
+        let (id, hash) = source.split_once('@').unwrap_or((source.as_str(), ""));
+        let result = PackageManager::new(get_default_packages_dir())
+            .and_then(|mut mgr| mgr.repack_without(id, hash, entries));
+        if let Err(e) = result {
+            eprintln!("could not build {id} again: {e}");
+            failed += 1;
+        }
+    }
+    let done = folders.len() + packages.len() + folder_strips.len() + package_strips.len() - failed;
     println!("Cleaned up {done} place(s); run bpm scan to update the index.");
     if failed > 0 {
         std::process::exit(1);

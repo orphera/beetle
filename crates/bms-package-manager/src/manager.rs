@@ -463,6 +463,75 @@ impl PackageManager {
         Ok(())
     }
 
+    /// Builds an installed state again without the entries in `drop`, installs
+    /// that as a new state in its place and returns the new state hash (B18
+    /// plan 4.5: a worse set keeps only its charts). The packer is the same,
+    /// so the new archive is as deterministic as any (INV-6). The state stays
+    /// active if it was, the BGA companion moves over, and the old state goes.
+    /// Nothing changes when no entry is dropped.
+    pub fn repack_without(
+        &mut self,
+        id: &str,
+        state_hash: &str,
+        without: &std::collections::BTreeSet<String>,
+    ) -> Result<String, PackageManagerError> {
+        let record = self
+            .registry
+            .get_package(id)
+            .ok_or_else(|| PackageManagerError::PackageNotFound(id.to_string()))?
+            .clone();
+        if !record.state_hashes.contains_key(state_hash) {
+            return Err(PackageManagerError::StateNotFound {
+                id: id.to_string(),
+                state_hash: state_hash.to_string(),
+            });
+        }
+        let old_dir = self.storage.state_dir(id, state_hash);
+        let mut reader = bms_package::PackageReader::open_file(old_dir.join("package.bmsp"))?;
+        let mut builder = bms_package::PackageBuilder::new(reader.manifest().clone());
+        let paths: Vec<String> = reader
+            .entries()
+            .iter()
+            .map(|e| e.path.clone())
+            .filter(|p| p != MANIFEST_FILENAME && !without.contains(p))
+            .collect();
+        if paths.len() + 1 >= reader.entries().len() {
+            return Ok(state_hash.to_string());
+        }
+        for path in paths {
+            let bytes = reader.read_entry(&path)?;
+            builder.add_file(path, bytes)?;
+        }
+        drop(reader);
+        let bytes = builder.build_to_bytes()?;
+        let new = self.install_from_bytes(bytes)?;
+
+        // `install` makes the new state active and resets the BGA status. The
+        // companion sits in the active state's folder.
+        let was_active = record.active_state == state_hash;
+        let companion = match (record.bga_status, &record.bga_companion_path) {
+            (BgaStatus::Companion, Some(path)) if was_active => {
+                let from = PathBuf::from(path);
+                let to = new.location.join(from.file_name().unwrap_or_default());
+                fs::copy(&from, &to)?;
+                Some(to.to_string_lossy().into_owned())
+            }
+            _ => None,
+        };
+        if companion.is_some() {
+            self.registry
+                .update_bga_status(id, BgaStatus::Companion, companion)?;
+        }
+        if !was_active {
+            self.registry.set_active(id, &record.active_state)?;
+            self.registry
+                .update_bga_status(id, record.bga_status, record.bga_companion_path)?;
+        }
+        self.save_registry()?;
+        self.uninstall(id, state_hash)?;
+        Ok(new.state_hash)
+    }
+
     /// Sets the active state for a multi-state package.
     pub fn set_active(&mut self, id: &str, state_hash: &str) -> Result<(), PackageManagerError> {
         self.registry.set_active(id, state_hash)?;
@@ -552,5 +621,52 @@ impl PackageManager {
             .get_package(id)
             .map(|r| r.state_hashes.keys().cloned().collect())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn repack_without_keeps_the_rest_and_replaces_the_state() {
+        let root = std::env::temp_dir().join(format!("bpm-repack-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let mut builder = bms_package::PackageBuilder::new(Manifest::new("t.pack", "Pack"));
+        for (path, bytes) in [
+            ("a/chart.bms", "#TITLE A"),
+            ("a/k1.ogg", "one"),
+            ("a/k2.ogg", "two"),
+            ("b/chart.bms", "#TITLE B"),
+        ] {
+            builder.add_file(path, bytes).unwrap();
+        }
+        let mut mgr = PackageManager::new(&root).unwrap();
+        let old = mgr
+            .install_from_bytes(builder.build_to_bytes().unwrap())
+            .unwrap();
+
+        let none = BTreeSet::new();
+        assert_eq!(
+            mgr.repack_without("t.pack", &old.state_hash, &none)
+                .unwrap(),
+            old.state_hash
+        );
+        let without = BTreeSet::from(["a/k1.ogg".to_string(), "a/k2.ogg".to_string()]);
+        let new = mgr
+            .repack_without("t.pack", &old.state_hash, &without)
+            .unwrap();
+        assert_ne!(new, old.state_hash);
+        assert_eq!(mgr.get_installed_states("t.pack"), [new.clone()]);
+        let active = mgr.get_active_package("t.pack").unwrap();
+        assert_eq!(active.state_hash, new);
+        assert!(!old.location.exists());
+        let pkg = active.open().unwrap();
+        let paths: Vec<&str> = pkg.entries().iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.contains(&"a/chart.bms") && paths.contains(&"b/chart.bms"));
+        assert!(!paths.iter().any(|p| p.ends_with(".ogg")));
+        assert_eq!(pkg.read_entry("b/chart.bms").unwrap(), b"#TITLE B");
+        let _ = fs::remove_dir_all(&root);
     }
 }

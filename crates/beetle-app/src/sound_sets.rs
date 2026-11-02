@@ -271,10 +271,17 @@ pub enum Trash {
     Folder(PathBuf),
     /// An installed package file, uninstalled.
     Package(PathBuf),
+    /// Key sound files of a library folder whose charts stay, moved into
+    /// `.bpm-trash` beside it (B18 plan 4.5, `key_sets::stripping`).
+    Strip { dir: PathBuf, files: Vec<String> },
+    /// Key sound entries of an installed package whose charts stay: the
+    /// package is built again without them.
+    Repack { bmsp: PathBuf, entries: Vec<String> },
 }
 
 /// What cleaning up the worse sets of a chart removes (`key_sets::going`):
-/// a folder, or a package when all of its places go.
+/// a folder, or a package when all of its places go. A place whose charts
+/// are found nowhere else keeps them and loses its key sounds instead.
 pub fn cleanup(
     sets: &Sets,
     places: &BTreeMap<String, SongPlace>,
@@ -298,6 +305,7 @@ pub fn cleanup(
         key_sets::going(&found, &sets.partial, &sets.places, &sets.names, &charts)
             .into_iter()
             .collect();
+    let strips = key_sets::stripping(&found, &sets.partial, &sets.places, &sets.names, &charts);
     let mut out = Vec::new();
     for key in &going {
         let trash = match key.split_once("::") {
@@ -316,6 +324,25 @@ pub fn cleanup(
             }
         };
         out.push(trash);
+    }
+    let mut repacks: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for strip in strips {
+        match strip.place.split_once("::") {
+            None => out.push(Trash::Strip {
+                dir: PathBuf::from(&strip.place),
+                files: strip.files,
+            }),
+            Some((bmsp, _)) => repacks
+                .entry(PathBuf::from(bmsp))
+                .or_default()
+                .extend(strip.files),
+        }
+    }
+    for (bmsp, entries) in repacks {
+        // A package that goes whole is not built again.
+        if !out.contains(&Trash::Package(bmsp.clone())) {
+            out.push(Trash::Repack { bmsp, entries });
+        }
     }
     out.sort();
     out.dedup();
@@ -621,21 +648,35 @@ mod tests {
         );
         assert_eq!(better_set(&copy, &[ogg.clone()], &names), None);
 
-        // A difference folder may draw on any set: nothing is cleaned up.
+        // The worse place has a chart found nowhere else: it keeps it and
+        // loses the key sounds the WAV set has. The difference folder still
+        // finds them there.
         let at = |p: &SongPlaces, s: &SongMetadata| places(&groups, p, s);
-        assert!(cleanup(&found, &at(&places_of, &songs[0]), &places_of).is_empty());
+        let ogg_dir = PathBuf::from(place_of(&ogg).unwrap());
+        let strip = Trash::Strip {
+            dir: ogg_dir.clone(),
+            files: ["a.ogg", "b.ogg"]
+                .map(|f| ogg_dir.join(f).to_string_lossy().into_owned())
+                .to_vec(),
+        };
+        assert_eq!(
+            cleanup(&found, &at(&places_of, &songs[0]), &places_of),
+            [strip.clone()]
+        );
 
         // Without it, the worse place goes only when its charts stay elsewhere.
         places_of.get_mut(&1).unwrap().retain(|p| p.address != diff);
         let found = sets(&groups, &places_of, &songs[0]);
         assert!(found.partial.is_empty());
-        assert!(cleanup(&found, &at(&places_of, &songs[0]), &places_of).is_empty());
+        assert_eq!(
+            cleanup(&found, &at(&places_of, &songs[0]), &places_of),
+            [strip]
+        );
         for p in places_of.get_mut(&1).unwrap() {
             if p.address == ogg {
                 p.charts = vec![songs[3].id];
             }
         }
-        let ogg_dir = PathBuf::from(place_of(&ogg).unwrap());
         assert_eq!(
             cleanup(&found, &at(&places_of, &songs[0]), &places_of),
             [Trash::Folder(ogg_dir.clone())]

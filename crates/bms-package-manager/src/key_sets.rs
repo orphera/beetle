@@ -304,6 +304,115 @@ pub fn going<'a>(
     }
 }
 
+/// A place of a worse set that keeps its charts and loses the key sounds a
+/// better set that stays has (B18 plan 4.5). Its charts then play with that
+/// set's files, as a difference folder's do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Strip {
+    pub place: String,
+    /// The files that go: paths in a folder, entry paths in a package.
+    pub files: Vec<String>,
+    /// Their bytes in all.
+    pub bytes: u64,
+}
+
+/// The places of the worse sets that cannot go (`going`) because some chart
+/// there is found nowhere else: each loses the files the first better set
+/// also has. As with `going`, nothing is stripped unless every borrowing
+/// place still finds what it lacks at a better set.
+pub fn stripping(
+    sets: &[Set],
+    partial: &[String],
+    places: &[(String, PlaceAt)],
+    names: &[String],
+    charts: &BTreeMap<String, Vec<ChartId>>,
+) -> Vec<Strip> {
+    let at = |key: &str| places.iter().find(|(k, _)| k == key).map(|(_, a)| a);
+    let Some(better) = sets.iter().find(|s| !s.worse).and_then(|s| at(&s.place)) else {
+        return Vec::new();
+    };
+    let going = going(sets, partial, places, names, charts);
+    let stuck: Vec<&str> = sets
+        .iter()
+        .filter(|s| s.worse)
+        .flat_map(|s| s.same.iter().map(String::as_str))
+        .filter(|k| !going.contains(k) && charts.contains_key(*k))
+        .collect();
+    if stuck.is_empty() {
+        return Vec::new();
+    }
+    let kept: Vec<&PlaceAt> = sets
+        .iter()
+        .filter(|s| !s.worse)
+        .flat_map(|s| &s.same)
+        .filter_map(|k| at(k))
+        .collect();
+    let covered = partial.iter().all(|p| {
+        let Some(own) = at(p) else {
+            return false;
+        };
+        let missing = files_at(own, names).missing(names);
+        missing.is_empty() || kept.iter().any(|k| files_at(k, &missing).whole(&missing))
+    });
+    if !covered {
+        return Vec::new();
+    }
+    let theirs = files_at(better, names);
+    let mut out = Vec::new();
+    for key in stuck {
+        let Some(own) = at(key) else {
+            continue;
+        };
+        let mut files: Vec<(&String, &FileAt)> = Vec::new();
+        let mine = files_at(own, names);
+        for (name, file) in &mine.0 {
+            if theirs.0.contains_key(name) {
+                files.push((name, file));
+            }
+        }
+        if files.is_empty() {
+            continue;
+        }
+        files.sort_by(|a, b| a.0.cmp(b.0));
+        out.push(Strip {
+            place: key.to_string(),
+            bytes: files.iter().map(|(_, f)| f.size).sum(),
+            files: files.into_iter().map(|(_, f)| f.path.clone()).collect(),
+        });
+    }
+    out
+}
+
+/// Moves some files of `dir` into `.bpm-trash/<dir name>` beside `dir`
+/// (`trash_folder`'s trash), keeping their place under `dir`. A name taken
+/// there gets a free one.
+pub fn trash_files(dir: &Path, files: &[String]) -> std::io::Result<PathBuf> {
+    let parent = dir.parent().unwrap_or_else(|| Path::new("."));
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+    let trash = parent.join(crate::collection::TRASH_DIR).join(&*name);
+    for file in files {
+        let from = Path::new(file);
+        let inner = from.strip_prefix(dir).unwrap_or(from);
+        let mut target = trash.join(inner);
+        if let Some(up) = target.parent() {
+            fs::create_dir_all(up)?;
+        }
+        let mut n = 1;
+        while target.exists() {
+            n += 1;
+            let stem = inner.file_stem().unwrap_or_default().to_string_lossy();
+            let ext = inner.extension().map(|e| e.to_string_lossy());
+            let free = match ext {
+                Some(ext) => format!("{stem} ({n}).{ext}"),
+                None => format!("{stem} ({n})"),
+            };
+            target.set_file_name(free);
+        }
+        fs::rename(from, &target)?;
+    }
+    Ok(trash)
+}
+
 /// [`going`] without the borrowing places.
 fn going_whole<'a>(sets: &'a [Set], charts: &BTreeMap<String, Vec<ChartId>>) -> Vec<&'a str> {
     let worse: HashSet<&str> = sets
@@ -426,7 +535,28 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert!(go(&[], &places, &charts).is_empty());
+        // Its chart 2 is found nowhere else: it keeps that and loses the
+        // key sounds the WAV set has.
+        let strips = stripping(&sets, &[], &places, &names, &charts);
+        assert_eq!(strips.len(), 1);
+        assert_eq!(strips[0].place, "ogg");
+        let PlaceAt::Folder(ogg_dir) = &places[1].1 else {
+            unreachable!()
+        };
+        let in_ogg = |n: &str| ogg_dir.join(n).to_string_lossy().into_owned();
+        assert_eq!(strips[0].files, [in_ogg("a.ogg"), in_ogg("b.ogg")]);
+        assert_eq!(strips[0].bytes, 2 * ogg_bytes(44100).len() as u64);
+        // A borrowing place the WAV sets do not cover stops it.
+        let mut odd = places.clone();
+        odd.push(mk("odd", &[("a.wav", wav_bytes(44100))]));
+        let only_ogg = vec!["a.wav".to_string(), "c.wav".to_string()];
+        fs::write(ogg_dir.join("c.ogg"), ogg_bytes(44100)).unwrap();
+        assert!(stripping(&sets, &["odd".into()], &odd, &only_ogg, &charts).is_empty());
+        fs::remove_file(ogg_dir.join("c.ogg")).unwrap();
+        fs::remove_dir_all(root.join("odd")).unwrap();
         charts.insert("ogg".into(), vec![id(1)]);
+        // Once the place may go, it is not stripped.
+        assert!(stripping(&sets, &[], &places, &names, &charts).is_empty());
         assert_eq!(go(&[], &places, &charts), ["ogg"]);
 
         // A difference folder with only `a.wav` borrows `b.wav`: the WAV
@@ -444,6 +574,35 @@ mod tests {
         };
         let moved = trash_folder(dir).unwrap();
         assert!(!dir.exists() && moved.join("a.ogg").is_file());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn stripped_files_move_into_the_trash_under_their_folder() {
+        let root = std::env::temp_dir().join(format!("bpm-strip-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("song");
+        fs::create_dir_all(dir.join("snd")).unwrap();
+        for f in ["a.ogg", "snd/b.ogg", "chart.bms"] {
+            fs::write(dir.join(f), f).unwrap();
+        }
+        let files = |names: &[&str]| -> Vec<String> {
+            names
+                .iter()
+                .map(|n| dir.join(n).to_string_lossy().into_owned())
+                .collect()
+        };
+        let trash = trash_files(&dir, &files(&["a.ogg", "snd/b.ogg"])).unwrap();
+        assert!(dir.join("chart.bms").is_file());
+        assert!(!dir.join("a.ogg").exists() && !dir.join("snd/b.ogg").exists());
+        assert!(trash.join("a.ogg").is_file() && trash.join("snd/b.ogg").is_file());
+        // A second strip of the same name keeps the first one.
+        fs::write(dir.join("a.ogg"), "again").unwrap();
+        trash_files(&dir, &files(&["a.ogg"])).unwrap();
+        assert_eq!(
+            fs::read_to_string(trash.join("a (2).ogg")).unwrap(),
+            "again"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

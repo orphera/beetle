@@ -400,20 +400,13 @@ fn run(state: &mut AppState, i: usize) {
             let trash = std::mem::take(&mut menu.trash);
             let title = menu.title.clone();
             state.song_menu = None;
-            let ok = trash.iter().all(|t| match t {
-                Trash::Folder(dir) => crate::sound_sets::trash_folder(dir).is_ok(),
-                Trash::Package(bmsp) => PackageManager::new(packages_root())
-                    .ok()
-                    .and_then(|mut mgr| {
-                        let p = find_package(&mgr, bmsp)?;
-                        p.versions
-                            .iter()
-                            .try_for_each(|(hash, _)| mgr.uninstall(&p.id, hash))
-                            .ok()
-                    })
-                    .is_some(),
+            // Building a package again is slow: the rescan worker does it first.
+            state.installs.summary = Some(crate::install::Summary {
+                text: strings::fill(strings::TOAST_CLEANED(), &[&title]),
+                kind: ToastKind::Success,
+                focus: Vec::new(),
             });
-            changed(state, ok, strings::TOAST_CLEANED(), &title);
+            state.start_rescan_after(Some(Box::new(move || clean_up(&trash))));
         }
         Action::Editions => {
             let playing = playing_set(menu, &state.song_groups, &state.sound_choices).to_string();
@@ -531,6 +524,39 @@ fn changed(state: &mut AppState, ok: bool, done: &str, title: &str) {
         focus: Vec::new(),
     });
     state.start_rescan();
+}
+
+/// Carries out a cleanup (`sound_sets::cleanup`); `false` when some of it failed.
+fn clean_up(trash: &[Trash]) -> bool {
+    trash.iter().fold(true, |ok, t| {
+        let done = match t {
+            Trash::Folder(dir) => crate::sound_sets::trash_folder(dir).is_ok(),
+            Trash::Strip { dir, files } => {
+                bms_package_manager::key_sets::trash_files(dir, files).is_ok()
+            }
+            Trash::Package(bmsp) => PackageManager::new(packages_root())
+                .ok()
+                .and_then(|mut mgr| {
+                    let p = find_package(&mgr, bmsp)?;
+                    p.versions
+                        .iter()
+                        .try_for_each(|(hash, _)| mgr.uninstall(&p.id, hash))
+                        .ok()
+                })
+                .is_some(),
+            // packages/<id>/<state hash>/package.bmsp
+            Trash::Repack { bmsp, entries } => PackageManager::new(packages_root())
+                .ok()
+                .and_then(|mut mgr| {
+                    let p = find_package(&mgr, bmsp)?;
+                    let hash = bmsp.parent()?.file_name()?.to_string_lossy();
+                    let entries = entries.iter().cloned().collect();
+                    mgr.repack_without(&p.id, &hash, &entries).ok()
+                })
+                .is_some(),
+        };
+        ok && done
+    })
 }
 
 /// Keys while the menu is open: arrows move, ENTER runs, ESC closes (or goes

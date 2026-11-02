@@ -993,9 +993,9 @@ table! {
         ja "整理する";
     /// `{}` is how many folders or packages go.
     pub MENU_CLEANUP_NOTE =
-        ko "음질이 확실히 낮은 키음 세트 {}곳을 치워요. 폴더는 .bpm-trash로 옮기고 패키지는 지워요.",
-        en "Removes {} clearly worse key sound sets: folders move to .bpm-trash, packages are deleted.",
-        ja "音質が明らかに低いキー音セット{}件を片付けます。フォルダは.bpm-trashへ移し、パッケージは削除します。";
+        ko "음질이 확실히 낮은 키음 세트 {}곳을 치워요. 폴더는 .bpm-trash로 옮기고 패키지는 지워요. 다른 곳에 없는 채보는 남겨요.",
+        en "Removes {} clearly worse key sound sets: folders move to .bpm-trash, packages are deleted. Charts found nowhere else stay.",
+        ja "音質が明らかに低いキー音セット{}件を片付けます。フォルダは.bpm-trashへ移し、パッケージは削除します。他にない譜面は残します。";
     pub MENU_DELETE =
         ko "삭제",
         en "Delete",

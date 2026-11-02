@@ -663,6 +663,13 @@ impl AppState {
         }
         let install_summary = self.installs.summary.take();
         match install_summary {
+            Some(_) if load.change_failed => {
+                crate::transition::show_toast(
+                    self,
+                    beetle_render::ToastKind::Error,
+                    strings::TOAST_SONG_CHANGE_FAILED(),
+                );
+            }
             // Songs just added: their summary stands for the rescan's toast.
             Some(summary) if self.library_job == LibraryJob::Rescan => {
                 crate::install::focus_new_song(self, &summary.focus);
@@ -722,6 +729,13 @@ impl AppState {
     /// Re-reads the song folders and tables on a worker (F5 or focus regain).
     /// Shows the Boot screen meanwhile; the read returns to the current menu.
     pub fn start_rescan(&mut self) {
+        self.start_rescan_after(None);
+    }
+
+    /// [`start_rescan`](Self::start_rescan) that first runs `job` on the
+    /// worker (a change to the library too slow for a frame, INV-5). When
+    /// the job fails, the rescan's toast says so instead of the summary.
+    pub fn start_rescan_after(&mut self, job: Option<LibraryChange>) {
         if self.screen != AppScreen::Boot {
             self.rescan_return = self.screen;
         }
@@ -732,7 +746,7 @@ impl AppState {
         self.gpu_ui.ui.menu().jackets.clear();
         self.library_job = LibraryJob::Rescan;
         self.library_started_at = Instant::now();
-        self.library_receiver = Some(spawn_library_rescan());
+        self.library_receiver = Some(spawn_library_rescan(job));
         self.screen = AppScreen::Boot;
         self.window.request_redraw();
     }
@@ -1102,7 +1116,12 @@ pub struct LibraryLoad {
     pub score_store: Option<ScoreStore>,
     /// `.bmsp` files in the library folders that are not installed, sorted.
     pub uninstalled: Vec<String>,
+    /// The change run before the rescan (`LibraryChange`) failed.
+    pub change_failed: bool,
 }
+
+/// A change to the library the rescan worker runs first; `false` when it failed.
+pub type LibraryChange = Box<dyn FnOnce() -> bool + Send>;
 
 /// The notice for uninstalled packages, or `None` when there are none.
 pub fn uninstalled_toast_text(names: &[String]) -> Option<String> {
@@ -1142,6 +1161,7 @@ pub fn spawn_library_load(sort_mode: SortMode) -> Receiver<LibraryLoad> {
             tables,
             score_store: Some(score_store),
             uninstalled,
+            change_failed: false,
         });
     });
     rx
@@ -1159,10 +1179,11 @@ pub fn rescan_return_screen(from: AppScreen) -> AppScreen {
 
 /// Forces a rescan of the song folders on a worker thread. Sorting and score
 /// key migration are left to `poll_library`, which owns the scores.
-pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
+pub fn spawn_library_rescan(change: Option<LibraryChange>) -> Receiver<LibraryLoad> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         boot_progress::begin(Stage::Listing, 0);
+        let change_failed = change.is_some_and(|change| !change());
         let library = rescan_songs();
         let (songs, groups, places) = (library.songs, library.groups, library.places);
         boot_progress::begin(Stage::Tables, 0);
@@ -1177,6 +1198,7 @@ pub fn spawn_library_rescan() -> Receiver<LibraryLoad> {
             tables,
             score_store: None,
             uninstalled,
+            change_failed,
         });
     });
     rx
