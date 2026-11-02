@@ -6,7 +6,7 @@
 use crate::error::PackageManagerError;
 use crate::manager::PackageManager;
 use crate::pack::{find_bms_song_roots, PackProfile};
-use crate::same_song::{self, Incoming, KnownPlace, Verdict};
+use crate::same_song::{self, ChartOnly, Incoming, KnownPlace, Verdict};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -103,6 +103,9 @@ pub enum Added {
     Updated,
     /// A background video added to an installed song.
     Bga,
+    /// Only the charts a known song lacked went in, as `<id>.charts`: they
+    /// play with that song's key sounds (B20, `same_song::chart_only`).
+    ChartsOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,10 +259,30 @@ where
         },
         AddSource::Package => {
             let incoming = Incoming::package(path);
-            let Some(answer) = decide(&mut judge, incoming.as_ref(), &name, &mut report) else {
+            let Some((answer, plan)) = decide(&mut judge, incoming.as_ref(), &name, &mut report)
+            else {
                 return Ok(report);
             };
             let mut step = steps(&mut on_progress);
+            let charts_only = plan.and_then(|plan| {
+                let dir = match &incoming.as_ref()?.at {
+                    crate::key_sets::PlaceAt::Package { dir, .. } => dir.clone(),
+                    crate::key_sets::PlaceAt::Folder(_) => return None,
+                };
+                charts_only(fs::read(path).ok()?, &dir, &plan).transpose()
+            });
+            if let Some(bytes) = charts_only {
+                match bytes.and_then(|b| mgr.install_from_bytes_with_progress(b, cancel, &mut step))
+                {
+                    Ok(song) => report.installed.push(InstalledSong {
+                        id: song.id,
+                        name: song.name,
+                        how: Added::ChartsOnly,
+                    }),
+                    Err(e) => skip_error(&mut report, &name, e)?,
+                }
+                return Ok(report);
+            }
             match mgr.install_with_progress(path, cancel, &mut step) {
                 Ok(song) => {
                     // A background video package next to it is installed too.
@@ -320,16 +343,17 @@ where
 }
 
 /// What to do with something being added, from its verdict: `None` to leave
-/// it out (recorded as skipped), else the answer and the packages a replace
-/// removes. Verdicts that join or may join a known song are recorded.
+/// it out (recorded as skipped), else the packages a replace removes, and
+/// for new charts of a known song how they go in alone (`chart_only`).
+/// Verdicts that join or may join a known song are recorded.
 fn decide(
     judge: &mut Judge<'_>,
     incoming: Option<&Incoming>,
     name: &str,
     report: &mut AddReport,
-) -> Option<Vec<String>> {
+) -> Option<(Vec<String>, Option<ChartOnly>)> {
     let (Some(incoming), false) = (incoming, judge.known.is_empty()) else {
-        return Some(Vec::new());
+        return Some((Vec::new(), None));
     };
     let verdict = same_song::judge(incoming, judge.known);
     let answer = match &verdict {
@@ -348,10 +372,64 @@ fn decide(
         (Answer::Replace, Verdict::OtherSet { replaceable, .. }) => replaceable.clone(),
         _ => Vec::new(),
     };
+    let plan = match verdict {
+        Verdict::NewCharts { .. } => same_song::chart_only(incoming, judge.known),
+        _ => None,
+    };
     if verdict != Verdict::NewSong {
         report.verdicts.push((name.to_string(), verdict));
     }
-    Some(replaceable)
+    Some((replaceable, plan))
+}
+
+/// The id a package of only charts gets: apart from the package it came as,
+/// which may be installed already with the charts it shares.
+pub const CHARTS_ONLY_SUFFIX: &str = ".charts";
+
+/// `.bmsp` bytes of the package `bytes` with only what `plan` keeps: the
+/// files of its song directory `dir` that the known set lacks, the manifest
+/// with `base` and the id `<id>.charts`. `Ok(None)` when it cannot be cut
+/// that way: charts outside `dir` (more than one song) or key sounds in a
+/// sound atlas.
+fn charts_only(
+    bytes: Vec<u8>,
+    dir: &str,
+    plan: &ChartOnly,
+) -> Result<Option<Vec<u8>>, PackageManagerError> {
+    let pkg = bms_package::Package::from_bytes(bytes)?;
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let one_song = pkg.entries().iter().all(|e| {
+        !crate::collection::is_chart_path(&e.path)
+            || e.path
+                .strip_prefix(&prefix)
+                .is_some_and(|rel| !rel.contains('/'))
+    });
+    if !one_song || pkg.manifest().sound_atlas.is_some() {
+        return Ok(None);
+    }
+    let mut manifest = pkg.manifest().clone();
+    manifest.id = format!("{}{CHARTS_ONLY_SUFFIX}", manifest.id);
+    crate::chart_base::Base {
+        charts: plan.base.clone(),
+        package: plan.package.clone(),
+    }
+    .write_to(&mut manifest);
+    let mut builder = bms_package::PackageBuilder::new(manifest);
+    for entry in pkg.entries() {
+        let path = &entry.path;
+        let left_out = path
+            .strip_prefix(&prefix)
+            .is_some_and(|rel| plan.leave_out.iter().any(|l| l == rel));
+        if path == bms_package::MANIFEST_FILENAME || left_out {
+            continue;
+        }
+        builder.add_file(path.clone(), pkg.read_entry(path)?)?;
+    }
+    Ok(Some(builder.build_to_bytes()?))
 }
 
 /// After a replace: uninstalls every version of the packages that held the
@@ -435,25 +513,26 @@ fn import_folders<F: FnMut(AddProgress<'_>)>(
         }
         let song_name = file_name(song);
         let incoming = Incoming::folder(song);
-        let Some(answer) = decide(judge, Some(&incoming), &song_name, report) else {
+        let Some((answer, plan)) = decide(judge, Some(&incoming), &song_name, report) else {
             continue;
         };
+        let plan = plan.as_ref();
         let result = if total == 1 {
-            import_one(mgr, song, profile, cancel, steps(on_progress))
+            import_one(mgr, song, profile, plan, cancel, steps(on_progress))
         } else {
             on_progress(AddProgress::Song {
                 index,
                 total,
                 name: &song_name,
             });
-            import_one(mgr, song, profile, cancel, |_, _, _, _| {})
+            import_one(mgr, song, profile, plan, cancel, |_, _, _, _| {})
         };
         match result {
-            Ok(installed) => {
+            Ok((installed, how)) => {
                 report.installed.push(InstalledSong {
                     id: installed.id,
                     name: installed.name,
-                    how: Added::Imported,
+                    how,
                 });
                 replace(mgr, answer, report);
             }
@@ -463,16 +542,27 @@ fn import_folders<F: FnMut(AddProgress<'_>)>(
     Ok(())
 }
 
+/// Packs and installs one song folder; with `plan`, only what it keeps
+/// (`charts_only`) when the package can be cut that way.
 fn import_one<F: FnMut(&str, usize, usize, &str)>(
     mgr: &mut PackageManager,
     song: &Path,
     profile: PackProfile,
+    plan: Option<&ChartOnly>,
     cancel: Option<&AtomicBool>,
     mut on_progress: F,
-) -> Result<crate::manager::InstalledPackage, PackageManagerError> {
+) -> Result<(crate::manager::InstalledPackage, Added), PackageManagerError> {
     let bytes =
         mgr.pack_folder_profile_with_progress(song, None, profile, cancel, &mut on_progress)?;
-    mgr.install_from_bytes_with_progress(bytes, cancel, on_progress)
+    let (bytes, how) = match plan {
+        Some(plan) => match charts_only(bytes.clone(), "", plan)? {
+            Some(cut) => (cut, Added::ChartsOnly),
+            None => (bytes, Added::Imported),
+        },
+        None => (bytes, Added::Imported),
+    };
+    let installed = mgr.install_from_bytes_with_progress(bytes, cancel, on_progress)?;
+    Ok((installed, how))
 }
 
 /// Lists `folder` in `library` when it holds at least one song.
@@ -774,6 +864,111 @@ mod tests {
             report.skipped[0].reason,
             SkipReason::AlreadyThere { .. }
         ));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn new_charts_for_a_known_set_go_in_alone() {
+        let dir = temp("charts_only");
+        let have = dir.join("have");
+        let chart = "#TITLE Foo
+#ARTIST Bar
+#BPM 150
+#WAV01 a.wav
+#WAV02 b.wav
+#00111:0102
+";
+        let another = "#TITLE Foo [Another]
+#ARTIST Bar
+#BPM 150
+#WAV01 a.wav
+#WAV02 b.wav
+#00111:0201
+";
+        let fill = |d: &Path, charts: &[(&str, &str)], extra: &[(&str, &[u8])]| {
+            fs::create_dir_all(d).unwrap();
+            for (name, text) in charts {
+                fs::write(d.join(name), text).unwrap();
+            }
+            fs::write(d.join("a.wav"), b"sound a").unwrap();
+            fs::write(d.join("b.wav"), b"sound b").unwrap();
+            for (name, bytes) in extra {
+                fs::write(d.join(name), bytes).unwrap();
+            }
+        };
+        fill(&have, &[("song.bms", chart)], &[("back.png", b"png")]);
+        let charts = Incoming::folder(&have).charts;
+        let known = [KnownPlace {
+            song: 0,
+            at: crate::key_sets::PlaceAt::Folder(have.clone()),
+            chart_file: "song.bms".into(),
+            charts: charts.iter().map(|c| c.id).collect(),
+            title: "Foo".into(),
+            artist: "Bar".into(),
+            label: "have".into(),
+            package: None,
+        }];
+        let base: Vec<_> = known[0].charts.clone();
+        let mut never = |_: &str, v: &Verdict| panic!("asked about {v:?}");
+        let mut mgr = PackageManager::new(dir.join("store")).unwrap();
+        let check = |mgr: &PackageManager, report: &AddReport| {
+            assert_eq!(report.installed.len(), 1, "{report:?}");
+            let song = &report.installed[0];
+            assert_eq!(song.how, Added::ChartsOnly);
+            assert!(song.id.ends_with(CHARTS_ONLY_SUFFIX));
+            let pkg = mgr.get_active_package(&song.id).unwrap().open().unwrap();
+            let mut paths: Vec<String> = pkg
+                .entries()
+                .iter()
+                .map(|e| e.path.rsplit('/').next().unwrap().to_string())
+                .filter(|p| p != bms_package::MANIFEST_FILENAME)
+                .collect();
+            paths.sort();
+            assert_eq!(paths, ["another.bms", "new.png", "song.bms"]);
+            let read = crate::chart_base::Base::of(pkg.manifest()).unwrap();
+            assert_eq!(read.charts, base);
+        };
+
+        // A folder (or an unpacked archive) with the same key sounds and picture.
+        let folder = dir.join("pack").join("foo");
+        fill(
+            &folder,
+            &[("song.bms", chart), ("another.bms", another)],
+            &[("back.png", b"png"), ("new.png", b"new")],
+        );
+        let judge = Judge {
+            known: &known,
+            ask: &mut never,
+        };
+        let report = add_path_judged(&mut mgr, &folder, &import(), judge, None, |_| {}).unwrap();
+        check(&mgr, &report);
+        let id = report.installed[0].id.clone();
+        let hash = mgr.get_active_package(&id).unwrap().state_hash;
+        mgr.uninstall(&id, &hash).unwrap();
+
+        // The same as a package file, its song in a directory.
+        let mut builder =
+            bms_package::PackageBuilder::new(bms_package::Manifest::new("bar.foo", "Foo"));
+        for name in [
+            "song.bms",
+            "another.bms",
+            "a.wav",
+            "b.wav",
+            "back.png",
+            "new.png",
+        ] {
+            builder
+                .add_file_from_disk(format!("foo/{name}"), folder.join(name))
+                .unwrap();
+        }
+        let bmsp = dir.join("foo.bmsp");
+        builder.build_to_file(&bmsp).unwrap();
+        let judge = Judge {
+            known: &known,
+            ask: &mut never,
+        };
+        let report = add_path_judged(&mut mgr, &bmsp, &import(), judge, None, |_| {}).unwrap();
+        check(&mgr, &report);
         let _ = fs::remove_dir_all(dir);
     }
 }

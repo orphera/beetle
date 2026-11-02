@@ -72,6 +72,19 @@ impl Files {
 
     /// Whether two places hold the same files: every name both have is the
     /// same size, and they have at least one name in common.
+    /// The paths (`files_at`'s: a folder file's path, a package entry) of
+    /// this place's files that `other` also has, with the same size.
+    pub fn shared_with(&self, other: &Files) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .0
+            .iter()
+            .filter(|(name, file)| other.0.get(*name).is_some_and(|o| o.size == file.size))
+            .map(|(_, file)| file.path.clone())
+            .collect();
+        out.sort();
+        out
+    }
+
     pub fn same(&self, other: &Files) -> bool {
         let mut shared = 0;
         for (name, file) in &self.0 {
@@ -478,6 +491,71 @@ pub fn copies<'a>(
     }
     out.sort();
     (out, kept)
+}
+
+/// The files at a place besides charts and key sounds: path relative to the
+/// place (`/` separated) and size. A folder's are found under it, a
+/// package place's under its directory.
+fn extras(at: &PlaceAt) -> BTreeMap<String, u64> {
+    let keep = |rel: &str| {
+        rel != bms_package::MANIFEST_FILENAME
+            && !crate::collection::is_chart_path(rel)
+            && !SOUND_EXTENSIONS.contains(&extension(rel).as_str())
+    };
+    let mut out = BTreeMap::new();
+    match at {
+        PlaceAt::Folder(dir) => {
+            let mut stack = vec![dir.clone()];
+            while let Some(d) = stack.pop() {
+                for entry in fs::read_dir(&d).into_iter().flatten().flatten() {
+                    let path = entry.path();
+                    let Ok(meta) = entry.metadata() else {
+                        continue;
+                    };
+                    if meta.is_dir() {
+                        stack.push(path);
+                        continue;
+                    }
+                    let Ok(rel) = path.strip_prefix(dir) else {
+                        continue;
+                    };
+                    let rel = rel.to_string_lossy().replace('\\', "/");
+                    if keep(&rel) {
+                        out.insert(rel, meta.len());
+                    }
+                }
+            }
+        }
+        PlaceAt::Package { bmsp, dir } => {
+            let Ok(pkg) = bms_package::PackageReader::open_file(bmsp) else {
+                return out;
+            };
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
+            for e in pkg.entries() {
+                if let Some(rel) = e.path.strip_prefix(&prefix) {
+                    if keep(rel) {
+                        out.insert(rel.to_string(), e.size);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The files of `own` besides charts and key sounds that `other` has too,
+/// at the same path with the same size: paths relative to `own`.
+pub fn shared_extras(own: &PlaceAt, other: &PlaceAt) -> Vec<String> {
+    let theirs = extras(other);
+    extras(own)
+        .into_iter()
+        .filter(|(rel, size)| theirs.get(rel) == Some(size))
+        .map(|(rel, _)| rel)
+        .collect()
 }
 
 /// The files of package place `own`, besides charts and key sounds, that

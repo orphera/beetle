@@ -551,7 +551,13 @@ fn run_add(manager: &mut PackageManager, args: &[String]) {
     let report = add_path_judged(manager, Path::new(path), &options, judge, None, |_| {})
         .unwrap_or_else(|e| exit_with(&format!("{e:?}")));
     for song in &report.installed {
-        println!("Added {} ({})", song.name, song.id);
+        let how = match song.how {
+            bms_package_manager::add::Added::ChartsOnly => {
+                ": only the charts, with the key sounds already in the library"
+            }
+            _ => "",
+        };
+        println!("Added {} ({}){how}", song.name, song.id);
     }
     for (name, verdict) in &report.verdicts {
         match verdict {

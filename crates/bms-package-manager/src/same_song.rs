@@ -263,25 +263,25 @@ pub fn known_from_collection(
     known
 }
 
-/// Judges `incoming` against the library's places.
-pub fn judge(incoming: &Incoming, known: &[KnownPlace]) -> Verdict {
+/// The known song `incoming` joins: one sharing a chart, else the same
+/// title and artist with overlapping key sounds. `Err` with the first place
+/// of the same title and artist (a candidate), when there is one.
+fn song_of<'a>(
+    incoming: &Incoming,
+    known: &'a [KnownPlace],
+) -> Result<usize, Option<&'a KnownPlace>> {
     let ids: BTreeSet<ChartId> = incoming.charts.iter().map(|c| c.id).collect();
-    let Some(first) = incoming.charts.first() else {
-        return Verdict::NewSong;
-    };
+    let first = incoming.charts.first().ok_or(None)?;
     let title = title_base(&first.title).to_ascii_lowercase();
     let artist = artist_key(&first.artist);
     let new_stems = stems(&incoming.names());
-
-    // The known song: one sharing a chart, else the same title and artist
-    // with overlapping key sounds.
     let same_name: Vec<&KnownPlace> = known
         .iter()
         .filter(|p| {
             title_base(&p.title).to_ascii_lowercase() == title && artist_key(&p.artist) == artist
         })
         .collect();
-    let song = known
+    known
         .iter()
         .find(|p| p.charts.iter().any(|c| ids.contains(c)))
         .or_else(|| {
@@ -290,14 +290,21 @@ pub fn judge(incoming: &Incoming, known: &[KnownPlace]) -> Verdict {
                 .copied()
                 .find(|p| sounds_match(&known_stems(p), &new_stems))
         })
-        .map(|p| p.song);
-    let Some(song) = song else {
-        return match same_name.first() {
-            Some(p) => Verdict::Candidate {
+        .map(|p| p.song)
+        .ok_or(same_name.first().copied())
+}
+
+/// Judges `incoming` against the library's places.
+pub fn judge(incoming: &Incoming, known: &[KnownPlace]) -> Verdict {
+    let ids: BTreeSet<ChartId> = incoming.charts.iter().map(|c| c.id).collect();
+    let song = match song_of(incoming, known) {
+        Ok(song) => song,
+        Err(Some(p)) => {
+            return Verdict::Candidate {
                 song: p.title.clone(),
-            },
-            None => Verdict::NewSong,
-        };
+            }
+        }
+        Err(None) => return Verdict::NewSong,
     };
     let places: Vec<&KnownPlace> = known.iter().filter(|p| p.song == song).collect();
     let song_title = places[0].title.clone();
@@ -375,6 +382,65 @@ pub fn judge(incoming: &Incoming, known: &[KnownPlace]) -> Verdict {
         },
         replaceable,
     }
+}
+
+/// How something joining a known song goes in with only what the song does
+/// not have yet (B20, docs/plans/2026-11-02-chart-only-packages-plan.md 3.3):
+/// its charts play with a set already in the library.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChartOnly {
+    /// The song's charts at the places of that set (`chart_base::Base::charts`).
+    pub base: Vec<ChartId>,
+    /// The installed package holding the set, when one does.
+    pub package: Option<String>,
+    /// Files of the incoming place that the set has already, with the same
+    /// size: key sounds and other files (pictures, video), relative to the
+    /// place with `/` separators. These are left out.
+    pub leave_out: Vec<String>,
+}
+
+/// What `incoming`, judged `Verdict::NewCharts`, leaves out when it goes in
+/// with only its charts, and the set they play with. That set is a whole
+/// one of the song with the same files as the incoming place; for a place
+/// that is not a whole set itself (a difference archive), one sharing its
+/// files, else the first. `None` when the song has no whole set.
+pub fn chart_only(incoming: &Incoming, known: &[KnownPlace]) -> Option<ChartOnly> {
+    let song = song_of(incoming, known).ok()?;
+    let names = incoming.names();
+    let mine = key_sets::files_at(&incoming.at, &names);
+    let sets: Vec<(&KnownPlace, key_sets::Files)> = known
+        .iter()
+        .filter(|p| p.song == song)
+        .map(|p| (p, key_sets::files_at(&p.at, &names)))
+        .filter(|(_, f)| f.whole(&names))
+        .collect();
+    let (twin, files) = sets
+        .iter()
+        .find(|(_, f)| f.same(&mine))
+        .or_else(|| sets.first().filter(|_| !mine.whole(&names)))?;
+    let base: BTreeSet<ChartId> = sets
+        .iter()
+        .filter(|(_, f)| f.same(files))
+        .flat_map(|(p, _)| p.charts.iter().copied())
+        .collect();
+    let relative = |path: String| match &incoming.at {
+        PlaceAt::Folder(dir) => Path::new(&path)
+            .strip_prefix(dir)
+            .map_or(path.clone(), |p| p.to_string_lossy().replace('\\', "/")),
+        PlaceAt::Package { dir, .. } if !dir.is_empty() => path
+            .strip_prefix(&format!("{dir}/"))
+            .map_or(path.clone(), str::to_string),
+        PlaceAt::Package { .. } => path,
+    };
+    let mut leave_out: Vec<String> = mine.shared_with(files).into_iter().map(relative).collect();
+    leave_out.extend(key_sets::shared_extras(&incoming.at, &twin.at));
+    leave_out.sort();
+    leave_out.dedup();
+    Some(ChartOnly {
+        base: base.into_iter().collect(),
+        package: twin.package.clone(),
+        leave_out,
+    })
 }
 
 #[cfg(test)]

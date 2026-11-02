@@ -295,6 +295,12 @@ fn add_message(report: &AddReport) -> Result<String, String> {
             }
             Added::Updated => format!("{} 업데이트했어요", quoted_eul(&one.name)),
             Added::Bga => format!("'{}'에 배경 영상을 설치했어요", one.id),
+            Added::ChartsOnly => {
+                format!(
+                    "'{}'의 채보만 추가했어요 (키음은 이미 있는 판을 써요)",
+                    one.name
+                )
+            }
         }),
         ([], [one]) => Err(skip_message(one)),
         _ if added == total => Ok(format!("{added}곡을 모두 추가했어요")),
