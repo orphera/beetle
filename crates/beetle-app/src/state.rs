@@ -815,8 +815,14 @@ impl AppState {
             self.content_source = folders::ContentSource::Library;
         }
         self.level_steps = crate::filters::level_steps(&self.songs);
-        let pass =
+        let mut pass =
             crate::filters::pass_mask(&self.songs, &self.score_store, ln_option, &self.filter);
+        // Only the current source's songs pass, so a search from a branch (or
+        // the root) looks in the library or the discs, not both.
+        let want_disc = self.content_source == folders::ContentSource::Disc;
+        for (p, song) in pass.iter_mut().zip(&self.songs) {
+            *p &= folders::is_disc_song(song) == want_disc;
+        }
         self.folder_tree = folders::build_tree(
             &self.songs,
             &self.score_store,
