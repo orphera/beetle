@@ -35,17 +35,29 @@ pub fn move_option_row(state: &mut AppState, down: bool) {
     move_row(&mut state.modal_row, play_options().len(), down);
 }
 
-/// Handles keyboard input when the play options panel is open.
-pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
+/// The keys every play options panel shares: UP / DOWN move the row, LEFT /
+/// RIGHT step the value, Space steps it forward, TAB and ESC close the panel.
+/// ENTER is the panel's own (start the song, play again), so it is not here.
+pub fn option_panel_key(state: &mut AppState, code: KeyCode) {
     let row = state.modal_row;
     match code {
         KeyCode::Tab | KeyCode::Escape => close_options(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_option_row(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_option_row(state, true),
         KeyCode::ArrowLeft => change_option(state, row, false),
-        KeyCode::ArrowRight => change_option(state, row, true),
-        KeyCode::Enter | KeyCode::Space => change_option(state, row, true),
+        KeyCode::ArrowRight | KeyCode::Space => change_option(state, row, true),
         _ => (),
+    }
+}
+
+/// Keys while the play options panel is open over the song select. ENTER
+/// closes it and plays the highlighted song with the options as set.
+pub fn handle_option_modal_input(state: &mut AppState, code: KeyCode) {
+    if code == KeyCode::Enter {
+        close_options(state);
+        crate::handlers::song_select::activate_selected(state);
+    } else {
+        option_panel_key(state, code);
     }
 }
 

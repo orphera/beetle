@@ -3191,7 +3191,8 @@ fn options_preview(
 /// What the play options panel offers besides the rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptionsFooter {
-    /// Over the song list: TAB closes it (the values were saved as changed).
+    /// Over the song list: ENTER plays the highlighted song, TAB closes it
+    /// (the values were saved as changed).
     Close,
     /// Over the result screen: a start button plays again with the options as
     /// changed (ENTER, or a click on the button). TAB closes without playing.
@@ -3273,6 +3274,7 @@ pub fn draw_options_panel(
         OptionsFooter::Close => &[
             ("↑↓", strings::HINT_MOVE()),
             (LEFT_RIGHT, strings::HINT_CHANGE()),
+            ("ENTER", strings::HINT_START()),
             ("TAB", strings::HINT_CLOSE()),
         ],
         OptionsFooter::Retry => {

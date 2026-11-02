@@ -3,7 +3,7 @@ use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 
 use crate::gameplay::queue_start_gameplay;
-use crate::handlers::options::{change_option, close_options, move_option_row, open_options};
+use crate::handlers::options::{close_options, open_options, option_panel_key};
 use crate::menu_audio::play_ui;
 use crate::state::{AppScreen, AppState};
 
@@ -48,18 +48,12 @@ pub fn handle_result_input(
 }
 
 /// Keys while the play options panel is open over the result. ENTER plays
-/// again with the options as changed; TAB and ESC only close the panel.
-/// Space steps a value forward (ENTER is the start here, not a step).
+/// again with the options as changed; the rest is `option_panel_key`.
 pub fn handle_result_options_input(state: &mut AppState, code: KeyCode) {
-    let row = state.modal_row;
-    match code {
-        KeyCode::Tab | KeyCode::Escape => close_options(state),
-        KeyCode::Enter => retry_with_options(state),
-        KeyCode::ArrowUp | KeyCode::KeyK => move_option_row(state, false),
-        KeyCode::ArrowDown | KeyCode::KeyJ => move_option_row(state, true),
-        KeyCode::ArrowLeft => change_option(state, row, false),
-        KeyCode::ArrowRight | KeyCode::Space => change_option(state, row, true),
-        _ => (),
+    if code == KeyCode::Enter {
+        retry_with_options(state);
+    } else {
+        option_panel_key(state, code);
     }
 }
 
