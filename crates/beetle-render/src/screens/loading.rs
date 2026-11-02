@@ -40,6 +40,8 @@ pub struct LoadingFrame<'a> {
     pub option_chips: &'a [String],
     /// "AUTO PLAY" / "REPLAY" when the run is not a normal play.
     pub badge: Option<&'a str>,
+    /// A disc song's word pictures (title, artist), drawn in place of the text.
+    pub words: Option<crate::words::WordRegions>,
 }
 
 const ENTER_SECONDS: f64 = 0.35;
@@ -164,7 +166,15 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let big = TextStyle::new(34.0 * s)
         .bold()
         .color(theme::TEXT.with_alpha(a(255)));
-    if t.measure(c, &song.title, &big) <= w {
+    let title_word = f.words.and_then(|wr| wr.title);
+    if let Some(region) = title_word {
+        let (tw, th) = crate::words::drawn_size(region, 38.0 * s, w);
+        c.sprite(
+            region,
+            Rect::new(x, y + 4.0 * s - th, tw, th),
+            theme::TEXT.with_alpha(a(255)),
+        );
+    } else if t.measure(c, &song.title, &big) <= w {
         t.draw(c, &song.title, x, y, &big);
     } else {
         let st = TextStyle::new(26.0 * s)
@@ -179,8 +189,20 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     }
     y += 32.0 * s;
     let artist_st = TextStyle::new(16.0 * s).color(theme::MUTED.with_alpha(a(255)));
-    let artist = t.fit(c, &song.artist, w, &artist_st).into_owned();
-    t.draw(c, &artist, x, y, &artist_st);
+    match f.words.and_then(|wr| wr.artist) {
+        Some(region) => {
+            let (aw, ah) = crate::words::drawn_size(region, 20.0 * s, w);
+            c.sprite(
+                region,
+                Rect::new(x, y + 3.0 * s - ah, aw, ah),
+                theme::MUTED.with_alpha(a(255)),
+            );
+        }
+        None => {
+            let artist = t.fit(c, &song.artist, w, &artist_st).into_owned();
+            t.draw(c, &artist, x, y, &artist_st);
+        }
+    }
     if !song.genre.is_empty() {
         y += 22.0 * s;
         let st = TextStyle::new(13.0 * s).color(theme::MUTED2.with_alpha(a(255)));
@@ -320,6 +342,7 @@ mod tests {
                     fraction: None,
                     option_chips: &chips,
                     badge: Some(strings::AUTO_PLAY()),
+                    words: None,
                 },
             );
             assert_eq!(ui.canvas.debug_batches().len(), 1, "elapsed={elapsed}");
@@ -366,6 +389,7 @@ mod tests {
                     fraction: None,
                     option_chips: &chips,
                     badge: None,
+                    words: None,
                 },
             );
             (

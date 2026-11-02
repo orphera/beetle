@@ -144,6 +144,7 @@ fn loading_frame(
             fraction: None,
             option_chips: &chips,
             badge: None,
+            words: None,
         },
     );
     let calls = ui.end(gpu);

@@ -913,6 +913,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
     let now = Instant::now();
     show_loading_backdrop(state, backdrop_song, now);
     let (status, fraction) = loading_status();
+    let words = backdrop_song.and_then(|(id, _)| crate::words::for_play(state, id));
     if let Some(song) = state.loading_song.as_ref() {
         beetle_render::draw_loading(
             state.gpu_ui.ui.current(),
@@ -928,6 +929,7 @@ pub fn loading(state: &mut AppState, size: PhysicalSize<u32>) {
                 option_chips: &chips,
                 badge,
                 now,
+                words,
             },
         );
     }

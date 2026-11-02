@@ -55,6 +55,7 @@ fn render(gpu: &mut D3d11Backend, ui: &mut Ui, title: &str, elapsed: f64, name: 
             fraction: Some(0.4),
             option_chips: &chips,
             badge: None,
+            words: None,
         },
     );
     let calls = ui.end(gpu);

@@ -8,7 +8,7 @@
 use super::widgets;
 use crate::art::Skin;
 use crate::backend::TextureId;
-use crate::canvas::{AtlasRegion, Canvas, Rect};
+use crate::canvas::{Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{
@@ -1398,7 +1398,7 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     // not fit the block).
     match f.words.and_then(|w| w.title) {
         Some(region) => {
-            let (w, h) = word_size(region, 24.0 * s, r.w);
+            let (w, h) = crate::words::drawn_size(region, 24.0 * s, r.w);
             c.sprite(
                 region,
                 Rect::new(r.x, r.y + 50.0 * s - h, w, h),
@@ -1424,7 +1424,7 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
     // A disc song's artist picture stands in for the artist text, the BPM after it.
     let artist = f.words.and_then(|w| w.artist).map(|region| {
-        let (w, h) = word_size(region, 15.0 * s, r.w * 0.6);
+        let (w, h) = crate::words::drawn_size(region, 15.0 * s, r.w * 0.6);
         c.sprite(
             region,
             Rect::new(r.x, r.y + 70.0 * s - h, w, h),
@@ -1463,16 +1463,6 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
         Align::Right,
         &caption(12.0, s).color(theme::MUTED),
     );
-}
-
-/// The drawn size of a word picture `h` high, shrunk to at most `max_w` wide.
-fn word_size(region: AtlasRegion, h: f32, max_w: f32) -> (f32, f32) {
-    let w = h * region.w as f32 / region.h.max(1) as f32;
-    if w <= max_w {
-        (w, h)
-    } else {
-        (max_w, h * max_w / w)
-    }
 }
 
 /// The EX score with the rank and the pace, the judgement counts as coloured

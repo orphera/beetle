@@ -197,3 +197,13 @@ mod tests {
         assert!(!fits(word(0, 18), SMALL_TITLE_BOX));
     }
 }
+
+/// The drawn size of a word picture `h` high, shrunk to at most `max_w` wide.
+pub fn drawn_size(region: AtlasRegion, h: f32, max_w: f32) -> (f32, f32) {
+    let w = h * region.w as f32 / region.h.max(1) as f32;
+    if w <= max_w {
+        (w, h)
+    } else {
+        (max_w, h * max_w / w)
+    }
+}
