@@ -2,7 +2,12 @@
 //! over `collection.idx`, how many key sound bytes are stored twice (the same
 //! set at two places: package and package, folder and package, folder and
 //! folder), and what the add-time verdict would have been for each place had
-//! it been added last. Run from the working directory:
+//! it been added last. Also the B20 measurement
+//! (docs/plans/2026-11-02-chart-only-packages-plan.md, step 1): package
+//! places holding the same set as a library folder, split by whether every
+//! chart there is found elsewhere (the place could go) or some chart is not
+//! (it could keep only its charts), counted per package too. Run from the
+//! working directory:
 //! `cargo run --release -p bms-package-manager --example package_measure`.
 
 use beetle_core::ChartId;
@@ -51,6 +56,9 @@ fn main() {
     let mut verdicts = BTreeMap::<&str, usize>::new();
     let mut examples = BTreeMap::<&str, Vec<String>>::new();
     let mut unresolved = 0;
+    // B20: package source -> its places that hold a folder's set, with the
+    // bytes both have and whether the place has charts found nowhere else.
+    let mut dup = BTreeMap::<String, Vec<(String, u64, bool)>>::new();
     for song in &collection.songs {
         let mut places: BTreeMap<String, (&Location, BTreeSet<ChartId>)> = BTreeMap::new();
         for &i in &song.charts {
@@ -108,6 +116,33 @@ fn main() {
             }
             seen.push(i);
 
+            // B20: a package place with a library folder's set.
+            let folder_twin = found.iter().find(|(k, kind, f)| {
+                k != key && *kind == LocationKind::Folder && f.whole(&names) && f.same(files)
+            });
+            if let (LocationKind::Package, true, Some((_, _, twin))) = (*kind, whole, folder_twin) {
+                let shared: Vec<String> = {
+                    let lacking = twin.missing(&names);
+                    names
+                        .iter()
+                        .filter(|n| !lacking.contains(n))
+                        .cloned()
+                        .collect()
+                };
+                let at = place_at(places[*key].0).expect("resolved above");
+                let bytes = key_sets::files_at(&at, &shared).total_size();
+                let unique = places[*key].1.iter().any(|c| {
+                    places
+                        .iter()
+                        .all(|(k, (_, other))| k == *key || !other.contains(c))
+                });
+                dup.entry(places[*key].0.source.clone()).or_default().push((
+                    (*key).clone(),
+                    bytes,
+                    unique,
+                ));
+            }
+
             // The verdict had this place come last.
             let others: BTreeSet<ChartId> = places
                 .iter()
@@ -157,6 +192,62 @@ fn main() {
         for e in examples.get(verdict).into_iter().flatten() {
             println!("      {e}");
         }
+    }
+
+    // B20: per package, whether all of its places hold a folder's set.
+    let mut places_of = BTreeMap::<&str, BTreeSet<String>>::new();
+    for l in index
+        .locations
+        .iter()
+        .filter(|l| l.kind == LocationKind::Package)
+    {
+        places_of
+            .entry(l.source.as_str())
+            .or_default()
+            .insert(songs::place_key(l));
+    }
+    let (mut go, mut keep) = ((0, 0u64), (0, 0u64));
+    let mut by_package = BTreeMap::<&str, (usize, u64)>::new();
+    let mut keep_examples = Vec::new();
+    for (source, list) in &dup {
+        for (key, bytes, unique) in list {
+            let e = if *unique { &mut keep } else { &mut go };
+            e.0 += 1;
+            e.1 += bytes;
+            if *unique && keep_examples.len() < 8 {
+                keep_examples.push(format!("{} at {key}", mb(*bytes)));
+            }
+        }
+        let all = places_of.get(source.as_str()).map_or(0, BTreeSet::len);
+        let bytes: u64 = list.iter().map(|(_, b, _)| b).sum();
+        let class = if list.len() < all {
+            "some places only"
+        } else if list.iter().all(|(_, _, u)| !u) {
+            "whole package, all charts elsewhere"
+        } else {
+            "whole package, some charts only here"
+        };
+        let e = by_package.entry(class).or_default();
+        e.0 += 1;
+        e.1 += bytes;
+    }
+    println!("B20: package places with a library folder's set (bytes both have):");
+    println!(
+        "  every chart found elsewhere  {:>4} place(s)  {}",
+        go.0,
+        mb(go.1)
+    );
+    println!(
+        "  some chart only here         {:>4} place(s)  {}",
+        keep.0,
+        mb(keep.1)
+    );
+    for e in &keep_examples {
+        println!("      {e}");
+    }
+    println!("B20: by package:");
+    for (class, (n, bytes)) in &by_package {
+        println!("  {class:<38} {n:>4} package(s)  {}", mb(*bytes));
     }
     if unresolved > 0 {
         println!("Places whose package file was not found: {unresolved}");
