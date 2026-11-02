@@ -44,7 +44,7 @@ pub fn handle_title_input(state: &mut AppState, key_state: ElementState, code: K
     }
     if state.show_exit_modal {
         match code {
-            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::KeyY => {
+            KeyCode::Enter | KeyCode::KeyY => {
                 state.should_exit_app = true;
             }
             KeyCode::Escape | KeyCode::KeyN => {
@@ -58,7 +58,7 @@ pub fn handle_title_input(state: &mut AppState, key_state: ElementState, code: K
     match code {
         KeyCode::ArrowUp | KeyCode::KeyK => move_title_row(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_title_row(state, true),
-        KeyCode::Enter | KeyCode::NumpadEnter => activate(state, state.title_row),
+        KeyCode::Enter => activate(state, state.title_row),
         KeyCode::Escape => open_exit_prompt(state),
         _ => (),
     }

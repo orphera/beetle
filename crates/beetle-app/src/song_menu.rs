@@ -551,7 +551,7 @@ pub fn key(state: &mut AppState, code: KeyCode) {
             menu.row += 1;
             play_ui(state, UiSound::Move);
         }
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
+        KeyCode::Enter | KeyCode::Space => {
             let row = menu.row;
             run(state, row);
         }

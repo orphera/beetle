@@ -463,6 +463,16 @@ fn parse_pad_token(s: &str) -> Option<Source> {
 
 /// "PAD 3" as the Key Config screen shows button 3 (usage 3), in the current
 /// language. The labels are built once per language and button.
+/// The key as the menus read it: the numpad Enter confirms like Enter, so a
+/// handler matches `KeyCode::Enter` alone. Lane keys and key rebinding read
+/// the key as it is.
+pub fn menu_key(code: KeyCode) -> KeyCode {
+    match code {
+        KeyCode::NumpadEnter => KeyCode::Enter,
+        other => other,
+    }
+}
+
 pub fn pad_label(button: u8) -> &'static str {
     static LABELS: Mutex<Vec<(strings::Lang, u8, &'static str)>> = Mutex::new(Vec::new());
     let lang = strings::lang();
@@ -972,6 +982,13 @@ pub fn identifier_to_key_code(s: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_numpad_enter_confirms_like_enter_in_menus() {
+        assert_eq!(menu_key(KeyCode::NumpadEnter), KeyCode::Enter);
+        assert_eq!(menu_key(KeyCode::Enter), KeyCode::Enter);
+        assert_eq!(menu_key(KeyCode::Space), KeyCode::Space);
+    }
 
     #[test]
     fn layout_name_adds_the_mode_only_when_the_name_lacks_it() {

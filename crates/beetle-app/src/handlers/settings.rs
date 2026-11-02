@@ -134,9 +134,7 @@ pub fn handle_calibration_input(
     match code {
         KeyCode::Escape => calibration_action(state, HitId::CalibrateCancel),
         KeyCode::KeyR => calibration_action(state, HitId::CalibrateRetry),
-        KeyCode::Enter | KeyCode::NumpadEnter if done => {
-            calibration_action(state, HitId::CalibrateApply)
-        }
+        KeyCode::Enter if done => calibration_action(state, HitId::CalibrateApply),
         // Taps come from the raw input thread when it runs (`calibration_tap`).
         _ if repeat || state.raw_keys.is_some() => (),
         _ if is_calibration_tap(state, physical_key) => {

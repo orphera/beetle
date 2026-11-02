@@ -138,7 +138,7 @@ pub fn key(state: &mut AppState, code: KeyCode) {
             play_ui(state, UiSound::Move);
         }
         KeyCode::Delete | KeyCode::Backspace if row < last => unlink(state, row),
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space if row == last => pick(state),
+        KeyCode::Enter | KeyCode::Space if row == last => pick(state),
         _ => (),
     }
 }

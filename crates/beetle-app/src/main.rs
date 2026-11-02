@@ -1209,6 +1209,14 @@ fn handle_keyboard_input(
 
     ime::close_search_if_unavailable(state);
 
+    // The menus take the numpad Enter as Enter. Gameplay reads its own keys
+    // (a lane may be bound to it) and a rebind records the key as pressed.
+    let code = if state.screen == AppScreen::Gameplay || state.rebinding.is_some() {
+        code
+    } else {
+        input::menu_key(code)
+    };
+
     match state.screen {
         // Nothing to do until the library is read; the window can still be closed.
         AppScreen::Boot => {}

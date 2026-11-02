@@ -36,7 +36,12 @@ pub fn handle_gameplay_input(
     // The end banner: ENTER or ESC goes straight to the result screen, and
     // nothing else reaches the play.
     if state.gameplay_end.is_some() {
-        if key_state == ElementState::Pressed && matches!(code, KeyCode::Enter | KeyCode::Escape) {
+        if key_state == ElementState::Pressed
+            && matches!(
+                crate::input::menu_key(code),
+                KeyCode::Enter | KeyCode::Escape
+            )
+        {
             leave_gameplay(state);
         }
         return;
@@ -44,7 +49,7 @@ pub fn handle_gameplay_input(
     if key_state == ElementState::Pressed {
         // If paused, handle pause modal interactions
         if state.is_gameplay_paused {
-            handle_pause_modal_input(state, code);
+            handle_pause_modal_input(state, crate::input::menu_key(code));
             return;
         }
 
