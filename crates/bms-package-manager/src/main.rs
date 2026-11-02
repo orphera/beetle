@@ -43,6 +43,7 @@ fn print_usage() {
         "  bpm patch <base> <diff> [-o <out>]     Reconstruct a target .bmsp from base + diff"
     );
     println!("  bpm export <package_or_id> [-o <dir>]  Export package back into traditional BMS folder structure");
+    println!("             [--bmsp <file>] [--charts-only]  Write one package instead; keep a chart-only package's charts alone");
     println!(
         "  bpm bga install <package.bga.bmsp_or_id> Install a decoupled BGA companion package"
     );
@@ -131,6 +132,50 @@ fn exit_with(message: &dyn std::fmt::Display) -> ! {
 }
 
 /// The index `bpm scan` wrote, or exit with a hint to scan first.
+/// The installed package file of `<id>@<state hash>`.
+fn package_file_of(manager: &PackageManager, source: &str) -> Option<PathBuf> {
+    let (id, hash) = source.split_once('@')?;
+    let record = manager
+        .registry()
+        .list_packages()
+        .into_iter()
+        .find(|r| r.id == id)?;
+    let state = &record.state_hashes.get(hash)?.path;
+    Some(
+        manager
+            .root_dir()
+            .join(state)
+            .join(bms_package::installed::PACKAGE_FILENAME),
+    )
+}
+
+/// What `bpm export` writes for installed package `id` when it holds only
+/// charts (B20 plan 3.7): its file, and the key sounds of its base set.
+/// `None` for any other package or a package file.
+fn base_sounds_for_export(
+    manager: &PackageManager,
+    id: &str,
+) -> Option<(PathBuf, Vec<(String, Vec<u8>)>)> {
+    let record = manager
+        .registry()
+        .list_packages()
+        .into_iter()
+        .find(|r| r.id == id)?;
+    let source = format!("{id}@{}", record.active_state);
+    let bmsp = package_file_of(manager, &source)?;
+    let manifest = bms_package::PackageReader::open_file(&bmsp).ok()?;
+    bms_package_manager::chart_base::Base::of(manifest.manifest())?;
+    let index = load_index_or_exit();
+    match bms_package_manager::chart_base::base_sounds(&bmsp, &source, &index, |s| {
+        package_file_of(manager, s)
+    }) {
+        Ok(sounds) => Some((bmsp, sounds)),
+        Err(e) => exit_with(&format!(
+            "{id} holds only charts and {e} were not found; run `bpm scan`, or pass --charts-only"
+        )),
+    }
+}
+
 fn load_index_or_exit() -> collection::Index {
     let path = collection::index_file();
     let text = fs::read_to_string(&path).unwrap_or_default();
@@ -873,22 +918,7 @@ fn run_song_clean(args: &[String]) {
     let index = load_index_or_exit();
     let collection = songs::build(&index, &load_manual());
     let manager = PackageManager::new(get_default_packages_dir()).ok();
-    // `<id>@<state hash>` to the installed package file.
-    let package_file = |source: &str| -> Option<PathBuf> {
-        let (id, hash) = source.split_once('@')?;
-        let mgr = manager.as_ref()?;
-        let record = mgr
-            .registry()
-            .list_packages()
-            .into_iter()
-            .find(|r| r.id == id)?;
-        let state = &record.state_hashes.get(hash)?.path;
-        Some(
-            mgr.root_dir()
-                .join(state)
-                .join(bms_package::installed::PACKAGE_FILENAME),
-        )
-    };
+    let package_file = |source: &str| manager.as_ref().and_then(|m| package_file_of(m, source));
     let place_at = |copy: &collection::Location| -> Option<PlaceAt> {
         let dir = copy.path.rsplit_once('/').map_or("", |(dir, _)| dir);
         match copy.kind {
@@ -3127,10 +3157,56 @@ fn main() -> Result<(), PackageManagerError> {
         "export" => {
             if args.len() < 3 {
                 eprintln!("Error: Missing package path or ID.");
-                eprintln!("Usage: bpm export <package_path_or_id> [-o <output_dir>]");
+                eprintln!("Usage: bpm export <package_path_or_id> [-o <output_dir>] [--bmsp <file>] [--charts-only]");
                 std::process::exit(1);
             }
             let target = &args[2];
+            let charts_only = args.iter().any(|a| a == "--charts-only");
+            let based = if charts_only {
+                None
+            } else {
+                base_sounds_for_export(&manager, target)
+            };
+            if let Some(i) = args.iter().position(|a| a == "--bmsp") {
+                let Some(file) = args.get(i + 1) else {
+                    exit_with(&"usage: bpm export <id> --bmsp <file>");
+                };
+                let written = match &based {
+                    Some((bmsp, sounds)) => {
+                        bms_package_manager::chart_base::merged(bmsp, sounds.clone())
+                            .and_then(|bytes| Ok(fs::write(file, bytes)?))
+                    }
+                    None => {
+                        let from = if Path::new(target).exists() {
+                            PathBuf::from(target)
+                        } else {
+                            let source = manager
+                                .registry()
+                                .list_packages()
+                                .into_iter()
+                                .find(|r| &r.id == target)
+                                .map(|r| format!("{}@{}", r.id, r.active_state));
+                            source
+                                .and_then(|s| package_file_of(&manager, &s))
+                                .unwrap_or_else(|| {
+                                    exit_with(&format!("Package not found: '{target}'"))
+                                })
+                        };
+                        fs::copy(from, file).map(|_| ()).map_err(Into::into)
+                    }
+                };
+                match written {
+                    Ok(()) => match &based {
+                        Some((_, sounds)) => println!(
+                            "Wrote {file} with {} key sound(s) of the song it plays with.",
+                            sounds.len()
+                        ),
+                        None => println!("Wrote {file}."),
+                    },
+                    Err(e) => exit_with(&format!("Export failed: {e}")),
+                }
+                return Ok(());
+            }
             let out_dir = if let Some(o_idx) = args
                 .iter()
                 .position(|a| a == "-o" || a == "--output" || a == "--to")
@@ -3147,6 +3223,21 @@ fn main() -> Result<(), PackageManagerError> {
             println!("Exporting '{}' to '{}'...", target, out_dir);
             match manager.export_package(target, &out_dir) {
                 Ok(stats) => {
+                    if let Some((_, sounds)) = &based {
+                        for (path, bytes) in sounds {
+                            let out = Path::new(&out_dir).join(path);
+                            if let Some(parent) = out.parent() {
+                                let _ = fs::create_dir_all(parent);
+                            }
+                            if let Err(e) = fs::write(&out, bytes) {
+                                exit_with(&format!("Export failed: {}: {e}", out.display()));
+                            }
+                        }
+                        println!(
+                            "Added {} key sound(s) of the song it plays with (--charts-only leaves them out).",
+                            sounds.len()
+                        );
+                    }
                     println!(
                         "Export completed successfully! Total: {} files ({} charts, {} WAVs, {} BGAs, {} videos, {} others)",
                         stats.total_files, stats.bms_files, stats.wav_files, stats.bga_files, stats.video_files, stats.other_files

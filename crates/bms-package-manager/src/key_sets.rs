@@ -65,6 +65,14 @@ impl Files {
             .collect()
     }
 
+    /// The found files' paths (a folder file's path, a package entry), sorted.
+    pub fn paths(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.0.values().map(|f| f.path.clone()).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// The found files' bytes in all.
     pub fn total_size(&self) -> u64 {
         self.0.values().map(|f| f.size).sum()
@@ -153,11 +161,17 @@ pub fn files_at(at: &PlaceAt, names: &[String]) -> Files {
                 .map(|e| (e.path.as_str(), e.size))
                 .collect();
             for name in names {
-                if let Some(path) = pkg.find_entry_path(dir, name) {
-                    if let Some(&size) = sizes.get(path.as_str()) {
-                        let ext = extension(&path);
-                        out.insert(name.to_lowercase(), FileAt { size, ext, path });
-                    }
+                // The lookup also tries picture extensions (it finds BGA
+                // images too): a picture of the same stem is no key sound.
+                let Some(path) = pkg
+                    .find_entry_path(dir, name)
+                    .filter(|p| SOUND_EXTENSIONS.contains(&extension(p).as_str()))
+                else {
+                    continue;
+                };
+                if let Some(&size) = sizes.get(path.as_str()) {
+                    let ext = extension(&path);
+                    out.insert(name.to_lowercase(), FileAt { size, ext, path });
                 }
             }
         }

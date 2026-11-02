@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use beetle_core::ChartId;
 use bms_package::installed::read_active_states;
@@ -162,6 +162,143 @@ pub fn copies_in(index: &crate::collection::Index) -> impl Fn(ChartId) -> Vec<Op
     move |chart| by_chart.get(&chart).cloned().unwrap_or_default()
 }
 
+/// The key sounds that chart-only package `bmsp` (source `<id>@<state
+/// hash>` in `index`) lacks and its base set has (B20 plan 3.7): entry paths
+/// beside its charts, and bytes. The set is the place of a base chart with
+/// the most of the files its charts declare, as the loader would play.
+/// Empty without a base. `package_file` finds a package source's file.
+pub fn base_sounds(
+    bmsp: &Path,
+    source: &str,
+    index: &crate::collection::Index,
+    package_file: impl Fn(&str) -> Option<PathBuf>,
+) -> Result<Vec<(String, Vec<u8>)>, crate::error::PackageManagerError> {
+    use crate::collection::LocationKind;
+    use crate::key_sets::{files_at, PlaceAt};
+
+    let Some(base) = Base::of(bms_package::PackageReader::open_file(bmsp)?.manifest()) else {
+        return Ok(Vec::new());
+    };
+    let dir_of = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
+    // The package's chart directories, with the key sounds declared there.
+    let mut dirs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for l in index.locations.iter().filter(|l| l.source == source) {
+        let names = l.key_stems.iter().map(|s| format!("{s}.wav"));
+        dirs.entry(dir_of(&l.path)).or_default().extend(names);
+    }
+    let all: Vec<String> = dirs
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut places: Vec<PlaceAt> = Vec::new();
+    for l in &index.locations {
+        if l.source == source || !base.charts.contains(&l.chart) {
+            continue;
+        }
+        let dir = dir_of(&l.path);
+        let at = match l.kind {
+            LocationKind::Folder => Some(PlaceAt::Folder(Path::new(&l.source).join(&dir))),
+            LocationKind::Package => {
+                package_file(&l.source).map(|bmsp| PlaceAt::Package { bmsp, dir })
+            }
+        };
+        if let Some(at) = at.filter(|at| !places.contains(at)) {
+            places.push(at);
+        }
+    }
+    let from = places
+        .into_iter()
+        .map(|at| {
+            let found = files_at(&at, &all).len();
+            (at, found)
+        })
+        .filter(|(_, found)| *found > 0)
+        .max_by_key(|(_, found)| *found)
+        .map(|(at, _)| at)
+        .ok_or_else(|| {
+            crate::error::PackageManagerError::NotInstalled(format!(
+                "the key sounds {source} plays with"
+            ))
+        })?;
+    let mut from_package = match &from {
+        PlaceAt::Package { bmsp, .. } => Some(bms_package::PackageReader::open_file(bmsp)?),
+        PlaceAt::Folder(_) => None,
+    };
+    let mut out: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for (dir, names) in &dirs {
+        let names: Vec<String> = names.iter().cloned().collect();
+        let own = PlaceAt::Package {
+            bmsp: bmsp.to_path_buf(),
+            dir: dir.clone(),
+        };
+        let missing = files_at(&own, &names).missing(&names);
+        for path in files_at(&from, &missing).paths() {
+            let (rel, bytes) = match (&from, &mut from_package) {
+                (PlaceAt::Folder(root), _) => {
+                    let rel = Path::new(&path)
+                        .strip_prefix(root)
+                        .map_or(path.clone(), |p| p.to_string_lossy().replace('\\', "/"));
+                    (rel, fs::read(&path)?)
+                }
+                (PlaceAt::Package { dir: from_dir, .. }, Some(pkg)) => {
+                    let rel = match from_dir.as_str() {
+                        "" => path.clone(),
+                        d => path
+                            .strip_prefix(&format!("{d}/"))
+                            .unwrap_or(&path)
+                            .to_string(),
+                    };
+                    (rel, pkg.read_entry(&path)?)
+                }
+                _ => continue,
+            };
+            let entry = if dir.is_empty() {
+                rel
+            } else {
+                format!("{dir}/{rel}")
+            };
+            out.entry(entry).or_insert(bytes);
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+/// Chart-only package `bmsp` with `sounds` (`base_sounds`) as one whole
+/// package: the manifest drops its base, and an id ending in
+/// `add::CHARTS_ONLY_SUFFIX` loses it. Built as every package is, so the
+/// same input gives the same bytes (INV-6).
+pub fn merged(
+    bmsp: &Path,
+    sounds: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<u8>, crate::error::PackageManagerError> {
+    let mut reader = bms_package::PackageReader::open_file(bmsp)?;
+    let mut manifest = reader.manifest().clone();
+    manifest.extra.remove(FIELD);
+    if let Some(id) = manifest.id.strip_suffix(crate::add::CHARTS_ONLY_SUFFIX) {
+        manifest.id = id.to_string();
+    }
+    let mut builder = bms_package::PackageBuilder::new(manifest);
+    let paths: Vec<String> = reader
+        .entries()
+        .iter()
+        .map(|e| e.path.clone())
+        .filter(|p| p != MANIFEST_FILENAME)
+        .collect();
+    for path in &paths {
+        let bytes = reader.read_entry(path)?;
+        builder.add_file(path.clone(), bytes)?;
+    }
+    for (path, bytes) in sounds {
+        if !paths.contains(&path) {
+            builder.add_file(path, bytes)?;
+        }
+    }
+    Ok(builder.build_to_bytes()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +323,80 @@ mod tests {
         // Removing the chart-only package itself warns of nothing.
         assert!(leaning_on(&bases, &["a", "a.charts"], copies).is_empty());
         assert_eq!(orphans(&bases, copies), ["c.charts"]);
+    }
+
+    #[test]
+    fn an_export_takes_back_the_key_sounds_the_base_folder_has() {
+        let root = std::env::temp_dir().join(format!("bpm-merge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let lib = root.join("lib");
+        let song = lib.join("song");
+        fs::create_dir_all(&song).unwrap();
+        fs::write(
+            song.join("x.bms"),
+            "#TITLE X
+#WAV01 a.wav
+#WAV02 b.wav
+#00111:0102
+",
+        )
+        .unwrap();
+        fs::write(song.join("a.wav"), b"sound a").unwrap();
+        fs::write(song.join("B.WAV"), b"sound b").unwrap();
+        let folders = vec![lib.to_string_lossy().into_owned()];
+        let (index, _) = crate::collection::build_index(&folders, &[]);
+        let base = Base {
+            charts: index.locations.iter().map(|l| l.chart).collect(),
+            package: None,
+        };
+        assert_eq!(base.charts.len(), 1);
+
+        // The package's own chart declares one more sound, and holds a
+        // picture with a key sound's stem.
+        let mut manifest = Manifest::new("t.charts", "T");
+        base.write_to(&mut manifest);
+        let mut builder = bms_package::PackageBuilder::new(manifest);
+        builder
+            .add_file(
+                "song/y.bms",
+                "#TITLE X [Y]
+#WAV01 a.wav
+#WAV02 b.wav
+#WAV03 c.wav
+#00111:010203
+",
+            )
+            .unwrap();
+        builder.add_file("song/c.wav", b"sound c".to_vec()).unwrap();
+        builder.add_file("song/b.bmp", b"picture".to_vec()).unwrap();
+        let mut mgr = crate::manager::PackageManager::new(root.join("store")).unwrap();
+        let installed = mgr
+            .install_from_bytes(builder.build_to_bytes().unwrap())
+            .unwrap();
+        let bmsp = installed.location.join("package.bmsp");
+        let source = format!("t.charts@{}", installed.state_hash);
+        let (index, _) = crate::collection::build_index(&folders, &[installed]);
+
+        let sounds = base_sounds(&bmsp, &source, &index, |_| None).unwrap();
+        let paths: Vec<&str> = sounds.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, ["song/B.WAV", "song/a.wav"]);
+
+        let bytes = merged(&bmsp, sounds.clone()).unwrap();
+        assert_eq!(bytes, merged(&bmsp, sounds).unwrap());
+        let whole = bms_package::Package::from_bytes(bytes).unwrap();
+        assert_eq!(whole.manifest().id, "t");
+        assert_eq!(Base::of(whole.manifest()), None);
+        let entries: Vec<&str> = whole.entries().iter().map(|e| e.path.as_str()).collect();
+        for path in [
+            "song/B.WAV",
+            "song/a.wav",
+            "song/b.bmp",
+            "song/c.wav",
+            "song/y.bms",
+        ] {
+            assert!(entries.contains(&path), "{entries:?}");
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

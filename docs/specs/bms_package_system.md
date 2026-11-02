@@ -1258,7 +1258,7 @@ base_package
 
 이 필드는 **정보 제공 목적**이며, Package Manager가 원본 Package의 키음 리소스를 공유하는 최적화에 활용할 수 있다.
 
-> 구현(2026-11-02, B20): bpm이 만드는 채보만 든 패키지는 이 필드 대신 매니페스트 확장 필드 `base`를 쓴다: `{"charts": [<ChartId>...], "package": <id, 선택>}`. 패키지 id와 State 대신 원본 곡의 채보 id(바이트로 정해짐)를 적는다. 원본 키음이 패키지가 아닌 서재 폴더에 있을 수 있기 때문이다. 스캔은 이 기록으로 패키지를 그 곡에 묶는다(`crates/bms-package-manager/src/chart_base.rs`, [chart-only packages plan](../plans/2026-11-02-chart-only-packages-plan.md)).
+> 구현(2026-11-02, B20): bpm이 만드는 채보만 든 패키지는 이 필드 대신 매니페스트 확장 필드 `base`를 쓴다: `{"charts": [<ChartId>...], "package": <id, 선택>}`. 패키지 id와 State 대신 원본 곡의 채보 id(바이트로 정해짐)를 적는다. 원본 키음이 패키지가 아닌 서재 폴더에 있을 수 있기 때문이다. 스캔은 이 기록으로 패키지를 그 곡에 묶고, `bpm export`는 기본으로 원본 키음을 합쳐 내보낸다(`crates/bms-package-manager/src/chart_base.rs`, [chart-only packages plan](../plans/2026-11-02-chart-only-packages-plan.md)).
 
 중요한 점은 다음과 같다.
 
