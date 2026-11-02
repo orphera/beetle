@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use beetle_core::{GaugeType, LaneModifier, ScoreUpdate, SongMetadata};
+use beetle_core::{ScoreUpdate, SongMetadata};
 use beetle_render::{SkinConfig, ViewState};
 use config::{AppConfig, DisplayMode};
 use gameplay::{
@@ -1208,49 +1208,6 @@ fn handle_keyboard_input(
     }
 
     ime::close_search_if_unavailable(state);
-
-    // Global Hotkeys (when key is pressed)
-    // Not during the judge offset calibration: its cancel must leave the
-    // play options as they were.
-    if key_state == ElementState::Pressed
-        && !state.is_search_active
-        && state.rebinding.is_none()
-        && state.calibration.is_none()
-    {
-        // On the song select F6 switches the content source tab instead.
-        if code == KeyCode::F6 && state.screen != AppScreen::SongSelect {
-            state.play_options.gauge_type = match state.play_options.gauge_type {
-                GaugeType::Easy => GaugeType::Groove,
-                GaugeType::Groove => GaugeType::Hard,
-                GaugeType::Hard => GaugeType::Hazard,
-                GaugeType::Hazard => GaugeType::Easy,
-                // Only courses play these; the option itself never holds one.
-                GaugeType::Class | GaugeType::ExClass | GaugeType::ExHardClass => GaugeType::Easy,
-            };
-            state.save_config();
-            return;
-        } else if code == KeyCode::F7 {
-            state.play_options.lane_modifier = match state.play_options.lane_modifier {
-                LaneModifier::Regular => LaneModifier::Mirror,
-                LaneModifier::Mirror => LaneModifier::Random,
-                LaneModifier::Random => LaneModifier::RRandom,
-                LaneModifier::RRandom => LaneModifier::SRandom,
-                LaneModifier::SRandom => LaneModifier::Regular,
-            };
-            state.save_config();
-            return;
-        } else if code == KeyCode::F8 {
-            state.play_options.judge_offset_ms =
-                (state.play_options.judge_offset_ms - 2.0).max(-100.0);
-            state.save_config();
-            return;
-        } else if code == KeyCode::F9 {
-            state.play_options.judge_offset_ms =
-                (state.play_options.judge_offset_ms + 2.0).min(100.0);
-            state.save_config();
-            return;
-        }
-    }
 
     match state.screen {
         // Nothing to do until the library is read; the window can still be closed.

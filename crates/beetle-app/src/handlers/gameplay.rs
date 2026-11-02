@@ -127,8 +127,8 @@ pub fn handle_gameplay_input(
     }
 }
 
-/// Keys that act on the play (pause, green number, lane cover, the global
-/// F6–F9 options) rather than hit a lane, even when bound to one.
+/// Keys that act on the play (pause, green number, lane cover) rather than
+/// hit a lane, even when bound to one.
 pub fn is_gameplay_hotkey(code: KeyCode) -> bool {
     matches!(
         code,
@@ -139,10 +139,6 @@ pub fn is_gameplay_hotkey(code: KeyCode) -> bool {
             | KeyCode::PageDown
             | KeyCode::Digit1
             | KeyCode::Digit2
-            | KeyCode::F6
-            | KeyCode::F7
-            | KeyCode::F8
-            | KeyCode::F9
             | KeyCode::F10
             | KeyCode::F11
     )
