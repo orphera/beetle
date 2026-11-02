@@ -8,7 +8,7 @@
 //! worse than another when, on 95% of the files both have, the other is no
 //! worse in anything and better in something (`audio_info::better`).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -335,8 +335,87 @@ pub struct Strip {
 /// The places of the worse sets that cannot go (`going`) because some chart
 /// there is found nowhere else: each loses the files the first better set
 /// also has. As with `going`, nothing is stripped unless every borrowing
-/// place still finds what it lacks at a better set.
+/// place still finds what it lacks at a better set. Then the package places
+/// that `sharing` strips.
 pub fn stripping(
+    sets: &[Set],
+    partial: &[String],
+    places: &[(String, PlaceAt)],
+    names: &[String],
+    charts: &BTreeMap<String, Vec<ChartId>>,
+) -> Vec<Strip> {
+    let mut out = stripping_worse(sets, partial, places, names, charts);
+    for strip in sharing(sets, places, names, charts) {
+        if !out.iter().any(|s| s.place == strip.place) {
+            out.push(strip);
+        }
+    }
+    out
+}
+
+/// Package places with a library folder's set (`Set::same`) and a chart the
+/// folders do not have, so `copies` keeps them: each loses the key sounds
+/// the folder has, and its charts play with the folder's (B20 plan 3.5).
+/// Only key sounds go: the game takes nothing else from another place.
+pub fn sharing(
+    sets: &[Set],
+    places: &[(String, PlaceAt)],
+    names: &[String],
+    charts: &BTreeMap<String, Vec<ChartId>>,
+) -> Vec<Strip> {
+    let at = |key: &str| places.iter().find(|(k, _)| k == key).map(|(_, a)| a);
+    let mut out = Vec::new();
+    for set in sets {
+        let folders: Vec<(&str, &PlaceAt)> = set
+            .same
+            .iter()
+            .filter_map(|k| Some((k.as_str(), at(k)?)))
+            .filter(|(_, a)| matches!(a, PlaceAt::Folder(_)))
+            .collect();
+        let Some(&(_, folder)) = folders.first() else {
+            continue;
+        };
+        let base: BTreeSet<ChartId> = folders
+            .iter()
+            .filter_map(|(k, _)| charts.get(*k))
+            .flatten()
+            .copied()
+            .collect();
+        let theirs = files_at(folder, names);
+        for key in &set.same {
+            let Some(own @ PlaceAt::Package { .. }) = at(key) else {
+                continue;
+            };
+            let Some(mine) = charts.get(key) else {
+                continue;
+            };
+            if mine.iter().all(|c| base.contains(c)) {
+                continue;
+            }
+            let files = files_at(own, names);
+            let shared: Vec<&FileAt> = files
+                .0
+                .iter()
+                .filter(|(name, f)| theirs.0.get(*name).is_some_and(|t| t.size == f.size))
+                .map(|(_, f)| f)
+                .collect();
+            if shared.is_empty() {
+                continue;
+            }
+            let mut paths: Vec<String> = shared.iter().map(|f| f.path.clone()).collect();
+            paths.sort();
+            out.push(Strip {
+                place: key.clone(),
+                files: paths,
+                bytes: shared.iter().map(|f| f.size).sum(),
+                base: base.iter().copied().collect(),
+            });
+        }
+    }
+    out
+}
+
+fn stripping_worse(
     sets: &[Set],
     partial: &[String],
     places: &[(String, PlaceAt)],
@@ -382,7 +461,7 @@ pub fn stripping(
         .filter_map(|k| charts.get(k))
         .flatten()
         .copied()
-        .collect::<std::collections::BTreeSet<_>>()
+        .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
     let mut out = Vec::new();
@@ -491,71 +570,6 @@ pub fn copies<'a>(
     }
     out.sort();
     (out, kept)
-}
-
-/// The files at a place besides charts and key sounds: path relative to the
-/// place (`/` separated) and size. A folder's are found under it, a
-/// package place's under its directory.
-fn extras(at: &PlaceAt) -> BTreeMap<String, u64> {
-    let keep = |rel: &str| {
-        rel != bms_package::MANIFEST_FILENAME
-            && !crate::collection::is_chart_path(rel)
-            && !SOUND_EXTENSIONS.contains(&extension(rel).as_str())
-    };
-    let mut out = BTreeMap::new();
-    match at {
-        PlaceAt::Folder(dir) => {
-            let mut stack = vec![dir.clone()];
-            while let Some(d) = stack.pop() {
-                for entry in fs::read_dir(&d).into_iter().flatten().flatten() {
-                    let path = entry.path();
-                    let Ok(meta) = entry.metadata() else {
-                        continue;
-                    };
-                    if meta.is_dir() {
-                        stack.push(path);
-                        continue;
-                    }
-                    let Ok(rel) = path.strip_prefix(dir) else {
-                        continue;
-                    };
-                    let rel = rel.to_string_lossy().replace('\\', "/");
-                    if keep(&rel) {
-                        out.insert(rel, meta.len());
-                    }
-                }
-            }
-        }
-        PlaceAt::Package { bmsp, dir } => {
-            let Ok(pkg) = bms_package::PackageReader::open_file(bmsp) else {
-                return out;
-            };
-            let prefix = if dir.is_empty() {
-                String::new()
-            } else {
-                format!("{dir}/")
-            };
-            for e in pkg.entries() {
-                if let Some(rel) = e.path.strip_prefix(&prefix) {
-                    if keep(rel) {
-                        out.insert(rel.to_string(), e.size);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-/// The files of `own` besides charts and key sounds that `other` has too,
-/// at the same path with the same size: paths relative to `own`.
-pub fn shared_extras(own: &PlaceAt, other: &PlaceAt) -> Vec<String> {
-    let theirs = extras(other);
-    extras(own)
-        .into_iter()
-        .filter(|(rel, size)| theirs.get(rel) == Some(size))
-        .map(|(rel, _)| rel)
-        .collect()
 }
 
 /// The files of package place `own`, besides charts and key sounds, that
@@ -809,6 +823,13 @@ mod tests {
         let (going, kept) = copies(&sets, &places, &charts);
         assert_eq!(going, ["plain::song"]);
         assert_eq!(kept, [("picture::song", vec!["back.png".to_string()])]);
+        // The copy with a chart of its own keeps it and borrows the folder's
+        // key sounds instead (B20 plan 3.5).
+        let strips = sharing(&sets, &places, &names, &charts);
+        assert_eq!(strips.len(), 1, "{strips:?}");
+        assert_eq!(strips[0].place, "more::song");
+        assert_eq!(strips[0].files, ["song/a.wav", "song/b.wav"]);
+        assert_eq!(strips[0].base, [id(1)]);
         // Once the folder has the picture too, that copy goes as well.
         fs::write(folder.join("back.png"), "png").unwrap();
         let (going, kept) = copies(&sets, &places, &charts);

@@ -993,13 +993,22 @@ fn run_song_clean(args: &[String]) {
         }
         for strip in &strips {
             let set = sets.iter().find(|s| s.same.contains(&strip.place));
-            let note = format!(
-                "{} / {}: {} key sounds, {} MB (kept: {better}; its charts stay)",
-                song.title,
-                song.artist,
-                set.map_or("", |s| s.description.as_str()),
-                strip.bytes.div_ceil(1 << 20)
-            );
+            let mb = strip.bytes.div_ceil(1 << 20);
+            let note = match set {
+                // `key_sets::sharing`: the same set as a library folder.
+                Some(s) if !s.worse => format!(
+                    "{} / {}: key sounds also in {}, {mb} MB (its charts stay)",
+                    song.title,
+                    song.artist,
+                    folder_of(&strip.place)
+                ),
+                _ => format!(
+                    "{} / {}: {} key sounds, {mb} MB (kept: {better}; its charts stay)",
+                    song.title,
+                    song.artist,
+                    set.map_or("", |s| s.description.as_str()),
+                ),
+            };
             let (copy, _) = places[strip.place.as_str()];
             match list.iter().find(|(k, _)| *k == strip.place) {
                 Some((_, PlaceAt::Folder(dir))) => {

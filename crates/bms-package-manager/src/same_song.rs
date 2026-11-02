@@ -393,9 +393,10 @@ pub struct ChartOnly {
     pub base: Vec<ChartId>,
     /// The installed package holding the set, when one does.
     pub package: Option<String>,
-    /// Files of the incoming place that the set has already, with the same
-    /// size: key sounds and other files (pictures, video), relative to the
-    /// place with `/` separators. These are left out.
+    /// Key sounds of the incoming place that the set has already, with the
+    /// same size, relative to the place with `/` separators. These are left
+    /// out. Pictures and video stay: the game takes only key sounds from
+    /// another place.
     pub leave_out: Vec<String>,
 }
 
@@ -432,10 +433,7 @@ pub fn chart_only(incoming: &Incoming, known: &[KnownPlace]) -> Option<ChartOnly
             .map_or(path.clone(), str::to_string),
         PlaceAt::Package { .. } => path,
     };
-    let mut leave_out: Vec<String> = mine.shared_with(files).into_iter().map(relative).collect();
-    leave_out.extend(key_sets::shared_extras(&incoming.at, &twin.at));
-    leave_out.sort();
-    leave_out.dedup();
+    let leave_out: Vec<String> = mine.shared_with(files).into_iter().map(relative).collect();
     Some(ChartOnly {
         base: base.into_iter().collect(),
         package: twin.package.clone(),

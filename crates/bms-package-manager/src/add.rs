@@ -924,7 +924,7 @@ mod tests {
                 .filter(|p| p != bms_package::MANIFEST_FILENAME)
                 .collect();
             paths.sort();
-            assert_eq!(paths, ["another.bms", "new.png", "song.bms"]);
+            assert_eq!(paths, ["another.bms", "back.png", "new.png", "song.bms"]);
             let read = crate::chart_base::Base::of(pkg.manifest()).unwrap();
             assert_eq!(read.charts, base);
         };
