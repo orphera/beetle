@@ -8,7 +8,7 @@
 use super::widgets;
 use crate::art::Skin;
 use crate::backend::TextureId;
-use crate::canvas::{Canvas, Rect};
+use crate::canvas::{AtlasRegion, Canvas, Rect};
 use crate::hit::{HitId, HitSink};
 use crate::motion::{ease_in_cubic, ease_out_back, ease_out_cubic, ease_out_quad};
 use crate::skin::{
@@ -20,6 +20,7 @@ use crate::text::{Align, Fx, TextEngine, TextStyle};
 use crate::theme::{self, caption, thousands};
 use crate::ui::Ui;
 use crate::view::{lane_index, HitBurst, JudgeMark, Viewport, JUDGE_TIMELINE_SECONDS, LANE_COUNT};
+use crate::words::WordRegions;
 use beetle_core::{
     BmsChart, ClearType, GaugeType, JudgeGrade, Lane, NoteType, PlayMode, PlayNote, ScoreTracker,
     TimingModel,
@@ -92,6 +93,9 @@ pub struct PlayFrame<'a> {
     /// The song is still loading: the lane stands empty with a loading bar
     /// over its upper part, and nothing plays yet.
     pub loading: Option<LaneLoading<'a>>,
+    /// A disc song's word pictures (title, artist), drawn in the song block in
+    /// place of the text the disc does not have.
+    pub words: Option<WordRegions>,
 }
 
 /// The loading bar over the lane while the song loads.
@@ -1390,9 +1394,23 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
         t.draw_in(c, &badge, at, Align::Center, &st);
     }
 
-    let title_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
-    let title = t.fit(c, &header.title, r.w, &title_st).into_owned();
-    t.draw(c, &title, r.x, r.y + 46.0 * s, &title_st);
+    // A disc song's title picture, at the text's height (narrower when it would
+    // not fit the block).
+    match f.words.and_then(|w| w.title) {
+        Some(region) => {
+            let (w, h) = word_size(region, 24.0 * s, r.w);
+            c.sprite(
+                region,
+                Rect::new(r.x, r.y + 50.0 * s - h, w, h),
+                theme::TEXT,
+            );
+        }
+        None => {
+            let title_st = TextStyle::new(22.0 * s).bold().color(theme::TEXT);
+            let title = t.fit(c, &header.title, r.w, &title_st).into_owned();
+            t.draw(c, &title, r.x, r.y + 46.0 * s, &title_st);
+        }
+    }
     // The BPM now, and for a chart that changes its BPM, the range it plays
     // over the song (the same span as the clock).
     let now = f.timing.bpm_at_time(f.audio_time).round();
@@ -1403,10 +1421,23 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     } else {
         format!("BPM {now} ({lo}-{hi})")
     };
-    let sub = format!("{}  /  {bpm_txt}", header.artist);
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
-    let sub = t.fit(c, &sub, r.w, &sub_st).into_owned();
-    t.draw(c, &sub, r.x, r.y + 68.0 * s, &sub_st);
+    // A disc song's artist picture stands in for the artist text, the BPM after it.
+    let artist = f.words.and_then(|w| w.artist).map(|region| {
+        let (w, h) = word_size(region, 15.0 * s, r.w * 0.6);
+        c.sprite(
+            region,
+            Rect::new(r.x, r.y + 70.0 * s - h, w, h),
+            theme::MUTED,
+        );
+        w
+    });
+    let (sub, sub_x) = match artist {
+        Some(w) => (format!("  /  {bpm_txt}"), r.x + w),
+        None => (format!("{}  /  {bpm_txt}", header.artist), r.x),
+    };
+    let sub = t.fit(c, &sub, r.right() - sub_x, &sub_st).into_owned();
+    t.draw(c, &sub, sub_x, r.y + 68.0 * s, &sub_st);
 
     let prog = Rect::new(r.x, r.y + 88.0 * s, r.w, 3.0 * s);
     c.fill_rect(prog, theme::LINE);
@@ -1432,6 +1463,16 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
         Align::Right,
         &caption(12.0, s).color(theme::MUTED),
     );
+}
+
+/// The drawn size of a word picture `h` high, shrunk to at most `max_w` wide.
+fn word_size(region: AtlasRegion, h: f32, max_w: f32) -> (f32, f32) {
+    let w = h * region.w as f32 / region.h.max(1) as f32;
+    if w <= max_w {
+        (w, h)
+    } else {
+        (max_w, h * max_w / w)
+    }
 }
 
 /// The EX score with the rank and the pace, the judgement counts as coloured
@@ -2216,6 +2257,7 @@ mod tests {
                     reduce_flashes: false,
                     high_contrast: false,
                     loading: None,
+                    words: None,
                 },
             );
             assert_eq!(
@@ -2333,6 +2375,7 @@ mod tests {
                     reduce_flashes: false,
                     high_contrast,
                     loading: None,
+                    words: None,
                 },
             );
             assert_eq!(
@@ -2706,6 +2749,7 @@ mod tests {
                 reduce_flashes: false,
                 high_contrast: false,
                 loading: None,
+                words: None,
             },
         );
         // The backdrop image is one batch, the frame the other.
@@ -2828,6 +2872,7 @@ mod tests {
                 reduce_flashes: false,
                 high_contrast: false,
                 loading: None,
+                words: None,
             },
         );
         assert_eq!(ui.canvas.debug_batches().len(), 1, "t={audio_time}");

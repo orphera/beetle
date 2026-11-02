@@ -262,6 +262,7 @@ fn render_with(
             reduce_flashes: false,
             high_contrast: false,
             loading: None,
+            words: None,
         },
     );
     let calls = ui.end(gpu);

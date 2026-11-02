@@ -323,6 +323,7 @@ pub fn gameplay(
     );
 
     begin(state, size);
+    let words = crate::words::for_play(state, state.active_picture_key);
 
     if let (Some(chart), Some(judge), Some(timing)) = (
         &state.active_chart,
@@ -374,6 +375,7 @@ pub fn gameplay(
                 reduce_flashes: state.reduce_flashes,
                 high_contrast: state.high_contrast,
                 loading: None,
+                words,
             },
         );
     }
@@ -413,6 +415,7 @@ fn loading_lane(state: &mut AppState, size: PhysicalSize<u32>) {
         loading_status()
     };
     begin(state, size);
+    let words = crate::words::for_play(state, id);
     let Some(lane) = &state.loading_lane else {
         return;
     };
@@ -449,6 +452,7 @@ fn loading_lane(state: &mut AppState, size: PhysicalSize<u32>) {
             visual_offset_ms: state.visual_offset_ms,
             reduce_flashes: state.reduce_flashes,
             high_contrast: state.high_contrast,
+            words,
             loading: Some(beetle_render::LaneLoading {
                 status: &status,
                 fraction,

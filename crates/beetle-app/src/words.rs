@@ -6,7 +6,8 @@
 //! the words of rows that are on screen or next to it, and each word is a
 //! small copy into the atlas, so nothing here waits on the disc.
 
-use beetle_render::words::Word;
+use beetle_core::ChartId;
+use beetle_render::words::{Word, WordRegions};
 use cs_disc::popn::Mask;
 
 use crate::folders::ListEntry;
@@ -88,4 +89,28 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
             );
         }
     }
+}
+
+/// The word pictures of the chart `id` in the UI drawing this frame (the
+/// gameplay UI has its own atlas), written there first when they are not
+/// resident. Call after the frame has begun. `None` for a chart without names.
+pub fn for_play(state: &mut AppState, id: ChartId) -> Option<WordRegions> {
+    let AppState {
+        gpu_ui, disc_names, ..
+    } = state;
+    let names = disc_names.get_or_insert_with(crate::names::load_all);
+    let ui = gpu_ui.ui.current();
+    if !ui.words.contains(id) {
+        let song_names = names.get(&id)?;
+        ui.words.insert(
+            ui.canvas.atlas_mut(),
+            id,
+            song_names.title.as_ref().map(word),
+            song_names.small_title.as_ref().map(word),
+            song_names.artist.as_ref().map(word),
+            song_names.genre.as_ref().map(word),
+            song_names.popn,
+        );
+    }
+    ui.words.get(id)
 }
