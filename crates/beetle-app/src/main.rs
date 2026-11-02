@@ -411,6 +411,7 @@ impl ApplicationHandler for BeetleApp {
         }
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
+        app_state.show_help = devtools::help_requested();
         menu_audio::sync_with_screen(&mut app_state);
         for path in devtools::dropped_paths() {
             install::queue(&mut app_state, path);

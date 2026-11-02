@@ -726,9 +726,13 @@ table! {
         en "Click sort, filter chips, or the search box",
         ja "並べ替え、フィルターチップ、検索欄をクリック";
     pub HELP_BACK_QUIT =
-        ko "한 단계 위, 루트에서는 종료",
-        en "Go up one level; quit at the top level",
-        ja "一つ上の階層へ。最上位では終了します";
+        ko "한 단계 위, 루트에서는 타이틀로",
+        en "Go up one level; back to the title at the top level",
+        ja "一つ上の階層へ。最上位ではタイトルへ戻ります";
+    pub HELP_SOURCE =
+        ko "서재와 CS 디스크를 바꿔요",
+        en "Switch between the library and CS discs",
+        ja "ライブラリと CS ディスクを切り替えます";
     pub HELP_RESCAN =
         ko "곡 목록을 다시 읽어요",
         en "Rescan the song list",
@@ -1765,9 +1769,9 @@ table! {
         en "READY",
         ja "READY";
     pub READY_HINT =
-        ko "F3/F4 노트 속도 / F10/F11 레인 커버",
-        en "F3/F4 Note Speed / F10/F11 Lane Cover",
-        ja "F3/F4 ノーツ速度 / F10/F11 レーンカバー";
+        ko "1/2 노트 속도 / F10/F11 레인 커버",
+        en "1/2 Note Speed / F10/F11 Lane Cover",
+        ja "1/2 ノーツ速度 / F10/F11 レーンカバー";
     /// Readout over the lane after a green number change (`{}` = ms).
     pub READOUT_GREEN =
         ko "{} ms",

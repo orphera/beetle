@@ -228,6 +228,11 @@ pub fn capture_hover() -> Option<usize> {
     *HOVER.get_or_init(|| std::env::var("BEETLE_CAPTURE_HOVER").ok()?.parse().ok())
 }
 
+/// `BEETLE_CAPTURE_MODAL=help`: the song select help overlay is open at startup.
+pub fn help_requested() -> bool {
+    std::env::var("BEETLE_CAPTURE_MODAL").is_ok_and(|v| v == "help")
+}
+
 /// Song select modal to open at startup: (options, exit).
 pub fn modal_requested() -> (bool, bool) {
     match std::env::var("BEETLE_CAPTURE_MODAL").as_deref() {

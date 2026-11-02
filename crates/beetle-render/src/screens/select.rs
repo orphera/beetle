@@ -3423,7 +3423,7 @@ pub fn help_groups() -> Vec<HelpGroup> {
             title: strings::HELP_GROUP_MOVE(),
             rows: vec![
                 HelpRow {
-                    keys: &["↑↓"],
+                    keys: &["↑↓", "J K"],
                     caption: "",
                     text: strings::HELP_MOVE_ONE(),
                 },
@@ -3553,6 +3553,11 @@ pub fn help_groups() -> Vec<HelpGroup> {
                     text: strings::HELP_FILTER(),
                 },
                 HelpRow {
+                    keys: &["F6"],
+                    caption: "",
+                    text: strings::HELP_SOURCE(),
+                },
+                HelpRow {
                     keys: &[],
                     caption: strings::HELP_CAP_MOUSE(),
                     text: strings::HELP_MOUSE_FILTER(),
@@ -3578,7 +3583,7 @@ pub fn help_groups() -> Vec<HelpGroup> {
                     text: strings::HELP_RESCAN(),
                 },
                 HelpRow {
-                    keys: &["?"],
+                    keys: &["?", "H"],
                     caption: "",
                     text: strings::HELP_HELP(),
                 },
