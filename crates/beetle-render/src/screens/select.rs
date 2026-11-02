@@ -2609,7 +2609,13 @@ fn footer(
         let shown: usize = f.rows.iter().map(row_charts).sum();
         x += t.draw(c, &thousands(shown as u32), x, base, &count_st);
         let total = strings::fill(strings::SONGS_TOTAL(), &[&thousands(f.songs.len() as u32)]);
-        t.draw(c, &total, x, base, &caption(12.0, s));
+        x += t.draw(c, &total, x, base, &caption(12.0, s));
+    }
+    // While a search or a filter is on, the charts it found follow the count.
+    if let Some(n) = f.result_count {
+        let text = strings::fill(strings::RESULT_COUNT(), &[&thousands(n as u32)]);
+        let st = TextStyle::new(13.0 * s).bold().color(theme::CYAN);
+        t.draw(c, &text, x + 16.0 * s, base, &st);
     }
 
     // Only the keys a player needs here; the rest are in the help overlay (?).
@@ -2919,19 +2925,6 @@ fn filter_row(
         let hot = hs.hovered(r);
         chip_frame(c, sk, r, false, hot, fb.focus == Some(item), s);
         chip_label(c, t, r, strings::FILTER_RESET(), hot, s);
-    }
-
-    // The result count ends at the search box's right edge.
-    if let Some(n) = f.result_count {
-        let right = vp.x + vp.width - (PAD + 112.0 + 144.0 + 12.0) * s;
-        let text = strings::fill(strings::RESULT_COUNT(), &[&thousands(n as u32)]);
-        t.draw_in(
-            c,
-            &text,
-            Rect::new(right - 160.0 * s, bar.y, 160.0 * s, bar.h),
-            Align::Right,
-            &TextStyle::new(12.0 * s).bold().color(theme::TEXT),
-        );
     }
 }
 
