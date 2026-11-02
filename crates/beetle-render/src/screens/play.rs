@@ -1427,7 +1427,7 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
         let (w, h) = crate::words::drawn_size(region, 15.0 * s, r.w * 0.6);
         c.sprite(
             region,
-            Rect::new(r.x, r.y + 70.0 * s - h, w, h),
+            Rect::new(r.x, r.y + 72.4 * s - h, w, h),
             theme::MUTED,
         );
         w
