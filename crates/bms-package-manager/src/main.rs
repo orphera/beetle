@@ -54,7 +54,7 @@ fn print_usage() {
     println!("  bpm info <package_id>                  Show package metadata and installed states");
     println!("  bpm states <package_id>                List all installed states of a package");
     println!("  bpm activate <id> <state_hash>         Switch active state for a package");
-    println!("  bpm uninstall <id> <state_hash>        Uninstall a specific package state");
+    println!("  bpm uninstall <id> <state_hash> [--force]  Uninstall a package state (--force: even when chart-only packages play with its key sounds)");
     println!("  bpm serve [--port <port>] [--bind <addr>] Host local package storage as a LAN registry hub");
 }
 
@@ -212,6 +212,16 @@ fn run_status() {
     );
     let songs_count = songs::build(&index, &load_manual()).songs.len();
     println!("Songs:      {songs_count}");
+    if !index.bases.is_empty() {
+        let orphans = bms_package_manager::chart_base::orphans(
+            &index.bases,
+            bms_package_manager::chart_base::copies_in(&index),
+        );
+        println!("Charts only: {} package(s)", index.bases.len());
+        for id in orphans {
+            println!("  {id}: its base song is gone; its charts have no key sounds");
+        }
+    }
 }
 
 fn run_dupes(args: &[String]) {
@@ -2886,6 +2896,30 @@ fn main() -> Result<(), PackageManagerError> {
             }
             let id = &args[2];
             let state_hash = &args[3];
+            let force = args[4..].iter().any(|a| a == "--force");
+            // Chart-only packages whose key sounds are only here (B20 plan 3.6).
+            // The index lists active states only.
+            let active = manager
+                .registry()
+                .get_package(id)
+                .is_some_and(|r| r.active_state == *state_hash);
+            let leaning = fs::read_to_string(collection::index_file())
+                .ok()
+                .filter(|_| active)
+                .and_then(|text| collection::Index::parse(&text))
+                .map(|index| {
+                    use bms_package_manager::chart_base::{copies_in, leaning_on};
+                    leaning_on(&index.bases, &[id.as_str()], copies_in(&index))
+                })
+                .unwrap_or_default();
+            if !leaning.is_empty() && !force {
+                eprintln!(
+                    "'{id}' holds the key sounds these chart-only packages play with: {}",
+                    leaning.join(", ")
+                );
+                eprintln!("Their charts would have no key sounds. Run again with --force to uninstall anyway.");
+                std::process::exit(1);
+            }
             match manager.uninstall(id, state_hash) {
                 Ok(()) => println!("Successfully uninstalled '{}' state {}.", id, state_hash),
                 Err(e) => {

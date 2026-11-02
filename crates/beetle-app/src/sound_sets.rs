@@ -367,6 +367,35 @@ pub fn cleanup(
 
 pub use key_sets::trash_folder;
 
+/// The chart-only packages that play with package `id`'s key sounds
+/// (B20, `chart_base::leaning_on`), from the scan's places and each active
+/// state's manifest. Read when the delete is asked, not every frame.
+pub fn leaning_on(song_places: &SongPlaces, id: &str) -> Vec<String> {
+    use bms_package_manager::chart_base;
+    let bases = chart_base::of_active(&bms_package::installed::packages_root());
+    if bases.is_empty() {
+        return Vec::new();
+    }
+    let mut by_chart: HashMap<ChartId, Vec<Option<String>>> = HashMap::new();
+    for place in song_places.values().flatten() {
+        let package = match SongAddress::parse(&place.address) {
+            // packages/<id>/<state hash>/package.bmsp
+            SongAddress::Package { bmsp, .. } => Path::new(bmsp)
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned()),
+            _ => None,
+        };
+        for chart in &place.charts {
+            by_chart.entry(*chart).or_default().push(package.clone());
+        }
+    }
+    chart_base::leaning_on(&bases, &[id], |c| {
+        by_chart.get(&c).cloned().unwrap_or_default()
+    })
+}
+
 // ---------------------------------------------------------------------------
 // songs.dat
 // ---------------------------------------------------------------------------

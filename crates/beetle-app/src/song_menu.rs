@@ -351,7 +351,17 @@ fn run(state: &mut AppState, i: usize) {
         }
         Action::AskDelete => {
             let count = menu.charts_in_package.max(1);
-            menu.note = Some(if count > 1 {
+            let leaning = menu
+                .package
+                .as_ref()
+                .map(|p| crate::sound_sets::leaning_on(&state.song_places, &p.id))
+                .unwrap_or_default();
+            menu.note = Some(if !leaning.is_empty() {
+                strings::fill(
+                    strings::MENU_DELETE_NOTE_LEANING(),
+                    &[&leaning.len().to_string()],
+                )
+            } else if count > 1 {
                 strings::fill(strings::MENU_DELETE_NOTE_MANY(), &[&count.to_string()])
             } else {
                 strings::MENU_DELETE_NOTE().to_string()

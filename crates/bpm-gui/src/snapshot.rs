@@ -157,6 +157,7 @@ fn snapshot_screens() {
             id: "freedom-dive".into(),
             name: "FREEDOM DiVE".into(),
             state: None,
+            leaning: vec!["xi.freedom_dive.charts".into()],
         }),
         &shot("09-dialog-uninstall"),
     );

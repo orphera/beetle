@@ -1012,6 +1012,11 @@ table! {
         ko "이 곡을 지울까요? 되돌릴 수 없어요.",
         en "Delete this song? This cannot be undone.",
         ja "この曲を削除しますか？元に戻せません。";
+    /// `{}` is how many chart-only packages play with the song's key sounds.
+    pub MENU_DELETE_NOTE_LEANING =
+        ko "채보만 든 패키지 {}개가 이 키음을 써요. 지우면 그 채보는 소리가 안 나요.",
+        en "{} chart-only packages play with these key sounds; their charts go silent.",
+        ja "譜面だけのパッケージ{}件がこのキー音を使います。削除すると無音になります。";
     /// `{}` is how many charts go with it.
     pub MENU_DELETE_NOTE_MANY =
         ko "함께 들어온 채보 {}개가 모두 지워져요. 되돌릴 수 없어요.",

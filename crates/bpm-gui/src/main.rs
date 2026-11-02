@@ -893,20 +893,29 @@ fn dispatch(state: &mut AppState, action: UiAction) {
             if let Some(pkg) = state.selected_package() {
                 let st = pkg.state_hashes.keys().nth(i).cloned();
                 let (id, name) = (pkg.id.clone(), pkg.name.clone());
+                // Only the active state's charts are in the index.
+                let leaning = if st.as_deref() == Some(pkg.active_state.as_str()) {
+                    leaning_on(&id)
+                } else {
+                    Vec::new()
+                };
                 state.open_dialog(DialogKind::ConfirmUninstall {
                     id,
                     name,
                     state: st,
+                    leaning,
                 });
             }
         }
         UiAction::AskUninstall => {
             if let Some(pkg) = state.selected_package() {
                 let (id, name) = (pkg.id.clone(), pkg.name.clone());
+                let leaning = leaning_on(&id);
                 state.open_dialog(DialogKind::ConfirmUninstall {
                     id,
                     name,
                     state: None,
+                    leaning,
                 });
             }
         }
@@ -1063,6 +1072,7 @@ fn confirm_dialog(state: &mut AppState) {
             id,
             name,
             state: one,
+            ..
         } => {
             state.dialog = None;
             uninstall(state, &id, &name, one);
@@ -1164,6 +1174,18 @@ fn use_version(state: &mut AppState, index: usize) {
         Err(e) => state.err(format!("버전을 바꾸지 못했어요: {e}")),
     }
     state.refresh_packages();
+}
+
+/// The chart-only packages that play with package `id`'s key sounds, from
+/// the collection index (B20, `chart_base::leaning_on`). Empty without an index.
+fn leaning_on(id: &str) -> Vec<String> {
+    use bms_package_manager::chart_base;
+    use bms_package_manager::collection::{index_file, Index};
+    std::fs::read_to_string(index_file())
+        .ok()
+        .and_then(|text| Index::parse(&text))
+        .map(|index| chart_base::leaning_on(&index.bases, &[id], chart_base::copies_in(&index)))
+        .unwrap_or_default()
 }
 
 fn uninstall(state: &mut AppState, id: &str, name: &str, one: Option<String>) {
