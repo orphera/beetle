@@ -325,7 +325,7 @@ fn is_chart_extension(ext: &str) -> bool {
         .any(|known| ext.eq_ignore_ascii_case(known))
 }
 
-fn is_chart_path(path: &str) -> bool {
+pub(crate) fn is_chart_path(path: &str) -> bool {
     path.rsplit_once('.')
         .is_some_and(|(_, ext)| is_chart_extension(ext))
 }

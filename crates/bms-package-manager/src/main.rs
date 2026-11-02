@@ -842,7 +842,9 @@ fn run_song_unlink(args: &[String]) {
 /// a whole set (no difference folder that may draw on them). A place of a
 /// worse set with charts found nowhere else keeps them and loses the key
 /// sounds a better set has (B18 plan 4.5): a folder's move into the trash, a
-/// package is built again without them.
+/// package is built again without them. A package holding the same set as a
+/// library folder, with every chart in that folder too, is uninstalled as a
+/// copy (B21), unless the folder lacks some other file of it.
 fn run_song_clean(args: &[String]) {
     use bms_package_manager::key_sets::{self, PlaceAt};
     use std::collections::BTreeMap;
@@ -929,7 +931,48 @@ fn run_song_clean(args: &[String]) {
             .find(|s| !s.worse)
             .map_or(String::new(), |s| s.description.clone());
         let going = key_sets::going(&sets, &partial, &list, &names, &charts);
-        let strips = key_sets::stripping(&sets, &partial, &list, &names, &charts);
+        let (copies, lacking) = key_sets::copies(&sets, &list, &charts);
+        let mut strips = key_sets::stripping(&sets, &partial, &list, &names, &charts);
+        strips.retain(|s| !copies.contains(&s.place.as_str()));
+        let folder_of = |key: &str| {
+            let set = sets.iter().find(|s| s.same.iter().any(|p| p == key));
+            set.and_then(|s| {
+                s.same
+                    .iter()
+                    .find_map(|p| match list.iter().find(|(k, _)| k == p) {
+                        Some((_, PlaceAt::Folder(dir))) => Some(dir.display().to_string()),
+                        _ => None,
+                    })
+            })
+            .unwrap_or_default()
+        };
+        for &key in &copies {
+            let (copy, _) = places[key];
+            let note = format!(
+                "{} / {}: a copy of {}",
+                song.title,
+                song.artist,
+                folder_of(key)
+            );
+            package_places
+                .entry(copy.source.clone())
+                .or_default()
+                .push((key.to_string(), note));
+        }
+        for (key, files) in &lacking {
+            let more = if files.len() > 1 {
+                format!(" and {} more", files.len() - 1)
+            } else {
+                String::new()
+            };
+            kept.push(format!(
+                "{} / {}: a copy of {}, kept because the folder lacks {}{more}",
+                song.title,
+                song.artist,
+                folder_of(key),
+                files[0]
+            ));
+        }
         for strip in &strips {
             let set = sets.iter().find(|s| s.same.contains(&strip.place));
             let note = format!(
@@ -952,8 +995,11 @@ fn run_song_clean(args: &[String]) {
             }
         }
         for set in sets.iter().filter(|s| s.worse) {
-            let handled =
-                |p: &String| going.contains(&p.as_str()) || strips.iter().any(|s| s.place == *p);
+            let handled = |p: &String| {
+                going.contains(&p.as_str())
+                    || copies.contains(&p.as_str())
+                    || strips.iter().any(|s| s.place == *p)
+            };
             if set.same.iter().all(|p| !handled(p)) {
                 let why = if going.is_empty() && !partial.is_empty() {
                     "a difference folder would lose its key sounds"
@@ -966,7 +1012,7 @@ fn run_song_clean(args: &[String]) {
                 ));
             }
         }
-        for key in going {
+        for key in going.into_iter().filter(|k| !copies.contains(k)) {
             let (copy, _) = places[key];
             let set = sets.iter().find(|s| s.same.iter().any(|p| p == key));
             let note = format!(

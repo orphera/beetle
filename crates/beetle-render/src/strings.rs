@@ -984,18 +984,18 @@ table! {
         en "{} - other package version",
         ja "{} - パッケージの別バージョン";
     pub MENU_CLEANUP =
-        ko "음질 낮은 키음 세트 정리",
-        en "Clean Up Worse Key Sounds",
-        ja "音質の低いキー音セットを整理";
+        ko "겹치거나 음질 낮은 키음 세트 정리",
+        en "Clean Up Duplicate or Worse Key Sounds",
+        ja "重複・低音質のキー音セットを整理";
     pub MENU_CLEANUP_CONFIRM =
         ko "정리하기",
         en "Clean Up",
         ja "整理する";
     /// `{}` is how many folders or packages go.
     pub MENU_CLEANUP_NOTE =
-        ko "음질이 확실히 낮은 키음 세트 {}곳을 치워요. 폴더는 .bpm-trash로 옮기고 패키지는 지워요. 다른 곳에 없는 채보는 남겨요.",
-        en "Removes {} clearly worse key sound sets: folders move to .bpm-trash, packages are deleted. Charts found nowhere else stay.",
-        ja "音質が明らかに低いキー音セット{}件を片付けます。フォルダは.bpm-trashへ移し、パッケージは削除します。他にない譜面は残します。";
+        ko "서재 폴더와 겹치거나 음질이 확실히 낮은 키음 세트 {}곳을 치워요. 폴더는 .bpm-trash로 옮기고 패키지는 지워요. 다른 곳에 없는 채보는 남겨요.",
+        en "Removes {} key sound sets that copy a library folder or are clearly worse: folders move to .bpm-trash, packages are deleted. Charts found nowhere else stay.",
+        ja "ライブラリのフォルダと重複するか音質が明らかに低いキー音セット{}件を片付けます。フォルダは.bpm-trashへ移し、パッケージは削除します。他にない譜面は残します。";
     pub MENU_DELETE =
         ko "삭제",
         en "Delete",
@@ -1060,9 +1060,9 @@ table! {
         ja "これから{}のキー音でプレイします";
     /// `{}` is the song title.
     pub TOAST_CLEANED =
-        ko "{}의 음질 낮은 키음 세트를 정리했어요",
-        en "Cleaned up the worse key sounds of {}",
-        ja "{}の低音質キー音セットを整理しました";
+        ko "{}의 키음 세트를 정리했어요",
+        en "Cleaned up the key sounds of {}",
+        ja "{}のキー音セットを整理しました";
     /// `{}` is the set's label, `{}` how many other songs took it too.
     pub TOAST_SOUND_SET_SAME_SOURCE =
         ko "이제 {} 키음으로 플레이해요 (같은 출처 {}곡도)",

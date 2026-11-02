@@ -281,7 +281,8 @@ pub enum Trash {
 
 /// What cleaning up the worse sets of a chart removes (`key_sets::going`):
 /// a folder, or a package when all of its places go. A place whose charts
-/// are found nowhere else keeps them and loses its key sounds instead.
+/// are found nowhere else keeps them and loses its key sounds instead. A
+/// package copy of a library folder's set goes too (`key_sets::copies`).
 pub fn cleanup(
     sets: &Sets,
     places: &BTreeMap<String, SongPlace>,
@@ -301,11 +302,15 @@ pub fn cleanup(
         .iter()
         .map(|(k, p)| (k.clone(), p.charts.clone()))
         .collect();
+    // Copies of a library folder's set go too (B21); they keep nothing.
+    let (copies, _) = key_sets::copies(&found, &sets.places, &charts);
     let going: HashSet<&str> =
         key_sets::going(&found, &sets.partial, &sets.places, &sets.names, &charts)
             .into_iter()
+            .chain(copies.iter().copied())
             .collect();
-    let strips = key_sets::stripping(&found, &sets.partial, &sets.places, &sets.names, &charts);
+    let mut strips = key_sets::stripping(&found, &sets.partial, &sets.places, &sets.names, &charts);
+    strips.retain(|s| !copies.contains(&s.place.as_str()));
     let mut out = Vec::new();
     for key in &going {
         let trash = match key.split_once("::") {

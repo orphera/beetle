@@ -14,7 +14,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use beetle_core::audio_info::{self, AudioInfo};
-use beetle_core::key_sounds::folder_sound_candidates;
+use beetle_core::key_sounds::{folder_sound_candidates, SOUND_EXTENSIONS};
 use beetle_core::ChartId;
 
 /// Where a place's files are.
@@ -413,6 +413,96 @@ pub fn trash_files(dir: &Path, files: &[String]) -> std::io::Result<PathBuf> {
     Ok(trash)
 }
 
+/// The package places of a set that a library folder also holds, whose
+/// charts are all at that set's folders (B21): copies a cleanup may remove,
+/// as the folder stays. A place with files the folder lacks besides charts
+/// and key sounds (pictures, video, a BGA companion) does not go: it comes
+/// back second with what the folder lacks.
+pub fn copies<'a>(
+    sets: &'a [Set],
+    places: &[(String, PlaceAt)],
+    charts: &BTreeMap<String, Vec<ChartId>>,
+) -> (Vec<&'a str>, Vec<(&'a str, Vec<String>)>) {
+    let at = |key: &str| places.iter().find(|(k, _)| k == key).map(|(_, a)| a);
+    let (mut out, mut kept) = (Vec::new(), Vec::new());
+    for set in sets {
+        let folders: Vec<(&str, &Path)> = set
+            .same
+            .iter()
+            .filter_map(|k| match at(k)? {
+                PlaceAt::Folder(dir) => Some((k.as_str(), dir.as_path())),
+                PlaceAt::Package { .. } => None,
+            })
+            .collect();
+        let Some(&(_, folder)) = folders.first() else {
+            continue;
+        };
+        let in_folders: HashSet<ChartId> = folders
+            .iter()
+            .filter_map(|(k, _)| charts.get(*k))
+            .flatten()
+            .copied()
+            .collect();
+        for key in &set.same {
+            let Some(own @ PlaceAt::Package { .. }) = at(key) else {
+                continue;
+            };
+            let all_there = charts
+                .get(key)
+                .is_some_and(|c| c.iter().all(|c| in_folders.contains(c)));
+            if !all_there {
+                continue;
+            }
+            let lacking = lacking_extras(own, folder);
+            if lacking.is_empty() {
+                out.push(key.as_str());
+            } else {
+                kept.push((key.as_str(), lacking));
+            }
+        }
+    }
+    out.sort();
+    (out, kept)
+}
+
+/// The files of package place `own`, besides charts and key sounds, that
+/// `folder` does not have at the same path; a BGA companion beside the
+/// package counts as one.
+fn lacking_extras(own: &PlaceAt, folder: &Path) -> Vec<String> {
+    let PlaceAt::Package { bmsp, dir } = own else {
+        return Vec::new();
+    };
+    let Ok(pkg) = bms_package::PackageReader::open_file(bmsp) else {
+        return vec![bmsp.to_string_lossy().into_owned()];
+    };
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let mut out: Vec<String> = pkg
+        .entries()
+        .iter()
+        .filter_map(|e| e.path.strip_prefix(&prefix))
+        .filter(|rel| *rel != bms_package::MANIFEST_FILENAME)
+        .filter(|rel| !crate::collection::is_chart_path(rel))
+        .filter(|rel| !SOUND_EXTENSIONS.contains(&extension(rel).as_str()))
+        .filter(|rel| !folder.join(rel).is_file())
+        .map(str::to_string)
+        .collect();
+    let companion = bmsp
+        .parent()
+        .and_then(|d| fs::read_dir(d).ok())
+        .and_then(|mut entries| {
+            entries.find_map(|e| {
+                let name = e.ok()?.file_name().to_string_lossy().into_owned();
+                name.ends_with(".bga.bmsp").then_some(name)
+            })
+        });
+    out.extend(companion);
+    out
+}
+
 /// [`going`] without the borrowing places.
 fn going_whole<'a>(sets: &'a [Set], charts: &BTreeMap<String, Vec<ChartId>>) -> Vec<&'a str> {
     let worse: HashSet<&str> = sets
@@ -574,6 +664,68 @@ mod tests {
         };
         let moved = trash_folder(dir).unwrap();
         assert!(!dir.exists() && moved.join("a.ogg").is_file());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_package_copy_of_a_folder_goes_unless_the_folder_lacks_something() {
+        let root = std::env::temp_dir().join(format!("bpm-copies-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let folder = root.join("folder");
+        fs::create_dir_all(&folder).unwrap();
+        for f in ["a.wav", "b.wav"] {
+            fs::write(folder.join(f), wav_bytes(44100)).unwrap();
+        }
+        fs::write(folder.join("x.bms"), "#TITLE X").unwrap();
+        let package = |name: &str, extra: &[(&str, &[u8])]| {
+            let mut b = bms_package::PackageBuilder::new(bms_package::Manifest::new(name, name));
+            b.add_file("song/x.bms", "#TITLE X").unwrap();
+            b.add_file("song/a.wav", wav_bytes(44100)).unwrap();
+            b.add_file("song/b.wav", wav_bytes(44100)).unwrap();
+            for (path, bytes) in extra {
+                b.add_file(format!("song/{path}"), bytes.to_vec()).unwrap();
+            }
+            let dir = root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            let bmsp = dir.join("package.bmsp");
+            b.build_to_file(&bmsp).unwrap();
+            (
+                format!("{name}::song"),
+                PlaceAt::Package {
+                    bmsp,
+                    dir: "song".into(),
+                },
+            )
+        };
+        let places = vec![
+            ("folder".to_string(), PlaceAt::Folder(folder.clone())),
+            package("plain", &[]),
+            package("picture", &[("back.png", b"png")]),
+            package("more", &[]),
+        ];
+        let names = vec!["a.wav".to_string(), "b.wav".to_string()];
+        let (sets, _) = compare(&places, &names);
+        assert_eq!(sets.len(), 1);
+        let id = |n: u8| ChartId::of_bytes(&[n]);
+        let charts = BTreeMap::from([
+            ("folder".to_string(), vec![id(1)]),
+            ("plain::song".to_string(), vec![id(1)]),
+            ("picture::song".to_string(), vec![id(1)]),
+            ("more::song".to_string(), vec![id(1), id(2)]),
+        ]);
+        let (going, kept) = copies(&sets, &places, &charts);
+        assert_eq!(going, ["plain::song"]);
+        assert_eq!(kept, [("picture::song", vec!["back.png".to_string()])]);
+        // Once the folder has the picture too, that copy goes as well.
+        fs::write(folder.join("back.png"), "png").unwrap();
+        let (going, kept) = copies(&sets, &places, &charts);
+        assert_eq!(going, ["picture::song", "plain::song"]);
+        assert!(kept.is_empty());
+        // A BGA companion beside the package keeps it.
+        fs::write(root.join("plain").join("plain.bga.bmsp"), "bga").unwrap();
+        let (going, kept) = copies(&sets, &places, &charts);
+        assert_eq!(going, ["picture::song"]);
+        assert_eq!(kept, [("plain::song", vec!["plain.bga.bmsp".to_string()])]);
         let _ = fs::remove_dir_all(&root);
     }
 
