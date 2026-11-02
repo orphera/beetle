@@ -1411,15 +1411,14 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
             t.draw(c, &title, r.x, r.y + 46.0 * s, &title_st);
         }
     }
-    // The BPM now, and for a chart that changes its BPM, the range it plays
-    // over the song (the same span as the clock).
-    let now = f.timing.bpm_at_time(f.audio_time).round();
+    // The BPM range the chart plays over the song (the same span as the
+    // clock); the BPM now is under the gear with the green number.
     let stats = f.timing.bpm_stats(f.song_length);
     let (lo, hi) = (stats.min.round(), stats.max.round());
     let bpm_txt = if lo == hi {
-        format!("BPM {now}")
+        format!("BPM {lo}")
     } else {
-        format!("BPM {now} ({lo}-{hi})")
+        format!("BPM {lo}-{hi}")
     };
     let sub_st = TextStyle::new(13.0 * s).color(theme::MUTED);
     // A disc song's artist picture stands in for the artist text, the BPM after it.
