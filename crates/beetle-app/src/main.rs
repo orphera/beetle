@@ -1217,7 +1217,8 @@ fn handle_keyboard_input(
         && state.rebinding.is_none()
         && state.calibration.is_none()
     {
-        if code == KeyCode::F6 {
+        // On the song select F6 switches the content source tab instead.
+        if code == KeyCode::F6 && state.screen != AppScreen::SongSelect {
             state.play_options.gauge_type = match state.play_options.gauge_type {
                 GaugeType::Easy => GaugeType::Groove,
                 GaugeType::Groove => GaugeType::Hard,
