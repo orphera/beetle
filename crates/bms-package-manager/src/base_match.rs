@@ -817,6 +817,7 @@ mod tests {
         let index = Index {
             scanned_at: 0,
             skipped: 0,
+            bases: Default::default(),
             locations: vec![
                 location(
                     LocationKind::Folder,

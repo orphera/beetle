@@ -5,6 +5,7 @@
 pub mod add;
 pub mod archive;
 pub mod base_match;
+pub mod chart_base;
 pub mod collection;
 pub mod error;
 pub mod export;

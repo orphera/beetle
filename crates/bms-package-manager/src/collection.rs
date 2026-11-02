@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version of the index layout and of the stored key-sound stems. Bump it when
 /// either changes; an index with another version is rejected and must be rescanned.
-pub const KEY_VERSION: u32 = 1;
+pub const KEY_VERSION: u32 = 2;
 
 /// Folder inside each registered folder where removed charts are moved.
 /// `bpm scan` never reads it, so trashed copies are not reported as duplicates.
@@ -147,7 +147,13 @@ pub struct Index {
     /// Charts that could not be read or parsed.
     pub skipped: u32,
     pub locations: Vec<Location>,
+    /// Chart-only packages' base charts by source (`<id>@<state hash>`,
+    /// `chart_base`), written as `base` lines.
+    pub bases: BTreeMap<String, Vec<ChartId>>,
 }
+
+/// The first field of a base line.
+const BASE_LINE: &str = "base";
 
 impl Index {
     pub fn serialize(&self) -> String {
@@ -158,6 +164,10 @@ impl Index {
         for location in &self.locations {
             out.push_str(&location.serialize_line());
             out.push('\n');
+        }
+        for (source, charts) in &self.bases {
+            let charts: Vec<String> = charts.iter().map(ChartId::to_hex).collect();
+            out.push_str(&format!("{BASE_LINE}\t{source}\t{}\n", charts.join(",")));
         }
         out
     }
@@ -186,6 +196,18 @@ impl Index {
             return None;
         }
         for line in lines.filter(|line| !line.is_empty()) {
+            if let Some(rest) = line
+                .strip_prefix(BASE_LINE)
+                .and_then(|r| r.strip_prefix('\t'))
+            {
+                let (source, charts) = rest.split_once('\t')?;
+                let charts = charts
+                    .split(',')
+                    .map(ChartId::from_hex)
+                    .collect::<Option<Vec<_>>>()?;
+                index.bases.insert(source.to_string(), charts);
+                continue;
+            }
             index.locations.push(Location::parse_line(line)?);
         }
         Some(index)
@@ -285,6 +307,13 @@ pub fn build_index(folders: &[String], installed: &[InstalledPackage]) -> (Index
                 counts.skipped += skipped;
             }
             None => counts.skipped += 1,
+        }
+        if let Some(base) = package
+            .manifest()
+            .ok()
+            .and_then(|m| crate::chart_base::Base::of(&m))
+        {
+            index.bases.insert(source, base.charts);
         }
     }
 
@@ -513,6 +542,7 @@ mod tests {
                 location(chart, LocationKind::Folder, "D:\\BMS", "a\\b.bme", 0),
                 location(chart, LocationKind::Package, "leaf@abc", "bms/main.bme", 2),
             ],
+            bases: BTreeMap::from([("leaf@abc".to_string(), vec![chart])]),
         };
         let parsed = Index::parse(&index.serialize()).expect("parses");
         assert_eq!(parsed, index);

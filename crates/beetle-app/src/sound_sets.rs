@@ -9,7 +9,7 @@
 //! play with, marks the clearly worse ones, and moves them to the trash on
 //! request. The choice is kept in `songs.dat`, under the song's lasting id.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -276,7 +276,12 @@ pub enum Trash {
     Strip { dir: PathBuf, files: Vec<String> },
     /// Key sound entries of an installed package whose charts stay: the
     /// package is built again without them.
-    Repack { bmsp: PathBuf, entries: Vec<String> },
+    /// The kept charts play with `base`'s song (B20, `chart_base`).
+    Repack {
+        bmsp: PathBuf,
+        entries: Vec<String>,
+        base: Vec<ChartId>,
+    },
 }
 
 /// What cleaning up the worse sets of a chart removes (`key_sets::going`):
@@ -330,23 +335,29 @@ pub fn cleanup(
         };
         out.push(trash);
     }
-    let mut repacks: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    let mut repacks: BTreeMap<PathBuf, (Vec<String>, BTreeSet<ChartId>)> = BTreeMap::new();
     for strip in strips {
         match strip.place.split_once("::") {
             None => out.push(Trash::Strip {
                 dir: PathBuf::from(&strip.place),
                 files: strip.files,
             }),
-            Some((bmsp, _)) => repacks
-                .entry(PathBuf::from(bmsp))
-                .or_default()
-                .extend(strip.files),
+            Some((bmsp, _)) => {
+                let (entries, base) = repacks.entry(PathBuf::from(bmsp)).or_default();
+                entries.extend(strip.files);
+                base.extend(strip.base);
+            }
         }
     }
-    for (bmsp, entries) in repacks {
+    for (bmsp, (entries, base)) in repacks {
         // A package that goes whole is not built again.
         if !out.contains(&Trash::Package(bmsp.clone())) {
-            out.push(Trash::Repack { bmsp, entries });
+            let base = base.into_iter().collect();
+            out.push(Trash::Repack {
+                bmsp,
+                entries,
+                base,
+            });
         }
     }
     out.sort();

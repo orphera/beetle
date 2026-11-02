@@ -221,7 +221,13 @@ pub fn build<'a>(index: &'a Index, manual: &Manual) -> Collection<'a> {
                 })
         })
         .collect();
-    let grouped = crate::grouping::group(&copies, &manual.links, &manual.splits);
+    // Chart-only packages join their base song as if the user had linked them.
+    let mut links = manual.links.clone();
+    links.extend(crate::chart_base::links(
+        &index.bases,
+        index.locations.iter().map(|l| (l.source.as_str(), l.chart)),
+    ));
+    let grouped = crate::grouping::group(&copies, &links, &manual.splits);
     // A chart is in one song, whichever of its places is asked.
     let song_of = |i: usize| grouped.song_of(&keys[i][0]);
     let mut sets = DisjointSets::new(records.len());
@@ -575,6 +581,26 @@ mod place_rule_tests {
         locations.push(copy(9, "Foo (sabun by X)", "f/v.bme", &own));
         locations.push(copy(10, "Bar", "f/b.bme", &own));
         assert_eq!(song_count(locations), 1);
+    }
+
+    #[test]
+    fn a_chart_only_package_joins_its_base_song_whatever_its_sound_names() {
+        // Serial names (`01`, `02`, ...) never decide a borrowed key sound
+        // join, and the title differs: only the recorded base ties them.
+        let serial: Vec<String> = (0..40).map(|i| format!("{i:02}")).collect();
+        let stems = with_stems(&serial);
+        let mut charts_only = copy(9, "Foo [Another]", "song/9.bme", &stems);
+        charts_only.kind = LocationKind::Package;
+        charts_only.source = "x.charts@h".to_string();
+        charts_only.missing_keys = 40;
+        let locations = vec![copy(1, "Foo", "f/1.bme", &stems), charts_only];
+        assert_eq!(song_count(locations.clone()), 2);
+        let index = Index {
+            locations,
+            bases: BTreeMap::from([("x.charts@h".to_string(), vec![ChartId::of_bytes(&[1])])]),
+            ..Index::default()
+        };
+        assert_eq!(build(&index, &Manual::default()).songs.len(), 1);
     }
 
     #[test]

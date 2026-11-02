@@ -321,7 +321,7 @@ pub fn scan_sources(folders: &[String], packages_root: Option<&Path>) -> Vec<Son
     boot_progress::begin(Stage::Discs, discs.len());
     copies.extend(read_discs_parallel(&discs));
 
-    finish_scan(copies, readers, None).songs
+    finish_scan(copies, readers, None, packages_root).songs
 }
 
 fn scan_sources_incremental(
@@ -445,7 +445,7 @@ fn scan_sources_incremental(
 
     boot_progress::begin(Stage::Discs, discs.len());
     copies.extend(read_discs_parallel(&discs));
-    let scanned = finish_scan(copies, readers, Some(&refresh_folders));
+    let scanned = finish_scan(copies, readers, Some(&refresh_folders), packages_root);
     let mut cached_copies = scanned.cached;
     for cached in &mut cached_copies {
         if cached.kind == Kind::Folder {
@@ -476,6 +476,7 @@ fn finish_scan(
     copies: Vec<Copy>,
     readers: BTreeMap<String, PackageReader>,
     refresh_folders: Option<&HashSet<String>>,
+    packages_root: Option<&Path>,
 ) -> Finished {
     let mut by_chart: BTreeMap<ChartId, Vec<Copy>> = BTreeMap::new();
     for copy in copies {
@@ -488,7 +489,7 @@ fn finish_scan(
         .flatten()
         .map(CachedCopy::from_copy)
         .collect();
-    let (groups, places) = song_groups(&by_chart);
+    let (groups, places) = song_groups(&by_chart, packages_root);
     let mut songs = select_copies(by_chart);
     songs.sort_by(|a, b| {
         a.title
@@ -507,7 +508,10 @@ fn finish_scan(
 /// (`bms_package_manager::grouping`): every chart in a folder (or package
 /// directory) is the same song, and places join on shared charts and key
 /// sounds. Disc copies are left out; a disc lists its songs on its own.
-fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> (SongGroups, SongPlaces) {
+fn song_groups(
+    by_chart: &BTreeMap<ChartId, Vec<Copy>>,
+    packages_root: Option<&Path>,
+) -> (SongGroups, SongPlaces) {
     let files: Vec<&Copy> = by_chart
         .values()
         .flatten()
@@ -548,7 +552,19 @@ fn song_groups(by_chart: &BTreeMap<ChartId, Vec<Copy>>) -> (SongGroups, SongPlac
         })
         .collect();
     let manual = Manual::load().unwrap_or_default();
-    let grouped = grouping::group(&copies, &manual.links, &manual.splits);
+    // Chart-only packages join their base song as if the user had linked them
+    // (B20, `chart_base`).
+    let mut links = manual.links.clone();
+    links.extend(bms_package_manager::chart_base::links(
+        &packages_root
+            .map(bms_package_manager::chart_base::of_active)
+            .unwrap_or_default(),
+        files
+            .iter()
+            .filter(|c| c.kind == Kind::Package)
+            .map(|c| (c.source.as_str(), c.meta.id)),
+    ));
+    let grouped = grouping::group(&copies, &links, &manual.splits);
     let groups: SongGroups = files
         .iter()
         .zip(&places)

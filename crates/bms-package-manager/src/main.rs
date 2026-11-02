@@ -888,8 +888,10 @@ fn run_song_clean(args: &[String]) {
     let mut folders: Vec<(String, PathBuf, String)> = Vec::new();
     let mut package_places: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     // Places that keep their charts: folders, and package entries by source.
+    // A package's entries that go, its base charts, and the notes.
+    type Repack = (BTreeSet<String>, BTreeSet<ChartId>, Vec<String>);
     let mut folder_strips: Vec<(PathBuf, Vec<String>, String)> = Vec::new();
-    let mut package_strips: BTreeMap<String, (BTreeSet<String>, Vec<String>)> = BTreeMap::new();
+    let mut package_strips: BTreeMap<String, Repack> = BTreeMap::new();
     let mut kept: Vec<String> = Vec::new();
     for song in &collection.songs {
         let mut places: BTreeMap<String, (&collection::Location, Vec<ChartId>)> = BTreeMap::new();
@@ -990,7 +992,8 @@ fn run_song_clean(args: &[String]) {
                 _ => {
                     let entry = package_strips.entry(copy.source.clone()).or_default();
                     entry.0.extend(strip.files.iter().cloned());
-                    entry.1.push(note);
+                    entry.1.extend(strip.base.iter().copied());
+                    entry.2.push(note);
                 }
             }
         }
@@ -1070,7 +1073,7 @@ fn run_song_clean(args: &[String]) {
     for (dir, _, note) in &folder_strips {
         println!("strip   {}  {note}", dir.display());
     }
-    for (source, (_, notes)) in &package_strips {
+    for (source, (_, _, notes)) in &package_strips {
         for note in notes {
             println!("strip   {source}  {note}");
         }
@@ -1109,10 +1112,14 @@ fn run_song_clean(args: &[String]) {
             failed += 1;
         }
     }
-    for (source, (entries, _)) in &package_strips {
+    for (source, (entries, base, _)) in &package_strips {
         let (id, hash) = source.split_once('@').unwrap_or((source.as_str(), ""));
+        let base = bms_package_manager::chart_base::Base {
+            charts: base.iter().copied().collect(),
+            package: None,
+        };
         let result = PackageManager::new(get_default_packages_dir())
-            .and_then(|mut mgr| mgr.repack_without(id, hash, entries));
+            .and_then(|mut mgr| mgr.repack_without(id, hash, entries, Some(&base)));
         if let Err(e) = result {
             eprintln!("could not build {id} again: {e}");
             failed += 1;

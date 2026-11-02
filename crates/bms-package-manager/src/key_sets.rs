@@ -314,6 +314,9 @@ pub struct Strip {
     pub files: Vec<String>,
     /// Their bytes in all.
     pub bytes: u64,
+    /// The charts at the better set's places: the place's base once it
+    /// keeps only charts (`chart_base`, B20).
+    pub base: Vec<ChartId>,
 }
 
 /// The places of the worse sets that cannot go (`going`) because some chart
@@ -358,6 +361,17 @@ pub fn stripping(
         return Vec::new();
     }
     let theirs = files_at(better, names);
+    let base: Vec<ChartId> = sets
+        .iter()
+        .filter(|s| !s.worse)
+        .take(1)
+        .flat_map(|s| &s.same)
+        .filter_map(|k| charts.get(k))
+        .flatten()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let mut out = Vec::new();
     for key in stuck {
         let Some(own) = at(key) else {
@@ -378,6 +392,7 @@ pub fn stripping(
             place: key.to_string(),
             bytes: files.iter().map(|(_, f)| f.size).sum(),
             files: files.into_iter().map(|(_, f)| f.path.clone()).collect(),
+            base: base.clone(),
         });
     }
     out

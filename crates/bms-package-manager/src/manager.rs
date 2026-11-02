@@ -468,12 +468,15 @@ impl PackageManager {
     /// plan 4.5: a worse set keeps only its charts). The packer is the same,
     /// so the new archive is as deterministic as any (INV-6). The state stays
     /// active if it was, the BGA companion moves over, and the old state goes.
-    /// Nothing changes when no entry is dropped.
+    /// `base`, when given, is recorded in the manifest: the song the kept
+    /// charts play with (B20, `chart_base`). Nothing changes when no entry is
+    /// dropped and the base is already the one recorded.
     pub fn repack_without(
         &mut self,
         id: &str,
         state_hash: &str,
         without: &std::collections::BTreeSet<String>,
+        base: Option<&crate::chart_base::Base>,
     ) -> Result<String, PackageManagerError> {
         let record = self
             .registry
@@ -488,14 +491,20 @@ impl PackageManager {
         }
         let old_dir = self.storage.state_dir(id, state_hash);
         let mut reader = bms_package::PackageReader::open_file(old_dir.join("package.bmsp"))?;
-        let mut builder = bms_package::PackageBuilder::new(reader.manifest().clone());
+        let mut manifest = reader.manifest().clone();
+        if let Some(base) = base {
+            base.write_to(&mut manifest);
+        }
+        let mut builder = bms_package::PackageBuilder::new(manifest);
         let paths: Vec<String> = reader
             .entries()
             .iter()
             .map(|e| e.path.clone())
             .filter(|p| p != MANIFEST_FILENAME && !without.contains(p))
             .collect();
-        if paths.len() + 1 >= reader.entries().len() {
+        let same_base =
+            base.is_none_or(|b| crate::chart_base::Base::of(reader.manifest()).as_ref() == Some(b));
+        if paths.len() + 1 >= reader.entries().len() && same_base {
             return Ok(state_hash.to_string());
         }
         for path in paths {
@@ -649,13 +658,17 @@ mod tests {
 
         let none = BTreeSet::new();
         assert_eq!(
-            mgr.repack_without("t.pack", &old.state_hash, &none)
+            mgr.repack_without("t.pack", &old.state_hash, &none, None)
                 .unwrap(),
             old.state_hash
         );
         let without = BTreeSet::from(["a/k1.ogg".to_string(), "a/k2.ogg".to_string()]);
+        let base = crate::chart_base::Base {
+            charts: vec![beetle_core::ChartId::of_bytes(b"base")],
+            package: None,
+        };
         let new = mgr
-            .repack_without("t.pack", &old.state_hash, &without)
+            .repack_without("t.pack", &old.state_hash, &without, Some(&base))
             .unwrap();
         assert_ne!(new, old.state_hash);
         assert_eq!(mgr.get_installed_states("t.pack"), [new.clone()]);
@@ -667,6 +680,12 @@ mod tests {
         assert!(paths.contains(&"a/chart.bms") && paths.contains(&"b/chart.bms"));
         assert!(!paths.iter().any(|p| p.ends_with(".ogg")));
         assert_eq!(pkg.read_entry("b/chart.bms").unwrap(), b"#TITLE B");
+        assert_eq!(crate::chart_base::Base::of(pkg.manifest()), Some(base));
+        // The state keeps the manifest beside it, where the game reads the base.
+        assert_eq!(
+            crate::chart_base::of_active(&root).get(&format!("t.pack@{new}")),
+            Some(&vec![beetle_core::ChartId::of_bytes(b"base")])
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

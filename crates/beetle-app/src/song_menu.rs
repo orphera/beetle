@@ -545,13 +545,21 @@ fn clean_up(trash: &[Trash]) -> bool {
                 })
                 .is_some(),
             // packages/<id>/<state hash>/package.bmsp
-            Trash::Repack { bmsp, entries } => PackageManager::new(packages_root())
+            Trash::Repack {
+                bmsp,
+                entries,
+                base,
+            } => PackageManager::new(packages_root())
                 .ok()
                 .and_then(|mut mgr| {
                     let p = find_package(&mgr, bmsp)?;
                     let hash = bmsp.parent()?.file_name()?.to_string_lossy();
                     let entries = entries.iter().cloned().collect();
-                    mgr.repack_without(&p.id, &hash, &entries).ok()
+                    let base = bms_package_manager::chart_base::Base {
+                        charts: base.clone(),
+                        package: None,
+                    };
+                    mgr.repack_without(&p.id, &hash, &entries, Some(&base)).ok()
                 })
                 .is_some(),
         };
