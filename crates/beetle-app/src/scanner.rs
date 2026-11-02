@@ -1036,6 +1036,7 @@ pub fn force_rescan_songs<P: AsRef<Path>>(dir: P) -> ScannedLibrary {
     let (library, source_cache) =
         scan_sources_incremental(&folders, Some(&packages), load_source_cache());
     write_source_cache(&source_cache);
+    crate::names::remove_unreadable();
     if !library.songs.is_empty() {
         let cache_data = serialize_song_cache(&library.songs, &library.groups, &library.places);
         let _ = beetle_core::write_atomic(SONGS_CACHE_FILE, &cache_data);

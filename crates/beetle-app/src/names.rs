@@ -196,6 +196,23 @@ pub fn any_unreadable() -> bool {
         .any(|p| fs::read(&p).ok().and_then(|b| decode(&b)).is_none())
 }
 
+/// Deletes the names files this build cannot read. Call after a full scan:
+/// the scan made every library disc's file again, so one still unreadable
+/// belongs to a disc no longer in the library, and kept it would make
+/// `any_unreadable` throw the song cache away on every start.
+pub fn remove_unreadable() {
+    for path in fs::read_dir(DIR)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "names"))
+        .filter(|p| fs::read(p).ok().and_then(|b| decode(&b)).is_none())
+    {
+        let _ = fs::remove_file(path);
+    }
+}
+
 /// Makes the names file of `slug` from `disc` when it is missing or old.
 /// `source` is the disc image's path (or the drive); `charts` lists each chart
 /// the scan made with its song id. Errors are ignored: the songs then show
