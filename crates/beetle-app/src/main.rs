@@ -1305,6 +1305,11 @@ fn main() {
     if single && single_instance::hand_over(cli_install.as_deref()) {
         return;
     }
+    // Builds before 2026-10-26 kept stage art on disk (one uncompressed BMP
+    // per chart, about 500 MB); nothing reads it any more.
+    std::thread::spawn(|| {
+        let _ = fs::remove_dir_all(".cache/artworks");
+    });
 
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);

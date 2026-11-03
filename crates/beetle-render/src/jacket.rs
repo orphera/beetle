@@ -123,6 +123,9 @@ pub struct JacketAtlas {
     /// CPU copy of each slot's pixels, so the grid can be re-uploaded after
     /// the atlas is rebuilt without decoding the songs again.
     copies: Vec<Option<Vec<u8>>>,
+    /// Charts whose thumbnail is another key's (`alias`): the charts of a
+    /// song that show the same picture share its slot.
+    aliases: HashMap<ChartId, ChartId>,
 }
 
 impl JacketAtlas {
@@ -133,6 +136,7 @@ impl JacketAtlas {
             base: atlas.alloc(COLS * PITCH, ROWS * PITCH),
             lru: SlotLru::new(SLOTS),
             copies: vec![None; SLOTS],
+            aliases: HashMap::new(),
         }
     }
 
@@ -163,15 +167,29 @@ impl JacketAtlas {
         }
     }
 
+    /// Shows `picture`'s thumbnail for `chart` from now on.
+    pub fn alias(&mut self, chart: ChartId, picture: ChartId) {
+        if chart != picture {
+            self.aliases.insert(chart, picture);
+        }
+    }
+
+    fn resolve(&self, key: JacketKey) -> JacketKey {
+        match key {
+            JacketKey::Chart(id) => JacketKey::Chart(*self.aliases.get(&id).unwrap_or(&id)),
+            other => other,
+        }
+    }
+
     /// The region of `key`'s thumbnail, marking it recently used.
     pub fn get(&mut self, key: JacketKey) -> Option<AtlasRegion> {
         let base = self.base?;
-        let slot = self.lru.get(&key)?;
+        let slot = self.lru.get(&self.resolve(key))?;
         Some(Self::slot_region(base, slot))
     }
 
     pub fn contains(&self, key: JacketKey) -> bool {
-        self.lru.contains(&key)
+        self.lru.contains(&self.resolve(key))
     }
 
     /// The atlas page the grid sits on (`None` when it could not be reserved).
@@ -189,6 +207,7 @@ impl JacketAtlas {
         if pixels.len() != (THUMB_PX * THUMB_PX * 4) as usize {
             return false;
         }
+        let key = self.resolve(key);
         let slot = match self.lru.get(&key) {
             Some(slot) => slot,
             None => self.lru.insert(key).0,
@@ -224,6 +243,7 @@ impl JacketAtlas {
     pub fn clear(&mut self) {
         self.lru.clear();
         self.copies.iter_mut().for_each(|c| *c = None);
+        self.aliases.clear();
     }
 }
 

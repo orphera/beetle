@@ -334,6 +334,16 @@ impl SongSource for PackageSource {
         video_sources
     }
 
+    fn stage_key(&mut self) -> Option<String> {
+        // The charts of a package folder name the same art when their headers do.
+        let names = self.artwork_names().join("|");
+        Some(format!(
+            "bmsp:{}::{}|{names}",
+            self.pkg_path.display(),
+            self.base_dir
+        ))
+    }
+
     fn stage_image(&mut self) -> Option<StageArt> {
         let names = self.artwork_names();
         if let Some(art) = self.stage_from_delta(&names) {

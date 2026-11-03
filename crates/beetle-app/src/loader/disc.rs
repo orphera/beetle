@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 use std::fs::File;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 use beetle_audio::{PcmBuffer, SampleBank};
 use beetle_core::bms::{TimingEvent, TimingEventKind};
@@ -17,10 +19,32 @@ use cs_disc::{SectorReader, Volume};
 use super::{progress, ChartLoadError, SongSource, StageArt, VideoSource};
 
 pub(super) struct DiscSource {
+    image: String,
     disc: SectorReader<File>,
-    songs: Disc,
+    songs: Arc<Disc>,
     song: usize,
     chart: usize,
+}
+
+/// A disc image file as it was when read: a changed file is read again.
+type Stamp = (u64, Option<SystemTime>);
+
+/// The discs read this run, by image path (`Disc::open` reads the whole
+/// executable and its tables, too slow to repeat for every chart a list
+/// row or a picture asks for). A drive is read each time: it may hold
+/// another disc by now.
+static READ_DISCS: OnceLock<Mutex<HashMap<String, (Stamp, Arc<Disc>)>>> = OnceLock::new();
+
+fn image_stamp(image: &str) -> Option<Stamp> {
+    let meta = std::fs::metadata(image).ok().filter(|m| m.is_file())?;
+    Some((meta.len(), meta.modified().ok()))
+}
+
+fn read_discs() -> std::sync::MutexGuard<'static, HashMap<String, (Stamp, Arc<Disc>)>> {
+    READ_DISCS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 impl DiscSource {
@@ -37,13 +61,29 @@ impl DiscSource {
         if std::env::var_os("BEETLE_DISC_TRACE").is_some() {
             disc.enable_trace();
         }
-        // The drive may hold another disc by now.
-        let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
-            return Err(ChartLoadError::NotFound);
+        let stamp = image_stamp(image);
+        let kept = read_discs()
+            .get(image)
+            .filter(|(at, _)| Some(*at) == stamp)
+            .map(|(_, songs)| Arc::clone(songs));
+        let songs = match kept {
+            Some(songs) => songs,
+            None => {
+                // The drive may hold another disc by now.
+                let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
+                    return Err(ChartLoadError::NotFound);
+                };
+                let volume = Volume::open(&mut disc).map_err(|_| ChartLoadError::Unreadable)?;
+                let songs = Arc::new(
+                    Disc::open(&mut disc, &volume, edition)
+                        .map_err(|_| ChartLoadError::Unreadable)?,
+                );
+                if let Some(stamp) = stamp {
+                    read_discs().insert(image.to_string(), (stamp, Arc::clone(&songs)));
+                }
+                songs
+            }
         };
-        let volume = Volume::open(&mut disc).map_err(|_| ChartLoadError::Unreadable)?;
-        let songs =
-            Disc::open(&mut disc, &volume, edition).map_err(|_| ChartLoadError::Unreadable)?;
         let (song, chart) = songs
             .songs
             .iter()
@@ -56,6 +96,7 @@ impl DiscSource {
             })
             .ok_or(ChartLoadError::NotFound)?;
         Ok(Self {
+            image: image.to_string(),
             disc,
             songs,
             song,
@@ -232,11 +273,11 @@ impl SongSource for DiscSource {
 
     /// The song's stage art (loading card, or a pop'n song's banner), on a
     /// 4:3 canvas.
-    fn stage_key(&self) -> Option<String> {
+    fn stage_key(&mut self) -> Option<String> {
         let song = &self.songs.songs[self.song];
         let another = song.charts[self.chart].difficulty == Difficulty::Another;
         let (at, size, index) = self.songs.stage_extent(song)?;
-        Some(format!("{at}+{size}#{index}:{another}"))
+        Some(format!("disc:{}@{at}+{size}#{index}:{another}", self.image))
     }
 
     fn stage_image(&mut self) -> Option<StageArt> {

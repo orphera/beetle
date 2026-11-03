@@ -182,9 +182,9 @@ trait SongSource {
     fn videos(&mut self, chart: &BmsChart) -> HashMap<BmpId, VideoSource>;
     /// The song's stage artwork.
     fn stage_image(&mut self) -> Option<StageArt>;
-    /// Names where the stage art is, for songs whose art is the same wherever
-    /// it is read. `None`: the art is read for each chart.
-    fn stage_key(&self) -> Option<String> {
+    /// Names where the stage art is read from: charts with the same key show
+    /// the same art, decoded once (`load_stage`). `None`: read for each chart.
+    fn stage_key(&mut self) -> Option<String> {
         None
     }
 }
@@ -240,26 +240,59 @@ impl StagePicture {
     }
 }
 
-/// Stage pictures decoded for the run, by identity. A disc's art is decoded
-/// once per place it is on the disc, however many charts show it.
-static STAGE_PICTURES: OnceLock<Mutex<HashMap<ChartId, StagePicture>>> = OnceLock::new();
+/// How many stage pictures `STAGE_PICTURES` keeps; the oldest go first.
+/// A picture with its backdrop is about 1 MB.
+const STAGE_PICTURES_KEPT: usize = 128;
+
+/// Stage pictures decoded recently, by identity (`SongSource::stage_key`):
+/// the art of a song's charts is decoded once, however many charts show it.
+#[derive(Default)]
+struct StagePictures {
+    by_id: HashMap<ChartId, StagePicture>,
+    order: std::collections::VecDeque<ChartId>,
+}
+
+impl StagePictures {
+    fn get(&self, id: &ChartId) -> Option<StagePicture> {
+        self.by_id.get(id).cloned()
+    }
+
+    fn insert(&mut self, pic: StagePicture) {
+        if self.by_id.insert(pic.id, pic.clone()).is_none() {
+            self.order.push_back(pic.id);
+        }
+        while self.order.len() > STAGE_PICTURES_KEPT {
+            if let Some(old) = self.order.pop_front() {
+                self.by_id.remove(&old);
+            }
+        }
+    }
+}
+
+static STAGE_PICTURES: OnceLock<Mutex<StagePictures>> = OnceLock::new();
+
+fn stage_pictures() -> std::sync::MutexGuard<'static, StagePictures> {
+    STAGE_PICTURES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Drops the decoded stage pictures (a rescan may have changed the files).
+pub fn forget_stage_pictures() {
+    *stage_pictures() = StagePictures::default();
+}
 
 /// Loads a song's stage art, reusing the decode of any chart that shares it.
 pub fn load_stage(song: &SongMetadata) -> StagePicture {
     let Ok(mut source) = open_source(&song.file_path) else {
         return StagePicture::none(song.id);
     };
-    let shared = match (source.stage_key(), SongAddress::parse(&song.file_path)) {
-        (Some(key), SongAddress::Disc { image, .. }) => {
-            Some(ChartId::of_bytes(format!("stage:{image}@{key}").as_bytes()))
-        }
-        _ => None,
-    };
-    let pictures = STAGE_PICTURES.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(id) = shared {
-        if let Some(hit) = pictures.lock().ok().and_then(|p| p.get(&id).cloned()) {
-            return hit;
-        }
+    let shared = source
+        .stage_key()
+        .map(|key| ChartId::of_bytes(format!("stage:{key}").as_bytes()));
+    if let Some(hit) = shared.and_then(|id| stage_pictures().get(&id)) {
+        return hit;
     }
     let image = source.stage_image().map(Arc::new);
     let backdrop = image
@@ -272,9 +305,7 @@ pub fn load_stage(song: &SongMetadata) -> StagePicture {
         backdrop,
     };
     if shared.is_some() {
-        if let Ok(mut p) = pictures.lock() {
-            p.insert(pic.id, pic.clone());
-        }
+        stage_pictures().insert(pic.clone());
     }
     pic
 }
@@ -530,6 +561,48 @@ pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<Stag
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_pictures_keep_the_newest_and_drop_the_oldest() {
+        let mut kept = StagePictures::default();
+        for n in 0..STAGE_PICTURES_KEPT as u64 + 2 {
+            kept.insert(StagePicture::none(ChartId::synthetic(n)));
+        }
+        assert_eq!(kept.by_id.len(), STAGE_PICTURES_KEPT);
+        assert!(kept.get(&ChartId::synthetic(0)).is_none());
+        assert!(kept.get(&ChartId::synthetic(1)).is_none());
+        assert!(kept.get(&ChartId::synthetic(2)).is_some());
+        // Putting one in again does not count it twice.
+        kept.insert(StagePicture::none(ChartId::synthetic(5)));
+        assert_eq!(kept.order.len(), STAGE_PICTURES_KEPT);
+    }
+
+    #[test]
+    fn the_charts_of_a_folder_share_the_art_their_headers_name() {
+        let dir = std::env::temp_dir().join("beetle_stage_key_test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let chart = |name: &str, stage: &str| {
+            let path = dir.join(name);
+            fs::write(
+                &path,
+                format!(
+                    "#TITLE t
+#STAGEFILE {stage}
+#00111:01
+"
+                ),
+            )
+            .unwrap();
+            let mut source = folder::FolderSource::new(path.to_str().unwrap());
+            source.stage_key()
+        };
+        let normal = chart("n.bms", "stage.png");
+        assert!(normal.is_some());
+        assert_eq!(chart("h.bms", "stage.png"), normal);
+        assert_ne!(chart("a.bms", "another.png"), normal);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_bmsp_in_memory_video_loading() {

@@ -316,6 +316,32 @@ mod tests {
     }
 
     #[test]
+    fn charts_that_show_one_picture_share_its_thumbnail() {
+        let mut ui = Ui::new(1.0);
+        ui.begin(1280, 720, 1.0);
+        let (picture, normal, hyper) = (
+            beetle_core::ChartId::synthetic(1),
+            beetle_core::ChartId::synthetic(2),
+            beetle_core::ChartId::synthetic(3),
+        );
+        let px = vec![7u8; (THUMB_PX * THUMB_PX * 4) as usize];
+        ui.jackets.alias(normal, picture);
+        assert!(ui
+            .jackets
+            .insert(ui.canvas.atlas_mut(), JacketKey::Chart(normal), &px));
+        // The thumbnail went in under the picture, and a second chart of it
+        // finds it there once it is told.
+        assert!(ui.jackets.contains(JacketKey::Chart(picture)));
+        assert!(!ui.jackets.contains(JacketKey::Chart(hyper)));
+        ui.jackets.alias(hyper, picture);
+        assert_eq!(
+            ui.jackets.get(JacketKey::Chart(hyper)),
+            ui.jackets.get(JacketKey::Chart(normal))
+        );
+        assert_eq!(ui.jackets.residents().len(), 1);
+    }
+
+    #[test]
     fn jacket_grid_and_twelve_thumbs_stay_on_page_zero_at_every_ui_scale() {
         // Window scale 0.75 to 3.0 (steps of 0.25) times UI scale 80 % to
         // 150 % (steps of 10 %): the grid is reserved on page 0, the

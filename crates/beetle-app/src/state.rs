@@ -754,6 +754,7 @@ impl AppState {
             self.rescan_return = self.screen;
         }
         self.stage_image_cache.clear();
+        crate::loader::forget_stage_pictures();
         self.stage_image_receiver = None;
         self.stage_image_loading_id = None;
         self.thumbs.reset();

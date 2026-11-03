@@ -58,7 +58,10 @@ pub fn by_distance(rows: Range<usize>, selected: usize) -> Vec<usize> {
 }
 
 type SharedPair = (Mutex<Shared>, Condvar);
-type Done = (ChartId, Option<Vec<u8>>);
+/// A finished request: the chart asked for, and its picture's identity
+/// (`StagePicture::id`, shared by the charts that show it) with the
+/// thumbnail pixels. `None`: no artwork.
+type Done = (ChartId, Option<(ChartId, Vec<u8>)>);
 
 struct Request {
     id: ChartId,
@@ -198,9 +201,11 @@ fn next_request(shared: &SharedPair) -> Option<Request> {
 fn worker(shared: Arc<SharedPair>, done: Sender<Done>) {
     while let Some(req) = next_request(&shared) {
         finish_job(&shared, &done, req.id, || {
-            crate::loader::select_stage_image(&req.song)
-                .image
+            let pic = crate::loader::select_stage_image(&req.song);
+            let id = pic.id;
+            pic.image
                 .and_then(|img| thumb_pixels(&img))
+                .map(|px| (id, px))
         });
     }
 }
@@ -212,7 +217,7 @@ fn finish_job(
     shared: &SharedPair,
     done: &Sender<Done>,
     id: ChartId,
-    job: impl FnOnce() -> Option<Vec<u8>>,
+    job: impl FnOnce() -> Option<(ChartId, Vec<u8>)>,
 ) {
     let pixels = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job))
         .ok()
@@ -250,9 +255,13 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
 
     for (id, pixels) in thumbs.take_ready(UPLOADS_PER_FRAME) {
         match pixels {
-            Some(px) => {
-                ui.jackets
-                    .insert(ui.canvas.atlas_mut(), JacketKey::Chart(id), &px);
+            Some((picture, px)) => {
+                // Another chart of the song may have put the picture there.
+                ui.jackets.alias(id, picture);
+                if !ui.jackets.contains(JacketKey::Chart(picture)) {
+                    ui.jackets
+                        .insert(ui.canvas.atlas_mut(), JacketKey::Chart(picture), &px);
+                }
             }
             None => {
                 thumbs.missing.insert(id);
@@ -312,9 +321,11 @@ mod tests {
         let (tx, rx) = channel();
         let id = ChartId::default();
         lock(&shared.0).in_flight.insert(id);
-        finish_job(&shared, &tx, id, || Some(vec![1, 2, 3, 4]));
+        finish_job(&shared, &tx, id, || Some((id, vec![1, 2, 3, 4])));
         assert!(lock(&shared.0).in_flight.is_empty());
-        assert!(matches!(rx.try_recv(), Ok((got, Some(px))) if got == id && px == [1, 2, 3, 4]));
+        assert!(
+            matches!(rx.try_recv(), Ok((got, Some((_, px)))) if got == id && px == [1, 2, 3, 4])
+        );
     }
 
     #[test]
@@ -399,7 +410,7 @@ mod tests {
         let ids: Vec<ChartId> = (1..=5).map(ChartId::synthetic).collect();
         for &id in &ids {
             lock(&shared.0).in_flight.insert(id);
-            finish_job(&shared, &tx, id, || Some(vec![1, 2, 3, 4]));
+            finish_job(&shared, &tx, id, || Some((id, vec![1, 2, 3, 4])));
         }
         // A frame uploads at most two; the other three wait in `ready`.
         let first = loader.take_ready(2);

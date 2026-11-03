@@ -79,6 +79,18 @@ impl SongSource for FolderSource {
         video_sources
     }
 
+    fn stage_key(&mut self) -> Option<String> {
+        // The charts of a folder name the same art when their headers do.
+        let content = beetle_core::decode_bms_text(&fs::read(&self.chart).ok()?);
+        let header = parse_bms(&content).ok()?.header;
+        Some(format!(
+            "folder:{}|{}|{}",
+            self.dir.display(),
+            header.stage_file,
+            header.banner
+        ))
+    }
+
     fn stage_image(&mut self) -> Option<StageArt> {
         // The chart header's stagefile or banner (not cached: the folder is as fast).
         if let Ok(bytes) = fs::read(&self.chart) {
