@@ -169,6 +169,8 @@ pub struct AppState {
     pub is_auto_play: bool,
     pub is_replay_playback: bool,
     pub is_gameplay_paused: bool,
+    /// Whether the mouse cursor is hidden over the window (`sync_cursor`).
+    pub cursor_hidden: bool,
     pub pause_selected_option: usize,
     pub current_replay: Option<ReplayData>,
     pub playback_replay: Option<ReplayData>,

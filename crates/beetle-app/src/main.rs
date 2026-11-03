@@ -297,6 +297,7 @@ impl ApplicationHandler for BeetleApp {
             is_auto_play: devtools::autoplay_requested(),
             is_replay_playback: false,
             is_gameplay_paused: false,
+            cursor_hidden: false,
             pause_selected_option: 0,
             current_replay: None,
             playback_replay: None,
@@ -463,6 +464,7 @@ impl ApplicationHandler for BeetleApp {
         poll_pad(state);
         ime::close_search_if_unavailable(state);
         state.sync_screen_entry();
+        sync_cursor(state);
 
         // Menus present on vblank; gameplay follows the target FPS setting
         // (60 = vsync, otherwise paced by the event loop below).
@@ -1026,6 +1028,17 @@ fn drain_raw_keys(state: &mut AppState) {
             }
             _ => {}
         }
+    }
+}
+
+/// Hides the mouse cursor over the window while a play runs; the pause menu
+/// and every other screen show it (they take clicks). Only a change reaches
+/// the window.
+fn sync_cursor(state: &mut AppState) {
+    let hide = state.screen == AppScreen::Gameplay && !state.is_gameplay_paused;
+    if hide != state.cursor_hidden {
+        state.window.set_cursor_visible(!hide);
+        state.cursor_hidden = hide;
     }
 }
 
