@@ -810,7 +810,11 @@ impl ApplicationHandler for BeetleApp {
                     crate::handlers::song_select::check_autofocus_rescan(state);
                 }
             }
-            WindowEvent::Focused(false) => {}
+            // After Alt+Tab the Alt release goes to the other program.
+            WindowEvent::Focused(false) => state.is_alt_pressed = false,
+            WindowEvent::ModifiersChanged(modifiers) => {
+                state.is_alt_pressed = modifiers.state().alt_key();
+            }
             WindowEvent::DroppedFile(path) => {
                 state.drop_hover = false;
                 open_dropped_file(state, &path);
@@ -1218,6 +1222,16 @@ fn handle_keyboard_input(
         };
         state.apply_display_mode();
         state.save_config();
+        return;
+    }
+
+    // Tab and Enter pressed with Alt belong to the window (Alt+Tab switches
+    // programs, Alt+Enter is handled above), not to the screen. Releases
+    // still go through, so a key held before Alt is not left down.
+    if key_state == ElementState::Pressed
+        && state.is_alt_pressed
+        && matches!(code, KeyCode::Tab | KeyCode::Enter | KeyCode::NumpadEnter)
+    {
         return;
     }
 
