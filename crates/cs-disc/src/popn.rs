@@ -531,18 +531,19 @@ pub(crate) const POPN14: Layout = Layout {
         size: 0x28,
         kind_at: 8,
         songs_at: 0x0c,
-        // The sixth (TV songs) has no name on RemyWiki; the eighth is the
-        // random course.
+        // As the CS course list (hiro-p's PS2 database) writes them; RemyWiki
+        // has no CS 14 list and leaves the TV course out. The eighth is the
+        // random course (運命 DE フィーバーコース).
         names: &[
-            "おしゃれＤＥフィーバーコース",
-            "ガールＤＥフィーバーコース",
-            "未来ＤＥフィーバーコース",
-            "浪漫ＤＥフィーバーコース",
-            "ボーイＤＥフィーバーコース",
-            "#6",
-            "KID'S DE FEVER",
+            "おしゃれ DE フィーバーコース",
+            "ガール DE フィーバーコース",
+            "未来 DE フィーバーコース",
+            "ロマン DE フィーバーコース",
+            "ボーイ DE フィーバーコース",
+            "テレビ DE フィーバーコース",
+            "KID'S DE フィーバーコース",
             "",
-            "HELL14コース",
+            "HELL 14 コース",
         ],
     }),
 };

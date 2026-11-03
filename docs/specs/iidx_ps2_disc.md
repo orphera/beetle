@@ -292,10 +292,10 @@ BGM과 키음 각각의 음량(4절)은 있지만, 그 둘을 더한 결과를 �
 
 | 에디션 | 위치 | 코스 수 |
 |---|---|---|
-| 3rd style | `0x7a780` | 16 (SOUL … HELL), 20바이트. 둘째 코스는 위키에 이름이 없어 `#2` |
+| 3rd style | `0x7a780` | 16 (ARTIST … HELL), 20바이트. RemyWiki CS 페이지는 첫 코스를 SOUL이라 하고 둘째에 이름이 없지만, CS 코스 목록(hiro-p의 PS2 데이터베이스)은 ARTIST·SOUL이고 둘째의 곡은 아케이드 SOUL 코스와 같다 |
 | 4th style | `0x13f5c8` | 15 (VOCAL … L.E.D.), 5th와 같은 20바이트 형식 |
 | 5th style | `0x18ebb8` | 18 (HEAVEN … L.E.D.), 20바이트(`u16` 곡, `u16` 차트 ×5), 이름 없음 |
-| 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. 위키에 없는 3개(10~12번째)는 `#10`~`#12` |
+| 6th style | `0x191da4` | 31 (LOUNGE … 日 5th style), 96바이트, 이름 없음. RemyWiki CS 페이지에 없는 10~12번째는 CS 코스 목록(hiro-p의 PS2 데이터베이스)과 아케이드 페이지의 good-cool·Tiger·LED(SPECIAL 다음의 裏 코스) |
 | 7th style | `0x1c59dc` | 9 (MORNING … SELECTION), 68바이트, 이름 없음 |
 | 8th style | `0x1a7e18` | 17 (FEEL … 7-SP10D), 이름 없음(아래) |
 | 9th style | `0xb6e08` | 17 (STYLISH … ASSAULT), 10th와 같은 형식 |

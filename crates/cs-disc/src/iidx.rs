@@ -491,14 +491,16 @@ const THIRD_STYLE: Layout = Layout {
         sound_count: 4,
         ..FOURTH_STYLE.record
     },
-    // The wiki gives the second course no name.
+    // RemyWiki's CS page names the first course SOUL and the second not at
+    // all; the CS course list (hiro-p's PS2 database) has ARTIST and SOUL,
+    // and the second's songs are the arcade SOUL course.
     expert: Some(ExpertTable::Unnamed {
         at: 0x7a780,
         size: 20,
         step: 4,
         names: &[
+            "ARTIST",
             "SOUL",
-            "",
             "DANCE",
             "TECHNO",
             "CRY-MAX",
@@ -728,9 +730,11 @@ const SIXTH_STYLE: Layout = Layout {
             "HOUSE",
             "RESIDENT",
             "SPECIAL",
-            "",
-            "",
-            "",
+            // Not on RemyWiki's CS page: the CS course list (hiro-p's PS2
+            // database) and the arcade page name them.
+            "good-cool",
+            "Tiger",
+            "LED",
             "NAOKI",
             "EURO",
             "VARIOUS",

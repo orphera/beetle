@@ -971,7 +971,7 @@ fn popn_expert_courses_match_the_cs_pages() {
             "CS_DISC_POPN14",
             Edition::Popn14,
             8,
-            "HELL14コース",
+            "HELL 14 コース",
             &[
                 "サイバーフラメンコ",
                 "ケンカドラム",
