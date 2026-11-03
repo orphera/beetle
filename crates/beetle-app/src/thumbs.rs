@@ -272,7 +272,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
     let range = prefetch_rows(scroll.max(0.0) as usize, visible, entries.len());
     let mut busy = false;
     let mut wanted: Vec<(ChartId, &SongMetadata)> = Vec::new();
-    for row in by_distance(range, *selected_entry) {
+    for row in by_distance(range.clone(), *selected_entry) {
         let Some(song) = entries
             .get(row)
             .and_then(row_song)
@@ -290,6 +290,22 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize, settled: bool) ->
         }
         busy = true;
         wanted.push((song.picture_key(), song));
+    }
+    // Then a group's other charts, so switching its chart finds the
+    // thumbnail (mostly the same picture, aliased) already there.
+    for row in by_distance(range, *selected_entry) {
+        let Some(crate::folders::ListEntry::Group { charts, .. }) = entries.get(row) else {
+            continue;
+        };
+        for song in charts.iter().filter_map(|&i| songs.get(i)) {
+            let key = song.picture_key();
+            if !ui.jackets.contains(JacketKey::Chart(key))
+                && !thumbs.missing.contains(&key)
+                && !wanted.iter().any(|(id, _)| *id == key)
+            {
+                wanted.push((key, song));
+            }
+        }
     }
     if settled {
         thumbs.set_wanted(&wanted);

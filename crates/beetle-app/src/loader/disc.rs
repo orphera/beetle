@@ -275,7 +275,9 @@ impl SongSource for DiscSource {
     /// 4:3 canvas.
     fn stage_key(&mut self) -> Option<String> {
         let song = &self.songs.songs[self.song];
-        let another = song.charts[self.chart].difficulty == Difficulty::Another;
+        // IIDX shows ANOTHER its own card; pop'n's banner is the same for all.
+        let another = song.charts[self.chart].difficulty == Difficulty::Another
+            && !self.songs.edition.is_popn();
         let (at, size, index) = self.songs.stage_extent(song)?;
         Some(format!("disc:{}@{at}+{size}#{index}:{another}", self.image))
     }

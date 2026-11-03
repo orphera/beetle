@@ -378,7 +378,7 @@ impl ApplicationHandler for BeetleApp {
             last_render_time: Instant::now(),
             cursor_settle_time: Instant::now(),
             stage_image_receiver: None,
-            stage_image_loading_id: None,
+            stage_image_loading: Vec::new(),
             thumbs: thumbs::ThumbLoader::new(),
             disc_names: None,
             disc_names_songs: 0,
@@ -604,11 +604,23 @@ impl ApplicationHandler for BeetleApp {
             AppScreen::SongSelect => {
                 // 1. Receive background artwork loader results without blocking UI
                 if let Some(rx) = &state.stage_image_receiver {
-                    if let Ok((id, pic)) = rx.try_recv() {
-                        state.stage_image_cache.insert(id, pic);
+                    let mut finished = false;
+                    loop {
+                        match rx.try_recv() {
+                            Ok((id, pic)) => {
+                                state.stage_image_cache.insert(id, pic);
+                                state.window.request_redraw();
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                finished = true;
+                                break;
+                            }
+                        }
+                    }
+                    if finished {
                         state.stage_image_receiver = None;
-                        state.stage_image_loading_id = None;
-                        state.window.request_redraw();
+                        state.stage_image_loading.clear();
                     }
                 }
 
@@ -629,12 +641,13 @@ impl ApplicationHandler for BeetleApp {
                     event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + rem));
                 } else if selected_id.is_some_and(|id| !state.stage_image_cache.contains_key(&id)) {
                     timed = true;
-                    if state.stage_image_loading_id != selected_id {
-                        if let Some(song) = selected_song {
-                            state.stage_image_loading_id = selected_id;
-                            state.stage_image_receiver =
-                                Some(spawn_background_stage_image_loader(&song));
-                        }
+                    if selected_id.is_some_and(|id| !state.stage_image_loading.contains(&id)) {
+                        // Every chart of the row at once, the shown one first:
+                        // switching the chart then finds its picture ready.
+                        let songs = state.selected_row_songs();
+                        state.stage_image_loading = songs.iter().map(|s| s.picture_key()).collect();
+                        state.stage_image_receiver =
+                            Some(spawn_background_stage_image_loader(songs));
                     }
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
                         Instant::now() + Duration::from_millis(16),

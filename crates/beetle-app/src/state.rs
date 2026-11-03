@@ -297,7 +297,8 @@ pub struct AppState {
     pub last_render_time: Instant,
     pub cursor_settle_time: Instant,
     pub stage_image_receiver: Option<Receiver<crate::loader::StageLoad>>,
-    pub stage_image_loading_id: Option<ChartId>,
+    /// The charts whose pictures the running stage image loader sends.
+    pub stage_image_loading: Vec<ChartId>,
     /// Jacket thumbnails for the song select list (see `thumbs`).
     pub thumbs: crate::thumbs::ThumbLoader,
     /// Disc word pictures by chart (`words`), read from `.cache/names` on the first
@@ -756,7 +757,7 @@ impl AppState {
         self.stage_image_cache.clear();
         crate::loader::forget_stage_pictures();
         self.stage_image_receiver = None;
-        self.stage_image_loading_id = None;
+        self.stage_image_loading.clear();
         self.thumbs.reset();
         self.gpu_ui.ui.menu().jackets.clear();
         self.library_job = LibraryJob::Rescan;
@@ -900,6 +901,30 @@ impl AppState {
     pub fn current_selected_song(&self) -> Option<&SongMetadata> {
         let i = self.entries.get(self.selected_entry)?.song()?;
         self.songs.get(i)
+    }
+
+    /// The highlighted row's charts whose stage pictures are not loaded yet:
+    /// the one it shows first, then a group's others.
+    pub fn selected_row_songs(&self) -> Vec<SongMetadata> {
+        let Some(entry) = self.entries.get(self.selected_entry) else {
+            return Vec::new();
+        };
+        let others = match entry {
+            folders::ListEntry::Group { charts, .. } => charts.as_slice(),
+            _ => &[],
+        };
+        entry
+            .song()
+            .into_iter()
+            .chain(others.iter().copied())
+            .filter_map(|i| self.songs.get(i))
+            .filter(|s| !self.stage_image_cache.contains_key(&s.picture_key()))
+            .fold(Vec::new(), |mut out: Vec<SongMetadata>, s| {
+                if !out.iter().any(|o| o.picture_key() == s.picture_key()) {
+                    out.push(s.clone());
+                }
+                out
+            })
     }
 
     /// Keeps the 8K arrangement in step with the 8K key preset: the trigger

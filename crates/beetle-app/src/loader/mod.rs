@@ -545,16 +545,22 @@ pub fn spawn_quiet_song_loader(
 /// (`load_stage`), with the backdrop already made.
 pub type StageLoad = (ChartId, StagePicture);
 
-/// Spawns a background thread to load a song's stage image without blocking the UI thread.
-pub fn spawn_background_stage_image_loader(song: &SongMetadata) -> Receiver<StageLoad> {
-    let id = song.picture_key();
-    let song_clone = song.clone();
+/// Spawns a background thread that loads the stage images of `songs`, in
+/// order, sending each as it is ready; the channel closes after the last.
+/// The charts of one song mostly share one picture (`load_stage`), so the
+/// rest cost little after the first.
+pub fn spawn_background_stage_image_loader(songs: Vec<SongMetadata>) -> Receiver<StageLoad> {
     let (tx, rx) = channel();
-
     thread::spawn(move || {
-        let _ = tx.send((id, select_stage_image(&song_clone)));
+        for song in songs {
+            if tx
+                .send((song.picture_key(), select_stage_image(&song)))
+                .is_err()
+            {
+                return;
+            }
+        }
     });
-
     rx
 }
 
