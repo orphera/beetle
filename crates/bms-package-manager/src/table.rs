@@ -355,24 +355,30 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
     if name.is_empty() {
         return err(format!("{header_url} has no table name"));
     }
-    let Some(data_url) = header.get("data_url").and_then(Value::as_str) else {
-        return err(format!("{header_url} has no data_url"));
-    };
-    let data_url = resolve_url(&header_url, data_url)?;
+    let courses = parse_courses(&header);
     let level_order: Vec<String> = header
         .get("level_order")
         .and_then(Value::as_array)
         .map(|levels| levels.iter().filter_map(level_text).collect())
         .unwrap_or_default();
 
-    let data_bytes = get(&data_url, MAX_TABLE_BYTES)
-        .or_else(|e| err(format!("could not fetch {data_url}: {e}")))?;
-    let data: Value = serde_json::from_str(body_text(&data_bytes)?)
-        .or_else(|e| err(format!("{data_url} is not valid JSON: {e}")))?;
-    let entries = parse_entries(&data)?;
-    if entries.is_empty() {
-        return err(format!("{data_url} has no charts with an md5 or sha256"));
-    }
+    // A course table (GENOSIDE 2018 dan, for one) has courses and no data.
+    let entries = match header.get("data_url").and_then(Value::as_str) {
+        Some(data_url) => {
+            let data_url = resolve_url(&header_url, data_url)?;
+            let data_bytes = get(&data_url, MAX_TABLE_BYTES)
+                .or_else(|e| err(format!("could not fetch {data_url}: {e}")))?;
+            let data: Value = serde_json::from_str(body_text(&data_bytes)?)
+                .or_else(|e| err(format!("{data_url} is not valid JSON: {e}")))?;
+            let entries = parse_entries(&data)?;
+            if entries.is_empty() && courses.is_empty() {
+                return err(format!("{data_url} has no charts with an md5 or sha256"));
+            }
+            entries
+        }
+        None if !courses.is_empty() => Vec::new(),
+        None => return err(format!("{header_url} has no data_url")),
+    };
 
     Ok(DifficultyTable {
         name,
@@ -386,7 +392,7 @@ pub fn fetch_table(get: Getter, address: &str) -> Result<DifficultyTable, TableE
         fetched: now_secs(),
         level_order,
         entries,
-        courses: parse_courses(&header),
+        courses,
     })
 }
 
@@ -478,8 +484,8 @@ impl TableStore {
     /// leaves what was there. A table already installed from the same address
     /// is replaced; a different table that would take the same file name is an error.
     pub fn install(&self, table: &DifficultyTable) -> Result<PathBuf, TableError> {
-        if table.entries.is_empty() {
-            return err("refusing to install a table with no charts");
+        if table.entries.is_empty() && table.courses.is_empty() {
+            return err("refusing to install a table with no charts or courses");
         }
         let path = self.path_for(&Self::slug(&table.name));
         if let Some(existing) = fs::read_to_string(&path)
@@ -780,6 +786,27 @@ mod tests {
             .unwrap()
             .courses
             .is_empty());
+    }
+
+    #[test]
+    fn a_header_with_courses_and_no_data_is_a_course_table() {
+        let header = format!(
+            r#"{{"name":"GENOSIDE 2018","course":[[{{"name":"発狂初段","md5":["{MD5_A}","{MD5_B}"]}}]]}}"#
+        );
+        let web = Web::new(&[("https://t.invalid/h.json", &header)]);
+        let table = fetch_table(&web.get(), "https://t.invalid/h.json").unwrap();
+        assert!(table.entries.is_empty());
+        assert_eq!(table.courses.len(), 1);
+        let dir = temp_dir("course-table");
+        let path = TableStore::new(&dir).install(&table).unwrap();
+        assert_eq!(
+            DifficultyTable::parse(&fs::read_to_string(path).unwrap())
+                .unwrap()
+                .courses,
+            table.courses,
+            "installed and kept in the cache"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
