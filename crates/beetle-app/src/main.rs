@@ -871,8 +871,16 @@ impl ApplicationHandler for BeetleApp {
                         repeat,
                         ..
                     },
+                is_synthetic,
                 ..
             } => {
+                // On focus winit presses every key still held: after Alt+Tab
+                // back, Tab is often still down once Alt is up. Those keys
+                // were pressed in another program. Its synthetic releases (on
+                // losing focus) still go through, so no lane stays held.
+                if is_synthetic && key_state == ElementState::Pressed {
+                    return;
+                }
                 // Lane keys that came in before this one go first.
                 drain_raw_keys(state);
                 handle_keyboard_input(
