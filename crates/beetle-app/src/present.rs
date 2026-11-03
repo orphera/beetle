@@ -526,7 +526,6 @@ fn option_lines(state: &AppState, table: &'static [OptionDesc]) -> Vec<OptionLin
             let section = (last != Some(d.group)).then_some(d.group);
             last = Some(d.group);
             OptionLine {
-                column: d.column,
                 section,
                 label: d.label,
                 value: options_table::value(state, d.id),

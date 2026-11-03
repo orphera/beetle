@@ -38,61 +38,40 @@ fn one_frame(
 
 /// The Settings rows in table order, the way the app lists them.
 fn settings_lines() -> Vec<OptionLine<'static>> {
-    let rows: [(usize, Option<&'static str>, &'static str, &str); 10] = [
+    let rows: [(Option<&'static str>, &'static str, &str); 10] = [
         (
-            0,
-            Some(strings::GROUP_SYSTEM()),
+            Some(strings::GROUP_GENERAL()),
             strings::ROW_LANGUAGE(),
             strings::LANG_NAME_EN(),
         ),
         (
-            0,
             Some(strings::GROUP_DISPLAY()),
             strings::ROW_DISPLAY_MODE(),
             strings::DISPLAY_WINDOWED(),
         ),
-        (0, None, strings::ROW_RESOLUTION(), "1280 x 720"),
-        (0, None, strings::ROW_GRAPHICS(), strings::GPU_AUTO()),
+        (None, strings::ROW_RESOLUTION(), "1280 x 720"),
+        (None, strings::ROW_GRAPHICS(), strings::GPU_AUTO()),
+        (None, strings::ROW_TARGET_FPS(), strings::VALUE_UNLIMITED()),
         (
-            0,
-            None,
-            strings::ROW_TARGET_FPS(),
-            strings::VALUE_UNLIMITED(),
-        ),
-        (
-            0,
             Some(strings::GROUP_AUDIO()),
             strings::ROW_MASTER_VOLUME(),
             "80%",
         ),
         (
-            0,
-            Some(strings::GROUP_JUDGE()),
+            Some(strings::GROUP_JUDGE_INPUT()),
             strings::ROW_JUDGE_OFFSET(),
             "+0 ms",
         ),
         (
-            1,
-            Some(strings::GROUP_LAYOUT()),
+            Some(strings::GROUP_PLAY_SCREEN()),
             strings::ROW_PLAYFIELD(),
             strings::VALUE_CENTER(),
         ),
-        (
-            1,
-            None,
-            strings::ROW_TRACK_BGA(),
-            strings::TRACK_BGA_MEDIUM(),
-        ),
-        (
-            1,
-            Some(strings::GROUP_INPUT()),
-            strings::ROW_KEY_LAYOUT(),
-            "5K HomeRow",
-        ),
+        (None, strings::ROW_TRACK_BGA(), strings::TRACK_BGA_MEDIUM()),
+        (None, strings::ROW_KEY_LAYOUT(), "5K HomeRow"),
     ];
     rows.into_iter()
-        .map(|(column, section, label, value)| OptionLine {
-            column,
+        .map(|(section, label, value)| OptionLine {
             section,
             label,
             value: value.to_string(),
@@ -123,7 +102,6 @@ fn option_lines() -> Vec<OptionLine<'static>> {
     .into_iter()
     .enumerate()
     .map(|(i, (section, label, value))| OptionLine {
-        column: 0,
         section: (i == 0 || i == 5).then_some(section),
         label,
         value: value.to_string(),
@@ -167,7 +145,7 @@ fn main_screens_draw_one_batch_in_every_language() {
                         lines: &lines,
                         selected: 0,
                         help,
-                        scroll: [0.0; 2],
+                        scroll: 0.0,
                     },
                 );
             });

@@ -255,7 +255,6 @@ fn options_panel_over_the_result() {
     let clear_trend = trend(|t| 20.0 + 70.0 * (t / SONG_SECONDS), None);
     let chart = chart();
     let line = |section, label, value: &str| OptionLine {
-        column: 0,
         section,
         label,
         value: value.to_string(),

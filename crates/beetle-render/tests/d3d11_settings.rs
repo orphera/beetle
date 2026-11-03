@@ -1,5 +1,5 @@
-//! Settings screen on a real D3D11 device (WARP): the two columns with every
-//! group, a restart-required value, and the help card for two rows.
+//! Settings screen on a real D3D11 device (WARP): the page tabs and a page,
+//! a restart-required value, and the help card for two rows.
 //! Captures go to `target/settings-*.bmp` for layout review.
 #![cfg(target_os = "windows")]
 
@@ -15,74 +15,56 @@ use common::{assert_repeatable, write_bmp, HiddenWindow};
 const W: u32 = 1280;
 const H: u32 = 720;
 
-/// The Settings rows as the app lists them (table order, two columns).
+/// Settings rows in table order; a section starts a page.
 fn lines(graphics_after_restart: bool) -> Vec<OptionLine<'static>> {
     let graphics = if graphics_after_restart {
         strings::fill(strings::VALUE_AFTER_RESTART(), &[strings::GPU_WARP()])
     } else {
         strings::GPU_AUTO().to_string()
     };
-    let rows: [(usize, Option<&'static str>, &'static str, String); 11] = [
+    let rows: [(Option<&'static str>, &'static str, String); 11] = [
         (
-            0,
             Some(strings::GROUP_DISPLAY()),
             strings::ROW_DISPLAY_MODE(),
             strings::DISPLAY_WINDOWED().into(),
         ),
         (
-            0,
             None,
             strings::ROW_RESOLUTION(),
             "1280 x 720 (16:9 HD)".into(),
         ),
-        (0, None, strings::ROW_GRAPHICS(), graphics),
+        (None, strings::ROW_GRAPHICS(), graphics),
         (
-            0,
             None,
             strings::ROW_TARGET_FPS(),
             strings::VALUE_UNLIMITED().into(),
         ),
         (
-            0,
             Some(strings::GROUP_AUDIO()),
             strings::ROW_MASTER_VOLUME(),
             "80%".into(),
         ),
         (
-            0,
-            Some(strings::GROUP_JUDGE()),
+            Some(strings::GROUP_JUDGE_INPUT()),
             strings::ROW_JUDGE_OFFSET(),
             "+0 ms".into(),
         ),
         (
-            1,
-            Some(strings::GROUP_LAYOUT()),
+            Some(strings::GROUP_PLAY_SCREEN()),
             strings::ROW_PLAYFIELD(),
             strings::VALUE_CENTER().into(),
         ),
+        (None, strings::ROW_SCRATCH(), strings::SIDE_RIGHT().into()),
+        (None, strings::ROW_BGA(), strings::VALUE_ON().into()),
         (
-            1,
-            None,
-            strings::ROW_SCRATCH(),
-            strings::SIDE_RIGHT().into(),
-        ),
-        (1, None, strings::ROW_BGA(), strings::VALUE_ON().into()),
-        (
-            1,
             None,
             strings::ROW_TRACK_BGA(),
             strings::TRACK_BGA_OFF().into(),
         ),
-        (
-            1,
-            Some(strings::GROUP_INPUT()),
-            strings::ROW_KEY_LAYOUT(),
-            "7K  HomeRow".into(),
-        ),
+        (None, strings::ROW_KEY_LAYOUT(), "7K  HomeRow".into()),
     ];
     rows.into_iter()
-        .map(|(column, section, label, value)| OptionLine {
-            column,
+        .map(|(section, label, value)| OptionLine {
             section,
             label,
             value,
@@ -126,7 +108,7 @@ fn render(
             lines: &lines,
             selected,
             help: helps()[selected],
-            scroll: [0.0; 2],
+            scroll: 0.0,
         },
     );
     let calls = ui.end(gpu);
@@ -149,7 +131,7 @@ fn settings_layouts() {
         }),
         1
     );
-    // Key layout row (right column, the last one) selected.
+    // Key layout row (the last page, the last row) selected.
     assert_eq!(
         assert_repeatable(&mut gpu, "settings-keys.bmp", 1.0, |gpu, ui| {
             render(gpu, ui, 10, false, "keys")

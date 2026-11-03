@@ -4416,14 +4416,12 @@ mod tests {
     fn panel_lines() -> Vec<OptionLine<'static>> {
         vec![
             OptionLine {
-                column: 0,
                 section: Some("플레이"),
                 label: "그린 넘버",
                 value: "500 ms".into(),
                 stepper: true,
             },
             OptionLine {
-                column: 0,
                 section: None,
                 label: "GAUGE",
                 value: "GROOVE".into(),

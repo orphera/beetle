@@ -11,7 +11,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use crate::calibration::Session;
 use crate::handlers::options::{enter_row, move_row};
 use crate::menu_audio::play_ui;
-use crate::options_table::{self, activation, settings_options};
+use crate::options_table::{self, activation, settings_options, settings_page, settings_pages};
 use crate::state::{AppScreen, AppState};
 use crate::transition::show_toast;
 
@@ -54,6 +54,25 @@ pub fn open_tools(state: &mut AppState) {
     } else {
         show_toast(state, ToastKind::Error, strings::TOAST_TOOLS_MISSING());
     }
+}
+
+/// Shows Settings page `page` from its first row.
+fn show_page(state: &mut AppState, page: usize) {
+    if let Some(rows) = settings_pages().get(page) {
+        if !rows.contains(&state.settings_row) {
+            play_ui(state, UiSound::Move);
+            state.settings_row = rows.start;
+            state.settings_scroll = 0.0;
+        }
+    }
+}
+
+/// The next (or previous) Settings page, wrapping around (TAB, PageDown,
+/// PageUp).
+fn step_page(state: &mut AppState, forward: bool) {
+    let count = settings_pages().len();
+    let page = settings_page(state.settings_row);
+    show_page(state, (page + if forward { 1 } else { count - 1 }) % count);
 }
 
 /// Changes the value of Settings row `row` one step and saves.
@@ -190,6 +209,8 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
             play_ui(state, UiSound::Move);
             move_row(&mut state.settings_row, settings_options().len(), true)
         }
+        KeyCode::Tab | KeyCode::PageDown => step_page(state, true),
+        KeyCode::PageUp => step_page(state, false),
         KeyCode::ArrowLeft | KeyCode::KeyH => change_setting(state, row, false),
         KeyCode::ArrowRight | KeyCode::KeyL => change_setting(state, row, true),
         KeyCode::Enter | KeyCode::Space => {
@@ -202,7 +223,7 @@ pub fn handle_settings_input(state: &mut AppState, key_state: ElementState, code
 /// A click on the Settings screen. The first click on a row selects it; a
 /// click on the selected row runs its activation (the key layout opens Key
 /// Config, the judge offset opens the calibration). `<` and `>` change the
-/// value. While the calibration or the Song Folders list is open only its
+/// value, and a page tab shows that page. While the calibration or the Song Folders list is open only its
 /// own buttons respond.
 pub fn settings_click(state: &mut AppState, id: HitId) {
     if state.calibration.is_some() {
@@ -231,6 +252,7 @@ pub fn settings_click(state: &mut AppState, id: HitId) {
             state.settings_row = i;
             change_setting(state, i, true);
         }
+        HitId::SettingsPage(page) => show_page(state, page),
         HitId::SettingsBack => leave_settings(state),
         _ => (),
     }

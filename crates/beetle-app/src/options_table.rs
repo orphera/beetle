@@ -4,6 +4,7 @@
 //! `handlers/settings.rs`). A row is an index into its table; nothing
 //! numbers the rows.
 
+use std::ops::Range;
 use std::sync::OnceLock;
 
 use beetle_core::{GaugeType, LaneModifier, LnOption, Ruleset, SpeedAnchor};
@@ -83,10 +84,9 @@ pub enum OptionId {
 #[derive(Debug, Clone, Copy)]
 pub struct OptionDesc {
     pub id: OptionId,
-    /// Section the row sits under; a header is drawn where it changes.
+    /// Section the row sits under; a header is drawn where it changes. On
+    /// the Settings screen each group is a page (`settings_pages`).
     pub group: &'static str,
-    /// Column of the Settings screen (the panel has one column).
-    pub column: usize,
     pub label: &'static str,
     /// One sentence on what the option does (shown for the highlighted row).
     pub help: &'static str,
@@ -108,56 +108,48 @@ fn build_play_options() -> Vec<OptionDesc> {
         OptionDesc {
             id: OptionId::Green,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_GREEN(),
             help: strings::HELP_GREEN(),
         },
         OptionDesc {
             id: OptionId::SpeedAnchor,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_SPEED_ANCHOR(),
             help: strings::HELP_SPEED_ANCHOR(),
         },
         OptionDesc {
             id: OptionId::LaneCover,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_LANE_COVER(),
             help: strings::HELP_LANE_COVER(),
         },
         OptionDesc {
             id: OptionId::Modifier,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_MODIFIER(),
             help: strings::HELP_MODIFIER(),
         },
         OptionDesc {
             id: OptionId::Gauge,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_GAUGE(),
             help: strings::HELP_GAUGE(),
         },
         OptionDesc {
             id: OptionId::LnMode,
             group: strings::GROUP_PLAY(),
-            column: 0,
             label: strings::ROW_LN_MODE(),
             help: strings::HELP_LN_MODE(),
         },
         OptionDesc {
             id: OptionId::AutoPlay,
             group: strings::GROUP_SESSION(),
-            column: 0,
             label: strings::ROW_AUTO_PLAY(),
             help: strings::HELP_AUTO_PLAY(),
         },
         OptionDesc {
             id: OptionId::StartMeasure,
             group: strings::GROUP_SESSION(),
-            column: 0,
             label: strings::ROW_START_MEASURE(),
             help: strings::HELP_START_MEASURE(),
         },
@@ -170,218 +162,189 @@ pub fn play_options() -> &'static [OptionDesc] {
     per_lang(&CELLS, build_play_options)
 }
 
-/// The Settings screen, in table order (the two columns follow `column`).
+/// The Settings screen, in table order. Each group is a page of its own,
+/// so the rows of a group stay together.
 fn build_settings_options() -> Vec<OptionDesc> {
     vec![
         OptionDesc {
             id: OptionId::Language,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
+            group: strings::GROUP_GENERAL(),
             label: strings::ROW_LANGUAGE(),
             help: strings::HELP_LANGUAGE(),
         },
         OptionDesc {
-            id: OptionId::SongFolders,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
-            label: strings::ROW_SONG_FOLDERS(),
-            help: strings::HELP_SONG_FOLDERS(),
-        },
-        OptionDesc {
-            id: OptionId::HiddenSongs,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
-            label: strings::ROW_HIDDEN_SONGS(),
-            help: strings::HELP_HIDDEN_SONGS(),
-        },
-        OptionDesc {
-            id: OptionId::EditionSameSource,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
-            label: strings::ROW_EDITION_SAME_SOURCE(),
-            help: strings::HELP_EDITION_SAME_SOURCE(),
-        },
-        OptionDesc {
             id: OptionId::FileAssoc,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
+            group: strings::GROUP_GENERAL(),
             label: strings::ROW_FILE_ASSOC(),
             help: strings::HELP_FILE_ASSOC(),
         },
         OptionDesc {
             id: OptionId::AdvancedTools,
-            group: strings::GROUP_SYSTEM(),
-            column: 0,
+            group: strings::GROUP_GENERAL(),
             label: strings::ROW_TOOLS(),
             help: strings::HELP_TOOLS(),
         },
         OptionDesc {
+            id: OptionId::SongFolders,
+            group: strings::GROUP_LIBRARY(),
+            label: strings::ROW_SONG_FOLDERS(),
+            help: strings::HELP_SONG_FOLDERS(),
+        },
+        OptionDesc {
+            id: OptionId::HiddenSongs,
+            group: strings::GROUP_LIBRARY(),
+            label: strings::ROW_HIDDEN_SONGS(),
+            help: strings::HELP_HIDDEN_SONGS(),
+        },
+        OptionDesc {
+            id: OptionId::EditionSameSource,
+            group: strings::GROUP_LIBRARY(),
+            label: strings::ROW_EDITION_SAME_SOURCE(),
+            help: strings::HELP_EDITION_SAME_SOURCE(),
+        },
+        OptionDesc {
             id: OptionId::DisplayMode,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_DISPLAY_MODE(),
             help: strings::HELP_DISPLAY_MODE(),
         },
         OptionDesc {
             id: OptionId::Resolution,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_RESOLUTION(),
             help: strings::HELP_RESOLUTION(),
         },
         OptionDesc {
             id: OptionId::Graphics,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_GRAPHICS(),
             help: strings::HELP_GRAPHICS(),
         },
         OptionDesc {
             id: OptionId::TargetFps,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_TARGET_FPS(),
             help: strings::HELP_TARGET_FPS(),
         },
         OptionDesc {
+            id: OptionId::UiScale,
+            group: strings::GROUP_DISPLAY(),
+            label: strings::ROW_UI_SCALE(),
+            help: strings::HELP_UI_SCALE(),
+        },
+        OptionDesc {
             id: OptionId::ReduceFlashes,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_REDUCE_FLASHES(),
             help: strings::HELP_REDUCE_FLASHES(),
         },
         OptionDesc {
             id: OptionId::ReduceMotion,
             group: strings::GROUP_DISPLAY(),
-            column: 0,
             label: strings::ROW_REDUCE_MOTION(),
             help: strings::HELP_REDUCE_MOTION(),
         },
         OptionDesc {
-            id: OptionId::UiScale,
-            group: strings::GROUP_DISPLAY(),
-            column: 0,
-            label: strings::ROW_UI_SCALE(),
-            help: strings::HELP_UI_SCALE(),
-        },
-        OptionDesc {
             id: OptionId::MasterVolume,
             group: strings::GROUP_AUDIO(),
-            column: 0,
             label: strings::ROW_MASTER_VOLUME(),
             help: strings::HELP_MASTER_VOLUME(),
         },
         OptionDesc {
             id: OptionId::BgmVolume,
             group: strings::GROUP_AUDIO(),
-            column: 0,
             label: strings::ROW_BGM_VOLUME(),
             help: strings::HELP_BGM_VOLUME(),
         },
         OptionDesc {
             id: OptionId::KeyVolume,
             group: strings::GROUP_AUDIO(),
-            column: 0,
             label: strings::ROW_KEY_VOLUME(),
             help: strings::HELP_KEY_VOLUME(),
         },
         OptionDesc {
             id: OptionId::SfxVolume,
             group: strings::GROUP_AUDIO(),
-            column: 0,
             label: strings::ROW_SFX_VOLUME(),
             help: strings::HELP_SFX_VOLUME(),
         },
         OptionDesc {
             id: OptionId::AudioDevice,
             group: strings::GROUP_AUDIO(),
-            column: 0,
             label: strings::ROW_AUDIO_DEVICE(),
             help: strings::HELP_AUDIO_DEVICE(),
         },
         OptionDesc {
             id: OptionId::JudgeOffset,
-            group: strings::GROUP_JUDGE(),
-            column: 0,
+            group: strings::GROUP_JUDGE_INPUT(),
             label: strings::ROW_JUDGE_OFFSET(),
             help: strings::HELP_JUDGE_OFFSET(),
         },
         OptionDesc {
             id: OptionId::VisualOffset,
-            group: strings::GROUP_JUDGE(),
-            column: 0,
+            group: strings::GROUP_JUDGE_INPUT(),
             label: strings::ROW_VISUAL_OFFSET(),
             help: strings::HELP_VISUAL_OFFSET(),
         },
         OptionDesc {
-            id: OptionId::JudgePosition,
-            group: strings::GROUP_JUDGE(),
-            column: 0,
-            label: strings::ROW_JUDGE_POSITION(),
-            help: strings::HELP_JUDGE_POSITION(),
-        },
-        OptionDesc {
-            id: OptionId::Playfield,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_PLAYFIELD(),
-            help: strings::HELP_PLAYFIELD(),
-        },
-        OptionDesc {
-            id: OptionId::Scratch,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_SCRATCH(),
-            help: strings::HELP_SCRATCH(),
-        },
-        OptionDesc {
-            id: OptionId::NoteSize,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_NOTE_SIZE(),
-            help: strings::HELP_NOTE_SIZE(),
-        },
-        OptionDesc {
-            id: OptionId::HighContrast,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_HIGH_CONTRAST(),
-            help: strings::HELP_HIGH_CONTRAST(),
-        },
-        OptionDesc {
-            id: OptionId::Bga,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_BGA(),
-            help: strings::HELP_BGA(),
-        },
-        OptionDesc {
-            id: OptionId::TrackBga,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_TRACK_BGA(),
-            help: strings::HELP_TRACK_BGA(),
-        },
-        OptionDesc {
-            id: OptionId::KeyHint,
-            group: strings::GROUP_LAYOUT(),
-            column: 1,
-            label: strings::ROW_KEY_HINT(),
-            help: strings::HELP_KEY_HINT(),
-        },
-        OptionDesc {
             id: OptionId::KeyLayout,
-            group: strings::GROUP_INPUT(),
-            column: 1,
+            group: strings::GROUP_JUDGE_INPUT(),
             label: strings::ROW_KEY_LAYOUT(),
             help: strings::HELP_KEY_LAYOUT(),
         },
         OptionDesc {
             id: OptionId::TurntableAxis,
-            group: strings::GROUP_INPUT(),
-            column: 1,
+            group: strings::GROUP_JUDGE_INPUT(),
             label: strings::ROW_TURNTABLE(),
             help: strings::HELP_TURNTABLE(),
+        },
+        OptionDesc {
+            id: OptionId::Playfield,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_PLAYFIELD(),
+            help: strings::HELP_PLAYFIELD(),
+        },
+        OptionDesc {
+            id: OptionId::Scratch,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_SCRATCH(),
+            help: strings::HELP_SCRATCH(),
+        },
+        OptionDesc {
+            id: OptionId::NoteSize,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_NOTE_SIZE(),
+            help: strings::HELP_NOTE_SIZE(),
+        },
+        OptionDesc {
+            id: OptionId::HighContrast,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_HIGH_CONTRAST(),
+            help: strings::HELP_HIGH_CONTRAST(),
+        },
+        OptionDesc {
+            id: OptionId::Bga,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_BGA(),
+            help: strings::HELP_BGA(),
+        },
+        OptionDesc {
+            id: OptionId::TrackBga,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_TRACK_BGA(),
+            help: strings::HELP_TRACK_BGA(),
+        },
+        OptionDesc {
+            id: OptionId::KeyHint,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_KEY_HINT(),
+            help: strings::HELP_KEY_HINT(),
+        },
+        OptionDesc {
+            id: OptionId::JudgePosition,
+            group: strings::GROUP_PLAY_SCREEN(),
+            label: strings::ROW_JUDGE_POSITION(),
+            help: strings::HELP_JUDGE_POSITION(),
         },
     ]
 }
@@ -390,6 +353,27 @@ pub fn settings_options() -> &'static [OptionDesc] {
     static CELLS: [OnceLock<Vec<OptionDesc>>; 3] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     per_lang(&CELLS, build_settings_options)
+}
+
+/// The pages of the Settings screen: one row range per group, in table order.
+pub fn settings_pages() -> Vec<Range<usize>> {
+    let table = settings_options();
+    let mut pages: Vec<Range<usize>> = Vec::new();
+    for (i, d) in table.iter().enumerate() {
+        match pages.last_mut() {
+            Some(page) if table[page.start].group == d.group => page.end = i + 1,
+            _ => pages.push(i..i + 1),
+        }
+    }
+    pages
+}
+
+/// The Settings page that holds `row`.
+pub fn settings_page(row: usize) -> usize {
+    settings_pages()
+        .iter()
+        .position(|page| page.contains(&row))
+        .unwrap_or(0)
 }
 
 /// The hi-speed anchor as the options show it.
@@ -955,9 +939,21 @@ mod tests {
     }
 
     #[test]
-    fn play_options_are_one_column_and_settings_two() {
-        assert!(play_options().iter().all(|d| d.column == 0));
-        assert!(settings_options().iter().any(|d| d.column == 1));
+    fn settings_pages_cover_the_table_and_fit_without_scrolling() {
+        let pages = settings_pages();
+        assert!(pages.len() > 1);
+        assert_eq!(pages[0].start, 0);
+        assert_eq!(pages.last().unwrap().end, settings_options().len());
+        for (page, next) in pages.iter().zip(pages.iter().skip(1)) {
+            assert_eq!(page.end, next.start);
+        }
+        for (i, page) in pages.iter().enumerate() {
+            // Eight rows fit the 1280x720 page at 100 % UI scale.
+            assert!((1..=8).contains(&page.len()), "page {i}");
+            for row in page.clone() {
+                assert_eq!(settings_page(row), i);
+            }
+        }
     }
 
     #[test]

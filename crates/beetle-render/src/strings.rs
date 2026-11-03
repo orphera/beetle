@@ -1107,18 +1107,19 @@ table! {
         ko "소리",
         en "Sound",
         ja "サウンド";
-    pub GROUP_JUDGE =
-        ko "판정",
-        en "Judge",
-        ja "判定";
-    pub GROUP_LAYOUT =
-        ko "레이아웃",
-        en "Layout",
-        ja "レイアウト";
-    pub GROUP_INPUT =
-        ko "입력",
-        en "Input",
-        ja "入力";
+    pub GROUP_JUDGE_INPUT =
+        ko "판정과 입력",
+        en "Judge & Input",
+        ja "判定・入力";
+    pub GROUP_PLAY_SCREEN =
+        ko "플레이 화면",
+        en "Play Screen",
+        ja "プレイ画面";
+    /// Settings footer: TAB moves to the next page.
+    pub HINT_PAGE =
+        ko "분류",
+        en "Category",
+        ja "カテゴリ";
     pub ROW_GREEN =
         ko "노트 속도",
         en "Note Speed",
@@ -2019,11 +2020,16 @@ table! {
         ja "Enter でキーを割り当て、A で追加、Backspace でレーンを消去します。";
 
     // ---- Language setting (Settings screen, first row) ----
-    /// Section of the Settings screen for the language.
-    pub GROUP_SYSTEM =
-        ko "시스템",
-        en "System",
-        ja "システム";
+    /// Settings page of the language and the program itself.
+    pub GROUP_GENERAL =
+        ko "일반",
+        en "General",
+        ja "一般";
+    /// Settings page of the song folders and what the song list shows.
+    pub GROUP_LIBRARY =
+        ko "라이브러리",
+        en "Library",
+        ja "ライブラリ";
     /// Settings row: the UI language.
     pub ROW_SONG_FOLDERS =
         ko "곡 폴더",

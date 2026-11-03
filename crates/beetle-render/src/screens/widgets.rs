@@ -324,7 +324,6 @@ pub(crate) const HELP_CARD_H: f32 = 88.0;
 /// One line of an option list. A list is drawn in `column`s; `section`, when
 /// set, is a header drawn above this line.
 pub struct OptionLine<'a> {
-    pub column: usize,
     pub section: Option<&'a str>,
     pub label: &'a str,
     /// The value as shown ("500 ms", "GROOVE", "<" arrows added by the drawing).

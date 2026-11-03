@@ -338,7 +338,6 @@ fn render_ex(
         Overlay::None => {}
         Overlay::Options => {
             let line = |section, label, value: &str| OptionLine {
-                column: 0,
                 section,
                 label,
                 value: value.to_string(),

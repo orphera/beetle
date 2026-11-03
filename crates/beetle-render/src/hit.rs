@@ -101,6 +101,8 @@ pub enum HitId {
     OptionNext(usize),
     /// Settings footer: back to song select (saves the settings).
     SettingsBack,
+    /// A Settings page tab (its index from the top): show that page.
+    SettingsPage(usize),
     /// Judge offset calibration: apply the suggestion, measure again, or
     /// leave without changing the offset.
     CalibrateApply,
