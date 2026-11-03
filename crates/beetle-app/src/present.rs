@@ -1158,7 +1158,7 @@ fn course_result(state: &mut AppState, size: PhysicalSize<u32>) {
             state.gpu_ui.ui.current(),
             &beetle_render::CourseResultFrame {
                 viewport: &state.view.ui,
-                name: &course.def.name,
+                name: &course.def.title(),
                 kind,
                 gauge_label: run.gauge_type().as_str(),
                 passed: run.is_passed(),

@@ -63,6 +63,13 @@ pub struct CourseView {
     pub passed: bool,
     /// The best record, as shown ("최고 기록: goldmedal, EX 3000 / 4000").
     pub best: Option<String>,
+    /// The variants the row picks among ("SP NORMAL", "SP HYPER", …), each
+    /// with its first chart's difficulty for the color. Empty for a course
+    /// with none; one for a course with only one (the chip shows it, there
+    /// are no tabs).
+    pub variants: Vec<(String, Option<u32>)>,
+    /// The position in `variants` shown.
+    pub variant: usize,
 }
 
 impl CourseView {
@@ -272,7 +279,7 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                 _,
             ) => folder_panel(c, t, &sk, label, count, &lamps, detail, detail_s),
             (Some(&SelectRow::Course(course)), _) => {
-                course_panel(c, t, &sk, course, detail, detail_s)
+                course_panel(c, t, &sk, course, f.selected, detail, detail_s, &mut hs)
             }
             _ => {}
         }
@@ -943,7 +950,7 @@ fn song_list(
                 if whole {
                     hs.add(view, HitId::ListRow(slot));
                 }
-                folder_row(c, t, sk, label, count, theme::BLUE, row, on, hot, s);
+                folder_row(c, t, sk, label, count, theme::BLUE, None, row, on, hot, s);
             }
             SelectRow::Course(course) => {
                 if whole {
@@ -955,6 +962,13 @@ fn song_list(
                     (true, true) => theme::GOLD,
                     (true, false) => theme::CYAN,
                 };
+                // The chosen variant, as a chip the arrows change.
+                let chip = course
+                    .variants
+                    .get(course.variant)
+                    .map(|(label, difficulty)| {
+                        (label.as_str(), theme::level_tier(*difficulty, 0).1)
+                    });
                 folder_row(
                     c,
                     t,
@@ -962,6 +976,7 @@ fn song_list(
                     &course.name,
                     course.charts.len(),
                     accent,
+                    chip,
                     row,
                     on,
                     hot,
@@ -1481,12 +1496,48 @@ fn chart_tabs(
     s: f32,
     hs: &mut HitSink,
 ) {
+    let colors: Vec<ColorRgba> = tabs
+        .charts
+        .iter()
+        .map(|&i| match f.songs.get(i) {
+            Some(chart) => theme::level_tier(chart.difficulty, chart.play_level).1,
+            None => theme::MUTED,
+        })
+        .collect();
+    let labels: Vec<&str> = tabs.labels.iter().map(String::as_str).collect();
+    tab_strip(
+        c,
+        t,
+        &labels,
+        &colors,
+        tabs.selected,
+        tabs.row,
+        strip,
+        s,
+        hs,
+    );
+}
+
+/// A strip of tabs, one per label in its color, the `selected` one lit. Each
+/// is a hit region that picks its position on list row `row`.
+#[allow(clippy::too_many_arguments)]
+fn tab_strip(
+    c: &mut Canvas,
+    t: &mut TextEngine,
+    labels: &[&str],
+    colors: &[ColorRgba],
+    selected: usize,
+    row: usize,
+    strip: Rect,
+    s: f32,
+    hs: &mut HitSink,
+) {
     // Only the tabs that fit the strip are drawn, the chosen one always among
     // them; the rest are counted as "+N" (as the chips on a group row are).
     let gap = 6.0 * s;
-    let n = tabs.charts.len().min(tabs.labels.len());
+    let n = labels.len().min(colors.len());
     let tab_st = |on: bool| caption(12.0, s).color(if on { theme::TEXT } else { theme::MUTED });
-    let widths: Vec<f32> = tabs.labels[..n]
+    let widths: Vec<f32> = labels[..n]
         .iter()
         .map(|text| t.measure(c, text, &tab_st(false)) + 24.0 * s)
         .collect();
@@ -1496,14 +1547,11 @@ fn chart_tabs(
     } else {
         strip.w - MORE_CHIP_W * s
     };
-    let (lo, hi) = chip_window(&widths, tabs.selected.min(n.saturating_sub(1)), gap, budget);
+    let (lo, hi) = chip_window(&widths, selected.min(n.saturating_sub(1)), gap, budget);
     let mut x = strip.x;
     for pos in lo..hi {
-        let Some(chart) = f.songs.get(tabs.charts[pos]) else {
-            continue;
-        };
-        let (_, col) = theme::level_tier(chart.difficulty, chart.play_level);
-        let on = pos == tabs.selected;
+        let col = colors[pos];
+        let on = pos == selected;
         let st = tab_st(on);
         let w = widths[pos];
         let rect = Rect::new(x, strip.y, w, strip.h);
@@ -1515,8 +1563,8 @@ fn chart_tabs(
                 col,
             );
         }
-        t.draw_in(c, &tabs.labels[pos], rect, Align::Center, &st);
-        hs.add(rect, HitId::ChartTab { row: tabs.row, pos });
+        t.draw_in(c, labels[pos], rect, Align::Center, &st);
+        hs.add(rect, HitId::ChartTab { row, pos });
         x += w + gap;
     }
     if hi - lo < n {
@@ -1527,7 +1575,8 @@ fn chart_tabs(
 }
 
 /// A folder row: the same height as a song row, with an accent strip, the
-/// name, the song count and a chevron that says it opens.
+/// name, the song count and a chevron that says it opens. A course row with
+/// variants shows the chosen one as a `chip` before the count.
 #[allow(clippy::too_many_arguments)]
 fn folder_row(
     c: &mut Canvas,
@@ -1536,6 +1585,7 @@ fn folder_row(
     label: &str,
     count: usize,
     accent: ColorRgba,
+    chip: Option<(&str, ColorRgba)>,
     row: Rect,
     on: bool,
     hot: bool,
@@ -1565,8 +1615,9 @@ fn folder_row(
         strings::fill(strings::FOLDER_SONGS(), &[&thousands(count as u32)])
     };
     let count_w = t.measure(c, &count_text, &caption(12.0, s));
+    let chip_w = chip.map_or(0.0, |(text, _)| chart_chip_width(c, t, text, s) + 12.0 * s);
     let name_x = row.x + 24.0 * s;
-    let name_w = row.w - (name_x - row.x) - count_w - chevron - 32.0 * s;
+    let name_w = row.w - (name_x - row.x) - count_w - chip_w - chevron - 32.0 * s;
     let name_st = TextStyle::new(16.0 * s).bold().color(if on {
         theme::TEXT
     } else {
@@ -1576,6 +1627,10 @@ fn folder_row(
     t.draw(c, &name, name_x, row.y + row.h / 2.0 + 6.0 * s, &name_st);
 
     let count_x = row.right() - chevron - 12.0 * s - count_w;
+    if let Some((text, col)) = chip {
+        let x = count_x - chip_w;
+        chart_chip(c, t, text, x, row.y + row.h / 2.0 + 4.0 * s, col, on, s);
+    }
     t.draw(
         c,
         &count_text,
@@ -1642,17 +1697,39 @@ fn folder_panel(
 
 /// A course: its kind, name and charts in order (missing ones marked), and
 /// why it cannot start, if it cannot.
+#[allow(clippy::too_many_arguments)]
 fn course_panel(
     c: &mut Canvas,
     t: &mut TextEngine,
     sk: &Skin,
     course: &CourseView,
+    row: usize,
     panel: Rect,
     s: f32,
+    hs: &mut HitSink,
 ) {
     c.halo(&sk.shadow, panel, theme::WHITE.with_alpha(160));
     c.nine(&sk.panel_lg, panel, theme::SURF1.with_alpha(235));
     let inner = panel.inset(24.0 * s);
+    // A course's variants take a strip at the top, as a group's charts do.
+    let inner = if course.variants.len() > 1 {
+        let strip = Rect::new(inner.x, inner.y, inner.w, 22.0 * s);
+        let labels: Vec<&str> = course.variants.iter().map(|(l, _)| l.as_str()).collect();
+        let colors: Vec<ColorRgba> = course
+            .variants
+            .iter()
+            .map(|(_, d)| theme::level_tier(*d, 0).1)
+            .collect();
+        tab_strip(c, t, &labels, &colors, course.variant, row, strip, s, hs);
+        Rect::from_ltrb(
+            inner.x,
+            strip.bottom() + 12.0 * s,
+            inner.right(),
+            inner.bottom(),
+        )
+    } else {
+        inner
+    };
     let kind = if course.grade {
         strings::COURSE_DAN()
     } else {

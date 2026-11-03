@@ -193,6 +193,16 @@ pub fn start_screen() -> Option<AppScreen> {
         .filter(|s| matches!(s, AppScreen::KeyConfig | AppScreen::Settings))
 }
 
+/// `BEETLE_CAPTURE_COURSES=library|disc`: song select starts in course play
+/// with that source, as if picked on the title.
+pub fn start_courses() -> Option<crate::folders::ContentSource> {
+    match std::env::var("BEETLE_CAPTURE_COURSES").ok()?.as_str() {
+        "library" => Some(crate::folders::ContentSource::Library),
+        "disc" => Some(crate::folders::ContentSource::Disc),
+        _ => None,
+    }
+}
+
 /// `BEETLE_CAPTURE_FOLDER`: the song select folder to start in.
 pub fn start_folder() -> Option<crate::folders::FolderPath> {
     std::env::var("BEETLE_CAPTURE_FOLDER")

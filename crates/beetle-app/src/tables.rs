@@ -48,11 +48,13 @@ pub fn build_index(songs: &[SongMetadata]) -> TableIndex {
 }
 
 /// The courses of the game discs in the library, one course-only table per
-/// disc (after the installed tables): the dan courses, then each EXPERT
-/// course at every style and difficulty its songs all have (the game lets
-/// the player pick; here each pick is its own course). A course names its
-/// charts by the ids of the library songs read from that disc; a course with
-/// a chart the library does not list from that disc is left out.
+/// disc (after the installed tables, in the order the games came out): the
+/// dan courses, then each EXPERT course at every style and difficulty its
+/// songs all have (the game lets the player pick; here each pick is its own
+/// course, with the pick as its `variant`, and the list shows them as one
+/// row). A course names its charts by the ids of the library songs read from
+/// that disc; a course with a chart the library does not list from that disc
+/// is left out.
 fn disc_dan_tables(songs: &[SongMetadata]) -> Vec<DifficultyTable> {
     let mut images: Vec<&str> = Vec::new();
     for song in songs {
@@ -62,13 +64,18 @@ fn disc_dan_tables(songs: &[SongMetadata]) -> Vec<DifficultyTable> {
             }
         }
     }
-    images
+    let mut tables: Vec<_> = images
         .into_iter()
         .filter_map(|image| disc_dan_table(image, songs))
-        .collect()
+        .collect();
+    tables.sort_by_key(|(edition, _)| *edition as usize);
+    tables.into_iter().map(|(_, table)| table).collect()
 }
 
-fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable> {
+fn disc_dan_table(
+    image: &str,
+    songs: &[SongMetadata],
+) -> Option<(cs_disc::iidx::Edition, DifficultyTable)> {
     let mut disc = cs_disc::open(image).ok()?;
     let edition = cs_disc::identify(&mut disc).ok()??;
     let volume = cs_disc::Volume::open(&mut disc).ok()?;
@@ -103,14 +110,13 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
                 // allows; mirror is assumed, as in most dan tables.
                 constraints: vec![Constraint::GradeMirror],
                 trophies: Vec::new(),
+                variant: None,
             })
         })
         .collect();
-    // EXPERT courses after the dans, by style and then difficulty, so each
-    // SP NORMAL, SP HYPER, … run lists the disc's courses in its order.
-    for style in [Style::Single, Style::Double] {
-        for difficulty in [Difficulty::Normal, Difficulty::Hyper, Difficulty::Another] {
-            for expert in &read.expert_courses {
+    for expert in &read.expert_courses {
+        for style in [Style::Single, Style::Double] {
+            for difficulty in [Difficulty::Normal, Difficulty::Hyper, Difficulty::Another] {
                 let Some(charts) = expert
                     .songs
                     .iter()
@@ -120,16 +126,17 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
                     continue;
                 };
                 // pop'n has one style, and calls its hardest charts EX.
-                let label = match (edition.is_popn(), difficulty) {
+                let variant = match (edition.is_popn(), difficulty) {
                     (true, Difficulty::Another) => "EX".to_string(),
                     (true, _) => difficulty_name(difficulty).to_string(),
                     (false, _) => format!("{} {}", style_name(style), difficulty_name(difficulty)),
                 };
                 courses.push(CourseDef {
-                    name: format!("{} ({label})", expert.name),
+                    name: expert.name.clone(),
                     charts,
                     constraints: Vec::new(),
                     trophies: Vec::new(),
+                    variant: Some(variant),
                 });
             }
         }
@@ -137,12 +144,15 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
     if courses.is_empty() {
         return None;
     }
-    Some(DifficultyTable {
-        name: strings::fill(strings::DISC_COURSE_TABLE(), &[edition.name()]),
-        source: disc_address(image, ""),
-        courses,
-        ..DifficultyTable::default()
-    })
+    Some((
+        edition,
+        DifficultyTable {
+            name: strings::fill(strings::DISC_COURSE_TABLE(), &[edition.name()]),
+            source: disc_address(image, ""),
+            courses,
+            ..DifficultyTable::default()
+        },
+    ))
 }
 
 fn style_name(style: Style) -> &'static str {

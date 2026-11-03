@@ -284,6 +284,9 @@ pub struct AppState {
     pub course_records: beetle_core::CourseRecords,
     /// The course rows of `entries` as drawn (`course_play::views`).
     pub course_views: Vec<Option<beetle_render::CourseView>>,
+    /// The course variant ("SP HYPER") the player last picked with the
+    /// arrows; course rows that have it show it.
+    pub course_variant: Option<String>,
     /// A finished load waiting for the lane to have shown (`lane_ready_to_play`).
     pub loaded_song: Option<crate::loader::LoadedSongData>,
     pub result_entered_at: Instant,
@@ -700,6 +703,15 @@ impl AppState {
                 if let Some(delete) = crate::devtools::song_menu_requested() {
                     crate::song_menu::dev_open(self, delete);
                 }
+                if let Some(source) = crate::devtools::start_courses() {
+                    self.play_style = folders::PlayStyle::Course;
+                    self.content_source = source;
+                    // The start folder did not exist in free play and was dropped.
+                    if let Some(path) = crate::devtools::start_folder() {
+                        self.folder_path = path;
+                    }
+                    self.recompute_entries();
+                }
                 if let Some((table, course)) = crate::devtools::course_requested() {
                     if let Some(def) =
                         crate::course_play::course_of(&self.tables, table, course).cloned()
@@ -867,6 +879,9 @@ impl AppState {
         // The list's contents changed, so the list snaps to its new target
         // rather than easing there from the old rows' scroll position.
         self.motion_selection = None;
+        if let Some(want) = &self.course_variant {
+            crate::course_play::apply_variant(&mut self.entries, &self.tables, want);
+        }
         self.refresh_course_views();
     }
 

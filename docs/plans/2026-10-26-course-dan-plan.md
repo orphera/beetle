@@ -164,7 +164,7 @@ bpm table add https://mobiuslau.github.io/bms/tables/genoside2018.html
 
 pop'n music 8~10, 12~14 디스크의 코스를 실행 파일의 코스 표에서 읽는다. 표 위치·형식과 찾은 방법은 `docs/specs/popn_ps2_disc.md` 10절에 있다.
 
-- 형식은 IIDX EXPERT형이다. 곡만 정해져 있고 난이도는 플레이어가 고른다. 그래서 cs-disc는 `Disc::expert_courses`를 채우고, 앱의 디스크 코스 표(`tables.rs`)가 모든 곡에 있는 난이도마다 코스를 만든다. pop'n은 스타일이 하나라 이름에 SP/DP를 붙이지 않고, ANOTHER는 EX라 부른다.
+- 형식은 IIDX EXPERT형이다. 곡만 정해져 있고 난이도는 플레이어가 고른다. 그래서 cs-disc는 `Disc::expert_courses`를 채우고, 앱의 디스크 코스 표(`tables.rs`)가 모든 곡에 있는 난이도마다 코스를 만든다. 그 코스들은 이름이 같고 `CourseDef::variant`("SP HYPER")만 다르다. pop'n은 스타일이 하나라 변형에 SP/DP를 붙이지 않고, ANOTHER는 EX라 부른다.
 - 게이지와 합격 규칙은 IIDX EXPERT 코스와 같은 것을 쓴다. pop'n 고유의 게이지(`gauge_9k` 수치)로 바꿀지는 정하지 않았다.
 - EX로만 열리는 코스 같은 게임의 제한은 표에서 찾지 못해 따르지 않는다.
-- 디스크 코스 표의 순서(IIDX·pop'n 같음): 단위(SP 다음 DP, 단 순서) 다음에 EXPERT 코스를 스타일 → 난이도 → 디스크 순서로 묶는다. SP NORMAL 코스가 모두 나온 뒤 SP HYPER가 나오는 식이다.
+- 선곡 화면(2026-11-03): 디스크 코스 폴더는 게임이 나온 순서(IIDX 3rd~16, pop'n 8~14)다. 폴더 안은 단위(SP 다음 DP, 단 순서) 다음에 EXPERT 코스를 디스크 순서로 둔다. 한 코스의 변형들은 한 행이다(`folders::course_rows`). 행에는 고른 변형이 칩으로 보이고, 좌우 화살표나 상세 패널의 탭으로 바꾼다(IIDX SP NORMAL → SP HYPER → SP ANOTHER → DP NORMAL → DP HYPER → DP ANOTHER, pop'n NORMAL → HYPER → EX, 곡이 모두 가진 것만). 고른 변형은 그것을 가진 모든 코스 행에 같이 적용되고, 앱을 끄면 잊는다.

@@ -112,12 +112,8 @@ fn rules_in_view(state: &AppState) -> Option<&[Constraint]> {
     if let Some(course) = &state.course {
         return Some(course.run.constraints());
     }
-    match *state.entries.get(state.selected_entry)? {
-        ListEntry::Course { table, course } => {
-            Some(&course_of(&state.tables, table, course)?.constraints)
-        }
-        _ => None,
-    }
+    let (table, course) = state.entries.get(state.selected_entry)?.course()?;
+    Some(&course_of(&state.tables, table, course)?.constraints)
 }
 
 /// The long note rule of the course being played.
@@ -211,13 +207,52 @@ pub fn views(
     let lookup = SongLookup::new(songs);
     entries
         .iter()
-        .map(|e| match *e {
-            ListEntry::Course { table, course } => {
-                course_of(tables, table, course).map(|def| view(def, &lookup, songs, records))
+        .map(|e| {
+            let ListEntry::Course {
+                table,
+                courses,
+                selected,
+            } = e
+            else {
+                return None;
+            };
+            let def = course_of(tables, *table, *courses.get(*selected)?)?;
+            let mut view = view(def, &lookup, songs, records);
+            // A course of one variant still shows which it is.
+            if def.variant.is_some() {
+                view.variants = courses
+                    .iter()
+                    .filter_map(|&c| course_of(tables, *table, c))
+                    .map(|def| {
+                        let first = lookup.resolve(def).into_iter().flatten().next();
+                        (
+                            def.variant.clone().unwrap_or_default(),
+                            first.and_then(|i| songs[i].difficulty),
+                        )
+                    })
+                    .collect();
+                view.variant = *selected;
             }
-            _ => None,
+            Some(view)
         })
         .collect()
+}
+
+/// Shows variant `want` ("SP HYPER") on every course row that has it.
+pub fn apply_variant(entries: &mut [ListEntry], tables: &TableIndex, want: &str) {
+    for entry in entries {
+        if let ListEntry::Course {
+            table,
+            courses,
+            selected,
+        } = entry
+        {
+            let variant = |c: usize| course_of(tables, *table, c)?.variant.as_deref();
+            if let Some(pos) = courses.iter().position(|&c| variant(c) == Some(want)) {
+                *selected = pos;
+            }
+        }
+    }
 }
 
 fn view(
@@ -258,6 +293,8 @@ fn view(
             .map(Constraint::name)
             .collect::<Vec<_>>()
             .join(", "),
+        variants: Vec::new(),
+        variant: 0,
     }
 }
 
@@ -419,6 +456,34 @@ mod tests {
             play_mode: beetle_core::PlayMode::Keys7,
             difficulty: None,
         }
+    }
+
+    #[test]
+    fn a_picked_variant_shows_on_every_course_row_that_has_it() {
+        let variant = |name: &str, v: &str| CourseDef {
+            name: name.into(),
+            variant: Some(v.into()),
+            ..CourseDef::default()
+        };
+        let table = beetle_core::DifficultyTable {
+            courses: vec![
+                variant("A", "SP NORMAL"),
+                variant("A", "SP HYPER"),
+                variant("B", "SP NORMAL"),
+            ],
+            ..beetle_core::DifficultyTable::default()
+        };
+        let tables = TableIndex::new(vec![table]);
+        let row = |courses: Vec<usize>| ListEntry::Course {
+            table: 0,
+            courses,
+            selected: 0,
+        };
+        let mut entries = vec![row(vec![0, 1]), row(vec![2])];
+        apply_variant(&mut entries, &tables, "SP HYPER");
+        // B has no SP HYPER and keeps what it showed.
+        let shown: Vec<_> = entries.iter().filter_map(ListEntry::course).collect();
+        assert_eq!(shown, [(0, 1), (0, 2)]);
     }
 
     #[test]

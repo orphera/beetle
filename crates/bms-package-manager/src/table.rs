@@ -310,6 +310,7 @@ fn parse_course(course: &Value) -> Option<CourseDef> {
             .map(Constraint::from_name)
             .collect(),
         trophies,
+        variant: None,
     })
 }
 

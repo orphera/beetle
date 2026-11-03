@@ -96,8 +96,9 @@ pub enum Body {
     /// Song indices into the library, in library (sort) order.
     Leaf(Vec<usize>),
     /// The courses of a difficulty table (index into the installed tables),
-    /// listed in the table's order. Holds no songs.
-    Courses { table: usize, count: usize },
+    /// listed in the table's order, a row per entry of `rows` (see
+    /// `course_rows`). Holds no songs.
+    Courses { table: usize, rows: Vec<Vec<usize>> },
 }
 
 /// One folder of the tree.
@@ -139,11 +140,15 @@ pub enum ListEntry {
         labels: Vec<String>,
     },
     Song(usize),
-    /// A course of a difficulty table: indices into the installed tables and
-    /// that table's `courses`.
+    /// A course of a difficulty table: an index into the installed tables,
+    /// and the courses of that table's `courses` the row stands for. More
+    /// than one when they are the variants of one course (a disc EXPERT
+    /// course per difficulty), and the arrows pick among them.
     Course {
         table: usize,
-        course: usize,
+        courses: Vec<usize>,
+        /// The position in `courses` the row shows.
+        selected: usize,
     },
 }
 
@@ -156,6 +161,18 @@ impl ListEntry {
                 charts, selected, ..
             } => charts.get(*selected).copied(),
             ListEntry::Folder { .. } | ListEntry::Course { .. } => None,
+        }
+    }
+
+    /// The table and the course a course row plays: its chosen variant.
+    pub fn course(&self) -> Option<(usize, usize)> {
+        match self {
+            ListEntry::Course {
+                table,
+                courses,
+                selected,
+            } => Some((*table, *courses.get(*selected)?)),
+            _ => None,
         }
     }
 }
@@ -308,6 +325,28 @@ impl ContentSource {
     }
 }
 
+/// A table's courses as list rows, in the table's order: the courses of one
+/// name that have a variant share the row of the first of them; every other
+/// course is a row of its own.
+fn course_rows(courses: &[beetle_core::CourseDef]) -> Vec<Vec<usize>> {
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut by_name: HashMap<&str, usize> = HashMap::new();
+    for (i, course) in courses.iter().enumerate() {
+        if course.variant.is_none() {
+            rows.push(vec![i]);
+            continue;
+        }
+        match by_name.get(course.name.as_str()) {
+            Some(&row) => rows[row].push(i),
+            None => {
+                by_name.insert(&course.name, rows.len());
+                rows.push(vec![i]);
+            }
+        }
+    }
+    rows
+}
+
 /// Whether `table` is a disc's course-only table (`tables.rs`).
 fn is_disc_table(table: &DifficultyTable) -> bool {
     matches!(SongAddress::parse(&table.source), SongAddress::Disc { .. })
@@ -345,7 +384,7 @@ pub fn build_tree(
                 count: 0,
                 body: Body::Courses {
                     table: ti,
-                    count: t.courses.len(),
+                    rows: course_rows(&t.courses),
                 },
                 lamps: [0; LAMP_COUNT],
             })
@@ -1026,8 +1065,13 @@ pub fn entries_for(
         Some(folders) => folders.iter().map(folder_entry).collect(),
         None => match node(tree, path).map(|f| &f.body) {
             Some(Body::Leaf(idx)) => rows(idx),
-            Some(&Body::Courses { table, count }) => (0..count)
-                .map(|course| ListEntry::Course { table, course })
+            Some(Body::Courses { table, rows }) => rows
+                .iter()
+                .map(|courses| ListEntry::Course {
+                    table: *table,
+                    courses: courses.clone(),
+                    selected: 0,
+                })
                 .collect(),
             _ => Vec::new(),
         },
@@ -1155,6 +1199,7 @@ mod tests {
             charts: Vec::new(),
             constraints: Vec::new(),
             trophies: Vec::new(),
+            variant: None,
         }
     }
 
@@ -1194,13 +1239,34 @@ mod tests {
             tree_in(&songs, &tables, PlayStyle::Course, source)
                 .into_iter()
                 .map(|f| match f.body {
-                    Body::Courses { count, .. } => (f.label, count),
+                    Body::Courses { rows, .. } => (f.label, rows.len()),
                     _ => panic!("only course folders"),
                 })
                 .collect()
         };
         assert_eq!(labels(ContentSource::Library), [("Insane".to_string(), 1)]);
         assert_eq!(labels(ContentSource::Disc), [("IIDX 9th".to_string(), 2)]);
+    }
+
+    #[test]
+    fn the_variants_of_a_course_share_one_row() {
+        let variant = |name: &str, v: &str| beetle_core::CourseDef {
+            variant: Some(v.into()),
+            ..course(name)
+        };
+        let courses = [
+            course("SP 初段"),
+            variant("A", "SP NORMAL"),
+            variant("A", "SP HYPER"),
+            variant("B", "SP HYPER"),
+            course("SP 初段"),
+            variant("A", "DP NORMAL"),
+        ];
+        // Courses without a variant never share a row, even of one name.
+        assert_eq!(
+            course_rows(&courses),
+            [vec![0], vec![1, 2, 5], vec![3], vec![4]]
+        );
     }
 
     fn tree_of(songs: &[SongMetadata], tables: &TableIndex) -> Vec<Folder> {

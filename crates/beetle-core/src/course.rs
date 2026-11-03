@@ -132,9 +132,22 @@ pub struct CourseDef {
     pub charts: Vec<CourseChart>,
     pub constraints: Vec<Constraint>,
     pub trophies: Vec<Trophy>,
+    /// Which of the courses sharing `name` this is ("SP HYPER"): a game
+    /// disc's EXPERT course comes once per difficulty the player can pick,
+    /// and the song list shows those as one row. `None` for every other
+    /// course.
+    pub variant: Option<String>,
 }
 
 impl CourseDef {
+    /// The name with the variant: "祭コース (HYPER)".
+    pub fn title(&self) -> String {
+        match &self.variant {
+            Some(variant) => format!("{} ({variant})", self.name),
+            None => self.name.clone(),
+        }
+    }
+
     pub fn is_grade(&self) -> bool {
         self.constraints.iter().any(Constraint::is_grade)
     }
@@ -600,6 +613,7 @@ mod tests {
                 .collect(),
             constraints,
             trophies: Vec::new(),
+            variant: None,
         }
     }
 

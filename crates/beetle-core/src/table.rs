@@ -221,6 +221,7 @@ fn parse_course_line(line: &str, courses: &mut Vec<CourseDef>) {
                 charts: Vec::new(),
                 constraints,
                 trophies,
+                variant: None,
             });
         }
         Some("chart") => {
@@ -532,6 +533,7 @@ mod tests {
                     max_miss_rate: 2.5,
                     min_score_rate: 85.0,
                 }],
+                variant: None,
             },
             CourseDef {
                 name: "plain".into(),

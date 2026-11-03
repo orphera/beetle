@@ -153,7 +153,8 @@ pub fn handle_song_select_input(
         KeyCode::F10 => focus_filter(state),
         KeyCode::ArrowUp | KeyCode::KeyK => move_selection(state, false),
         KeyCode::ArrowDown | KeyCode::KeyJ => move_selection(state, true),
-        // On a group row the arrows switch its chart; elsewhere they open or leave a folder.
+        // On a group row the arrows switch its chart, on a course row its
+        // variant; elsewhere they open or leave a folder.
         KeyCode::ArrowRight => {
             if !cycle_chart(state, true) {
                 enter_folder(state);
@@ -356,16 +357,19 @@ pub fn set_folder(state: &mut AppState, path: FolderPath, focus: Option<&str>) {
     state.save_config();
 }
 
-/// Moves a group row to its next (or previous) chart, wrapping. Returns false
-/// when the highlighted row is not a group (the arrows then do their folder job).
+/// Moves a group row to its next (or previous) chart, or a course row to its
+/// next variant, wrapping. Returns false when the highlighted row has nothing
+/// to switch (the arrows then do their folder job).
 pub fn cycle_chart(state: &mut AppState, forward: bool) -> bool {
-    let Some(ListEntry::Group {
-        charts, selected, ..
-    }) = state.entries.get(state.selected_entry)
-    else {
-        return false;
+    let (n, selected) = match state.entries.get(state.selected_entry) {
+        Some(ListEntry::Group {
+            charts, selected, ..
+        }) => (charts.len(), *selected),
+        Some(ListEntry::Course {
+            courses, selected, ..
+        }) if courses.len() > 1 => (courses.len(), *selected),
+        _ => return false,
     };
-    let n = charts.len();
     let next = if forward {
         (selected + 1) % n
     } else {
@@ -378,7 +382,24 @@ pub fn cycle_chart(state: &mut AppState, forward: bool) -> bool {
 
 /// Shows chart `pos` of the group at `row` and remembers it (a chip or tab
 /// click, or the arrows). The first chart is the default, so it is not stored.
+/// On a course row it picks variant `pos`, which every course row that has
+/// it then shows (for this run of the app).
 pub fn choose_chart(state: &mut AppState, row: usize, pos: usize) {
+    if let Some(ListEntry::Course { table, courses, .. }) = state.entries.get(row) {
+        let Some(want) = courses
+            .get(pos)
+            .and_then(|&c| crate::course_play::course_of(&state.tables, *table, c))
+            .and_then(|def| def.variant.clone())
+        else {
+            return;
+        };
+        crate::course_play::apply_variant(&mut state.entries, &state.tables, &want);
+        state.course_variant = Some(want);
+        state.selected_entry = row;
+        state.refresh_course_views();
+        state.cursor_settle_time = std::time::Instant::now();
+        return;
+    }
     let Some(ListEntry::Group { key, charts, .. }) = state.entries.get(row) else {
         return;
     };
@@ -650,7 +671,11 @@ fn filter_key(state: &mut AppState, code: KeyCode) -> bool {
 
 /// Plays the highlighted song (ENTER, or a click on the selected row).
 pub fn start_selected(state: &mut AppState) {
-    if let Some(&ListEntry::Course { table, course }) = state.entries.get(state.selected_entry) {
+    if let Some((table, course)) = state
+        .entries
+        .get(state.selected_entry)
+        .and_then(ListEntry::course)
+    {
         if let Some(def) = crate::course_play::course_of(&state.tables, table, course).cloned() {
             play_ui(state, UiSound::Confirm);
             state.preview.duck();
