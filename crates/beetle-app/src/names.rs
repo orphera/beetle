@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use beetle_core::ChartId;
-use cs_disc::iidx::Disc;
+use cs_disc::iidx::{Disc, NameSheets};
 use cs_disc::popn::{Mask, SongNames};
 use cs_disc::SectorReader;
 
@@ -231,8 +231,9 @@ pub fn ensure<R: io::Read + io::Seek>(
         charts: charts.to_vec(),
         ..Names::default()
     };
+    let mut sheets = NameSheets::default();
     for song in &songs.songs {
-        if let Ok(Some(song_names)) = songs.song_names(disc, song) {
+        if let Ok(Some(song_names)) = songs.song_names_with(disc, song, &mut sheets) {
             names.songs.insert(song.id, song_names);
         }
     }

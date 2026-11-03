@@ -15,6 +15,7 @@
 //! The files are returned as stored: charts are still encrypted (from 14 on)
 //! and compressed, sounds still ADPCM.
 
+use std::collections::HashMap;
 use std::io::{self, Read, Seek};
 use std::sync::{Arc, Mutex};
 
@@ -1538,17 +1539,58 @@ pub struct Disc {
     pub dan_courses: Vec<DanCourse>,
     /// The game's EXPERT courses (empty where none was found).
     pub expert_courses: Vec<ExpertCourse>,
-    /// The rectangle sheets read lately (`rect_atlas`), newest last, shared
-    /// by the clones of this disc.
-    rect_atlases: RectAtlases,
+    /// pop'n's banner sheet once read (`banner_sheet`), shared by the clones
+    /// of this disc.
+    banners: BannerSheet,
 }
 
-/// How many rectangle sheets a `Disc` keeps unpacked: the banners, and the
-/// title and artist words while their pictures are cut.
-const RECT_ATLASES_KEPT: usize = 3;
-
 #[derive(Debug, Clone, Default)]
-struct RectAtlases(Arc<Mutex<Vec<(u32, Arc<crate::popn::RectAtlas>)>>>);
+struct BannerSheet(Arc<Mutex<Option<Arc<crate::popn::RectAtlas>>>>);
+
+/// The word sheets `Disc::song_names_with` has read, kept by the caller while
+/// it reads the names of many songs: a sheet holds the words of many songs,
+/// and reading and unpacking it is most of the cost of a word.
+#[derive(Default)]
+pub struct NameSheets {
+    /// pop'n's title, artist and genre sheets, by `DATA1.DAT` file.
+    rects: HashMap<u32, Option<crate::popn::RectAtlas>>,
+    /// 9th on's sprite sheets, by container (`word_sprite`).
+    sprites: HashMap<u16, Option<SpriteSheet>>,
+    /// 7th and 8th's sheets, by their picture's offset (`old_word`).
+    old: HashMap<usize, Option<Rgba>>,
+}
+
+/// A sprite sheet of `word_sprite`: its file 0 unpacked, and its textures.
+struct SpriteSheet {
+    table: Vec<u8>,
+    textures: Vec<Rgba>,
+}
+
+impl SpriteSheet {
+    fn parse(archive: &[u8]) -> Option<Self> {
+        let mut files = archive_files(archive)?;
+        let (unpacked, Some(bytes)) = files.next()? else {
+            return None;
+        };
+        let table = decode_lzss(bytes, unpacked)?;
+        // The sheet's file 0 lists each texture's size as (width, height) u16
+        // pairs from 0x10, in file order (file k is pair k - 1).
+        let listed = |k: usize| {
+            let at = 0x10 + (k - 1) * 4;
+            Some((u16_le(&table, at)? as u32, u16_le(&table, at + 2)? as u32))
+        };
+        let textures = files
+            .enumerate()
+            .filter_map(|(i, (unpacked, bytes))| {
+                let (w, h) = listed(i + 1)
+                    .filter(|&(w, h)| (w * h) as usize + 0x400 == unpacked)
+                    .or_else(|| texture_size(unpacked))?;
+                decode_psmt8(&decode_lzss(bytes?, unpacked)?, w, h)
+            })
+            .collect();
+        Some(Self { table, textures })
+    }
+}
 
 /// One EXPERT course of the game: songs in order; the player picks the
 /// style and difficulty they are played at.
@@ -1929,7 +1971,7 @@ impl Disc {
                 .unwrap_or(FileExtent { lba: 0, size: 0 }),
             dan_courses,
             expert_courses,
-            rect_atlases: RectAtlases::default(),
+            banners: BannerSheet::default(),
         })
     }
 
@@ -2005,7 +2047,7 @@ impl Disc {
             executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses,
-            rect_atlases: RectAtlases::default(),
+            banners: BannerSheet::default(),
         })
     }
 
@@ -2131,36 +2173,37 @@ impl Disc {
             .map(Some)
     }
 
-    /// `DATA1.DAT` file `file` as a rectangle sheet (pop'n's banners and
-    /// words), read and unpacked once while it is among the latest few.
-    pub fn rect_atlas<R: Read + Seek>(
+    /// pop'n's banner sheet, `DATA1.DAT` file `file`, read and unpacked once.
+    fn banner_sheet<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         file: u32,
     ) -> io::Result<Option<Arc<crate::popn::RectAtlas>>> {
-        let lock = || {
-            self.rect_atlases
-                .0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-        };
-        if let Some((_, sheet)) = lock().iter().find(|(f, _)| *f == file) {
-            return Ok(Some(Arc::clone(sheet)));
+        let mut kept = self.banners.0.lock().unwrap_or_else(|e| e.into_inner());
+        if kept.is_none() {
+            *kept = self
+                .read_data1(disc, file)?
+                .and_then(|bytes| crate::popn::RectAtlas::parse(&bytes))
+                .map(Arc::new);
         }
-        let Some(sheet) = self
-            .read_data1(disc, file)?
-            .and_then(|bytes| crate::popn::RectAtlas::parse(&bytes))
-            .map(Arc::new)
-        else {
-            return Ok(None);
-        };
-        let mut kept = lock();
-        kept.retain(|(f, _)| *f != file);
-        kept.push((file, Arc::clone(&sheet)));
-        if kept.len() > RECT_ATLASES_KEPT {
-            kept.remove(0);
+        Ok(kept.clone())
+    }
+
+    /// `DATA1.DAT` file `file` as a rectangle sheet of pop'n's words, read
+    /// into `cache` the first time.
+    fn word_sheet<'a, R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        cache: &'a mut NameSheets,
+        file: u32,
+    ) -> io::Result<Option<&'a crate::popn::RectAtlas>> {
+        if !cache.rects.contains_key(&file) {
+            let sheet = self
+                .read_data1(disc, file)?
+                .and_then(|bytes| crate::popn::RectAtlas::parse(&bytes));
+            cache.rects.insert(file, sheet);
         }
-        Ok(Some(sheet))
+        Ok(cache.rects[&file].as_ref())
     }
 
     /// The first picture of `DATA1.DAT` file `file` (its file 0 is not a
@@ -2177,15 +2220,27 @@ impl Disc {
 
     /// The word pictures of a `song`: its title and its artist (and on
     /// PREMIUM BEST its small title), as coverage masks. `None` where the disc
-    /// has no word pictures for it.
+    /// has no word pictures for it. For the names of many songs, use
+    /// `song_names_with` and one `NameSheets`.
     pub fn song_names<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
     ) -> io::Result<Option<crate::popn::SongNames>> {
+        self.song_names_with(disc, song, &mut NameSheets::default())
+    }
+
+    /// `song_names`, keeping the word sheets it reads in `cache` for the
+    /// next songs.
+    pub fn song_names_with<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        song: &Song,
+        cache: &mut NameSheets,
+    ) -> io::Result<Option<crate::popn::SongNames>> {
         let layout = match self.edition.tables() {
             Tables::Popn(layout) => layout,
-            Tables::Iidx(_) => return self.iidx_song_names(disc, song),
+            Tables::Iidx(_) => return self.iidx_song_names(disc, song, cache),
         };
         let Some(files) = layout.names else {
             return Ok(None);
@@ -2197,7 +2252,7 @@ impl Disc {
         // (`popn::on_black`).
         let mut word = |file: u32, n: u16, title: bool| -> io::Result<Option<crate::popn::Mask>> {
             Ok(self
-                .rect_atlas(disc, file)?
+                .word_sheet(disc, cache, file)?
                 .and_then(|sheet| sheet.picture(n as u32))
                 .filter(|picture| !title || crate::popn::on_black(picture))
                 .map(|picture| crate::popn::Mask::from_rgba(&picture)))
@@ -2224,6 +2279,7 @@ impl Disc {
         &self,
         disc: &mut SectorReader<R>,
         song: &Song,
+        cache: &mut NameSheets,
     ) -> io::Result<Option<crate::popn::SongNames>> {
         let Some(refs) = self.word_refs.get(song.id as usize) else {
             return Ok(None);
@@ -2234,12 +2290,12 @@ impl Disc {
         }) = self.edition.tables()
         {
             let [(genre, _), (title, _), (artist, _), _] = *refs;
-            let word = |disc: &mut SectorReader<R>,
-                        sheets: &[Sheet],
-                        n: u16|
+            let mut word = |disc: &mut SectorReader<R>,
+                            sheets: &[Sheet],
+                            n: u16|
              -> io::Result<Option<crate::popn::Mask>> {
                 Ok(self
-                    .old_word(disc, sheets, n)?
+                    .old_word(disc, cache, sheets, n)?
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)))
             };
             let mask = |picture: Option<Rgba>| picture.map(|p| crate::popn::Mask::from_rgba(&p));
@@ -2289,9 +2345,9 @@ impl Disc {
         let Some(rect_base) = rect_base else {
             return Ok(None);
         };
-        let mask = |disc: &mut SectorReader<R>, (index, container): (u16, u16)| {
+        let mut mask = |disc: &mut SectorReader<R>, (index, container): (u16, u16)| {
             Ok::<_, io::Error>(
-                self.word_sprite(disc, container, index, rect_base)?
+                self.word_sprite(disc, cache, container, index, rect_base)?
                     .map(|picture| crate::popn::Mask::from_rgba(&picture)),
             )
         };
@@ -2449,6 +2505,7 @@ impl Disc {
     fn old_word<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
+        cache: &mut NameSheets,
         sheets: &[Sheet],
         n: u16,
     ) -> io::Result<Option<Rgba>> {
@@ -2462,19 +2519,22 @@ impl Disc {
         }) else {
             return Ok(None);
         };
-        // A sheet packs to well under this; the LZ stops at its end code.
-        const PACKED: u64 = 0x40000;
-        let start = self.executable.offset() + picture_at as u64;
-        let len = PACKED.min(self.executable.size.saturating_sub(picture_at as u64));
-        let packed = disc.read_at(start, len as usize)?;
-        let Some(sheet) = crate::lz::decode(&packed)
-            .as_deref()
-            .and_then(crate::ps2tex::decode_old_picture)
-        else {
+        if !cache.old.contains_key(&picture_at) {
+            // A sheet packs to well under this; the LZ stops at its end code.
+            const PACKED: u64 = 0x40000;
+            let start = self.executable.offset() + picture_at as u64;
+            let len = PACKED.min(self.executable.size.saturating_sub(picture_at as u64));
+            let packed = disc.read_at(start, len as usize)?;
+            let sheet = crate::lz::decode(&packed)
+                .as_deref()
+                .and_then(crate::ps2tex::decode_old_picture);
+            cache.old.insert(picture_at, sheet);
+        }
+        let Some(sheet) = &cache.old[&picture_at] else {
             return Ok(None);
         };
         if rects_at == ROWS {
-            return Ok(row_word(&sheet, n as u32));
+            return Ok(row_word(sheet, n as u32));
         }
         let at = self.executable.offset() + (rects_at + n * 8) as u64;
         let rect = match self.edition.tables() {
@@ -2516,23 +2576,21 @@ impl Disc {
     fn word_sprite<R: Read + Seek>(
         &self,
         disc: &mut SectorReader<R>,
+        cache: &mut NameSheets,
         container: u16,
         index: u16,
         rect_base: usize,
     ) -> io::Result<Option<Rgba>> {
-        let Some(archive) = self.read_data1(disc, container as u32)? else {
+        if !cache.sprites.contains_key(&container) {
+            let sheet = self
+                .read_data1(disc, container as u32)?
+                .and_then(|archive| SpriteSheet::parse(&archive));
+            cache.sprites.insert(container, sheet);
+        }
+        let Some(SpriteSheet { table, textures }) = &cache.sprites[&container] else {
             return Ok(None);
         };
-        let Some(mut files) = archive_files(&archive) else {
-            return Ok(None);
-        };
-        let Some((unpacked, Some(bytes))) = files.next() else {
-            return Ok(None);
-        };
-        let Some(table) = decode_lzss(bytes, unpacked) else {
-            return Ok(None);
-        };
-        let count = u16_le(&table, 6).unwrap_or(0);
+        let count = u16_le(table, 6).unwrap_or(0);
         // The rectangles start at `rect_base` (0xd0, or 0x90 where the
         // header has room for eight more); the count covers the rest.
         let rects = (table.len().saturating_sub(rect_base)) / 8;
@@ -2545,21 +2603,6 @@ impl Disc {
         };
         let field = |k: usize| u16_le(rect, k * 2).unwrap_or(0) as i16 as i32;
         let (x, y, w, h) = (field(0), field(1), field(2) as u32, field(3) as u32);
-        // The sheet's file 0 lists each texture's size as (width, height) u16
-        // pairs from 0x10, in file order (file k is pair k - 1).
-        let listed = |k: usize| {
-            let at = 0x10 + (k - 1) * 4;
-            Some((u16_le(&table, at)? as u32, u16_le(&table, at + 2)? as u32))
-        };
-        let textures: Vec<Rgba> = files
-            .enumerate()
-            .filter_map(|(i, (unpacked, bytes))| {
-                let (w, h) = listed(i + 1)
-                    .filter(|&(w, h)| (w * h) as usize + 0x400 == unpacked)
-                    .or_else(|| texture_size(unpacked))?;
-                decode_psmt8(&decode_lzss(bytes?, unpacked)?, w, h)
-            })
-            .collect();
         let stack = y.max(0) as usize / 1024;
         let Some(texture) = textures.get(stack) else {
             return Ok(None);
@@ -2612,7 +2655,7 @@ impl Disc {
                     return Ok(None);
                 };
                 return Ok(self
-                    .rect_atlas(disc, layout.banners)?
+                    .banner_sheet(disc, layout.banners)?
                     .and_then(|sheet| sheet.picture(banner)));
             }
         };
@@ -3258,7 +3301,7 @@ mod tests {
             executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses: Vec::new(),
-            rect_atlases: RectAtlases::default(),
+            banners: BannerSheet::default(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);
