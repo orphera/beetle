@@ -106,9 +106,11 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
             })
         })
         .collect();
-    for expert in &read.expert_courses {
-        for style in [Style::Single, Style::Double] {
-            for difficulty in [Difficulty::Normal, Difficulty::Hyper, Difficulty::Another] {
+    // EXPERT courses after the dans, by style and then difficulty, so each
+    // SP NORMAL, SP HYPER, … run lists the disc's courses in its order.
+    for style in [Style::Single, Style::Double] {
+        for difficulty in [Difficulty::Normal, Difficulty::Hyper, Difficulty::Another] {
+            for expert in &read.expert_courses {
                 let Some(charts) = expert
                     .songs
                     .iter()
