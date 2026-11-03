@@ -81,6 +81,28 @@
   - 형식은 기존 이스케이프 필드 라인 형식 유지(`crates/beetle-core/src/escape.rs`). JSON은 `bpm` 쪽에서만 다루고 플레이어는 플랫 파일만 읽음 (의존성 정책: 핫패스 `serde_json` 금지).
   - 캐시 버전은 V1을 그대로 두고 구역만 추가 (dev 전용, 마이그레이션 UX 없음).
 - 모르는 `constraint` 값은 보존만 하고 무시, 선곡에서 "미지원 규칙" 표시.
+- 코스만 든 표도 받는다. `data_url` 없이 `course`만 있는 `header.json`은 항목 0개짜리 코스 표로 설치한다 (2026-11-03). 앱은 디스크 코스 표와 같은 길로 코스 플레이에만 보여 준다.
+
+### 3.1.1 코스를 얻는 곳 (2026-11-03 확인)
+
+코스는 표를 받을 때 함께 받으므로, 코스 지원(C1, 2026-10-26) 전에 받은 표 캐시에는 코스가 없다. `bpm table update`로 다시 받으면 들어온다.
+
+| 표 | 주소 | 코스 |
+|---|---|---|
+| Satellite | `https://stellabms.xyz/sl/header.json` | 13 (Skill Analyzer) |
+| Stella | `https://stellabms.xyz/st/header.json` | 26 (Skill Simulator) |
+| 6UE | `https://classmaterma.github.io/UE/header.json` | 21 (Level Test) |
+| GENOSIDE 2018 (코스 전용) | `https://mobiuslau.github.io/bms/tables/genoside2018.html` | 44: SP·DP 初段~十段, 発狂初段~発狂皆伝, Overjoy (`grade_mirror`, `gauge_lr2`) |
+| 4UE, 8UE | `https://classmaterma.github.io/4UE/`, `.../8UE/` | 없음 |
+| 発狂BMS難易度表, 通常難易度表 (darksabun 보관본) | `https://darksabun.club/table/archive/insane1/`, `.../normal1/` | 없음 |
+
+- 発狂段位·通常段位는 원래 LR2의 `.lr2crs`로 배포됐다. darksabun의 보관본 표(GENOCIDE 표의 사본)에는 `course` 필드가 없어서, 단위를 하려면 GENOSIDE 2018 코스 표를 따로 추가한다.
+
+```bash
+bpm table add https://mobiuslau.github.io/bms/tables/genoside2018.html
+```
+
+- GENOSIDE 2018 코스 표에 없는 옛 단위가 `.lr2crs`로만 있을 때 `.lr2crs` 가져오기(5절 "이후")를 다시 본다.
 
 ### 3.2 `beetle-core` (순수 로직)
 

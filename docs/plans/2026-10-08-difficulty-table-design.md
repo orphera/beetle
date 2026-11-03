@@ -77,11 +77,11 @@ level=1
 | `bpm table list` | 설치된 표의 이름, 기호, 항목 수, 받은 시각 |
 | `bpm table remove <이름>` | 캐시 파일을 지운다 |
 
-받는 순서: 주소가 HTML이면 `<meta name="bmstable" content="…">`로 `header.json`을 찾고, 아니면 주소를 `header.json`으로 본다. `header.json`의 `data_url`을 따라 데이터를 받는다. 안전 장치:
+받는 순서: 주소가 HTML이면 `<meta name="bmstable" content="…">`로 `header.json`을 찾고, 아니면 주소를 `header.json`으로 본다. `header.json`의 `data_url`을 따라 데이터를 받는다. `data_url` 없이 `course`만 있는 `header.json`은 코스 전용 표(항목 0개)로 받는다(2026-11-03, [코스 기획](2026-10-26-course-dan-plan.md) 3.1). 안전 장치:
 
 - `http`와 `https`만 허용하고, 응답 크기에 상한(32MB)과 시간 제한을 둔다. 리다이렉트는 몇 번까지만 따른다.
 - 받은 내용은 임시 파일에 쓴 뒤 이름을 바꿔서, 중간에 실패해도 이전 캐시가 남는다.
-- 항목이 하나도 읽히지 않으면 기존 캐시를 지우지 않고 오류로 끝낸다.
+- 항목도 코스도 하나도 읽히지 않으면 기존 캐시를 지우지 않고 오류로 끝낸다.
 - 요청에는 식별 가능한 `User-Agent`를 붙이고, 같은 표를 짧은 시간에 반복해서 받지 않도록 `fetched` 이후 일정 시간 안에는 `update`가 확인 질문을 한다 (표 운영자에게 부담을 주지 않기 위해).
 
 ## 맞추기
@@ -121,7 +121,7 @@ level=1
 
 - `bpm table add|update|list|remove`가 [table.rs](../../crates/bms-package-manager/src/table.rs)에 있다. 받는 쪽(`fetch_table`)은 주소를 가져오는 함수를 인자로 받아서, 가짜 웹으로 논리를 시험하고 실제 HTTP 클라이언트(`HttpClient::get_bytes`, 크기 상한 포함)로는 로컬 서버(루프백) 시험을 따로 했다.
 - 읽을 수 있는 입력: 표 페이지(`<meta name="bmstable">`는 속성 순서, 따옴표, 대소문자와 상관없이), `header.json` 주소 직접, UTF-8 BOM, 상대 `data_url`(`..` 포함), `level`이 숫자인 항목, 대문자 16진 해시. `file:`, `ftp:`, `javascript:` 같은 주소는 `data_url`에 있어도 거절한다.
-- 안전 장치: 응답 크기 상한(페이지와 `header.json` 2MB, 데이터 32MB, 크기를 알리지 않는 응답도 상한에서 끊는다), 항목이 하나도 읽히지 않으면 설치하지 않고 기존 캐시를 그대로 둔다, 임시 파일에 쓴 뒤 이름을 바꾼다, 같은 파일 이름을 쓰는 다른 주소의 표는 덮어쓰지 않는다, 15분 안의 `update`는 `--force` 없이는 건너뛴다.
+- 안전 장치: 응답 크기 상한(페이지와 `header.json` 2MB, 데이터 32MB, 크기를 알리지 않는 응답도 상한에서 끊는다), 항목도 코스도 하나도 읽히지 않으면 설치하지 않고 기존 캐시를 그대로 둔다, 임시 파일에 쓴 뒤 이름을 바꾼다, 같은 파일 이름을 쓰는 다른 주소의 표는 덮어쓰지 않는다, 15분 안의 `update`는 `--force` 없이는 건너뛴다.
 - 실제 표로 확인: Satellite(2,467개)와 Stella(2,342개)를 받아서 설치했고, 로컬 곡과 맞췄을 때 각각 15개와 7개가 보유로 나왔다 (두 표에 모두 있는 차트는 없었다). Overjoy는 서버 인증서가 다른 도메인용이라 거절했고(인증서 검증을 끄지 않았다), 발광(`insane.html`)은 연결 시간이 초과됐다.
 - `tables/`는 `.gitignore`에 넣었다 (`songs/`, `replays/`와 같은 층의 사용자 데이터다).
 
