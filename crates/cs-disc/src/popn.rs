@@ -903,34 +903,63 @@ fn parts(file: &[u8]) -> Option<Vec<Vec<u8>>> {
 /// that follow; a page is a 16-byte header (`u16 width, height`, 8 bits a
 /// pixel at 8) then a PSMT8 texture.
 pub fn rect_picture(file: &[u8], n: u32) -> Option<Rgba> {
-    let parts = parts(file)?;
-    let at = 0x10 + n as usize * 8;
-    let rect = parts.first()?.get(at..at + 8)?;
-    let field = |k: usize| i16::from_le_bytes([rect[k * 2], rect[k * 2 + 1]]);
-    let (x, y, w, h) = (field(0), field(1), field(2), field(3));
-    if x < 0 || y < 0 || w <= 0 || h <= 0 {
-        return None;
+    RectAtlas::parse(file)?.picture(n)
+}
+
+/// An `IMAGE.DAT` file that lists rectangles (`rect_picture`), unpacked
+/// once: pictures are cut from its pages, and each page is decoded the first
+/// time a picture on it is asked for. A banner sheet is about a hundred
+/// pictures on a few pages.
+#[derive(Debug)]
+pub struct RectAtlas {
+    parts: Vec<Vec<u8>>,
+    pages: Vec<std::sync::OnceLock<Option<Rgba>>>,
+}
+
+impl RectAtlas {
+    pub fn parse(file: &[u8]) -> Option<Self> {
+        let parts = parts(file)?;
+        let pages = (1..parts.len().max(1))
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
+        Some(Self { parts, pages })
     }
-    let (x, y, w, h) = (x as u32, y as u32, w as u32, h as u32);
-    let page = parts.get(1 + (y / 512) as usize)?;
-    let width = u16::from_le_bytes([*page.first()?, *page.get(1)?]) as u32;
-    let height = u16::from_le_bytes([*page.get(2)?, *page.get(3)?]) as u32;
-    let top = y % 512;
-    if *page.get(8)? != 8 || x + w > width || top + h > height {
-        return None;
-    }
-    let image = decode_psmt8(page.get(0x10..)?, width, height)?;
-    let pixels = (top..top + h)
-        .flat_map(|row| {
-            let at = (row * width + x) as usize;
-            image.pixels[at..at + w as usize].iter().copied()
+
+    /// Picture `n`, as `rect_picture` cuts it.
+    pub fn picture(&self, n: u32) -> Option<Rgba> {
+        let at = 0x10 + n as usize * 8;
+        let rect = self.parts.first()?.get(at..at + 8)?;
+        let field = |k: usize| i16::from_le_bytes([rect[k * 2], rect[k * 2 + 1]]);
+        let (x, y, w, h) = (field(0), field(1), field(2), field(3));
+        if x < 0 || y < 0 || w <= 0 || h <= 0 {
+            return None;
+        }
+        let (x, y, w, h) = (x as u32, y as u32, w as u32, h as u32);
+        let index = (y / 512) as usize;
+        let page = self.parts.get(1 + index)?;
+        let width = u16::from_le_bytes([*page.first()?, *page.get(1)?]) as u32;
+        let height = u16::from_le_bytes([*page.get(2)?, *page.get(3)?]) as u32;
+        let top = y % 512;
+        if *page.get(8)? != 8 || x + w > width || top + h > height {
+            return None;
+        }
+        let image = self
+            .pages
+            .get(index)?
+            .get_or_init(|| decode_psmt8(page.get(0x10..)?, width, height))
+            .as_ref()?;
+        let pixels = (top..top + h)
+            .flat_map(|row| {
+                let at = (row * width + x) as usize;
+                image.pixels[at..at + w as usize].iter().copied()
+            })
+            .collect();
+        Some(Rgba {
+            width: w,
+            height: h,
+            pixels,
         })
-        .collect();
-    Some(Rgba {
-        width: w,
-        height: h,
-        pixels,
-    })
+    }
 }
 
 /// A picture's commonest colour.

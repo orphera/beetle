@@ -16,6 +16,7 @@
 //! and compressed, sounds still ADPCM.
 
 use std::io::{self, Read, Seek};
+use std::sync::{Arc, Mutex};
 
 use crate::iso9660::{FileExtent, Volume};
 use crate::ply::Ply;
@@ -1537,7 +1538,17 @@ pub struct Disc {
     pub dan_courses: Vec<DanCourse>,
     /// The game's EXPERT courses (empty where none was found).
     pub expert_courses: Vec<ExpertCourse>,
+    /// The rectangle sheets read lately (`rect_atlas`), newest last, shared
+    /// by the clones of this disc.
+    rect_atlases: RectAtlases,
 }
+
+/// How many rectangle sheets a `Disc` keeps unpacked: the banners, and the
+/// title and artist words while their pictures are cut.
+const RECT_ATLASES_KEPT: usize = 3;
+
+#[derive(Debug, Clone, Default)]
+struct RectAtlases(Arc<Mutex<Vec<(u32, Arc<crate::popn::RectAtlas>)>>>);
 
 /// One EXPERT course of the game: songs in order; the player picks the
 /// style and difficulty they are played at.
@@ -1918,6 +1929,7 @@ impl Disc {
                 .unwrap_or(FileExtent { lba: 0, size: 0 }),
             dan_courses,
             expert_courses,
+            rect_atlases: RectAtlases::default(),
         })
     }
 
@@ -1993,6 +2005,7 @@ impl Disc {
             executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses,
+            rect_atlases: RectAtlases::default(),
         })
     }
 
@@ -2118,6 +2131,38 @@ impl Disc {
             .map(Some)
     }
 
+    /// `DATA1.DAT` file `file` as a rectangle sheet (pop'n's banners and
+    /// words), read and unpacked once while it is among the latest few.
+    pub fn rect_atlas<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        file: u32,
+    ) -> io::Result<Option<Arc<crate::popn::RectAtlas>>> {
+        let lock = || {
+            self.rect_atlases
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+        };
+        if let Some((_, sheet)) = lock().iter().find(|(f, _)| *f == file) {
+            return Ok(Some(Arc::clone(sheet)));
+        }
+        let Some(sheet) = self
+            .read_data1(disc, file)?
+            .and_then(|bytes| crate::popn::RectAtlas::parse(&bytes))
+            .map(Arc::new)
+        else {
+            return Ok(None);
+        };
+        let mut kept = lock();
+        kept.retain(|(f, _)| *f != file);
+        kept.push((file, Arc::clone(&sheet)));
+        if kept.len() > RECT_ATLASES_KEPT {
+            kept.remove(0);
+        }
+        Ok(Some(sheet))
+    }
+
     /// The first picture of `DATA1.DAT` file `file` (its file 0 is not a
     /// picture): a 16 song's loading card. `None` when it has none.
     pub fn card_image<R: Read + Seek>(
@@ -2152,8 +2197,8 @@ impl Disc {
         // (`popn::on_black`).
         let mut word = |file: u32, n: u16, title: bool| -> io::Result<Option<crate::popn::Mask>> {
             Ok(self
-                .read_data1(disc, file)?
-                .and_then(|bytes| crate::popn::rect_picture(&bytes, n as u32))
+                .rect_atlas(disc, file)?
+                .and_then(|sheet| sheet.picture(n as u32))
                 .filter(|picture| !title || crate::popn::on_black(picture))
                 .map(|picture| crate::popn::Mask::from_rgba(&picture)))
         };
@@ -2567,8 +2612,8 @@ impl Disc {
                     return Ok(None);
                 };
                 return Ok(self
-                    .read_data1(disc, layout.banners)?
-                    .and_then(|file| crate::popn::rect_picture(&file, banner)));
+                    .rect_atlas(disc, layout.banners)?
+                    .and_then(|sheet| sheet.picture(banner)));
             }
         };
         match layout.record.stage {
@@ -3213,6 +3258,7 @@ mod tests {
             executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
             expert_courses: Vec::new(),
+            rect_atlases: RectAtlases::default(),
         };
         let song = &disc.songs[0];
         let key = song.charts[1].key(song);
