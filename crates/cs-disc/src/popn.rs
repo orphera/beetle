@@ -24,7 +24,7 @@
 //! lists them, and its banner (genre and title, from `IMAGE.DAT`) is its
 //! loading picture (`banner`). Format notes: `docs/specs/popn_ps2_disc.md`.
 
-use crate::iidx::{Chart, Difficulty, Edition, FileEntry, Song, Style};
+use crate::iidx::{Chart, Difficulty, Edition, ExpertCourse, FileEntry, Song, Style};
 use crate::ply::{Command, Event, Ply, Side};
 use crate::ps2tex::{decode_psmt8, Rgba};
 
@@ -48,6 +48,68 @@ pub(crate) struct Layout {
     pub record: Record,
     /// The BGM streams, where they are a file of their own (9).
     pub streams: Option<Streams>,
+    /// The EXPERT course table (`read_courses`).
+    pub courses: Option<Courses>,
+}
+
+/// A disc's EXPERT course table in the executable: one record per course,
+/// a `u32` kind and four `u32` song ids (`Song::id`) in play order. Kind 0
+/// is a course from the start, 1 a hidden one; the records after them (2
+/// the most played songs, 3 or more the player's own) have no fixed songs,
+/// and neither has 14's random course (kind 1, no songs). The course names
+/// are pictures on 12 to 14 and English-ish words on 8 to 10 (`KIDS
+/// COURSE`, `SERCRET HELLLLLL`), so `names` holds the ones RemyWiki gives,
+/// in table order. Found by RemyWiki's course songs (12 彩コース is
+/// エイジロック and three more at 0x108600), checked on every disc against
+/// its CS page (`docs/specs/popn_ps2_disc.md` 10절).
+#[derive(Clone, Copy)]
+pub(crate) struct Courses {
+    pub at: usize,
+    pub size: usize,
+    /// The record's kind, then its four song ids from `songs_at`.
+    pub kind_at: usize,
+    pub songs_at: usize,
+    pub names: &'static [&'static str],
+}
+
+/// A course slot with no song: 9's hidden courses have three.
+const NO_SONG: u32 = 255;
+
+/// The disc's EXPERT courses (`Courses`): songs in order, at a difficulty
+/// the player picks. A table that does not read as one (a kind past the
+/// hidden courses, a song the disc does not list) gives no courses rather
+/// than wrong ones.
+pub(crate) fn read_courses(exe: &[u8], layout: &Layout, songs: &[Song]) -> Vec<ExpertCourse> {
+    let Some(table) = layout.courses else {
+        return Vec::new();
+    };
+    let mut courses = Vec::new();
+    for (c, name) in table.names.iter().enumerate() {
+        let at = table.at + c * table.size;
+        let Some(record) = exe.get(at..at + table.size) else {
+            return Vec::new();
+        };
+        let word = |i: usize| u32_at(record, i).unwrap_or(u32::MAX);
+        if word(table.kind_at) > 1 {
+            return Vec::new();
+        }
+        let ids: Vec<u32> = (0..4)
+            .map(|i| word(table.songs_at + 4 * i))
+            .filter(|&id| id != NO_SONG)
+            .collect();
+        // 14's random course.
+        if ids.iter().all(|&id| id == 0) {
+            continue;
+        }
+        if !ids.iter().all(|id| songs.iter().any(|s| s.id == *id)) {
+            return Vec::new();
+        }
+        courses.push(ExpertCourse {
+            name: name.to_string(),
+            songs: ids,
+        });
+    }
+    courses
 }
 
 /// The pop'n layout for an edition, kept beside the pop'n layout definitions.
@@ -208,6 +270,31 @@ pub(crate) const POPN8: Layout = Layout {
         bgm: false,
         slots: Some(0xcbfbc),
     },
+    courses: Some(Courses {
+        at: 0xc85a0,
+        size: 0x24,
+        kind_at: 4,
+        songs_at: 8,
+        names: &[
+            "ギターポップコース",
+            "テクノポップコース",
+            "ダンスポップコース",
+            "シャウトコース",
+            "ヒーローコース",
+            "フェイバリットコース",
+            "ＣＳ８コース",
+            "Des-ROWコース",
+            "good-coolコース",
+            "kiddyコース",
+            "Sanaコース",
+            "パパパヤ",
+            "Simonコース",
+            "パワーコース２",
+            "民族コース",
+            "ヘル８コース",
+            "通コース",
+        ],
+    }),
     ..POPN10
 };
 
@@ -249,6 +336,28 @@ pub(crate) const POPN9: Layout = Layout {
         bgm: false,
         slots: None,
     },
+    courses: Some(Courses {
+        at: 0xdea10,
+        size: 0x2c,
+        kind_at: 4,
+        songs_at: 8,
+        names: &[
+            "ファンシーコース",
+            "ダンサーコース",
+            "アッパーコース",
+            "ミステリーコース",
+            "カントリーコース",
+            "ギターコース",
+            "ファインコース",
+            "すわコース",
+            "サナコース",
+            "パーキッツコース",
+            "デスロウコース",
+            "クラシックコース３",
+            "ヘル９コース",
+            "ウサギさんコース",
+        ],
+    }),
     ..POPN10
 };
 
@@ -289,6 +398,26 @@ pub(crate) const POPN10: Layout = Layout {
             streams: (0xbe550, 135),
         },
     }),
+    courses: Some(Courses {
+        at: 0xcac10,
+        size: 0x24,
+        kind_at: 4,
+        songs_at: 8,
+        names: &[
+            "キッズコース",
+            "ウーマンコース",
+            "メンズコース",
+            "ワールドポップコース",
+            "フライングコース",
+            "ライジングコース",
+            "ドライビングコース",
+            "ヘル１０コース",
+            "四大文明コース",
+            "マラソンコース",
+            "セクシーウーマンコース",
+            "シェフのおすすめコース",
+        ],
+    }),
 };
 
 /// The `IMAGE.DAT` files holding the title and artist (and on 8 to 10 the
@@ -325,6 +454,24 @@ pub(crate) const POPN12: Layout = Layout {
     dat: DAT_FILE,
     record: RECORD_12,
     streams: None,
+    courses: Some(Courses {
+        at: 0x1085b0,
+        size: 0x28,
+        kind_at: 8,
+        songs_at: 0x0c,
+        names: &[
+            "祭コース",
+            "童コース",
+            "彩コース",
+            "魂コース",
+            "舞コース",
+            "和コース",
+            "快コース",
+            "HELL12",
+            "景コース",
+            "倭コース",
+        ],
+    }),
 };
 
 pub(crate) const POPN13: Layout = Layout {
@@ -343,6 +490,24 @@ pub(crate) const POPN13: Layout = Layout {
     dat: DAT_FILE,
     record: RECORD_12,
     streams: None,
+    courses: Some(Courses {
+        at: 0x148700,
+        size: 0x28,
+        kind_at: 8,
+        songs_at: 0x0c,
+        names: &[
+            "バリバリコース",
+            "ピコピココース",
+            "コアコアコース",
+            "チャキチャキコース",
+            "フワフワコース",
+            "ゴーゴーコース",
+            "ウキウキコース",
+            "HELL13",
+            "真ＨＥＬＬ１３",
+            "パンク'n ロックコース",
+        ],
+    }),
 };
 
 pub(crate) const POPN14: Layout = Layout {
@@ -361,6 +526,25 @@ pub(crate) const POPN14: Layout = Layout {
     dat: DAT_FILE,
     record: RECORD_12,
     streams: None,
+    courses: Some(Courses {
+        at: 0x13bc90,
+        size: 0x28,
+        kind_at: 8,
+        songs_at: 0x0c,
+        // The sixth (TV songs) has no name on RemyWiki; the eighth is the
+        // random course.
+        names: &[
+            "おしゃれＤＥフィーバーコース",
+            "ガールＤＥフィーバーコース",
+            "未来ＤＥフィーバーコース",
+            "浪漫ＤＥフィーバーコース",
+            "ボーイＤＥフィーバーコース",
+            "#6",
+            "KID'S DE FEVER",
+            "",
+            "HELL14コース",
+        ],
+    }),
 };
 
 /// The data file every pop'n disc keeps its songs in.

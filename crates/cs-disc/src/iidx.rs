@@ -1973,6 +1973,7 @@ impl Disc {
             dats.push(stream_dat);
             crate::popn::assign_streams(&mut songs, &exe, layout, base);
         }
+        let expert_courses = crate::popn::read_courses(&exe, layout, &songs);
         Ok(Self {
             edition,
             songs,
@@ -1987,7 +1988,7 @@ impl Disc {
             word_refs: Vec::new(),
             executable: FileExtent { lba: 0, size: 0 },
             dan_courses: Vec::new(),
-            expert_courses: Vec::new(),
+            expert_courses,
         })
     }
 

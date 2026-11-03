@@ -117,13 +117,14 @@ fn disc_dan_table(image: &str, songs: &[SongMetadata]) -> Option<DifficultyTable
                 else {
                     continue;
                 };
+                // pop'n has one style, and calls its hardest charts EX.
+                let label = match (edition.is_popn(), difficulty) {
+                    (true, Difficulty::Another) => "EX".to_string(),
+                    (true, _) => difficulty_name(difficulty).to_string(),
+                    (false, _) => format!("{} {}", style_name(style), difficulty_name(difficulty)),
+                };
                 courses.push(CourseDef {
-                    name: format!(
-                        "{} ({} {})",
-                        expert.name,
-                        style_name(style),
-                        difficulty_name(difficulty)
-                    ),
+                    name: format!("{} ({label})", expert.name),
                     charts,
                     constraints: Vec::new(),
                     trophies: Vec::new(),

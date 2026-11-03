@@ -916,3 +916,92 @@ fn third_style_songs_and_courses() {
         ["SCHLAGWERK", "R5", "ERA (NOSTALMIX)", "THE SAFARI", "HOLIC"]
     );
 }
+
+/// Each pop'n disc's EXPERT courses, as its RemyWiki CS page lists them:
+/// how many, and the songs of one by genre (8: by title).
+#[test]
+fn popn_expert_courses_match_the_cs_pages() {
+    for (var, edition, count, course, genres) in [
+        (
+            "CS_DISC_POPN8",
+            Edition::Popn8,
+            17,
+            "ヘル８コース",
+            &["LOVE LOVE シュガー", "Over The Night", "PURE", "釈迦"][..],
+        ),
+        (
+            "CS_DISC_POPN9",
+            Edition::Popn9,
+            14,
+            "すわコース",
+            &["パンプ", "デパファンク", "ハードロック LONG"][..],
+        ),
+        (
+            "CS_DISC_POPN10",
+            Edition::Popn10,
+            12,
+            "マラソンコース",
+            &["No.099", "No.098", "No.101", "No.030"][..],
+        ),
+        (
+            "CS_DISC_POPN12",
+            Edition::Popn12,
+            10,
+            "彩コース",
+            &[
+                "トーキョーロマン",
+                "ヒーリングデュオ",
+                "ポジアコ",
+                "エイジロック",
+            ][..],
+        ),
+        (
+            "CS_DISC_POPN13",
+            Edition::Popn13,
+            10,
+            "真ＨＥＬＬ１３",
+            &[
+                "サーカス",
+                "カイゾク",
+                "シンフォニックメタル２",
+                "コアダストビート",
+            ][..],
+        ),
+        (
+            "CS_DISC_POPN14",
+            Edition::Popn14,
+            8,
+            "HELL14コース",
+            &[
+                "サイバーフラメンコ",
+                "ケンカドラム",
+                "エンゼツ",
+                "プログレッシブバロック",
+            ][..],
+        ),
+    ] {
+        let Some((mut disc, volume)) = open(var) else {
+            continue;
+        };
+        let read = Disc::open(&mut disc, &volume, edition).unwrap();
+        assert_eq!(read.expert_courses.len(), count, "{var}");
+        let found = read
+            .expert_courses
+            .iter()
+            .find(|c| c.name == course)
+            .unwrap_or_else(|| panic!("{var}: no {course}"));
+        let titles: Vec<&str> = found
+            .songs
+            .iter()
+            .map(|id| {
+                read.songs
+                    .iter()
+                    .find(|s| s.id == *id)
+                    .unwrap()
+                    .title
+                    .as_str()
+            })
+            .collect();
+        assert_eq!(titles, genres, "{var} {course}");
+    }
+}
