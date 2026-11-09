@@ -3,7 +3,9 @@
 //! Every file is in `DATA/PACK/Dnnn/PACKnnnn.PAK`, found through the index
 //! `DATA/PACK/PACKINFO.BIN`. Nothing is encrypted or compressed. One song is
 //! one pack: two charts (`SEQP`, one DrumMania, one GuitarFreaks), two sample
-//! banks, a movie with the song's music and a small info file. The index
+//! files (`SBlk` banks, PS-ADPCM), a movie with the song's music (ATRAC3,
+//! `movie_audio`) and the drum lanes' default notes (`lane_notes`). Which
+//! sound a note plays is in the executable (`Kits`). The index
 //! keys files by the CRC-32 of their path (`song_path`); the song table is
 //! `music_info.bin`, and titles are banner pictures (`texp`).
 //! Format notes: `docs/specs/gfdm_ps2_disc.md`.
@@ -439,9 +441,318 @@ impl Seq {
     }
 }
 
+/// The music streams of a movie (`m{id}.pss`, an MPEG program stream):
+/// private stream 1 (`0xBD`) packets whose payload starts `ff 90`, a
+/// big-endian stream number, then ATRAC3 frames of `MOVIE_AUDIO_BLOCK`
+/// bytes (`atrac3`). Songs have several streams of the same music in other
+/// mixes (`docs/specs/gfdm_ps2_disc.md`). By stream number, in order.
+pub fn movie_audio(pss: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    let mut streams: Vec<(u16, Vec<u8>)> = Vec::new();
+    let mut at = 0;
+    while at + 6 <= pss.len() {
+        if pss[at..at + 3] != [0, 0, 1] {
+            // Not on a start code: find the next one.
+            match pss[at + 1..].windows(3).position(|w| w == [0, 0, 1]) {
+                Some(p) => at += 1 + p,
+                None => break,
+            }
+            continue;
+        }
+        let id = pss[at + 3];
+        match id {
+            0xb9 => break,
+            0xba => {
+                // MPEG-2 pack head: 14 bytes and its stuffing; MPEG-1: 12.
+                at += if pss[at + 4] >> 6 == 1 {
+                    14 + (pss.get(at + 13).copied().unwrap_or(0) & 7) as usize
+                } else {
+                    12
+                };
+                continue;
+            }
+            _ => {}
+        }
+        let len = u16::from_be_bytes([pss[at + 4], pss[at + 5]]) as usize;
+        let body = &pss[at + 6..(at + 6 + len).min(pss.len())];
+        if id == 0xbd && body.len() >= 3 {
+            let payload = &body[(3 + body[2] as usize).min(body.len())..];
+            if payload.len() >= 4 && payload[..2] == [0xff, 0x90] {
+                let n = u16::from_be_bytes([payload[2], payload[3]]);
+                let slot = match streams.iter().position(|s| s.0 == n) {
+                    Some(i) => i,
+                    None => {
+                        streams.push((n, Vec::new()));
+                        streams.len() - 1
+                    }
+                };
+                streams[slot].1.extend_from_slice(&payload[4..]);
+            }
+        }
+        at += 6 + len;
+    }
+    streams.sort_by_key(|s| s.0);
+    streams
+}
+
+/// Bytes of one ATRAC3 frame (two channels of 192) in the movies and previews.
+pub const MOVIE_AUDIO_BLOCK: usize = 384;
+pub const AUDIO_RATE: u32 = 44100;
+
+/// One sound of a sample bank (`SBlk`, Sony's SCREAM sound bank).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sample {
+    /// 0..=127.
+    pub volume: u8,
+    /// Degrees, 0 centre (as stored; 0..360).
+    pub pan: u16,
+    /// The note the sound plays at its own rate (`0xc2` 44100 Hz, each
+    /// step a semitone).
+    pub note: u8,
+    /// Where its PS-ADPCM data starts in the file.
+    pub offset: usize,
+}
+
+impl Sample {
+    /// The rate the sound plays at, in Hz.
+    pub fn rate(&self) -> u32 {
+        (AUDIO_RATE as f64 * 2f64.powf((self.note as f64 - 0xc2 as f64) / 12.0)).round() as u32
+    }
+
+    /// The sound as mono PCM at `rate()`.
+    pub fn decode(&self, file: &[u8]) -> Vec<i16> {
+        file.get(self.offset..)
+            .map(|d| crate::adpcm::decode(d, None, true))
+            .unwrap_or_default()
+    }
+}
+
+/// Where each bank of a sample file (`spu{id}d.va2`, `spu{id}g.va2`)
+/// starts: a 24-byte head `(3, 2, 0x18, SBlk size, data offset, data size)`,
+/// the `SBlk`, the sound data; the next bank at the next 16 bytes.
+pub fn sample_banks(file: &[u8]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 24 <= file.len() && u32_at(file, at) == 3 && u32_at(file, at + 4) == 2 {
+        out.push(at);
+        let end = at as u64 + u32_at(file, at + 16) as u64 + u32_at(file, at + 20) as u64;
+        at = ((end + 15) & !15) as usize;
+    }
+    out
+}
+
+/// The sounds of the bank at `at`, by index. `SBlk` head: `u16` sound
+/// count at 0x16, then at 0x1c the sound table (12 bytes each, `u32` at 8
+/// the program byte offset), at 0x20 the programs (8 bytes, `u16` tone
+/// offset first), at 0x34 the tones (24 bytes: volume 1, note 2, pan `u16`
+/// 4, sound data offset `u32` 0x10).
+pub fn bank_samples(file: &[u8], at: usize) -> Option<Vec<Sample>> {
+    let sblk = at + u32_at(file, at + 8) as usize;
+    let data = at + u32_at(file, at + 16) as usize;
+    if file.get(sblk..sblk + 4)? != b"SBlk" {
+        return None;
+    }
+    let u16_at = |p: usize| Some(u16::from_le_bytes(file.get(p..p + 2)?.try_into().ok()?));
+    let u32_le = |p: usize| Some(u32::from_le_bytes(file.get(p..p + 4)?.try_into().ok()?));
+    let count = u16_at(sblk + 0x16)? as usize;
+    let sounds = sblk + u32_le(sblk + 0x1c)? as usize;
+    let programs = sblk + u32_le(sblk + 0x20)? as usize;
+    let tones = sblk + u32_le(sblk + 0x34)? as usize;
+    (0..count)
+        .map(|k| {
+            let program = programs + u32_le(sounds + k * 12 + 8)? as usize;
+            let tone = tones + u16_at(program)? as usize;
+            let t = file.get(tone..tone + 24)?;
+            Some(Sample {
+                volume: t[1],
+                pan: u16::from_le_bytes([t[4], t[5]]),
+                note: t[2],
+                offset: data + u32_at(t, 0x10) as usize,
+            })
+        })
+        .collect()
+}
+
+/// The default note of each DrumMania lane (`fre{id}.bin`: `u16` per lane,
+/// by `Event::value`). A drum note whose own note is not in the song's kit
+/// (small values 0..14 in six songs, 860 notes) plays its lane's default;
+/// 64% of all drum notes are their lane's default anyway.
+pub fn lane_notes(fre: &[u8]) -> Vec<u16> {
+    fre.chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect()
+}
+
+/// The boot executable, which holds the key sound tables (`Kits`).
+pub const EXE_PATH: &str = "SLPM_664.84";
+
+/// Which sound a chart note plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeySound {
+    /// The bank's offset in the song's sample file (`sample_banks`).
+    pub bank: usize,
+    /// The sound in that bank (`bank_samples`).
+    pub sound: u16,
+}
+
+/// The key sound tables of the executable: for each song, which bank and
+/// sound each chart note (`Event::a & 0xffff`) plays.
+#[derive(Debug, Clone, Default)]
+pub struct Kits {
+    songs: Vec<SongKits>,
+}
+
+/// One song's notes and their sounds.
+#[derive(Debug, Clone, Default)]
+struct SongKits {
+    id: u32,
+    /// DrumMania notes (all in the one bank).
+    drum: Vec<(u16, KeySound)>,
+    guitar: Vec<(u16, KeySound)>,
+}
+
+/// Executable layout (Masterpiece Silver): the sorted song ids, the
+/// DrumMania and GuitarFreaks kit pointers in that order, and the
+/// pointers to each song's GuitarFreaks bank table.
+const EXE_SONG_IDS: usize = 0x193c70;
+const EXE_DRUM_KITS: usize = 0x1940b0;
+const EXE_GUITAR_KITS: usize = 0x1941e0;
+const EXE_GUITAR_BANKS: u32 = 0x28bde0;
+const EXE_SONGS: usize = 74;
+/// A GuitarFreaks kit is pieces of this many bytes, one per bank.
+const GUITAR_PIECE: usize = 0xa0;
+/// Ends a kit (piece); a piece starting with `KIT_LAST` ends the GF kit.
+const KIT_END: u16 = 0xff00;
+const KIT_LAST: u16 = 0xffff;
+
+impl Kits {
+    /// Reads the tables, `None` when `exe` is not the executable they are in.
+    ///
+    /// A DrumMania kit is `(u16 note, u16 sound)` pairs to `KIT_END`, all in
+    /// the one bank. A GuitarFreaks kit is pieces of `GUITAR_PIECE` bytes,
+    /// each the same pairs for the notes `hi << 8 | n` of one high byte
+    /// `hi`. The bank of `hi` is entry `hi` of the song's bank table (8
+    /// bytes: offset in the sample file, size). The banks are not in `hi`
+    /// order in eleven songs, so the table is needed.
+    pub fn parse(exe: &[u8]) -> Option<Self> {
+        if exe.get(..4)? != b"\x7fELF" {
+            return None;
+        }
+        // The first program header: file offset and address of the image.
+        let ph = u32_at(exe, 0x1c) as usize;
+        let (file_at, vaddr) = (u32_at(exe, ph + 4), u32_at(exe, ph + 8));
+        let at = |v: u32| Some(v.checked_sub(vaddr)? as usize + file_at as usize);
+        let u16_at = |p: usize| Some(u16::from_le_bytes(exe.get(p..p + 2)?.try_into().ok()?));
+        let pairs = |p: usize, max: usize| -> Option<Vec<(u16, u16)>> {
+            let mut out = Vec::new();
+            for k in 0..max {
+                let note = u16_at(p + k * 4)?;
+                if note == KIT_END {
+                    return Some(out);
+                }
+                out.push((note, u16_at(p + k * 4 + 2)?));
+            }
+            Some(out)
+        };
+        let mut songs = Vec::with_capacity(EXE_SONGS);
+        let bank_tables: Vec<u32> = (0..=EXE_SONGS)
+            .map(|k| u32_at(exe, at(EXE_GUITAR_BANKS).unwrap_or(0) + k * 4))
+            .collect();
+        for k in 0..EXE_SONGS {
+            let id = u32_at(exe, EXE_SONG_IDS + k * 4);
+            let drum = pairs(at(u32_at(exe, EXE_DRUM_KITS + k * 4))?, 256)?
+                .into_iter()
+                .map(|(n, s)| (n, KeySound { bank: 0, sound: s }))
+                .collect();
+            let banks = at(bank_tables[k])?;
+            // Entries past the next song's table are not this song's.
+            let entries = if bank_tables[k + 1] > bank_tables[k] {
+                ((bank_tables[k + 1] - bank_tables[k]) / 8).min(256) as u16
+            } else {
+                256
+            };
+            let mut guitar = Vec::new();
+            let mut piece = at(u32_at(exe, EXE_GUITAR_KITS + k * 4))?;
+            loop {
+                if u16_at(piece)? == KIT_LAST {
+                    break;
+                }
+                let notes = pairs(piece, GUITAR_PIECE / 4)?;
+                if notes.is_empty() {
+                    break;
+                }
+                for (n, s) in notes {
+                    if n >> 8 < entries {
+                        let bank = u32_at(exe, banks + (n >> 8) as usize * 8) as usize;
+                        guitar.push((n, KeySound { bank, sound: s }));
+                    }
+                }
+                piece += GUITAR_PIECE;
+            }
+            songs.push(SongKits { id, drum, guitar });
+        }
+        Some(Self { songs })
+    }
+
+    fn song(&self, id: u32) -> Option<&SongKits> {
+        self.songs.iter().find(|s| s.id == id)
+    }
+
+    /// The sound of note `key` in song `id`'s chart for `game`.
+    pub fn key_sound(&self, id: u32, game: Game, key: u16) -> Option<KeySound> {
+        let s = self.song(id)?;
+        let notes = match game {
+            Game::DrumMania => &s.drum,
+            Game::GuitarFreaks => &s.guitar,
+        };
+        notes.iter().find(|n| n.0 == key).map(|n| n.1)
+    }
+
+    /// The sound of chart event `e`: its own note, or for a drum note not
+    /// in the kit, its lane's default (`lane_notes`).
+    pub fn event_sound(&self, id: u32, game: Game, e: &Event, lanes: &[u16]) -> Option<KeySound> {
+        self.key_sound(id, game, e.a as u16).or_else(|| match game {
+            Game::DrumMania => self.key_sound(id, game, *lanes.get(e.value as usize)?),
+            Game::GuitarFreaks => None,
+        })
+    }
+
+    /// The song ids the tables cover.
+    pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.songs.iter().map(|s| s.id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn movie_audio_joins_each_stream() {
+        let mut pss = vec![0, 0, 1, 0xba, 0x44, 0, 4, 0, 4, 1, 0, 0x44, 0x23, 0xf8];
+        for (n, data) in [(1u8, [1u8, 2]), (2, [3, 4]), (1, [5, 6])] {
+            let payload = [0xff, 0x90, 0, n, data[0], data[1]];
+            let body = [&[0x81, 0x80, 0][..], &payload].concat();
+            pss.extend_from_slice(&[0, 0, 1, 0xbd, 0, body.len() as u8]);
+            pss.extend_from_slice(&body);
+        }
+        pss.extend_from_slice(&[0, 0, 1, 0xb9]);
+        assert_eq!(
+            movie_audio(&pss),
+            vec![(1, vec![1, 2, 5, 6]), (2, vec![3, 4])]
+        );
+    }
+
+    #[test]
+    fn a_sample_plays_at_44100_hz_at_its_note() {
+        let s = |note| Sample {
+            volume: 127,
+            pan: 0,
+            note,
+            offset: 0,
+        };
+        assert_eq!(s(0xc2).rate(), 44100);
+        assert_eq!(s(0xb6).rate(), 22050);
+    }
 
     fn event(out: &mut Vec<u8>, time: u32, value: u8, kind: u8, a: u32, b: u32) {
         out.extend(time.to_le_bytes());
