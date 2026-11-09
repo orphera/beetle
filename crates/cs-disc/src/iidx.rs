@@ -114,7 +114,8 @@ struct Layout {
     /// letters of song names in the game (`generate_encryption_key`); this is
     /// its result.
     /// `None` where charts are not encrypted (10 to 13).
-    chart_key: Option<&'static [u8]>,
+    /// Stored masked ([`unmask_key`]) so the key is not a searchable string.
+    chart_key: Option<&'static [u8; 16]>,
     /// A sound number charts start with the BGM and no bank holds (8th: 2,
     /// beside the BGM's 1; the stream is already stereo).
     bgm_pair: Option<u16>,
@@ -1209,7 +1210,10 @@ const GOLD: Layout = Layout {
     songs: (0x156300, 0x76b4),
     data1: (0x118500, 0x1e80),
     file_records: FileRecords::Bytes,
-    chart_key: Some(b"sEk2I1Xq7bz09Mtv"),
+    chart_key: Some(&[
+        0xd4, 0xa7, 0x76, 0x6a, 0xda, 0xff, 0x51, 0x35, 0x48, 0xd8, 0x8f, 0x00, 0x52, 0xeb, 0x95,
+        0x6a,
+    ]),
     bgm_pair: None,
     titles: &[],
     // Levels: beginner (both styles), 9 unused bytes, SP N/H/A, DP N/H/A
@@ -1255,7 +1259,10 @@ const DJ_TROOPERS: Layout = Layout {
     songs: (0x16fe60, 0x80bc),
     data1: (0x131680, 0x1f80),
     file_records: FileRecords::Bytes,
-    chart_key: Some(b"eqkBipx2wgExUAIG"),
+    chart_key: Some(&[
+        0xc2, 0x93, 0x76, 0x1a, 0xfa, 0xbe, 0x71, 0x76, 0x08, 0xdd, 0xb0, 0x48, 0x3e, 0xe7, 0xa8,
+        0x5b,
+    ]),
     bgm_pair: None,
     titles: &[],
     record: RECORD_15_16,
@@ -1280,7 +1287,10 @@ const EMPRESS: Layout = Layout {
     songs: (0x178bf0, 0x7e54),
     data1: (0x139d00, 0x1cf0),
     file_records: FileRecords::Bytes,
-    chart_key: Some(b"uYlFgVwOpaQmXdIR"),
+    chart_key: Some(&[
+        0xd2, 0xbb, 0x71, 0x1e, 0xf4, 0x98, 0x7e, 0x0b, 0x0f, 0xdb, 0xa4, 0x5d, 0x33, 0xc2, 0xa8,
+        0x4e,
+    ]),
     bgm_pair: None,
     titles: &[],
     record: Record {
@@ -2100,7 +2110,7 @@ impl Disc {
             Tables::Popn(_) => return Ok(stored),
         };
         let plain = match layout.chart_key {
-            Some(key) => crate::blowfish::decrypt_file(key, &stored),
+            Some(masked) => crate::blowfish::decrypt_file(&unmask_key(masked), &stored),
             None => stored,
         };
         crate::lz::decode(&plain)
@@ -3435,4 +3445,14 @@ mod tests {
         assert!(normal.pixels.iter().all(|p| p[0] == 0));
         assert!(another.pixels.iter().all(|p| p[0] == 1));
     }
+}
+
+/// Undoes the mask on a stored chart key: byte `i` is XORed with
+/// `0xa7 + 0x3b * i` (wrapping).
+fn unmask_key(masked: &[u8; 16]) -> [u8; 16] {
+    let mut key = [0u8; 16];
+    for (i, (out, &b)) in key.iter_mut().zip(masked).enumerate() {
+        *out = b ^ (0xa7u8).wrapping_add(0x3bu8.wrapping_mul(i as u8));
+    }
+    key
 }

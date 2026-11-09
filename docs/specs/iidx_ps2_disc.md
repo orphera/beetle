@@ -21,10 +21,10 @@
 | 11 IIDX RED | `SLPM_664.26` | `DATA2.DAT` 하나 | 0x140 | 없음 (암호화 안 함) |
 | 12 HAPPY SKY | `SLPM_666.21` | `BM2DX12A/B/C.DAT` | 0x144 | 없음 (암호화 안 함) |
 | 13 DistorteD | `SLPM_668.28` | `BM2DX13A/B/C.DAT` | 0x118 | 없음 (암호화 안 함) |
-| 14 GOLD | `SLPM_669.95` | `BM2DX14A/B/C.DAT` | 0x11c | `sEk2I1Xq7bz09Mtv` |
-| 15 DJ TROOPERS | `SLPM_551.17` | `BM2DX15A/B/C.DAT` | 0x134 | `eqkBipx2wgExUAIG` |
-| 16 EMPRESS | `SLPM_552.21` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
-| 16 PREMIUM BEST | `SLPM_552.22` | `BM2DX16A/B/C.DAT` | 0x134 | `uYlFgVwOpaQmXdIR` |
+| 14 GOLD | `SLPM_669.95` | `BM2DX14A/B/C.DAT` | 0x11c | Blowfish (코드에 가려 둠) |
+| 15 DJ TROOPERS | `SLPM_551.17` | `BM2DX15A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
+| 16 EMPRESS | `SLPM_552.21` | `BM2DX16A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
+| 16 PREMIUM BEST | `SLPM_552.22` | `BM2DX16A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
 
 - 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 10–13은 8바이트 레코드(섹터, 섹터 수). DAT 파일이 여럿이면 그 순서로 번호가 이어진다.
 - `DATA1.DAT` 표: 16바이트 레코드(id, 섹터, 섹터 수, 0).
