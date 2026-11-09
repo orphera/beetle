@@ -698,6 +698,9 @@ fn read_disc(target: &str) -> Vec<Copy> {
     }
     let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
         if let Ok(Some(title)) = cs_disc::identify_title(&mut disc) {
+            if title.code == cs_disc::gfdm::EXE_PATH {
+                return read_gfdm_songs(source, disc);
+            }
             println!(
                 "[library] {source}: {} ({}) is not read yet",
                 title.name, title.code
@@ -706,6 +709,45 @@ fn read_disc(target: &str) -> Vec<Copy> {
         return Vec::new();
     };
     read_disc_songs(source, disc, edition)
+}
+
+/// The charts of a GuitarFreaks & DrumMania disc (`cs_disc::gfdm_bms`).
+fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File>) -> Vec<Copy> {
+    use cs_disc::gfdm_bms::{charts, to_bms, Song};
+    let Some(songs) = crate::loader::gfdm::GfdmDisc::read(&mut disc) else {
+        return Vec::new();
+    };
+    let mut copies = Vec::new();
+    for info in &songs.songs {
+        let Ok(c) = songs.disc.song_charts(&mut disc, info) else {
+            continue;
+        };
+        let song = Song {
+            info: &c.info,
+            drums: &c.drums,
+            guitar: &c.guitar,
+            kits: &songs.kits,
+            lanes: &c.lanes,
+        };
+        for chart in charts(&c.drums, &c.guitar) {
+            let Some(bms) = to_bms(&song, chart) else {
+                continue;
+            };
+            let key = chart.key(info.id);
+            let address = disc_address(&source, &key);
+            if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                copies.push(Copy {
+                    kind: Kind::Disc,
+                    source: source.clone(),
+                    path: key,
+                    meta,
+                    sounds: Vec::new(),
+                    missing: Some(0),
+                });
+            }
+        }
+    }
+    copies
 }
 
 fn read_disc_songs(
@@ -1189,6 +1231,30 @@ mod tests {
         let mut by_chart = BTreeMap::new();
         by_chart.insert(copies[0].meta.id, copies);
         select_copies(by_chart)
+    }
+
+    /// With `CS_DISC_GFDM` set: the GuitarFreaks & DrumMania disc lists its
+    /// 74 songs' drum, guitar and bass charts as 6K and 4K.
+    #[test]
+    fn a_gfdm_disc_lists_its_charts() {
+        let Ok(image) = std::env::var("CS_DISC_GFDM") else {
+            return;
+        };
+        let copies = read_disc(&image);
+        assert_eq!(copies.len(), 581);
+        let songs: std::collections::HashSet<_> = copies
+            .iter()
+            .map(|c| c.path.rsplit_once('/').unwrap().0)
+            .collect();
+        assert_eq!(songs.len(), 74);
+        for c in &copies {
+            let want = if c.path.ends_with(|d: char| d.is_ascii_digit()) && c.path.contains("/dm") {
+                beetle_core::PlayMode::Keys6
+            } else {
+                beetle_core::PlayMode::Keys4
+            };
+            assert_eq!(c.meta.play_mode, want, "{}", c.path);
+        }
     }
 
     #[test]

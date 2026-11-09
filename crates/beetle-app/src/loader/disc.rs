@@ -188,7 +188,7 @@ impl Drop for DiscSource {
 }
 
 /// 16-bit mono or stereo PCM as the mixer's interleaved stereo floats, at `gain`.
-fn to_buffer(pcm: &Pcm, gain: f32) -> PcmBuffer {
+pub(super) fn to_buffer(pcm: &Pcm, gain: f32) -> PcmBuffer {
     let left = &pcm.channels[0];
     let right = pcm.channels.get(1).unwrap_or(left);
     let frames = left.len().min(right.len());
@@ -312,7 +312,7 @@ impl SongSource for DiscSource {
 /// 99th percentile of 10 ms peaks) sit at the mixer limiter's threshold; the
 /// limiter takes the rest, and a song that never gets that loud plays as
 /// mastered.
-fn song_gain(chart: &BmsChart, sounds: &HashMap<WavId, Pcm>) -> f32 {
+pub(super) fn song_gain(chart: &BmsChart, sounds: &HashMap<WavId, Pcm>) -> f32 {
     const BLOCK: usize = MIX_RATE / 100;
     /// The limiter's threshold.
     const TARGET: f32 = 0.9;

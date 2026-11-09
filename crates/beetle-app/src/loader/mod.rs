@@ -13,6 +13,7 @@ use beetle_core::{
 use beetle_render::{strings, ImageBuffer};
 
 mod disc;
+pub(crate) mod gfdm;
 pub(crate) use disc::write_mix;
 mod folder;
 mod package;
@@ -195,6 +196,9 @@ fn open_source(file_path: &str) -> Result<Box<dyn SongSource>, ChartLoadError> {
         SongAddress::Folder { file } => Ok(Box::new(folder::FolderSource::new(file))),
         SongAddress::Package { bmsp, entry } => {
             Ok(Box::new(package::PackageSource::open(bmsp, entry)?))
+        }
+        SongAddress::Disc { image, chart } if gfdm::GfdmSource::is_key(chart) => {
+            Ok(Box::new(gfdm::GfdmSource::open(image, chart)?))
         }
         SongAddress::Disc { image, chart } => Ok(Box::new(disc::DiscSource::open(image, chart)?)),
     }
@@ -1693,6 +1697,95 @@ mod tests {
         assert!(bgm.duration_seconds() > 60.0, "{}", bgm.duration_seconds());
         // Every sound the chart names but 0 (silence) loads.
         assert_eq!(bank.len(), chart.header.wav_table.len() - 1);
+    }
+
+    /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
+    /// Silver image: song 404's drum chart loads as 6K and its guitar as 4K,
+    /// each with every sound and the music, and notes land on the disc's times.
+    #[test]
+    fn a_gfdm_disc_chart_loads_with_its_sounds() {
+        let Ok(image) = std::env::var("CS_DISC_GFDM") else {
+            return;
+        };
+        use beetle_core::{Lane, PlayMode, TimingModel};
+        for (key, mode, lanes) in [
+            (
+                "gfdm/404/dm3",
+                PlayMode::Keys6,
+                &[Lane::Key1, Lane::Key2, Lane::Key3, Lane::Key6, Lane::Key7][..],
+            ),
+            (
+                "gfdm/404/gf3",
+                PlayMode::Keys4,
+                &[Lane::Key1, Lane::Key2, Lane::Key4][..],
+            ),
+        ] {
+            let address = beetle_core::disc_address(&image, key);
+            let mut source = gfdm::GfdmSource::open(&image, key).unwrap();
+            let bms = source.chart_bytes().unwrap();
+            let meta = SongMetadata::from_bytes(&address, &bms).unwrap();
+            assert_eq!(meta.title, "CLASSIC PARTY 3");
+            let (chart, _, bank, _, videos) =
+                load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
+            assert_eq!(chart.header.declared_mode, Some(mode));
+            for &lane in lanes {
+                assert!(chart.notes.iter().any(|n| n.lane == lane), "{key} {lane:?}");
+            }
+            let music = chart
+                .header
+                .wav_table
+                .iter()
+                .find(|(_, n)| *n == "music.wav")
+                .unwrap()
+                .0;
+            let music = bank.get(*music).expect("the music stream loads");
+            assert!(
+                music.duration_seconds() > 100.0,
+                "{}",
+                music.duration_seconds()
+            );
+            // Every sound but the silent chord frets loads.
+            let silent = chart.header.wav_table.values().any(|n| n == "silent.wav");
+            assert_eq!(bank.len(), chart.header.wav_table.len() - silent as usize);
+            assert!(matches!(
+                videos.get(&BmpId(1)),
+                Some(VideoSource::Memory { .. })
+            ));
+
+            // Note times against the disc's (1/300 s).
+            let c = &source.charts;
+            let track = if key.ends_with("dm3") {
+                c.drums
+                    .tracks
+                    .iter()
+                    .find(|t| !t.is_meta && t.difficulty == 3)
+            } else {
+                c.guitar
+                    .tracks
+                    .iter()
+                    .find(|t| !t.is_meta && t.difficulty == 3 && t.part == 1)
+            }
+            .unwrap();
+            let mut disc_times: Vec<f64> = track
+                .events
+                .iter()
+                .filter(|e| e.kind == 0)
+                .map(|e| e.time as f64 / 300.0)
+                .collect();
+            disc_times.dedup();
+            let timing = TimingModel::from_chart(&chart);
+            let mut times: Vec<f64> = chart
+                .notes
+                .iter()
+                .map(|n| timing.beat_to_time_seconds(n.measure, n.fraction))
+                .collect();
+            times.sort_by(f64::total_cmp);
+            times.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+            assert_eq!(times.len(), disc_times.len(), "{key}");
+            for (a, b) in times.iter().zip(&disc_times) {
+                assert!((a - b).abs() < 0.003, "{key}: {a} vs {b}");
+            }
+        }
     }
 
     /// With `CS_DISC_IIDX14` set: THE LEAST 100sec slows down inside its

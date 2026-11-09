@@ -182,7 +182,8 @@ pub const IIDX_PS2: [Title; 23] = [
         playable: true,
         ..title("SLPM_667.42", "pop'n music 14 FEVER!", ChartFormat::Popn)
     },
-    // Read by `gfdm` (index and charts only), not yet playable.
+    // Played through `gfdm` and `gfdm_bms`, not `Edition`, so not `playable`
+    // here (the scanner checks this code itself).
     title(
         "SLPM_664.84",
         "GuitarFreaks & DrumMania Masterpiece Silver",

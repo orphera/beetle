@@ -340,6 +340,54 @@ impl Disc {
     }
 }
 
+/// What a song's charts need: its record, both charts and the drum lanes'
+/// default notes (`lane_notes`).
+#[derive(Debug, Clone)]
+pub struct SongCharts {
+    pub info: MusicInfo,
+    pub drums: Seq,
+    pub guitar: Seq,
+    pub lanes: Vec<u16>,
+}
+
+impl Disc {
+    /// Reads song `info`'s charts and lane notes.
+    pub fn song_charts<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        info: &MusicInfo,
+    ) -> io::Result<SongCharts> {
+        let mut seq = |file| -> io::Result<Seq> {
+            let bytes = self
+                .read_path(disc, &song_path(info.id, file))?
+                .ok_or_else(|| bad("chart missing"))?;
+            Seq::parse(&bytes)
+        };
+        let drums = seq(SongFile::DrumChart)?;
+        let guitar = seq(SongFile::GuitarChart)?;
+        let fre = self
+            .read_path(disc, &song_path(info.id, SongFile::Fre))?
+            .unwrap_or_default();
+        Ok(SongCharts {
+            info: info.clone(),
+            drums,
+            guitar,
+            lanes: lane_notes(&fre),
+        })
+    }
+}
+
+/// The key sound tables from the disc's executable (`Kits`), `None` when
+/// the disc has another.
+pub fn read_kits<R: Read + Seek>(
+    disc: &mut SectorReader<R>,
+    volume: &Volume,
+) -> io::Result<Option<Kits>> {
+    Ok(volume
+        .read_file(disc, EXE_PATH)?
+        .and_then(|exe| Kits::parse(&exe)))
+}
+
 /// Which game a chart track is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Game {

@@ -12,7 +12,8 @@
 //!   and `popn` the same for pop'n music 8 to 10 and 12 to 14 through the same
 //!   `iidx::Disc`.
 //! - `gfdm`: GuitarFreaks & DrumMania Masterpiece Silver (index, charts,
-//!   key sounds and music; not playable yet), `texp` its textures and song
+//!   key sounds and music), `gfdm_bms` its charts as BMS (drums 6K, guitar
+//!   and bass 4K), `texp` its textures and song
 //!   banners, `atrac3` the decoder for its music.
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
@@ -25,6 +26,7 @@ mod blowfish;
 mod blowfish_pi;
 pub mod drive;
 pub mod gfdm;
+pub mod gfdm_bms;
 pub mod iidx;
 pub mod iso9660;
 pub mod lz;
