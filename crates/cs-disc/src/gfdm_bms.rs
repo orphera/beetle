@@ -7,6 +7,8 @@
 //!   (value bits 1, 2, 4) on channels 11, 12, 14. A chord is one note per
 //!   fret; only the first carries the sound. The disc has no open picks, so
 //!   4K's last lane stays empty. Wailing and the pick itself are not played.
+//! - GuitarFreaks open (track part 3): the guitar chart with some notes
+//!   marked open (value bit `0x10`); those go on 4K's last lane (15) alone.
 //! - The other parts at the same difficulty play themselves (BGM channel),
 //!   as in the game, and so do a track's own sounds without a lane (event
 //!   kind 1). The song's music stream starts at 0.
@@ -22,6 +24,9 @@ const EVENT_BAR: u8 = 0x50;
 const EVENT_TEMPO: u8 = 0x10;
 const EVENT_NOTE: u8 = 0x00;
 const EVENT_SOUND: u8 = 0x01;
+/// GF note value bit of an open pick (only in part 3 tracks). Its fret bits
+/// are left from the guitar chart and do not count.
+const OPEN: u8 = 0x10;
 /// Places in a bar a time is rounded to (under 1 ms at 150 BPM).
 const GRID: u64 = 960;
 
@@ -30,6 +35,8 @@ const GRID: u64 = 960;
 pub enum Part {
     Drums,
     Guitar,
+    /// Guitar with open picks (track part 3).
+    Open,
     Bass,
 }
 
@@ -47,6 +54,7 @@ impl ChartRef {
         let part = match self.part {
             Part::Drums => "dm",
             Part::Guitar => "gf",
+            Part::Open => "open",
             Part::Bass => "bass",
         };
         format!("gfdm/{id}/{part}{}", self.difficulty)
@@ -56,7 +64,9 @@ impl ChartRef {
     pub fn parse(key: &str) -> Option<(u32, Self)> {
         let rest = key.strip_prefix("gfdm/")?;
         let (id, chart) = rest.split_once('/')?;
-        let (part, d) = if let Some(d) = chart.strip_prefix("bass") {
+        let (part, d) = if let Some(d) = chart.strip_prefix("open") {
+            (Part::Open, d)
+        } else if let Some(d) = chart.strip_prefix("bass") {
             (Part::Bass, d)
         } else if let Some(d) = chart.strip_prefix("dm") {
             (Part::Drums, d)
@@ -77,12 +87,13 @@ impl ChartRef {
 }
 
 /// The track of `part` at `difficulty`: DM tracks by difficulty, GF by
-/// difficulty and part (1 guitar, 2 bass).
+/// difficulty and part (1 guitar, 2 bass, 3 open).
 fn track<'a>(drums: &'a Seq, guitar: &'a Seq, part: Part, difficulty: u8) -> Option<&'a Track> {
     let (seq, want) = match part {
         Part::Drums => (drums, 0),
         Part::Guitar => (guitar, 1),
         Part::Bass => (guitar, 2),
+        Part::Open => (guitar, 3),
     };
     seq.tracks.iter().find(|t| {
         !t.is_meta
@@ -95,7 +106,7 @@ fn track<'a>(drums: &'a Seq, guitar: &'a Seq, part: Part, difficulty: u8) -> Opt
 /// Every chart the song has.
 pub fn charts(drums: &Seq, guitar: &Seq) -> Vec<ChartRef> {
     let mut out = Vec::new();
-    for part in [Part::Drums, Part::Guitar, Part::Bass] {
+    for part in [Part::Drums, Part::Guitar, Part::Open, Part::Bass] {
         for difficulty in 1..=3 {
             if track(drums, guitar, part, difficulty).is_some() {
                 out.push(ChartRef { part, difficulty });
@@ -292,6 +303,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                         let ch = ["11", "12", "13", "15", "18", "19"];
                         ch.get(e.value as usize).into_iter().copied().collect()
                     }
+                    Game::GuitarFreaks if e.value & OPEN != 0 => vec!["15"],
                     Game::GuitarFreaks => [(1, "11"), (2, "12"), (4, "14")]
                         .iter()
                         .filter(|(bit, _)| e.value & bit != 0)
@@ -315,7 +327,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     }
     let others: &[Part] = match chart.part {
         Part::Drums => &[Part::Guitar],
-        Part::Guitar => &[Part::Drums],
+        Part::Guitar | Part::Open => &[Part::Drums],
         Part::Bass => &[Part::Drums, Part::Guitar],
     };
     for &part in others {
@@ -356,11 +368,13 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     let level = match chart.part {
         Part::Drums => song.info.dm_levels,
         Part::Guitar => song.info.gf_levels,
+        Part::Open => song.info.open_levels,
         Part::Bass => song.info.bass_levels,
     }[chart.difficulty as usize - 1];
     let (genre, mode) = match chart.part {
         Part::Drums => ("DrumMania", "#6K"),
         Part::Guitar => ("GuitarFreaks", "#4K"),
+        Part::Open => ("GuitarFreaks (open)", "#4K"),
         Part::Bass => ("GuitarFreaks (bass)", "#4K"),
     };
     let mut out = String::new();
@@ -440,7 +454,7 @@ mod tests {
 
     #[test]
     fn chart_keys_round_trip() {
-        for part in [Part::Drums, Part::Guitar, Part::Bass] {
+        for part in [Part::Drums, Part::Guitar, Part::Open, Part::Bass] {
             let c = ChartRef {
                 part,
                 difficulty: 2,
@@ -509,6 +523,7 @@ mod tests {
             gf_levels: [1, 2, 3],
             dm_levels: [4, 5, 6],
             bass_levels: [7, 8, 9],
+            open_levels: [10, 11, 12],
             length: 900,
         };
         let kits = Kits::default();
@@ -534,5 +549,81 @@ mod tests {
         // Half way through bar 0 on BD, a quarter into bar 1 on CY.
         assert!(bms.contains("#00013:0002"), "{bms}");
         assert!(bms.contains("#00119:00020000"), "{bms}");
+    }
+
+    #[test]
+    fn an_open_pick_plays_on_the_last_lane_alone() {
+        let meta = Track {
+            game: Game::GuitarFreaks,
+            is_meta: true,
+            difficulty: 0,
+            part: 0,
+            events: vec![
+                event(0, EVENT_TEMPO, 0, 500_000),
+                event(0, EVENT_BAR, 0, 0),
+                event(600, EVENT_BAR, 0, 0),
+            ],
+        };
+        // Bar 0: R+G at the start, then an open pick that keeps an R bit.
+        let open = Track {
+            game: Game::GuitarFreaks,
+            is_meta: false,
+            difficulty: 2,
+            part: 3,
+            events: vec![event(0, EVENT_NOTE, 3, 0), event(300, EVENT_NOTE, 0x11, 0)],
+        };
+        let guitar = Seq {
+            tracks: vec![meta, open],
+        };
+        let drums = Seq { tracks: vec![] };
+        let info = MusicInfo {
+            id: 1,
+            name: "TEST".into(),
+            bpm: 120,
+            gf_levels: [1, 2, 3],
+            dm_levels: [4, 5, 6],
+            bass_levels: [7, 8, 9],
+            open_levels: [10, 11, 12],
+            length: 900,
+        };
+        let kits = Kits::default();
+        let song = Song {
+            info: &info,
+            drums: &drums,
+            guitar: &guitar,
+            kits: &kits,
+            lanes: &[],
+        };
+        let chart = ChartRef {
+            part: Part::Open,
+            difficulty: 2,
+        };
+        assert_eq!(charts(&drums, &guitar), vec![chart]);
+        assert_eq!(ChartRef::parse(&chart.key(1)), Some((1, chart)));
+        let bms = to_bms(&song, chart).unwrap();
+        assert!(bms.contains("#PLAYLEVEL 11"), "{bms}");
+        // The chord on R and G at the start; the open pick half way, on
+        // the last lane and not on R.
+        assert!(
+            bms.contains(
+                "#00011:02
+"
+            ),
+            "{bms}"
+        );
+        assert!(
+            bms.contains(
+                "#00012:02
+"
+            ),
+            "{bms}"
+        );
+        assert!(
+            bms.contains(
+                "#00015:0002
+"
+            ),
+            "{bms}"
+        );
     }
 }

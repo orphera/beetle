@@ -1234,14 +1234,14 @@ mod tests {
     }
 
     /// With `CS_DISC_GFDM` set: the GuitarFreaks & DrumMania disc lists its
-    /// 74 songs' drum, guitar and bass charts as 6K and 4K.
+    /// 74 songs' drum, guitar, open and bass charts as 6K and 4K.
     #[test]
     fn a_gfdm_disc_lists_its_charts() {
         let Ok(image) = std::env::var("CS_DISC_GFDM") else {
             return;
         };
         let copies = read_disc(&image);
-        assert_eq!(copies.len(), 581);
+        assert_eq!(copies.len(), 728);
         let songs: std::collections::HashSet<_> = copies
             .iter()
             .map(|c| c.path.rsplit_once('/').unwrap().0)

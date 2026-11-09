@@ -208,6 +208,8 @@ pub struct MusicInfo {
     pub dm_levels: [u8; 3],
     /// GuitarFreaks bass levels (bytes 0x39–0x3b).
     pub bass_levels: [u8; 3],
+    /// GuitarFreaks open levels, the part 3 tracks (bytes 0x35–0x37).
+    pub open_levels: [u8; 3],
     /// Song length in 1/300 s (`u32` at 0x2c), close to the charts' end.
     pub length: u32,
 }
@@ -229,6 +231,7 @@ impl MusicInfo {
                     gf_levels: [r[9], r[0xa], r[0xb]],
                     dm_levels: [r[0x31], r[0x32], r[0x33]],
                     bass_levels: [r[0x39], r[0x3a], r[0x3b]],
+                    open_levels: [r[0x35], r[0x36], r[0x37]],
                     length: u32_at(r, 0x2c),
                 }
             })
@@ -431,7 +434,7 @@ pub struct Track {
     pub is_meta: bool,
     /// 1 BASIC, 2 ADVANCED, 3 EXTREME (so far as seen).
     pub difficulty: u8,
-    /// GF: 1 guitar, 2 bass, 3 seen on a few songs (unknown). DM: 0.
+    /// GF: 1 guitar, 2 bass, 3 open (guitar with open picks). DM: 0.
     pub part: u8,
     pub events: Vec<Event>,
 }
