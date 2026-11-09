@@ -31,7 +31,7 @@ const fn title(code: &'static str, name: &'static str, charts: ChartFormat) -> T
 
 /// Every PS2 IIDX disc iidx-ps2tools knows, oldest first, then the pop'n
 /// music discs this crate reads.
-pub const IIDX_PS2: [Title; 22] = [
+pub const IIDX_PS2: [Title; 23] = [
     Title {
         playable: true,
         ..title(
@@ -182,6 +182,12 @@ pub const IIDX_PS2: [Title; 22] = [
         playable: true,
         ..title("SLPM_667.42", "pop'n music 14 FEVER!", ChartFormat::Popn)
     },
+    // Read by `gfdm` (index and charts only), not yet playable.
+    title(
+        "SLPM_664.84",
+        "GuitarFreaks & DrumMania Masterpiece Silver",
+        ChartFormat::Gfdm,
+    ),
 ];
 
 /// The title a boot executable name belongs to, in any case.

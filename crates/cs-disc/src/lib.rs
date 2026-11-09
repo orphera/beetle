@@ -11,6 +11,8 @@
 //! - `iidx`: where each IIDX edition (10th style to 16 EMPRESS) keeps its songs,
 //!   and `popn` the same for pop'n music 8 to 10 and 12 to 14 through the same
 //!   `iidx::Disc`.
+//! - `gfdm`: GuitarFreaks & DrumMania Masterpiece Silver (index and charts
+//!   only so far).
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
 //! plain song records; turning them into charts and sounds is the caller's job.
@@ -20,6 +22,7 @@ pub mod adpcm;
 mod blowfish;
 mod blowfish_pi;
 pub mod drive;
+pub mod gfdm;
 pub mod iidx;
 pub mod iso9660;
 pub mod lz;

@@ -46,6 +46,8 @@ pub enum ChartFormat {
     Arcade { ticks_per_second: f64 },
     /// A pop'n music PS2 chart file, read by `popn` rather than `Ply::parse_as`.
     Popn,
+    /// A GuitarFreaks & DrumMania `SEQP` file, read by `gfdm`.
+    Gfdm,
 }
 
 impl ChartFormat {
@@ -247,7 +249,7 @@ impl Ply {
 
     pub fn parse_as(bytes: &[u8], format: ChartFormat) -> Result<Self, PlyError> {
         let (first, multiplier) = match format {
-            ChartFormat::Popn => return Err(PlyError::OtherFormat),
+            ChartFormat::Popn | ChartFormat::Gfdm => return Err(PlyError::OtherFormat),
             ChartFormat::Ps2NoHeader => (0, DEFAULT_MULTIPLIER),
             ChartFormat::Ps2Short | ChartFormat::Ps2Long => {
                 let first = u32_at(bytes, 0).ok_or(PlyError::TooShort)? as usize;
@@ -290,7 +292,7 @@ impl Ply {
                     let param = u16::from_le_bytes([e[6], e[7]]);
                     (time, ps2_command(e[4], e[5], param, at)?)
                 }
-                ChartFormat::Popn => unreachable!("refused above"),
+                ChartFormat::Popn | ChartFormat::Gfdm => unreachable!("refused above"),
                 ChartFormat::Arcade { .. } => {
                     let tick = u32_at(e, 0).unwrap() as i32;
                     if tick == ARCADE_END_MARK {
