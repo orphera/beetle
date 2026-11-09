@@ -12,7 +12,7 @@
 //!   and `popn` the same for pop'n music 8 to 10 and 12 to 14 through the same
 //!   `iidx::Disc`.
 //! - `gfdm`: GuitarFreaks & DrumMania Masterpiece Silver (index and charts
-//!   only so far).
+//!   only so far), `texp` its textures and song banners.
 //!
 //! The crate has no dependencies and no player code: it hands out bytes and
 //! plain song records; turning them into charts and sounds is the caller's job.
@@ -32,6 +32,7 @@ pub mod popn;
 pub mod ps2;
 pub mod ps2tex;
 pub mod sector;
+pub mod texp;
 pub mod titles;
 pub mod wvb;
 

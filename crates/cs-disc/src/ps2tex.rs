@@ -70,7 +70,7 @@ pub fn texture_size(decompressed: usize) -> Option<(u32, u32)> {
 
 /// The CLUT position of colour index `i`: the GS stores the 256 colours in
 /// blocks of 8 with blocks 1 and 2 of every 32 swapped.
-fn clut_index(i: u8) -> usize {
+pub(crate) fn clut_index(i: u8) -> usize {
     ((i & 0xe7) | ((i & 0x08) << 1) | ((i & 0x10) >> 1)) as usize
 }
 

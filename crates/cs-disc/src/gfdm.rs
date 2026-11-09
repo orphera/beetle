@@ -3,7 +3,9 @@
 //! Every file is in `DATA/PACK/Dnnn/PACKnnnn.PAK`, found through the index
 //! `DATA/PACK/PACKINFO.BIN`. Nothing is encrypted or compressed. One song is
 //! one pack: two charts (`SEQP`, one DrumMania, one GuitarFreaks), two sample
-//! banks, a movie with the song's music and a small info file.
+//! banks, a movie with the song's music and a small info file. The index
+//! keys files by the CRC-32 of their path (`song_path`); the song table is
+//! `music_info.bin`, and titles are banner pictures (`texp`).
 //! Format notes: `docs/specs/gfdm_ps2_disc.md`.
 //!
 //! Only reading is here so far; nothing turns a song into BMS yet.
@@ -49,7 +51,7 @@ pub enum Kind {
     SoundBank,
     /// An MPEG program stream: a song's movie, its music in stream `0xBD`.
     Movie,
-    /// The 14-byte song info file (seven `u16`, meaning not yet known).
+    /// The 14-byte `fre` file (seven `u16`, meaning not yet known).
     SongInfo,
     Other,
 }
@@ -88,7 +90,11 @@ impl Index {
             return Err(bad("PACKINFO too short"));
         }
         let end = u32_at(bytes, 8) as usize;
-        if end < 16 || end > bytes.len() || (end - 16) % 32 != 0 || (bytes.len() - end) % 16 != 0 {
+        if end < 16
+            || end > bytes.len()
+            || !(end - 16).is_multiple_of(32)
+            || !(bytes.len() - end).is_multiple_of(16)
+        {
             return Err(bad("PACKINFO sizes do not add up"));
         }
         let entries = bytes[16..end]
@@ -123,12 +129,116 @@ pub struct Disc {
     packs: Vec<Option<FileExtent>>,
 }
 
-/// One song: the files of a pack that holds charts.
+/// CRC-32 (IEEE, as zlib): the index keys every file by this of its path.
+pub fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &b in bytes {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// The song table's path.
+pub const MUSIC_INFO_PATH: &str = "/data/product/music/music_info.bin";
+
+/// One file of a song, by the name the game builds for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SongFile {
+    /// DrumMania chart (`SEQP`).
+    DrumChart,
+    /// GuitarFreaks chart (`SEQP`).
+    GuitarChart,
+    /// The movie, with the music in it.
+    Movie,
+    DrumSamples,
+    GuitarSamples,
+    /// The 14-byte file (`fre`), meaning not known.
+    Fre,
+    /// Preview sounds (ATRAC3), packs 74 and 75.
+    GuitarPreview,
+    DrumPreview,
+}
+
+/// The path the game opens for song `id`'s `file`.
+pub fn song_path(id: u32, file: SongFile) -> String {
+    let name = match file {
+        SongFile::DrumChart => format!("d{id:04}.sq2"),
+        SongFile::GuitarChart => format!("g{id:04}.sq2"),
+        SongFile::Movie => format!("m{id:04}.pss"),
+        SongFile::DrumSamples => format!("spu{id:04}d.va2"),
+        SongFile::GuitarSamples => format!("spu{id:04}g.va2"),
+        SongFile::Fre => format!("fre{id:04}.bin"),
+        SongFile::GuitarPreview => format!("i{id:04}gf.at3"),
+        SongFile::DrumPreview => format!("i{id:04}dm.at3"),
+    };
+    format!("/data/product/music/m{id:04}/{name}")
+}
+
+impl Index {
+    /// The entry of the file at `path` (as the game spells it).
+    pub fn find(&self, path: &str) -> Option<usize> {
+        let key = crc32(path.as_bytes());
+        self.entries.iter().position(|e| e.key == key)
+    }
+}
+
+/// One record of `music_info.bin` (0x5c bytes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MusicInfo {
+    /// The song number: its folder `m{id:04}` and banner `IMG_CO{id:04}`.
+    pub id: u32,
+    /// Upper case or romanised, cut to 15 characters (`FIRE IN THE DAR`).
+    /// The real title is the banner picture.
+    pub name: String,
+    /// Shown BPM (`u16` at 6); some songs list half the chart's tempo.
+    pub bpm: u16,
+    /// GuitarFreaks levels BASIC, ADVANCED, EXTREME (bytes 9–0xb), probably.
+    pub gf_levels: [u8; 3],
+    /// DrumMania levels (bytes 0x31–0x33), probably.
+    pub dm_levels: [u8; 3],
+    /// Song length in 1/300 s (`u32` at 0x2c), close to the charts' end.
+    pub length: u32,
+}
+
+impl MusicInfo {
+    pub const SIZE: usize = 0x5c;
+
+    /// Reads the whole table.
+    pub fn parse_all(bytes: &[u8]) -> Vec<Self> {
+        bytes
+            .chunks_exact(Self::SIZE)
+            .map(|r| {
+                let name = &r[0x4c..];
+                let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
+                Self {
+                    id: u32_at(r, 0),
+                    name: name.iter().map(|&b| b as char).collect(),
+                    bpm: u16::from_le_bytes([r[6], r[7]]),
+                    gf_levels: [r[9], r[0xa], r[0xb]],
+                    dm_levels: [r[0x31], r[0x32], r[0x33]],
+                    length: u32_at(r, 0x2c),
+                }
+            })
+            .collect()
+    }
+}
+
+/// One song: its table record and where its files are in the index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Song {
-    pub pack: u16,
-    /// Index entries, in index order.
-    pub files: Vec<(usize, Kind)>,
+    pub info: MusicInfo,
+    pub drum_chart: Option<usize>,
+    pub guitar_chart: Option<usize>,
+    pub movie: Option<usize>,
+    pub drum_samples: Option<usize>,
+    pub guitar_samples: Option<usize>,
 }
 
 impl Disc {
@@ -179,27 +289,52 @@ impl Disc {
         disc.read_at(pack.offset() + e.offset as u64, e.size as usize)
     }
 
-    /// The songs: packs with at least one chart, files sorted by kind.
-    /// Reads each file's first sector to tell kinds apart.
+    /// The bytes of the file at `path`, or `None` when the index has none.
+    pub fn read_path<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        path: &str,
+    ) -> io::Result<Option<Vec<u8>>> {
+        match self.index.find(path) {
+            Some(n) => self.read(disc, n).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The songs of `music_info.bin`, in its order, with their files.
     pub fn songs<R: Read + Seek>(&self, disc: &mut SectorReader<R>) -> io::Result<Vec<Song>> {
-        let mut by_pack: Vec<Vec<(usize, Kind)>> = vec![Vec::new(); self.packs.len()];
+        let table = self
+            .read_path(disc, MUSIC_INFO_PATH)?
+            .ok_or_else(|| bad("no music_info.bin"))?;
+        let find = |id, file| self.index.find(&song_path(id, file));
+        Ok(MusicInfo::parse_all(&table)
+            .into_iter()
+            .map(|info| Song {
+                drum_chart: find(info.id, SongFile::DrumChart),
+                guitar_chart: find(info.id, SongFile::GuitarChart),
+                movie: find(info.id, SongFile::Movie),
+                drum_samples: find(info.id, SongFile::DrumSamples),
+                guitar_samples: find(info.id, SongFile::GuitarSamples),
+                info,
+            })
+            .collect())
+    }
+
+    /// Every `TEXP` texture file of the disc (reads each file's head).
+    pub fn texture_files<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+    ) -> io::Result<Vec<usize>> {
+        let mut out = Vec::new();
         for (n, e) in self.index.entries.iter().enumerate() {
             let Some(pack) = self.pack(e.pack) else {
                 continue;
             };
-            let head =
-                disc.read_at(pack.offset() + e.offset as u64, (e.size as usize).min(0x20))?;
-            by_pack[e.pack as usize].push((n, kind(&head, e.size)));
+            if e.size >= 4 && disc.read_at(pack.offset() + e.offset as u64, 4)? == b"PXET" {
+                out.push(n);
+            }
         }
-        Ok(by_pack
-            .into_iter()
-            .enumerate()
-            .filter(|(_, files)| files.iter().any(|f| f.1 == Kind::Seq))
-            .map(|(pack, files)| Song {
-                pack: pack as u16,
-                files,
-            })
-            .collect())
+        Ok(out)
     }
 }
 
@@ -364,6 +499,14 @@ mod tests {
                 a: 0x18,
                 b: 0x7f
             }
+        );
+    }
+
+    #[test]
+    fn crc32_matches_the_index_key_of_a_chart() {
+        assert_eq!(
+            crc32(song_path(404, SongFile::DrumChart).as_bytes()),
+            0xd1f8_d571
         );
     }
 
