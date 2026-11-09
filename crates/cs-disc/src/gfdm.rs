@@ -201,10 +201,13 @@ pub struct MusicInfo {
     pub name: String,
     /// Shown BPM (`u16` at 6); some songs list half the chart's tempo.
     pub bpm: u16,
-    /// GuitarFreaks levels BASIC, ADVANCED, EXTREME (bytes 9–0xb), probably.
+    /// GuitarFreaks guitar levels BASIC, ADVANCED, EXTREME (bytes 9–0xb;
+    /// byte 8 is difficulty 0, which ten songs have). 0: no such chart.
     pub gf_levels: [u8; 3],
-    /// DrumMania levels (bytes 0x31–0x33), probably.
+    /// DrumMania levels (bytes 0x31–0x33, 0x30 difficulty 0).
     pub dm_levels: [u8; 3],
+    /// GuitarFreaks bass levels (bytes 0x39–0x3b).
+    pub bass_levels: [u8; 3],
     /// Song length in 1/300 s (`u32` at 0x2c), close to the charts' end.
     pub length: u32,
 }
@@ -225,6 +228,7 @@ impl MusicInfo {
                     bpm: u16::from_le_bytes([r[6], r[7]]),
                     gf_levels: [r[9], r[0xa], r[0xb]],
                     dm_levels: [r[0x31], r[0x32], r[0x33]],
+                    bass_levels: [r[0x39], r[0x3a], r[0x3b]],
                     length: u32_at(r, 0x2c),
                 }
             })
@@ -545,6 +549,13 @@ pub fn movie_audio(pss: &[u8]) -> Vec<(u16, Vec<u8>)> {
 /// Bytes of one ATRAC3 frame (two channels of 192) in the movies and previews.
 pub const MOVIE_AUDIO_BLOCK: usize = 384;
 pub const AUDIO_RATE: u32 = 44100;
+/// Rate of the movie music and previews (ATRAC3). Played at 44100 Hz they
+/// run 48000/44100 slower than the charts (measured tempo, 2026-11-10).
+pub const MUSIC_RATE: u32 = 48000;
+/// Frames of decoded music before chart time 0: the parts in the music land
+/// this late against the charts rendered with their key sounds (about 33 ms,
+/// steady through each song; songs 404, 734, 920, 1040, 2026-11-10).
+pub const MUSIC_LEAD: usize = 1600;
 
 /// One sound of a sample bank (`SBlk`, Sony's SCREAM sound bank).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

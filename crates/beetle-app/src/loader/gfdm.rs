@@ -12,7 +12,7 @@ use beetle_core::{BmpId, BmsChart, WavId};
 use beetle_render::ImageBuffer;
 use cs_disc::gfdm::{
     bank_samples, movie_audio, read_kits, song_path, Disc, Kits, MusicInfo, SongCharts, SongFile,
-    AUDIO_RATE, MOVIE_AUDIO_BLOCK,
+    MOVIE_AUDIO_BLOCK, MUSIC_LEAD, MUSIC_RATE,
 };
 use cs_disc::gfdm_bms::{to_bms, ChartRef, Song, Sound};
 use cs_disc::wvb::Pcm;
@@ -133,8 +133,10 @@ impl GfdmSource {
             let pcm = match sound {
                 Sound::Music => self.music(),
                 Sound::Silent => None,
-                Sound::Drum(n) => key_sound(&drums, &mut banks, false, 0, n),
-                Sound::Guitar { bank, sound } => key_sound(&guitar, &mut banks, true, bank, sound),
+                Sound::Drum(n) => key_sound(&drums, &mut banks, false, 0, n, 0),
+                Sound::Guitar { bank, sound, ticks } => {
+                    key_sound(&guitar, &mut banks, true, bank, sound, ticks)
+                }
             };
             if let Some(pcm) = pcm {
                 out.insert(id, pcm);
@@ -144,26 +146,37 @@ impl GfdmSource {
         out
     }
 
-    /// The movie's first music stream as 44100 Hz stereo.
+    /// The movie's first music stream as 48000 Hz stereo, from chart time 0.
     fn music(&mut self) -> Option<Pcm> {
         let movie = self.file(SongFile::Movie)?;
         let (_, stream) = movie_audio(&movie).into_iter().next()?;
         let pcm = cs_disc::atrac3::Decoder::decode_all(MOVIE_AUDIO_BLOCK, &stream);
-        let (left, right) = pcm.chunks_exact(2).map(|f| (f[0], f[1])).unzip();
+        let (left, right) = pcm
+            .chunks_exact(2)
+            .skip(MUSIC_LEAD)
+            .map(|f| (f[0], f[1]))
+            .unzip();
         Some(Pcm {
-            rate: AUDIO_RATE,
+            rate: MUSIC_RATE,
             channels: vec![left, right],
         })
     }
 }
 
-/// Sound `n` of the bank at `at` in sample file `file`, at its volume.
+/// How long a held guitar note takes to fade out after its length: the
+/// tones' release (ADSR2 `0x9fc5`, linear rate 5) takes the SPU from full
+/// volume to 0 in 64 samples at 48 kHz (`docs/specs/gfdm_ps2_disc.md` 4.1).
+const RELEASE_SECONDS: f64 = 64.0 / 48000.0;
+
+/// Sound `n` of the bank at `at` in sample file `file`, at its volume,
+/// held for `ticks` (1/300 s) and then faded out; 0 plays it whole.
 fn key_sound(
     file: &[u8],
     banks: &mut HashMap<(bool, usize), Vec<cs_disc::gfdm::Sample>>,
     guitar: bool,
     at: usize,
     n: u16,
+    ticks: u16,
 ) -> Option<Pcm> {
     let bank = match banks.entry((guitar, at)) {
         std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
@@ -171,13 +184,22 @@ fn key_sound(
     };
     let sample = bank.get(n as usize)?;
     let gain = sample.volume as i32;
-    let mono = sample
+    let rate = sample.rate();
+    let mut mono: Vec<i16> = sample
         .decode(file)
         .into_iter()
         .map(|s| (s as i32 * gain / 127) as i16)
         .collect();
+    if ticks > 0 {
+        let hold = ticks as usize * rate as usize / cs_disc::gfdm::TICKS_PER_SECOND as usize;
+        let release = ((RELEASE_SECONDS * rate as f64) as usize).max(1);
+        mono.truncate(hold + release);
+        for (k, s) in mono.iter_mut().skip(hold).enumerate() {
+            *s = (*s as i64 * (release - k) as i64 / release as i64) as i16;
+        }
+    }
     Some(Pcm {
-        rate: sample.rate(),
+        rate,
         channels: vec![mono],
     })
 }

@@ -8,7 +8,7 @@
 use cs_disc::atrac3::Decoder;
 use cs_disc::gfdm::{
     bank_samples, lane_notes, movie_audio, sample_banks, song_path, Disc, Game, Kits, Seq,
-    SongFile, AUDIO_RATE, EVENT_NOTE, EXE_PATH, MOVIE_AUDIO_BLOCK, TICKS_PER_SECOND,
+    SongFile, AUDIO_RATE, EVENT_NOTE, EXE_PATH, MOVIE_AUDIO_BLOCK, MUSIC_RATE, TICKS_PER_SECOND,
 };
 use cs_disc::Volume;
 
@@ -100,7 +100,7 @@ fn main() {
             let streams: Vec<String> = movie_audio(&movie)
                 .iter()
                 .map(|(n, s)| {
-                    let secs = s.len() / MOVIE_AUDIO_BLOCK * 1024 / AUDIO_RATE as usize;
+                    let secs = s.len() / MOVIE_AUDIO_BLOCK * 1024 / MUSIC_RATE as usize;
                     format!("{n}:{secs}s")
                 })
                 .collect();
@@ -149,7 +149,7 @@ fn main() {
             let pcm = Decoder::decode_all(MOVIE_AUDIO_BLOCK, &stream);
             std::fs::write(
                 out.join(format!("m{id}_bgm{n}.wav")),
-                wav(2, AUDIO_RATE, &pcm),
+                wav(2, MUSIC_RATE, &pcm),
             )
             .unwrap();
         }
@@ -161,7 +161,7 @@ fn main() {
                 let pcm = Decoder::decode_all(MOVIE_AUDIO_BLOCK, &at3);
                 std::fs::write(
                     out.join(format!("m{id}_preview_{name}.wav")),
-                    wav(2, AUDIO_RATE, &pcm),
+                    wav(2, MUSIC_RATE, &pcm),
                 )
                 .unwrap();
             }

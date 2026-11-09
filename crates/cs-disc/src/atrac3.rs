@@ -727,7 +727,7 @@ impl Decoder {
         ok
     }
 
-    /// A whole stream of frames into interleaved stereo at 44100 Hz.
+    /// A whole stream of frames into interleaved stereo (`gfdm::MUSIC_RATE`).
     pub fn decode_all(block: usize, data: &[u8]) -> Vec<i16> {
         let mut d = Self::new(block);
         let mut out = Vec::with_capacity(data.len() / block * FRAME_SAMPLES * 2);

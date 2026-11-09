@@ -110,8 +110,11 @@ pub fn charts(drums: &Seq, guitar: &Seq) -> Vec<ChartRef> {
 pub enum Sound {
     /// Sound `n` of the drum sample file's one bank.
     Drum(u16),
-    /// Sound `sound` of the guitar sample file's bank at `bank`.
-    Guitar { bank: usize, sound: u16 },
+    /// Sound `sound` of the guitar sample file's bank at `bank`, held for
+    /// `ticks` (the note's length, `Event::a >> 16`; 0 the whole sound).
+    /// Guitar samples ring for a second or more, so a fast run played whole
+    /// piles up into noise; the game stops each at its note's length.
+    Guitar { bank: usize, sound: u16, ticks: u16 },
     /// The music stream (`gfdm::movie_audio`).
     Music,
     /// No sound: the other frets of a chord.
@@ -122,7 +125,7 @@ impl Sound {
     pub fn name(&self) -> String {
         match self {
             Sound::Drum(n) => format!("d_{n}.wav"),
-            Sound::Guitar { bank, sound } => format!("g_{bank:x}_{sound}.wav"),
+            Sound::Guitar { bank, sound, ticks } => format!("g_{bank:x}_{sound}_{ticks}.wav"),
             Sound::Music => "music.wav".to_string(),
             Sound::Silent => "silent.wav".to_string(),
         }
@@ -138,11 +141,14 @@ impl Sound {
         if let Some(n) = stem.strip_prefix("d_") {
             return Some(Sound::Drum(n.parse().ok()?));
         }
-        let (bank, sound) = stem.strip_prefix("g_")?.split_once('_')?;
-        Some(Sound::Guitar {
-            bank: usize::from_str_radix(bank, 16).ok()?,
-            sound: sound.parse().ok()?,
-        })
+        let mut parts = stem.strip_prefix("g_")?.split('_');
+        let bank = usize::from_str_radix(parts.next()?, 16).ok()?;
+        let sound = parts.next()?.parse().ok()?;
+        let ticks = parts.next()?.parse().ok()?;
+        parts
+            .next()
+            .is_none()
+            .then_some(Sound::Guitar { bank, sound, ticks })
     }
 }
 
@@ -268,6 +274,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
             Game::GuitarFreaks => Sound::Guitar {
                 bank: ks.bank,
                 sound: ks.sound,
+                ticks: (e.a >> 16) as u16,
             },
         })
     };
@@ -348,7 +355,8 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
 
     let level = match chart.part {
         Part::Drums => song.info.dm_levels,
-        _ => song.info.gf_levels,
+        Part::Guitar => song.info.gf_levels,
+        Part::Bass => song.info.bass_levels,
     }[chart.difficulty as usize - 1];
     let (genre, mode) = match chart.part {
         Part::Drums => ("DrumMania", "#6K"),
@@ -450,6 +458,7 @@ mod tests {
             Sound::Guitar {
                 bank: 0x1c9e0,
                 sound: 3,
+                ticks: 49,
             },
             Sound::Music,
             Sound::Silent,
@@ -499,6 +508,7 @@ mod tests {
             bpm: 120,
             gf_levels: [1, 2, 3],
             dm_levels: [4, 5, 6],
+            bass_levels: [7, 8, 9],
             length: 900,
         };
         let kits = Kits::default();
