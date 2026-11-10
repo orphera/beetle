@@ -702,6 +702,16 @@ impl Kits {
         });
     }
 
+    /// Tables for a test: song `id`'s drum notes, each (note, sound).
+    #[cfg(test)]
+    pub(crate) fn add_drum_notes(&mut self, id: u32, notes: Vec<(u16, u16)>) {
+        let song = self.songs.iter_mut().find(|s| s.id == id).unwrap();
+        song.drum = notes
+            .into_iter()
+            .map(|(n, sound)| (n, KeySound { bank: 0, sound }))
+            .collect();
+    }
+
     /// Reads the tables, `None` when `exe` is not the executable they are in.
     ///
     /// A DrumMania kit is `(u16 note, u16 sound)` pairs to `KIT_END`, all in
