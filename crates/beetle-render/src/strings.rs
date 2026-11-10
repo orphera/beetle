@@ -1197,6 +1197,26 @@ table! {
         ko "레인 균형",
         en "Lane Balance",
         ja "レーンのバランス";
+    pub ROW_GFDM_HAND =
+        ko "양손 나누기",
+        en "Split Hands",
+        ja "両手に分ける";
+    pub ROW_GFDM_VARY =
+        ko "반복 바꾸기",
+        en "Vary Repeats",
+        ja "繰り返しを変える";
+    pub ROW_GFDM_EDGE =
+        ko "바깥 레인 (8K)",
+        en "Outer Lanes (8K)",
+        ja "外側のレーン (8K)";
+    pub ROW_GFDM_THIN =
+        ko "노트 솎기",
+        en "Thin Notes",
+        ja "ノーツの間引き";
+    pub ROW_GFDM_MIX =
+        ko "다른 파트 섞기",
+        en "Mix Other Parts",
+        ja "他のパートを混ぜる";
     pub ROW_GFDM_JACK =
         ko "같은 레인 간격",
         en "Same-Lane Gap",
@@ -1497,6 +1517,26 @@ table! {
         ko "한 레인이나 한 손에 노트가 몰리지 않게 해요.",
         en "Keeps notes from piling up on one lane or one hand.",
         ja "ノーツが一つのレーンや片手に偏らないようにします。";
+    pub HELP_GFDM_HAND =
+        ko "빠르게 이어지는 노트가 한 손에만 몰리지 않게 양손으로 나눠요.",
+        en "Splits quick runs between both hands instead of keeping them on one.",
+        ja "速く続くノーツが片手に偏らないよう、両手に分けます。";
+    pub HELP_GFDM_VARY =
+        ko "같은 마디가 다시 나오면 레인 배치를 뒤집거나 옮겨서 다르게 놓아요.",
+        en "When a bar comes again, lays it out differently: mirrored or moved over.",
+        ja "同じ小節がまた来ると、レーンの配置を反転したりずらしたりして変えます。";
+    pub HELP_GFDM_EDGE =
+        ko "8K에서 맨 바깥 두 레인에는 마디 첫 박, 심벌, 강박의 베이스, 긴 노트 같은 강세만 띄엄띄엄 놓아요.",
+        en "8K: only accents (a bar's first beat, cymbals, kicks on strong beats, long notes) go on the two outer lanes, spaced apart.",
+        ja "8K で一番外側の2レーンには、小節の頭・シンバル・強拍のバス・長いノーツなどのアクセントだけを間を空けて置きます。";
+    pub HELP_GFDM_THIN =
+        ko "노트 사이가 이보다 좁으면 약한 박의 노트를 자동 소리로 돌려요. 강박, 화음, 음이 바뀌는 곳은 남기고, 소리는 그대로 다 나요.",
+        en "Where notes are closer than this, weak-beat notes become auto sounds; strong beats, chords and pitch changes stay, and every sound still plays.",
+        ja "ノーツの間がこれより狭いと、弱拍のノーツを自動の音にします。強拍・和音・音が変わるところは残し、音はすべてそのまま鳴ります。";
+    pub HELP_GFDM_MIX =
+        ko "이 파트가 쉬는 곳에 다른 파트(드럼이나 기타)의 노트를 그 자리, 그 소리 그대로 가져와요. 클수록 많이 가져와요.",
+        en "Brings other parts' notes (drums or guitar) in where this part rests, at their own times with their own sounds. Higher brings more.",
+        ja "このパートが休むところに、他のパート(ドラムやギター)のノーツをその位置・その音のまま持ってきます。大きいほど多く持ってきます。";
     pub HELP_GFDM_JACK =
         ko "같은 레인을 이보다 빨리 다시 치지 않게 해요. 난이도별은 BASIC 250ms, ADVANCED 180ms, EXTREME 125ms예요.",
         en "Avoids hitting a lane again sooner than this. By Difficulty is 250 ms for BASIC, 180 ms for ADVANCED and 125 ms for EXTREME.",
@@ -1506,9 +1546,9 @@ table! {
         en "How much randomness goes into choosing lanes. At 0 the layout is always the same; higher values vary it by seed.",
         ja "レーンを選ぶときに混ぜるランダムの量です。0 なら常に同じ配置で、大きいほどシードごとに配置が変わります。";
     pub HELP_GFDM_SEED =
-        ko "무작위 배치를 정하는 수예요. 같은 시드면 늘 같은 채보가 나와요. 무작위 양이 0이면 쓰지 않아요.",
-        en "The number that decides the random layout. The same seed always gives the same chart. Unused when Randomness is 0.",
-        ja "ランダムな配置を決める数です。同じシードなら常に同じ譜面になります。ランダムの量が 0 のときは使いません。";
+        ko "무작위 배치와 반복 바꾸기를 정하는 수예요. 같은 시드면 늘 같은 채보가 나와요. 무작위 양이 0이고 반복 바꾸기가 꺼져 있으면 쓰지 않아요.",
+        en "The number that decides the random layout and the varied repeats. The same seed always gives the same chart. Unused when Randomness is 0 and Vary Repeats is off.",
+        ja "ランダムな配置と繰り返しの変え方を決める数です。同じシードなら常に同じ譜面になります。ランダムの量が 0 で繰り返しを変えるがオフのときは使いません。";
 
     // Settings screen (its title is SETTINGS above).
     pub HELP_DISPLAY_MODE =

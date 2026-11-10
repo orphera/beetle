@@ -10,7 +10,7 @@
 use std::sync::mpsc::{channel, Receiver};
 
 use beetle_core::{disc_address, PlayMode, SongAddress, SongMetadata};
-use cs_disc::gfdm_arrange::{Arrange, LANE_COUNTS, MAX_NOISE};
+use cs_disc::gfdm_arrange::{Arrange, LANE_COUNTS, MAX_MIX, MAX_NOISE};
 use cs_disc::gfdm_bms::ChartRef;
 
 /// The option as chosen: whether it is on, and the arrangement (its lane
@@ -30,8 +30,10 @@ impl Default for ArrangeSetting {
                 pitch: true,
                 home: true,
                 stick: true,
-                trill: true,
                 bal: true,
+                hand: true,
+                vary: true,
+                edge: true,
                 ..Default::default()
             },
         }
@@ -48,6 +50,9 @@ pub const JACK_STEPS: [Option<u16>; 7] = [
     Some(220),
     Some(250),
 ];
+/// Thinning gaps the row cycles through; `None` keeps every note.
+pub const THIN_STEPS: [Option<u16>; 6] =
+    [None, Some(80), Some(100), Some(120), Some(150), Some(200)];
 /// The largest seed the row steps to.
 pub const MAX_SEED: u64 = 9999;
 
@@ -81,6 +86,20 @@ impl ArrangeSetting {
     pub fn step_jack(&mut self, forward: bool) {
         self.arrange.jack_ms =
             crate::options_table::cycle(&JACK_STEPS, self.arrange.jack_ms, forward);
+    }
+
+    pub fn step_thin(&mut self, forward: bool) {
+        self.arrange.thin_ms =
+            crate::options_table::cycle(&THIN_STEPS, self.arrange.thin_ms, forward);
+    }
+
+    pub fn step_mix(&mut self, forward: bool) {
+        let m = self.arrange.mix;
+        self.arrange.mix = if forward {
+            (m + 1).min(MAX_MIX)
+        } else {
+            m.saturating_sub(1)
+        };
     }
 
     pub fn step_noise(&mut self, forward: bool) {
@@ -165,14 +184,17 @@ mod tests {
         assert_eq!(s.target(&gf), None);
         s.on = true;
         let (address, mode) = s.target(&gf).unwrap();
-        assert_eq!(address, "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+trill+bal");
+        assert_eq!(
+            address,
+            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary"
+        );
         assert_eq!(mode, PlayMode::Keys6);
         s.arrange.lanes = 4;
         let dm = song("disc:E:::gfdm/404/dm1");
         assert_eq!(
             s.target(&dm).unwrap(),
             (
-                "disc:E:::gfdm/404/dm1@4k+home+stick+trill+bal".to_string(),
+                "disc:E:::gfdm/404/dm1@4k+home+stick+bal+hand+vary".to_string(),
                 PlayMode::Keys4
             )
         );
@@ -197,5 +219,25 @@ mod tests {
         assert_eq!(seen, vec![Some(4), Some(6), Some(8), None]);
         s.step_lanes(false);
         assert_eq!((s.on, s.arrange.lanes), (true, 8));
+    }
+
+    #[test]
+    fn the_thin_and_mix_rows_step_within_their_range() {
+        let mut s = ArrangeSetting::default();
+        s.step_thin(true);
+        assert_eq!(s.arrange.thin_ms, Some(80));
+        s.step_thin(false);
+        s.step_thin(false);
+        assert_eq!(s.arrange.thin_ms, Some(200));
+        s.step_mix(false);
+        assert_eq!(s.arrange.mix, 0);
+        for _ in 0..20 {
+            s.step_mix(true);
+        }
+        assert_eq!(s.arrange.mix, MAX_MIX);
+        assert_eq!(
+            s.config_value(),
+            "6k+pitch+home+stick+bal+hand+vary+edge+d200+mix9"
+        );
     }
 }
