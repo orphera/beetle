@@ -9,12 +9,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use beetle_audio::SampleBank;
 use beetle_core::{BmpId, BmsChart, WavId};
-use beetle_render::ImageBuffer;
+use beetle_render::{ColorRgba, ImageBuffer};
 use cs_disc::gfdm::{
     bank_samples, movie_audio, read_kits, song_path, Disc, Kits, MusicInfo, SongCharts, SongFile,
     MOVIE_AUDIO_BLOCK, MUSIC_LEAD, MUSIC_RATE,
 };
 use cs_disc::gfdm_bms::{to_bms, ChartRef, Song, Sound};
+use cs_disc::ps2tex::Rgba;
+use cs_disc::texp::{banner_name, Texp};
 use cs_disc::wvb::Pcm;
 use cs_disc::{SectorReader, Volume};
 
@@ -26,6 +28,9 @@ pub(crate) struct GfdmDisc {
     pub disc: Disc,
     pub kits: Kits,
     pub songs: Vec<MusicInfo>,
+    /// Which texture file holds each song banner (`IMG_CO{id}`), found the
+    /// first time a banner is wanted.
+    banners: OnceLock<HashMap<String, usize>>,
 }
 
 impl GfdmDisc {
@@ -44,7 +49,27 @@ impl GfdmDisc {
             disc: index,
             kits,
             songs,
+            banners: OnceLock::new(),
         })
+    }
+
+    /// Song `id`'s banner, `None` when the disc has none.
+    fn banner(&self, disc: &mut SectorReader<File>, id: u32) -> Option<Rgba> {
+        let files = self.banners.get_or_init(|| {
+            let mut map = HashMap::new();
+            for n in self.disc.texture_files(disc).unwrap_or_default() {
+                let Ok(bytes) = self.disc.read(disc, n) else {
+                    continue;
+                };
+                for r in Texp::parse(&bytes).map(|t| t.rects).unwrap_or_default() {
+                    map.entry(r.name).or_insert(n);
+                }
+            }
+            map
+        });
+        let name = banner_name(id);
+        let bytes = self.disc.read(disc, *files.get(&name)?).ok()?;
+        Texp::parse(&bytes)?.image(&name)
     }
 }
 
@@ -198,10 +223,26 @@ fn key_sound(
             *s = (*s as i64 * (release - k) as i64 / release as i64) as i16;
         }
     }
-    Some(Pcm {
-        rate,
-        channels: vec![mono],
-    })
+    let channels = match balance(sample.pan) {
+        None => vec![mono],
+        Some((l, r)) => {
+            let side = |g: f64| mono.iter().map(|&s| (s as f64 * g) as i16).collect();
+            vec![side(l), side(r)]
+        }
+    };
+    Some(Pcm { rate, channels })
+}
+
+/// Left and right gains for a tone's pan in degrees (0 centre, 90 right,
+/// 270 left, as SCREAM places sounds around the listener), or `None` for
+/// the centre. A balance, not equal power: the near side stays at full
+/// volume so a centred sound is as loud as before.
+fn balance(pan: u16) -> Option<(f64, f64)> {
+    let x = (pan as f64).to_radians().sin();
+    if x.abs() < 1e-3 {
+        return None;
+    }
+    Some(((1.0 - x).min(1.0), (1.0 + x).min(1.0)))
 }
 
 impl SongSource for GfdmSource {
@@ -247,7 +288,39 @@ impl SongSource for GfdmSource {
         HashMap::from([(BmpId(1), source)])
     }
 
+    /// Every chart of a song shows its banner.
+    fn stage_key(&mut self) -> Option<String> {
+        Some(format!("gfdm-banner:{}", self.charts.info.id))
+    }
+
+    /// The song's banner (200x80) on a black 4:3 canvas.
     fn stage_image(&mut self) -> Option<StageArt> {
-        None
+        let mut banner = self.songs.banner(&mut self.disc, self.charts.info.id)?;
+        // The GS's alpha: 0x80 is opaque.
+        for p in &mut banner.pixels {
+            p[3] = (p[3] as u16 * 2).min(255) as u8;
+        }
+        let picture = banner.letterboxed_4_3();
+        let mut image =
+            ImageBuffer::new(picture.width, picture.height, ColorRgba::new(0, 0, 0, 255));
+        for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(picture.pixels) {
+            *out = ColorRgba::new(r, g, b, a);
+        }
+        Some(image)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::balance;
+
+    #[test]
+    fn pan_moves_a_drum_to_its_side() {
+        assert_eq!(balance(0), None);
+        assert_eq!(balance(180), None);
+        let (l, r) = balance(90).unwrap();
+        assert!(l.abs() < 1e-9 && r == 1.0);
+        let (l, r) = balance(312).unwrap();
+        assert!(l == 1.0 && r < 0.3);
     }
 }

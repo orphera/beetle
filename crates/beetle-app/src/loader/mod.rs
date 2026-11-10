@@ -1751,6 +1751,10 @@ mod tests {
                 videos.get(&BmpId(1)),
                 Some(VideoSource::Memory { .. })
             ));
+            // The song's 200x80 banner on a 4:3 canvas, opaque.
+            let stage = load_stage(&meta).image.expect("the banner loads");
+            assert_eq!((stage.width, stage.height), (200, 150));
+            assert!(stage.pixels.iter().all(|p| p.a == 255));
 
             // Note times against the disc's (1/300 s).
             let c = &source.charts;
