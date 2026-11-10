@@ -687,6 +687,21 @@ const KIT_END: u16 = 0xff00;
 const KIT_LAST: u16 = 0xffff;
 
 impl Kits {
+    /// Tables for a test: song `id`'s guitar notes, each (note, sound) in
+    /// bank 0.
+    #[cfg(test)]
+    pub(crate) fn add_guitar_song(&mut self, id: u32, notes: Vec<(u16, u16)>) {
+        let guitar = notes
+            .into_iter()
+            .map(|(n, sound)| (n, KeySound { bank: 0, sound }))
+            .collect();
+        self.songs.push(SongKits {
+            id,
+            drum: Vec::new(),
+            guitar,
+        });
+    }
+
     /// Reads the tables, `None` when `exe` is not the executable they are in.
     ///
     /// A DrumMania kit is `(u16 note, u16 sound)` pairs to `KIT_END`, all in

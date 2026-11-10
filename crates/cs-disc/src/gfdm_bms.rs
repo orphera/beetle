@@ -13,11 +13,18 @@
 //!   as in the game, and so do a track's own sounds without a lane (event
 //!   kind 1). The song's music stream starts at 0.
 //!
+//! - An arranged chart (`gfdm/<id>/<part><d>@<N>k+...`, `gfdm_arrange`): the
+//!   drum, guitar or bass notes on N lanes chosen again for a keyboard
+//!   (`#4K`, `#6K` or `#8K`), at the same times with the same sounds. A note
+//!   left over when more play at once than there are lanes plays as a sound.
+//!   Open charts are not arranged.
+//!
 //! Times on the disc are absolute (1/300 s). Bars are the meta track's bar
 //! lines; each bar's length comes from the tempo between them, so the BMS
 //! timing lands on the disc's times.
 
 use crate::gfdm::{Event, Game, Kits, MusicInfo, Seq, Track, TICKS_PER_SECOND};
+use crate::gfdm_arrange::{self, Arrange, PartKind};
 
 /// Bar line, tempo (`a` = microseconds a beat) and note kinds in a track.
 const EVENT_BAR: u8 = 0x50;
@@ -53,6 +60,28 @@ impl Part {
             Part::Guitar | Part::Open | Part::Bass => 5,
         }
     }
+
+    /// What kind of part an arrangement treats this as; open charts are
+    /// not arranged (their notes are the guitar chart's).
+    pub fn arrange_kind(self) -> Option<PartKind> {
+        match self {
+            Part::Drums => Some(PartKind::Drums),
+            Part::Guitar | Part::Bass => Some(PartKind::Strings),
+            Part::Open => None,
+        }
+    }
+}
+
+/// Note channels of each lane, left to right, by lane count
+/// (`docs/plans/2026-10-09-4k-6k-8k-modes-design.md`; 8K's first lane is
+/// the scratch channel, played as a plain key).
+fn lane_channels(lanes: u8) -> Option<&'static [&'static str]> {
+    match lanes {
+        4 => Some(&["11", "12", "14", "15"]),
+        6 => Some(&["11", "12", "13", "15", "18", "19"]),
+        8 => Some(&["16", "11", "12", "13", "14", "15", "18", "19"]),
+        _ => None,
+    }
 }
 
 /// One playable chart of a song.
@@ -61,10 +90,32 @@ pub struct ChartRef {
     pub part: Part,
     /// 1 BASIC, 2 ADVANCED, 3 EXTREME.
     pub difficulty: u8,
+    /// The keyboard arrangement (`gfdm_arrange`); `None` the original lanes.
+    /// Kept as `Arrange::for_part` leaves it, so a chart has one key.
+    pub arrange: Option<Arrange>,
 }
 
 impl ChartRef {
-    /// `gfdm/{id}/dm{d}`, `gf{d}` or `bass{d}`.
+    /// An original chart.
+    pub fn original(part: Part, difficulty: u8) -> Self {
+        Self {
+            part,
+            difficulty,
+            arrange: None,
+        }
+    }
+
+    /// This chart arranged by `arrange`, `None` for a part that is not
+    /// arranged (open).
+    pub fn arranged(self, arrange: Arrange) -> Option<Self> {
+        Some(Self {
+            arrange: Some(arrange.for_part(self.part.arrange_kind()?)),
+            ..self
+        })
+    }
+
+    /// `gfdm/{id}/dm{d}`, `gf{d}`, `open{d}` or `bass{d}`, then `@` and the
+    /// arrangement when there is one.
     pub fn key(&self, id: u32) -> String {
         let part = match self.part {
             Part::Drums => "dm",
@@ -72,13 +123,22 @@ impl ChartRef {
             Part::Open => "open",
             Part::Bass => "bass",
         };
-        format!("gfdm/{id}/{part}{}", self.difficulty)
+        let mut key = format!("gfdm/{id}/{part}{}", self.difficulty);
+        if let Some(a) = self.arrange {
+            key += "@";
+            key += &a.key();
+        }
+        key
     }
 
     /// The song id and chart of a `key`.
     pub fn parse(key: &str) -> Option<(u32, Self)> {
         let rest = key.strip_prefix("gfdm/")?;
         let (id, chart) = rest.split_once('/')?;
+        let (chart, arrange) = match chart.split_once('@') {
+            Some((chart, a)) => (chart, Some(Arrange::parse(a)?)),
+            None => (chart, None),
+        };
         let (part, d) = if let Some(d) = chart.strip_prefix("open") {
             (Part::Open, d)
         } else if let Some(d) = chart.strip_prefix("bass") {
@@ -90,7 +150,12 @@ impl ChartRef {
         };
         let difficulty: u8 = d.parse().ok()?;
         (1..=3).contains(&difficulty).then_some(())?;
-        Some((id.parse().ok()?, Self { part, difficulty }))
+        let chart = Self::original(part, difficulty);
+        let chart = match arrange {
+            Some(a) => chart.arranged(a)?,
+            None => chart,
+        };
+        Some((id.parse().ok()?, chart))
     }
 
     fn game(&self) -> Game {
@@ -124,7 +189,7 @@ pub fn charts(drums: &Seq, guitar: &Seq) -> Vec<ChartRef> {
     for part in [Part::Drums, Part::Guitar, Part::Open, Part::Bass] {
         for difficulty in 1..=3 {
             if track(drums, guitar, part, difficulty).is_some() {
-                out.push(ChartRef { part, difficulty });
+                out.push(ChartRef::original(part, difficulty));
             }
         }
     }
@@ -309,9 +374,44 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     let mut objects: Vec<(usize, u64, &'static str, String)> = Vec::new();
     objects.push((0, 0, "01", wav_id(Sound::Music)));
     let game = chart.game();
+    let arranged = match chart.arrange {
+        Some(a) => Some((a, chart.part.arrange_kind()?, lane_channels(a.lanes)?)),
+        None => None,
+    };
+    // Arranged notes by place: (bar, slot, ms, notes with their sounds).
+    let mut groups: Vec<(usize, u64, i64, Vec<(gfdm_arrange::Note, Sound)>)> = Vec::new();
     for e in &played.events {
         let (bar, slot) = place(e.time);
         match e.kind {
+            EVENT_NOTE if arranged.is_some() => {
+                // The original lanes, as the original chart keeps them: a
+                // lane taken at a place keeps its first note.
+                let origins: Vec<u8> = match game {
+                    Game::DrumMania => (e.value < 6).then_some(e.value).into_iter().collect(),
+                    Game::GuitarFreaks => (0..3).filter(|b| e.value & (1 << b) != 0).collect(),
+                };
+                let sound = sound_of(game, e);
+                let at = match groups.iter().rposition(|g| g.0 == bar && g.1 == slot) {
+                    Some(at) => at,
+                    None => {
+                        let ms = e.time as i64 * 1000 / TICKS_PER_SECOND as i64;
+                        groups.push((bar, slot, ms, Vec::new()));
+                        groups.len() - 1
+                    }
+                };
+                for (k, origin) in origins.into_iter().enumerate() {
+                    let notes = &mut groups[at].3;
+                    if notes.iter().any(|(n, _)| n.origin == origin) {
+                        continue;
+                    }
+                    let s = if k == 0 { sound } else { Some(Sound::Silent) };
+                    let note = gfdm_arrange::Note {
+                        origin,
+                        key: e.a as u16,
+                    };
+                    notes.push((note, s.unwrap_or(Sound::Silent)));
+                }
+            }
             EVENT_NOTE => {
                 let lanes: Vec<&'static str> = match game {
                     Game::DrumMania => {
@@ -340,16 +440,35 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
             _ => {}
         }
     }
+    if let Some((a, kind, channels)) = arranged {
+        groups.sort_by_key(|g| (g.0, g.1));
+        let input: Vec<gfdm_arrange::Group> = groups
+            .iter()
+            .map(|g| gfdm_arrange::Group {
+                ms: g.2,
+                notes: g.3.iter().map(|(n, _)| *n).collect(),
+            })
+            .collect();
+        let lanes = gfdm_arrange::arrange(&a, kind, chart.difficulty, &input);
+        for (g, lanes) in groups.iter().zip(lanes) {
+            for ((_, sound), lane) in g.3.iter().zip(lanes) {
+                let ch = match lane {
+                    Some(l) => channels[l as usize],
+                    // Left over: its sound plays by itself.
+                    None if *sound == Sound::Silent => continue,
+                    None => "01",
+                };
+                objects.push((g.0, g.1, ch, wav_id(*sound)));
+            }
+        }
+    }
     let others: &[Part] = match chart.part {
         Part::Drums => &[Part::Guitar],
         Part::Guitar | Part::Open => &[Part::Drums],
         Part::Bass => &[Part::Drums, Part::Guitar],
     };
     for &part in others {
-        let other = ChartRef {
-            part,
-            difficulty: chart.difficulty,
-        };
+        let other = ChartRef::original(part, chart.difficulty);
         let Some(t) = track(song.drums, song.guitar, part, chart.difficulty) else {
             continue;
         };
@@ -391,6 +510,12 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         Part::Guitar => ("GuitarFreaks", "#4K"),
         Part::Open => ("GuitarFreaks (open)", "#4K"),
         Part::Bass => ("GuitarFreaks (bass)", "#4K"),
+    };
+    let mode = match chart.arrange.map(|a| a.lanes) {
+        Some(4) => "#4K",
+        Some(6) => "#6K",
+        Some(8) => "#8K",
+        _ => mode,
     };
     let mut out = String::new();
     out += "#PLAYER 1\n";
@@ -470,13 +595,21 @@ mod tests {
     #[test]
     fn chart_keys_round_trip() {
         for part in [Part::Drums, Part::Guitar, Part::Open, Part::Bass] {
-            let c = ChartRef {
-                part,
-                difficulty: 2,
-            };
+            let c = ChartRef::original(part, 2);
             assert_eq!(ChartRef::parse(&c.key(404)), Some((404, c)));
         }
         assert_eq!(ChartRef::parse("gfdm/404/dm4"), None);
+        // Arranged: one spelling, the other part's features dropped.
+        let (id, c) = ChartRef::parse("gfdm/404/gf3@6k+trill+home+pitch+r2+s7").unwrap();
+        assert_eq!(c.key(id), "gfdm/404/gf3@6k+pitch+trill+r2+s7");
+        assert_eq!(ChartRef::parse(&c.key(id)), Some((id, c)));
+        assert_eq!(
+            ChartRef::parse("gfdm/404/dm1@4k+pitch").map(|(i, c)| c.key(i)),
+            Some("gfdm/404/dm1@4k".to_string())
+        );
+        assert_eq!(ChartRef::parse("gfdm/404/open2@6k"), None);
+        assert_eq!(ChartRef::parse("gfdm/404/gf2@5k"), None);
+        assert_eq!(ChartRef::parse("gfdm/404/gf2@"), None);
         assert_eq!(ChartRef::parse("017/sp_normal"), None);
     }
 
@@ -550,14 +683,7 @@ mod tests {
             lanes: &[],
         };
         assert_eq!(charts(&drums, &guitar).len(), 1);
-        let bms = to_bms(
-            &song,
-            ChartRef {
-                part: Part::Drums,
-                difficulty: 1,
-            },
-        )
-        .unwrap();
+        let bms = to_bms(&song, ChartRef::original(Part::Drums, 1)).unwrap();
         assert!(bms.contains("#6K"));
         assert!(bms.contains("#BPM 120.000000"));
         assert!(bms.contains("#PLAYLEVEL 4"));
@@ -609,10 +735,7 @@ mod tests {
             kits: &kits,
             lanes: &[],
         };
-        let chart = ChartRef {
-            part: Part::Open,
-            difficulty: 2,
-        };
+        let chart = ChartRef::original(Part::Open, 2);
         assert_eq!(charts(&drums, &guitar), vec![chart]);
         assert_eq!(ChartRef::parse(&chart.key(1)), Some((1, chart)));
         let bms = to_bms(&song, chart).unwrap();
@@ -640,5 +763,167 @@ mod tests {
             ),
             "{bms}"
         );
+    }
+
+    /// Notes on lanes, and every sound (by name, silent ones left out) on
+    /// any channel, of BMS text.
+    fn census(bms: &str) -> (usize, Vec<String>) {
+        let mut names = std::collections::HashMap::new();
+        let mut notes = 0;
+        let mut sounds = Vec::new();
+        for line in bms.lines() {
+            if let Some(rest) = line.strip_prefix("#WAV") {
+                let (id, name) = rest.split_once(' ').unwrap();
+                names.insert(id.to_string(), name.to_string());
+                continue;
+            }
+            let Some((head, body)) = line.split_once(':') else {
+                continue;
+            };
+            let ch = &head[4..];
+            if ch == "02" || ch == "08" {
+                continue;
+            }
+            for k in (0..body.len()).step_by(2) {
+                let v = &body[k..k + 2];
+                if v == "00" {
+                    continue;
+                }
+                if ch != "01" {
+                    notes += 1;
+                }
+                if names[v] != "silent.wav" {
+                    sounds.push(names[v].clone());
+                }
+            }
+        }
+        sounds.sort();
+        (notes, sounds)
+    }
+
+    #[test]
+    fn an_arranged_chart_keeps_its_notes_and_sounds() {
+        let meta = Track {
+            game: Game::GuitarFreaks,
+            is_meta: true,
+            difficulty: 0,
+            part: 0,
+            events: vec![
+                event(0, EVENT_TEMPO, 0, 500_000),
+                event(0, EVENT_BAR, 0, 0),
+                event(600, EVENT_BAR, 0, 0),
+                event(1200, EVENT_BAR, 0, 0),
+            ],
+        };
+        // Sixteenths (37.5 ticks) on R with rising pitches, a G+B chord
+        // every beat, an auto sound.
+        let mut events: Vec<Event> = (0..32)
+            .map(|i| event(i * 75 / 2, EVENT_NOTE, 1, 0x30 + (i % 7)))
+            .collect();
+        events.extend((0..8).map(|i| event(i * 150 + 10, EVENT_NOTE, 6, 0x40)));
+        events.push(event(20, EVENT_SOUND, 0, 0x41));
+        events.sort_by_key(|e| e.time);
+        let play = Track {
+            game: Game::GuitarFreaks,
+            is_meta: false,
+            difficulty: 3,
+            part: 1,
+            events,
+        };
+        let guitar = Seq {
+            tracks: vec![meta, play],
+        };
+        let drums = Seq { tracks: vec![] };
+        let info = MusicInfo {
+            id: 1,
+            name: "TEST".into(),
+            bpm: 120,
+            gf_levels: [1, 2, 3],
+            dm_levels: [4, 5, 6],
+            bass_levels: [7, 8, 9],
+            open_levels: [10, 11, 12],
+            length: 900,
+        };
+        // Every key one sound, so the census tells the notes apart.
+        let mut kits = Kits::default();
+        kits.add_guitar_song(1, (0x30..0x48).map(|k| (k, k - 0x30)).collect());
+        let song = Song {
+            info: &info,
+            drums: &drums,
+            guitar: &guitar,
+            kits: &kits,
+            lanes: &[],
+        };
+        let original = ChartRef::original(Part::Guitar, 3);
+        let plain = to_bms(&song, original).unwrap();
+        let arranged = |key: &str| {
+            let chart = original.arranged(Arrange::parse(key).unwrap()).unwrap();
+            to_bms(&song, chart).unwrap()
+        };
+        for key in ["4k", "6k+pitch+trill+r3+s1", "8k+trill+bal"] {
+            let bms = arranged(key);
+            let mode = format!("#{}K\n", &key[..1]);
+            assert!(bms.contains(&mode), "{key}: {bms}");
+            assert_eq!(census(&bms), census(&plain), "{key}");
+            assert_eq!(bms, arranged(key), "{key}");
+        }
+        assert_ne!(arranged("6k+r5+s1"), arranged("6k+r5+s2"));
+        // Not on 4K's lanes when the arrangement is 6K.
+        assert!(!arranged("6k").contains("#00014:"));
+    }
+
+    /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
+    /// Silver image: every drum, guitar and bass chart arranges to 4K, 6K
+    /// and 8K, reads back as that mode, and keeps its notes and sounds
+    /// (4K drums may leave notes over when five or six play at once).
+    #[test]
+    fn every_disc_chart_arranges() {
+        let Ok(image) = std::env::var("CS_DISC_GFDM") else {
+            return;
+        };
+        let mut d = crate::open(&image).unwrap();
+        let volume = crate::Volume::open(&mut d).unwrap();
+        let disc = crate::gfdm::Disc::open(&mut d, &volume).unwrap().unwrap();
+        let kits = crate::gfdm::read_kits(&mut d, &volume).unwrap().unwrap();
+        let features = Arrange::parse("4k+pitch+home+stick+trill+bal+r2+s3").unwrap();
+        let (mut arranged, mut left_over) = (0, 0);
+        for song in disc.songs(&mut d).unwrap() {
+            let c = disc.song_charts(&mut d, &song.info).unwrap();
+            let s = Song {
+                info: &c.info,
+                drums: &c.drums,
+                guitar: &c.guitar,
+                kits: &kits,
+                lanes: &c.lanes,
+            };
+            for chart in charts(&c.drums, &c.guitar) {
+                let plain = to_bms(&s, chart).unwrap();
+                let (notes, sounds) = census(&plain);
+                for lanes in crate::gfdm_arrange::LANE_COUNTS {
+                    let Some(a) = chart.arranged(Arrange { lanes, ..features }) else {
+                        assert_eq!(chart.part, Part::Open);
+                        continue;
+                    };
+                    let key = a.key(c.info.id);
+                    let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
+                    let parsed = beetle_core::parse_bms(&bms).unwrap();
+                    let mode = parsed.detect_play_mode();
+                    let playable = mode.restricted_lanes().map(<[_]>::len);
+                    assert_eq!(playable, Some(lanes as usize), "{key}");
+                    let (n, snd) = census(&bms);
+                    assert_eq!(parsed.notes.len(), n, "{key}: every note on a lane");
+                    assert_eq!(snd, sounds, "{key}");
+                    if lanes == 4 && chart.part == Part::Drums {
+                        assert!(n <= notes, "{key}");
+                        left_over += notes - n;
+                    } else {
+                        assert_eq!(n, notes, "{key}");
+                    }
+                    arranged += 1;
+                }
+            }
+        }
+        println!("{arranged} arranged charts, {left_over} 4K drum notes left over");
+        assert!(arranged > 1500);
     }
 }
