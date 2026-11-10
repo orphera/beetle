@@ -40,6 +40,21 @@ pub enum Part {
     Bass,
 }
 
+impl Part {
+    /// The movie music stream to play under this part: the streams are the
+    /// song in other mixes, by stream number. Drum parts show up in streams
+    /// 4 and 5 and a guitar part in 3, and the long songs keep only 2, 3
+    /// and 5, so 3 is the mix for drums (guitar in it, no drums), 5 the mix
+    /// for guitar and bass (drums in it) and 2 the session mix
+    /// (`docs/specs/gfdm_ps2_disc.md` 4.2). Not yet checked by ear.
+    pub fn music_stream(self) -> u16 {
+        match self {
+            Part::Drums => 3,
+            Part::Guitar | Part::Open | Part::Bass => 5,
+        }
+    }
+}
+
 /// One playable chart of a song.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChartRef {

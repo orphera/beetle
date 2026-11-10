@@ -171,10 +171,17 @@ impl GfdmSource {
         out
     }
 
-    /// The movie's first music stream as 48000 Hz stereo, from chart time 0.
+    /// The movie's music stream for the chart's part (`Part::music_stream`,
+    /// else the first) as 48000 Hz stereo, from chart time 0.
     fn music(&mut self) -> Option<Pcm> {
         let movie = self.file(SongFile::Movie)?;
-        let (_, stream) = movie_audio(&movie).into_iter().next()?;
+        let mut streams = movie_audio(&movie);
+        let wanted = self.chart.part.music_stream();
+        let at = streams.iter().position(|(n, _)| *n == wanted).unwrap_or(0);
+        if streams.is_empty() {
+            return None;
+        }
+        let (_, stream) = streams.swap_remove(at);
         let pcm = cs_disc::atrac3::Decoder::decode_all(MOVIE_AUDIO_BLOCK, &stream);
         let (left, right) = pcm
             .chunks_exact(2)
