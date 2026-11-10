@@ -1099,6 +1099,11 @@ table! {
         ko "세션",
         en "Session",
         ja "セッション";
+    /// Play options for GuitarFreaks & DrumMania disc charts (B29).
+    pub GROUP_GFDM_ARRANGE =
+        ko "GFDM 편곡",
+        en "GFDM Arrangement",
+        ja "GFDM アレンジ";
     pub GROUP_DISPLAY =
         ko "화면",
         en "Display",
@@ -1168,6 +1173,42 @@ table! {
         ko "시작 마디",
         en "Start Measure",
         ja "開始小節";
+    pub ROW_GFDM_LANES =
+        ko "편곡 키 수",
+        en "Arrange To",
+        ja "アレンジのキー数";
+    pub ROW_GFDM_PITCH =
+        ko "음 높이 (기타)",
+        en "Pitch (Guitar)",
+        ja "音の高さ (ギター)";
+    pub ROW_GFDM_HOME =
+        ko "북 자리 (드럼)",
+        en "Drum Homes",
+        ja "ドラムの定位置";
+    pub ROW_GFDM_STICK =
+        ko "양손 교대 (드럼)",
+        en "Sticking (Drums)",
+        ja "左右交互 (ドラム)";
+    pub ROW_GFDM_TRILL =
+        ko "트릴",
+        en "Trill",
+        ja "トリル";
+    pub ROW_GFDM_BAL =
+        ko "레인 균형",
+        en "Lane Balance",
+        ja "レーンのバランス";
+    pub ROW_GFDM_JACK =
+        ko "같은 레인 간격",
+        en "Same-Lane Gap",
+        ja "同じレーンの間隔";
+    pub ROW_GFDM_NOISE =
+        ko "무작위 양",
+        en "Randomness",
+        ja "ランダムの量";
+    pub ROW_GFDM_SEED =
+        ko "시드",
+        en "Seed",
+        ja "シード";
     pub ROW_JUDGE_OFFSET =
         ko "판정 오프셋",
         en "Judge Offset",
@@ -1296,6 +1337,11 @@ table! {
         ko "가운데",
         en "Center",
         ja "中央";
+    /// The GFDM same-lane gap row at each difficulty's own value.
+    pub VALUE_BY_DIFFICULTY =
+        ko "난이도별",
+        en "By Difficulty",
+        ja "難易度別";
     /// A row that does not apply to the selected song's key mode.
     pub VALUE_NOT_APPLICABLE =
         ko "해당 없음",
@@ -1427,6 +1473,42 @@ table! {
         ko "이 마디부터 곡을 시작해요. 0이면 처음부터예요. 0이 아니면 연습으로 처리되어 기록되지 않아요.",
         en "Starts the song at this measure. 0 starts from the beginning. Any other value counts as practice and is not saved.",
         ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときは練習扱いとなり記録されません。";
+    pub HELP_GFDM_LANES =
+        ko "켜면 GFDM 디스크의 드럼, 기타, 베이스 채보를 이 키 수로 레인을 다시 짜서 열어요. 편곡 채보의 기록은 원본과 따로 남아요.",
+        en "Opens GFDM disc drum, guitar and bass charts with their lanes laid out again for this many keys. Arranged charts keep their own records.",
+        ja "GFDM ディスクのドラム・ギター・ベースの譜面を、このキー数にレーンを組み直して開きます。アレンジ譜面の記録は元の譜面と別に残ります。";
+    pub HELP_GFDM_PITCH =
+        ko "기타와 베이스에서 낮은 음은 왼쪽, 높은 음은 오른쪽 레인에 놓아요. 끄면 원래 프렛 자리를 따라요.",
+        en "Guitar and bass: low notes go to the left lanes, high notes to the right. Off follows the original frets.",
+        ja "ギター・ベースで低い音を左、高い音を右のレーンに置きます。オフなら元のフレットの位置に従います。";
+    pub HELP_GFDM_HOME =
+        ko "드럼에서 북마다 자기 레인을 정해 두어요. 끄면 어느 북이든 아무 레인에나 놓여요.",
+        en "Drums: each drum gets its own lane. Off lets any drum go on any lane.",
+        ja "ドラムで太鼓ごとに決まったレーンを使います。オフならどの太鼓もどのレーンにも置かれます。";
+    pub HELP_GFDM_STICK =
+        ko "드럼에서 같은 북을 빠르게 이어 치면 자기 레인과 옆 레인을 번갈아 쳐요.",
+        en "Drums: a drum hit again quickly goes between its lane and the one next to it.",
+        ja "ドラムで同じ太鼓を速く続けて打つと、自分のレーンと隣のレーンを交互に打ちます。";
+    pub HELP_GFDM_TRILL =
+        ko "같은 음이나 같은 북을 빠르게 이어 치면 바로 옆 레인으로 옮겨요.",
+        en "A sound or drum hit again quickly moves to the lane right next to the last one.",
+        ja "同じ音や同じ太鼓を速く続けると、すぐ隣のレーンに移します。";
+    pub HELP_GFDM_BAL =
+        ko "한 레인이나 한 손에 노트가 몰리지 않게 해요.",
+        en "Keeps notes from piling up on one lane or one hand.",
+        ja "ノーツが一つのレーンや片手に偏らないようにします。";
+    pub HELP_GFDM_JACK =
+        ko "같은 레인을 이보다 빨리 다시 치지 않게 해요. 난이도별은 BASIC 250ms, ADVANCED 180ms, EXTREME 125ms예요.",
+        en "Avoids hitting a lane again sooner than this. By Difficulty is 250 ms for BASIC, 180 ms for ADVANCED and 125 ms for EXTREME.",
+        ja "同じレーンをこれより速く打ち直さないようにします。難易度別は BASIC 250ms、ADVANCED 180ms、EXTREME 125ms です。";
+    pub HELP_GFDM_NOISE =
+        ko "레인을 고를 때 섞는 무작위의 양이에요. 0이면 늘 같은 배치이고, 클수록 시드마다 배치가 달라져요.",
+        en "How much randomness goes into choosing lanes. At 0 the layout is always the same; higher values vary it by seed.",
+        ja "レーンを選ぶときに混ぜるランダムの量です。0 なら常に同じ配置で、大きいほどシードごとに配置が変わります。";
+    pub HELP_GFDM_SEED =
+        ko "무작위 배치를 정하는 수예요. 같은 시드면 늘 같은 채보가 나와요. 무작위 양이 0이면 쓰지 않아요.",
+        en "The number that decides the random layout. The same seed always gives the same chart. Unused when Randomness is 0.",
+        ja "ランダムな配置を決める数です。同じシードなら常に同じ譜面になります。ランダムの量が 0 のときは使いません。";
 
     // Settings screen (its title is SETTINGS above).
     pub HELP_DISPLAY_MODE =

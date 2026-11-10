@@ -113,6 +113,22 @@ pub fn show_loading_lane(state: &mut AppState) {
 }
 
 pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
+    // With the GFDM arrangement on, an original GFDM chart opens arranged
+    // (B29); its own metadata follows from a worker (`loading_meta`). A
+    // course plays its charts as listed, a replay the chart it recorded.
+    let target = (state.course.is_none() && !state.is_replay_playback)
+        .then(|| state.gfdm_arrange.target(song))
+        .flatten();
+    state.loading_meta = None;
+    let arranged;
+    let song = match target {
+        Some((address, mode)) => {
+            state.loading_meta = Some(crate::gfdm_arrange::spawn_metadata(address.clone()));
+            arranged = crate::gfdm_arrange::provisional(song, address, mode);
+            &arranged
+        }
+        None => song,
+    };
     state.screen = AppScreen::Loading;
     state.loading_song = Some(song.clone());
     state.loading_lane = None;

@@ -3291,11 +3291,20 @@ pub fn draw_options_panel(
         OptionsFooter::Retry => 56.0 * s,
     };
     // Rows, section headers, then the help card and the hint line below them.
-    let body: f32 = lines
+    let heights: Vec<f32> = lines
         .iter()
         .map(|l| row_h + if l.section.is_some() { section_h } else { 0.0 })
-        .sum();
-    let h = (body + (widgets::HELP_CARD_H + 136.0) * s + start_h).min(vp.height - 32.0 * s);
+        .collect();
+    let body: f32 = heights.iter().sum();
+    let fixed = (widgets::HELP_CARD_H + 136.0) * s + start_h;
+    let h = (body + fixed).min(vp.height - 32.0 * s);
+    // When the rows do not all fit, they scroll so the selected one shows.
+    let room = (h - fixed).max(row_h);
+    let selected_line = selected.min(lines.len().saturating_sub(1));
+    let mut first = 0;
+    while first < selected_line && heights[first..=selected_line].iter().sum::<f32>() > room {
+        first += 1;
+    }
     let preview_w = PREVIEW_W * s;
     let panel = modal_panel(c, &sk, vp, &mut hs, 500.0 * s + preview_w + 20.0 * s, h, s);
     let full = panel.inset(28.0 * s);
@@ -3317,7 +3326,11 @@ pub fn draw_options_panel(
         &TextStyle::new(22.0 * s).bold().color(theme::TEXT),
     );
     let mut y = inner.y + 40.0 * s;
-    for (i, line) in lines.iter().enumerate() {
+    let rows_bottom = y + room;
+    for (i, line) in lines.iter().enumerate().skip(first) {
+        if y + heights[i] > rows_bottom + 0.5 {
+            break;
+        }
         if let Some(section) = line.section {
             widgets::section_header(c, t, section, inner.x, y, inner.w, s);
             y += section_h;
@@ -3336,6 +3349,30 @@ pub fn draw_options_panel(
             s,
         );
         y += row_h;
+    }
+    if body > room {
+        // Where the visible rows sit in the list.
+        let track = Rect::new(inner.right() + 6.0 * s, inner.y + 40.0 * s, 3.0 * s, room);
+        c.fill_rect(track, theme::LINE.with_alpha(90));
+        let shown: f32 = heights[first..]
+            .iter()
+            .take_while({
+                let mut acc = 0.0;
+                move |h| {
+                    acc += **h;
+                    acc <= room + 0.5
+                }
+            })
+            .sum();
+        let before: f32 = heights[..first].iter().sum();
+        let thumb = Rect::new(
+            track.x,
+            track.y + room * before / body,
+            track.w,
+            (room * shown / body).max(8.0 * s),
+        );
+        c.fill_rect(thumb, theme::CYAN.with_alpha(200));
+        y = rows_bottom;
     }
     let card = Rect::new(inner.x, y + 12.0 * s, inner.w, widgets::HELP_CARD_H * s);
     widgets::help_card(c, t, &sk, card, help.0, help.1, s);

@@ -8,7 +8,8 @@
 //! - `BEETLE_CAPTURE_DELAY=<seconds>` (default 2): wall time after entering
 //!   that screen.
 //! - `BEETLE_CAPTURE_EXIT=1`: quit right after capturing.
-//! - `BEETLE_CAPTURE_ROW=<index>`: with the Settings screen, start on that row.
+//! - `BEETLE_CAPTURE_ROW=<index>`: with the Settings screen, start on that row;
+//!   with the play options modal, highlight that row.
 //! - `BEETLE_AUTOPLAY=1`: start with auto play enabled.
 //! - `BEETLE_CAPTURE_MODAL=options|exit`: start with that song select modal open.
 //!   `folders` with the Settings screen opens the Song Folders list.

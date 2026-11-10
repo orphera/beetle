@@ -1702,6 +1702,7 @@ mod tests {
     /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
     /// Silver image: song 404's drum chart loads as 6K and its guitar as 4K,
     /// each with every sound and the music, and notes land on the disc's times.
+    /// So do the guitar arranged to 6K and the drums to 4K.
     #[test]
     fn a_gfdm_disc_chart_loads_with_its_sounds() {
         let Ok(image) = std::env::var("CS_DISC_GFDM") else {
@@ -1718,6 +1719,24 @@ mod tests {
                 "gfdm/404/gf3",
                 PlayMode::Keys4,
                 &[Lane::Key1, Lane::Key2, Lane::Key4][..],
+            ),
+            // Arranged (B29): the same notes on every lane of the mode.
+            (
+                "gfdm/404/gf3@6k+pitch+trill+bal",
+                PlayMode::Keys6,
+                &[
+                    Lane::Key1,
+                    Lane::Key2,
+                    Lane::Key3,
+                    Lane::Key5,
+                    Lane::Key6,
+                    Lane::Key7,
+                ][..],
+            ),
+            (
+                "gfdm/404/dm3@4k+home+stick+bal",
+                PlayMode::Keys4,
+                &[Lane::Key1, Lane::Key2, Lane::Key4, Lane::Key5][..],
             ),
         ] {
             let address = beetle_core::disc_address(&image, key);
@@ -1758,7 +1777,7 @@ mod tests {
 
             // Note times against the disc's (1/300 s).
             let c = &source.charts;
-            let track = if key.ends_with("dm3") {
+            let track = if key.contains("/dm3") {
                 c.drums
                     .tracks
                     .iter()

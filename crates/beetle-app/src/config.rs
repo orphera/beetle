@@ -314,6 +314,9 @@ pub struct AppConfig {
     /// Choosing an edition also picks it for other songs from the same
     /// source (`edition_same_source=ON`, B18 plan 4.3).
     pub edition_same_source: bool,
+    /// The GFDM keyboard arrangement option (`gfdm_arrange=6k+pitch+...`,
+    /// `gfdm_arrange_on=ON`; B29).
+    pub gfdm_arrange: crate::gfdm_arrange::ArrangeSetting,
     /// High-contrast notes in gameplay (`high_contrast_notes=ON`).
     pub high_contrast_notes: bool,
     /// Menu UI scale in percent (`ui_scale=80..=150`, steps of 10; 100 = default).
@@ -359,6 +362,7 @@ impl Default for AppConfig {
             reduce_flashes: false,
             reduce_motion: false,
             edition_same_source: false,
+            gfdm_arrange: Default::default(),
             high_contrast_notes: false,
             speed_anchor: SpeedAnchor::Start,
             ui_scale: UI_SCALE_DEFAULT,
@@ -560,6 +564,12 @@ impl AppConfig {
                 "speed_anchor" => config.speed_anchor = SpeedAnchor::parse(val).unwrap_or_default(),
                 "reduce_motion" => config.reduce_motion = val == "ON",
                 "edition_same_source" => config.edition_same_source = val == "ON",
+                "gfdm_arrange_on" => config.gfdm_arrange.on = val == "ON",
+                "gfdm_arrange" => {
+                    if let Some(a) = cs_disc::gfdm_arrange::Arrange::parse(val) {
+                        config.gfdm_arrange.arrange = a;
+                    }
+                }
                 "high_contrast_notes" => config.high_contrast_notes = val == "ON",
                 "ui_scale" => {
                     if let Ok(v) = val.parse::<u32>() {
@@ -645,6 +655,13 @@ impl AppConfig {
         out.push_str(&format!("speed_anchor={}\n", self.speed_anchor.as_str()));
         if self.edition_same_source {
             out.push_str("edition_same_source=ON\n");
+        }
+        out.push_str(&format!(
+            "gfdm_arrange={}\n",
+            self.gfdm_arrange.config_value()
+        ));
+        if self.gfdm_arrange.on {
+            out.push_str("gfdm_arrange_on=ON\n");
         }
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -771,6 +788,10 @@ mod tests {
             judge_position: JudgePosition::Lower,
             reduce_flashes: true,
             speed_anchor: SpeedAnchor::Main,
+            gfdm_arrange: crate::gfdm_arrange::ArrangeSetting {
+                on: true,
+                arrange: cs_disc::gfdm_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
+            },
             ..AppConfig::default()
         };
 
@@ -812,6 +833,7 @@ mod tests {
         assert_eq!(config.judge_position, parsed.judge_position);
         assert_eq!(config.reduce_flashes, parsed.reduce_flashes);
         assert_eq!(parsed.speed_anchor, SpeedAnchor::Main);
+        assert_eq!(config.gfdm_arrange, parsed.gfdm_arrange);
         assert_eq!(config.bga_enabled, parsed.bga_enabled);
         assert_eq!(config.field_position, parsed.field_position);
         assert_eq!(config.scratch_sides, parsed.scratch_sides);

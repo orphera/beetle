@@ -1,5 +1,6 @@
 //! A chart on a GuitarFreaks & DrumMania disc
-//! (`disc:<image or drive>::gfdm/<id>/<part><difficulty>`): the chart is the
+//! (`disc:<image or drive>::gfdm/<id>/<part><difficulty>`, or arranged for a
+//! keyboard with `@<N>k+...`, `cs_disc::gfdm_arrange`): the chart is the
 //! BMS `cs_disc::gfdm_bms` writes, its sounds the song's sample banks and
 //! the music stream in its movie, which also plays as the background.
 

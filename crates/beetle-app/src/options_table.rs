@@ -47,6 +47,15 @@ pub enum OptionId {
     LnMode,
     AutoPlay,
     StartMeasure,
+    GfdmLanes,
+    GfdmPitch,
+    GfdmHome,
+    GfdmStick,
+    GfdmTrill,
+    GfdmBal,
+    GfdmJack,
+    GfdmNoise,
+    GfdmSeed,
     // Settings screen.
     Language,
     SongFolders,
@@ -153,7 +162,62 @@ fn build_play_options() -> Vec<OptionDesc> {
             label: strings::ROW_START_MEASURE(),
             help: strings::HELP_START_MEASURE(),
         },
+        gfdm_row(
+            OptionId::GfdmLanes,
+            strings::ROW_GFDM_LANES(),
+            strings::HELP_GFDM_LANES(),
+        ),
+        gfdm_row(
+            OptionId::GfdmPitch,
+            strings::ROW_GFDM_PITCH(),
+            strings::HELP_GFDM_PITCH(),
+        ),
+        gfdm_row(
+            OptionId::GfdmHome,
+            strings::ROW_GFDM_HOME(),
+            strings::HELP_GFDM_HOME(),
+        ),
+        gfdm_row(
+            OptionId::GfdmStick,
+            strings::ROW_GFDM_STICK(),
+            strings::HELP_GFDM_STICK(),
+        ),
+        gfdm_row(
+            OptionId::GfdmTrill,
+            strings::ROW_GFDM_TRILL(),
+            strings::HELP_GFDM_TRILL(),
+        ),
+        gfdm_row(
+            OptionId::GfdmBal,
+            strings::ROW_GFDM_BAL(),
+            strings::HELP_GFDM_BAL(),
+        ),
+        gfdm_row(
+            OptionId::GfdmJack,
+            strings::ROW_GFDM_JACK(),
+            strings::HELP_GFDM_JACK(),
+        ),
+        gfdm_row(
+            OptionId::GfdmNoise,
+            strings::ROW_GFDM_NOISE(),
+            strings::HELP_GFDM_NOISE(),
+        ),
+        gfdm_row(
+            OptionId::GfdmSeed,
+            strings::ROW_GFDM_SEED(),
+            strings::HELP_GFDM_SEED(),
+        ),
     ]
+}
+
+/// A row of the GFDM arrangement group (B29, `gfdm_arrange`).
+fn gfdm_row(id: OptionId, label: &'static str, help: &'static str) -> OptionDesc {
+    OptionDesc {
+        id,
+        group: strings::GROUP_GFDM_ARRANGE(),
+        label,
+        help,
+    }
 }
 
 pub fn play_options() -> &'static [OptionDesc] {
@@ -582,6 +646,25 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         },
         OptionId::AutoPlay => on_off(state.is_auto_play).to_string(),
         OptionId::StartMeasure => format!("M.{}", state.start_measure),
+        OptionId::GfdmLanes => {
+            let g = &state.gfdm_arrange;
+            if g.on {
+                format!("{}K", g.arrange.lanes)
+            } else {
+                strings::VALUE_OFF().to_string()
+            }
+        }
+        OptionId::GfdmPitch => on_off(state.gfdm_arrange.arrange.pitch).to_string(),
+        OptionId::GfdmHome => on_off(state.gfdm_arrange.arrange.home).to_string(),
+        OptionId::GfdmStick => on_off(state.gfdm_arrange.arrange.stick).to_string(),
+        OptionId::GfdmTrill => on_off(state.gfdm_arrange.arrange.trill).to_string(),
+        OptionId::GfdmBal => on_off(state.gfdm_arrange.arrange.bal).to_string(),
+        OptionId::GfdmJack => match state.gfdm_arrange.arrange.jack_ms {
+            Some(ms) => strings::fill(strings::VALUE_MS(), &[&ms.to_string()]),
+            None => strings::VALUE_BY_DIFFICULTY().to_string(),
+        },
+        OptionId::GfdmNoise => state.gfdm_arrange.arrange.noise.to_string(),
+        OptionId::GfdmSeed => state.gfdm_arrange.arrange.seed.to_string(),
         OptionId::Language => language_label(strings::lang()).to_string(),
         OptionId::SongFolders => strings::fill(
             strings::VALUE_FOLDERS(),
@@ -653,6 +736,10 @@ pub fn value(state: &AppState, id: OptionId) -> String {
     }
 }
 
+fn flip(v: &mut bool) {
+    *v = !*v;
+}
+
 /// Changes the row's value one step (`forward`: the right arrow, or ENTER on
 /// a row without an activation). The caller saves the config.
 pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
@@ -683,6 +770,15 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
             state.resort_songs();
         }
         OptionId::AutoPlay => state.is_auto_play = !state.is_auto_play,
+        OptionId::GfdmLanes => state.gfdm_arrange.step_lanes(forward),
+        OptionId::GfdmPitch => flip(&mut state.gfdm_arrange.arrange.pitch),
+        OptionId::GfdmHome => flip(&mut state.gfdm_arrange.arrange.home),
+        OptionId::GfdmStick => flip(&mut state.gfdm_arrange.arrange.stick),
+        OptionId::GfdmTrill => flip(&mut state.gfdm_arrange.arrange.trill),
+        OptionId::GfdmBal => flip(&mut state.gfdm_arrange.arrange.bal),
+        OptionId::GfdmJack => state.gfdm_arrange.step_jack(forward),
+        OptionId::GfdmNoise => state.gfdm_arrange.step_noise(forward),
+        OptionId::GfdmSeed => state.gfdm_arrange.step_seed(forward),
         OptionId::StartMeasure => {
             state.start_measure = start_measure_next(state.start_measure, forward);
         }

@@ -9,6 +9,7 @@ mod file_assoc;
 mod filters;
 mod folders;
 mod gameplay;
+mod gfdm_arrange;
 mod gpu_ui;
 mod handlers;
 mod hid;
@@ -341,6 +342,7 @@ impl ApplicationHandler for BeetleApp {
             scroll_bpm: 130.0,
             reduce_motion: saved_config.reduce_motion,
             edition_same_source: saved_config.edition_same_source,
+            gfdm_arrange: saved_config.gfdm_arrange,
             high_contrast: saved_config.high_contrast_notes,
             language: saved_config.language,
             display_mode: saved_config.display_mode,
@@ -363,6 +365,7 @@ impl ApplicationHandler for BeetleApp {
             library_started_at: Instant::now(),
             loading_song: None,
             loading_receiver: None,
+            loading_meta: None,
             loading_spinner_frame: 0,
             loading_anim_time: Instant::now(),
             loading_lane: None,
@@ -413,6 +416,9 @@ impl ApplicationHandler for BeetleApp {
         }
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
+        if let Some(row) = devtools::start_settings_row().filter(|_| app_state.show_option_modal) {
+            app_state.modal_row = row.min(options_table::play_options().len() - 1);
+        }
         app_state.show_help = devtools::help_requested();
         menu_audio::sync_with_screen(&mut app_state);
         for path in devtools::dropped_paths() {
@@ -533,6 +539,22 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                 }
+                // An arranged GFDM chart's own metadata (`gfdm_arrange`).
+                if let Some(rx) = &state.loading_meta {
+                    match rx.try_recv() {
+                        Ok(Some(meta)) => {
+                            state.loading_meta = None;
+                            state.loading_song = Some(meta);
+                        }
+                        Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            state.loading_meta = None;
+                            state.loading_receiver = None;
+                            state.loaded_song = None;
+                            fail_song_load(state);
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    }
+                }
 
                 // The card is the way in; the rest of the load shows on the lane.
                 if state.loading_lane.is_none()
@@ -546,6 +568,7 @@ impl ApplicationHandler for BeetleApp {
                 // song it loads (taking it alone lost it and the load never ended).
                 if gameplay::lane_ready_to_play(state)
                     && state.loaded_song.is_some()
+                    && state.loading_meta.is_none()
                     && state.loading_song.is_some()
                 {
                     if let (Some((chart, timing, soundbank, bga_bank, video_sources)), Some(song)) =
@@ -1275,6 +1298,7 @@ fn handle_keyboard_input(
         AppScreen::Loading => {
             if key_state == ElementState::Pressed && code == KeyCode::Escape {
                 state.loading_receiver = None;
+                state.loading_meta = None;
                 state.loading_song = None;
                 state.loading_lane = None;
                 state.loaded_song = None;
