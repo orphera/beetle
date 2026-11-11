@@ -10,7 +10,7 @@
 use std::sync::mpsc::{channel, Receiver};
 
 use beetle_core::{disc_address, PlayMode, SongAddress, SongMetadata};
-use cs_disc::gfdm_arrange::{Arrange, LANE_COUNTS, MAX_MIX, MAX_NOISE};
+use cs_disc::gfdm_arrange::{Arrange, LANE_COUNTS, MAX_MIX, MAX_NOISE, MAX_RUN};
 use cs_disc::gfdm_bms::ChartRef;
 
 /// The option as chosen: whether it is on, and the arrangement (its lane
@@ -86,6 +86,23 @@ impl ArrangeSetting {
     pub fn step_jack(&mut self, forward: bool) {
         self.arrange.jack_ms =
             crate::options_table::cycle(&JACK_STEPS, self.arrange.jack_ms, forward);
+    }
+
+    /// The one-hand run row: 1 (plain `hand`) up to `MAX_RUN`, wrapping.
+    pub fn step_run(&mut self, forward: bool) {
+        let cur = self.arrange.run.max(1);
+        let next = if forward {
+            if cur >= MAX_RUN {
+                1
+            } else {
+                cur + 1
+            }
+        } else if cur <= 1 {
+            MAX_RUN
+        } else {
+            cur - 1
+        };
+        self.arrange.run = if next < 2 { 0 } else { next };
     }
 
     pub fn step_thin(&mut self, forward: bool) {

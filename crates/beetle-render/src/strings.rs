@@ -1209,6 +1209,18 @@ table! {
         ko "바깥 레인 (8K)",
         en "Outer Lanes (8K)",
         ja "外側のレーン (8K)";
+    pub ROW_GFDM_RUN =
+        ko "한 손 연속 허용",
+        en "One-Hand Run",
+        ja "片手で続く数";
+    pub ROW_GFDM_SPLIT =
+        ko "동시치기 양손으로",
+        en "Chords on Both Hands",
+        ja "同時押しを両手に";
+    pub ROW_GFDM_JJ =
+        ko "2연타 남기기",
+        en "Keep Doubles",
+        ja "2連打を残す";
     pub ROW_GFDM_THIN =
         ko "노트 솎기",
         en "Thin Notes",
@@ -1529,6 +1541,18 @@ table! {
         ko "8K에서 맨 바깥 두 레인에는 마디 첫 박, 심벌, 강박의 베이스, 긴 노트 같은 강세만 띄엄띄엄 놓아요.",
         en "8K: only accents (a bar's first beat, cymbals, kicks on strong beats, long notes) go on the two outer lanes, spaced apart.",
         ja "8K で一番外側の2レーンには、小節の頭・シンバル・強拍のバス・長いノーツなどのアクセントだけを間を空けて置きます。";
+    pub HELP_GFDM_RUN =
+        ko "양손 나누기가 켜져 있을 때, 빠른 노트가 한 손에 이만큼까지는 이어져도 돼요. 2~3이면 계단 모양이 나와요.",
+        en "With Split Hands on, this many quick notes may stay on one hand. 2 or 3 lets stairs form.",
+        ja "両手に分けるがオンのとき、速いノーツがこの数までは片手で続いてもかまいません。2〜3 で階段の形が出ます。";
+    pub HELP_GFDM_SPLIT =
+        ko "노트 두 개가 함께 나오면 양손에 하나씩 놓아요. 6K와 8K에서는 이웃한 레인도 피해요.",
+        en "Two notes together go one to each hand; in 6K and 8K they also avoid lanes side by side.",
+        ja "ノーツが2つ同時に来ると、両手に1つずつ置きます。6K と 8K では隣り合うレーンも避けます。";
+    pub HELP_GFDM_JJ =
+        ko "같은 소리가 빠르게 두 번 나오면 같은 레인에 두 번 놓아요. 세 번째부터는 다른 레인으로 가요.",
+        en "A sound played twice quickly stays on one lane both times; a third hit moves to another lane.",
+        ja "同じ音が速く2回続くと、同じレーンに2回置きます。3回目からは別のレーンに移ります。";
     pub HELP_GFDM_THIN =
         ko "노트 사이가 이보다 좁으면 약한 박의 노트를 자동 소리로 돌려요. 강박, 화음, 음이 바뀌는 곳은 남기고, 소리는 그대로 다 나요.",
         en "Where notes are closer than this, weak-beat notes become auto sounds; strong beats, chords and pitch changes stay, and every sound still plays.",
