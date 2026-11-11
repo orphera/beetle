@@ -9,6 +9,8 @@
 //!   4K's last lane stays empty. Wailing and the pick itself are not played.
 //! - GuitarFreaks open (track part 3): the guitar chart with some notes
 //!   marked open (value bit `0x10`); those go on 4K's last lane (15) alone.
+//! - `#DIFFICULTY` is 2, 3 and 4 for BASIC, ADVANCED and EXTREME (NORMAL,
+//!   HYPER and ANOTHER's slots); the player shows the game's own names.
 //! - The other parts at the same difficulty play themselves (BGM channel),
 //!   as in the game, and so do a track's own sounds without a lane (event
 //!   kind 1). The song's music stream starts at 0.
@@ -613,9 +615,11 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     out += "#PLAYER 1\n";
     out += &format!("#GENRE {genre}\n#TITLE {}\n", song.info.name);
     out += &format!("#BPM {:.6}\n", Tempo::bpm(tempo.segments[0].2));
+    // BASIC, ADVANCED and EXTREME take the slots of NORMAL, HYPER and
+    // ANOTHER, as a player of the other games reads them.
     out += &format!(
         "#PLAYLEVEL {level}\n#DIFFICULTY {}\n{mode}\n",
-        chart.difficulty
+        chart.difficulty + 1
     );
     for (n, s) in wavs.iter().enumerate() {
         out += &format!("#WAV{} {}\n", base36(n + 1), s.name());
@@ -782,6 +786,8 @@ mod tests {
         assert!(bms.contains("#6K"));
         assert!(bms.contains("#BPM 120.000000"));
         assert!(bms.contains("#PLAYLEVEL 4"));
+        // BASIC is the NORMAL slot.
+        assert!(bms.contains("#DIFFICULTY 2\n"), "{bms}");
         // Half way through bar 0 on BD, a quarter into bar 1 on CY.
         assert!(bms.contains("#00013:0002"), "{bms}");
         assert!(bms.contains("#00119:00020000"), "{bms}");
