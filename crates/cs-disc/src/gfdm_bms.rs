@@ -310,6 +310,9 @@ fn origins(game: Game, e: &Event) -> Vec<u8> {
     }
 }
 
+/// A drum hit this close to a guitar or bass note is under it (`acc`).
+const ACCENT_MS: i64 = 30;
+
 pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     let id = song.info.id;
     let played = track(song.drums, song.guitar, chart.part, chart.difficulty)?;
@@ -481,15 +484,68 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     }
     if let Some((a, kind, channels)) = arranged {
         groups.sort_by_key(|g| (g.0, g.1, g.3.first().map(|(n, _)| n.from.is_some())));
-        let input: Vec<gfdm_arrange::Group> = groups
-            .iter()
-            .map(|g| gfdm_arrange::Group {
-                ms: g.2,
-                bar: g.0 as u32,
-                slot: g.1 as u16,
-                notes: g.3.iter().map(|(n, _)| *n).collect(),
-            })
-            .collect();
+        // How hard the drums hit, by time, for a guitar or bass chart
+        // (`acc`, `trig`): 2 a snare or cymbal, 1 a kick.
+        let mut hits: Vec<(i64, u8)> = Vec::new();
+        if kind == PartKind::Strings {
+            if let Some(t) = track(song.drums, song.guitar, Part::Drums, chart.difficulty) {
+                for e in t.events.iter().filter(|e| e.kind == EVENT_NOTE) {
+                    let ms = e.time as i64 * 1000 / TICKS_PER_SECOND as i64;
+                    for origin in origins(Game::DrumMania, e) {
+                        match origin {
+                            1 | 5 => hits.push((ms, 2)),
+                            2 => hits.push((ms, 1)),
+                            _ => {}
+                        }
+                    }
+                }
+                hits.sort();
+            }
+        }
+        let accent_at = |ms: i64| -> u8 {
+            let from = hits.partition_point(|h| h.0 < ms - ACCENT_MS);
+            hits[from..]
+                .iter()
+                .take_while(|h| h.0 <= ms + ACCENT_MS)
+                .map(|h| h.1)
+                .max()
+                .unwrap_or(0)
+        };
+        let input = |groups: &[(usize, u64, i64, Vec<(gfdm_arrange::Note, Sound)>)]| {
+            groups
+                .iter()
+                .map(|g| gfdm_arrange::Group {
+                    ms: g.2,
+                    bar: g.0 as u32,
+                    slot: g.1 as u16,
+                    accent: accent_at(g.2),
+                    notes: g.3.iter().map(|(n, _)| *n).collect(),
+                })
+                .collect::<Vec<gfdm_arrange::Group>>()
+        };
+        // The features for this chart (`auto` looks at its notes), then the
+        // groups as `acc` makes them: a second note without a sound, or only
+        // the first of several (the others had none).
+        let first = input(&groups);
+        let a = gfdm_arrange::resolve(&a, kind, &first);
+        for (g, accent) in groups
+            .iter_mut()
+            .zip(gfdm_arrange::accents(&a, kind, &first))
+        {
+            match accent {
+                gfdm_arrange::Accent::Keep => {}
+                gfdm_arrange::Accent::Single => {
+                    // A sound among the dropped notes still plays below.
+                    for (_, sound) in g.3.drain(1..) {
+                        if sound != Sound::Silent {
+                            objects.push((g.0, g.1, "01", wav_id(sound)));
+                        }
+                    }
+                }
+                gfdm_arrange::Accent::Double(note) => g.3.push((note, Sound::Silent)),
+            }
+        }
+        let input = input(&groups);
         let lanes = gfdm_arrange::arrange(&a, kind, chart.difficulty, &input);
         for (g, lanes) in groups.iter().zip(lanes) {
             for ((_, sound), lane) in g.3.iter().zip(lanes) {
@@ -962,9 +1018,10 @@ mod tests {
         let disc = crate::gfdm::Disc::open(&mut d, &volume).unwrap().unwrap();
         let kits = crate::gfdm::read_kits(&mut d, &volume).unwrap().unwrap();
         let features = Arrange::parse("4k+pitch+home+stick+trill+bal+r2+s3").unwrap();
-        let stage2 =
-            Arrange::parse("8k+pitch+home+stick+bal+hand+vary+edge+split+jj+d100+run3+mix5+s7")
-                .unwrap();
+        let stage2 = Arrange::parse(
+            "8k+pitch+home+stick+bal+hand+vary+split+jj+fig+motif+acc+trig+d100+run3+mix5+s7",
+        )
+        .unwrap();
         let (mut arranged, mut left_over) = (0, 0);
         for song in disc.songs(&mut d).unwrap() {
             let c = disc.song_charts(&mut d, &song.info).unwrap();
@@ -1006,6 +1063,19 @@ mod tests {
                     let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
                     let parsed = beetle_core::parse_bms(&bms).unwrap();
                     let (n, snd) = census(&bms);
+                    assert_eq!(parsed.notes.len(), n, "{key}");
+                    assert_eq!(snd, sounds, "{key}");
+                    arranged += 1;
+                }
+                // The features chosen for the chart keep every sound.
+                let auto = Arrange::parse("6k+auto").unwrap();
+                if let Some(a) = chart.arranged(auto) {
+                    let key = a.key(c.info.id);
+                    assert!(key.ends_with("@6k+auto"), "{key}");
+                    let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
+                    let (n, snd) = census(&bms);
+                    // `acc` adds and drops notes without a sound of their own.
+                    let parsed = beetle_core::parse_bms(&bms).unwrap();
                     assert_eq!(parsed.notes.len(), n, "{key}");
                     assert_eq!(snd, sounds, "{key}");
                     arranged += 1;
