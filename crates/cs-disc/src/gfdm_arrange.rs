@@ -26,7 +26,10 @@
 //! | `hand` | quick notes that stay on one hand cost more the longer they do: fast runs go between the hands |
 //! | `vary` | a bar that comes back as it was gets its lanes laid out differently (by the seed) |
 //! | `edge` | 8K: the two outer lanes take only accents (cymbals, kicks and long or chord notes on strong beats), seldom |
+//! | `split` | two notes together go one to each hand, and (6K, 8K) not on lanes side by side |
+//! | `jj` | a sound hit twice quickly stays on its lane (a double); a third hit moves |
 //! | `j<ms>` | the shortest time between two hits on one lane (default by difficulty) |
+//! | `run<2-6>` | with `hand`: this many quick notes may stay on one hand before it costs |
 //! | `d<ms>` | the shortest time between two played notes: denser notes leave the lanes (and play by themselves), weak beats first |
 //! | `mix<1-9>` | brings the other parts' notes onto the lanes where the part rests; more the higher |
 //! | `r<0-9>` | how much seeded noise goes into the costs; 0 none |
@@ -38,6 +41,8 @@ pub const LANE_COUNTS: [u8; 3] = [4, 6, 8];
 pub const MAX_NOISE: u8 = 9;
 /// The most of the other parts an arrangement brings in (`mix`).
 pub const MAX_MIX: u8 = 9;
+/// The longest one-hand run `run` lets through.
+pub const MAX_RUN: u8 = 6;
 /// Places in a bar `Group::slot` counts.
 pub const BAR_SLOTS: u16 = 960;
 
@@ -55,6 +60,11 @@ pub struct Arrange {
     pub hand: bool,
     pub vary: bool,
     pub edge: bool,
+    pub split: bool,
+    pub jj: bool,
+    /// With `hand`: how many quick groups may stay on one hand at no cost
+    /// (2..=`MAX_RUN`); 0 the plain `hand` (one).
+    pub run: u8,
     /// The shortest time between two hits on one lane, ms; `None` the
     /// difficulty's default (`default_jack_ms`).
     pub jack_ms: Option<u16>,
@@ -90,6 +100,9 @@ impl Arrange {
         if self.lanes != 8 {
             self.edge = false;
         }
+        if !self.hand || self.run < 2 {
+            self.run = 0;
+        }
         if self.noise == 0 && !self.vary {
             self.seed = 0;
         }
@@ -108,6 +121,8 @@ impl Arrange {
             (self.hand, "hand"),
             (self.vary, "vary"),
             (self.edge, "edge"),
+            (self.split, "split"),
+            (self.jj, "jj"),
         ] {
             if on {
                 out += "+";
@@ -119,6 +134,9 @@ impl Arrange {
         }
         if let Some(d) = self.thin_ms {
             out += &format!("+d{d}");
+        }
+        if self.run >= 2 {
+            out += &format!("+run{}", self.run);
         }
         if self.mix > 0 {
             out += &format!("+mix{}", self.mix);
@@ -158,7 +176,13 @@ impl Arrange {
                 "hand" => a.hand = true,
                 "vary" => a.vary = true,
                 "edge" => a.edge = true,
+                "split" => a.split = true,
+                "jj" => a.jj = true,
                 _ => {
+                    if let Some(m) = p.strip_prefix("run") {
+                        a.run = number(m).filter(|m| (2..=MAX_RUN as u64).contains(m))? as u8;
+                        continue;
+                    }
                     if let Some(m) = p.strip_prefix("mix") {
                         a.mix = number(m).filter(|&m| m <= MAX_MIX as u64)? as u8;
                         continue;
@@ -295,6 +319,12 @@ const PHRASE_GAP_MS: i64 = 750;
 /// hand costs `HAND_RUN` times its place in the run.
 const FAST_MS: i64 = 220;
 const HAND_RUN: f64 = 70.0;
+/// `split`: two notes together on one hand, and (6 lanes or more) on lanes
+/// side by side.
+const SPLIT_HAND: f64 = 120.0;
+const SPLIT_NEXT: f64 = 80.0;
+/// `jj`: a double may be this much of the shortest repeat apart.
+const DOUBLE: f64 = 0.75;
 /// `vary`: the most a lane's bias in a returning bar costs.
 const VARY: f64 = 160.0;
 /// `edge`: an outer note that is not an accent, one sooner than
@@ -323,8 +353,9 @@ struct State {
     /// Hits on each lane, decayed to `load_ms`.
     load: [f64; MAX_LANES],
     load_ms: i64,
-    /// Recent notes by identity: (identity, lane, ms), newest first.
-    recent: [(u16, u8, i64); RECENT],
+    /// Recent notes by identity: (identity, lane, ms, on the lane its sound
+    /// was last on), newest first.
+    recent: [(u16, u8, i64, bool); RECENT],
     /// The last group's time and hand (0 left, 1 right, 2 both), and how
     /// many quick groups in a row stayed on that hand (`hand`).
     group_ms: i64,
@@ -596,7 +627,7 @@ pub fn arrange(
         last: [never; MAX_LANES],
         load: [0.0; MAX_LANES],
         load_ms: 0,
-        recent: [(u16::MAX, 0, never); RECENT],
+        recent: [(u16::MAX, 0, never, false); RECENT],
         group_ms: never,
         side: 2,
         run: 0,
@@ -607,6 +638,8 @@ pub fn arrange(
     let seed = SplitMix64::new(a.seed).next_u64();
     let bucket = (jack / 2.0).max(1.0);
     let half = n / 2;
+    // Quick groups that may follow the first on one hand at no cost.
+    let free_run = a.run.max(1) as u16 - 1;
     let side_of = |mask: u16| -> u8 {
         let left = mask & ((1 << half) - 1) != 0;
         let right = mask >> half != 0;
@@ -660,11 +693,27 @@ pub fn arrange(
                     .recent
                     .iter()
                     .find(|r| r.0 == id && g.ms - r.2 <= repeat_ms)
-                    .map(|r| r.1);
+                    .map(|r| (r.1, r.2, r.3));
+                // `jj`: the second hit of a sound may stay where the first
+                // was (if nothing else hit that lane since); a third may not.
+                let own = note.from.is_none();
+                let double = match prev {
+                    Some((lane, ms, false)) if a.jj && own && s.last[lane as usize] == ms => {
+                        Some(lane as usize)
+                    }
+                    _ => None,
+                };
+                let tripled = match prev {
+                    Some((lane, _, true)) if a.jj => Some(lane as usize),
+                    _ => None,
+                };
+                let prev = prev.map(|p| p.0);
                 let mut target = liked[gi][i];
                 if kind == PartKind::Drums && a.stick && note.from.is_none() {
                     let d = note.origin.min(5) as usize;
-                    if let Some(last_lane) = prev {
+                    if let Some(lane) = double {
+                        target = Some(lane as f64);
+                    } else if let Some(last_lane) = prev {
                         target = Some(if last_lane == home[d] {
                             alt[d]
                         } else {
@@ -679,8 +728,15 @@ pub fn arrange(
                 for l in 0..n {
                     let mut cost = noise[l];
                     let gap = (g.ms - s.last[l]) as f64;
-                    if gap < jack {
+                    let shortest = if double == Some(l) {
+                        jack * DOUBLE
+                    } else {
+                        jack
+                    };
+                    if gap < shortest {
                         cost += JACK_BASE + JACK * (jack - gap) / jack;
+                    } else if tripled == Some(l) && gap < repeat_ms as f64 {
+                        cost += JACK_BASE;
                     }
                     if let Some(t) = target {
                         cost += PREFER * (l as f64 - t).abs();
@@ -718,10 +774,22 @@ pub fn arrange(
                     }
                     cost += HAND_LOAD * (h[0] - h[1]).abs();
                 }
+                if a.split && k == 2 {
+                    let (x, y) = (lanes[0] as usize, lanes[1] as usize);
+                    if (x < half) == (y < half) {
+                        cost += SPLIT_HAND;
+                    }
+                    if n >= 6 && y == x + 1 {
+                        cost += SPLIT_NEXT;
+                    }
+                }
                 if a.hand && quick {
                     let side = side_of(*mask);
-                    if side != 2 && side == s.side {
-                        cost += HAND_RUN * (s.run + 1) as f64;
+                    // `jj`: hitting the last group's lanes again is no run.
+                    let again = a.jj && lanes.iter().all(|&l| s.last[l as usize] == s.group_ms);
+                    if side != 2 && side == s.side && !again {
+                        let over = (s.run + 1).saturating_sub(free_run);
+                        cost += HAND_RUN * over as f64;
                     }
                 }
                 next.push((cost, si as u32, *mask));
@@ -750,7 +818,8 @@ pub fn arrange(
             let edge_mask = edge && (mask & (1 | 1 << (n - 1))) != 0;
             let edge_ms = if edge_mask { g.ms } else { s.edge_ms };
             let edge_sig = (edge && g.ms - edge_ms < EDGE_GAP_MS) as u8;
-            if !seen.insert((mask, sig, side * a.hand as u8, run.min(4) as u8, edge_sig)) {
+            let run_sig = run.min(4 + free_run) as u8;
+            if !seen.insert((mask, sig, side * a.hand as u8, run_sig, edge_sig)) {
                 continue;
             }
             let mut t = s.clone();
@@ -768,8 +837,14 @@ pub fn arrange(
             for (&i, lane) in ids.iter().zip(lanes) {
                 t.last[lane as usize] = g.ms;
                 t.load[lane as usize] += 1.0;
+                let id = identity(kind, &g.notes[i]);
+                let stayed = s
+                    .recent
+                    .iter()
+                    .find(|r| r.0 == id && g.ms - r.2 <= repeat_ms)
+                    .is_some_and(|r| r.1 == lane);
                 t.recent.copy_within(0..RECENT - 1, 1);
-                t.recent[0] = (identity(kind, &g.notes[i]), lane, g.ms);
+                t.recent[0] = (id, lane, g.ms, stayed);
             }
             nodes.push((s.node, mask));
             t.node = (nodes.len() - 1) as u32;
@@ -901,7 +976,7 @@ mod tests {
         assert_eq!(plain.key(), "4k");
         for bad in [
             "5k", "4", "4k+foo", "4k+r10", "4k+j", "4k+j0", "4k+jx", "k", "4k+s-1", "4k+mix10",
-            "4k+mix", "4k+d0", "4k+mixa",
+            "4k+mix", "4k+d0", "4k+mixa", "4k+run", "4k+run1", "4k+run7",
         ] {
             assert_eq!(Arrange::parse(bad), None, "{bad}");
         }
@@ -915,6 +990,9 @@ mod tests {
             hand: true,
             vary: true,
             edge: true,
+            split: true,
+            jj: true,
+            run: 3,
             jack_ms: Some(150),
             thin_ms: Some(90),
             mix: 4,
@@ -923,7 +1001,7 @@ mod tests {
         };
         assert_eq!(
             all.key(),
-            "8k+pitch+home+stick+trill+bal+hand+vary+edge+j150+d90+mix4+r9+s12345"
+            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+j150+d90+run3+mix4+r9+s12345"
         );
         assert_eq!(Arrange::parse(&all.key()), Some(all));
     }
@@ -1034,6 +1112,85 @@ mod tests {
             longest_one_hand_run(&with, 6) < longest_one_hand_run(&without, 6),
             "{without:?} {with:?}"
         );
+    }
+
+    #[test]
+    fn run_lets_a_few_quick_notes_stay_on_one_hand() {
+        // The same fast R-G trill: `run3` keeps three on the hand they like.
+        let groups = run(
+            PartKind::Strings,
+            &(0..32)
+                .map(|i| (i * 110, [&[0u8][..], &[1]][i as usize % 2]))
+                .collect::<Vec<_>>(),
+        );
+        let a = Arrange::parse("6k+hand+run3").unwrap();
+        let flat: Vec<u8> = lanes_of(&arrange(&a, PartKind::Strings, 3, &groups))
+            .into_iter()
+            .map(Option::unwrap)
+            .collect();
+        let longest = longest_one_hand_run(&flat, 6);
+        assert!((3..=4).contains(&longest), "{flat:?}");
+        // Without `hand` there is nothing for `run` to change.
+        let alone = Arrange::parse("6k+run3").unwrap();
+        assert_eq!(alone.for_part(PartKind::Strings).key(), "6k");
+    }
+
+    #[test]
+    fn split_puts_two_notes_on_two_hands_and_apart() {
+        // R+G chords: both frets like the left half.
+        let groups = run(
+            PartKind::Strings,
+            &(0..8).map(|i| (i * 500, &[0u8, 1][..])).collect::<Vec<_>>(),
+        );
+        let pairs = |key: &str| -> Vec<(u8, u8)> {
+            arrange(&Arrange::parse(key).unwrap(), PartKind::Strings, 3, &groups)
+                .iter()
+                .map(|l| (l[0].unwrap(), l[1].unwrap()))
+                .collect()
+        };
+        let without = pairs("6k");
+        assert!(
+            without.iter().any(|&(x, y)| y < 3 || x + 1 == y),
+            "{without:?}"
+        );
+        let with = pairs("6k+split");
+        for &(x, y) in &with {
+            assert!(x < 3 && y >= 3 && y > x + 1, "{with:?}");
+        }
+    }
+
+    #[test]
+    fn jj_keeps_a_double_on_its_lane_and_moves_the_third() {
+        // Snare doubles 150 ms apart at ADVANCED (shortest repeat 180 ms),
+        // then three in a row.
+        let times = [0, 150, 1000, 1150, 2000, 2150, 2300];
+        let groups = run(
+            PartKind::Drums,
+            &times.iter().map(|&ms| (ms, &[1u8][..])).collect::<Vec<_>>(),
+        );
+        let flat = |key: &str| -> Vec<u8> {
+            lanes_of(&arrange(
+                &Arrange::parse(key).unwrap(),
+                PartKind::Drums,
+                2,
+                &groups,
+            ))
+            .into_iter()
+            .map(Option::unwrap)
+            .collect()
+        };
+        let without = flat("6k+home+stick");
+        assert_ne!(without[0], without[1], "{without:?}");
+        let with = flat("6k+home+stick+jj");
+        assert_eq!(with[0], with[1], "{with:?}");
+        assert_eq!(with[2], with[3], "{with:?}");
+        assert_eq!(with[4], with[5], "{with:?}");
+        assert_ne!(with[5], with[6], "{with:?}");
+        // Closer than three quarters of the shortest repeat is no double.
+        let close = run(PartKind::Drums, &[(0, &[1u8][..]), (100, &[1])]);
+        let a = Arrange::parse("6k+home+stick+jj").unwrap();
+        let lanes = lanes_of(&arrange(&a, PartKind::Drums, 2, &close));
+        assert_ne!(lanes[0], lanes[1]);
     }
 
     #[test]

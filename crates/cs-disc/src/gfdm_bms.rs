@@ -962,7 +962,9 @@ mod tests {
         let disc = crate::gfdm::Disc::open(&mut d, &volume).unwrap().unwrap();
         let kits = crate::gfdm::read_kits(&mut d, &volume).unwrap().unwrap();
         let features = Arrange::parse("4k+pitch+home+stick+trill+bal+r2+s3").unwrap();
-        let stage2 = Arrange::parse("8k+pitch+home+stick+bal+hand+vary+edge+d100+mix5+s7").unwrap();
+        let stage2 =
+            Arrange::parse("8k+pitch+home+stick+bal+hand+vary+edge+split+jj+d100+run3+mix5+s7")
+                .unwrap();
         let (mut arranged, mut left_over) = (0, 0);
         for song in disc.songs(&mut d).unwrap() {
             let c = disc.song_charts(&mut d, &song.info).unwrap();
