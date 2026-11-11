@@ -287,7 +287,7 @@ mod tests {
         s.preset = PresetChoice::Named(Preset::Flow);
         assert_eq!(
             s.target(&gf).unwrap().0,
-            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+run2"
+            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run2"
         );
         s.preset = PresetChoice::Custom;
         let (address, _) = s.target(&gf).unwrap();

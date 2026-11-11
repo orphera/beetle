@@ -534,9 +534,9 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         {
             match accent {
                 gfdm_arrange::Accent::Keep => {}
-                gfdm_arrange::Accent::Single => {
+                gfdm_arrange::Accent::Trim(keep) => {
                     // A sound among the dropped notes still plays below.
-                    for (_, sound) in g.3.drain(1..) {
+                    for (_, sound) in g.3.drain(keep.max(1)..) {
                         if sound != Sound::Silent {
                             objects.push((g.0, g.1, "01", wav_id(sound)));
                         }

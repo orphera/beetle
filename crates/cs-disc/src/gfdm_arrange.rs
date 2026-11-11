@@ -32,6 +32,7 @@
 //! | `fig` | a sound hit four times or more quickly is laid out as a figure a beat long (stairs, a bent stair, a zigzag, a trill), one figure a bar |
 //! | `motif` | a bar that comes back is played with the same hands as the first time; the lanes may differ |
 //! | `acc` | guitar and bass: two notes together where the drums hit hard, one where nothing does |
+//! | `even` | guitar and bass: notes together are sized so the keys a second stay level: one note where the notes come fastest, never two quick groups of notes together in a row, and two notes on the beats of a slow passage |
 //! | `trig` | 8K: the two outer lanes take the accents on the beat (snares and cymbals; long or hard-hit low notes), side to side. Instead of `edge` |
 //! | `j<ms>` | the shortest time between two hits on one lane (default by difficulty) |
 //! | `run<2-6>` | with `hand`: this many quick notes may stay on one hand before it costs |
@@ -74,6 +75,7 @@ pub struct Arrange {
     pub motif: bool,
     pub acc: bool,
     pub trig: bool,
+    pub even: bool,
     /// With `hand`: how many quick groups may stay on one hand at no cost
     /// (2..=`MAX_RUN`); 0 the plain `hand` (one).
     pub run: u8,
@@ -113,6 +115,7 @@ impl Arrange {
             PartKind::Drums => {
                 self.pitch = false;
                 self.acc = false;
+                self.even = false;
             }
             PartKind::Strings => {
                 self.home = false;
@@ -156,6 +159,7 @@ impl Arrange {
             (self.motif, "motif"),
             (self.acc, "acc"),
             (self.trig, "trig"),
+            (self.even, "even"),
         ] {
             if on {
                 out += "+";
@@ -216,6 +220,7 @@ impl Arrange {
                 "motif" => a.motif = true,
                 "acc" => a.acc = true,
                 "trig" => a.trig = true,
+                "even" => a.even = true,
                 _ => {
                     if let Some(m) = p.strip_prefix("run") {
                         a.run = number(m).filter(|m| (2..=MAX_RUN as u64).contains(m))? as u8;
@@ -248,7 +253,7 @@ pub enum Preset {
     /// Like a hand-made keyboard chart: a few quick notes may stay on one
     /// hand, two notes together go to both hands, doubles stay on a lane,
     /// quick repeats make figures, returning bars keep their hands, and
-    /// guitar chords follow the drums' accents.
+    /// guitar chords follow the drums' accents and keep the load level.
     Flow,
     /// Quick notes go strictly between the hands, no lane is hit twice
     /// quickly.
@@ -303,6 +308,7 @@ impl Preset {
             fig: true,
             motif: true,
             acc: true,
+            even: true,
             run: if lanes <= 4 { 3 } else { 2 },
             ..base
         };
@@ -831,42 +837,140 @@ fn motif_hands(kind: PartKind, n: usize, groups: &[Group], masks: &[u16]) -> Vec
     out
 }
 
-/// What `acc` does with a group.
+/// What `acc` and `even` do with a group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Accent {
     Keep,
-    /// Only the group's first note stays.
-    Single,
+    /// Only the group's first notes stay, this many.
+    Trim(usize),
     /// The group gets this second note (it has no sound of its own).
     Double(Note),
 }
 
-/// `acc`: guitar and bass groups by how hard the song hits there. A single
-/// note on a quarter beat where the drums play a snare or cymbal
-/// (`Group::accent`), or where a bar starts, becomes two; notes together off the quarter beats with no drum
-/// under them become one. Every group `Keep`s without `acc`.
+/// `even`: the keys a second are counted over this long before and after a
+/// group.
+const EVEN_WINDOW_MS: i64 = 500;
+/// `even`: the most keys a second, as a multiple of the groups a second
+/// where the chart is fast (nine tenths of its groups are slower).
+const EVEN_CAP: f64 = 1.3;
+/// `even`: a slow passage gets second notes up to this much of the most.
+const EVEN_FILL: f64 = 0.7;
+
+/// `acc`, `even`: how many notes each guitar and bass group plays.
+///
+/// `acc` sizes a group by how hard the song hits there. A single note on a
+/// quarter beat where the drums play a snare or cymbal (`Group::accent`),
+/// or where a bar starts, becomes two; notes together off the quarter beats
+/// with no drum under them become one.
+///
+/// `even` then keeps the load level (a note more in a group is another key
+/// at once, and has no sound of its own). Every group starts as one note,
+/// and the groups take their notes back, strong beats and drum accents
+/// first, while the keys a second around them stay under the most the chart
+/// may have, and no two quick groups in a row have more than one (a quick
+/// group no more than two). Where that leaves a passage slow, single notes
+/// on the beats become two.
+///
+/// Every group `Keep`s without both.
 pub fn accents(a: &Arrange, kind: PartKind, groups: &[Group]) -> Vec<Accent> {
-    groups
+    let mut out = vec![Accent::Keep; groups.len()];
+    if kind != PartKind::Strings || !(a.acc || a.even) {
+        return out;
+    }
+    let own: Vec<usize> = (0..groups.len())
+        .filter(|&i| !groups[i].borrowed() && !groups[i].notes.is_empty())
+        .collect();
+    // The notes each group wants.
+    let mut want: Vec<usize> = own
         .iter()
-        .map(|g| {
-            if !a.acc || kind != PartKind::Strings || g.borrowed() {
-                return Accent::Keep;
-            }
+        .map(|&i| {
+            let g = &groups[i];
             let strength = g.strength();
             match g.notes.len() {
-                1 if strength == 4 || (g.accent >= 2 && strength >= 2) => {
-                    let n = g.notes[0];
-                    Accent::Double(Note {
-                        origin: (n.origin + 1) % 3,
-                        ticks: 0,
-                        ..n
-                    })
-                }
-                k if k >= 2 && g.accent == 0 && strength < 2 => Accent::Single,
-                _ => Accent::Keep,
+                k if !a.acc => k,
+                1 if strength == 4 || (g.accent >= 2 && strength >= 2) => 2,
+                k if k >= 2 && g.accent == 0 && strength < 2 => 1,
+                k => k,
             }
         })
-        .collect()
+        .collect();
+    if a.even {
+        want = even_sizes(groups, &own, &want);
+    }
+    for (&i, &size) in own.iter().zip(&want) {
+        let notes = &groups[i].notes;
+        out[i] = match size.cmp(&notes.len()) {
+            std::cmp::Ordering::Equal => Accent::Keep,
+            std::cmp::Ordering::Less => Accent::Trim(size),
+            std::cmp::Ordering::Greater => {
+                let n = notes[0];
+                Accent::Double(Note {
+                    origin: (n.origin + 1) % 3,
+                    ticks: 0,
+                    ..n
+                })
+            }
+        };
+    }
+    out
+}
+
+/// `even`: the notes each of the part's groups (`own`, in time order) plays,
+/// from the notes each wants.
+fn even_sizes(groups: &[Group], own: &[usize], want: &[usize]) -> Vec<usize> {
+    let ms = |k: usize| groups[own[k]].ms;
+    // The groups within the window of each, as a range of `own`.
+    let mut windows: Vec<(usize, usize)> = Vec::with_capacity(own.len());
+    let (mut lo, mut hi) = (0, 0);
+    for k in 0..own.len() {
+        while ms(lo) < ms(k) - EVEN_WINDOW_MS {
+            lo += 1;
+        }
+        while hi < own.len() && ms(hi) <= ms(k) + EVEN_WINDOW_MS {
+            hi += 1;
+        }
+        windows.push((lo, hi));
+    }
+    let mut hits: Vec<usize> = windows.iter().map(|w| w.1 - w.0).collect();
+    hits.sort_unstable();
+    let fast = hits.get(hits.len() * 9 / 10).copied().unwrap_or(0);
+    let most = fast as f64 * EVEN_CAP;
+    // Strong beats, drum accents and long notes first; then as they come.
+    let prio = |k: usize| {
+        let g = &groups[own[k]];
+        let long = g.notes.iter().any(|n| n.ticks >= LONG_TICKS);
+        2 * g.strength() as i32 + 2 * g.accent as i32 + long as i32
+    };
+    let mut order: Vec<usize> = (0..own.len()).collect();
+    order.sort_by_key(|&k| (-prio(k), k));
+    let quick = |x: usize, y: usize| ms(y) - ms(x) < FAST_MS;
+    // Whether group `k` may play a note more: with the keys around it no
+    // more than `limit`, and no window it is in over the most.
+    let fits = |size: &[usize], k: usize, limit: f64| {
+        let before = k > 0 && quick(k - 1, k);
+        let after = k + 1 < own.len() && quick(k, k + 1);
+        if (before && size[k - 1] > 1) || (after && size[k + 1] > 1) {
+            return false;
+        }
+        if (before || after) && size[k] >= 2 {
+            return false;
+        }
+        let keys = |w: (usize, usize)| size[w.0..w.1].iter().sum::<usize>() as f64;
+        let (lo, hi) = windows[k];
+        keys(windows[k]) + 1.0 <= limit && (lo..hi).all(|j| keys(windows[j]) + 1.0 <= most)
+    };
+    let mut size = vec![1usize; own.len()];
+    for &k in &order {
+        while size[k] < want[k] && fits(&size, k, most) {
+            size[k] += 1;
+        }
+    }
+    for &k in &order {
+        if size[k] == 1 && groups[own[k]].strength() >= 1 && fits(&size, k, most * EVEN_FILL) {
+            size[k] = 2;
+        }
+    }
+    size
 }
 
 /// `trig`: whether note `i` of `g` is an accent on the beat.
@@ -1425,6 +1529,7 @@ mod tests {
             motif: true,
             acc: true,
             trig: false,
+            even: true,
             run: 3,
             jack_ms: Some(150),
             thin_ms: Some(90),
@@ -1434,7 +1539,7 @@ mod tests {
         };
         assert_eq!(
             all.key(),
-            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+j150+d90+run3+mix4+r9+s12345"
+            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+even+j150+d90+run3+mix4+r9+s12345"
         );
         assert_eq!(Arrange::parse(&all.key()), Some(all));
     }
@@ -1592,7 +1697,7 @@ mod tests {
         );
         assert_eq!(
             Preset::Flow.arrange(4).for_part(PartKind::Strings).key(),
-            "4k+pitch+bal+hand+vary+split+jj+fig+motif+acc+run3"
+            "4k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run3"
         );
         assert_eq!(Preset::Easy.arrange(6).thin_ms, Some(150));
         assert_eq!(Preset::Session.arrange(6).mix, 5);
@@ -1683,7 +1788,7 @@ mod tests {
         let a = Arrange::parse("6k+acc").unwrap();
         let got = accents(&a, PartKind::Strings, &groups);
         assert!(matches!(got[0], Accent::Double(_)));
-        assert_eq!(got[1], Accent::Single);
+        assert_eq!(got[1], Accent::Trim(1));
         assert_eq!(got[2], Accent::Keep);
         assert_eq!(got[3], Accent::Keep);
         assert_eq!(got[4], Accent::Keep);
@@ -1701,6 +1806,67 @@ mod tests {
         assert!(accents(&plain, PartKind::Strings, &groups)
             .iter()
             .all(|x| *x == Accent::Keep));
+    }
+
+    #[test]
+    fn even_levels_quick_chords_and_fills_slow_beats() {
+        // Two bars of eighths (250 ms) of single notes, then two bars of
+        // sixteenths (125 ms) of R+G chords.
+        let mut all: Vec<(i64, &[u8])> = (0..16).map(|i| (i * 250, &[0u8][..])).collect();
+        all.extend((0..32).map(|i| (4000 + i * 125, &[0u8, 1][..])));
+        let groups = run(PartKind::Strings, &all);
+        let sizes = |key: &str| -> Vec<usize> {
+            let a = Arrange::parse(key).unwrap();
+            accents(&a, PartKind::Strings, &groups)
+                .iter()
+                .zip(&groups)
+                .map(|(x, g)| match x {
+                    Accent::Keep => g.notes.len(),
+                    Accent::Trim(n) => *n,
+                    Accent::Double(_) => g.notes.len() + 1,
+                })
+                .collect()
+        };
+        let plain = sizes("6k");
+        assert!(plain[..16].iter().all(|&n| n == 1) && plain[16..].iter().all(|&n| n == 2));
+        let even = sizes("6k+even");
+        // No two quick groups in a row play two notes, and the quick part
+        // has fewer keys than it had.
+        for w in even[16..].windows(2) {
+            assert!(w[0] == 1 || w[1] == 1, "{even:?}");
+        }
+        let keys = |v: &[usize]| v.iter().sum::<usize>();
+        assert!(keys(&even[16..]) < keys(&plain[16..]), "{even:?}");
+        // The slow part gets second notes on its beats.
+        assert!(keys(&even[..16]) > 16, "{even:?}");
+        assert!(even[..16].iter().step_by(2).any(|&n| n == 2), "{even:?}");
+        // The keys in any second stay close: the hardest second is no more
+        // than twice the easiest (it was over three times).
+        let load = |v: &[usize]| -> (usize, usize) {
+            let per: Vec<usize> = (0..8)
+                .map(|sec| {
+                    groups
+                        .iter()
+                        .zip(v)
+                        .filter(|(g, _)| g.ms / 1000 == sec)
+                        .map(|(_, n)| *n)
+                        .sum()
+                })
+                .collect();
+            (*per.iter().min().unwrap(), *per.iter().max().unwrap())
+        };
+        let (lo, hi) = load(&plain);
+        assert!(hi > 3 * lo, "{plain:?}");
+        let (lo, hi) = load(&even);
+        assert!(hi <= 2 * lo, "{even:?}");
+        // Not for drums.
+        assert_eq!(
+            Arrange::parse("6k+even")
+                .unwrap()
+                .for_part(PartKind::Drums)
+                .key(),
+            "6k"
+        );
     }
 
     #[test]
