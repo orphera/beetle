@@ -3,9 +3,9 @@
 //! the charts found.
 //!
 //! With an arrangement (`gfdm_arrange`, e.g. `6k+pitch+trill`), it writes
-//! the drum, guitar and bass charts arranged by it instead,
-//! `<out dir>/<id>_<part><difficulty>@<arrangement>.bms` (open charts are
-//! not arranged). Song ids after it (comma separated) limit the songs.
+//! the charts arranged by it instead,
+//! `<out dir>/<id>_<part><difficulty>@<arrangement>.bms`. Song ids after it
+//! (comma separated) limit the songs.
 //!
 //! cargo run -p cs-disc --release --example gfdm_bms -- <image.iso> <out dir> [<arrangement> [<id>,...]]
 use cs_disc::gfdm::{read_kits, Disc};
@@ -44,10 +44,7 @@ fn main() {
         let mut line = format!("{:4} {:15}", c.info.id, c.info.name);
         for chart in list {
             let chart = match arrange {
-                Some(a) => match chart.arranged(a) {
-                    Some(c) => c,
-                    None => continue,
-                },
+                Some(a) => chart.arranged(a),
                 None => chart,
             };
             let bms = to_bms(&s, chart).unwrap();

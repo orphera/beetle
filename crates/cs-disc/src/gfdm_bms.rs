@@ -17,7 +17,8 @@
 //!   drum, guitar or bass notes on N lanes chosen again for a keyboard
 //!   (`#4K`, `#6K` or `#8K`), at the same times with the same sounds. A note
 //!   left over when more play at once than there are lanes plays as a sound.
-//!   Open charts are not arranged.
+//!   An open chart's open picks are notes like the others (placed by their
+//!   pitch); they have no frets, so they never play as chords.
 //!
 //! Times on the disc are absolute (1/300 s). Bars are the meta track's bar
 //! lines; each bar's length comes from the tempo between them, so the BMS
@@ -61,13 +62,11 @@ impl Part {
         }
     }
 
-    /// What kind of part an arrangement treats this as; open charts are
-    /// not arranged (their notes are the guitar chart's).
-    pub fn arrange_kind(self) -> Option<PartKind> {
+    /// What kind of part an arrangement treats this as.
+    pub fn arrange_kind(self) -> PartKind {
         match self {
-            Part::Drums => Some(PartKind::Drums),
-            Part::Guitar | Part::Bass => Some(PartKind::Strings),
-            Part::Open => None,
+            Part::Drums => PartKind::Drums,
+            Part::Guitar | Part::Open | Part::Bass => PartKind::Strings,
         }
     }
 }
@@ -105,13 +104,12 @@ impl ChartRef {
         }
     }
 
-    /// This chart arranged by `arrange`, `None` for a part that is not
-    /// arranged (open).
-    pub fn arranged(self, arrange: Arrange) -> Option<Self> {
-        Some(Self {
-            arrange: Some(arrange.for_part(self.part.arrange_kind()?)),
+    /// This chart arranged by `arrange`.
+    pub fn arranged(self, arrange: Arrange) -> Self {
+        Self {
+            arrange: Some(arrange.for_part(self.part.arrange_kind())),
             ..self
-        })
+        }
     }
 
     /// `gfdm/{id}/dm{d}`, `gf{d}`, `open{d}` or `bass{d}`, then `@` and the
@@ -152,7 +150,7 @@ impl ChartRef {
         (1..=3).contains(&difficulty).then_some(())?;
         let chart = Self::original(part, difficulty);
         let chart = match arrange {
-            Some(a) => chart.arranged(a)?,
+            Some(a) => chart.arranged(a),
             None => chart,
         };
         Some((id.parse().ok()?, chart))
@@ -302,10 +300,11 @@ fn base36(n: usize) -> String {
 
 /// The chart as BMS text, `None` when the song has no such chart.
 /// The lanes a note event takes in its own chart: the drum, or the frets
-/// (an open note takes none).
+/// (an open pick takes lane 3 alone; the fret bits it keeps do not count).
 fn origins(game: Game, e: &Event) -> Vec<u8> {
     match game {
         Game::DrumMania => (e.value < 6).then_some(e.value).into_iter().collect(),
+        Game::GuitarFreaks if e.value & OPEN != 0 => vec![3],
         Game::GuitarFreaks => (0..3).filter(|b| e.value & (1 << b) != 0).collect(),
     }
 }
@@ -387,7 +386,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     objects.push((0, 0, "01", wav_id(Sound::Music)));
     let game = chart.game();
     let arranged = match chart.arrange {
-        Some(a) => Some((a, chart.part.arrange_kind()?, lane_channels(a.lanes)?)),
+        Some(a) => Some((a, chart.part.arrange_kind(), lane_channels(a.lanes)?)),
         None => None,
     };
     // Arranged notes by place: (bar, slot, ms, notes with their sounds).
@@ -464,7 +463,6 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     let borrows = |e: &Event, other: ChartRef| {
         e.kind == EVENT_NOTE
             && arranged.is_some_and(|(a, _, _)| a.mix > 0)
-            && other.part.arrange_kind().is_some()
             && !origins(other.game(), e).is_empty()
             && sound_of(other.game(), e).is_some()
     };
@@ -477,7 +475,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
             add_note(
                 e,
                 other.game(),
-                part.arrange_kind(),
+                Some(part.arrange_kind()),
                 sound_of(other.game(), e),
             );
         }
@@ -701,7 +699,10 @@ mod tests {
             ChartRef::parse("gfdm/404/dm1@4k+pitch").map(|(i, c)| c.key(i)),
             Some("gfdm/404/dm1@4k".to_string())
         );
-        assert_eq!(ChartRef::parse("gfdm/404/open2@6k"), None);
+        assert_eq!(
+            ChartRef::parse("gfdm/404/open2@6k+pitch+home").map(|(i, c)| c.key(i)),
+            Some("gfdm/404/open2@6k+pitch".to_string())
+        );
         assert_eq!(ChartRef::parse("gfdm/404/gf2@5k"), None);
         assert_eq!(ChartRef::parse("gfdm/404/gf2@"), None);
         assert_eq!(ChartRef::parse("017/sp_normal"), None);
@@ -857,6 +858,13 @@ mod tests {
             ),
             "{bms}"
         );
+        // Arranged: the two notes of the chord and the open pick as one
+        // note, on six lanes.
+        let arranged = chart.arranged(Arrange::parse("6k+pitch").unwrap());
+        assert_eq!(arranged.key(1), "gfdm/1/open2@6k+pitch");
+        let bms = to_bms(&song, arranged).unwrap();
+        assert!(bms.contains("#6K\n"), "{bms}");
+        assert_eq!(census(&bms).0, 3, "{bms}");
     }
 
     /// Notes on lanes, and every sound (by name, silent ones left out) on
@@ -967,7 +975,7 @@ mod tests {
         let original = ChartRef::original(Part::Guitar, 3);
         let plain = to_bms(&song, original).unwrap();
         let arranged = |key: &str| {
-            let chart = original.arranged(Arrange::parse(key).unwrap()).unwrap();
+            let chart = original.arranged(Arrange::parse(key).unwrap());
             to_bms(&song, chart).unwrap()
         };
         for key in ["4k", "6k+pitch+trill+r3+s1", "8k+trill+bal"] {
@@ -1004,7 +1012,7 @@ mod tests {
     }
 
     /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
-    /// Silver image: every drum, guitar and bass chart arranges to 4K, 6K
+    /// Silver image: every drum, guitar, open and bass chart arranges to 4K, 6K
     /// and 8K, reads back as that mode, and keeps its notes and sounds
     /// (4K drums may leave notes over when five or six play at once); and
     /// with thinning, other parts and outer lanes on, keeps its sounds.
@@ -1036,10 +1044,7 @@ mod tests {
                 let plain = to_bms(&s, chart).unwrap();
                 let (notes, sounds) = census(&plain);
                 for lanes in crate::gfdm_arrange::LANE_COUNTS {
-                    let Some(a) = chart.arranged(Arrange { lanes, ..features }) else {
-                        assert_eq!(chart.part, Part::Open);
-                        continue;
-                    };
+                    let a = chart.arranged(Arrange { lanes, ..features });
                     let key = a.key(c.info.id);
                     let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
                     let parsed = beetle_core::parse_bms(&bms).unwrap();
@@ -1058,7 +1063,8 @@ mod tests {
                     arranged += 1;
                 }
                 // Thinned, mixed, with outer lanes: the same sounds.
-                if let Some(a) = chart.arranged(stage2) {
+                {
+                    let a = chart.arranged(stage2);
                     let key = a.key(c.info.id);
                     let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
                     let parsed = beetle_core::parse_bms(&bms).unwrap();
@@ -1069,7 +1075,8 @@ mod tests {
                 }
                 // The features chosen for the chart keep every sound.
                 let auto = Arrange::parse("6k+auto").unwrap();
-                if let Some(a) = chart.arranged(auto) {
+                {
+                    let a = chart.arranged(auto);
                     let key = a.key(c.info.id);
                     assert!(key.ends_with("@6k+auto"), "{key}");
                     let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));
@@ -1083,6 +1090,6 @@ mod tests {
             }
         }
         println!("{arranged} arranged charts, {left_over} 4K drum notes left over");
-        assert!(arranged > 1500);
+        assert!(arranged > 3600);
     }
 }

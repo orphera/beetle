@@ -401,7 +401,7 @@ impl SplitMix64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Note {
     /// Its lane in its own chart: the drum (0 HH, 1 SD, 2 BD, 3 HT, 4 LT,
-    /// 5 CY) or the fret (0 R, 1 G, 2 B).
+    /// 5 CY), the fret (0 R, 1 G, 2 B) or 3 for an open pick.
     pub origin: u8,
     /// Its sound key (`Event::a` low 16 bits). For guitar and bass the low
     /// byte is the note's pitch; drum keys are about General MIDI drums.

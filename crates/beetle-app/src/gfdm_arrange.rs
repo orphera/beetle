@@ -221,8 +221,8 @@ impl ArrangeSetting {
 
     /// Where `song`'s chart opens with the option: the address of the
     /// arranged chart and its key mode, `None` when it opens as it is (the
-    /// option is off, or the song is not an original drum, guitar or bass
-    /// chart of a GFDM disc).
+    /// option is off, or the song is not an original chart of a GFDM
+    /// disc).
     pub fn target(&self, song: &SongMetadata) -> Option<(String, PlayMode)> {
         if !self.on {
             return None;
@@ -234,7 +234,7 @@ impl ArrangeSetting {
         if chart.arrange.is_some() {
             return None;
         }
-        let arranged = chart.arranged(self.effective())?;
+        let arranged = chart.arranged(self.effective());
         let mode = match self.arrange.lanes {
             4 => PlayMode::Keys4,
             8 => PlayMode::Keys8,
@@ -305,8 +305,16 @@ mod tests {
                 PlayMode::Keys4
             )
         );
+        // Open and bass charts are arranged as guitar charts are.
+        s.arrange.lanes = 6;
+        for part in ["open3", "bass2"] {
+            let chart = song(&format!("disc:D:/x.iso::gfdm/404/{part}"));
+            assert_eq!(
+                s.target(&chart).unwrap().0,
+                format!("disc:D:/x.iso::gfdm/404/{part}@6k+pitch+bal+hand+vary")
+            );
+        }
         for other in [
-            "disc:D:/x.iso::gfdm/404/open3",
             "disc:D:/x.iso::gfdm/404/gf3@8k",
             "disc:D:/x.iso::017/sp_normal",
             "D:/BMS/x.bms",
