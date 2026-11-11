@@ -2126,7 +2126,8 @@ fn detail_panel(
         }
         None => inner,
     };
-    let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
+    let (tier, tier_col) =
+        theme::level_tier_named(song.difficulty_names(), song.difficulty, song.play_level);
 
     let disc = is_disc_song(song);
     // pop'n is decided by the song's names alone. Deciding it from the loaded

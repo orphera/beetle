@@ -58,6 +58,7 @@ impl LoadingLane {
         h.bpm = song.bpm;
         h.play_level = song.play_level;
         h.difficulty = song.difficulty;
+        h.difficulty_names = song.difficulty_names();
         let timing = TimingModel::from_chart(&chart);
         let notes = song.notes_count_for(state.play_ruleset(song).ln) as u32;
         // A course song shows the gauge it carries in.

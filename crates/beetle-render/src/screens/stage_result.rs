@@ -204,7 +204,11 @@ fn outcome_panel(
     panel(c, sk, p);
     let inner = p.inset(24.0 * s);
     let header = &f.chart.header;
-    let (tier, tier_col) = theme::level_tier(header.difficulty, header.play_level);
+    let (tier, tier_col) = theme::level_tier_named(
+        header.difficulty_names,
+        header.difficulty,
+        header.play_level,
+    );
 
     // Song header: jacket thumbnail + tier / title / artist
     let jacket = Rect::new(inner.x, inner.y, 96.0 * s, 72.0 * s);

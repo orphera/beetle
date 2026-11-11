@@ -7,7 +7,7 @@
 
 use crate::skin::ColorRgba;
 use crate::text::TextStyle;
-use beetle_core::{ClearType, JudgeGrade, PlayMode};
+use beetle_core::{ClearType, DifficultyNames, JudgeGrade, PlayMode};
 
 const fn rgb(hex: u32) -> ColorRgba {
     ColorRgba::new((hex >> 16) as u8, (hex >> 8) as u8, hex as u8, 255)
@@ -143,6 +143,18 @@ pub fn rank(accuracy_percent: f64) -> (&'static str, ColorRgba) {
     }
 }
 
+/// `level_tier` with the name the chart's game gives the slot (BASIC, EX,
+/// ...). The colour is the slot's.
+pub fn level_tier_named(
+    names: DifficultyNames,
+    difficulty: Option<u32>,
+    level: u32,
+) -> (&'static str, ColorRgba) {
+    let (name, colour) = level_tier(difficulty, level);
+    let own = difficulty.and_then(|d| names.name(d));
+    (own.unwrap_or(name), colour)
+}
+
 /// Difficulty name and colour of a chart, from its `#DIFFICULTY` (1 BEGINNER,
 /// 2 NORMAL, 3 HYPER, 4 ANOTHER, 5 INSANE). A chart that does not say is
 /// "LV", coloured by its play level so the list still reads at a glance.
@@ -239,6 +251,33 @@ pub fn clock(seconds: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tier_is_named_by_the_game_and_coloured_by_the_slot() {
+        // GFDM ADVANCED sits in HYPER's slot, pop'n EX in ANOTHER's.
+        assert_eq!(
+            level_tier_named(DifficultyNames::Gfdm, Some(3), 40),
+            ("ADVANCED", GOLD)
+        );
+        assert_eq!(
+            level_tier_named(DifficultyNames::Popn, Some(4), 30),
+            ("EX", RED)
+        );
+        assert_eq!(
+            level_tier_named(DifficultyNames::Popn, Some(1), 5),
+            ("EASY", GREEN)
+        );
+        assert_eq!(
+            level_tier_named(DifficultyNames::Iidx, Some(3), 10),
+            level_tier(Some(3), 10)
+        );
+        // A slot the game has no name for, and a chart that does not say.
+        assert_eq!(
+            level_tier_named(DifficultyNames::Gfdm, Some(1), 10).0,
+            "BEGINNER"
+        );
+        assert_eq!(level_tier_named(DifficultyNames::Gfdm, None, 10).0, "LV");
+    }
 
     #[test]
     fn formatting() {

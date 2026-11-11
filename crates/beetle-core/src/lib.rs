@@ -30,8 +30,8 @@ pub mod title;
 pub use atomic_file::write_atomic;
 pub use bms::{
     decode_base36, decode_bms_text, encode_base36, parse_bms, parse_bms_with_seed, BgaChannel,
-    BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError, Lane, NoteEvent, NoteType,
-    PlayMode, WavId,
+    BgaDefinition, BgaEvent, BmpId, BmsChart, BmsHeader, BmsParseError, DifficultyNames, Lane,
+    NoteEvent, NoteType, PlayMode, WavId,
 };
 pub use course::{
     Constraint, CourseChart, CourseDef, CourseId, CourseRecord, CourseRecords, CourseRun,

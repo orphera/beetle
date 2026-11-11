@@ -18,6 +18,45 @@ impl WavId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct BmpId(pub u16);
 
+/// What a game calls the difficulties of its charts. `#DIFFICULTY` says
+/// which slot a chart is (1 to 5, coloured the same everywhere); the name
+/// shown for the slot is the game's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DifficultyNames {
+    /// BEGINNER, NORMAL, HYPER, ANOTHER, INSANE: beatmania IIDX and BMS.
+    #[default]
+    Iidx,
+    /// GuitarFreaks & DrumMania: BASIC, ADVANCED, EXTREME in slots 2 to 4.
+    Gfdm,
+    /// pop'n music: EASY, NORMAL, HYPER, EX in slots 1 to 4.
+    Popn,
+}
+
+impl DifficultyNames {
+    /// The names of the chart at `file_path` that plays as `mode`: a disc
+    /// chart of GuitarFreaks & DrumMania (`gfdm/...`) or pop'n music (nine
+    /// buttons) has its game's names.
+    pub fn of(file_path: &str, mode: PlayMode) -> Self {
+        match crate::SongAddress::parse(file_path) {
+            crate::SongAddress::Disc { chart, .. } if chart.starts_with("gfdm/") => Self::Gfdm,
+            crate::SongAddress::Disc { .. } if mode == PlayMode::Keys9 => Self::Popn,
+            _ => Self::Iidx,
+        }
+    }
+
+    /// The name of slot `difficulty` (`#DIFFICULTY`), `None` for a slot the
+    /// game has no chart in.
+    pub fn name(self, difficulty: u32) -> Option<&'static str> {
+        let names: [&'static str; 5] = match self {
+            Self::Iidx => ["BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE"],
+            Self::Gfdm => ["", "BASIC", "ADVANCED", "EXTREME", ""],
+            Self::Popn => ["EASY", "NORMAL", "HYPER", "EX", ""],
+        };
+        let name = *names.get((difficulty as usize).checked_sub(1)?)?;
+        (!name.is_empty()).then_some(name)
+    }
+}
+
 /// BMS play mode category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PlayMode {
@@ -209,6 +248,10 @@ pub struct BmsHeader {
     pub preview: String,
     pub ln_obj: Option<WavId>,
     pub difficulty: Option<u32>,
+    /// What the chart's game calls its difficulties. Not in the chart text:
+    /// whoever loads the chart sets it from where the chart is
+    /// (`DifficultyNames::of`).
+    pub difficulty_names: DifficultyNames,
     pub lntype: u32,
     /// `#LNMODE` (1 LN, 2 CN, 3 HCN); `None` when absent or not one of those.
     pub ln_mode: Option<u32>,
@@ -239,6 +282,7 @@ impl Default for BmsHeader {
             preview: String::new(),
             ln_obj: None,
             difficulty: None,
+            difficulty_names: DifficultyNames::Iidx,
             lntype: 1,
             ln_mode: None,
             wav_table: HashMap::new(),
@@ -1319,6 +1363,39 @@ fn process_lnobj_notes(ln_obj: WavId, notes: &mut [NoteEvent]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_disc_chart_names_its_difficulties_as_its_game_does() {
+        use DifficultyNames::*;
+        let of = DifficultyNames::of;
+        assert_eq!(of("disc:D:/gfdm.iso::gfdm/404/gf3", PlayMode::Keys4), Gfdm);
+        assert_eq!(
+            of("disc:D:/gfdm.iso::gfdm/404/dm1@8k+auto", PlayMode::Keys8),
+            Gfdm
+        );
+        assert_eq!(of("disc:E:::012/sp_hyper", PlayMode::Keys9), Popn);
+        assert_eq!(of("disc:E:::012/sp_hyper", PlayMode::Keys7), Iidx);
+        // A pop'n chart in a folder is a BMS chart like any other.
+        assert_eq!(of("D:/BMS/song/a.pms", PlayMode::Keys9), Iidx);
+        let names = |n: DifficultyNames| (1..=5).map(|d| n.name(d)).collect::<Vec<_>>();
+        assert_eq!(
+            names(Gfdm),
+            [None, Some("BASIC"), Some("ADVANCED"), Some("EXTREME"), None]
+        );
+        assert_eq!(
+            names(Popn),
+            [
+                Some("EASY"),
+                Some("NORMAL"),
+                Some("HYPER"),
+                Some("EX"),
+                None
+            ]
+        );
+        assert_eq!(Iidx.name(4), Some("ANOTHER"));
+        assert_eq!(Iidx.name(0), None);
+        assert_eq!(Iidx.name(6), None);
+    }
 
     #[test]
     fn test_decode_base36() {

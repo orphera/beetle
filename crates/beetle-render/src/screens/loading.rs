@@ -55,7 +55,8 @@ pub fn draw_loading(ui: &mut Ui, f: &LoadingFrame) {
     let vp = f.viewport;
     let s = vp.scale;
     let song = f.song;
-    let (tier, tier_col) = theme::level_tier(song.difficulty, song.play_level);
+    let (tier, tier_col) =
+        theme::level_tier_named(song.difficulty_names(), song.difficulty, song.play_level);
 
     widgets::backdrop_art(
         c,

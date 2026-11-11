@@ -1377,7 +1377,11 @@ fn jacket_card(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, are
 /// clock. The badge (AUTO PLAY, REPLAY) sits at the right end of the top row.
 fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: Rect, s: f32) {
     let header = &f.chart.header;
-    let (tier, tier_col) = theme::level_tier(header.difficulty, header.play_level);
+    let (tier, tier_col) = theme::level_tier_named(
+        header.difficulty_names,
+        header.difficulty,
+        header.play_level,
+    );
     let chip_txt = format!("{tier}  {}", header.play_level);
     let chip_st = TextStyle::new(12.0 * s).bold().color(theme::ON_ACCENT);
     let chip_w = t.measure(c, &chip_txt, &chip_st) + 16.0 * s;

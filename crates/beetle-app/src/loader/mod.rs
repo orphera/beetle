@@ -349,7 +349,7 @@ pub fn load_chart_and_audio_with_seed(
 ) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
     let mut source = open_source(&song.file_path)?;
-    let chart = match source.native_chart()? {
+    let mut chart = match source.native_chart()? {
         Some(chart) => chart,
         None => {
             let bytes = source.chart_bytes()?;
@@ -357,6 +357,8 @@ pub fn load_chart_and_audio_with_seed(
             parse_playable_chart(&content, seed)?
         }
     };
+    // The play and result screens name the difficulty as the game does.
+    chart.header.difficulty_names = song.difficulty_names();
     let timing = TimingModel::from_chart(&chart);
 
     let started = std::time::Instant::now();

@@ -90,7 +90,8 @@ pub struct SongMetadata {
     pub ln_mode: Option<u32>,
     pub play_mode: PlayMode,
     /// The chart's `#DIFFICULTY`: 1 BEGINNER, 2 NORMAL, 3 HYPER, 4 ANOTHER,
-    /// 5 INSANE. `None` when the chart does not say.
+    /// 5 INSANE. `None` when the chart does not say. Other games name the
+    /// slots their own way (`difficulty_names`).
     pub difficulty: Option<u32>,
 }
 
@@ -106,6 +107,11 @@ impl SongMetadata {
             }
             _ => self.id,
         }
+    }
+
+    /// What the song's game calls its difficulties (`DifficultyNames::of`).
+    pub fn difficulty_names(&self) -> crate::DifficultyNames {
+        crate::DifficultyNames::of(&self.file_path, self.play_mode)
     }
 
     /// Extracts metadata from a chart file's raw bytes. The identity is taken

@@ -125,10 +125,12 @@ fn disc_dan_table(
                 else {
                     continue;
                 };
-                // pop'n has one style, and calls its hardest charts EX.
-                let variant = match (edition.is_popn(), difficulty) {
-                    (true, Difficulty::Another) => "EX".to_string(),
-                    (true, _) => difficulty_name(difficulty).to_string(),
+                // pop'n has one style, and its own names (EASY to EX).
+                let popn =
+                    beetle_core::DifficultyNames::Popn.name(u32::from(difficulty.bms_number()));
+                let variant = match (edition.is_popn(), popn) {
+                    (true, Some(name)) => name.to_string(),
+                    (true, None) => difficulty_name(difficulty).to_string(),
                     (false, _) => format!("{} {}", style_name(style), difficulty_name(difficulty)),
                 };
                 courses.push(CourseDef {
