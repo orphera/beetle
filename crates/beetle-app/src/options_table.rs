@@ -48,6 +48,8 @@ pub enum OptionId {
     AutoPlay,
     StartMeasure,
     GfdmLanes,
+    GfdmPreset,
+    GfdmAdvanced,
     GfdmPitch,
     GfdmHome,
     GfdmStick,
@@ -59,6 +61,10 @@ pub enum OptionId {
     GfdmEdge,
     GfdmSplit,
     GfdmJj,
+    GfdmFig,
+    GfdmMotif,
+    GfdmAcc,
+    GfdmTrig,
     GfdmJack,
     GfdmThin,
     GfdmMix,
@@ -176,6 +182,16 @@ fn build_play_options() -> Vec<OptionDesc> {
             strings::HELP_GFDM_LANES(),
         ),
         gfdm_row(
+            OptionId::GfdmPreset,
+            strings::ROW_GFDM_PRESET(),
+            strings::HELP_GFDM_PRESET(),
+        ),
+        gfdm_row(
+            OptionId::GfdmAdvanced,
+            strings::ROW_GFDM_ADVANCED(),
+            strings::HELP_GFDM_ADVANCED(),
+        ),
+        gfdm_row(
             OptionId::GfdmPitch,
             strings::ROW_GFDM_PITCH(),
             strings::HELP_GFDM_PITCH(),
@@ -231,6 +247,26 @@ fn build_play_options() -> Vec<OptionDesc> {
             strings::HELP_GFDM_JJ(),
         ),
         gfdm_row(
+            OptionId::GfdmFig,
+            strings::ROW_GFDM_FIG(),
+            strings::HELP_GFDM_FIG(),
+        ),
+        gfdm_row(
+            OptionId::GfdmMotif,
+            strings::ROW_GFDM_MOTIF(),
+            strings::HELP_GFDM_MOTIF(),
+        ),
+        gfdm_row(
+            OptionId::GfdmAcc,
+            strings::ROW_GFDM_ACC(),
+            strings::HELP_GFDM_ACC(),
+        ),
+        gfdm_row(
+            OptionId::GfdmTrig,
+            strings::ROW_GFDM_TRIG(),
+            strings::HELP_GFDM_TRIG(),
+        ),
+        gfdm_row(
             OptionId::GfdmJack,
             strings::ROW_GFDM_JACK(),
             strings::HELP_GFDM_JACK(),
@@ -272,6 +308,67 @@ pub fn play_options() -> &'static [OptionDesc] {
     static CELLS: [OnceLock<Vec<OptionDesc>>; 3] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     per_lang(&CELLS, build_play_options)
+}
+
+/// The sentence under the highlighted row: the row's own, or for the GFDM
+/// preset row what the chosen preset does.
+pub fn help(gfdm: &crate::gfdm_arrange::ArrangeSetting, desc: &OptionDesc) -> &'static str {
+    use crate::gfdm_arrange::PresetChoice;
+    use cs_disc::gfdm_arrange::Preset;
+    if desc.id != OptionId::GfdmPreset {
+        return desc.help;
+    }
+    match gfdm.preset {
+        PresetChoice::Auto => strings::HELP_GFDM_PRESET(),
+        PresetChoice::Named(Preset::Flow) => strings::HELP_GFDM_PRESET_FLOW(),
+        PresetChoice::Named(Preset::Alternate) => strings::HELP_GFDM_PRESET_ALT(),
+        PresetChoice::Named(Preset::Easy) => strings::HELP_GFDM_PRESET_EASY(),
+        PresetChoice::Named(Preset::Session) => strings::HELP_GFDM_PRESET_SESSION(),
+        PresetChoice::Custom => strings::HELP_GFDM_PRESET_CUSTOM(),
+    }
+}
+
+/// A GFDM arrangement feature row: shown only with the advanced rows open.
+fn gfdm_feature(id: OptionId) -> bool {
+    matches!(
+        id,
+        OptionId::GfdmPitch
+            | OptionId::GfdmHome
+            | OptionId::GfdmStick
+            | OptionId::GfdmTrill
+            | OptionId::GfdmBal
+            | OptionId::GfdmHand
+            | OptionId::GfdmRun
+            | OptionId::GfdmVary
+            | OptionId::GfdmEdge
+            | OptionId::GfdmSplit
+            | OptionId::GfdmJj
+            | OptionId::GfdmFig
+            | OptionId::GfdmMotif
+            | OptionId::GfdmAcc
+            | OptionId::GfdmTrig
+            | OptionId::GfdmJack
+            | OptionId::GfdmThin
+            | OptionId::GfdmMix
+            | OptionId::GfdmNoise
+            | OptionId::GfdmSeed
+    )
+}
+
+/// The rows the play options panel shows: all of `play_options`, or without
+/// the GFDM arrangement feature rows while they are folded away.
+pub fn play_rows(advanced: bool) -> &'static [OptionDesc] {
+    if advanced {
+        return play_options();
+    }
+    static CELLS: [OnceLock<Vec<OptionDesc>>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    per_lang(&CELLS, || {
+        build_play_options()
+            .into_iter()
+            .filter(|d| !gfdm_feature(d.id))
+            .collect()
+    })
 }
 
 /// The Settings screen, in table order. Each group is a page of its own,
@@ -702,28 +799,51 @@ pub fn value(state: &AppState, id: OptionId) -> String {
                 strings::VALUE_OFF().to_string()
             }
         }
-        OptionId::GfdmPitch => on_off(state.gfdm_arrange.arrange.pitch).to_string(),
-        OptionId::GfdmHome => on_off(state.gfdm_arrange.arrange.home).to_string(),
-        OptionId::GfdmStick => on_off(state.gfdm_arrange.arrange.stick).to_string(),
-        OptionId::GfdmTrill => on_off(state.gfdm_arrange.arrange.trill).to_string(),
-        OptionId::GfdmBal => on_off(state.gfdm_arrange.arrange.bal).to_string(),
-        OptionId::GfdmHand => on_off(state.gfdm_arrange.arrange.hand).to_string(),
-        OptionId::GfdmVary => on_off(state.gfdm_arrange.arrange.vary).to_string(),
-        OptionId::GfdmEdge => on_off(state.gfdm_arrange.arrange.edge).to_string(),
-        OptionId::GfdmRun => state.gfdm_arrange.arrange.run.max(1).to_string(),
-        OptionId::GfdmSplit => on_off(state.gfdm_arrange.arrange.split).to_string(),
-        OptionId::GfdmJj => on_off(state.gfdm_arrange.arrange.jj).to_string(),
-        OptionId::GfdmJack => match state.gfdm_arrange.arrange.jack_ms {
+        OptionId::GfdmPreset => {
+            use crate::gfdm_arrange::PresetChoice;
+            use cs_disc::gfdm_arrange::Preset;
+            match state.gfdm_arrange.preset {
+                PresetChoice::Auto => strings::VALUE_GFDM_AUTO(),
+                PresetChoice::Named(Preset::Flow) => strings::VALUE_GFDM_FLOW(),
+                PresetChoice::Named(Preset::Alternate) => strings::VALUE_GFDM_ALT(),
+                PresetChoice::Named(Preset::Easy) => strings::VALUE_GFDM_EASY(),
+                PresetChoice::Named(Preset::Session) => strings::VALUE_GFDM_SESSION(),
+                PresetChoice::Custom => strings::VALUE_GFDM_CUSTOM(),
+            }
+            .to_string()
+        }
+        OptionId::GfdmAdvanced => if state.gfdm_arrange.advanced {
+            strings::VALUE_UNFOLDED()
+        } else {
+            strings::VALUE_FOLDED()
+        }
+        .to_string(),
+        OptionId::GfdmPitch => on_off(state.gfdm_arrange.shown().pitch).to_string(),
+        OptionId::GfdmHome => on_off(state.gfdm_arrange.shown().home).to_string(),
+        OptionId::GfdmStick => on_off(state.gfdm_arrange.shown().stick).to_string(),
+        OptionId::GfdmTrill => on_off(state.gfdm_arrange.shown().trill).to_string(),
+        OptionId::GfdmBal => on_off(state.gfdm_arrange.shown().bal).to_string(),
+        OptionId::GfdmHand => on_off(state.gfdm_arrange.shown().hand).to_string(),
+        OptionId::GfdmVary => on_off(state.gfdm_arrange.shown().vary).to_string(),
+        OptionId::GfdmEdge => on_off(state.gfdm_arrange.shown().edge).to_string(),
+        OptionId::GfdmRun => state.gfdm_arrange.shown().run.max(1).to_string(),
+        OptionId::GfdmSplit => on_off(state.gfdm_arrange.shown().split).to_string(),
+        OptionId::GfdmJj => on_off(state.gfdm_arrange.shown().jj).to_string(),
+        OptionId::GfdmFig => on_off(state.gfdm_arrange.shown().fig).to_string(),
+        OptionId::GfdmMotif => on_off(state.gfdm_arrange.shown().motif).to_string(),
+        OptionId::GfdmAcc => on_off(state.gfdm_arrange.shown().acc).to_string(),
+        OptionId::GfdmTrig => on_off(state.gfdm_arrange.shown().trig).to_string(),
+        OptionId::GfdmJack => match state.gfdm_arrange.shown().jack_ms {
             Some(ms) => strings::fill(strings::VALUE_MS(), &[&ms.to_string()]),
             None => strings::VALUE_BY_DIFFICULTY().to_string(),
         },
-        OptionId::GfdmThin => match state.gfdm_arrange.arrange.thin_ms {
+        OptionId::GfdmThin => match state.gfdm_arrange.shown().thin_ms {
             Some(ms) => strings::fill(strings::VALUE_MS(), &[&ms.to_string()]),
             None => strings::VALUE_OFF().to_string(),
         },
-        OptionId::GfdmMix => state.gfdm_arrange.arrange.mix.to_string(),
-        OptionId::GfdmNoise => state.gfdm_arrange.arrange.noise.to_string(),
-        OptionId::GfdmSeed => state.gfdm_arrange.arrange.seed.to_string(),
+        OptionId::GfdmMix => state.gfdm_arrange.shown().mix.to_string(),
+        OptionId::GfdmNoise => state.gfdm_arrange.shown().noise.to_string(),
+        OptionId::GfdmSeed => state.gfdm_arrange.shown().seed.to_string(),
         OptionId::Language => language_label(strings::lang()).to_string(),
         OptionId::SongFolders => strings::fill(
             strings::VALUE_FOLDERS(),
@@ -830,17 +950,23 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         }
         OptionId::AutoPlay => state.is_auto_play = !state.is_auto_play,
         OptionId::GfdmLanes => state.gfdm_arrange.step_lanes(forward),
-        OptionId::GfdmPitch => flip(&mut state.gfdm_arrange.arrange.pitch),
-        OptionId::GfdmHome => flip(&mut state.gfdm_arrange.arrange.home),
-        OptionId::GfdmStick => flip(&mut state.gfdm_arrange.arrange.stick),
-        OptionId::GfdmTrill => flip(&mut state.gfdm_arrange.arrange.trill),
-        OptionId::GfdmBal => flip(&mut state.gfdm_arrange.arrange.bal),
-        OptionId::GfdmHand => flip(&mut state.gfdm_arrange.arrange.hand),
-        OptionId::GfdmVary => flip(&mut state.gfdm_arrange.arrange.vary),
-        OptionId::GfdmEdge => flip(&mut state.gfdm_arrange.arrange.edge),
+        OptionId::GfdmPreset => state.gfdm_arrange.step_preset(forward),
+        OptionId::GfdmAdvanced => flip(&mut state.gfdm_arrange.advanced),
+        OptionId::GfdmPitch => flip(&mut state.gfdm_arrange.edit().pitch),
+        OptionId::GfdmHome => flip(&mut state.gfdm_arrange.edit().home),
+        OptionId::GfdmStick => flip(&mut state.gfdm_arrange.edit().stick),
+        OptionId::GfdmTrill => flip(&mut state.gfdm_arrange.edit().trill),
+        OptionId::GfdmBal => flip(&mut state.gfdm_arrange.edit().bal),
+        OptionId::GfdmHand => flip(&mut state.gfdm_arrange.edit().hand),
+        OptionId::GfdmVary => flip(&mut state.gfdm_arrange.edit().vary),
+        OptionId::GfdmEdge => flip(&mut state.gfdm_arrange.edit().edge),
         OptionId::GfdmRun => state.gfdm_arrange.step_run(forward),
-        OptionId::GfdmSplit => flip(&mut state.gfdm_arrange.arrange.split),
-        OptionId::GfdmJj => flip(&mut state.gfdm_arrange.arrange.jj),
+        OptionId::GfdmSplit => flip(&mut state.gfdm_arrange.edit().split),
+        OptionId::GfdmJj => flip(&mut state.gfdm_arrange.edit().jj),
+        OptionId::GfdmFig => flip(&mut state.gfdm_arrange.edit().fig),
+        OptionId::GfdmMotif => flip(&mut state.gfdm_arrange.edit().motif),
+        OptionId::GfdmAcc => flip(&mut state.gfdm_arrange.edit().acc),
+        OptionId::GfdmTrig => flip(&mut state.gfdm_arrange.edit().trig),
         OptionId::GfdmJack => state.gfdm_arrange.step_jack(forward),
         OptionId::GfdmThin => state.gfdm_arrange.step_thin(forward),
         OptionId::GfdmMix => state.gfdm_arrange.step_mix(forward),
@@ -1271,6 +1397,28 @@ mod tests {
         assert_eq!(turntable_axis_next(Some(7), true), None);
         assert_eq!(turntable_axis_next(None, false), Some(7));
         assert_eq!(turntable_axis_next(Some(0), false), None);
+    }
+
+    #[test]
+    fn folded_play_rows_leave_out_only_the_gfdm_feature_rows() {
+        let all = play_options();
+        let folded = play_rows(false);
+        assert_eq!(play_rows(true).len(), all.len());
+        let kept: Vec<OptionId> = all
+            .iter()
+            .map(|d| d.id)
+            .filter(|&id| !gfdm_feature(id))
+            .collect();
+        assert_eq!(folded.iter().map(|d| d.id).collect::<Vec<_>>(), kept);
+        // The rows up to the fold keep their places, so the highlighted row
+        // stays on "advanced options" when it folds.
+        let fold = all
+            .iter()
+            .position(|d| d.id == OptionId::GfdmAdvanced)
+            .unwrap();
+        assert_eq!(folded[fold].id, OptionId::GfdmAdvanced);
+        assert_eq!(folded.len(), fold + 1);
+        assert_eq!(all.len() - folded.len(), 20);
     }
 
     #[test]

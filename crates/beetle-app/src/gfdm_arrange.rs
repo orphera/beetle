@@ -10,21 +10,61 @@
 use std::sync::mpsc::{channel, Receiver};
 
 use beetle_core::{disc_address, PlayMode, SongAddress, SongMetadata};
-use cs_disc::gfdm_arrange::{Arrange, LANE_COUNTS, MAX_MIX, MAX_NOISE, MAX_RUN};
+use cs_disc::gfdm_arrange::{Arrange, Preset, LANE_COUNTS, MAX_MIX, MAX_NOISE, MAX_RUN};
 use cs_disc::gfdm_bms::ChartRef;
 
-/// The option as chosen: whether it is on, and the arrangement (its lane
-/// count is the one to use when on; the features stay when it is off).
+/// Which features an arranged chart gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresetChoice {
+    /// Chosen for each chart (`cs_disc::gfdm_arrange::auto`).
+    Auto,
+    Named(Preset),
+    /// The features of `ArrangeSetting::arrange`, set row by row.
+    Custom,
+}
+
+impl PresetChoice {
+    pub const ORDER: [PresetChoice; 6] = [
+        PresetChoice::Auto,
+        PresetChoice::Named(Preset::Flow),
+        PresetChoice::Named(Preset::Alternate),
+        PresetChoice::Named(Preset::Easy),
+        PresetChoice::Named(Preset::Session),
+        PresetChoice::Custom,
+    ];
+
+    /// `config.dat`'s `gfdm_arrange_preset` value.
+    pub fn name(self) -> &'static str {
+        match self {
+            PresetChoice::Auto => "auto",
+            PresetChoice::Named(p) => p.name(),
+            PresetChoice::Custom => "custom",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ORDER.into_iter().find(|p| p.name() == name)
+    }
+}
+
+/// The option as chosen: whether it is on, the preset, and the arrangement
+/// (its lane count is the one to use when on; its features are the custom
+/// ones, and stay when another preset is chosen or the option is off).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArrangeSetting {
     pub on: bool,
+    pub preset: PresetChoice,
     pub arrange: Arrange,
+    /// The feature rows show in the play options panel (not saved).
+    pub advanced: bool,
 }
 
 impl Default for ArrangeSetting {
     fn default() -> Self {
         Self {
             on: false,
+            preset: PresetChoice::Auto,
+            advanced: false,
             arrange: Arrange {
                 lanes: 6,
                 pitch: true,
@@ -83,14 +123,53 @@ impl ArrangeSetting {
         }
     }
 
+    /// The arrangement a chart opens with: the preset's at the chosen lane
+    /// count, or the custom features.
+    pub fn effective(&self) -> Arrange {
+        let lanes = self.arrange.lanes;
+        match self.preset {
+            PresetChoice::Auto => Arrange {
+                lanes,
+                auto: true,
+                ..Default::default()
+            },
+            PresetChoice::Named(p) => p.arrange(lanes),
+            PresetChoice::Custom => self.arrange,
+        }
+    }
+
+    /// The features the rows show: the preset's (for the automatic one, what
+    /// it starts from before it looks at the chart), or the custom ones.
+    pub fn shown(&self) -> Arrange {
+        match self.preset {
+            PresetChoice::Auto => Preset::Flow.arrange(self.arrange.lanes),
+            _ => self.effective(),
+        }
+    }
+
+    /// The custom features, to change one: a preset's features are copied
+    /// into them first and the choice becomes `Custom`.
+    pub fn edit(&mut self) -> &mut Arrange {
+        if self.preset != PresetChoice::Custom {
+            self.arrange = self.shown();
+            self.preset = PresetChoice::Custom;
+        }
+        &mut self.arrange
+    }
+
+    /// The preset row, wrapping.
+    pub fn step_preset(&mut self, forward: bool) {
+        self.preset = crate::options_table::cycle(&PresetChoice::ORDER, self.preset, forward);
+    }
+
     pub fn step_jack(&mut self, forward: bool) {
-        self.arrange.jack_ms =
-            crate::options_table::cycle(&JACK_STEPS, self.arrange.jack_ms, forward);
+        let a = self.edit();
+        a.jack_ms = crate::options_table::cycle(&JACK_STEPS, a.jack_ms, forward);
     }
 
     /// The one-hand run row: 1 (plain `hand`) up to `MAX_RUN`, wrapping.
     pub fn step_run(&mut self, forward: bool) {
-        let cur = self.arrange.run.max(1);
+        let cur = self.shown().run.max(1);
         let next = if forward {
             if cur >= MAX_RUN {
                 1
@@ -102,17 +181,18 @@ impl ArrangeSetting {
         } else {
             cur - 1
         };
-        self.arrange.run = if next < 2 { 0 } else { next };
+        self.edit().run = if next < 2 { 0 } else { next };
     }
 
     pub fn step_thin(&mut self, forward: bool) {
-        self.arrange.thin_ms =
-            crate::options_table::cycle(&THIN_STEPS, self.arrange.thin_ms, forward);
+        let a = self.edit();
+        a.thin_ms = crate::options_table::cycle(&THIN_STEPS, a.thin_ms, forward);
     }
 
     pub fn step_mix(&mut self, forward: bool) {
-        let m = self.arrange.mix;
-        self.arrange.mix = if forward {
+        let a = self.edit();
+        let m = a.mix;
+        a.mix = if forward {
             (m + 1).min(MAX_MIX)
         } else {
             m.saturating_sub(1)
@@ -120,8 +200,9 @@ impl ArrangeSetting {
     }
 
     pub fn step_noise(&mut self, forward: bool) {
-        let r = self.arrange.noise;
-        self.arrange.noise = if forward {
+        let a = self.edit();
+        let r = a.noise;
+        a.noise = if forward {
             (r + 1).min(MAX_NOISE)
         } else {
             r.saturating_sub(1)
@@ -129,8 +210,9 @@ impl ArrangeSetting {
     }
 
     pub fn step_seed(&mut self, forward: bool) {
-        let s = self.arrange.seed;
-        self.arrange.seed = if forward {
+        let a = self.edit();
+        let s = a.seed;
+        a.seed = if forward {
             (s + 1).min(MAX_SEED)
         } else {
             s.saturating_sub(1)
@@ -152,7 +234,7 @@ impl ArrangeSetting {
         if chart.arrange.is_some() {
             return None;
         }
-        let arranged = chart.arranged(self.arrange)?;
+        let arranged = chart.arranged(self.effective())?;
         let mode = match self.arrange.lanes {
             4 => PlayMode::Keys4,
             8 => PlayMode::Keys8,
@@ -201,6 +283,14 @@ mod tests {
         assert_eq!(s.target(&gf), None);
         s.on = true;
         let (address, mode) = s.target(&gf).unwrap();
+        assert_eq!(address, "disc:D:/x.iso::gfdm/404/gf3@6k+auto");
+        s.preset = PresetChoice::Named(Preset::Flow);
+        assert_eq!(
+            s.target(&gf).unwrap().0,
+            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+run2"
+        );
+        s.preset = PresetChoice::Custom;
+        let (address, _) = s.target(&gf).unwrap();
         assert_eq!(
             address,
             "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary"
@@ -226,6 +316,33 @@ mod tests {
     }
 
     #[test]
+    fn changing_a_feature_makes_the_preset_custom() {
+        let mut s = ArrangeSetting::default();
+        assert_eq!(s.preset, PresetChoice::Auto);
+        // The rows show what the automatic preset starts from.
+        assert!(s.shown().split && s.shown().jj);
+        s.step_preset(true);
+        assert_eq!(s.preset, PresetChoice::Named(Preset::Flow));
+        s.step_thin(true);
+        assert_eq!(s.preset, PresetChoice::Custom);
+        // The custom features are the preset's with the one change.
+        assert_eq!(
+            s.arrange,
+            Arrange {
+                thin_ms: Some(80),
+                ..Preset::Flow.arrange(6)
+            }
+        );
+        // Another preset leaves the custom features as they are.
+        s.step_preset(true);
+        assert_eq!(s.preset, PresetChoice::Auto);
+        assert_eq!(s.arrange.thin_ms, Some(80));
+        for p in PresetChoice::ORDER {
+            assert_eq!(PresetChoice::parse(p.name()), Some(p));
+        }
+    }
+
+    #[test]
     fn the_lane_row_cycles_through_off() {
         let mut s = ArrangeSetting::default();
         let mut seen = Vec::new();
@@ -240,7 +357,10 @@ mod tests {
 
     #[test]
     fn the_thin_and_mix_rows_step_within_their_range() {
-        let mut s = ArrangeSetting::default();
+        let mut s = ArrangeSetting {
+            preset: PresetChoice::Custom,
+            ..Default::default()
+        };
         s.step_thin(true);
         assert_eq!(s.arrange.thin_ms, Some(80));
         s.step_thin(false);

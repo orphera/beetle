@@ -417,7 +417,8 @@ impl ApplicationHandler for BeetleApp {
         app_state.recompute_entries();
         (app_state.show_option_modal, app_state.show_exit_modal) = devtools::modal_requested();
         if let Some(row) = devtools::start_settings_row().filter(|_| app_state.show_option_modal) {
-            app_state.modal_row = row.min(options_table::play_options().len() - 1);
+            let rows = options_table::play_rows(app_state.gfdm_arrange.advanced);
+            app_state.modal_row = row.min(rows.len() - 1);
         }
         app_state.show_help = devtools::help_requested();
         menu_audio::sync_with_screen(&mut app_state);

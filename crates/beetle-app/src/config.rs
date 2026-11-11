@@ -565,6 +565,11 @@ impl AppConfig {
                 "reduce_motion" => config.reduce_motion = val == "ON",
                 "edition_same_source" => config.edition_same_source = val == "ON",
                 "gfdm_arrange_on" => config.gfdm_arrange.on = val == "ON",
+                "gfdm_arrange_preset" => {
+                    if let Some(p) = crate::gfdm_arrange::PresetChoice::parse(val) {
+                        config.gfdm_arrange.preset = p;
+                    }
+                }
                 "gfdm_arrange" => {
                     if let Some(a) = cs_disc::gfdm_arrange::Arrange::parse(val) {
                         config.gfdm_arrange.arrange = a;
@@ -659,6 +664,10 @@ impl AppConfig {
         out.push_str(&format!(
             "gfdm_arrange={}\n",
             self.gfdm_arrange.config_value()
+        ));
+        out.push_str(&format!(
+            "gfdm_arrange_preset={}\n",
+            self.gfdm_arrange.preset.name()
         ));
         if self.gfdm_arrange.on {
             out.push_str("gfdm_arrange_on=ON\n");
@@ -790,7 +799,11 @@ mod tests {
             speed_anchor: SpeedAnchor::Main,
             gfdm_arrange: crate::gfdm_arrange::ArrangeSetting {
                 on: true,
+                preset: crate::gfdm_arrange::PresetChoice::Named(
+                    cs_disc::gfdm_arrange::Preset::Easy,
+                ),
                 arrange: cs_disc::gfdm_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
+                advanced: false,
             },
             ..AppConfig::default()
         };

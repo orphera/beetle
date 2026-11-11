@@ -25,7 +25,7 @@ use crate::devtools;
 use crate::gameplay::END_BANNER_SECONDS;
 use crate::gpu_ui::{bga_texture, gameplay_bga_texture, ImageKey};
 use crate::input::{lane_label, screen_lanes_for, KeyPreset};
-use crate::options_table::{self, play_options, settings_options, OptionDesc};
+use crate::options_table::{self, play_rows, settings_options, OptionDesc};
 use crate::state::{replay_path, AppScreen, AppState, LibraryJob};
 use crate::transition::{self, show_toast};
 
@@ -546,7 +546,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let preview = options_preview(state);
     let option_panel = state
         .show_option_modal
-        .then(|| option_lines(state, play_options()));
+        .then(|| option_lines(state, play_rows(state.gfdm_arrange.advanced)));
 
     let stage_img = selected_id
         .and_then(|id| state.stage_image_cache.get(&id))
@@ -684,13 +684,15 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         },
     );
     if let Some(lines) = &option_panel {
-        let d = &play_options()[state.modal_row.min(play_options().len() - 1)];
+        let d = &play_rows(state.gfdm_arrange.advanced)[state
+            .modal_row
+            .min(play_rows(state.gfdm_arrange.advanced).len() - 1)];
         beetle_render::draw_options_modal(
             ui,
             &vp,
             lines,
             state.modal_row,
-            (d.label, d.help),
+            (d.label, options_table::help(&state.gfdm_arrange, d)),
             preview,
         );
     }
@@ -1067,16 +1069,18 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     // TAB on the result opens the play options over it (the same panel as on
     // song select); ENTER there plays again with the options as changed.
     if state.show_option_modal {
-        let lines = option_lines(state, play_options());
+        let lines = option_lines(state, play_rows(state.gfdm_arrange.advanced));
         let preview = options_preview(state);
-        let row = state.modal_row.min(play_options().len() - 1);
-        let d = &play_options()[row];
+        let row = state
+            .modal_row
+            .min(play_rows(state.gfdm_arrange.advanced).len() - 1);
+        let d = &play_rows(state.gfdm_arrange.advanced)[row];
         beetle_render::draw_options_panel(
             state.gpu_ui.ui.current(),
             &state.view.ui,
             &lines,
             row,
-            (d.label, d.help),
+            (d.label, options_table::help(&state.gfdm_arrange, d)),
             preview,
             beetle_render::OptionsFooter::Retry,
         );

@@ -1177,6 +1177,46 @@ table! {
         ko "편곡 키 수",
         en "Arrange To",
         ja "アレンジのキー数";
+    pub ROW_GFDM_PRESET =
+        ko "프리셋",
+        en "Preset",
+        ja "プリセット";
+    pub ROW_GFDM_ADVANCED =
+        ko "고급 옵션",
+        en "Advanced Options",
+        ja "詳細オプション";
+    pub VALUE_GFDM_AUTO =
+        ko "자동",
+        en "Auto",
+        ja "自動";
+    pub VALUE_GFDM_FLOW =
+        ko "흐름",
+        en "Flow",
+        ja "流れ";
+    pub VALUE_GFDM_ALT =
+        ko "양손 교대",
+        en "Alternate",
+        ja "両手交互";
+    pub VALUE_GFDM_EASY =
+        ko "쉬움",
+        en "Easy",
+        ja "やさしい";
+    pub VALUE_GFDM_SESSION =
+        ko "세션",
+        en "Session",
+        ja "セッション";
+    pub VALUE_GFDM_CUSTOM =
+        ko "직접 설정",
+        en "Custom",
+        ja "カスタム";
+    pub VALUE_FOLDED =
+        ko "접힘",
+        en "Hidden",
+        ja "閉じる";
+    pub VALUE_UNFOLDED =
+        ko "펼침",
+        en "Shown",
+        ja "開く";
     pub ROW_GFDM_PITCH =
         ko "음 높이 (기타)",
         en "Pitch (Guitar)",
@@ -1221,6 +1261,22 @@ table! {
         ko "2연타 남기기",
         en "Keep Doubles",
         ja "2連打を残す";
+    pub ROW_GFDM_FIG =
+        ko "연타를 도형으로",
+        en "Figures for Repeats",
+        ja "連打を図形に";
+    pub ROW_GFDM_MOTIF =
+        ko "손 모양 반복",
+        en "Repeat Hand Shapes",
+        ja "手の形を繰り返す";
+    pub ROW_GFDM_ACC =
+        ko "강세 동시치기",
+        en "Accent Chords",
+        ja "アクセントの同時押し";
+    pub ROW_GFDM_TRIG =
+        ko "바깥 레인에 강세 (8K)",
+        en "Accents on Outer Lanes (8K)",
+        ja "外側のレーンにアクセント (8K)";
     pub ROW_GFDM_THIN =
         ko "노트 솎기",
         en "Thin Notes",
@@ -1509,6 +1565,34 @@ table! {
         ko "켜면 GFDM 디스크의 드럼, 기타, 베이스 채보를 이 키 수로 레인을 다시 짜서 열어요. 편곡 채보의 기록은 원본과 따로 남아요.",
         en "Opens GFDM disc drum, guitar and bass charts with their lanes laid out again for this many keys. Arranged charts keep their own records.",
         ja "GFDM ディスクのドラム・ギター・ベースの譜面を、このキー数にレーンを組み直して開きます。アレンジ譜面の記録は元の譜面と別に残ります。";
+    pub HELP_GFDM_PRESET =
+        ko "자동: 채보의 파트, 키 수, 빠르기를 보고 편곡 규칙을 골라요.",
+        en "Auto: chooses the arrangement rules by each chart's part, keys and density.",
+        ja "自動: 譜面のパート・キー数・速さを見てアレンジのルールを選びます。";
+    pub HELP_GFDM_PRESET_FLOW =
+        ko "흐름: 사람이 짠 채보처럼 한 손으로 조금 이어 치고, 동시치기는 양손으로, 2연타는 같은 레인에 둬요.",
+        en "Flow: like a hand-made chart. Short runs on one hand, chords on both hands, doubles on one lane.",
+        ja "流れ: 人が作った譜面のように、片手で少し続け、同時押しは両手に、2連打は同じレーンに置きます。";
+    pub HELP_GFDM_PRESET_ALT =
+        ko "양손 교대: 빠른 노트를 양손에 번갈아 놓고, 같은 레인을 빠르게 다시 치지 않아요.",
+        en "Alternate: quick notes go hand to hand, and no lane is hit twice quickly.",
+        ja "両手交互: 速いノーツを両手に交互に置き、同じレーンを速く続けて押しません。";
+    pub HELP_GFDM_PRESET_EASY =
+        ko "쉬움: 흐름과 같고, 150ms보다 촘촘한 노트는 약한 박부터 자동 소리로 돌려요.",
+        en "Easy: Flow, with notes closer than 150 ms becoming auto sounds, weak beats first.",
+        ja "やさしい: 流れと同じで、150ms より細かいノーツは弱拍から自動の音にします。";
+    pub HELP_GFDM_PRESET_SESSION =
+        ko "세션: 흐름과 같고, 이 파트가 쉬는 곳에서는 다른 파트의 노트도 쳐요.",
+        en "Session: Flow, with the other parts' notes coming in where this part rests.",
+        ja "セッション: 流れと同じで、このパートが休むところでは他のパートのノーツも演奏します。";
+    pub HELP_GFDM_PRESET_CUSTOM =
+        ko "직접 설정: 고급 옵션에서 고른 규칙을 그대로 써요.",
+        en "Custom: uses the rules chosen in the advanced options as they are.",
+        ja "カスタム: 詳細オプションで選んだルールをそのまま使います。";
+    pub HELP_GFDM_ADVANCED =
+        ko "편곡 규칙을 하나씩 보고 바꿀 수 있게 펼쳐요. 규칙을 바꾸면 프리셋이 직접 설정으로 바뀌어요.",
+        en "Shows the arrangement rules one by one so they can be changed. Changing one makes the preset Custom.",
+        ja "アレンジのルールを一つずつ見て変えられるように開きます。ルールを変えるとプリセットがカスタムになります。";
     pub HELP_GFDM_PITCH =
         ko "기타와 베이스에서 낮은 음은 왼쪽, 높은 음은 오른쪽 레인에 놓아요. 끄면 원래 프렛 자리를 따라요.",
         en "Guitar and bass: low notes go to the left lanes, high notes to the right. Off follows the original frets.",
@@ -1553,6 +1637,22 @@ table! {
         ko "같은 소리가 빠르게 두 번 나오면 같은 레인에 두 번 놓아요. 세 번째부터는 다른 레인으로 가요.",
         en "A sound played twice quickly stays on one lane both times; a third hit moves to another lane.",
         ja "同じ音が速く2回続くと、同じレーンに2回置きます。3回目からは別のレーンに移ります。";
+    pub HELP_GFDM_FIG =
+        ko "같은 소리가 빠르게 네 번 넘게 이어지면 계단이나 지그재그 같은 한 박짜리 도형으로 놓아요. 마디마다 도형이 바뀌어요.",
+        en "A sound repeated quickly four times or more is laid out as a one-beat figure such as stairs or a zigzag; the figure changes each bar.",
+        ja "同じ音が速く4回以上続くと、階段やジグザグなど1拍の図形に置きます。小節ごとに図形が変わります。";
+    pub HELP_GFDM_MOTIF =
+        ko "같은 마디가 다시 나오면 처음과 같은 손으로 치게 놓아요. 느린 채보는 레인까지 같게 둬요.",
+        en "When a bar comes again it is played with the same hands as the first time; slow charts keep the lanes too.",
+        ja "同じ小節がまた来ると、最初と同じ手で押すように置きます。遅い譜面はレーンも同じにします。";
+    pub HELP_GFDM_ACC =
+        ko "기타와 베이스에서, 드럼이 스네어나 심벌을 치는 박에는 노트 두 개를, 드럼이 없는 약한 자리의 화음은 하나만 놓아요.",
+        en "Guitar and bass: two notes on beats where the drums hit a snare or cymbal, and one note for chords on weak places with no drum.",
+        ja "ギターとベースで、ドラムがスネアやシンバルを鳴らす拍にはノーツを2つ、ドラムのない弱いところの和音は1つだけ置きます。";
+    pub HELP_GFDM_TRIG =
+        ko "8K에서 맨 바깥 두 레인에 박 위의 강세(스네어, 심벌, 긴 음)를 좌우로 번갈아 놓아요. 켜면 바깥 레인 줄 대신 써요.",
+        en "8K: accents on the beat (snares, cymbals, long notes) go on the two outer lanes, side to side. Used instead of Outer Lanes.",
+        ja "8K で一番外側の2レーンに、拍の上のアクセント(スネア・シンバル・長い音)を左右交互に置きます。オンにすると外側のレーンの代わりに使います。";
     pub HELP_GFDM_THIN =
         ko "노트 사이가 이보다 좁으면 약한 박의 노트를 자동 소리로 돌려요. 강박, 화음, 음이 바뀌는 곳은 남기고, 소리는 그대로 다 나요.",
         en "Where notes are closer than this, weak-beat notes become auto sounds; strong beats, chords and pitch changes stay, and every sound still plays.",
