@@ -1,6 +1,12 @@
-//! Keyboard arrangements of GuitarFreaks & DrumMania charts (B29): the same
-//! song with the notes on lanes chosen again so a keyboard can play them
-//! (`docs/plans/2026-11-10-gfdm-keyboard-arrange-plan.md`).
+//! Keyboard arrangements of charts (B29): the same song with the notes on
+//! lanes chosen again so a keyboard can play them at another key count
+//! (`docs/plans/2026-11-10-gfdm-keyboard-arrange-plan.md`). It began with
+//! GuitarFreaks & DrumMania charts (`Source::Drums`, `Source::Strings`) and
+//! takes any keyboard chart too (`Source::Keys`: BMS, IIDX, pop'n).
+//!
+//! The crate has no dependencies and knows no chart format: the caller
+//! hands it notes in groups (`Group`, `Note`) and gets a lane for each back
+//! (`arrange`), which it writes into its own chart.
 //!
 //! An arrangement is a lane count (4, 6 or 8) and a set of features, each a
 //! rule that can be switched on or off, plus a seed. The lanes come from a
@@ -94,16 +100,20 @@ pub struct Arrange {
 /// Which kind of part an arrangement is for: features of the other kind
 /// mean nothing and are dropped (`Arrange::for_part`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PartKind {
+pub enum Source {
+    /// GuitarFreaks & DrumMania drums.
     Drums,
-    /// Guitar or bass.
+    /// GuitarFreaks & DrumMania guitar or bass.
     Strings,
+    /// A keyboard chart of this many lanes (BMS, IIDX, pop'n): a note's
+    /// `origin` is its lane from the left, the scratch lane with the keys.
+    Keys { lanes: u8 },
 }
 
 impl Arrange {
     /// The arrangement with only what changes the lanes of `kind` kept: so
     /// two keys that give the same chart are one key.
-    pub fn for_part(mut self, kind: PartKind) -> Self {
+    pub fn for_part(mut self, kind: Source) -> Self {
         if self.auto {
             return Arrange {
                 lanes: self.lanes,
@@ -112,14 +122,21 @@ impl Arrange {
             };
         }
         match kind {
-            PartKind::Drums => {
+            Source::Drums => {
                 self.pitch = false;
                 self.acc = false;
                 self.even = false;
             }
-            PartKind::Strings => {
+            Source::Strings => {
                 self.home = false;
                 self.stick = false;
+            }
+            Source::Keys { .. } => {
+                self.pitch = false;
+                self.home = false;
+                self.stick = false;
+                self.acc = false;
+                self.even = false;
             }
         }
         if self.lanes != 8 {
@@ -329,10 +346,10 @@ impl Preset {
 const AUTO_DENSE_DRUMS: f64 = 8.0;
 
 /// The features `auto` chooses for a chart of `kind` with these `groups`:
-/// `Preset::Flow`, without doubles for a dense drum chart.
-pub fn auto(lanes: u8, kind: PartKind, groups: &[Group]) -> Arrange {
+/// `Preset::Flow`, without doubles for a dense drum or keyboard chart.
+pub fn auto(lanes: u8, kind: Source, groups: &[Group]) -> Arrange {
     let mut a = Preset::Flow.arrange(lanes);
-    if kind == PartKind::Drums && density(groups) >= AUTO_DENSE_DRUMS {
+    if kind != Source::Strings && density(groups) >= AUTO_DENSE_DRUMS {
         a.jj = false;
     }
     a
@@ -355,23 +372,13 @@ fn density(groups: &[Group]) -> f64 {
 
 /// The features `a` stands for on this chart: those `auto` chooses, or its
 /// own; only the ones that mean something for `kind`.
-pub fn resolve(a: &Arrange, kind: PartKind, groups: &[Group]) -> Arrange {
+pub fn resolve(a: &Arrange, kind: Source, groups: &[Group]) -> Arrange {
     if a.auto {
         auto(a.lanes, kind, groups)
     } else {
         *a
     }
     .for_part(kind)
-}
-
-/// The shortest time between two hits on one lane at `difficulty` (1 BASIC,
-/// 2 ADVANCED, 3 EXTREME), ms.
-pub fn default_jack_ms(difficulty: u8) -> u16 {
-    match difficulty {
-        1 => 250,
-        2 => 180,
-        _ => 125,
-    }
 }
 
 /// SplitMix64: a small seeded generator (Steele, Lea and Flood 2014).
@@ -401,16 +408,22 @@ impl SplitMix64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Note {
     /// Its lane in its own chart: the drum (0 HH, 1 SD, 2 BD, 3 HT, 4 LT,
-    /// 5 CY), the fret (0 R, 1 G, 2 B) or 3 for an open pick.
+    /// 5 CY), the fret (0 R, 1 G, 2 B) or 3 for an open pick; a keyboard
+    /// chart's lane from the left.
     pub origin: u8,
-    /// Its sound key (`Event::a` low 16 bits). For guitar and bass the low
-    /// byte is the note's pitch; drum keys are about General MIDI drums.
+    /// Its sound key (GFDM `Event::a` low 16 bits; a keyboard chart's key
+    /// sound). For guitar and bass the low byte is the note's pitch; drum
+    /// keys are about General MIDI drums.
     pub key: u16,
-    /// Its length in 1/300 s (guitar and bass; `Event::a >> 16`).
+    /// Its length in 1/300 s (guitar and bass; `Event::a >> 16`): how long
+    /// the sound is, not a key held down.
     pub ticks: u16,
+    /// A long note: how long its lane is held, ms. 0 for a tap. No other
+    /// note goes on the lane until it ends.
+    pub hold_ms: u32,
     /// `None` for a note of the arranged part; for another part's note
     /// (`mix`), that part's kind.
-    pub from: Option<PartKind>,
+    pub from: Option<Source>,
 }
 
 /// Notes at one place in the chart, played together. The notes of a group
@@ -423,7 +436,8 @@ pub struct Group {
     /// Where in the bar, in 1/`BAR_SLOTS` of it.
     pub slot: u16,
     /// How hard the drums hit here, for a guitar or bass group: 2 a snare
-    /// or cymbal, 1 a kick, 0 nothing (or a drum chart's own group).
+    /// or cymbal, 1 a kick, 0 nothing (or a drum chart's own group). For a
+    /// keyboard chart, 2 where the group has a scratch.
     pub accent: u8,
     pub notes: Vec<Note>,
 }
@@ -435,7 +449,7 @@ impl Group {
 
     /// How strong the group's beat is: 4 the bar's start, 3 its half, 2 a
     /// quarter, 1 an eighth, 0 anything else.
-    pub(crate) fn strength(&self) -> u8 {
+    pub fn strength(&self) -> u8 {
         let s = self.slot as u32 * 8;
         let q = BAR_SLOTS as u32;
         match () {
@@ -522,6 +536,8 @@ const LONG_TICKS: u16 = 90;
 /// within `MIX_GAP_MS - MIX_STEP_MS * mix` of it.
 const MIX_GAP_MS: i64 = 600;
 const MIX_STEP_MS: i64 = 50;
+/// A note left off the lanes because long notes hold them.
+const DROP: f64 = 400.0;
 /// Placements kept at each group.
 const BEAM: usize = 48;
 /// Lane counts go up to this.
@@ -533,6 +549,8 @@ const RECENT: usize = 8;
 struct State {
     /// Ms of each lane's last hit (`i64::MIN / 4`: never).
     last: [i64; MAX_LANES],
+    /// Ms each lane is held to by a long note (`i64::MIN / 4`: not held).
+    held: [i64; MAX_LANES],
     /// Hits on each lane, decayed to `load_ms`.
     load: [f64; MAX_LANES],
     load_ms: i64,
@@ -553,50 +571,60 @@ struct State {
     node: u32,
 }
 
-/// What a quick repeat is a repeat of: the drum, or the pitch.
-fn identity(kind: PartKind, n: &Note) -> u16 {
+/// What a quick repeat is a repeat of: the drum, the pitch, or the lane of
+/// a keyboard chart.
+fn identity(kind: Source, n: &Note) -> u16 {
     match n.from.unwrap_or(kind) {
-        PartKind::Drums => n.origin as u16,
-        PartKind::Strings => 0x100 | (n.key & 0xff),
+        Source::Drums => n.origin as u16,
+        Source::Strings => 0x100 | (n.key & 0xff),
+        Source::Keys { .. } => 0x200 | n.origin as u16,
     }
 }
 
+/// Whether note `i` is the leftmost of its group in its own chart.
+fn leftmost(g: &Group, i: usize) -> bool {
+    let n = &g.notes[i];
+    g.notes.iter().all(|m| m.origin >= n.origin)
+        && g.notes.iter().position(|m| m.origin == n.origin) == Some(i)
+}
+
 /// Whether note `i` of `g` is an accent (`edge`): a cymbal, a kick on a
-/// strong beat; a long note, or a chord's lowest note on a beat; anything
-/// on a bar's first beat.
-fn accent(kind: PartKind, g: &Group, i: usize) -> bool {
+/// strong beat; a long note, or a chord's lowest note on a beat; a keyboard
+/// chart's scratch or long note; anything on a bar's first beat.
+fn accent(kind: Source, g: &Group, i: usize) -> bool {
     let n = &g.notes[i];
     let strength = g.strength();
     if strength == 4 {
         return true;
     }
     match n.from.unwrap_or(kind) {
-        PartKind::Drums => n.origin == 5 || (n.origin == 2 && strength >= 3),
-        PartKind::Strings => {
+        Source::Drums => n.origin == 5 || (n.origin == 2 && strength >= 3),
+        Source::Strings => {
             let lowest = g.notes.iter().all(|m| (m.key & 0xff) >= (n.key & 0xff));
             n.ticks >= LONG_TICKS || (g.notes.len() > 1 && lowest && strength >= 2)
         }
+        Source::Keys { .. } => n.hold_ms > 0 || (g.accent >= 2 && leftmost(g, i)),
     }
 }
 
 /// How much a group is kept when notes are too dense (`d`, `mix`): strong
 /// beats, chords, kicks, snares and cymbals, a change of pitch, long notes;
 /// another part's notes least.
-fn priority(kind: PartKind, g: &Group, last_pitch: Option<u16>) -> i32 {
+fn priority(kind: Source, g: &Group, last_pitch: Option<u16>) -> i32 {
     let mut p = 2 * g.strength() as i32;
     if g.notes.len() > 1 {
         p += 2;
     }
     for n in &g.notes {
         match n.from.unwrap_or(kind) {
-            PartKind::Drums => {
+            Source::Drums => {
                 p += match n.origin {
                     1 | 2 | 5 => 2,
                     3 | 4 => 1,
                     _ => 0,
                 }
             }
-            PartKind::Strings => {
+            Source::Strings => {
                 if last_pitch.is_some_and(|l| l != n.key & 0xff) {
                     p += 2;
                 }
@@ -604,7 +632,15 @@ fn priority(kind: PartKind, g: &Group, last_pitch: Option<u16>) -> i32 {
                     p += 1;
                 }
             }
+            Source::Keys { .. } => {
+                if n.hold_ms > 0 {
+                    p += 1;
+                }
+            }
         }
+    }
+    if matches!(kind, Source::Keys { .. }) {
+        p += g.accent as i32;
     }
     if g.borrowed() {
         p -= 3;
@@ -635,13 +671,13 @@ fn thin(order: &[usize], groups: &[Group], prio: &[i32], gap: i64) -> Vec<usize>
 
 /// The groups that take lanes (in time order): the arranged part's, other
 /// parts' where the part rests (`mix`), then thinned (`d`).
-fn played(a: &Arrange, kind: PartKind, groups: &[Group]) -> Vec<usize> {
+fn played(a: &Arrange, kind: Source, groups: &[Group]) -> Vec<usize> {
     let mut last_pitch = None;
     let prio: Vec<i32> = groups
         .iter()
         .map(|g| {
             let p = priority(kind, g, last_pitch);
-            if !g.borrowed() && kind == PartKind::Strings {
+            if !g.borrowed() && kind == Source::Strings {
                 last_pitch = g.notes.first().map(|n| n.key & 0xff);
             }
             p
@@ -697,7 +733,7 @@ impl Turn {
 }
 
 /// A bar as the part plays it: places and sounds (FNV-1a).
-fn bar_hash(kind: PartKind, bar: &[Group]) -> u64 {
+fn bar_hash(kind: Source, bar: &[Group]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |v: u64| {
         for b in v.to_le_bytes() {
@@ -714,7 +750,7 @@ fn bar_hash(kind: PartKind, bar: &[Group]) -> u64 {
 }
 
 /// Each group's bar's `bar_hash`.
-fn bar_hashes(kind: PartKind, groups: &[Group]) -> Vec<u64> {
+fn bar_hashes(kind: Source, groups: &[Group]) -> Vec<u64> {
     let mut out = vec![0; groups.len()];
     let mut start = 0;
     while start < groups.len() {
@@ -738,7 +774,7 @@ fn bar_hashes(kind: PartKind, groups: &[Group]) -> Vec<u64> {
 /// the run's first quarter beat.
 fn figures(
     a: &Arrange,
-    kind: PartKind,
+    kind: Source,
     n: usize,
     groups: &[Group],
     liked: &mut [Vec<Option<f64>>],
@@ -803,7 +839,7 @@ fn figures(
 /// `motif`: the hands (0 left, 1 right, 2 both) each group of a returning
 /// bar should be on: those of the group at its place the first time the bar
 /// came, in the placement `masks`. `None` for the rest.
-fn motif_hands(kind: PartKind, n: usize, groups: &[Group], masks: &[u16]) -> Vec<Option<u8>> {
+fn motif_hands(kind: Source, n: usize, groups: &[Group], masks: &[u16]) -> Vec<Option<u8>> {
     let half = n / 2;
     let side_of = |mask: u16| -> u8 {
         let left = mask & ((1 << half) - 1) != 0;
@@ -872,9 +908,9 @@ const EVEN_FILL: f64 = 0.7;
 /// on the beats become two.
 ///
 /// Every group `Keep`s without both.
-pub fn accents(a: &Arrange, kind: PartKind, groups: &[Group]) -> Vec<Accent> {
+pub fn accents(a: &Arrange, kind: Source, groups: &[Group]) -> Vec<Accent> {
     let mut out = vec![Accent::Keep; groups.len()];
-    if kind != PartKind::Strings || !(a.acc || a.even) {
+    if kind != Source::Strings || !(a.acc || a.even) {
         return out;
     }
     let own: Vec<usize> = (0..groups.len())
@@ -974,24 +1010,27 @@ fn even_sizes(groups: &[Group], own: &[usize], want: &[usize]) -> Vec<usize> {
 }
 
 /// `trig`: whether note `i` of `g` is an accent on the beat.
-fn trig_accent(kind: PartKind, g: &Group, i: usize) -> bool {
+fn trig_accent(kind: Source, g: &Group, i: usize) -> bool {
     let n = &g.notes[i];
     let strength = g.strength();
     match n.from.unwrap_or(kind) {
-        PartKind::Drums => (n.origin == 1 || n.origin == 5) && strength >= 1,
-        PartKind::Strings => {
+        Source::Drums => (n.origin == 1 || n.origin == 5) && strength >= 1,
+        Source::Strings => {
             let lowest = g.notes.iter().all(|m| (m.key & 0xff) >= (n.key & 0xff));
             let first = g.notes.iter().position(|m| m.key == n.key) == Some(i);
             lowest
                 && first
                 && (n.ticks >= LONG_TICKS || strength == 4 || (strength >= 2 && g.accent >= 2))
         }
+        Source::Keys { .. } => {
+            leftmost(g, i) && (strength == 4 || (strength >= 1 && g.accent >= 2))
+        }
     }
 }
 
 /// Each returning bar's turn (`vary`), by group: `None` for a bar the
 /// first time it comes, and for other parts' notes.
-fn bar_turns(a: &Arrange, kind: PartKind, n: usize, groups: &[Group]) -> Vec<Option<Turn>> {
+fn bar_turns(a: &Arrange, kind: Source, n: usize, groups: &[Group]) -> Vec<Option<Turn>> {
     let mut out = vec![None; groups.len()];
     if !a.vary {
         return out;
@@ -1037,23 +1076,19 @@ fn bar_turns(a: &Arrange, kind: PartKind, n: usize, groups: &[Group]) -> Vec<Opt
 
 /// The lane each note of each group goes on, `None` for a note that plays
 /// by itself: thinned (`d`), another part's note not brought in (`mix`), or
-/// left over when a group has more notes than lanes. `difficulty` sets the
-/// default shortest repeat on a lane. Groups are in time order.
-pub fn arrange(
-    a: &Arrange,
-    kind: PartKind,
-    difficulty: u8,
-    groups: &[Group],
-) -> Vec<Vec<Option<u8>>> {
+/// left over when a group has more notes than free lanes (a long note
+/// holds its lane to its end). `jack_ms` is the shortest repeat on a lane
+/// when the arrangement has none (`j`). Groups are in time order.
+pub fn arrange(a: &Arrange, kind: Source, jack_ms: u16, groups: &[Group]) -> Vec<Vec<Option<u8>>> {
     let a = resolve(a, kind, groups);
-    let (masks, lanes) = search(&a, kind, difficulty, groups, &[]);
+    let (masks, lanes) = search(&a, kind, jack_ms, groups, &[]);
     if !a.motif {
         return lanes;
     }
     // Again, now that the hands of each bar's first time are known.
     let n = a.lanes.clamp(1, MAX_LANES as u8) as usize;
     let want = motif_hands(kind, n, groups, &masks);
-    search(&a, kind, difficulty, groups, &want).1
+    search(&a, kind, jack_ms, groups, &want).1
 }
 
 /// The placement with the lowest cost: each group's lane mask, and each
@@ -1061,14 +1096,14 @@ pub fn arrange(
 /// for none.
 fn search(
     a: &Arrange,
-    kind: PartKind,
-    difficulty: u8,
+    kind: Source,
+    jack_ms: u16,
     groups: &[Group],
     want: &[Option<u8>],
 ) -> (Vec<u16>, Vec<Vec<Option<u8>>>) {
     let a = *a;
     let n = a.lanes.clamp(1, MAX_LANES as u8) as usize;
-    let jack = a.jack_ms.unwrap_or_else(|| default_jack_ms(difficulty)) as f64;
+    let jack = a.jack_ms.unwrap_or(jack_ms) as f64;
     let repeat_ms = (2.0 * jack).max(250.0) as i64;
     let (home, alt) = drum_lanes(a.lanes);
     let trig = a.trig && n == 8;
@@ -1107,6 +1142,21 @@ fn search(
         })
         .collect();
 
+    // Each note's place among its group's notes by original lane: where the
+    // lanes are short (long notes hold some), the first ones play.
+    let rank: Vec<Vec<usize>> = groups
+        .iter()
+        .map(|g| {
+            let mut idx: Vec<usize> = (0..g.notes.len()).collect();
+            idx.sort_by_key(|&i| (g.notes[i].origin, i));
+            let mut rank = vec![0; g.notes.len()];
+            for (r, &i) in idx.iter().enumerate() {
+                rank[i] = r;
+            }
+            rank
+        })
+        .collect();
+
     // Lane sets for k notes: bit masks, ascending, with their lanes.
     let sets: Vec<Vec<(u16, Vec<u8>)>> = (0..=n)
         .map(|k| {
@@ -1122,6 +1172,7 @@ fn search(
     let never = i64::MIN / 4;
     let mut beam = vec![State {
         last: [never; MAX_LANES],
+        held: [never; MAX_LANES],
         load: [0.0; MAX_LANES],
         load_ms: 0,
         recent: [(u16::MAX, 0, never, false); RECENT],
@@ -1150,7 +1201,7 @@ fn search(
     // Per group, reused: each state's note-by-lane costs, the candidates.
     let mut costs: Vec<f64> = Vec::new();
     let mut next: Vec<(f64, u32, u16)> = Vec::new();
-    type Sig = (u16, [u8; MAX_LANES], u8, u8, u8);
+    type Sig = (u16, [u8; MAX_LANES], u8, u8, u8, [i64; MAX_LANES]);
     let mut seen: std::collections::HashSet<Sig> = std::collections::HashSet::new();
 
     for &gi in &play {
@@ -1214,7 +1265,7 @@ fn search(
                 };
                 let prev = prev.map(|p| p.0);
                 let mut target = liked[gi][i];
-                if kind == PartKind::Drums && a.stick && note.from.is_none() && !fig {
+                if kind == Source::Drums && a.stick && note.from.is_none() && !fig {
                     let d = note.origin.min(5) as usize;
                     if let Some(lane) = double {
                         target = Some(lane as f64);
@@ -1275,9 +1326,22 @@ fn search(
                 }
             }
             let quick = g.ms - s.group_ms < FAST_MS;
-            for (mask, lanes) in &sets[k] {
-                let mut cost = s.cost;
-                for (j, &lane) in lanes.iter().enumerate() {
+            // Lanes a long note still holds take nothing; with fewer free
+            // lanes than notes, the first notes by original lane play.
+            let mut busy = 0u16;
+            for l in 0..n {
+                if s.held[l] >= g.ms {
+                    busy |= 1 << l;
+                }
+            }
+            let fit = k.min(n - busy.count_ones() as usize);
+            for (mask, lanes) in &sets[fit] {
+                if mask & busy != 0 {
+                    continue;
+                }
+                let mut cost = s.cost + DROP * (k - fit) as f64;
+                let chosen = (0..k).filter(|&j| rank[gi][ids[j]] < fit);
+                for (j, &lane) in chosen.zip(lanes) {
                     cost += costs[j * n + lane as usize];
                 }
                 if a.bal {
@@ -1287,7 +1351,7 @@ fn search(
                     }
                     cost += HAND_LOAD * (h[0] - h[1]).abs();
                 }
-                if a.split && k == 2 {
+                if a.split && fit == 2 {
                     let (x, y) = (lanes[0] as usize, lanes[1] as usize);
                     if (x < half) == (y < half) {
                         cost += SPLIT_HAND;
@@ -1349,7 +1413,23 @@ fn search(
                 recent_edge as u8
             };
             let run_sig = run.min(4 + free_run) as u8;
-            if !seen.insert((mask, sig, side * a.hand as u8, run_sig, edge_sig)) {
+            // The lanes held after this group, and to when.
+            let fit = mask.count_ones() as usize;
+            let mut held = [0i64; MAX_LANES];
+            for (l, v) in held.iter_mut().enumerate().take(n) {
+                if s.held[l] >= g.ms {
+                    *v = s.held[l];
+                }
+            }
+            let chosen = || ids.iter().filter(|&&i| rank[gi][i] < fit);
+            let lanes = || (0..n as u8).filter(|l| mask & 1 << l != 0);
+            for (&i, lane) in chosen().zip(lanes()) {
+                let hold = g.notes[i].hold_ms as i64;
+                if hold > 0 {
+                    held[lane as usize] = g.ms + hold;
+                }
+            }
+            if !seen.insert((mask, sig, side * a.hand as u8, run_sig, edge_sig, held)) {
                 continue;
             }
             let mut t = s.clone();
@@ -1364,9 +1444,13 @@ fn search(
             t.run = run;
             t.edge_ms = edge_ms;
             t.edge_side = edge_side;
-            let lanes = (0..n as u8).filter(|l| mask & 1 << l != 0);
-            for (&i, lane) in ids.iter().zip(lanes) {
-                t.last[lane as usize] = g.ms;
+            for (&i, lane) in chosen().zip(lanes()) {
+                // A long note's lane counts as hit until it lets go.
+                let hold = g.notes[i].hold_ms as i64;
+                t.last[lane as usize] = g.ms + hold;
+                if hold > 0 {
+                    t.held[lane as usize] = g.ms + hold;
+                }
                 t.load[lane as usize] += 1.0;
                 let id = identity(kind, &g.notes[i]);
                 let stayed = s
@@ -1404,7 +1488,9 @@ fn search(
         .map(|(gi, g)| {
             let mut out = vec![None; g.notes.len()];
             let lanes = (0..n as u8).filter(|l| masks[gi] & 1 << l != 0);
-            for (&i, lane) in order[gi].iter().zip(lanes) {
+            let fit = masks[gi].count_ones() as usize;
+            let chosen = order[gi].iter().filter(|&&i| rank[gi][i] < fit);
+            for (&i, lane) in chosen.zip(lanes) {
                 out[i] = Some(lane);
             }
             out
@@ -1417,7 +1503,7 @@ fn search(
 /// none.
 fn liked_lanes(
     a: &Arrange,
-    kind: PartKind,
+    kind: Source,
     n: usize,
     groups: &[Group],
     home: &[u8; 6],
@@ -1425,7 +1511,7 @@ fn liked_lanes(
     let top = (n - 1) as f64;
     let none = |g: &Group| vec![None; g.notes.len()];
     match kind {
-        PartKind::Drums => groups
+        Source::Drums => groups
             .iter()
             .map(|g| {
                 if g.borrowed() {
@@ -1437,7 +1523,7 @@ fn liked_lanes(
                     .collect()
             })
             .collect(),
-        PartKind::Strings if !a.pitch => groups
+        Source::Strings if !a.pitch => groups
             .iter()
             .map(|g| {
                 if g.borrowed() {
@@ -1449,7 +1535,21 @@ fn liked_lanes(
                     .collect()
             })
             .collect(),
-        PartKind::Strings => {
+        // The lane's place from left to right, kept on the new lanes.
+        Source::Keys { lanes } => groups
+            .iter()
+            .map(|g| {
+                if g.borrowed() {
+                    return none(g);
+                }
+                let last = lanes.max(2) as f64 - 1.0;
+                g.notes
+                    .iter()
+                    .map(|note| Some((note.origin as f64).min(last) / last * top))
+                    .collect()
+            })
+            .collect(),
+        Source::Strings => {
             let mut out: Vec<Vec<Option<f64>>> = groups.iter().map(none).collect();
             let main: Vec<usize> = (0..groups.len())
                 .filter(|&i| !groups[i].borrowed())
@@ -1547,10 +1647,10 @@ mod tests {
     #[test]
     fn a_part_drops_the_other_parts_features_and_an_unused_seed() {
         let a = Arrange::parse("6k+pitch+home+stick+edge+s5").unwrap();
-        assert_eq!(a.for_part(PartKind::Drums).key(), "6k+home+stick");
-        assert_eq!(a.for_part(PartKind::Strings).key(), "6k+pitch");
+        assert_eq!(a.for_part(Source::Drums).key(), "6k+home+stick");
+        assert_eq!(a.for_part(Source::Strings).key(), "6k+pitch");
         let a = Arrange::parse("8k+vary+edge+s5").unwrap();
-        assert_eq!(a.for_part(PartKind::Drums).key(), "8k+vary+edge+s5");
+        assert_eq!(a.for_part(Source::Drums).key(), "8k+vary+edge+s5");
     }
 
     #[test]
@@ -1561,14 +1661,16 @@ mod tests {
         assert_eq!(r.next_u64(), 0x6e78_9e6a_a1b9_65f4);
     }
 
-    fn note(kind: PartKind, origin: u8) -> Note {
+    fn note(kind: Source, origin: u8) -> Note {
         Note {
             origin,
             key: match kind {
-                PartKind::Drums => 36,
-                PartKind::Strings => 0x2400 | (0x30 + origin as u16),
+                Source::Drums => 36,
+                Source::Strings => 0x2400 | (0x30 + origin as u16),
+                Source::Keys { .. } => 1 + origin as u16,
             },
             ticks: 0,
+            hold_ms: 0,
             from: None,
         }
     }
@@ -1584,7 +1686,7 @@ mod tests {
     }
 
     /// Groups at those ms; a bar is 2 s (120 BPM 4/4).
-    fn run(kind: PartKind, origins: &[(i64, &[u8])]) -> Vec<Group> {
+    fn run(kind: Source, origins: &[(i64, &[u8])]) -> Vec<Group> {
         origins
             .iter()
             .map(|&(ms, o)| group(ms, o.iter().map(|&origin| note(kind, origin)).collect()))
@@ -1599,11 +1701,11 @@ mod tests {
     fn a_fast_repeat_moves_off_its_lane() {
         // Sixteenths at 150 BPM (100 ms) on one fret.
         let groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &(0..16).map(|i| (i * 100, &[1u8][..])).collect::<Vec<_>>(),
         );
         let a = Arrange::parse("6k+trill").unwrap();
-        let lanes = arrange(&a, PartKind::Strings, 2, &groups);
+        let lanes = arrange(&a, Source::Strings, 180, &groups);
         let flat: Vec<u8> = lanes.iter().map(|l| l[0].unwrap()).collect();
         for w in flat.windows(2) {
             assert_ne!(w[0], w[1], "{flat:?}");
@@ -1628,7 +1730,7 @@ mod tests {
     fn hand_sends_a_fast_run_between_the_hands() {
         // A fast R-G trill: both frets like the left hand.
         let groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &(0..32)
                 .map(|i| (i * 110, [&[0u8][..], &[1]][i as usize % 2]))
                 .collect::<Vec<_>>(),
@@ -1636,8 +1738,8 @@ mod tests {
         let flat = |key: &str| -> Vec<u8> {
             lanes_of(&arrange(
                 &Arrange::parse(key).unwrap(),
-                PartKind::Strings,
-                3,
+                Source::Strings,
+                125,
                 &groups,
             ))
             .into_iter()
@@ -1656,32 +1758,32 @@ mod tests {
     #[test]
     fn auto_is_written_alone_and_chooses_by_the_chart() {
         let a = Arrange::parse("6k+auto+pitch+j150").unwrap();
-        assert_eq!(a.for_part(PartKind::Strings).key(), "6k+auto");
+        assert_eq!(a.for_part(Source::Strings).key(), "6k+auto");
         assert_eq!(Arrange::parse("6k+auto").unwrap().key(), "6k+auto");
         // A sparse drum chart keeps doubles; a dense one does not.
         let sparse = run(
-            PartKind::Drums,
+            Source::Drums,
             &(0..40).map(|i| (i * 500, &[1u8][..])).collect::<Vec<_>>(),
         );
         let dense = run(
-            PartKind::Drums,
+            Source::Drums,
             &(0..400).map(|i| (i * 100, &[1u8][..])).collect::<Vec<_>>(),
         );
-        assert!(auto(6, PartKind::Drums, &sparse).jj);
-        assert!(!auto(6, PartKind::Drums, &dense).jj);
-        assert!(auto(6, PartKind::Strings, &dense).jj);
-        assert_eq!(auto(4, PartKind::Strings, &sparse).run, 3);
-        assert_eq!(auto(8, PartKind::Strings, &sparse).run, 2);
+        assert!(auto(6, Source::Drums, &sparse).jj);
+        assert!(!auto(6, Source::Drums, &dense).jj);
+        assert!(auto(6, Source::Strings, &dense).jj);
+        assert_eq!(auto(4, Source::Strings, &sparse).run, 3);
+        assert_eq!(auto(8, Source::Strings, &sparse).run, 2);
         // The lanes are those of the features it chose.
-        let chosen = auto(6, PartKind::Drums, &sparse);
+        let chosen = auto(6, Source::Drums, &sparse);
         assert_eq!(
             arrange(
                 &Arrange::parse("6k+auto").unwrap(),
-                PartKind::Drums,
-                2,
+                Source::Drums,
+                180,
                 &sparse
             ),
-            arrange(&chosen, PartKind::Drums, 2, &sparse)
+            arrange(&chosen, Source::Drums, 180, &sparse)
         );
     }
 
@@ -1696,7 +1798,7 @@ mod tests {
             "6k+pitch+home+stick+bal+hand+vary+edge"
         );
         assert_eq!(
-            Preset::Flow.arrange(4).for_part(PartKind::Strings).key(),
+            Preset::Flow.arrange(4).for_part(Source::Strings).key(),
             "4k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run3"
         );
         assert_eq!(Preset::Easy.arrange(6).thin_ms, Some(150));
@@ -1707,14 +1809,14 @@ mod tests {
     fn fig_lays_a_quick_run_out_as_a_figure_a_beat_long() {
         // Two bars of hi-hat sixteenths at 120 BPM (125 ms).
         let groups = run(
-            PartKind::Drums,
+            Source::Drums,
             &(0..32).map(|i| (i * 125, &[0u8][..])).collect::<Vec<_>>(),
         );
         let flat = |key: &str| -> Vec<u8> {
             lanes_of(&arrange(
                 &Arrange::parse(key).unwrap(),
-                PartKind::Drums,
-                3,
+                Source::Drums,
+                125,
                 &groups,
             ))
             .into_iter()
@@ -1754,24 +1856,24 @@ mod tests {
                 all.push((bar as i64 * 2000 + ms, frets));
             }
         }
-        let groups = run(PartKind::Strings, &all);
+        let groups = run(Source::Strings, &all);
         // The hands asked of the third bar are those the first was given.
         let masks: Vec<u16> = (0..12)
             .map(|i| if i % 2 == 0 { 0b000001 } else { 0b100000 })
             .collect();
-        let want = motif_hands(PartKind::Strings, 6, &groups, &masks);
+        let want = motif_hands(Source::Strings, 6, &groups, &masks);
         assert_eq!(&want[..8], &[None; 8]);
         assert_eq!(&want[8..], &[Some(0), Some(1), Some(0), Some(1)]);
         // A calm chart: the bar comes back on the same lanes, even with `vary`.
         let a = Arrange::parse("6k+bal+hand+vary+motif+s3").unwrap();
-        let lanes = lanes_of(&arrange(&a, PartKind::Strings, 2, &groups));
+        let lanes = lanes_of(&arrange(&a, Source::Strings, 180, &groups));
         assert_eq!(lanes[8..], lanes[..4], "{lanes:?}");
     }
 
     #[test]
     fn acc_sizes_chords_by_how_hard_the_song_hits() {
         let mut groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &[
                 (0, &[0][..]),   // a bar's start
                 (125, &[0, 1]),  // off the beat, no drum
@@ -1786,7 +1888,7 @@ mod tests {
         groups[5].accent = 2;
         groups[6].accent = 2;
         let a = Arrange::parse("6k+acc").unwrap();
-        let got = accents(&a, PartKind::Strings, &groups);
+        let got = accents(&a, Source::Strings, &groups);
         assert!(matches!(got[0], Accent::Double(_)));
         assert_eq!(got[1], Accent::Trim(1));
         assert_eq!(got[2], Accent::Keep);
@@ -1797,13 +1899,11 @@ mod tests {
         );
         assert_eq!(got[6], Accent::Keep);
         // Not for drums, and not without the feature.
-        assert!(
-            accents(&a.for_part(PartKind::Drums), PartKind::Drums, &groups)
-                .iter()
-                .all(|x| *x == Accent::Keep)
-        );
+        assert!(accents(&a.for_part(Source::Drums), Source::Drums, &groups)
+            .iter()
+            .all(|x| *x == Accent::Keep));
         let plain = Arrange::parse("6k").unwrap();
-        assert!(accents(&plain, PartKind::Strings, &groups)
+        assert!(accents(&plain, Source::Strings, &groups)
             .iter()
             .all(|x| *x == Accent::Keep));
     }
@@ -1814,10 +1914,10 @@ mod tests {
         // sixteenths (125 ms) of R+G chords.
         let mut all: Vec<(i64, &[u8])> = (0..16).map(|i| (i * 250, &[0u8][..])).collect();
         all.extend((0..32).map(|i| (4000 + i * 125, &[0u8, 1][..])));
-        let groups = run(PartKind::Strings, &all);
+        let groups = run(Source::Strings, &all);
         let sizes = |key: &str| -> Vec<usize> {
             let a = Arrange::parse(key).unwrap();
-            accents(&a, PartKind::Strings, &groups)
+            accents(&a, Source::Strings, &groups)
                 .iter()
                 .zip(&groups)
                 .map(|(x, g)| match x {
@@ -1863,7 +1963,7 @@ mod tests {
         assert_eq!(
             Arrange::parse("6k+even")
                 .unwrap()
-                .for_part(PartKind::Drums)
+                .for_part(Source::Drums)
                 .key(),
             "6k"
         );
@@ -1878,9 +1978,9 @@ mod tests {
             let backbeat = ms % 1000 == 500;
             all.push((ms, if backbeat { &[0, 1][..] } else { &[0][..] }));
         }
-        let groups = run(PartKind::Drums, &all);
+        let groups = run(Source::Drums, &all);
         let a = Arrange::parse("8k+home+trig").unwrap();
-        let lanes = arrange(&a, PartKind::Drums, 2, &groups);
+        let lanes = arrange(&a, Source::Drums, 180, &groups);
         let mut snares = 0;
         for (g, l) in groups.iter().zip(&lanes) {
             let hat = l[0].unwrap();
@@ -1896,14 +1996,14 @@ mod tests {
         assert_eq!(
             Arrange::parse("8k+edge+trig")
                 .unwrap()
-                .for_part(PartKind::Drums)
+                .for_part(Source::Drums)
                 .key(),
             "8k+trig"
         );
         assert_eq!(
             Arrange::parse("6k+trig")
                 .unwrap()
-                .for_part(PartKind::Drums)
+                .for_part(Source::Drums)
                 .key(),
             "6k"
         );
@@ -1913,13 +2013,13 @@ mod tests {
     fn run_lets_a_few_quick_notes_stay_on_one_hand() {
         // The same fast R-G trill: `run3` keeps three on the hand they like.
         let groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &(0..32)
                 .map(|i| (i * 110, [&[0u8][..], &[1]][i as usize % 2]))
                 .collect::<Vec<_>>(),
         );
         let a = Arrange::parse("6k+hand+run3").unwrap();
-        let flat: Vec<u8> = lanes_of(&arrange(&a, PartKind::Strings, 3, &groups))
+        let flat: Vec<u8> = lanes_of(&arrange(&a, Source::Strings, 125, &groups))
             .into_iter()
             .map(Option::unwrap)
             .collect();
@@ -1927,18 +2027,18 @@ mod tests {
         assert!((3..=4).contains(&longest), "{flat:?}");
         // Without `hand` there is nothing for `run` to change.
         let alone = Arrange::parse("6k+run3").unwrap();
-        assert_eq!(alone.for_part(PartKind::Strings).key(), "6k");
+        assert_eq!(alone.for_part(Source::Strings).key(), "6k");
     }
 
     #[test]
     fn split_puts_two_notes_on_two_hands_and_apart() {
         // R+G chords: both frets like the left half.
         let groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &(0..8).map(|i| (i * 500, &[0u8, 1][..])).collect::<Vec<_>>(),
         );
         let pairs = |key: &str| -> Vec<(u8, u8)> {
-            arrange(&Arrange::parse(key).unwrap(), PartKind::Strings, 3, &groups)
+            arrange(&Arrange::parse(key).unwrap(), Source::Strings, 125, &groups)
                 .iter()
                 .map(|l| (l[0].unwrap(), l[1].unwrap()))
                 .collect()
@@ -1960,14 +2060,14 @@ mod tests {
         // then three in a row.
         let times = [0, 150, 1000, 1150, 2000, 2150, 2300];
         let groups = run(
-            PartKind::Drums,
+            Source::Drums,
             &times.iter().map(|&ms| (ms, &[1u8][..])).collect::<Vec<_>>(),
         );
         let flat = |key: &str| -> Vec<u8> {
             lanes_of(&arrange(
                 &Arrange::parse(key).unwrap(),
-                PartKind::Drums,
-                2,
+                Source::Drums,
+                180,
                 &groups,
             ))
             .into_iter()
@@ -1982,9 +2082,9 @@ mod tests {
         assert_eq!(with[4], with[5], "{with:?}");
         assert_ne!(with[5], with[6], "{with:?}");
         // Closer than three quarters of the shortest repeat is no double.
-        let close = run(PartKind::Drums, &[(0, &[1u8][..]), (100, &[1])]);
+        let close = run(Source::Drums, &[(0, &[1u8][..]), (100, &[1])]);
         let a = Arrange::parse("6k+home+stick+jj").unwrap();
-        let lanes = lanes_of(&arrange(&a, PartKind::Drums, 2, &close));
+        let lanes = lanes_of(&arrange(&a, Source::Drums, 180, &close));
         assert_ne!(lanes[0], lanes[1]);
     }
 
@@ -1992,11 +2092,11 @@ mod tests {
     fn thinning_keeps_strong_beats_and_drops_the_rest_to_sounds() {
         // 16ths (125 ms) with d200: every other note at most, the beats kept.
         let groups = run(
-            PartKind::Drums,
+            Source::Drums,
             &(0..32).map(|i| (i * 125, &[0u8][..])).collect::<Vec<_>>(),
         );
         let a = Arrange::parse("6k+home+d200").unwrap();
-        let lanes = lanes_of(&arrange(&a, PartKind::Drums, 3, &groups));
+        let lanes = lanes_of(&arrange(&a, Source::Drums, 125, &groups));
         let kept: Vec<i64> = groups
             .iter()
             .zip(&lanes)
@@ -2016,15 +2116,15 @@ mod tests {
         let pattern: Vec<(i64, &[u8])> = (0..64)
             .map(|i| (i * 250, if i % 8 == 0 { &[5u8][..] } else { &[0u8][..] }))
             .collect();
-        let groups = run(PartKind::Drums, &pattern);
+        let groups = run(Source::Drums, &pattern);
         let a = Arrange::parse("8k+home+stick+bal+edge").unwrap();
-        let lanes = lanes_of(&arrange(&a, PartKind::Drums, 3, &groups));
+        let lanes = lanes_of(&arrange(&a, Source::Drums, 125, &groups));
         let mut last = i64::MIN / 2;
         let mut outer = 0;
         for (g, l) in groups.iter().zip(&lanes) {
             let l = l.unwrap();
             if l == 0 || l == 7 {
-                assert!(accent(PartKind::Drums, g, 0), "{} {l}", g.ms);
+                assert!(accent(Source::Drums, g, 0), "{} {l}", g.ms);
                 assert!(g.ms - last >= EDGE_GAP_MS, "{}", g.ms);
                 last = g.ms;
                 outer += 1;
@@ -2039,12 +2139,12 @@ mod tests {
         let pattern: Vec<(i64, &[u8])> = (0..64)
             .map(|i| (i * 250, [&[0u8][..], &[1], &[2], &[1]][i as usize % 4]))
             .collect();
-        let groups = run(PartKind::Strings, &pattern);
+        let groups = run(Source::Strings, &pattern);
         let bars = |key: &str| -> Vec<Vec<Option<u8>>> {
             let lanes = lanes_of(&arrange(
                 &Arrange::parse(key).unwrap(),
-                PartKind::Strings,
-                3,
+                Source::Strings,
+                125,
                 &groups,
             ));
             lanes.chunks(8).map(<[_]>::to_vec).collect()
@@ -2065,18 +2165,18 @@ mod tests {
     fn mix_brings_other_parts_in_only_where_the_part_rests() {
         // Guitar plays the first 2 s, then rests 2 s; drums play 8ths all along.
         let mut groups = run(
-            PartKind::Strings,
+            Source::Strings,
             &(0..8).map(|i| (i * 250, &[1u8][..])).collect::<Vec<_>>(),
         );
         for i in 0..16 {
             let n = Note {
-                from: Some(PartKind::Drums),
-                ..note(PartKind::Drums, 2)
+                from: Some(Source::Drums),
+                ..note(Source::Drums, 2)
             };
             groups.push(group(i * 250, vec![n]));
         }
         groups.sort_by_key(|g| (g.ms, g.borrowed()));
-        let at = |key: &str| arrange(&Arrange::parse(key).unwrap(), PartKind::Strings, 3, &groups);
+        let at = |key: &str| arrange(&Arrange::parse(key).unwrap(), Source::Strings, 125, &groups);
         let taken = |out: &[Vec<Option<u8>>]| -> Vec<i64> {
             groups
                 .iter()
@@ -2100,9 +2200,9 @@ mod tests {
 
     #[test]
     fn chords_keep_their_size_up_to_the_lanes() {
-        let groups = run(PartKind::Drums, &[(0, &[0, 1, 2, 3, 4, 5]), (500, &[0, 2])]);
+        let groups = run(Source::Drums, &[(0, &[0, 1, 2, 3, 4, 5]), (500, &[0, 2])]);
         let a = Arrange::parse("4k+home").unwrap();
-        let lanes = arrange(&a, PartKind::Drums, 3, &groups);
+        let lanes = arrange(&a, Source::Drums, 125, &groups);
         assert_eq!(lanes[0].iter().filter(|l| l.is_some()).count(), 4);
         assert_eq!(lanes[1].iter().filter(|l| l.is_some()).count(), 2);
         let mut used: Vec<u8> = lanes[0].iter().flatten().copied().collect();
@@ -2116,10 +2216,137 @@ mod tests {
         let pattern: Vec<(i64, &[u8])> = (0..64)
             .map(|i| (i * 150, [&[0u8][..], &[1], &[2], &[1, 2]][i as usize % 4]))
             .collect();
-        let groups = run(PartKind::Drums, &pattern);
-        let at = |key: &str| arrange(&Arrange::parse(key).unwrap(), PartKind::Drums, 2, &groups);
+        let groups = run(Source::Drums, &pattern);
+        let at = |key: &str| arrange(&Arrange::parse(key).unwrap(), Source::Drums, 180, &groups);
         assert_eq!(at("6k+home+r3+s1"), at("6k+home+r3+s1"));
         assert_ne!(at("6k+home+r3+s1"), at("6k+home+r3+s2"));
         assert_eq!(at("6k+home+s1"), at("6k+home+s2"));
+    }
+
+    const KEYS7: Source = Source::Keys { lanes: 8 };
+
+    fn hold(origin: u8, hold_ms: u32) -> Note {
+        Note {
+            hold_ms,
+            ..note(KEYS7, origin)
+        }
+    }
+
+    #[test]
+    fn a_keyboard_chart_keeps_its_left_to_right_order() {
+        // One note a second on each lane of a 9 button chart in turn.
+        let kind = Source::Keys { lanes: 9 };
+        let groups: Vec<Group> = (0..9)
+            .map(|i| group(i as i64 * 1000, vec![note(kind, i)]))
+            .collect();
+        for lanes in LANE_COUNTS {
+            let a = Arrange {
+                lanes,
+                ..Default::default()
+            };
+            let out = lanes_of(&arrange(&a, kind, 125, &groups));
+            assert_eq!(out[0], Some(0), "{lanes}K");
+            assert_eq!(out[8], Some(lanes - 1), "{lanes}K");
+            let placed: Vec<u8> = out.iter().map(|l| l.unwrap()).collect();
+            assert!(
+                placed.windows(2).all(|w| w[0] <= w[1]),
+                "{lanes}K {placed:?}"
+            );
+        }
+        // Fewer lanes than the new count spread out too (5 keys to 8).
+        let kind = Source::Keys { lanes: 5 };
+        let groups: Vec<Group> = (0..5)
+            .map(|i| group(i as i64 * 1000, vec![note(kind, i)]))
+            .collect();
+        let a = Arrange {
+            lanes: 8,
+            ..Default::default()
+        };
+        let out = lanes_of(&arrange(&a, kind, 125, &groups));
+        assert_eq!((out[0], out[4]), (Some(0), Some(7)));
+    }
+
+    #[test]
+    fn a_keyboard_arrangement_drops_the_gfdm_features() {
+        let a = Arrange::parse("6k+pitch+home+stick+bal+acc+even").unwrap();
+        assert_eq!(a.for_part(KEYS7).key(), "6k+bal");
+    }
+
+    #[test]
+    fn a_long_note_holds_its_lane_to_its_end() {
+        // A long note of a second on lane 0, with quick notes on the same
+        // lane under it: none of them may land on the held lane.
+        let mut groups = vec![group(0, vec![hold(0, 1000)])];
+        for i in 1..=9 {
+            groups.push(group(i * 100, vec![note(KEYS7, 0)]));
+        }
+        groups.push(group(1500, vec![note(KEYS7, 0)]));
+        for key in ["4k", "4k+bal+hand+vary+split+jj+fig+motif+run3", "8k+auto"] {
+            let a = Arrange::parse(key).unwrap();
+            let out = lanes_of(&arrange(&a, KEYS7, 125, &groups));
+            let held = out[0].expect("the long note plays");
+            for (i, lane) in out.iter().enumerate().skip(1).take(9) {
+                assert_ne!(*lane, Some(held), "{key}: note {i} on the held lane");
+                assert!(lane.is_some(), "{key}: note {i} has a free lane");
+            }
+        }
+    }
+
+    #[test]
+    fn notes_over_the_free_lanes_play_by_themselves() {
+        // Three long notes hold three of four lanes; a chord of three comes
+        // while they do: one note plays, the first by original lane.
+        let groups = vec![
+            group(0, vec![hold(1, 1000), hold(3, 1000), hold(5, 1000)]),
+            group(500, vec![note(KEYS7, 2), note(KEYS7, 4), note(KEYS7, 6)]),
+            group(2000, vec![note(KEYS7, 2), note(KEYS7, 4), note(KEYS7, 6)]),
+        ];
+        let a = Arrange::parse("4k").unwrap();
+        let out = arrange(&a, KEYS7, 125, &groups);
+        assert!(out[0].iter().all(|l| l.is_some()));
+        let held: Vec<u8> = out[0].iter().map(|l| l.unwrap()).collect();
+        assert!(out[1][0].is_some_and(|l| !held.contains(&l)));
+        assert_eq!(&out[1][1..], &[None, None]);
+        // Once they let go, the whole chord plays.
+        assert!(out[2].iter().all(|l| l.is_some()));
+    }
+
+    #[test]
+    fn a_keyboard_chart_arranges_the_same_every_time() {
+        let mut groups = Vec::new();
+        let mut r = SplitMix64::new(7);
+        for i in 0..400 {
+            let k = 1 + (r.next_u64() % 3) as usize;
+            let mut notes: Vec<Note> = Vec::new();
+            while notes.len() < k {
+                let origin = (r.next_u64() % 8) as u8;
+                if notes.iter().all(|n| n.origin != origin) {
+                    let long = r.next_u64() % 9 == 0;
+                    notes.push(hold(origin, if long { 300 } else { 0 }));
+                }
+            }
+            groups.push(group(i * 90, notes));
+        }
+        for key in ["4k+auto", "6k+auto", "8k+auto", "6k+bal+vary+r3+s5"] {
+            let a = Arrange::parse(key).unwrap();
+            let first = arrange(&a, KEYS7, 125, &groups);
+            assert_eq!(first, arrange(&a, KEYS7, 125, &groups), "{key}");
+            // No two notes on one lane at once, and none under a long note.
+            let mut held = [i64::MIN; 8];
+            for (g, lanes) in groups.iter().zip(&first) {
+                let mut used = 0u16;
+                for (n, lane) in g.notes.iter().zip(lanes) {
+                    let Some(l) = *lane else { continue };
+                    assert_eq!(used & 1 << l, 0, "{key}: two notes on a lane");
+                    used |= 1 << l;
+                    assert!(held[l as usize] < g.ms, "{key}: a note under a long note");
+                    held[l as usize] = if n.hold_ms > 0 {
+                        g.ms + n.hold_ms as i64
+                    } else {
+                        i64::MIN
+                    };
+                }
+            }
+        }
     }
 }

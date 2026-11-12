@@ -27,7 +27,7 @@
 //! timing lands on the disc's times.
 
 use crate::gfdm::{Event, Game, Kits, MusicInfo, Seq, Track, TICKS_PER_SECOND};
-use chart_arrange::{Arrange, PartKind};
+use chart_arrange::{Arrange, Source};
 
 /// Bar line, tempo (`a` = microseconds a beat) and note kinds in a track.
 const EVENT_BAR: u8 = 0x50;
@@ -65,11 +65,21 @@ impl Part {
     }
 
     /// What kind of part an arrangement treats this as.
-    pub fn arrange_kind(self) -> PartKind {
+    pub fn arrange_kind(self) -> Source {
         match self {
-            Part::Drums => PartKind::Drums,
-            Part::Guitar | Part::Open | Part::Bass => PartKind::Strings,
+            Part::Drums => Source::Drums,
+            Part::Guitar | Part::Open | Part::Bass => Source::Strings,
         }
+    }
+}
+
+/// The shortest time between two hits on one lane of an arranged chart at
+/// `difficulty` (1 BASIC, 2 ADVANCED, 3 EXTREME), ms.
+pub fn default_jack_ms(difficulty: u8) -> u16 {
+    match difficulty {
+        1 => 250,
+        2 => 180,
+        _ => 125,
     }
 }
 
@@ -395,7 +405,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
     let mut groups: Vec<(usize, u64, i64, Vec<(chart_arrange::Note, Sound)>)> = Vec::new();
     // The original lanes, as the original chart keeps them: a lane taken at
     // a place keeps its first note. `from` is another part's kind (`mix`).
-    let mut add_note = |e: &Event, game: Game, from: Option<PartKind>, sound: Option<Sound>| {
+    let mut add_note = |e: &Event, game: Game, from: Option<Source>, sound: Option<Sound>| {
         let (bar, slot) = place(e.time);
         let at = groups.iter().rposition(|g| {
             g.0 == bar && g.1 == slot && g.3.first().is_none_or(|(n, _)| n.from == from)
@@ -418,6 +428,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                 origin,
                 key: e.a as u16,
                 ticks: (e.a >> 16) as u16,
+                hold_ms: 0,
                 from,
             };
             notes.push((note, s.unwrap_or(Sound::Silent)));
@@ -487,7 +498,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         // How hard the drums hit, by time, for a guitar or bass chart
         // (`acc`, `trig`): 2 a snare or cymbal, 1 a kick.
         let mut hits: Vec<(i64, u8)> = Vec::new();
-        if kind == PartKind::Strings {
+        if kind == Source::Strings {
             if let Some(t) = track(song.drums, song.guitar, Part::Drums, chart.difficulty) {
                 for e in t.events.iter().filter(|e| e.kind == EVENT_NOTE) {
                     let ms = e.time as i64 * 1000 / TICKS_PER_SECOND as i64;
@@ -546,7 +557,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
             }
         }
         let input = input(&groups);
-        let lanes = chart_arrange::arrange(&a, kind, chart.difficulty, &input);
+        let lanes = chart_arrange::arrange(&a, kind, default_jack_ms(chart.difficulty), &input);
         for (g, lanes) in groups.iter().zip(lanes) {
             for ((_, sound), lane) in g.3.iter().zip(lanes) {
                 let ch = match lane {
