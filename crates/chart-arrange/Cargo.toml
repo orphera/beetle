@@ -1,0 +1,7 @@
+[package]
+name = "chart-arrange"
+version = "0.1.0"
+edition = "2021"
+description = "Lays a chart's notes out again on 4, 6 or 8 keyboard lanes, with no dependencies"
+
+[dependencies]

@@ -8,8 +8,8 @@
 //! (comma separated) limit the songs.
 //!
 //! cargo run -p cs-disc --release --example gfdm_bms -- <image.iso> <out dir> [<arrangement> [<id>,...]]
+use chart_arrange::Arrange;
 use cs_disc::gfdm::{read_kits, Disc};
-use cs_disc::gfdm_arrange::Arrange;
 use cs_disc::gfdm_bms::{charts, to_bms, Song};
 use cs_disc::Volume;
 

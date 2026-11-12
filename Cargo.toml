@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/bms-hash",
+    "crates/chart-arrange",
     "crates/cs-disc",
     "crates/mpeg-video",
     "crates/beetle-core",
@@ -19,6 +20,7 @@ beetle-core = { path = "crates/beetle-core" }
 beetle-audio = { path = "crates/beetle-audio" }
 beetle-render = { path = "crates/beetle-render" }
 bms-hash = { path = "crates/bms-hash" }
+chart-arrange = { path = "crates/chart-arrange" }
 cs-disc = { path = "crates/cs-disc" }
 mpeg-video = { path = "crates/mpeg-video" }
 bms-package = { path = "crates/bms-package" }

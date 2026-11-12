@@ -571,7 +571,7 @@ impl AppConfig {
                     }
                 }
                 "gfdm_arrange" => {
-                    if let Some(a) = cs_disc::gfdm_arrange::Arrange::parse(val) {
+                    if let Some(a) = chart_arrange::Arrange::parse(val) {
                         config.gfdm_arrange.arrange = a;
                     }
                 }
@@ -799,10 +799,8 @@ mod tests {
             speed_anchor: SpeedAnchor::Main,
             gfdm_arrange: crate::gfdm_arrange::ArrangeSetting {
                 on: true,
-                preset: crate::gfdm_arrange::PresetChoice::Named(
-                    cs_disc::gfdm_arrange::Preset::Easy,
-                ),
-                arrange: cs_disc::gfdm_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
+                preset: crate::gfdm_arrange::PresetChoice::Named(chart_arrange::Preset::Easy),
+                arrange: chart_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
                 advanced: false,
             },
             ..AppConfig::default()

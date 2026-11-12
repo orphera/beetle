@@ -27,7 +27,7 @@
 //! timing lands on the disc's times.
 
 use crate::gfdm::{Event, Game, Kits, MusicInfo, Seq, Track, TICKS_PER_SECOND};
-use crate::gfdm_arrange::{self, Arrange, PartKind};
+use chart_arrange::{Arrange, PartKind};
 
 /// Bar line, tempo (`a` = microseconds a beat) and note kinds in a track.
 const EVENT_BAR: u8 = 0x50;
@@ -392,7 +392,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         None => None,
     };
     // Arranged notes by place: (bar, slot, ms, notes with their sounds).
-    let mut groups: Vec<(usize, u64, i64, Vec<(gfdm_arrange::Note, Sound)>)> = Vec::new();
+    let mut groups: Vec<(usize, u64, i64, Vec<(chart_arrange::Note, Sound)>)> = Vec::new();
     // The original lanes, as the original chart keeps them: a lane taken at
     // a place keeps its first note. `from` is another part's kind (`mix`).
     let mut add_note = |e: &Event, game: Game, from: Option<PartKind>, sound: Option<Sound>| {
@@ -414,7 +414,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                 continue;
             }
             let s = if k == 0 { sound } else { Some(Sound::Silent) };
-            let note = gfdm_arrange::Note {
+            let note = chart_arrange::Note {
                 origin,
                 key: e.a as u16,
                 ticks: (e.a >> 16) as u16,
@@ -511,30 +511,30 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                 .max()
                 .unwrap_or(0)
         };
-        let input = |groups: &[(usize, u64, i64, Vec<(gfdm_arrange::Note, Sound)>)]| {
+        let input = |groups: &[(usize, u64, i64, Vec<(chart_arrange::Note, Sound)>)]| {
             groups
                 .iter()
-                .map(|g| gfdm_arrange::Group {
+                .map(|g| chart_arrange::Group {
                     ms: g.2,
                     bar: g.0 as u32,
                     slot: g.1 as u16,
                     accent: accent_at(g.2),
                     notes: g.3.iter().map(|(n, _)| *n).collect(),
                 })
-                .collect::<Vec<gfdm_arrange::Group>>()
+                .collect::<Vec<chart_arrange::Group>>()
         };
         // The features for this chart (`auto` looks at its notes), then the
         // groups as `acc` makes them: a second note without a sound, or only
         // the first of several (the others had none).
         let first = input(&groups);
-        let a = gfdm_arrange::resolve(&a, kind, &first);
+        let a = chart_arrange::resolve(&a, kind, &first);
         for (g, accent) in groups
             .iter_mut()
-            .zip(gfdm_arrange::accents(&a, kind, &first))
+            .zip(chart_arrange::accents(&a, kind, &first))
         {
             match accent {
-                gfdm_arrange::Accent::Keep => {}
-                gfdm_arrange::Accent::Trim(keep) => {
+                chart_arrange::Accent::Keep => {}
+                chart_arrange::Accent::Trim(keep) => {
                     // A sound among the dropped notes still plays below.
                     for (_, sound) in g.3.drain(keep.max(1)..) {
                         if sound != Sound::Silent {
@@ -542,11 +542,11 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                         }
                     }
                 }
-                gfdm_arrange::Accent::Double(note) => g.3.push((note, Sound::Silent)),
+                chart_arrange::Accent::Double(note) => g.3.push((note, Sound::Silent)),
             }
         }
         let input = input(&groups);
-        let lanes = gfdm_arrange::arrange(&a, kind, chart.difficulty, &input);
+        let lanes = chart_arrange::arrange(&a, kind, chart.difficulty, &input);
         for (g, lanes) in groups.iter().zip(lanes) {
             for ((_, sound), lane) in g.3.iter().zip(lanes) {
                 let ch = match lane {
@@ -1049,7 +1049,7 @@ mod tests {
             for chart in charts(&c.drums, &c.guitar) {
                 let plain = to_bms(&s, chart).unwrap();
                 let (notes, sounds) = census(&plain);
-                for lanes in crate::gfdm_arrange::LANE_COUNTS {
+                for lanes in chart_arrange::LANE_COUNTS {
                     let a = chart.arranged(Arrange { lanes, ..features });
                     let key = a.key(c.info.id);
                     let bms = to_bms(&s, a).unwrap_or_else(|| panic!("{key}"));

@@ -5,6 +5,7 @@ edition = "2021"
 description = "Reads songs straight off console (CS) game discs: disc images and optical drives, no extraction"
 
 [dependencies]
+chart-arrange = { workspace = true }
 
 [dev-dependencies]
 # Real-disc tests read the synthesized BMS back with the player's parser.

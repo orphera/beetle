@@ -320,7 +320,7 @@ pub fn play_options() -> &'static [OptionDesc] {
 /// preset row what the chosen preset does.
 pub fn help(gfdm: &crate::gfdm_arrange::ArrangeSetting, desc: &OptionDesc) -> &'static str {
     use crate::gfdm_arrange::PresetChoice;
-    use cs_disc::gfdm_arrange::Preset;
+    use chart_arrange::Preset;
     if desc.id != OptionId::GfdmPreset {
         return desc.help;
     }
@@ -808,7 +808,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         }
         OptionId::GfdmPreset => {
             use crate::gfdm_arrange::PresetChoice;
-            use cs_disc::gfdm_arrange::Preset;
+            use chart_arrange::Preset;
             match state.gfdm_arrange.preset {
                 PresetChoice::Auto => strings::VALUE_GFDM_AUTO(),
                 PresetChoice::Named(Preset::Flow) => strings::VALUE_GFDM_FLOW(),

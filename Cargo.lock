@@ -118,6 +118,7 @@ dependencies = [
  "beetle-render",
  "bms-package",
  "bms-package-manager",
+ "chart-arrange",
  "cs-disc",
  "hound",
  "rtrb",
@@ -349,6 +350,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "chart-arrange"
+version = "0.1.0"
+
+[[package]]
 name = "clang-sys"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -521,6 +526,7 @@ name = "cs-disc"
 version = "0.1.0"
 dependencies = [
  "beetle-core",
+ "chart-arrange",
 ]
 
 [[package]]

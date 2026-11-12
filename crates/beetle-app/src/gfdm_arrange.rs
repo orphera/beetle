@@ -10,13 +10,13 @@
 use std::sync::mpsc::{channel, Receiver};
 
 use beetle_core::{disc_address, PlayMode, SongAddress, SongMetadata};
-use cs_disc::gfdm_arrange::{Arrange, Preset, LANE_COUNTS, MAX_MIX, MAX_NOISE, MAX_RUN};
+use chart_arrange::{Arrange, Preset, LANE_COUNTS, MAX_MIX, MAX_NOISE, MAX_RUN};
 use cs_disc::gfdm_bms::ChartRef;
 
 /// Which features an arranged chart gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresetChoice {
-    /// Chosen for each chart (`cs_disc::gfdm_arrange::auto`).
+    /// Chosen for each chart (`chart_arrange::auto`).
     Auto,
     Named(Preset),
     /// The features of `ArrangeSetting::arrange`, set row by row.
