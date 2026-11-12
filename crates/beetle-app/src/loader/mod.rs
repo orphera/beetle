@@ -347,6 +347,26 @@ pub fn load_chart_and_audio_with_seed(
     load_bga: bool,
     places: &SoundPlaces,
 ) -> Result<LoadedSongData, ChartLoadError> {
+    load_chart_and_audio_arranged(song, seed, load_bga, places, None)
+}
+
+/// An arrangement to load a chart with (`arrange_chart`), and where the
+/// arranged chart's own metadata goes once it is made.
+pub struct ArrangeJob {
+    pub arrange: chart_arrange::Arrange,
+    pub meta: Sender<Option<SongMetadata>>,
+}
+
+/// `load_chart_and_audio_with_seed`, the chart laid out again by `arrange`
+/// when there is one. A chart that cannot be arranged (double play) does
+/// not load.
+pub fn load_chart_and_audio_arranged(
+    song: &SongMetadata,
+    seed: u64,
+    load_bga: bool,
+    places: &SoundPlaces,
+    arrange: Option<ArrangeJob>,
+) -> Result<LoadedSongData, ChartLoadError> {
     progress::begin(progress::Stage::Chart, 0);
     let mut source = open_source(&song.file_path)?;
     let mut chart = match source.native_chart()? {
@@ -360,6 +380,25 @@ pub fn load_chart_and_audio_with_seed(
     // The play and result screens name the difficulty as the game does.
     chart.header.difficulty_names = song.difficulty_names();
     let timing = TimingModel::from_chart(&chart);
+    if let Some(job) = arrange {
+        let is_pms = song.file_path.to_lowercase().ends_with(".pms");
+        let mode = chart.detect_play_mode_with_hint(is_pms);
+        let arranged = crate::arrange_chart::arrange_chart(
+            &chart,
+            &timing,
+            mode,
+            song.difficulty,
+            &job.arrange,
+        );
+        let Some(arranged) = arranged else {
+            let _ = job.meta.send(None);
+            return Err(ChartLoadError::Unreadable);
+        };
+        chart = arranged;
+        let _ = job
+            .meta
+            .send(Some(crate::arrange_chart::arranged_metadata(song, &chart)));
+    }
 
     let started = std::time::Instant::now();
     progress::begin(progress::Stage::Sounds, chart.header.wav_table.len());
@@ -508,16 +547,18 @@ pub fn spawn_background_song_loader(
     seed: u64,
     load_bga: bool,
     places: SoundPlaces,
+    arrange: Option<ArrangeJob>,
 ) -> SongLoadReceiver {
     let song_clone = song.clone();
     let (tx, rx): (Sender<SongLoadResult>, SongLoadReceiver) = channel();
 
     thread::spawn(move || {
-        let _ = tx.send(load_chart_and_audio_with_seed(
+        let _ = tx.send(load_chart_and_audio_arranged(
             &song_clone,
             seed,
             load_bga,
             &places,
+            arrange,
         ));
     });
 

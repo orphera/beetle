@@ -114,21 +114,33 @@ pub fn show_loading_lane(state: &mut AppState) {
 }
 
 pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
-    // With the GFDM arrangement on, an original GFDM chart opens arranged
-    // (B29); its own metadata follows from a worker (`loading_meta`). A
+    // With the arrangement on, a chart opens arranged (B29); its own
+    // metadata follows from a worker (`loading_meta`). A GFDM chart is
+    // arranged where its BMS is made, so it opens at the arranged chart's
+    // address; any other is arranged by the loader once it is parsed. A
     // course plays its charts as listed, a replay the chart it recorded.
+    use crate::arrange::Target;
     let target = (state.course.is_none() && !state.is_replay_playback)
         .then(|| state.gfdm_arrange.target(song))
         .flatten();
     state.loading_meta = None;
     let arranged;
-    let song = match target {
-        Some((address, mode)) => {
-            state.loading_meta = Some(crate::gfdm_arrange::spawn_metadata(address.clone()));
-            arranged = crate::gfdm_arrange::provisional(song, address, mode);
-            &arranged
+    // The chart the loader reads, and the arrangement it lays it out by.
+    let mut job = None;
+    let (song, source) = match target {
+        Some(Target::Address(address, mode)) => {
+            state.loading_meta = Some(crate::arrange::spawn_metadata(address.clone()));
+            arranged = crate::arrange::provisional(song, address, mode);
+            (&arranged, arranged.clone())
         }
-        None => song,
+        Some(Target::Loaded(arrange, mode)) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            state.loading_meta = Some(rx);
+            job = Some(crate::loader::ArrangeJob { arrange, meta: tx });
+            arranged = crate::arrange::provisional(song, song.file_path.clone(), mode);
+            (&arranged, song.clone())
+        }
+        None => (song, song.clone()),
     };
     state.screen = AppScreen::Loading;
     state.loading_song = Some(song.clone());
@@ -165,7 +177,13 @@ pub fn queue_start_gameplay(state: &mut AppState, song: &SongMetadata) {
         crate::devtools::log(&format!("load preloaded={}", preloaded.is_some()));
     }
     let rx = preloaded.unwrap_or_else(|| {
-        spawn_background_song_loader(song, seed, state.bga_visible(), state.sound_plan(song))
+        spawn_background_song_loader(
+            &source,
+            seed,
+            state.bga_visible(),
+            state.sound_plan(&source),
+            job,
+        )
     });
     state.loading_receiver = Some(rx);
     state.window.request_redraw();
@@ -201,7 +219,15 @@ pub fn finalize_start_gameplay(
             ),
             None => state.play_options.lane_modifier,
         };
-        play_chart.notes = apply_lane_modifier(&chart.notes, modifier, seed);
+        // The lane options move notes among the seven keys: on a 4K or 6K
+        // chart (arranged or not) that puts notes on lanes it does not have.
+        let seven_keys = !matches!(
+            chart.header.declared_mode,
+            Some(beetle_core::PlayMode::Keys4 | beetle_core::PlayMode::Keys6)
+        );
+        if seven_keys {
+            play_chart.notes = apply_lane_modifier(&chart.notes, modifier, seed);
+        }
     }
 
     let play_chart_has_long_notes = play_chart
@@ -338,7 +364,9 @@ pub fn finalize_start_gameplay(
         }
     }
 
-    let is_pms = song.file_path.to_lowercase().ends_with(".pms");
+    // An arranged chart says its own key mode, whatever its file is.
+    let is_pms = song.file_path.to_lowercase().ends_with(".pms")
+        && play_chart.header.declared_mode.is_none();
     let play_mode = play_chart.detect_play_mode_with_hint(is_pms);
     state.view.skin.set_play_mode(play_mode);
     state.sync_hi_speed();

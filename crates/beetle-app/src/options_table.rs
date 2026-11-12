@@ -300,7 +300,7 @@ fn build_play_options() -> Vec<OptionDesc> {
     ]
 }
 
-/// A row of the GFDM arrangement group (B29, `gfdm_arrange`).
+/// A row of the arrangement group (B29, `arrange`).
 fn gfdm_row(id: OptionId, label: &'static str, help: &'static str) -> OptionDesc {
     OptionDesc {
         id,
@@ -318,8 +318,8 @@ pub fn play_options() -> &'static [OptionDesc] {
 
 /// The sentence under the highlighted row: the row's own, or for the GFDM
 /// preset row what the chosen preset does.
-pub fn help(gfdm: &crate::gfdm_arrange::ArrangeSetting, desc: &OptionDesc) -> &'static str {
-    use crate::gfdm_arrange::PresetChoice;
+pub fn help(gfdm: &crate::arrange::ArrangeSetting, desc: &OptionDesc) -> &'static str {
+    use crate::arrange::PresetChoice;
     use chart_arrange::Preset;
     if desc.id != OptionId::GfdmPreset {
         return desc.help;
@@ -807,7 +807,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             }
         }
         OptionId::GfdmPreset => {
-            use crate::gfdm_arrange::PresetChoice;
+            use crate::arrange::PresetChoice;
             use chart_arrange::Preset;
             match state.gfdm_arrange.preset {
                 PresetChoice::Auto => strings::VALUE_GFDM_AUTO(),

@@ -316,7 +316,7 @@ pub struct AppConfig {
     pub edition_same_source: bool,
     /// The GFDM keyboard arrangement option (`gfdm_arrange=6k+pitch+...`,
     /// `gfdm_arrange_on=ON`; B29).
-    pub gfdm_arrange: crate::gfdm_arrange::ArrangeSetting,
+    pub gfdm_arrange: crate::arrange::ArrangeSetting,
     /// High-contrast notes in gameplay (`high_contrast_notes=ON`).
     pub high_contrast_notes: bool,
     /// Menu UI scale in percent (`ui_scale=80..=150`, steps of 10; 100 = default).
@@ -566,7 +566,7 @@ impl AppConfig {
                 "edition_same_source" => config.edition_same_source = val == "ON",
                 "gfdm_arrange_on" => config.gfdm_arrange.on = val == "ON",
                 "gfdm_arrange_preset" => {
-                    if let Some(p) = crate::gfdm_arrange::PresetChoice::parse(val) {
+                    if let Some(p) = crate::arrange::PresetChoice::parse(val) {
                         config.gfdm_arrange.preset = p;
                     }
                 }
@@ -797,9 +797,9 @@ mod tests {
             judge_position: JudgePosition::Lower,
             reduce_flashes: true,
             speed_anchor: SpeedAnchor::Main,
-            gfdm_arrange: crate::gfdm_arrange::ArrangeSetting {
+            gfdm_arrange: crate::arrange::ArrangeSetting {
                 on: true,
-                preset: crate::gfdm_arrange::PresetChoice::Named(chart_arrange::Preset::Easy),
+                preset: crate::arrange::PresetChoice::Named(chart_arrange::Preset::Easy),
                 arrange: chart_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
                 advanced: false,
             },

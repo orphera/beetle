@@ -231,8 +231,8 @@ pub struct AppState {
     pub reduce_motion: bool,
     /// Choosing an edition applies to the source's other songs too.
     pub edition_same_source: bool,
-    /// The GFDM keyboard arrangement option (B29, `gfdm_arrange`).
-    pub gfdm_arrange: crate::gfdm_arrange::ArrangeSetting,
+    /// The keyboard arrangement option (B29, `arrange`).
+    pub gfdm_arrange: crate::arrange::ArrangeSetting,
     /// High-contrast notes in gameplay.
     pub high_contrast: bool,
     /// The language chosen in Settings, saved with the config (`None` = not chosen yet).
@@ -275,7 +275,7 @@ pub struct AppState {
     pub loading_song: Option<SongMetadata>,
     pub loading_receiver: Option<crate::loader::SongLoadReceiver>,
     /// The metadata of an arranged GFDM chart being loaded, made from its
-    /// bytes; the play starts once it is in `loading_song` (`gfdm_arrange`).
+    /// bytes; the play starts once it is in `loading_song` (`arrange`).
     pub loading_meta: Option<std::sync::mpsc::Receiver<Option<SongMetadata>>>,
     pub loading_spinner_frame: usize,
     /// When the current song load started (drives the loading animation).

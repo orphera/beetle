@@ -1,5 +1,7 @@
 #![windows_subsystem = "windows"]
 
+mod arrange;
+mod arrange_chart;
 mod boot_progress;
 mod calibration;
 mod config;
@@ -9,7 +11,7 @@ mod file_assoc;
 mod filters;
 mod folders;
 mod gameplay;
-mod gfdm_arrange;
+
 mod gpu_ui;
 mod handlers;
 mod hid;
@@ -540,7 +542,7 @@ impl ApplicationHandler for BeetleApp {
                         }
                     }
                 }
-                // An arranged GFDM chart's own metadata (`gfdm_arrange`).
+                // An arranged chart's own metadata (`arrange`).
                 if let Some(rx) = &state.loading_meta {
                     match rx.try_recv() {
                         Ok(Some(meta)) => {

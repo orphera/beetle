@@ -1101,9 +1101,9 @@ table! {
         ja "セッション";
     /// Play options for GuitarFreaks & DrumMania disc charts (B29).
     pub GROUP_GFDM_ARRANGE =
-        ko "GFDM 편곡",
-        en "GFDM Arrangement",
-        ja "GFDM アレンジ";
+        ko "편곡",
+        en "Arrangement",
+        ja "アレンジ";
     pub GROUP_DISPLAY =
         ko "화면",
         en "Display",
@@ -1566,9 +1566,9 @@ table! {
         en "Starts the song at this measure. 0 starts from the beginning. Any other value counts as practice and is not saved.",
         ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときは練習扱いとなり記録されません。";
     pub HELP_GFDM_LANES =
-        ko "켜면 GFDM 디스크의 드럼, 기타, 베이스 채보를 이 키 수로 레인을 다시 짜서 열어요. 편곡 채보의 기록은 원본과 따로 남아요.",
-        en "Opens GFDM disc drum, guitar and bass charts with their lanes laid out again for this many keys. Arranged charts keep their own records.",
-        ja "GFDM ディスクのドラム・ギター・ベースの譜面を、このキー数にレーンを組み直して開きます。アレンジ譜面の記録は元の譜面と別に残ります。";
+        ko "켜면 채보를 이 키 수로 레인을 다시 짜서 열어요. BMS, 디스크의 IIDX, pop'n, GFDM 채보에 쓰고 더블 플레이 채보는 그대로 열려요. 편곡 채보의 기록은 원본과 따로 남아요.",
+        en "Opens charts with their lanes laid out again for this many keys: BMS and disc IIDX, pop'n and GFDM charts. Double play charts open as they are. Arranged charts keep their own records.",
+        ja "譜面をこのキー数にレーンを組み直して開きます。BMS と、ディスクの IIDX・pop'n・GFDM の譜面に使えます。ダブルプレイの譜面はそのまま開きます。アレンジ譜面の記録は元の譜面と別に残ります。";
     pub HELP_GFDM_PRESET =
         ko "자동: 채보의 파트, 키 수, 빠르기를 보고 편곡 규칙을 골라요.",
         en "Auto: chooses the arrangement rules by each chart's part, keys and density.",
@@ -1586,9 +1586,9 @@ table! {
         en "Easy: Flow, with notes closer than 150 ms becoming auto sounds, weak beats first.",
         ja "やさしい: 流れと同じで、150ms より細かいノーツは弱拍から自動の音にします。";
     pub HELP_GFDM_PRESET_SESSION =
-        ko "세션: 흐름과 같고, 이 파트가 쉬는 곳에서는 다른 파트의 노트도 쳐요.",
-        en "Session: Flow, with the other parts' notes coming in where this part rests.",
-        ja "セッション: 流れと同じで、このパートが休むところでは他のパートのノーツも演奏します。";
+        ko "세션: 흐름과 같고, GFDM 채보에서는 이 파트가 쉬는 곳에서 다른 파트의 노트도 쳐요.",
+        en "Session: Flow, and on GFDM charts the other parts' notes come in where this part rests.",
+        ja "セッション: 流れと同じで、GFDM の譜面ではこのパートが休むところで他のパートのノーツも演奏します。";
     pub HELP_GFDM_PRESET_CUSTOM =
         ko "직접 설정: 고급 옵션에서 고른 규칙을 그대로 써요.",
         en "Custom: uses the rules chosen in the advanced options as they are.",
@@ -1666,13 +1666,13 @@ table! {
         en "Where notes are closer than this, weak-beat notes become auto sounds; strong beats, chords and pitch changes stay, and every sound still plays.",
         ja "ノーツの間がこれより狭いと、弱拍のノーツを自動の音にします。強拍・和音・音が変わるところは残し、音はすべてそのまま鳴ります。";
     pub HELP_GFDM_MIX =
-        ko "이 파트가 쉬는 곳에 다른 파트(드럼이나 기타)의 노트를 그 자리, 그 소리 그대로 가져와요. 클수록 많이 가져와요.",
-        en "Brings other parts' notes (drums or guitar) in where this part rests, at their own times with their own sounds. Higher brings more.",
-        ja "このパートが休むところに、他のパート(ドラムやギター)のノーツをその位置・その音のまま持ってきます。大きいほど多く持ってきます。";
+        ko "GFDM 채보에서, 이 파트가 쉬는 곳에 다른 파트(드럼이나 기타)의 노트를 그 자리, 그 소리 그대로 가져와요. 클수록 많이 가져와요.",
+        en "GFDM charts: brings other parts' notes (drums or guitar) in where this part rests, at their own times with their own sounds. Higher brings more.",
+        ja "GFDM の譜面で、このパートが休むところに、他のパート(ドラムやギター)のノーツをその位置・その音のまま持ってきます。大きいほど多く持ってきます。";
     pub HELP_GFDM_JACK =
-        ko "같은 레인을 이보다 빨리 다시 치지 않게 해요. 난이도별은 BASIC 250ms, ADVANCED 180ms, EXTREME 125ms예요.",
-        en "Avoids hitting a lane again sooner than this. By Difficulty is 250 ms for BASIC, 180 ms for ADVANCED and 125 ms for EXTREME.",
-        ja "同じレーンをこれより速く打ち直さないようにします。難易度別は BASIC 250ms、ADVANCED 180ms、EXTREME 125ms です。";
+        ko "같은 레인을 이보다 빨리 다시 치지 않게 해요. 난이도별은 쉬운 채보부터 250ms, 180ms, 125ms예요(GFDM은 BASIC, ADVANCED, EXTREME, 그 밖에는 NORMAL까지, HYPER, 그 위).",
+        en "Avoids hitting a lane again sooner than this. By Difficulty is 250 ms, 180 ms and 125 ms from the easiest chart up (GFDM: BASIC, ADVANCED, EXTREME; others: up to NORMAL, HYPER, above).",
+        ja "同じレーンをこれより速く打ち直さないようにします。難易度別はやさしい譜面から 250ms、180ms、125ms です(GFDM は BASIC・ADVANCED・EXTREME、ほかは NORMAL まで・HYPER・その上)。";
     pub HELP_GFDM_NOISE =
         ko "레인을 고를 때 섞는 무작위의 양이에요. 0이면 늘 같은 배치이고, 클수록 시드마다 배치가 달라져요.",
         en "How much randomness goes into choosing lanes. At 0 the layout is always the same; higher values vary it by seed.",

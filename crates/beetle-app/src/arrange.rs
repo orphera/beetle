@@ -1,11 +1,16 @@
-//! The GFDM arrangement option (B29, `docs/plans/2026-11-10-gfdm-keyboard-arrange-plan.md`
-//! 2.6): with it on, playing an original GuitarFreaks & DrumMania chart opens
-//! the same chart arranged for a keyboard (`cs_disc::gfdm_arrange`) instead.
-//! The song list stays as it is; only the chart that opens changes.
+//! The arrangement option (B29, `docs/plans/2026-11-10-gfdm-keyboard-arrange-plan.md`
+//! 2.6): with it on, playing a chart opens the same chart arranged for 4, 6
+//! or 8 keys (`chart-arrange`) instead. The song list stays as it is; only
+//! the chart that opens changes. It began as a GuitarFreaks & DrumMania
+//! option (hence the module's and the settings' names) and now takes BMS,
+//! IIDX and pop'n charts too (`arrange_chart`); double play charts open as
+//! they are.
 //!
-//! The arranged chart's metadata (its identity, key mode and counts) comes
-//! from its own bytes, made on a worker thread while the load runs
-//! (`spawn_metadata`), so its records and replays are its own.
+//! The arranged chart's metadata (its identity, key mode and counts) is its
+//! own, so its records and replays are too. A GFDM chart's comes from the
+//! arranged chart's bytes, made on a worker thread while the load runs
+//! (`spawn_metadata`); any other chart's from the loader, once it has
+//! arranged the chart (`arrange_chart::arranged_metadata`).
 
 use std::sync::mpsc::{channel, Receiver};
 
@@ -219,29 +224,40 @@ impl ArrangeSetting {
         };
     }
 
-    /// Where `song`'s chart opens with the option: the address of the
-    /// arranged chart and its key mode, `None` when it opens as it is (the
-    /// option is off, or the song is not an original chart of a GFDM
-    /// disc).
-    pub fn target(&self, song: &SongMetadata) -> Option<(String, PlayMode)> {
+    /// How `song`'s chart opens with the option, `None` when it opens as it
+    /// is: the option is off, the chart is already an arranged one, or it
+    /// is a double play chart.
+    pub fn target(&self, song: &SongMetadata) -> Option<Target> {
         if !self.on {
             return None;
         }
-        let SongAddress::Disc { image, chart } = SongAddress::parse(&song.file_path) else {
-            return None;
-        };
-        let (id, chart) = ChartRef::parse(chart)?;
-        if chart.arrange.is_some() {
-            return None;
+        let mode = crate::arrange_chart::arranged_mode(self.arrange.lanes);
+        if let SongAddress::Disc { image, chart } = SongAddress::parse(&song.file_path) {
+            if let Some((id, chart)) = ChartRef::parse(chart) {
+                if chart.arrange.is_some() {
+                    return None;
+                }
+                let arranged = chart.arranged(self.effective());
+                return Some(Target::Address(
+                    disc_address(image, &arranged.key(id)),
+                    mode,
+                ));
+            }
         }
-        let arranged = chart.arranged(self.effective());
-        let mode = match self.arrange.lanes {
-            4 => PlayMode::Keys4,
-            8 => PlayMode::Keys8,
-            _ => PlayMode::Keys6,
-        };
-        Some((disc_address(image, &arranged.key(id)), mode))
+        crate::arrange_chart::can_arrange(song.play_mode)
+            .then(|| Target::Loaded(self.effective(), mode))
     }
+}
+
+/// How a chart opens arranged, with the key mode it then plays in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// A GFDM chart: the arranged chart has its own address, and is made
+    /// where its BMS is (`cs_disc::gfdm_bms`).
+    Address(String, PlayMode),
+    /// Any other chart: the loader lays the parsed chart out again
+    /// (`arrange_chart`).
+    Loaded(Arrange, PlayMode),
 }
 
 /// `song` as the arranged chart at `address` will be, until its own
@@ -282,24 +298,25 @@ mod tests {
         let gf = song("disc:D:/x.iso::gfdm/404/gf3");
         assert_eq!(s.target(&gf), None);
         s.on = true;
-        let (address, mode) = s.target(&gf).unwrap();
-        assert_eq!(address, "disc:D:/x.iso::gfdm/404/gf3@6k+auto");
+        let address = |s: &ArrangeSetting, song: &SongMetadata| match s.target(song) {
+            Some(Target::Address(address, mode)) => (address, mode),
+            other => panic!("{other:?}"),
+        };
+        let (found, _) = address(&s, &gf);
+        assert_eq!(found, "disc:D:/x.iso::gfdm/404/gf3@6k+auto");
         s.preset = PresetChoice::Named(Preset::Flow);
         assert_eq!(
-            s.target(&gf).unwrap().0,
+            address(&s, &gf).0,
             "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run2"
         );
         s.preset = PresetChoice::Custom;
-        let (address, _) = s.target(&gf).unwrap();
-        assert_eq!(
-            address,
-            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary"
-        );
+        let (found, mode) = address(&s, &gf);
+        assert_eq!(found, "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary");
         assert_eq!(mode, PlayMode::Keys6);
         s.arrange.lanes = 4;
         let dm = song("disc:E:::gfdm/404/dm1");
         assert_eq!(
-            s.target(&dm).unwrap(),
+            address(&s, &dm),
             (
                 "disc:E:::gfdm/404/dm1@4k+home+stick+bal+hand+vary".to_string(),
                 PlayMode::Keys4
@@ -310,17 +327,39 @@ mod tests {
         for part in ["open3", "bass2"] {
             let chart = song(&format!("disc:D:/x.iso::gfdm/404/{part}"));
             assert_eq!(
-                s.target(&chart).unwrap().0,
+                address(&s, &chart).0,
                 format!("disc:D:/x.iso::gfdm/404/{part}@6k+pitch+bal+hand+vary")
             );
         }
-        for other in [
-            "disc:D:/x.iso::gfdm/404/gf3@8k",
+        // An arranged chart is not arranged again.
+        assert_eq!(s.target(&song("disc:D:/x.iso::gfdm/404/gf3@8k")), None);
+    }
+
+    #[test]
+    fn any_other_single_play_chart_is_arranged_by_the_loader() {
+        let mut s = ArrangeSetting {
+            on: true,
+            ..Default::default()
+        };
+        s.arrange.lanes = 4;
+        for path in [
             "disc:D:/x.iso::017/sp_normal",
             "D:/BMS/x.bms",
+            "D:/x.bmsp::a.bms",
         ] {
-            assert_eq!(s.target(&song(other)), None, "{other}");
+            assert_eq!(
+                s.target(&song(path)),
+                Some(Target::Loaded(s.effective(), PlayMode::Keys4)),
+                "{path}"
+            );
         }
+        let double = SongMetadata {
+            play_mode: PlayMode::Keys14,
+            ..song("D:/BMS/dp.bms")
+        };
+        assert_eq!(s.target(&double), None);
+        s.on = false;
+        assert_eq!(s.target(&song("D:/BMS/x.bms")), None);
     }
 
     #[test]
