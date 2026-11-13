@@ -15,6 +15,10 @@
 //! lanes, lanes and hands used unevenly, and seeded noise. The same chart,
 //! features and seed always give the same lanes.
 //!
+//! On eight lanes the two outer lanes are drawn as bars over the three keys
+//! beside them, so an outer lane never plays together with all three of its
+//! keys (`hides`): one of the four notes leaves the lanes.
+//!
 //! No sound is lost: a note taken off the lanes (thinned, or more at once
 //! than there are lanes) still plays, by itself. Notes of the other parts
 //! (which play by themselves in the original) can be brought onto the lanes
@@ -538,6 +542,8 @@ const MIX_GAP_MS: i64 = 600;
 const MIX_STEP_MS: i64 = 50;
 /// A note left off the lanes because long notes hold them.
 const DROP: f64 = 400.0;
+/// 8K: an outer lane and the three keys beside it, as lane masks.
+const SIDES: [u16; 2] = [0x0f, 0xf0];
 /// Placements kept at each group.
 const BEAM: usize = 48;
 /// Lane counts go up to this.
@@ -569,6 +575,17 @@ struct State {
     cost: f64,
     /// This placement's node in the history.
     node: u32,
+}
+
+/// 8K: whether the lanes `mask` hits, with the lanes `busy` long notes hold,
+/// fill an outer lane and all three keys beside it. The player draws an
+/// outer lane's note as a bar over those keys, under their notes: with all
+/// three on it, it cannot be seen.
+fn hides(n: usize, mask: u16, busy: u16) -> bool {
+    n == 8
+        && SIDES
+            .iter()
+            .any(|&side| (mask | busy) & side == side && mask & side != 0)
 }
 
 /// What a quick repeat is a repeat of: the drum, the pitch, or the lane of
@@ -1334,9 +1351,15 @@ fn search(
                     busy |= 1 << l;
                 }
             }
-            let fit = k.min(n - busy.count_ones() as usize);
+            let free = |mask: u16| mask & busy == 0 && !hides(n, mask, busy);
+            // As many notes as have lanes: fewer where every set of lanes
+            // would hide an outer note (8K).
+            let mut fit = k.min(n - busy.count_ones() as usize);
+            while fit > 0 && !sets[fit].iter().any(|(mask, _)| free(*mask)) {
+                fit -= 1;
+            }
             for (mask, lanes) in &sets[fit] {
-                if mask & busy != 0 {
+                if !free(*mask) {
                     continue;
                 }
                 let mut cost = s.cost + DROP * (k - fit) as f64;
@@ -1651,6 +1674,67 @@ mod tests {
         assert_eq!(a.for_part(Source::Strings).key(), "6k+pitch");
         let a = Arrange::parse("8k+vary+edge+s5").unwrap();
         assert_eq!(a.for_part(Source::Drums).key(), "8k+vary+edge+s5");
+    }
+
+    #[test]
+    fn an_outer_lane_of_8k_never_plays_with_all_three_keys_beside_it() {
+        // Chords of four to eight keys of a 7 key chart, some under a long
+        // note: on 8K no chord may fill a side, with the held lanes counted.
+        let kind = Source::Keys { lanes: 8 };
+        let mut groups = Vec::new();
+        for i in 0..64u32 {
+            let size = 4 + (i % 5) as u8;
+            let first = (i % 3) as u8;
+            groups.push(Group {
+                ms: i as i64 * 400,
+                bar: i / 4,
+                slot: (i % 4) as u16 * BAR_SLOTS / 4,
+                accent: 0,
+                notes: (0..size)
+                    .map(|j| Note {
+                        origin: (first + j) % 8,
+                        key: j as u16,
+                        ticks: 0,
+                        hold_ms: if i % 7 == 3 && j < 2 { 900 } else { 0 },
+                        from: None,
+                    })
+                    .collect(),
+            });
+        }
+        for key in ["8k", "8k+auto", "8k+bal+hand+edge", "8k+bal+trig"] {
+            let a = Arrange::parse(key).unwrap();
+            let lanes = arrange(&a, kind, 125, &groups);
+            let mut held = [i64::MIN; 8];
+            let mut played = 0;
+            for (g, lanes) in groups.iter().zip(&lanes) {
+                let mut mask = 0u16;
+                let mut busy = 0u16;
+                for (l, until) in held.iter().enumerate() {
+                    if *until >= g.ms {
+                        busy |= 1 << l;
+                    }
+                }
+                for (note, lane) in g.notes.iter().zip(lanes) {
+                    if let Some(l) = *lane {
+                        mask |= 1 << l;
+                        if note.hold_ms > 0 {
+                            held[l as usize] = g.ms + note.hold_ms as i64;
+                        }
+                    }
+                }
+                assert_eq!(mask & busy, 0, "{key}: a note under a long note");
+                for side in SIDES {
+                    let filled = (mask | busy) & side == side && mask & side != 0;
+                    assert!(!filled, "{key}: {mask:08b} over {busy:08b} at {}", g.ms);
+                }
+                played += mask.count_ones();
+            }
+            // Three keys and an outer lane still play together, and six at once.
+            assert!(played > 64 * 4, "{key}: {played} notes play");
+        }
+        // Fewer lanes have no outer bars: every lane can play at once.
+        let six = arrange(&Arrange::parse("6k").unwrap(), kind, 125, &groups);
+        assert!(six.iter().any(|l| l.iter().flatten().count() == 6));
     }
 
     #[test]

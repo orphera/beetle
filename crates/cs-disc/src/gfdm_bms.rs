@@ -1031,7 +1031,8 @@ mod tests {
     /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
     /// Silver image: every drum, guitar, open and bass chart arranges to 4K, 6K
     /// and 8K, reads back as that mode, and keeps its notes and sounds
-    /// (4K drums may leave notes over when five or six play at once); and
+    /// (4K drums may leave notes over when five or six play at once, 8K a
+    /// note of four that would fill an outer lane and its three keys); and
     /// with thinning, other parts and outer lanes on, keeps its sounds.
     #[test]
     fn every_disc_chart_arranges() {
@@ -1047,7 +1048,7 @@ mod tests {
             "8k+pitch+home+stick+bal+hand+vary+split+jj+fig+motif+acc+trig+d100+run3+mix5+s7",
         )
         .unwrap();
-        let (mut arranged, mut left_over) = (0, 0);
+        let (mut arranged, mut left_over, mut hidden) = (0, 0, 0);
         for song in disc.songs(&mut d).unwrap() {
             let c = disc.song_charts(&mut d, &song.info).unwrap();
             let s = Song {
@@ -1074,6 +1075,11 @@ mod tests {
                     if lanes == 4 && chart.part == Part::Drums {
                         assert!(n <= notes, "{key}");
                         left_over += notes - n;
+                    } else if lanes == 8 {
+                        // An outer lane with all three keys beside it
+                        // loses a note (`chart_arrange`'s `hides`).
+                        assert!(n <= notes, "{key}");
+                        hidden += notes - n;
                     } else {
                         assert_eq!(n, notes, "{key}");
                     }
@@ -1106,7 +1112,9 @@ mod tests {
                 }
             }
         }
-        println!("{arranged} arranged charts, {left_over} 4K drum notes left over");
+        println!(
+            "{arranged} arranged charts, {left_over} 4K drum notes left over, {hidden} 8K notes off a full side"
+        );
         assert!(arranged > 3600);
     }
 }
