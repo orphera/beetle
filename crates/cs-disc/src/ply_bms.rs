@@ -23,6 +23,8 @@
 //!   notes. Others round every event by itself (ZERO-ONE). So each bar's
 //!   events are counted from its stored line when that puts them on a
 //!   coarser grid than counting from the fitted start does (`from_line`).
+//!   An event that this would move a frame or more from its stored time is
+//!   counted from the fitted start instead: no note is ever a frame off.
 //!
 //! Notes at time 0 are not played: they are the chart's note count
 //! (`ply::Command::Note`), not notes.
@@ -43,10 +45,9 @@ const FINE_GRIDS: [u64; 14] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 192
 /// How far a millisecond chart's times may be from the grid: the rounding,
 /// with room for a tempo that is itself rounded.
 const HALF_MS: f64 = 1.0;
-/// How far a stored bar line may be from its fitted bar, in roundings (so two
-/// frames), for the bar's events to be counted from it. A line further off
-/// is not rounding: its events keep their own times.
-const LINE_SHIFT_LIMIT: f64 = 4.0;
+/// How far counting from the stored bar line may move an event from its
+/// stored time, in roundings: just under two, a frame.
+const LINE_MOVE_LIMIT: f64 = 1.99;
 
 /// How far an event of `ply` may be from where it belongs: half a frame for
 /// the frame-timed IIDX charts, about a millisecond for pop'n.
@@ -124,13 +125,30 @@ impl Bar {
         self.beats_num as f64 / self.beats_den as f64
     }
 
-    /// The grid `t`, a stored time of this bar counted from its stored line,
-    /// snaps to: the denominator of its beat in lowest terms.
-    fn grid_from_line(&self, t: f64) -> u64 {
-        let t = (t + self.start_ms - self.line_ms).max(self.start_ms);
-        let (beat, bpm) = self.beat_at(t);
+    /// The time `beat` beats into the bar.
+    fn time_of(&self, beat: f64) -> f64 {
+        let mut at = 0.0;
+        for (i, seg) in self.segments.iter().enumerate() {
+            let len = self.segments.get(i + 1).map_or(f64::INFINITY, |s| {
+                (s.start_ms - seg.start_ms) * seg.bpm / 60000.0
+            });
+            if beat < at + len {
+                return seg.start_ms + (beat - at) * 60000.0 / seg.bpm;
+            }
+            at += len;
+        }
+        unreachable!("the last segment has no end")
+    }
+
+    /// The beat of `t`, a stored time of this bar, counted from the bar's
+    /// stored line and snapped, as `n / d`. `None` when that would move it
+    /// a frame from `t`.
+    fn snap_from_line(&self, t: f64) -> Option<(u64, u64)> {
+        let moved = (t + self.start_ms - self.line_ms).max(self.start_ms);
+        let (beat, bpm) = self.beat_at(moved);
         let (n, d) = snap_beat(beat, bpm, self.rounding);
-        d / gcd(n, d).max(1)
+        let at = self.time_of(n as f64 / d as f64);
+        ((at - t).abs() < LINE_MOVE_LIMIT * self.rounding).then_some((n, d))
     }
 
     /// Beats from the bar's start to `t`, and the tempo at `t`.
@@ -485,12 +503,15 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             .iter()
             .rposition(|b| b.line_ms <= t + b.rounding)
             .unwrap_or(0);
-        costs[i].0 += bars[i].grid_from_line(t);
-        costs[i].1 += position(&bars, t).d;
+        let from_fit = position(&bars, t).d;
+        costs[i].0 += match bars[i].snap_from_line(t) {
+            Some((n, d)) => d / gcd(n, d).max(1),
+            None => from_fit,
+        };
+        costs[i].1 += from_fit;
     }
     for (bar, (from_line, from_fit)) in bars.iter_mut().zip(costs) {
-        let off = (bar.start_ms - bar.line_ms).abs();
-        bar.from_line = from_line < from_fit && off <= LINE_SHIFT_LIMIT * bar.rounding;
+        bar.from_line = from_line < from_fit;
     }
     Ok(bars)
 }
@@ -604,20 +625,23 @@ fn position(bars: &[Bar], t: f64) -> Pos {
         .iter()
         .rposition(|b| b.line_ms <= t + b.rounding)
         .unwrap_or(0);
-    let (i, t) = if bars[by_line].from_line {
-        let bar = &bars[by_line];
-        (by_line, t + bar.start_ms - bar.line_ms)
-    } else {
-        (
-            bars.iter()
+    let from_line = match bars[by_line].from_line {
+        true => bars[by_line].snap_from_line(t),
+        false => None,
+    };
+    let (i, (n, d)) = match from_line {
+        Some(snapped) => (by_line, snapped),
+        None => {
+            let i = bars
+                .iter()
                 .rposition(|b| b.start_ms <= t + b.rounding)
-                .unwrap_or(0),
-            t,
-        )
+                .unwrap_or(0);
+            let bar = &bars[i];
+            let (beat, bpm) = bar.beat_at(t.max(bar.start_ms));
+            (i, snap_beat(beat, bpm, bar.rounding))
+        }
     };
     let bar = &bars[i];
-    let (beat, bpm) = bar.beat_at(t.max(bar.start_ms));
-    let (n, d) = snap_beat(beat, bpm, bar.rounding);
     // Snapped onto the bar's end: the next bar's start.
     if n * bar.beats_den >= bar.beats_num * d && i + 1 < bars.len() {
         return Pos {
