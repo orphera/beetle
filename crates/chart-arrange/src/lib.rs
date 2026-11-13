@@ -278,6 +278,7 @@ impl Arrange {
 pub enum Preset {
     /// Like a hand-made keyboard chart: a few quick notes may stay on one
     /// hand, two notes together go to both hands, doubles stay on a lane,
+    /// the kick changes sides when its bar comes back,
     /// quick repeats make figures, returning bars keep their hands, and
     /// guitar chords follow the drums' accents and keep the load level.
     Flow,
@@ -335,6 +336,7 @@ impl Preset {
             motif: true,
             acc: true,
             even: true,
+            flip: true,
             run: if lanes <= 4 { 3 } else { 2 },
             ..base
         };
@@ -2087,7 +2089,7 @@ mod tests {
         );
         assert_eq!(
             Preset::Flow.arrange(4).for_part(Source::Strings).key(),
-            "4k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run3"
+            "4k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+flip+run3"
         );
         assert_eq!(Preset::Easy.arrange(6).thin_ms, Some(150));
         assert_eq!(Preset::Session.arrange(6).mix, 5);

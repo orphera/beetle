@@ -305,7 +305,7 @@ mod tests {
         s.preset = PresetChoice::Named(Preset::Flow);
         assert_eq!(
             address(&s, &gf).0,
-            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+run2"
+            "disc:D:/x.iso::gfdm/404/gf3@6k+pitch+bal+hand+vary+split+jj+fig+motif+acc+even+flip+run2"
         );
         s.preset = PresetChoice::Custom;
         let (found, mode) = address(&s, &gf);
