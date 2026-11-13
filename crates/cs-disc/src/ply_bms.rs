@@ -15,6 +15,14 @@
 //! - An event's beat inside its bar is snapped to the coarsest musical grid
 //!   (1/1 … 1/48 beat) that is within half a frame of it, which undoes the
 //!   frame rounding.
+//! - Some charts round a bar's start to a frame and count the bar's events
+//!   from it in whole frames (16 PREMIUM BEST's ANDROMEDA: 96 frames a bar at
+//!   150 BPM, a frame dropped every ten bars or so), so the whole bar sits up
+//!   to a frame and a half off the fitted line. Counted from the fitted start
+//!   its notes would land beside the grid, and the drawn bar line beside the
+//!   notes. Others round every event by itself (ZERO-ONE). So each bar's
+//!   events are counted from its stored line when that puts them on a
+//!   coarser grid than counting from the fitted start does (`from_line`).
 //!
 //! Notes at time 0 are not played: they are the chart's note count
 //! (`ply::Command::Note`), not notes.
@@ -35,6 +43,10 @@ const FINE_GRIDS: [u64; 14] = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 192
 /// How far a millisecond chart's times may be from the grid: the rounding,
 /// with room for a tempo that is itself rounded.
 const HALF_MS: f64 = 1.0;
+/// How far a stored bar line may be from its fitted bar, in roundings (so two
+/// frames), for the bar's events to be counted from it. A line further off
+/// is not rounding: its events keep their own times.
+const LINE_SHIFT_LIMIT: f64 = 4.0;
 
 /// How far an event of `ply` may be from where it belongs: half a frame for
 /// the frame-timed IIDX charts, about a millisecond for pop'n.
@@ -94,6 +106,10 @@ struct Segment {
 #[derive(Debug, Clone)]
 struct Bar {
     start_ms: f64,
+    /// The bar line as stored; `start_ms` is where the fit put it.
+    line_ms: f64,
+    /// The bar's events are counted from the stored line (see the module notes).
+    from_line: bool,
     /// Beats in the bar (`4 * numerator / denominator`) as a fraction.
     beats_num: u64,
     beats_den: u64,
@@ -106,6 +122,15 @@ struct Bar {
 impl Bar {
     fn beats(&self) -> f64 {
         self.beats_num as f64 / self.beats_den as f64
+    }
+
+    /// The grid `t`, a stored time of this bar counted from its stored line,
+    /// snaps to: the denominator of its beat in lowest terms.
+    fn grid_from_line(&self, t: f64) -> u64 {
+        let t = (t + self.start_ms - self.line_ms).max(self.start_ms);
+        let (beat, bpm) = self.beat_at(t);
+        let (n, d) = snap_beat(beat, bpm, self.rounding);
+        d / gcd(n, d).max(1)
     }
 
     /// Beats from the bar's start to `t`, and the tempo at `t`.
@@ -252,6 +277,8 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             let g = gcd(4 * num, den);
             Bar {
                 start_ms,
+                line_ms: start_ms,
+                from_line: false,
                 beats_num: 4 * num / g,
                 beats_den: den / g,
                 segments: vec![Segment {
@@ -319,6 +346,20 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
         i = j + 1;
     }
 
+    // A run whose lines do not lie on one line is cut where two lines fit
+    // them (frame charts: see `split_run`).
+    if rounding(ply) == HALF_FRAME_MS {
+        let mut cut = Vec::with_capacity(regions.len());
+        for &(first, last, inside) in &regions {
+            if inside {
+                cut.push((first, last, true));
+            } else {
+                split_run(&lines, &bars, first, last, &mut cut);
+            }
+        }
+        regions = cut;
+    }
+
     // Where each region starts, and its milliseconds per beat when it could be
     // measured: a least-squares line through its bar lines (and the line that
     // closes it) against beats, so no single rounded bar line decides.
@@ -328,34 +369,10 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             if inside {
                 return (lines[first], None);
             }
-            let mut points = Vec::new();
-            let mut beats = 0.0;
-            for k in first..=last {
-                points.push((beats, lines[k]));
-                beats += bars[k].beats();
+            match fit_run(&lines, &bars, first, last) {
+                Some((start, slope, _)) => (start, Some(slope)),
+                None => (lines[first], None),
             }
-            if let Some(&end) = lines.get(last + 1) {
-                points.push((beats, end));
-            }
-            if points.len() < 2 {
-                return (lines[first], None);
-            }
-            // The first region starts at the first bar line: the chart starts
-            // there (BGM and all), and a fitted start off it would move every
-            // note against the BGM (ALIEN TEMPLE's was 9 ms late).
-            if first == 0 {
-                let (x0, y0) = points[0];
-                let sxx: f64 = points.iter().map(|p| (p.0 - x0).powi(2)).sum();
-                let sxy: f64 = points.iter().map(|p| (p.0 - x0) * (p.1 - y0)).sum();
-                return (y0, Some(sxy / sxx));
-            }
-            let n = points.len() as f64;
-            let mx = points.iter().map(|p| p.0).sum::<f64>() / n;
-            let my = points.iter().map(|p| p.1).sum::<f64>() / n;
-            let sxx: f64 = points.iter().map(|p| (p.0 - mx).powi(2)).sum();
-            let sxy: f64 = points.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
-            let slope = sxy / sxx;
-            (my - slope * mx, Some(slope))
         })
         .collect();
 
@@ -434,6 +451,8 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
         let end = seg.start_ms + (last.beats() - last.beat_at(seg.start_ms).0) * 60000.0 / seg.bpm;
         let next = Bar {
             start_ms: end,
+            line_ms: end,
+            from_line: false,
             beats_num: last.beats_num,
             beats_den: last.beats_den,
             segments: vec![Segment {
@@ -447,7 +466,119 @@ fn bars(ply: &Ply) -> Result<Vec<Bar>, BmsError> {
             return Err(BmsError::TooManyBars);
         }
     }
+
+    // Which bars count their events from the stored line: those whose notes
+    // and background sounds land on coarser grids that way. Grid sizes are
+    // summed, so one note on a 1/48 does not outvote a bar of sixteenths.
+    let mut costs = vec![(0u64, 0u64); bars.len()];
+    for e in &ply.events {
+        let playing = match e.command {
+            Command::Note { .. } => e.time > 0,
+            Command::Auto { sound, .. } => sound > 0,
+            _ => false,
+        };
+        if !playing {
+            continue;
+        }
+        let t = ply.millis(e.time);
+        let i = bars
+            .iter()
+            .rposition(|b| b.line_ms <= t + b.rounding)
+            .unwrap_or(0);
+        costs[i].0 += bars[i].grid_from_line(t);
+        costs[i].1 += position(&bars, t).d;
+    }
+    for (bar, (from_line, from_fit)) in bars.iter_mut().zip(costs) {
+        let off = (bar.start_ms - bar.line_ms).abs();
+        bar.from_line = from_line < from_fit && off <= LINE_SHIFT_LIMIT * bar.rounding;
+    }
     Ok(bars)
+}
+
+/// The line through the bar lines of bars `first..=last` (and the line that
+/// closes them) against beats: where the run starts, its milliseconds per
+/// beat, and how far the worst line is from it. `None` for a single line.
+fn fit_run(lines: &[f64], bars: &[Bar], first: usize, last: usize) -> Option<(f64, f64, f64)> {
+    let mut points = Vec::with_capacity(last - first + 2);
+    let mut beats = 0.0;
+    for k in first..=last {
+        points.push((beats, lines[k]));
+        beats += bars[k].beats();
+    }
+    if let Some(&end) = lines.get(last + 1) {
+        points.push((beats, end));
+    }
+    if points.len() < 2 {
+        return None;
+    }
+    // The first region starts at the first bar line: the chart starts
+    // there (BGM and all), and a fitted start off it would move every
+    // note against the BGM (ALIEN TEMPLE's was 9 ms late).
+    let (start, slope) = if first == 0 {
+        let y0 = points[0].1;
+        let sxx: f64 = points.iter().map(|p| p.0.powi(2)).sum();
+        let sxy: f64 = points.iter().map(|p| p.0 * (p.1 - y0)).sum();
+        (y0, sxy / sxx)
+    } else {
+        let n = points.len() as f64;
+        let mx = points.iter().map(|p| p.0).sum::<f64>() / n;
+        let my = points.iter().map(|p| p.1).sum::<f64>() / n;
+        let sxx: f64 = points.iter().map(|p| (p.0 - mx).powi(2)).sum();
+        let sxy: f64 = points.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
+        let slope = sxy / sxx;
+        (my - slope * mx, slope)
+    };
+    let worst = points
+        .iter()
+        .map(|p| (p.1 - start - slope * p.0).abs())
+        .fold(0.0, f64::max);
+    Some((start, slope, worst))
+}
+
+/// How far a bar line may be from its run's fitted line, in ms: three
+/// quarters of a frame. Rounded lines stay within half a frame, and lines
+/// that drop a frame now and then (ANDROMEDA) within about as much.
+const RUN_FIT_LIMIT: f64 = 1.5 * HALF_FRAME_MS;
+/// The fewest bars a cut may leave on its later side.
+const RUN_CUT_BARS: usize = 4;
+
+/// Pushes bars `first..=last`, a run at one stored tempo, to `out` as one
+/// region, or as several when its bar lines are not on one line.
+///
+/// 16 PREMIUM BEST charts open with a few bars counted in whole frames (92
+/// a bar in DAISUKE, 157 BPM: 156.4) before the lines settle on the tempo, a
+/// frame later than those bars lead to. One line through both, held to the
+/// first bar line, leans: it ran a frame early at one end of the song and a
+/// frame late at the other, and bar lines and notes with it. The cut is
+/// where two lines fit best; each part is then cut again if it needs it.
+fn split_run(
+    lines: &[f64],
+    bars: &[Bar],
+    first: usize,
+    last: usize,
+    out: &mut Vec<(usize, usize, bool)>,
+) {
+    let worst = |a: usize, b: usize| fit_run(lines, bars, a, b).map_or(0.0, |f| f.2);
+    let whole = worst(first, last);
+    let mut best: Option<(usize, f64)> = None;
+    if whole > RUN_FIT_LIMIT {
+        for cut in first + 1..=last {
+            if last + 1 - cut < RUN_CUT_BARS {
+                break;
+            }
+            let both = worst(first, cut - 1).max(worst(cut, last));
+            if best.map_or(both < whole, |(_, b)| both < b) {
+                best = Some((cut, both));
+            }
+        }
+    }
+    match best {
+        Some((cut, _)) => {
+            split_run(lines, bars, first, cut - 1, out);
+            split_run(lines, bars, cut, last, out);
+        }
+        None => out.push((first, last, false)),
+    }
 }
 
 /// `beat` as `n / d` on the coarsest grid within `rounding` ms of it at `bpm`.
@@ -468,10 +599,22 @@ fn snap_beat(beat: f64, bpm: f64, rounding: f64) -> (u64, u64) {
 
 /// Where time `t` falls, snapped.
 fn position(bars: &[Bar], t: f64) -> Pos {
-    let i = bars
+    // The bar by the stored lines, and the time counted from its line.
+    let by_line = bars
         .iter()
-        .rposition(|b| b.start_ms <= t + b.rounding)
+        .rposition(|b| b.line_ms <= t + b.rounding)
         .unwrap_or(0);
+    let (i, t) = if bars[by_line].from_line {
+        let bar = &bars[by_line];
+        (by_line, t + bar.start_ms - bar.line_ms)
+    } else {
+        (
+            bars.iter()
+                .rposition(|b| b.start_ms <= t + b.rounding)
+                .unwrap_or(0),
+            t,
+        )
+    };
     let bar = &bars[i];
     let (beat, bpm) = bar.beat_at(t.max(bar.start_ms));
     let (n, d) = snap_beat(beat, bpm, bar.rounding);
@@ -549,6 +692,11 @@ impl Layout {
     /// Bar lengths in beats, in order.
     pub fn bar_beats(&self) -> impl Iterator<Item = f64> + '_ {
         self.bars.iter().map(Bar::beats)
+    }
+
+    /// How far each bar's fitted start is from its stored line, in ms.
+    pub fn line_offsets(&self) -> impl Iterator<Item = f64> + '_ {
+        self.bars.iter().map(|b| b.start_ms - b.line_ms)
     }
 
     pub fn initial_bpm(&self) -> f64 {
@@ -858,6 +1006,71 @@ mod tests {
         let bms = to_bms(&ply, &header(false)).unwrap();
         assert!(bms.contains("#00002:1.75\n"), "{bms}");
         assert!(!bms.contains("#00102:"), "{bms}");
+    }
+
+    /// A frame-timed chart at a stored 150 BPM with bar lines at `lines`
+    /// (frames) and notes at `notes` (frames).
+    fn frame_chart(lines: &[u32], notes: &[u32]) -> Ply {
+        let mut events = vec![Event {
+            time: 0,
+            command: Command::Bpm { bpm: 150.0 },
+        }];
+        events.extend(lines.iter().map(|&time| Event {
+            time,
+            command: Command::Measure,
+        }));
+        events.extend(notes.iter().map(|&time| Event {
+            time,
+            command: note(Side::P1, 0),
+        }));
+        events.sort_by_key(|e| e.time);
+        Ply {
+            tick_ms: 1000.0 / 59.94,
+            events,
+        }
+    }
+
+    #[test]
+    fn opening_bars_counted_in_frames_do_not_lean_the_rest() {
+        // Three bars of 96 frames, then the song's 1600 ms bars a frame later
+        // than those lead to (16 PREMIUM BEST: ANDROMEDA, DAISUKE).
+        let tick = 1000.0 / 59.94;
+        let mut lines: Vec<u32> = vec![0, 96, 192];
+        lines.extend((0..60).map(|k| ((4817.0 + 1600.0 * k as f64) / tick).round() as u32));
+        let ply = frame_chart(&lines, &lines[1..]);
+        let layout = Layout::of(&ply).unwrap();
+        for &line in &lines {
+            let (_, fraction) = layout.position(ply.millis(line));
+            assert_eq!(fraction, 0.0, "the line at frame {line}");
+        }
+        let tempos = layout.tempo_changes();
+        assert_eq!(tempos.len(), 1, "{tempos:?}");
+        assert!((tempos[0].2 - 150.0).abs() < 0.01, "{tempos:?}");
+    }
+
+    #[test]
+    fn a_bar_counted_from_its_rounded_line_keeps_its_notes_on_the_grid() {
+        // Each bar starts on the frame nearest its time and counts its
+        // sixteenths six frames apart, so late in a bar they are most of a
+        // frame from where 150 BPM puts them.
+        let tick = 1000.0 / 59.94;
+        let lines: Vec<u32> = (0..40)
+            .map(|k| (1600.0 * k as f64 / tick).round() as u32)
+            .collect();
+        let notes: Vec<u32> = lines[1..39]
+            .iter()
+            .flat_map(|&l| (0..16).map(move |k| l + 6 * k))
+            .collect();
+        let ply = frame_chart(&lines, &notes);
+        let layout = Layout::of(&ply).unwrap();
+        for &n in &notes {
+            let (_, fraction) = layout.position(ply.millis(n));
+            let sixteenths = fraction * 16.0;
+            assert!(
+                (sixteenths - sixteenths.round()).abs() < 1e-9,
+                "the note at frame {n} is at {sixteenths}/16"
+            );
+        }
     }
 
     #[test]
