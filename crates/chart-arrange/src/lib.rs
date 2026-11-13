@@ -111,6 +111,7 @@ pub enum Source {
     Strings,
     /// A keyboard chart of this many lanes (BMS, IIDX, pop'n): a note's
     /// `origin` is its lane from the left, the scratch lane with the keys.
+    /// A double play chart is one chart of both sides' lanes (12 or 16).
     Keys { lanes: u8 },
 }
 

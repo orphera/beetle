@@ -2,6 +2,11 @@
 //! BMS, IIDX and pop'n charts at another key count. GFDM charts are
 //! arranged where their BMS is made (`cs_disc::gfdm_bms`), not here.
 //!
+//! A double play chart (10K, 14K) is one wide chart to the arranger: the
+//! first side's scratch and keys, then the second side's keys and scratch,
+//! left to right as the cabinet has them. Both sides' notes go onto the one
+//! set of lanes.
+//!
 //! The notes keep their times and sounds; only their lanes change. A long
 //! note keeps one lane from its start to its end. A note that gets no lane
 //! (more notes at once than free lanes, or thinned) plays by itself, and
@@ -17,8 +22,40 @@ use beetle_core::{
 use chart_arrange::{Arrange, Group, Note, Source, BAR_SLOTS};
 
 /// The lanes of a chart of `mode`, left to right, as the arranger sees
-/// them. `None` for a mode that is not arranged (double play).
+/// them.
 fn source_lanes(mode: PlayMode) -> Option<&'static [Lane]> {
+    const DOUBLE_5: [Lane; 12] = [
+        Lane::Scratch,
+        Lane::Key1,
+        Lane::Key2,
+        Lane::Key3,
+        Lane::Key4,
+        Lane::Key5,
+        Lane::P2Key1,
+        Lane::P2Key2,
+        Lane::P2Key3,
+        Lane::P2Key4,
+        Lane::P2Key5,
+        Lane::P2Scratch,
+    ];
+    const DOUBLE_7: [Lane; 16] = [
+        Lane::Scratch,
+        Lane::Key1,
+        Lane::Key2,
+        Lane::Key3,
+        Lane::Key4,
+        Lane::Key5,
+        Lane::Key6,
+        Lane::Key7,
+        Lane::P2Key1,
+        Lane::P2Key2,
+        Lane::P2Key3,
+        Lane::P2Key4,
+        Lane::P2Key5,
+        Lane::P2Key6,
+        Lane::P2Key7,
+        Lane::P2Scratch,
+    ];
     const KEYS: [Lane; 10] = [
         Lane::Scratch,
         Lane::Key1,
@@ -36,7 +73,8 @@ fn source_lanes(mode: PlayMode) -> Option<&'static [Lane]> {
         PlayMode::Keys7 => Some(&KEYS[..8]),
         PlayMode::Keys9 => Some(&KEYS[1..]),
         PlayMode::Keys4 | PlayMode::Keys6 | PlayMode::Keys8 => mode.restricted_lanes(),
-        PlayMode::Keys10 | PlayMode::Keys14 => None,
+        PlayMode::Keys10 => Some(&DOUBLE_5),
+        PlayMode::Keys14 => Some(&DOUBLE_7),
     }
 }
 
@@ -47,11 +85,6 @@ pub fn arranged_mode(lanes: u8) -> PlayMode {
         8 => PlayMode::Keys8,
         _ => PlayMode::Keys6,
     }
-}
-
-/// Whether a chart of `mode` can be arranged here.
-pub fn can_arrange(mode: PlayMode) -> bool {
-    source_lanes(mode).is_some()
 }
 
 /// The shortest time between two hits on one lane, by the chart's
@@ -134,7 +167,7 @@ pub fn arrange_chart(
                 hold_ms,
                 from: None,
             },
-            scratch: n.lane == Lane::Scratch,
+            scratch: matches!(n.lane, Lane::Scratch | Lane::P2Scratch),
         });
     }
     items.sort_by_key(|it| (it.ms, it.note.origin, it.index));
@@ -388,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn a_9_button_chart_arranges_and_double_play_does_not() {
+    fn a_9_button_chart_arranges() {
         let pms = "\
 #BPM 120
 #WAV01 a.wav
@@ -413,8 +446,67 @@ mod tests {
         // is on the left edge, the last on the right.
         let first: Vec<Lane> = out.notes[..3].iter().map(|n| n.lane).collect();
         assert!(first.contains(&Lane::Key1) && first.contains(&Lane::Key7));
-        assert!(!can_arrange(PlayMode::Keys14));
-        assert!(arrange_chart(&chart, &timing, PlayMode::Keys14, None, &a).is_none());
+    }
+
+    /// A 14K chart: a long note and keys on the first side, keys and the
+    /// scratch on the second.
+    const DOUBLE: &str = "\
+#PLAYER 3
+#BPM 150
+#LNTYPE 1
+#WAV01 a.wav
+#WAV02 b.wav
+#WAV03 c.wav
+#00111:01000100
+#00113:00020002
+#00116:03000000
+#00119:00000200
+#00121:02000200
+#00125:00010001
+#00126:00000300
+#00129:01000000
+#00151:0101
+#00211:01020102
+#00221:02010201
+#00222:01010101
+#00226:0003
+";
+
+    #[test]
+    fn a_double_play_chart_arranges_both_sides_onto_one_set_of_lanes() {
+        // 10K: the same without keys 6 and 7.
+        let ten = DOUBLE
+            .replace("#00119:00000200\n", "")
+            .replace("#00129:01000000\n", "");
+        for (text, mode) in [(DOUBLE, PlayMode::Keys14), (&ten[..], PlayMode::Keys10)] {
+            let chart = parse_bms(text).unwrap();
+            let timing = TimingModel::from_chart(&chart);
+            assert_eq!(chart.detect_play_mode(), mode);
+            let first_side = chart
+                .notes
+                .iter()
+                .filter(|n| source_lanes(PlayMode::Keys7).unwrap().contains(&n.lane))
+                .count();
+            for key in ["4k+auto", "6k+auto", "8k+auto"] {
+                let a = Arrange::parse(key).unwrap();
+                let out = arrange_chart(&chart, &timing, mode, Some(3), &a).unwrap();
+                let target = arranged_mode(a.lanes);
+                assert_eq!(out.detect_play_mode(), target, "{mode:?} {key}");
+                assert_eq!(out.header.player, 1);
+                let lanes = target.restricted_lanes().unwrap();
+                assert!(out.notes.iter().all(|n| lanes.contains(&n.lane)), "{key}");
+                // No sound is lost, and the second side's notes are played:
+                // more notes are on the lanes than the first side has.
+                assert_eq!(sounds(&out), sounds(&chart), "{mode:?} {key}");
+                assert!(out.notes.len() > first_side, "{mode:?} {key}");
+                let ends = out
+                    .notes
+                    .iter()
+                    .filter(|n| n.note_type == NoteType::LongNoteEnd)
+                    .count();
+                assert_eq!(ends, 1, "{mode:?} {key}: the long note plays");
+            }
+        }
     }
 
     #[test]

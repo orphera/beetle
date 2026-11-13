@@ -1566,9 +1566,9 @@ table! {
         en "Starts the song at this measure. 0 starts from the beginning. Any other value counts as practice and is not saved.",
         ja "この小節から曲を始めます。0 なら最初から始まります。0 以外のときは練習扱いとなり記録されません。";
     pub HELP_GFDM_LANES =
-        ko "켜면 채보를 이 키 수로 레인을 다시 짜서 열어요. BMS, 디스크의 IIDX, pop'n, GFDM 채보에 쓰고 더블 플레이 채보는 그대로 열려요. 편곡 채보의 기록은 원본과 따로 남아요.",
-        en "Opens charts with their lanes laid out again for this many keys: BMS and disc IIDX, pop'n and GFDM charts. Double play charts open as they are. Arranged charts keep their own records.",
-        ja "譜面をこのキー数にレーンを組み直して開きます。BMS と、ディスクの IIDX・pop'n・GFDM の譜面に使えます。ダブルプレイの譜面はそのまま開きます。アレンジ譜面の記録は元の譜面と別に残ります。";
+        ko "켜면 채보를 이 키 수로 레인을 다시 짜서 열어요. BMS, 디스크의 IIDX, pop'n, GFDM 채보에 쓰고 더블 플레이 채보는 양쪽 노트를 한데 모아서 짜요. 편곡 채보의 기록은 원본과 따로 남아요.",
+        en "Opens charts with their lanes laid out again for this many keys: BMS and disc IIDX, pop'n and GFDM charts. Double play charts put both sides' notes on the one set of lanes. Arranged charts keep their own records.",
+        ja "譜面をこのキー数にレーンを組み直して開きます。BMS と、ディスクの IIDX・pop'n・GFDM の譜面に使えます。ダブルプレイの譜面は両側のノーツを一つにまとめて組みます。アレンジ譜面の記録は元の譜面と別に残ります。";
     pub HELP_GFDM_PRESET =
         ko "자동: 채보의 파트, 키 수, 빠르기를 보고 편곡 규칙을 골라요.",
         en "Auto: chooses the arrangement rules by each chart's part, keys and density.",

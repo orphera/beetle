@@ -3,8 +3,8 @@
 //! or 8 keys (`chart-arrange`) instead. The song list stays as it is; only
 //! the chart that opens changes. It began as a GuitarFreaks & DrumMania
 //! option (hence the module's and the settings' names) and now takes BMS,
-//! IIDX and pop'n charts too (`arrange_chart`); double play charts open as
-//! they are.
+//! IIDX and pop'n charts too (`arrange_chart`), double play charts with
+//! both sides on the one set of lanes.
 //!
 //! The arranged chart's metadata (its identity, key mode and counts) is its
 //! own, so its records and replays are too. A GFDM chart's comes from the
@@ -225,8 +225,7 @@ impl ArrangeSetting {
     }
 
     /// How `song`'s chart opens with the option, `None` when it opens as it
-    /// is: the option is off, the chart is already an arranged one, or it
-    /// is a double play chart.
+    /// is: the option is off, or the chart is already an arranged one.
     pub fn target(&self, song: &SongMetadata) -> Option<Target> {
         if !self.on {
             return None;
@@ -244,8 +243,7 @@ impl ArrangeSetting {
                 ));
             }
         }
-        crate::arrange_chart::can_arrange(song.play_mode)
-            .then(|| Target::Loaded(self.effective(), mode))
+        Some(Target::Loaded(self.effective(), mode))
     }
 }
 
@@ -336,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn any_other_single_play_chart_is_arranged_by_the_loader() {
+    fn any_other_chart_is_arranged_by_the_loader() {
         let mut s = ArrangeSetting {
             on: true,
             ..Default::default()
@@ -357,7 +355,10 @@ mod tests {
             play_mode: PlayMode::Keys14,
             ..song("D:/BMS/dp.bms")
         };
-        assert_eq!(s.target(&double), None);
+        assert_eq!(
+            s.target(&double),
+            Some(Target::Loaded(s.effective(), PlayMode::Keys4))
+        );
         s.on = false;
         assert_eq!(s.target(&song("D:/BMS/x.bms")), None);
     }
