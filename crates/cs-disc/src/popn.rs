@@ -1002,7 +1002,7 @@ impl Mask {
     /// The picture's coverage, cut to the columns that hold ink on either side
     /// (the picture's own margins are not drawn). The height is kept, so every
     /// word of a row keeps its baseline.
-    pub(crate) fn from_rgba(picture: &Rgba) -> Mask {
+    pub fn from_rgba(picture: &Rgba) -> Mask {
         let (w, h) = (picture.width as usize, picture.height as usize);
         // Ink is what differs from the background, the picture's commonest
         // colour. On black (most discs) it is the brightest channel, so

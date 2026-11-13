@@ -22,6 +22,7 @@ use std::sync::Arc;
 use beetle_core::ChartId;
 use cs_disc::iidx::{Disc, NameSheets};
 use cs_disc::popn::{Mask, SongNames};
+use cs_disc::ps2tex::Rgba;
 use cs_disc::SectorReader;
 
 const MAGIC: &[u8; 4] = b"BNMD";
@@ -243,6 +244,49 @@ pub fn ensure<R: io::Read + io::Seek>(
     let _ = fs::create_dir_all(DIR);
     let _ = fs::write(path(slug), encode(&names));
 }
+
+/// The names file of the GuitarFreaks & DrumMania disc: each song's title
+/// strip as its word picture (`title`), no artist (the disc's record has none).
+/// Made when missing or older than `source`, like `ensure`.
+pub fn ensure_gfdm(
+    song_ids: &[u32],
+    mut title: impl FnMut(u32) -> Option<Rgba>,
+    source: &str,
+    charts: &[(ChartId, u32)],
+) {
+    if is_current(GFDM_SLUG, Path::new(source)) {
+        return;
+    }
+    let mut names = Names {
+        charts: charts.to_vec(),
+        ..Names::default()
+    };
+    for &id in song_ids {
+        let Some(picture) = title(id) else { continue };
+        let mask = Mask::from_rgba(&picture);
+        if mask.width == 0 {
+            continue;
+        }
+        names.songs.insert(
+            id,
+            SongNames {
+                title: Some(mask),
+                small_title: None,
+                artist: None,
+                genre: None,
+                popn: false,
+            },
+        );
+    }
+    if names.songs.is_empty() {
+        return;
+    }
+    let _ = fs::create_dir_all(DIR);
+    let _ = fs::write(path(GFDM_SLUG), encode(&names));
+}
+
+/// The slug of the GuitarFreaks & DrumMania disc's names file.
+const GFDM_SLUG: &str = "gfdm";
 
 #[cfg(test)]
 mod tests {

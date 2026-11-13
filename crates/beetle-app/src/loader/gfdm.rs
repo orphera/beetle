@@ -17,7 +17,7 @@ use cs_disc::gfdm::{
 };
 use cs_disc::gfdm_bms::{to_bms, ChartRef, Song, Sound};
 use cs_disc::ps2tex::Rgba;
-use cs_disc::texp::{banner_name, Texp};
+use cs_disc::texp::{banner_name, title_name, Texp};
 use cs_disc::wvb::Pcm;
 use cs_disc::{SectorReader, Volume};
 
@@ -56,6 +56,16 @@ impl GfdmDisc {
 
     /// Song `id`'s banner, `None` when the disc has none.
     fn banner(&self, disc: &mut SectorReader<File>, id: u32) -> Option<Rgba> {
+        self.picture(disc, &banner_name(id))
+    }
+
+    /// Song `id`'s title strip (`IDX_CO`), `None` when the disc has none.
+    pub(crate) fn title(&self, disc: &mut SectorReader<File>, id: u32) -> Option<Rgba> {
+        self.picture(disc, &title_name(id))
+    }
+
+    /// The rect called `name`, cut out of its texture.
+    fn picture(&self, disc: &mut SectorReader<File>, name: &str) -> Option<Rgba> {
         let files = self.banners.get_or_init(|| {
             let mut map = HashMap::new();
             for n in self.disc.texture_files(disc).unwrap_or_default() {
@@ -68,9 +78,8 @@ impl GfdmDisc {
             }
             map
         });
-        let name = banner_name(id);
-        let bytes = self.disc.read(disc, *files.get(&name)?).ok()?;
-        Texp::parse(&bytes)?.image(&name)
+        let bytes = self.disc.read(disc, *files.get(name)?).ok()?;
+        Texp::parse(&bytes)?.image(name)
     }
 }
 

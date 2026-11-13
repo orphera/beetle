@@ -718,6 +718,7 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
         return Vec::new();
     };
     let mut copies = Vec::new();
+    let mut picture_keys = Vec::new();
     for info in &songs.songs {
         let Ok(c) = songs.disc.song_charts(&mut disc, info) else {
             continue;
@@ -736,6 +737,7 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
             let key = chart.key(info.id);
             let address = disc_address(&source, &key);
             if let Some(meta) = SongMetadata::from_bytes(&address, bms.as_bytes()) {
+                picture_keys.push((meta.picture_key(), info.id));
                 copies.push(Copy {
                     kind: Kind::Disc,
                     source: source.clone(),
@@ -747,6 +749,14 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
             }
         }
     }
+    // The rows draw each song's title strip from the disc's own picture.
+    let ids: Vec<u32> = songs.songs.iter().map(|s| s.id).collect();
+    crate::names::ensure_gfdm(
+        &ids,
+        |id| songs.title(&mut disc, id),
+        &source,
+        &picture_keys,
+    );
     copies
 }
 

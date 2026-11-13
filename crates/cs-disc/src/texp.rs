@@ -173,3 +173,8 @@ impl<'a> Texp<'a> {
 pub fn banner_name(id: u32) -> String {
     format!("IMG_CO{id:04}")
 }
+
+/// The title strip rect name of song `id` (180×24, the title alone).
+pub fn title_name(id: u32) -> String {
+    format!("IDX_CO{id:04}")
+}
