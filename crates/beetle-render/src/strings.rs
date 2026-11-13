@@ -1277,6 +1277,10 @@ table! {
         ko "밀도 고르게",
         en "Level Density",
         ja "密度をそろえる";
+    pub ROW_GFDM_FLIP =
+        ko "킥 뒤집기",
+        en "Flip the Kick",
+        ja "キックを反対側へ";
     pub ROW_GFDM_TRIG =
         ko "바깥 레인에 강세 (8K)",
         en "Accents on Outer Lanes (8K)",
@@ -1657,6 +1661,10 @@ table! {
         ko "기타와 베이스에서, 빠른 구간의 동시치기는 줄이고 느린 구간의 박에는 노트를 더해서 곡 전체의 밀도를 고르게 해요.",
         en "Guitar and bass: fewer notes together where the chart is fast and a second note on the beats where it is slow, so the density stays level through the song.",
         ja "ギターとベースで、速いところの同時押しを減らし、遅いところの拍にノーツを足して、曲全体の密度をそろえます。";
+    pub HELP_GFDM_FLIP =
+        ko "박자를 잡는 소리(킥)가 같은 모양으로 다시 나오는 마디마다 한 번씩 걸러 반대쪽 레인에 놓아요. 그 마디의 다른 노트는 그대로 둬요.",
+        en "The sound that keeps the beat (the kick) goes to the other side of the lanes every other time its pattern in a bar comes back. The bar's other notes stay where they are.",
+        ja "拍を刻む音(キック)が同じ形でまた出る小節では、1回おきに反対側のレーンに置きます。その小節のほかのノーツはそのままです。";
     pub HELP_GFDM_TRIG =
         ko "8K에서 맨 바깥 두 레인에 박 위의 강세(스네어, 심벌, 긴 음)를 좌우로 번갈아 놓아요. 켜면 바깥 레인 줄 대신 써요.",
         en "8K: accents on the beat (snares, cymbals, long notes) go on the two outer lanes, side to side. Used instead of Outer Lanes.",

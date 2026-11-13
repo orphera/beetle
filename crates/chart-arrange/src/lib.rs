@@ -44,6 +44,7 @@
 //! | `acc` | guitar and bass: two notes together where the drums hit hard, one where nothing does |
 //! | `even` | guitar and bass: notes together are sized so the keys a second stay level: one note where the notes come fastest, never two quick groups of notes together in a row, and two notes on the beats of a slow passage |
 //! | `trig` | 8K: the two outer lanes take the accents on the beat (snares and cymbals; long or hard-hit low notes), side to side. Instead of `edge` |
+//! | `flip` | the sound that keeps the beat in a bar (the kick) goes to the other side of the lanes every other time its places in a bar come back; the bar's other notes stay |
 //! | `j<ms>` | the shortest time between two hits on one lane (default by difficulty) |
 //! | `run<2-6>` | with `hand`: this many quick notes may stay on one hand before it costs |
 //! | `d<ms>` | the shortest time between two played notes: denser notes leave the lanes (and play by themselves), weak beats first |
@@ -86,6 +87,7 @@ pub struct Arrange {
     pub acc: bool,
     pub trig: bool,
     pub even: bool,
+    pub flip: bool,
     /// With `hand`: how many quick groups may stay on one hand at no cost
     /// (2..=`MAX_RUN`); 0 the plain `hand` (one).
     pub run: u8,
@@ -182,6 +184,7 @@ impl Arrange {
             (self.acc, "acc"),
             (self.trig, "trig"),
             (self.even, "even"),
+            (self.flip, "flip"),
         ] {
             if on {
                 out += "+";
@@ -243,6 +246,7 @@ impl Arrange {
                 "acc" => a.acc = true,
                 "trig" => a.trig = true,
                 "even" => a.even = true,
+                "flip" => a.flip = true,
                 _ => {
                     if let Some(m) = p.strip_prefix("run") {
                         a.run = number(m).filter(|m| (2..=MAX_RUN as u64).contains(m))? as u8;
@@ -891,6 +895,87 @@ fn motif_hands(kind: Source, n: usize, groups: &[Group], masks: &[u16]) -> Vec<O
     out
 }
 
+/// `flip`: which notes go to the other side of the lanes, by group and note.
+///
+/// Hand-made charts put a kick on one side and, when the bar or the phrase
+/// comes again, on the other, with the rest left where it was. Each bar has
+/// one sound that keeps its beat: the bass drum of a drum chart; in other
+/// charts the pitch (guitar, bass) or key sound (keyboard charts) with the
+/// most notes on the beats, at least two. Every other time that sound's
+/// places in a bar are those of a bar before, its notes are flipped: their
+/// liked lanes are mirrored. The bar's other notes are not.
+fn flips(a: &Arrange, kind: Source, groups: &[Group]) -> Vec<Vec<bool>> {
+    let mut out: Vec<Vec<bool>> = groups.iter().map(|g| vec![false; g.notes.len()]).collect();
+    if !a.flip {
+        return out;
+    }
+    // The sound a note is, or `None` for one that keeps no beat.
+    let sound = |n: &Note| -> Option<u32> {
+        match kind {
+            Source::Drums => (n.origin == 2).then_some(2),
+            Source::Strings => Some((n.key & 0xff) as u32),
+            Source::Keys { .. } => (n.key != 0).then_some(n.key as u32),
+        }
+    };
+    let mut seen: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+    let mut start = 0;
+    while start < groups.len() {
+        let bar = groups[start].bar;
+        let mut end = start;
+        while end < groups.len() && groups[end].bar == bar {
+            end += 1;
+        }
+        let own = || (start..end).filter(|&i| !groups[i].borrowed());
+        // By sound: how much of the beat it is on, and its notes.
+        let mut sounds: Vec<(u32, u32, u32)> = Vec::new();
+        for i in own() {
+            for id in groups[i].notes.iter().filter_map(sound) {
+                let at = match sounds.iter().position(|s| s.0 == id) {
+                    Some(at) => at,
+                    None => {
+                        sounds.push((id, 0, 0));
+                        sounds.len() - 1
+                    }
+                };
+                sounds[at].1 += groups[i].strength() as u32;
+                sounds[at].2 += 1;
+            }
+        }
+        // The most on the beat; of two alike, the lower sound.
+        let beat = sounds
+            .iter()
+            .filter(|s| s.1 > 0 && s.2 >= 2)
+            .max_by_key(|s| (s.1, std::cmp::Reverse(s.0)))
+            .map(|s| s.0);
+        if let Some(id) = beat {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            let mut eat = |v: u64| {
+                for b in v.to_le_bytes() {
+                    h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+                }
+            };
+            eat(id as u64);
+            for i in own() {
+                if groups[i].notes.iter().any(|n| sound(n) == Some(id)) {
+                    eat(groups[i].slot as u64);
+                }
+            }
+            let count = seen.entry(h).or_insert(0);
+            let flipped = *count % 2 == 1;
+            *count += 1;
+            if flipped {
+                for i in own() {
+                    for (f, n) in out[i].iter_mut().zip(&groups[i].notes) {
+                        *f = sound(n) == Some(id);
+                    }
+                }
+            }
+        }
+        start = end;
+    }
+    out
+}
+
 /// What `acc` and `even` do with a group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Accent {
@@ -1105,7 +1190,13 @@ pub fn arrange(a: &Arrange, kind: Source, jack_ms: u16, groups: &[Group]) -> Vec
     }
     // Again, now that the hands of each bar's first time are known.
     let n = a.lanes.clamp(1, MAX_LANES as u8) as usize;
-    let want = motif_hands(kind, n, groups, &masks);
+    let mut want = motif_hands(kind, n, groups, &masks);
+    // A group with a flipped note is meant to change hands.
+    for (hands, flipped) in want.iter_mut().zip(flips(&a, kind, groups)) {
+        if flipped.contains(&true) {
+            *hands = None;
+        }
+    }
     search(&a, kind, jack_ms, groups, &want).1
 }
 
@@ -1138,6 +1229,12 @@ fn search(
             for v in likes.iter_mut().flatten() {
                 *v = t.apply(*v, (n - 1) as f64);
             }
+        }
+    }
+    let flips = flips(&a, kind, groups);
+    for (likes, flipped) in liked.iter_mut().zip(&flips) {
+        for (like, _) in likes.iter_mut().zip(flipped).filter(|(_, f)| **f) {
+            *like = like.map(|t| (n - 1) as f64 - t);
         }
     }
 
@@ -1285,14 +1382,13 @@ fn search(
                 let mut target = liked[gi][i];
                 if kind == Source::Drums && a.stick && note.from.is_none() && !fig {
                     let d = note.origin.min(5) as usize;
+                    // `flip`: the drum's two lanes are on the other side.
+                    let side = |l: u8| if flips[gi][i] { n as u8 - 1 - l } else { l };
+                    let (home, alt) = (side(home[d]), side(alt[d]));
                     if let Some(lane) = double {
                         target = Some(lane as f64);
                     } else if let Some(last_lane) = prev {
-                        target = Some(if last_lane == home[d] {
-                            alt[d]
-                        } else {
-                            home[d]
-                        } as f64);
+                        target = Some(if last_lane == home { alt } else { home } as f64);
                     }
                 }
                 // Plain notes like the inner lanes.
@@ -1654,6 +1750,7 @@ mod tests {
             acc: true,
             trig: false,
             even: true,
+            flip: true,
             run: 3,
             jack_ms: Some(150),
             thin_ms: Some(90),
@@ -1663,7 +1760,7 @@ mod tests {
         };
         assert_eq!(
             all.key(),
-            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+even+j150+d90+run3+mix4+r9+s12345"
+            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+even+flip+j150+d90+run3+mix4+r9+s12345"
         );
         assert_eq!(Arrange::parse(&all.key()), Some(all));
     }
@@ -1736,6 +1833,112 @@ mod tests {
         // Fewer lanes have no outer bars: every lane can play at once.
         let six = arrange(&Arrange::parse("6k").unwrap(), kind, 125, &groups);
         assert!(six.iter().any(|l| l.iter().flatten().count() == 6));
+    }
+
+    #[test]
+    fn flip_moves_the_kick_to_the_other_side_when_its_bar_comes_back() {
+        // Six bars of a kick on every beat with a hat between the beats.
+        // Keyboard chart: the kick is sound 1 on the first lane, the hat
+        // sound 2 on the last. Drum chart: bass drum and hi-hat.
+        let bars = |kick: Note, hat: Note| -> Vec<Group> {
+            let mut groups = Vec::new();
+            for bar in 0..6u32 {
+                for eighth in 0..8u32 {
+                    groups.push(Group {
+                        ms: (bar * 8 + eighth) as i64 * 250,
+                        bar,
+                        slot: eighth as u16 * BAR_SLOTS / 8,
+                        accent: 0,
+                        notes: vec![if eighth % 2 == 0 { kick } else { hat }],
+                    });
+                }
+            }
+            groups
+        };
+        let plain = |origin: u8, key: u16| Note {
+            origin,
+            key,
+            ticks: 0,
+            hold_ms: 0,
+            from: None,
+        };
+        // (kind, key without flip, groups, the kick's lane, its flipped lane, the hat's lane)
+        let cases = [
+            (
+                Source::Keys { lanes: 4 },
+                "4k",
+                bars(plain(0, 1), plain(3, 2)),
+                [0u8, 3, 3],
+            ),
+            (
+                Source::Drums,
+                "4k+home",
+                bars(plain(2, 36), plain(0, 42)),
+                [2, 1, 0],
+            ),
+            (
+                Source::Drums,
+                "6k+home+stick",
+                bars(plain(2, 36), plain(0, 42)),
+                [2, 3, 0],
+            ),
+        ];
+        for (kind, key, groups, [kick, flipped, hat]) in cases {
+            let lanes_of = |key: &str| -> Vec<u8> {
+                arrange(&Arrange::parse(key).unwrap(), kind, 125, &groups)
+                    .iter()
+                    .map(|l| l[0].unwrap())
+                    .collect()
+            };
+            let without = lanes_of(key);
+            let with = lanes_of(&format!("{key}+flip"));
+            for (i, g) in groups.iter().enumerate() {
+                if g.slot % (BAR_SLOTS / 4) == 0 {
+                    assert_eq!(without[i], kick, "{key}: the kick of bar {}", g.bar);
+                    let want = if g.bar % 2 == 1 { flipped } else { kick };
+                    assert_eq!(with[i], want, "{key}+flip: the kick of bar {}", g.bar);
+                } else {
+                    // The other notes stay where they were.
+                    assert_eq!((without[i], with[i]), (hat, hat), "{key}: bar {}", g.bar);
+                }
+            }
+        }
+        // Another kick pattern starts its own count: its first bar is not flipped.
+        let (kind, mut groups) = (Source::Keys { lanes: 4 }, bars(plain(0, 1), plain(3, 2)));
+        groups.retain(|g| g.bar != 1 || g.slot != BAR_SLOTS / 2);
+        let lanes = arrange(&Arrange::parse("4k+flip").unwrap(), kind, 125, &groups);
+        let kicks = |bar: u32| -> Vec<u8> {
+            groups
+                .iter()
+                .zip(&lanes)
+                .filter(|(g, _)| g.bar == bar && g.slot % (BAR_SLOTS / 4) == 0)
+                .map(|(_, l)| l[0].unwrap())
+                .collect()
+        };
+        assert_eq!(kicks(1), [0, 0, 0]);
+        assert_eq!(kicks(2), [3, 3, 3, 3]);
+        // With a preset's other features on, the kick still changes hands.
+        for lanes in LANE_COUNTS {
+            let groups = bars(plain(0, 1), plain(3, 2));
+            let flow = Arrange {
+                flip: true,
+                ..Preset::Flow.arrange(lanes)
+            };
+            let placed = arrange(&flow, Source::Keys { lanes: 4 }, 125, &groups);
+            let left = |bar: u32| {
+                groups
+                    .iter()
+                    .zip(&placed)
+                    .filter(|(g, _)| g.bar == bar && g.slot % (BAR_SLOTS / 4) == 0)
+                    .filter(|(_, l)| l[0].unwrap() < lanes / 2)
+                    .count()
+            };
+            assert_eq!(
+                (0..6).map(left).collect::<Vec<_>>(),
+                [4, 0, 4, 0, 4, 0],
+                "{lanes}K: kicks on the left hand by bar"
+            );
+        }
     }
 
     #[test]

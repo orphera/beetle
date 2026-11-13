@@ -65,6 +65,7 @@ pub enum OptionId {
     GfdmMotif,
     GfdmAcc,
     GfdmEven,
+    GfdmFlip,
     GfdmTrig,
     GfdmJack,
     GfdmThin,
@@ -268,6 +269,11 @@ fn build_play_options() -> Vec<OptionDesc> {
             strings::HELP_GFDM_EVEN(),
         ),
         gfdm_row(
+            OptionId::GfdmFlip,
+            strings::ROW_GFDM_FLIP(),
+            strings::HELP_GFDM_FLIP(),
+        ),
+        gfdm_row(
             OptionId::GfdmTrig,
             strings::ROW_GFDM_TRIG(),
             strings::HELP_GFDM_TRIG(),
@@ -353,6 +359,7 @@ fn gfdm_feature(id: OptionId) -> bool {
             | OptionId::GfdmMotif
             | OptionId::GfdmAcc
             | OptionId::GfdmEven
+            | OptionId::GfdmFlip
             | OptionId::GfdmTrig
             | OptionId::GfdmJack
             | OptionId::GfdmThin
@@ -840,6 +847,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
         OptionId::GfdmMotif => on_off(state.gfdm_arrange.shown().motif).to_string(),
         OptionId::GfdmAcc => on_off(state.gfdm_arrange.shown().acc).to_string(),
         OptionId::GfdmEven => on_off(state.gfdm_arrange.shown().even).to_string(),
+        OptionId::GfdmFlip => on_off(state.gfdm_arrange.shown().flip).to_string(),
         OptionId::GfdmTrig => on_off(state.gfdm_arrange.shown().trig).to_string(),
         OptionId::GfdmJack => match state.gfdm_arrange.shown().jack_ms {
             Some(ms) => strings::fill(strings::VALUE_MS(), &[&ms.to_string()]),
@@ -975,6 +983,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         OptionId::GfdmMotif => flip(&mut state.gfdm_arrange.edit().motif),
         OptionId::GfdmAcc => flip(&mut state.gfdm_arrange.edit().acc),
         OptionId::GfdmEven => flip(&mut state.gfdm_arrange.edit().even),
+        OptionId::GfdmFlip => flip(&mut state.gfdm_arrange.edit().flip),
         OptionId::GfdmTrig => flip(&mut state.gfdm_arrange.edit().trig),
         OptionId::GfdmJack => state.gfdm_arrange.step_jack(forward),
         OptionId::GfdmThin => state.gfdm_arrange.step_thin(forward),
@@ -1427,7 +1436,7 @@ mod tests {
             .unwrap();
         assert_eq!(folded[fold].id, OptionId::GfdmAdvanced);
         assert_eq!(folded.len(), fold + 1);
-        assert_eq!(all.len() - folded.len(), 21);
+        assert_eq!(all.len() - folded.len(), 22);
     }
 
     #[test]
