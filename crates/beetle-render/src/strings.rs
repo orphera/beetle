@@ -1277,6 +1277,10 @@ table! {
         ko "밀도 고르게",
         en "Level Density",
         ja "密度をそろえる";
+    pub ROW_GFDM_LN =
+        ko "롱노트 (기타)",
+        en "Long Notes (Guitar)",
+        ja "ロングノーツ (ギター)";
     pub ROW_GFDM_FLIP =
         ko "킥 뒤집기",
         en "Flip the Kick",
@@ -1597,6 +1601,10 @@ table! {
         ko "직접 설정: 고급 옵션에서 고른 규칙을 그대로 써요.",
         en "Custom: uses the rules chosen in the advanced options as they are.",
         ja "カスタム: 詳細オプションで選んだルールをそのまま使います。";
+    pub HELP_GFDM_LN =
+        ko "GFDM 기타, 베이스 채보에서, 키음이 길게 울리는 노트를 롱노트로 만들어요. 길이는 키음 길이를 따르고, 1.5초를 넘거나 다음 노트에 닿으면 줄여요.",
+        en "GFDM guitar and bass charts: notes whose sound rings long become long notes, as long as the sound, cut at 1.5 s or before the next note.",
+        ja "GFDM のギター・ベースの譜面で、キー音が長く鳴るノーツをロングノーツにします。長さはキー音に合わせ、1.5秒を超えるときや次のノーツに届くときは短くします。";
     pub HELP_GFDM_ADVANCED =
         ko "편곡 규칙을 하나씩 보고 바꿀 수 있게 펼쳐요. 규칙을 바꾸면 프리셋이 직접 설정으로 바뀌어요.",
         en "Shows the arrangement rules one by one so they can be changed. Changing one makes the preset Custom.",

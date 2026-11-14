@@ -21,6 +21,11 @@
 //!   left over when more play at once than there are lanes plays as a sound.
 //!   An open chart's open picks are notes like the others (placed by their
 //!   pitch); they have no frets, so they never play as chords.
+//! - With `ln` a guitar or bass note becomes a long note (`#LNTYPE 1`,
+//!   channels 5x) when the game holds its sound long (`Event::a >> 16`, the
+//!   ticks the sound plays): at most `LN_MAX_TICKS`, letting go `LN_GAP_TICKS`
+//!   before the next note, and not at all when that leaves under
+//!   `LN_MIN_TICKS`. A note that plays its whole sound (0) stays a note.
 //!
 //! Times on the disc are absolute (1/300 s). Bars are the meta track's bar
 //! lines; each bar's length comes from the tempo between them, so the BMS
@@ -39,6 +44,27 @@ const EVENT_SOUND: u8 = 0x01;
 const OPEN: u8 = 0x10;
 /// Places in a bar a time is rounded to (under 1 ms at 150 BPM).
 const GRID: u64 = 960;
+
+/// `ln`: the shortest long note (0.3 s), the longest (1.5 s; a sound held
+/// longer is cut), and how long before the next note it lets go (0.1 s).
+const LN_MIN_TICKS: u32 = 90;
+const LN_MAX_TICKS: u32 = 450;
+const LN_GAP_TICKS: u32 = 30;
+
+/// The long-note channel (`#LNTYPE 1`) of a note channel: 1x to 5x.
+fn ln_channel(ch: &str) -> &'static str {
+    match ch {
+        "11" => "51",
+        "12" => "52",
+        "13" => "53",
+        "14" => "54",
+        "15" => "55",
+        "16" => "56",
+        "18" => "58",
+        "19" => "59",
+        _ => unreachable!("not a lane channel: {ch}"),
+    }
+}
 
 /// Which part a chart plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -253,6 +279,10 @@ impl Sound {
     }
 }
 
+/// Notes at one place of an arranged chart: (bar, slot, ms, notes with
+/// their sounds, tick).
+type Group = (usize, u64, i64, Vec<(chart_arrange::Note, Sound)>, u32);
+
 /// What one song needs to become BMS.
 pub struct Song<'a> {
     pub info: &'a MusicInfo,
@@ -353,7 +383,12 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         .map(|e| e.time)
         .max()
         .unwrap_or(0);
-    let end = tempo.beats(last_event);
+    // A long note (`ln`) may end after the last event.
+    let ln_tail = match chart.arrange {
+        Some(a) if a.ln => LN_MAX_TICKS,
+        _ => 0,
+    };
+    let end = tempo.beats(last_event + ln_tail);
     while *bars.last()? <= end {
         let step = match bars.len() {
             n if n >= 2 => bars[n - 1] - bars[n - 2],
@@ -395,14 +430,16 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
 
     // (bar, slot, channel, value).
     let mut objects: Vec<(usize, u64, &'static str, String)> = Vec::new();
+    let mut long_notes = false;
     objects.push((0, 0, "01", wav_id(Sound::Music)));
     let game = chart.game();
     let arranged = match chart.arrange {
         Some(a) => Some((a, chart.part.arrange_kind(), lane_channels(a.lanes)?)),
         None => None,
     };
-    // Arranged notes by place: (bar, slot, ms, notes with their sounds).
-    let mut groups: Vec<(usize, u64, i64, Vec<(chart_arrange::Note, Sound)>)> = Vec::new();
+    // Arranged notes by place: (bar, slot, ms, notes with their sounds,
+    // tick).
+    let mut groups: Vec<Group> = Vec::new();
     // The original lanes, as the original chart keeps them: a lane taken at
     // a place keeps its first note. `from` is another part's kind (`mix`).
     let mut add_note = |e: &Event, game: Game, from: Option<Source>, sound: Option<Sound>| {
@@ -414,7 +451,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
             Some(at) => at,
             None => {
                 let ms = e.time as i64 * 1000 / TICKS_PER_SECOND as i64;
-                groups.push((bar, slot, ms, Vec::new()));
+                groups.push((bar, slot, ms, Vec::new(), e.time));
                 groups.len() - 1
             }
         };
@@ -522,7 +559,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                 .max()
                 .unwrap_or(0)
         };
-        let input = |groups: &[(usize, u64, i64, Vec<(chart_arrange::Note, Sound)>)]| {
+        let input = |groups: &[Group]| {
             groups
                 .iter()
                 .map(|g| chart_arrange::Group {
@@ -537,15 +574,38 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         // The features for this chart (`auto` looks at its notes), then the
         // groups as `acc` makes them: a second note without a sound, or only
         // the first of several (the others had none).
+        // Long notes (`ln`): each held note lets go before the next group.
+        let mut hold_ticks: Vec<Vec<u32>> = groups.iter().map(|g| vec![0; g.3.len()]).collect();
+        if a.ln {
+            for gi in 0..groups.len() {
+                let tick = groups[gi].4;
+                let next = groups[gi + 1..].iter().map(|g| g.4).find(|&t| t > tick);
+                for (k, (n, _)) in groups[gi].3.iter_mut().enumerate() {
+                    if n.from.unwrap_or(kind) != Source::Strings {
+                        continue;
+                    }
+                    let mut len = (n.ticks as u32).min(LN_MAX_TICKS);
+                    if let Some(next) = next {
+                        len = len.min((next - tick).saturating_sub(LN_GAP_TICKS));
+                    }
+                    if len >= LN_MIN_TICKS {
+                        n.hold_ms = len * 1000 / TICKS_PER_SECOND;
+                        hold_ticks[gi][k] = len;
+                    }
+                }
+            }
+        }
         let first = input(&groups);
         let a = chart_arrange::resolve(&a, kind, &first);
-        for (g, accent) in groups
+        for ((g, holds), accent) in groups
             .iter_mut()
+            .zip(hold_ticks.iter_mut())
             .zip(chart_arrange::accents(&a, kind, &first))
         {
             match accent {
                 chart_arrange::Accent::Keep => {}
                 chart_arrange::Accent::Trim(keep) => {
+                    holds.truncate(keep.max(1));
                     // A sound among the dropped notes still plays below.
                     for (_, sound) in g.3.drain(keep.max(1)..) {
                         if sound != Sound::Silent {
@@ -553,13 +613,17 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                         }
                     }
                 }
-                chart_arrange::Accent::Double(note) => g.3.push((note, Sound::Silent)),
+                chart_arrange::Accent::Double(note) => {
+                    let hold = holds.first().copied().unwrap_or(0);
+                    holds.push(if note.hold_ms > 0 { hold } else { 0 });
+                    g.3.push((note, Sound::Silent));
+                }
             }
         }
         let input = input(&groups);
         let lanes = chart_arrange::arrange(&a, kind, default_jack_ms(chart.difficulty), &input);
-        for (g, lanes) in groups.iter().zip(lanes) {
-            for ((_, sound), lane) in g.3.iter().zip(lanes) {
+        for ((g, lanes), holds) in groups.iter().zip(lanes).zip(&hold_ticks) {
+            for (((_, sound), lane), &hold) in g.3.iter().zip(lanes).zip(holds) {
                 let ch = match lane {
                     Some(l) => channels[l as usize],
                     // Thinned, not brought in or left over: its sound plays
@@ -567,6 +631,15 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                     None if *sound == Sound::Silent => continue,
                     None => "01",
                 };
+                if hold > 0 && ch != "01" {
+                    let ch = ln_channel(ch);
+                    let v = wav_id(*sound);
+                    let (bar, slot) = place(g.4 + hold);
+                    objects.push((g.0, g.1, ch, v.clone()));
+                    objects.push((bar, slot, ch, v));
+                    long_notes = true;
+                    continue;
+                }
                 objects.push((g.0, g.1, ch, wav_id(*sound)));
             }
         }
@@ -632,6 +705,10 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         "#PLAYLEVEL {level}\n#DIFFICULTY {}\n{mode}\n",
         chart.difficulty + 1
     );
+    if long_notes {
+        out += "#LNTYPE 1
+";
+    }
     for (n, s) in wavs.iter().enumerate() {
         out += &format!("#WAV{} {}\n", base36(n + 1), s.name());
     }
@@ -886,6 +963,102 @@ mod tests {
 
     /// Notes on lanes, and every sound (by name, silent ones left out) on
     /// any channel, of BMS text.
+    #[test]
+    fn ln_holds_long_guitar_sounds_until_before_the_next_note() {
+        let meta = Track {
+            game: Game::GuitarFreaks,
+            is_meta: true,
+            difficulty: 0,
+            part: 0,
+            events: vec![
+                event(0, EVENT_TEMPO, 0, 500_000),
+                event(0, EVENT_BAR, 0, 0),
+                event(600, EVENT_BAR, 0, 0),
+            ],
+        };
+        // Half bars on R: a sound held 2 s (cut to 0.1 s before the next
+        // note), one too short, one played whole, and a last one held 3.3 s
+        // (cut to 1.5 s).
+        let note = |time: u32, ticks: u32| event(time, EVENT_NOTE, 1, 0x30 | ticks << 16);
+        let play = Track {
+            game: Game::GuitarFreaks,
+            is_meta: false,
+            difficulty: 3,
+            part: 1,
+            events: vec![note(0, 600), note(300, 50), note(600, 0), note(900, 1000)],
+        };
+        let guitar = Seq {
+            tracks: vec![meta, play],
+        };
+        let drums = Seq { tracks: vec![] };
+        let info = MusicInfo {
+            id: 1,
+            name: "TEST".into(),
+            bpm: 120,
+            gf_levels: [1, 2, 3],
+            dm_levels: [4, 5, 6],
+            bass_levels: [7, 8, 9],
+            open_levels: [10, 11, 12],
+            length: 900,
+        };
+        let mut kits = Kits::default();
+        kits.add_guitar_song(1, vec![(0x30, 0)]);
+        let song = Song {
+            info: &info,
+            drums: &drums,
+            guitar: &guitar,
+            kits: &kits,
+            lanes: &[],
+        };
+        let chart = |key: &str| {
+            let a = ChartRef::original(Part::Guitar, 3).arranged(Arrange::parse(key).unwrap());
+            (a.key(1), to_bms(&song, a).unwrap())
+        };
+        let (key, plain) = chart("6k");
+        assert_eq!(key, "gfdm/1/gf3@6k");
+        assert!(!plain.contains("#LNTYPE"));
+        let (key, bms) = chart("6k+ln");
+        assert_eq!(key, "gfdm/1/gf3@6k+ln");
+        assert!(
+            bms.contains(
+                "#LNTYPE 1
+"
+            ),
+            "{bms}"
+        );
+        // Long-note objects by (bar, position in the bar).
+        let mut ends: Vec<(usize, f64)> = Vec::new();
+        for line in bms.lines() {
+            let Some((head, body)) = line.split_once(':') else {
+                continue;
+            };
+            if !head[4..].starts_with('5') {
+                continue;
+            }
+            let bar: usize = head[1..4].parse().unwrap();
+            let n = body.len() / 2;
+            for k in 0..n {
+                if &body[2 * k..2 * k + 2] != "00" {
+                    ends.push((bar, k as f64 / n as f64));
+                }
+            }
+        }
+        ends.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // 0 to 270 ticks (bar 0 at 0.45), 900 to 1350 (bar 1 at 0.5 to 1.25).
+        assert_eq!(
+            ends,
+            vec![(0, 0.0), (0, 0.45), (1, 0.5), (2, 0.25)],
+            "{bms}"
+        );
+        // Every note is still there: two long notes and two notes.
+        let (notes, _) = census(&bms);
+        assert_eq!(notes, 6);
+        assert_eq!(census(&plain).0, 4);
+        // Drums have no long notes.
+        let d = ChartRef::original(Part::Drums, 3).arranged(Arrange::parse("6k+ln").unwrap());
+        assert_eq!(d.key(1), "gfdm/1/dm3@6k");
+    }
+
     fn census(bms: &str) -> (usize, Vec<String>) {
         let mut names = std::collections::HashMap::new();
         let mut notes = 0;

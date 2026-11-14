@@ -49,6 +49,7 @@ pub enum OptionId {
     StartMeasure,
     GfdmLanes,
     GfdmPreset,
+    GfdmLn,
     GfdmAdvanced,
     GfdmPitch,
     GfdmHome,
@@ -187,6 +188,11 @@ fn build_play_options() -> Vec<OptionDesc> {
             OptionId::GfdmPreset,
             strings::ROW_GFDM_PRESET(),
             strings::HELP_GFDM_PRESET(),
+        ),
+        gfdm_row(
+            OptionId::GfdmLn,
+            strings::ROW_GFDM_LN(),
+            strings::HELP_GFDM_LN(),
         ),
         gfdm_row(
             OptionId::GfdmAdvanced,
@@ -832,6 +838,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             strings::VALUE_FOLDED()
         }
         .to_string(),
+        OptionId::GfdmLn => on_off(state.gfdm_arrange.ln).to_string(),
         OptionId::GfdmPitch => on_off(state.gfdm_arrange.shown().pitch).to_string(),
         OptionId::GfdmHome => on_off(state.gfdm_arrange.shown().home).to_string(),
         OptionId::GfdmStick => on_off(state.gfdm_arrange.shown().stick).to_string(),
@@ -967,6 +974,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         OptionId::AutoPlay => state.is_auto_play = !state.is_auto_play,
         OptionId::GfdmLanes => state.gfdm_arrange.step_lanes(forward),
         OptionId::GfdmPreset => state.gfdm_arrange.step_preset(forward),
+        OptionId::GfdmLn => flip(&mut state.gfdm_arrange.ln),
         OptionId::GfdmAdvanced => flip(&mut state.gfdm_arrange.advanced),
         OptionId::GfdmPitch => flip(&mut state.gfdm_arrange.edit().pitch),
         OptionId::GfdmHome => flip(&mut state.gfdm_arrange.edit().home),

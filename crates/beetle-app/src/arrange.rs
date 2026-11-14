@@ -60,6 +60,9 @@ pub struct ArrangeSetting {
     pub on: bool,
     pub preset: PresetChoice,
     pub arrange: Arrange,
+    /// Guitar and bass hold their long sounds as long notes (`+ln`), with
+    /// any preset (`gfdm_arrange_ln`).
+    pub ln: bool,
     /// The feature rows show in the play options panel (not saved).
     pub advanced: bool,
 }
@@ -70,6 +73,7 @@ impl Default for ArrangeSetting {
             on: false,
             preset: PresetChoice::Auto,
             advanced: false,
+            ln: false,
             arrange: Arrange {
                 lanes: 6,
                 pitch: true,
@@ -132,7 +136,7 @@ impl ArrangeSetting {
     /// count, or the custom features.
     pub fn effective(&self) -> Arrange {
         let lanes = self.arrange.lanes;
-        match self.preset {
+        let base = match self.preset {
             PresetChoice::Auto => Arrange {
                 lanes,
                 auto: true,
@@ -140,6 +144,10 @@ impl ArrangeSetting {
             },
             PresetChoice::Named(p) => p.arrange(lanes),
             PresetChoice::Custom => self.arrange,
+        };
+        Arrange {
+            ln: self.ln,
+            ..base
         }
     }
 

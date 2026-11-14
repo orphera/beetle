@@ -88,6 +88,10 @@ pub struct Arrange {
     pub trig: bool,
     pub even: bool,
     pub flip: bool,
+    /// Guitar and bass: a note whose sound is held long becomes a long note
+    /// (`ln`). Kept with `auto` and the presets; it does not change lanes
+    /// by itself, only what the chart holds.
+    pub ln: bool,
     /// With `hand`: how many quick groups may stay on one hand at no cost
     /// (2..=`MAX_RUN`); 0 the plain `hand` (one).
     pub run: u8,
@@ -125,8 +129,12 @@ impl Arrange {
             return Arrange {
                 lanes: self.lanes,
                 auto: true,
+                ln: self.ln && kind == Source::Strings,
                 ..Default::default()
             };
+        }
+        if kind != Source::Strings {
+            self.ln = false;
         }
         match kind {
             Source::Drums => {
@@ -166,7 +174,11 @@ impl Arrange {
     pub fn key(&self) -> String {
         let mut out = format!("{}k", self.lanes);
         if self.auto {
-            return out + "+auto";
+            out += "+auto";
+            if self.ln {
+                out += "+ln";
+            }
+            return out;
         }
         for (on, name) in [
             (self.pitch, "pitch"),
@@ -185,6 +197,7 @@ impl Arrange {
             (self.trig, "trig"),
             (self.even, "even"),
             (self.flip, "flip"),
+            (self.ln, "ln"),
         ] {
             if on {
                 out += "+";
@@ -247,6 +260,7 @@ impl Arrange {
                 "trig" => a.trig = true,
                 "even" => a.even = true,
                 "flip" => a.flip = true,
+                "ln" => a.ln = true,
                 _ => {
                     if let Some(m) = p.strip_prefix("run") {
                         a.run = number(m).filter(|m| (2..=MAX_RUN as u64).contains(m))? as u8;
@@ -385,7 +399,10 @@ fn density(groups: &[Group]) -> f64 {
 /// own; only the ones that mean something for `kind`.
 pub fn resolve(a: &Arrange, kind: Source, groups: &[Group]) -> Arrange {
     if a.auto {
-        auto(a.lanes, kind, groups)
+        Arrange {
+            ln: a.ln,
+            ..auto(a.lanes, kind, groups)
+        }
     } else {
         *a
     }
@@ -1753,6 +1770,7 @@ mod tests {
             trig: false,
             even: true,
             flip: true,
+            ln: true,
             run: 3,
             jack_ms: Some(150),
             thin_ms: Some(90),
@@ -1762,7 +1780,7 @@ mod tests {
         };
         assert_eq!(
             all.key(),
-            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+even+flip+j150+d90+run3+mix4+r9+s12345"
+            "8k+pitch+home+stick+trill+bal+hand+vary+edge+split+jj+fig+motif+acc+even+flip+ln+j150+d90+run3+mix4+r9+s12345"
         );
         assert_eq!(Arrange::parse(&all.key()), Some(all));
     }
@@ -1772,6 +1790,12 @@ mod tests {
         let a = Arrange::parse("6k+pitch+home+stick+edge+s5").unwrap();
         assert_eq!(a.for_part(Source::Drums).key(), "6k+home+stick");
         assert_eq!(a.for_part(Source::Strings).key(), "6k+pitch");
+        let a = Arrange::parse("6k+ln+auto").unwrap();
+        assert_eq!(a.key(), "6k+auto+ln");
+        assert_eq!(a.for_part(Source::Strings).key(), "6k+auto+ln");
+        assert_eq!(a.for_part(Source::Drums).key(), "6k+auto");
+        let a = Arrange::parse("6k+pitch+ln").unwrap();
+        assert_eq!(a.for_part(Source::Keys { lanes: 7 }).key(), "6k");
         let a = Arrange::parse("8k+vary+edge+s5").unwrap();
         assert_eq!(a.for_part(Source::Drums).key(), "8k+vary+edge+s5");
     }
