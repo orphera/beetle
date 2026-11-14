@@ -504,6 +504,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         }
     }
     let others: &[Part] = match chart.part {
+        _ if song.kits.music_has_others() => &[],
         Part::Drums => &[Part::Guitar],
         Part::Guitar | Part::Open => &[Part::Drums],
         Part::Bass => &[Part::Drums, Part::Guitar],

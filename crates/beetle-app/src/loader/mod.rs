@@ -1742,6 +1742,42 @@ mod tests {
         assert_eq!(bank.len(), chart.header.wav_table.len() - 1);
     }
 
+    /// With `CS_DISC_GF4DM3` set to the GuitarFreaks 4thMIX & DrumMania
+    /// 3rdMIX image: song 120's drum, guitar
+    /// and bass charts load with every sound and the music.
+    #[test]
+    fn a_gf4dm3_disc_chart_loads_with_its_sounds() {
+        let Ok(image) = std::env::var("CS_DISC_GF4DM3") else {
+            return;
+        };
+        for key in ["gfdm/120/dm2", "gfdm/120/gf3", "gfdm/120/bass3"] {
+            let address = beetle_core::disc_address(&image, key);
+            let mut source = gfdm::GfdmSource::open(&image, key).unwrap();
+            let bms = source.chart_bytes().unwrap();
+            let meta = SongMetadata::from_bytes(&address, &bms).unwrap();
+            assert_eq!(meta.title, "AINOSI");
+            let (chart, _, bank, _, _) =
+                load_chart_and_audio_with_seed(&meta, 0, true, &SoundPlaces::default()).unwrap();
+            let music = chart
+                .header
+                .wav_table
+                .iter()
+                .find(|(_, n)| *n == "music.wav")
+                .unwrap()
+                .0;
+            let music = bank.get(*music).expect("the music loads");
+            assert!(music.duration_seconds() > 60.0, "{key}");
+            let missing: Vec<&String> = chart
+                .header
+                .wav_table
+                .iter()
+                .filter(|(id, n)| *n != "silent.wav" && bank.get(**id).is_none())
+                .map(|(_, n)| n)
+                .collect();
+            assert!(missing.is_empty(), "{key}: {missing:?}");
+        }
+    }
+
     /// With `CS_DISC_GFDM` set to the GuitarFreaks & DrumMania Masterpiece
     /// Silver image: song 404's drum chart loads as 6K and its guitar as 4K,
     /// each with every sound and the music, and notes land on the disc's times.

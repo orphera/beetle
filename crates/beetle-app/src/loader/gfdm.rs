@@ -3,6 +3,9 @@
 //! keyboard with `@<N>k+...`, `chart_arrange`): the chart is the
 //! BMS `cs_disc::gfdm_bms` writes, its sounds the song's sample banks and
 //! the music stream in its movie, which also plays as the background.
+//! GuitarFreaks 4thMIX & DrumMania 3rdMIX (`cs_disc::gf4dm`) has the same
+//! keys; its sounds are each mode's `.sdd` (bank and music), with no movie
+//! or banner.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -11,11 +14,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use beetle_audio::SampleBank;
 use beetle_core::{BmpId, BmsChart, WavId};
 use beetle_render::{ColorRgba, ImageBuffer};
+use cs_disc::gf4dm::{self, SoundFile};
 use cs_disc::gfdm::{
     bank_samples, movie_audio, read_kits, song_path, Disc, Kits, MusicInfo, SongCharts, SongFile,
     MOVIE_AUDIO_BLOCK, MUSIC_LEAD, MUSIC_RATE,
 };
-use cs_disc::gfdm_bms::{to_bms, ChartRef, Song, Sound};
+use cs_disc::gfdm_bms::{to_bms, ChartRef, Part, Song, Sound};
 use cs_disc::ps2tex::Rgba;
 use cs_disc::texp::{banner_name, title_name, Texp};
 use cs_disc::wvb::Pcm;
@@ -26,7 +30,7 @@ use super::{progress, ChartLoadError, SongSource, StageArt, VideoSource};
 
 /// A disc's index, song table and key sound tables.
 pub(crate) struct GfdmDisc {
-    pub disc: Disc,
+    pub disc: Backend,
     pub kits: Kits,
     pub songs: Vec<MusicInfo>,
     /// Which texture file holds each song banner (`IMG_CO{id}`), found the
@@ -34,10 +38,26 @@ pub(crate) struct GfdmDisc {
     banners: OnceLock<HashMap<String, usize>>,
 }
 
+/// Which game's disc.
+pub(crate) enum Backend {
+    /// Masterpiece Silver.
+    Silver(Disc),
+    /// 4thMIX & 3rdMIX.
+    Fourth(gf4dm::Disc),
+}
+
 impl GfdmDisc {
     /// `None` when the disc is not a GuitarFreaks & DrumMania disc.
     pub(crate) fn read(disc: &mut SectorReader<File>) -> Option<Self> {
         let volume = Volume::open(disc).ok()?;
+        if let Some(fourth) = gf4dm::Disc::open(disc, &volume).ok().flatten() {
+            return Some(Self {
+                songs: fourth.songs.iter().map(|s| s.info.clone()).collect(),
+                disc: Backend::Fourth(fourth),
+                kits: Kits::identity(),
+                banners: OnceLock::new(),
+            });
+        }
         let index = Disc::open(disc, &volume).ok()??;
         let kits = read_kits(disc, &volume).ok()??;
         let songs = index
@@ -47,11 +67,27 @@ impl GfdmDisc {
             .map(|s| s.info)
             .collect();
         Some(Self {
-            disc: index,
+            disc: Backend::Silver(index),
             kits,
             songs,
             banners: OnceLock::new(),
         })
+    }
+
+    /// A song's charts.
+    pub(crate) fn song_charts(
+        &self,
+        disc: &mut SectorReader<File>,
+        info: &MusicInfo,
+    ) -> std::io::Result<SongCharts> {
+        match &self.disc {
+            Backend::Silver(d) => d.song_charts(disc, info),
+            Backend::Fourth(d) => {
+                let song = d.songs.iter().find(|s| s.info.id == info.id);
+                song.map(|s| d.song_charts(s))
+                    .ok_or_else(|| std::io::ErrorKind::NotFound.into())
+            }
+        }
     }
 
     /// Song `id`'s banner, `None` when the disc has none.
@@ -66,10 +102,13 @@ impl GfdmDisc {
 
     /// The rect called `name`, cut out of its texture.
     fn picture(&self, disc: &mut SectorReader<File>, name: &str) -> Option<Rgba> {
+        let Backend::Silver(index) = &self.disc else {
+            return None;
+        };
         let files = self.banners.get_or_init(|| {
             let mut map = HashMap::new();
-            for n in self.disc.texture_files(disc).unwrap_or_default() {
-                let Ok(bytes) = self.disc.read(disc, n) else {
+            for n in index.texture_files(disc).unwrap_or_default() {
+                let Ok(bytes) = index.read(disc, n) else {
                     continue;
                 };
                 for r in Texp::parse(&bytes).map(|t| t.rects).unwrap_or_default() {
@@ -78,7 +117,7 @@ impl GfdmDisc {
             }
             map
         });
-        let bytes = self.disc.read(disc, *files.get(name)?).ok()?;
+        let bytes = index.read(disc, *files.get(name)?).ok()?;
         Texp::parse(&bytes)?.image(name)
     }
 }
@@ -129,7 +168,6 @@ impl GfdmSource {
             .ok_or(ChartLoadError::NotFound)?
             .clone();
         let charts = songs
-            .disc
             .song_charts(&mut disc, &info)
             .map_err(|_| ChartLoadError::NotAChart)?;
         Ok(Self {
@@ -141,12 +179,18 @@ impl GfdmSource {
     }
 
     fn file(&mut self, file: SongFile) -> Option<Vec<u8>> {
+        let Backend::Silver(index) = &self.songs.disc else {
+            return None;
+        };
         let path = song_path(self.charts.info.id, file);
-        self.songs.disc.read_path(&mut self.disc, &path).ok()?
+        index.read_path(&mut self.disc, &path).ok()?
     }
 
     /// Every sound the chart names, decoded at its bank volume.
     fn decode_sounds(&mut self, chart: &BmsChart) -> HashMap<WavId, Pcm> {
+        if matches!(self.songs.disc, Backend::Fourth(_)) {
+            return self.decode_fourth(chart);
+        }
         let wanted: Vec<(WavId, Sound)> = chart
             .header
             .wav_table
@@ -205,6 +249,123 @@ impl GfdmSource {
     }
 }
 
+impl GfdmSource {
+    /// 4thMIX & 3rdMIX: an `.sdd` of this song.
+    fn sdd(&mut self, file: SoundFile) -> Option<Vec<u8>> {
+        let Backend::Fourth(d) = &self.songs.disc else {
+            return None;
+        };
+        let song = d.songs.iter().find(|s| s.info.id == self.charts.info.id)?;
+        d.sound_file(&mut self.disc, song, file).ok()?
+    }
+
+    /// 4thMIX & 3rdMIX: the drum mode's bank holds the drums, the guitar
+    /// mode's the guitar and bass; the music is the played mode's (without
+    /// its part), the guitar mode's when that mode has none.
+    fn decode_fourth(&mut self, chart: &BmsChart) -> HashMap<WavId, Pcm> {
+        let wanted: Vec<(WavId, Sound)> = chart
+            .header
+            .wav_table
+            .iter()
+            .filter_map(|(&id, name)| Some((id, Sound::parse(name)?)))
+            .collect();
+        let needs = |f: fn(&Sound) -> bool| wanted.iter().any(|(_, s)| f(s));
+        let drums = needs(|s| matches!(s, Sound::Drum(_)))
+            .then(|| self.sdd(SoundFile::Drums))
+            .flatten()
+            .unwrap_or_default();
+        let guitar = needs(|s| matches!(s, Sound::Guitar { .. }))
+            .then(|| self.sdd(SoundFile::Guitar))
+            .flatten()
+            .unwrap_or_default();
+        let mode = match self.chart.part {
+            Part::Drums => SoundFile::Drums,
+            Part::Bass => SoundFile::Bass,
+            Part::Guitar | Part::Open => SoundFile::Guitar,
+        };
+        let mut music = needs(|s| *s == Sound::Music)
+            .then(|| self.fourth_music(mode))
+            .flatten();
+        let drum_bank = gf4dm::banks(&drums).into_iter().next();
+        let guitar_bank = gf4dm::banks(&guitar).into_iter().next();
+        let mut out = HashMap::new();
+        for (id, sound) in wanted {
+            let pcm = match sound {
+                Sound::Music => music.take(),
+                Sound::Silent => None,
+                Sound::Drum(key) => drum_bank.as_ref().and_then(|b| {
+                    let key = key.min(127) as u8;
+                    let tone = b.tone_for(key)?;
+                    fourth_tone(b, tone, tone.rate(key), 0)
+                }),
+                Sound::Guitar { sound, ticks, .. } => guitar_bank.as_ref().and_then(|b| {
+                    let tone = b.tones.get(sound as usize)?;
+                    fourth_tone(b, tone, tone.rate(tone.root), ticks)
+                }),
+            };
+            if let Some(pcm) = pcm {
+                out.insert(id, pcm);
+                progress::set_done(out.len());
+            }
+        }
+        out
+    }
+
+    /// A mode's music from chart time 0, or the guitar mode's when it has
+    /// less than a second.
+    fn fourth_music(&mut self, file: SoundFile) -> Option<Pcm> {
+        let long = |sdd: Option<Vec<u8>>| {
+            gf4dm::music(&sdd?).filter(|[l, _]| l.len() > gf4dm::MUSIC_RATE as usize)
+        };
+        let [mut left, mut right] = match long(self.sdd(file)) {
+            Some(m) => m,
+            None => long(self.sdd(SoundFile::Guitar))?,
+        };
+        left.drain(..gf4dm::MUSIC_LEAD.min(left.len()));
+        right.drain(..gf4dm::MUSIC_LEAD.min(right.len()));
+        Some(Pcm {
+            rate: gf4dm::MUSIC_RATE,
+            channels: vec![left, right],
+        })
+    }
+}
+
+/// 4thMIX & 3rdMIX: a tone at its volume and pan, played at `rate`, held
+/// for `ticks` (1/300 s, 0 whole) and then faded out.
+fn fourth_tone(bank: &gf4dm::Bank, tone: &gf4dm::Tone, rate: u32, ticks: u16) -> Option<Pcm> {
+    let gain = tone.volume as i32;
+    let mut mono: Vec<i16> = bank
+        .decode(tone)
+        .into_iter()
+        .map(|s| (s as i32 * gain / 127) as i16)
+        .collect();
+    if mono.is_empty() || rate == 0 {
+        return None;
+    }
+    if ticks > 0 {
+        cut(&mut mono, rate, ticks);
+    }
+    // Pan 0..=127 with 64 the centre, a balance like `balance`.
+    let x = ((tone.pan as f64 - 64.0) / 63.0).clamp(-1.0, 1.0);
+    let channels = if x.abs() < 1e-3 {
+        vec![mono]
+    } else {
+        let side = |g: f64| mono.iter().map(|&s| (s as f64 * g) as i16).collect();
+        vec![side((1.0 - x).min(1.0)), side((1.0 + x).min(1.0))]
+    };
+    Some(Pcm { rate, channels })
+}
+
+/// Holds `mono` for `ticks` (1/300 s) and fades it out over the release.
+fn cut(mono: &mut Vec<i16>, rate: u32, ticks: u16) {
+    let hold = ticks as usize * rate as usize / cs_disc::gfdm::TICKS_PER_SECOND as usize;
+    let release = ((RELEASE_SECONDS * rate as f64) as usize).max(1);
+    mono.truncate(hold + release);
+    for (k, s) in mono.iter_mut().skip(hold).enumerate() {
+        *s = (*s as i64 * (release - k) as i64 / release as i64) as i16;
+    }
+}
+
 /// How long a held guitar note takes to fade out after its length: the
 /// tones' release (ADSR2 `0x9fc5`, linear rate 5) takes the SPU from full
 /// volume to 0 in 64 samples at 48 kHz (`docs/specs/gfdm_ps2_disc.md` 4.1).
@@ -233,12 +394,7 @@ fn key_sound(
         .map(|s| (s as i32 * gain / 127) as i16)
         .collect();
     if ticks > 0 {
-        let hold = ticks as usize * rate as usize / cs_disc::gfdm::TICKS_PER_SECOND as usize;
-        let release = ((RELEASE_SECONDS * rate as f64) as usize).max(1);
-        mono.truncate(hold + release);
-        for (k, s) in mono.iter_mut().skip(hold).enumerate() {
-            *s = (*s as i64 * (release - k) as i64 / release as i64) as i16;
-        }
+        cut(&mut mono, rate, ticks);
     }
     let channels = match balance(sample.pan) {
         None => vec![mono],

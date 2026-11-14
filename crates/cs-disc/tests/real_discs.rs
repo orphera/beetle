@@ -1005,3 +1005,78 @@ fn popn_expert_courses_match_the_cs_pages() {
         assert_eq!(titles, genres, "{var} {course}");
     }
 }
+
+/// GuitarFreaks 4thMIX & DrumMania 3rdMIX (`CS_DISC_GF4DM3`): every song with
+/// music has guitar, bass and drum charts, and their sound files decode.
+#[test]
+fn gf4dm3_songs_have_charts_and_sounds() {
+    use cs_disc::gf4dm::{self, SoundFile};
+    let Some((mut disc, volume)) = open("CS_DISC_GF4DM3") else {
+        return;
+    };
+    let gf = gf4dm::Disc::open(&mut disc, &volume)
+        .unwrap()
+        .expect("GF4DM3");
+    assert_eq!(gf.songs.len(), 44);
+    for song in &gf.songs {
+        let charts = gf.song_charts(song);
+        let name = &song.info.name;
+        let parts = |part| {
+            charts
+                .guitar
+                .tracks
+                .iter()
+                .filter(|t| !t.is_meta && t.part == part)
+                .count()
+        };
+        let drums = charts.drums.tracks.iter().filter(|t| !t.is_meta).count();
+        eprintln!(
+            "{} {name}: guitar {} bass {} drums {drums}",
+            song.code,
+            parts(1),
+            parts(2)
+        );
+        if parts(1) + drums == 0 {
+            continue;
+        }
+        let kits = cs_disc::gfdm::Kits::identity();
+        let bms_song = cs_disc::gfdm_bms::Song {
+            info: &charts.info,
+            drums: &charts.drums,
+            guitar: &charts.guitar,
+            kits: &kits,
+            lanes: &charts.lanes,
+        };
+        for chart in cs_disc::gfdm_bms::charts(&charts.drums, &charts.guitar) {
+            let bms = cs_disc::gfdm_bms::to_bms(&bms_song, chart).expect("BMS");
+            let notes = bms
+                .lines()
+                .filter(|l| l.starts_with('#') && l.as_bytes().get(4) == Some(&b'1'))
+                .count();
+            assert!(notes > 0, "{name} {chart:?}");
+        }
+        for file in [SoundFile::Guitar, SoundFile::Bass, SoundFile::Drums] {
+            let played = match file {
+                SoundFile::Drums => drums,
+                _ => parts(1),
+            };
+            if played == 0 {
+                continue;
+            }
+            let sdd = gf.sound_file(&mut disc, song, file).unwrap().expect("sdd");
+            let banks = gf4dm::banks(&sdd);
+            assert!(
+                file == SoundFile::Bass || !banks.is_empty(),
+                "{name} {file:?}"
+            );
+            let Some([l, r]) = gf4dm::music(&sdd) else {
+                eprintln!("  {file:?}: no music");
+                continue;
+            };
+            assert_eq!(l.len(), r.len(), "{name} {file:?}");
+            if l.len() < 44100 * 30 {
+                eprintln!("  {file:?}: only {} frames of music", l.len());
+            }
+        }
+    }
+}

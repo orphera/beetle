@@ -31,7 +31,7 @@ const fn title(code: &'static str, name: &'static str, charts: ChartFormat) -> T
 
 /// Every PS2 IIDX disc iidx-ps2tools knows, oldest first, then the pop'n
 /// music discs this crate reads.
-pub const IIDX_PS2: [Title; 23] = [
+pub const IIDX_PS2: [Title; 24] = [
     Title {
         playable: true,
         ..title(
@@ -187,6 +187,11 @@ pub const IIDX_PS2: [Title; 23] = [
     title(
         "SLPM_664.84",
         "GuitarFreaks & DrumMania Masterpiece Silver",
+        ChartFormat::Gfdm,
+    ),
+    title(
+        "SLPM_650.52",
+        "GuitarFreaks 4thMIX & DrumMania 3rdMIX",
         ChartFormat::Gfdm,
     ),
 ];

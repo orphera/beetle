@@ -661,6 +661,9 @@ pub struct KeySound {
 #[derive(Debug, Clone, Default)]
 pub struct Kits {
     songs: Vec<SongKits>,
+    /// Every note's key is its sound (bank 0), and the music holds the
+    /// parts not played (GuitarFreaks 4thMIX & DrumMania 3rdMIX: `gf4dm`).
+    identity: bool,
 }
 
 /// One song's notes and their sounds.
@@ -777,7 +780,25 @@ impl Kits {
             }
             songs.push(SongKits { id, drum, guitar });
         }
-        Some(Self { songs })
+        Some(Self {
+            songs,
+            identity: false,
+        })
+    }
+
+    /// Tables where each note's key is its sound, for a disc whose music
+    /// already holds the parts not played (`gf4dm`).
+    pub fn identity() -> Self {
+        Self {
+            songs: Vec::new(),
+            identity: true,
+        }
+    }
+
+    /// Whether the music holds the parts not played, so they make no key
+    /// sounds of their own.
+    pub fn music_has_others(&self) -> bool {
+        self.identity
     }
 
     fn song(&self, id: u32) -> Option<&SongKits> {
@@ -786,6 +807,12 @@ impl Kits {
 
     /// The sound of note `key` in song `id`'s chart for `game`.
     pub fn key_sound(&self, id: u32, game: Game, key: u16) -> Option<KeySound> {
+        if self.identity {
+            return Some(KeySound {
+                bank: 0,
+                sound: key,
+            });
+        }
         let s = self.song(id)?;
         let notes = match game {
             Game::DrumMania => &s.drum,

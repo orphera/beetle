@@ -698,7 +698,7 @@ fn read_disc(target: &str) -> Vec<Copy> {
     }
     let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
         if let Ok(Some(title)) = cs_disc::identify_title(&mut disc) {
-            if title.code == cs_disc::gfdm::EXE_PATH {
+            if title.code == cs_disc::gfdm::EXE_PATH || title.code == cs_disc::gf4dm::EXE_PATH {
                 return read_gfdm_songs(source, disc);
             }
             println!(
@@ -720,7 +720,7 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
     let mut copies = Vec::new();
     let mut picture_keys = Vec::new();
     for info in &songs.songs {
-        let Ok(c) = songs.disc.song_charts(&mut disc, info) else {
+        let Ok(c) = songs.song_charts(&mut disc, info) else {
             continue;
         };
         let song = Song {
@@ -749,7 +749,11 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
             }
         }
     }
-    // The rows draw each song's title strip from the disc's own picture.
+    // The rows draw each song's title strip from the disc's own picture
+    // (4thMIX & 3rdMIX has none: its rows show the chart's title).
+    if !matches!(songs.disc, crate::loader::gfdm::Backend::Silver(_)) {
+        return copies;
+    }
     let ids: Vec<u32> = songs.songs.iter().map(|s| s.id).collect();
     crate::names::ensure_gfdm(
         &ids,
@@ -1241,6 +1245,21 @@ mod tests {
         let mut by_chart = BTreeMap::new();
         by_chart.insert(copies[0].meta.id, copies);
         select_copies(by_chart)
+    }
+
+    /// With `CS_DISC_GF4DM3` set: 4thMIX & 3rdMIX lists the 42 songs with
+    /// charts (two of the three RIFF practice songs have none).
+    #[test]
+    fn a_gf4dm3_disc_lists_its_charts() {
+        let Ok(image) = std::env::var("CS_DISC_GF4DM3") else {
+            return;
+        };
+        let copies = read_disc(&image);
+        let songs: std::collections::HashSet<_> = copies
+            .iter()
+            .map(|c| c.path.rsplit_once('/').unwrap().0)
+            .collect();
+        assert_eq!(songs.len(), 42, "{} charts", copies.len());
     }
 
     /// With `CS_DISC_GFDM` set: the GuitarFreaks & DrumMania disc lists its
