@@ -111,40 +111,76 @@ pub fn apply_lane_modifier(
                 note.lane = apply_lane_mapping(note.lane, &mapping);
             }
         }
-        LaneModifier::SRandom => {
-            // Random per note, but Long Note start & end must share the same lane
-            let mut active_ln_lanes: HashMap<Lane, Lane> = HashMap::new();
-
-            for note in &mut modified {
-                // Only 1P Key1..Key7 participate in S-Random; Scratch, PMS
-                // extra buttons, and Double Play 2P lanes pass through
-                // unshuffled (out of scope for this modifier).
-                if note.lane == Lane::Scratch || !KEY_LANES.contains(&note.lane) {
-                    continue;
-                }
-
-                match note.note_type {
-                    NoteType::LongNoteStart => {
-                        let new_lane = KEY_LANES[(rng.next_u64() % 7) as usize];
-                        active_ln_lanes.insert(note.lane, new_lane);
-                        note.lane = new_lane;
-                    }
-                    NoteType::LongNoteEnd => {
-                        if let Some(target_lane) = active_ln_lanes.remove(&note.lane) {
-                            note.lane = target_lane;
-                        } else {
-                            note.lane = KEY_LANES[(rng.next_u64() % 7) as usize];
-                        }
-                    }
-                    NoteType::Tap | NoteType::Landmine => {
-                        note.lane = KEY_LANES[(rng.next_u64() % 7) as usize];
-                    }
-                }
-            }
-        }
+        LaneModifier::SRandom => s_random(&mut modified, &mut rng),
     }
 
     modified
+}
+
+/// S-RANDOM: every note gets its own lane, but never one that another note
+/// at the same moment took or that a held long note still covers. Long note
+/// ends follow their start. Only 1P Key1..Key7 are shuffled; Scratch, PMS
+/// extra buttons and 2P lanes pass through.
+fn s_random(notes: &mut [NoteEvent], rng: &mut XorShift64) {
+    let mut order: Vec<usize> = (0..notes.len())
+        .filter(|&i| KEY_LANES.contains(&notes[i].lane))
+        .collect();
+    // In time order; at the same moment, long note ends free their lane first.
+    order.sort_by(|&a, &b| {
+        let (na, nb) = (&notes[a], &notes[b]);
+        na.measure
+            .cmp(&nb.measure)
+            .then(na.fraction.total_cmp(&nb.fraction))
+            .then(
+                (na.note_type != NoteType::LongNoteEnd)
+                    .cmp(&(nb.note_type != NoteType::LongNoteEnd)),
+            )
+    });
+
+    // Original lane of a held long note -> the lane it was moved to.
+    let mut held: HashMap<Lane, Lane> = HashMap::new();
+    let mut used: Vec<Lane> = Vec::with_capacity(7);
+    let mut group_at: Option<(u32, f64)> = None;
+
+    for i in order {
+        let at = (notes[i].measure, notes[i].fraction);
+        if group_at != Some(at) {
+            group_at = Some(at);
+            used.clear();
+        }
+        let original = notes[i].lane;
+        let new_lane = match notes[i].note_type {
+            NoteType::LongNoteEnd => match held.remove(&original) {
+                Some(lane) => lane,
+                None => pick_free_lane(rng, &held, &used),
+            },
+            NoteType::LongNoteStart => {
+                let lane = pick_free_lane(rng, &held, &used);
+                held.insert(original, lane);
+                lane
+            }
+            NoteType::Tap | NoteType::Landmine => pick_free_lane(rng, &held, &used),
+        };
+        used.push(new_lane);
+        notes[i].lane = new_lane;
+    }
+}
+
+/// A random key lane that no held long note covers and no note at this
+/// moment took. If none is free (more than 7 notes at once), any key lane.
+fn pick_free_lane(rng: &mut XorShift64, held: &HashMap<Lane, Lane>, used: &[Lane]) -> Lane {
+    let mut free = [Lane::Key1; 7];
+    let mut n = 0;
+    for lane in KEY_LANES {
+        if !used.contains(&lane) && !held.values().any(|&h| h == lane) {
+            free[n] = lane;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        return KEY_LANES[(rng.next_u64() % 7) as usize];
+    }
+    free[(rng.next_u64() % n as u64) as usize]
 }
 
 fn mirror_lane(lane: Lane) -> Lane {
@@ -265,5 +301,58 @@ mod tests {
             seen.insert(note.lane);
         }
         assert_eq!(seen.len(), 7);
+    }
+    fn tap(measure: u32, fraction: f64, lane: Lane, note_type: NoteType) -> NoteEvent {
+        NoteEvent {
+            measure,
+            fraction,
+            lane,
+            wav_id: None,
+            note_type,
+        }
+    }
+
+    #[test]
+    fn s_random_never_stacks_chords() {
+        // Seven-note chords on every beat: each must land on seven distinct lanes.
+        let mut notes = Vec::new();
+        for beat in 0..32 {
+            for lane in KEY_LANES {
+                notes.push(tap(
+                    1 + beat / 4,
+                    (beat % 4) as f64 * 0.25,
+                    lane,
+                    NoteType::Tap,
+                ));
+            }
+        }
+        for seed in 1..20 {
+            let out = apply_lane_modifier(&notes, LaneModifier::SRandom, seed);
+            for chord in out.chunks(7) {
+                let lanes: std::collections::HashSet<_> = chord.iter().map(|n| n.lane).collect();
+                assert_eq!(lanes.len(), 7, "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn s_random_keeps_held_lanes_clear() {
+        // A long note on Key1 over a whole bar, with taps on the other six lanes inside it.
+        let mut notes = vec![tap(1, 0.0, Lane::Key1, NoteType::LongNoteStart)];
+        for step in 1..8 {
+            for &lane in &KEY_LANES[1..] {
+                notes.push(tap(1, step as f64 / 8.0, lane, NoteType::Tap));
+            }
+        }
+        notes.push(tap(2, 0.0, Lane::Key1, NoteType::LongNoteEnd));
+        for seed in 1..20 {
+            let out = apply_lane_modifier(&notes, LaneModifier::SRandom, seed);
+            let ln = out[0].lane;
+            assert_eq!(out.last().unwrap().lane, ln, "seed {seed}");
+            assert!(
+                out[1..out.len() - 1].iter().all(|n| n.lane != ln),
+                "seed {seed}"
+            );
+        }
     }
 }
