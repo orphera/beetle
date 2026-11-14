@@ -21,7 +21,7 @@
 //!   left over when more play at once than there are lanes plays as a sound.
 //!   An open chart's open picks are notes like the others (placed by their
 //!   pitch); they have no frets, so they never play as chords.
-//! - With `ln` a guitar or bass note becomes a long note (`#LNTYPE 1`,
+//! - With `ln` (and `auto`) a guitar or bass note becomes a long note (`#LNTYPE 1`,
 //!   channels 5x) when the game holds its sound long (`Event::a >> 16`, the
 //!   ticks the sound plays): at most `LN_MAX_TICKS`, letting go `LN_GAP_TICKS`
 //!   before the next note, and not at all when that leaves under
@@ -385,7 +385,7 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         .unwrap_or(0);
     // A long note (`ln`) may end after the last event.
     let ln_tail = match chart.arrange {
-        Some(a) if a.ln => LN_MAX_TICKS,
+        Some(a) if (a.ln || a.auto) && chart.part != Part::Drums => LN_MAX_TICKS,
         _ => 0,
     };
     let end = tempo.beats(last_event + ln_tail);
@@ -574,6 +574,8 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
         // The features for this chart (`auto` looks at its notes), then the
         // groups as `acc` makes them: a second note without a sound, or only
         // the first of several (the others had none).
+        let first = input(&groups);
+        let a = chart_arrange::resolve(&a, kind, &first);
         // Long notes (`ln`): each held note lets go before the next group.
         let mut hold_ticks: Vec<Vec<u32>> = groups.iter().map(|g| vec![0; g.3.len()]).collect();
         if a.ln {
@@ -595,8 +597,6 @@ pub fn to_bms(song: &Song, chart: ChartRef) -> Option<String> {
                 }
             }
         }
-        let first = input(&groups);
-        let a = chart_arrange::resolve(&a, kind, &first);
         for ((g, holds), accent) in groups
             .iter_mut()
             .zip(hold_ticks.iter_mut())
@@ -1017,6 +1017,11 @@ mod tests {
         let (key, plain) = chart("6k");
         assert_eq!(key, "gfdm/1/gf3@6k");
         assert!(!plain.contains("#LNTYPE"));
+        // The automatic arrangement holds them.
+        assert!(chart("6k+auto").1.contains(
+            "#LNTYPE 1
+"
+        ));
         let (key, bms) = chart("6k+ln");
         assert_eq!(key, "gfdm/1/gf3@6k+ln");
         assert!(

@@ -565,7 +565,6 @@ impl AppConfig {
                 "reduce_motion" => config.reduce_motion = val == "ON",
                 "edition_same_source" => config.edition_same_source = val == "ON",
                 "gfdm_arrange_on" => config.gfdm_arrange.on = val == "ON",
-                "gfdm_arrange_ln" => config.gfdm_arrange.ln = val == "ON",
                 "gfdm_arrange_preset" => {
                     if let Some(p) = crate::arrange::PresetChoice::parse(val) {
                         config.gfdm_arrange.preset = p;
@@ -672,9 +671,6 @@ impl AppConfig {
         ));
         if self.gfdm_arrange.on {
             out.push_str("gfdm_arrange_on=ON\n");
-        }
-        if self.gfdm_arrange.ln {
-            out.push_str("gfdm_arrange_ln=ON\n");
         }
         for (i, &mode) in MODE_SLOTS.iter().enumerate() {
             if let Some((preset, bindings)) = &self.key_layouts[i] {
@@ -806,7 +802,6 @@ mod tests {
                 preset: crate::arrange::PresetChoice::Named(chart_arrange::Preset::Easy),
                 arrange: chart_arrange::Arrange::parse("8k+trill+j180+r3+s42").unwrap(),
                 advanced: false,
-                ln: true,
             },
             ..AppConfig::default()
         };

@@ -49,7 +49,6 @@ pub enum OptionId {
     StartMeasure,
     GfdmLanes,
     GfdmPreset,
-    GfdmLn,
     GfdmAdvanced,
     GfdmPitch,
     GfdmHome,
@@ -67,6 +66,7 @@ pub enum OptionId {
     GfdmAcc,
     GfdmEven,
     GfdmFlip,
+    GfdmLn,
     GfdmTrig,
     GfdmJack,
     GfdmThin,
@@ -190,11 +190,6 @@ fn build_play_options() -> Vec<OptionDesc> {
             strings::HELP_GFDM_PRESET(),
         ),
         gfdm_row(
-            OptionId::GfdmLn,
-            strings::ROW_GFDM_LN(),
-            strings::HELP_GFDM_LN(),
-        ),
-        gfdm_row(
             OptionId::GfdmAdvanced,
             strings::ROW_GFDM_ADVANCED(),
             strings::HELP_GFDM_ADVANCED(),
@@ -278,6 +273,11 @@ fn build_play_options() -> Vec<OptionDesc> {
             OptionId::GfdmFlip,
             strings::ROW_GFDM_FLIP(),
             strings::HELP_GFDM_FLIP(),
+        ),
+        gfdm_row(
+            OptionId::GfdmLn,
+            strings::ROW_GFDM_LN(),
+            strings::HELP_GFDM_LN(),
         ),
         gfdm_row(
             OptionId::GfdmTrig,
@@ -366,6 +366,7 @@ fn gfdm_feature(id: OptionId) -> bool {
             | OptionId::GfdmAcc
             | OptionId::GfdmEven
             | OptionId::GfdmFlip
+            | OptionId::GfdmLn
             | OptionId::GfdmTrig
             | OptionId::GfdmJack
             | OptionId::GfdmThin
@@ -838,7 +839,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
             strings::VALUE_FOLDED()
         }
         .to_string(),
-        OptionId::GfdmLn => on_off(state.gfdm_arrange.ln).to_string(),
+        OptionId::GfdmLn => on_off(state.gfdm_arrange.shown().ln).to_string(),
         OptionId::GfdmPitch => on_off(state.gfdm_arrange.shown().pitch).to_string(),
         OptionId::GfdmHome => on_off(state.gfdm_arrange.shown().home).to_string(),
         OptionId::GfdmStick => on_off(state.gfdm_arrange.shown().stick).to_string(),
@@ -974,7 +975,7 @@ pub fn step(state: &mut AppState, id: OptionId, forward: bool) {
         OptionId::AutoPlay => state.is_auto_play = !state.is_auto_play,
         OptionId::GfdmLanes => state.gfdm_arrange.step_lanes(forward),
         OptionId::GfdmPreset => state.gfdm_arrange.step_preset(forward),
-        OptionId::GfdmLn => flip(&mut state.gfdm_arrange.ln),
+        OptionId::GfdmLn => flip(&mut state.gfdm_arrange.edit().ln),
         OptionId::GfdmAdvanced => flip(&mut state.gfdm_arrange.advanced),
         OptionId::GfdmPitch => flip(&mut state.gfdm_arrange.edit().pitch),
         OptionId::GfdmHome => flip(&mut state.gfdm_arrange.edit().home),
@@ -1444,7 +1445,7 @@ mod tests {
             .unwrap();
         assert_eq!(folded[fold].id, OptionId::GfdmAdvanced);
         assert_eq!(folded.len(), fold + 1);
-        assert_eq!(all.len() - folded.len(), 22);
+        assert_eq!(all.len() - folded.len(), 23);
     }
 
     #[test]

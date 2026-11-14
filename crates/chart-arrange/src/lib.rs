@@ -89,8 +89,7 @@ pub struct Arrange {
     pub even: bool,
     pub flip: bool,
     /// Guitar and bass: a note whose sound is held long becomes a long note
-    /// (`ln`). Kept with `auto` and the presets; it does not change lanes
-    /// by itself, only what the chart holds.
+    /// (`ln`); `auto` turns it on for them.
     pub ln: bool,
     /// With `hand`: how many quick groups may stay on one hand at no cost
     /// (2..=`MAX_RUN`); 0 the plain `hand` (one).
@@ -129,7 +128,6 @@ impl Arrange {
             return Arrange {
                 lanes: self.lanes,
                 auto: true,
-                ln: self.ln && kind == Source::Strings,
                 ..Default::default()
             };
         }
@@ -174,11 +172,7 @@ impl Arrange {
     pub fn key(&self) -> String {
         let mut out = format!("{}k", self.lanes);
         if self.auto {
-            out += "+auto";
-            if self.ln {
-                out += "+ln";
-            }
-            return out;
+            return out + "+auto";
         }
         for (on, name) in [
             (self.pitch, "pitch"),
@@ -377,6 +371,8 @@ pub fn auto(lanes: u8, kind: Source, groups: &[Group]) -> Arrange {
     if kind != Source::Strings && density(groups) >= AUTO_DENSE_DRUMS {
         a.jj = false;
     }
+    // Guitar and bass hold their long sounds.
+    a.ln = kind == Source::Strings;
     a
 }
 
@@ -399,10 +395,7 @@ fn density(groups: &[Group]) -> f64 {
 /// own; only the ones that mean something for `kind`.
 pub fn resolve(a: &Arrange, kind: Source, groups: &[Group]) -> Arrange {
     if a.auto {
-        Arrange {
-            ln: a.ln,
-            ..auto(a.lanes, kind, groups)
-        }
+        auto(a.lanes, kind, groups)
     } else {
         *a
     }
@@ -1791,9 +1784,9 @@ mod tests {
         assert_eq!(a.for_part(Source::Drums).key(), "6k+home+stick");
         assert_eq!(a.for_part(Source::Strings).key(), "6k+pitch");
         let a = Arrange::parse("6k+ln+auto").unwrap();
-        assert_eq!(a.key(), "6k+auto+ln");
-        assert_eq!(a.for_part(Source::Strings).key(), "6k+auto+ln");
-        assert_eq!(a.for_part(Source::Drums).key(), "6k+auto");
+        assert_eq!(a.for_part(Source::Strings).key(), "6k+auto");
+        assert!(resolve(&a, Source::Strings, &[]).ln);
+        assert!(!resolve(&a, Source::Drums, &[]).ln);
         let a = Arrange::parse("6k+pitch+ln").unwrap();
         assert_eq!(a.for_part(Source::Keys { lanes: 7 }).key(), "6k");
         let a = Arrange::parse("8k+vary+edge+s5").unwrap();
