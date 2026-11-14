@@ -226,7 +226,10 @@ pub fn finalize_start_gameplay(
             Some(beetle_core::PlayMode::Keys4 | beetle_core::PlayMode::Keys6)
         );
         if seven_keys {
-            play_chart.notes = apply_lane_modifier(&chart.notes, modifier, seed);
+            let timing = TimingModel::from_chart(&chart);
+            play_chart.notes = apply_lane_modifier(&chart.notes, modifier, seed, &|m, f| {
+                timing.beat_to_time_seconds(m, f)
+            });
         }
     }
 
