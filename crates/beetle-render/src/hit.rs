@@ -99,6 +99,12 @@ pub enum HitId {
     /// The `<` / `>` value arrows of an option row.
     OptionPrev(usize),
     OptionNext(usize),
+    /// A quick option chip above PLAY on song select (0 speed, 1 lane
+    /// order, 2 arrangement): its left half steps back, its right half forward.
+    QuickOpt {
+        which: u8,
+        forward: bool,
+    },
     /// Settings footer: back to song select (saves the settings).
     SettingsBack,
     /// A Settings page tab (its index from the top): show that page.

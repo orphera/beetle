@@ -199,6 +199,7 @@ fn select_draw(
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,

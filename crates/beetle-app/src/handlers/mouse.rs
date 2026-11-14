@@ -205,6 +205,17 @@ fn song_select_click(state: &mut AppState, id: HitId) {
         HitId::Play => activate_selected(state),
         HitId::Replay => start_replay(state),
         HitId::PlayOptions => open_options(state),
+        HitId::QuickOpt { which, forward } => {
+            use crate::options_table::{step, OptionId};
+            let id = match which {
+                0 => OptionId::Green,
+                1 => OptionId::Modifier,
+                _ => OptionId::GfdmLanes,
+            };
+            play_ui(state, UiSound::Move);
+            step(state, id, forward);
+            state.save_config();
+        }
         HitId::OpenSettings => open_settings(state),
         HitId::Auto => toggle_auto(state),
         HitId::KeyConfig => open_key_config(state),

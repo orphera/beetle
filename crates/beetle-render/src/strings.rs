@@ -1518,6 +1518,11 @@ table! {
         ko "속도 {}",
         en "Speed {}",
         ja "速度 {}";
+    /// Option chip above PLAY; `{}` is the arrangement ("6K", "OFF").
+    pub CHIP_ARRANGE =
+        ko "편곡 {}",
+        en "Arrange {}",
+        ja "アレンジ {}";
     /// Modal footer hints.
     pub HINT_MOVE =
         ko "이동",

@@ -149,6 +149,9 @@ pub struct SelectFrame<'a> {
     pub ambient: Option<ColorRgba>,
     /// Current play options shown above the PLAY button ("그린 500", ...).
     pub option_chips: &'a [String],
+    /// How many of the leading chips are quick options (speed, lane order,
+    /// arrangement) the mouse can step; the rest are read-only.
+    pub quick_chips: usize,
     pub auto_play: bool,
     pub has_replay: bool,
     /// Seconds the selected song's audio preview has been playing; `None` when it is not.
@@ -2402,15 +2405,69 @@ fn detail_panel(
     let mut cta = Rect::new(inner.x, inner.bottom() - cta_h, inner.w, cta_h);
     let chips_y = cta.y - 40.0 * s;
     let mut cx = inner.x;
-    for chip in f.option_chips {
+    let auto_w = if f.auto_play {
+        t.measure(c, strings::AUTO_PLAY(), &caption(12.0, s)) + 28.0 * s
+    } else {
+        0.0
+    };
+    for (i, chip) in f.option_chips.iter().enumerate() {
+        let quick = i < f.quick_chips;
+        let icon = 14.0 * s;
+        let r0 = Rect::new(cx, chips_y, 0.0, 24.0 * s);
+        let hot = quick && hs.hovered(Rect::new(cx, chips_y, inner.right() - cx, 24.0 * s));
         let st = caption(12.0, s).color(theme::MUTED);
-        let w = t.measure(c, chip, &st) + 20.0 * s;
-        if cx + w > inner.right() {
+        let pad = if quick {
+            20.0 * s + 2.0 * icon
+        } else {
+            20.0 * s
+        };
+        let w = t.measure(c, chip, &st) + pad;
+        if cx + w > inner.right() - auto_w {
             break;
         }
-        let r = Rect::new(cx, chips_y, w, 24.0 * s);
-        c.nine(&sk.panel_lg, r, theme::SURF2);
-        t.draw_in(c, chip, r, Align::Center, &st);
+        let r = Rect { w, ..r0 };
+        if quick {
+            let left = Rect::new(r.x, r.y, w / 2.0, r.h);
+            let right = Rect::new(r.x + w / 2.0, r.y, w - w / 2.0, r.h);
+            let which = i as u8;
+            hs.add(
+                left,
+                HitId::QuickOpt {
+                    which,
+                    forward: false,
+                },
+            );
+            hs.add(
+                right,
+                HitId::QuickOpt {
+                    which,
+                    forward: true,
+                },
+            );
+            let hot = hot && hs.hovered(r);
+            c.nine(
+                &sk.panel_lg,
+                r,
+                if hot { theme::SURF3 } else { theme::SURF2 },
+            );
+            let arrow = if hot { theme::CYAN } else { theme::MUTED };
+            let iy = r.y + (r.h - icon) / 2.0;
+            c.sprite(
+                sk.icons.chevron_left,
+                Rect::new(r.x + 4.0 * s, iy, icon, icon),
+                arrow,
+            );
+            c.sprite(
+                sk.icons.chevron_right,
+                Rect::new(r.right() - icon - 4.0 * s, iy, icon, icon),
+                arrow,
+            );
+            let st = caption(12.0, s).color(if hot { theme::TEXT } else { theme::MUTED });
+            t.draw_in(c, chip, r, Align::Center, &st);
+        } else {
+            c.nine(&sk.panel_lg, r, theme::SURF2);
+            t.draw_in(c, chip, r, Align::Center, &st);
+        }
         cx += w + 8.0 * s;
     }
     if f.auto_play {
@@ -4260,6 +4317,7 @@ mod tests {
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,
@@ -4321,6 +4379,7 @@ mod tests {
             jacket: None,
             ambient: None,
             option_chips: chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,
@@ -4463,6 +4522,7 @@ mod tests {
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: true,
             preview_secs: None,
@@ -4645,6 +4705,7 @@ mod tests {
                 jacket: None,
                 ambient: None,
                 option_chips: &chips,
+                quick_chips: 0,
                 auto_play: selected == 0,
                 has_replay: selected == 5,
                 preview_secs: None,
@@ -4705,6 +4766,7 @@ mod tests {
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,
@@ -4841,6 +4903,7 @@ mod tests {
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,
@@ -4951,6 +5014,7 @@ mod jacket_tests {
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 0,
             auto_play: false,
             has_replay: false,
             preview_secs: None,

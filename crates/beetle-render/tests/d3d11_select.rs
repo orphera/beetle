@@ -298,6 +298,7 @@ fn render_ex(
     let chips = vec![
         strings::fill(strings::CHIP_GREEN(), &["500"]),
         "REGULAR".into(),
+        strings::fill(strings::CHIP_ARRANGE(), &["6K"]),
         "GROOVE".into(),
     ];
 
@@ -323,6 +324,7 @@ fn render_ex(
             jacket: None,
             ambient: None,
             option_chips: &chips,
+            quick_chips: 3,
             auto_play: false,
             has_replay: selected == 5,
             preview_secs: (selected == 5 && search.is_empty()).then_some(0.4),

@@ -542,7 +542,18 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
     let has_replay = state
         .current_selected_song()
         .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
-    let chips = option_chips(state, state.current_selected_song());
+    let mut chips = option_chips(state, state.current_selected_song());
+    // Speed, lane order and arrangement lead the row; the mouse steps them.
+    chips.insert(
+        2,
+        strings::fill(
+            strings::CHIP_ARRANGE(),
+            &[&crate::options_table::value(
+                state,
+                crate::options_table::OptionId::GfdmLanes,
+            )],
+        ),
+    );
     let preview = options_preview(state);
     let option_panel = state
         .show_option_modal
@@ -670,6 +681,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             jacket,
             ambient,
             option_chips: &chips,
+            quick_chips: 3,
             auto_play: state.is_auto_play,
             has_replay,
             preview_secs: state.preview.playing_for(),
