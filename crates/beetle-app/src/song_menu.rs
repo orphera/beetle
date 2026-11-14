@@ -96,6 +96,8 @@ pub struct PackageInfo {
 /// The menu while it is open.
 pub struct SongMenu {
     pub title: String,
+    /// The song's picture key: a disc song's title picture stands in for `title`.
+    pub picture: ChartId,
     /// A line under the title (the confirm page's warning).
     pub note: Option<String>,
     pub items: Vec<Item>,
@@ -264,6 +266,7 @@ pub fn open(state: &mut AppState) {
     };
     let source = Source::of(&song.file_path);
     let title = song.title.clone();
+    let picture = song.picture_key();
     let chart = song.id;
     let package = match &source {
         Source::Package { bmsp } => PackageManager::new(packages_root())
@@ -290,6 +293,7 @@ pub fn open(state: &mut AppState) {
     play_ui(state, UiSound::Open);
     state.song_menu = Some(SongMenu {
         title,
+        picture,
         note: None,
         items: first_page(&source, package.as_ref(), sets.len(), !trash.is_empty()),
         row: 0,

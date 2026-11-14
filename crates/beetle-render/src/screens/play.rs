@@ -2066,16 +2066,41 @@ fn pause_menu(
         inner.y + 26.0 * s,
         &TextStyle::new(28.0 * s).bold().color(theme::TEXT),
     );
-    let title_st = TextStyle::new(14.0 * s).bold().color(theme::TEXT);
-    let title = t
-        .fit(c, &f.chart.header.title, inner.w, &title_st)
-        .into_owned();
-    t.draw(c, &title, inner.x, inner.y + 56.0 * s, &title_st);
-    let artist_st = TextStyle::new(12.0 * s).color(theme::MUTED);
-    let artist = t
-        .fit(c, &f.chart.header.artist, inner.w, &artist_st)
-        .into_owned();
-    t.draw(c, &artist, inner.x, inner.y + 74.0 * s, &artist_st);
+    // A disc song's title and artist pictures stand in for the text.
+    match f.words.and_then(|w| w.title) {
+        Some(region) => {
+            let (w, h) = crate::words::drawn_size(region, 16.0 * s, inner.w);
+            c.sprite(
+                region,
+                Rect::new(inner.x, inner.y + 59.0 * s - h, w, h),
+                theme::TEXT,
+            );
+        }
+        None => {
+            let title_st = TextStyle::new(14.0 * s).bold().color(theme::TEXT);
+            let title = t
+                .fit(c, &f.chart.header.title, inner.w, &title_st)
+                .into_owned();
+            t.draw(c, &title, inner.x, inner.y + 56.0 * s, &title_st);
+        }
+    }
+    match f.words.and_then(|w| w.artist) {
+        Some(region) => {
+            let (w, h) = crate::words::drawn_size(region, 13.0 * s, inner.w);
+            c.sprite(
+                region,
+                Rect::new(inner.x, inner.y + 76.0 * s - h, w, h),
+                theme::MUTED,
+            );
+        }
+        None => {
+            let artist_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+            let artist = t
+                .fit(c, &f.chart.header.artist, inner.w, &artist_st)
+                .into_owned();
+            t.draw(c, &artist, inner.x, inner.y + 74.0 * s, &artist_st);
+        }
+    }
 
     let bar = Rect::new(inner.x, inner.y + 92.0 * s, inner.w, 4.0 * s);
     let ratio = if f.song_length > 0.0 {

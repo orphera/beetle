@@ -13,6 +13,8 @@ use crate::view::Viewport;
 /// One song row of the result. `None` numbers: the course ended before it.
 pub struct CourseStageLine<'a> {
     pub title: &'a str,
+    /// The disc song's title picture, drawn for the text.
+    pub word: Option<crate::canvas::AtlasRegion>,
     pub played: Option<CourseNumbers>,
 }
 
@@ -125,14 +127,23 @@ pub fn draw_course_result(ui: &mut Ui, f: &CourseResultFrame) {
                y: f32,
                lead: &str,
                title: &str,
+               word: Option<crate::canvas::AtlasRegion>,
                numbers: Option<CourseNumbers>,
                st: &TextStyle| {
         let base = y + row_h / 2.0 + 6.0 * s;
         t.draw(c, lead, cols[0], base, st);
-        let title = t
-            .fit(c, title, cols[2] - cols[1] - 16.0 * s, st)
-            .into_owned();
-        t.draw(c, &title, cols[1], base, st);
+        let title_w = cols[2] - cols[1] - 16.0 * s;
+        match word {
+            Some(region) => {
+                let (w, h) = crate::words::drawn_size(region, 18.0 * s, title_w);
+                let tint = st.color;
+                c.sprite(region, Rect::new(cols[1], base + 3.0 * s - h, w, h), tint);
+            }
+            None => {
+                let title = t.fit(c, title, title_w, st).into_owned();
+                t.draw(c, &title, cols[1], base, st);
+            }
+        }
         match numbers {
             Some(n) => {
                 let ex = format!("{} / {}", n.ex_score, n.max_ex_score);
@@ -164,6 +175,7 @@ pub fn draw_course_result(ui: &mut Ui, f: &CourseResultFrame) {
             y,
             &(i + 1).to_string(),
             stage.title,
+            stage.word,
             stage.played,
             &st,
         );
@@ -180,6 +192,7 @@ pub fn draw_course_result(ui: &mut Ui, f: &CourseResultFrame) {
         y + 8.0 * s,
         "",
         strings::COURSE_TOTAL(),
+        None,
         Some(f.total),
         &total_st,
     );
@@ -222,10 +235,12 @@ mod tests {
         let stages = [
             CourseStageLine {
                 title: "First",
+                word: None,
                 played: Some(played),
             },
             CourseStageLine {
                 title: "Second",
+                word: None,
                 played: None,
             },
         ];

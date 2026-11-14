@@ -115,6 +115,7 @@ fn render(
             unsaved_reason: unsaved,
             ln_label: None,
             gauge_trend,
+            words: None,
         },
     );
     let calls = ui.end(gpu);
@@ -290,6 +291,7 @@ fn options_panel_over_the_result() {
             unsaved_reason: None,
             ln_label: None,
             gauge_trend: &clear_trend,
+            words: None,
         },
     );
     draw_options_panel(

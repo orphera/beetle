@@ -28,6 +28,7 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
     let AppState {
         songs,
         entries,
+        course_views,
         gpu_ui,
         disc_names,
         disc_names_songs,
@@ -47,7 +48,13 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
     }
     let ui = gpu_ui.ui.menu();
     let range = crate::thumbs::prefetch_rows(scroll.max(0.0) as usize, visible, entries.len());
+    let mut keys = Vec::new();
     for row in range {
+        // A course row draws its songs' titles.
+        if let Some(Some(view)) = course_views.get(row) {
+            keys.extend(view.pictures.iter().flatten().copied());
+            continue;
+        }
         // A group row is one song's charts; they share the song's names.
         let indices: &[usize] = match entries.get(row) {
             Some(ListEntry::Song(i)) => std::slice::from_ref(i),
@@ -61,33 +68,36 @@ pub fn pump(state: &mut AppState, scroll: f32, visible: usize) {
                 .unwrap_or(&[]),
             _ => continue,
         };
-        for &i in indices {
-            let Some(song) = songs.get(i) else {
-                continue;
-            };
-            if ui.words.contains(song.picture_key()) {
-                continue;
-            }
-            let Some(song_names) = names.get(&song.picture_key()) else {
-                continue;
-            };
-            let title = song_names.title.as_ref().map(word);
-            let small_title = song_names.small_title.as_ref().map(word);
-            let artist = song_names.artist.as_ref().map(word);
-            let genre = song_names.genre.as_ref().map(word);
-            if title.is_none() && small_title.is_none() && artist.is_none() && genre.is_none() {
-                continue;
-            }
-            ui.words.insert(
-                ui.canvas.atlas_mut(),
-                song.picture_key(),
-                title,
-                small_title,
-                artist,
-                genre,
-                song_names.popn,
-            );
+        keys.extend(
+            indices
+                .iter()
+                .filter_map(|&i| songs.get(i))
+                .map(|s| s.picture_key()),
+        );
+    }
+    for key in keys {
+        if ui.words.contains(key) {
+            continue;
         }
+        let Some(song_names) = names.get(&key) else {
+            continue;
+        };
+        let title = song_names.title.as_ref().map(word);
+        let small_title = song_names.small_title.as_ref().map(word);
+        let artist = song_names.artist.as_ref().map(word);
+        let genre = song_names.genre.as_ref().map(word);
+        if title.is_none() && small_title.is_none() && artist.is_none() && genre.is_none() {
+            continue;
+        }
+        ui.words.insert(
+            ui.canvas.atlas_mut(),
+            key,
+            title,
+            small_title,
+            artist,
+            genre,
+            song_names.popn,
+        );
     }
 }
 

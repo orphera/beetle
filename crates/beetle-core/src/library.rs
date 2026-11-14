@@ -100,10 +100,19 @@ impl SongMetadata {
     /// kept under. A game disc lists its own copy of a chart that other discs
     /// also have, each with that disc's pictures, so a disc copy's key is its
     /// address; any other copy's is its `id`. Records stay under `id`.
+    /// An arranged disc chart (`<chart>@<arrangement>`) is the same song, so
+    /// it takes its original chart's key and pictures.
     pub fn picture_key(&self) -> ChartId {
         match crate::SongAddress::parse(&self.file_path) {
             crate::SongAddress::Disc { .. } => {
-                ChartId::of_bytes(format!("picture:{}", self.file_path).as_bytes())
+                let original = match self.file_path.rsplit_once("::") {
+                    Some((image, chart)) => {
+                        let chart = chart.split_once('@').map_or(chart, |(c, _)| c);
+                        format!("{image}::{chart}")
+                    }
+                    None => self.file_path.clone(),
+                };
+                ChartId::of_bytes(format!("picture:{original}").as_bytes())
             }
             _ => self.id,
         }
@@ -465,6 +474,25 @@ pub fn deserialize_song_cache(bytes: &[u8]) -> (Vec<SongMetadata>, SongGroups, S
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_arranged_disc_chart_keeps_its_original_pictures() {
+        let meta = |path: &str| {
+            SongMetadata::from_bytes(
+                path,
+                b"#WAV01 a.wav
+#00111:01
+",
+            )
+            .unwrap()
+        };
+        let original = meta("disc:D:/x.iso::gfdm/404/dm3");
+        let arranged = meta("disc:D:/x.iso::gfdm/404/dm3@8k+flow");
+        let other = meta("disc:D:/x.iso::gfdm/404/dm2");
+        assert_eq!(original.picture_key(), arranged.picture_key());
+        assert_ne!(original.picture_key(), other.picture_key());
+    }
+
     use super::*;
 
     #[test]

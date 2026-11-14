@@ -48,6 +48,8 @@ pub struct ResultFrame<'a> {
     pub ln_label: Option<&'a str>,
     /// The gauge over the play, for the trend graph.
     pub gauge_trend: &'a GaugeTrend,
+    /// The disc song's title and artist pictures, drawn for the text.
+    pub words: Option<crate::words::WordRegions>,
 }
 
 fn hints() -> [widgets::Hint; 4] {
@@ -232,12 +234,36 @@ fn outcome_panel(
         inner.y + 14.0 * s,
         &caption(12.0, s).color(tier_col),
     );
-    let title_st = TextStyle::new(17.0 * s).bold().color(theme::TEXT);
-    let title = t.fit(c, &header.title, tw, &title_st).into_owned();
-    t.draw(c, &title, tx, inner.y + 40.0 * s, &title_st);
-    let artist_st = TextStyle::new(12.0 * s).color(theme::MUTED);
-    let artist = t.fit(c, &header.artist, tw, &artist_st).into_owned();
-    t.draw(c, &artist, tx, inner.y + 60.0 * s, &artist_st);
+    match f.words.and_then(|w| w.title) {
+        Some(region) => {
+            let (w, h) = crate::words::drawn_size(region, 19.0 * s, tw);
+            c.sprite(
+                region,
+                Rect::new(tx, inner.y + 43.0 * s - h, w, h),
+                theme::TEXT,
+            );
+        }
+        None => {
+            let title_st = TextStyle::new(17.0 * s).bold().color(theme::TEXT);
+            let title = t.fit(c, &header.title, tw, &title_st).into_owned();
+            t.draw(c, &title, tx, inner.y + 40.0 * s, &title_st);
+        }
+    }
+    match f.words.and_then(|w| w.artist) {
+        Some(region) => {
+            let (w, h) = crate::words::drawn_size(region, 13.0 * s, tw);
+            c.sprite(
+                region,
+                Rect::new(tx, inner.y + 62.0 * s - h, w, h),
+                theme::MUTED,
+            );
+        }
+        None => {
+            let artist_st = TextStyle::new(12.0 * s).color(theme::MUTED);
+            let artist = t.fit(c, &header.artist, tw, &artist_st).into_owned();
+            t.draw(c, &artist, tx, inner.y + 60.0 * s, &artist_st);
+        }
+    }
     c.fill_rect(
         Rect::new(inner.x, jacket.bottom() + 24.0 * s, inner.w, s.max(1.0)),
         theme::LINE,
@@ -1055,6 +1081,7 @@ mod tests {
                             unsaved_reason: Some("AUTO PLAY"),
                             ln_label: Some("CN (HCN)"),
                             gauge_trend: &trend,
+                            words: None,
                         },
                     );
                     assert_eq!(
@@ -1099,6 +1126,7 @@ mod tests {
                 unsaved_reason: None,
                 ln_label: None,
                 gauge_trend: &GaugeTrend::default(),
+                words: None,
             },
         );
         let footer_top = vp.y + vp.height - FOOTER_H * vp.scale;

@@ -57,6 +57,9 @@ pub struct CourseView {
     pub grade: bool,
     /// Each chart's title in course order, and whether the library has it.
     pub charts: Vec<(String, bool)>,
+    /// Each owned chart's picture key (`SongMetadata::picture_key`), for its
+    /// disc title picture; `None` for a chart the library lacks.
+    pub pictures: Vec<Option<beetle_core::ChartId>>,
     /// Names of rules this version does not apply, joined for display.
     pub unsupported: String,
     /// The course was passed before.
@@ -278,9 +281,9 @@ pub fn draw_song_select(ui: &mut Ui, f: &SelectFrame) {
                 }),
                 _,
             ) => folder_panel(c, t, &sk, label, count, &lamps, detail, detail_s),
-            (Some(&SelectRow::Course(course)), _) => {
-                course_panel(c, t, &sk, course, f.selected, detail, detail_s, &mut hs)
-            }
+            (Some(&SelectRow::Course(course)), _) => course_panel(
+                c, t, &sk, course, &ui.words, f.selected, detail, detail_s, &mut hs,
+            ),
             _ => {}
         }
         c.set_opacity(1.0);
@@ -1703,6 +1706,7 @@ fn course_panel(
     t: &mut TextEngine,
     sk: &Skin,
     course: &CourseView,
+    words: &WordAtlas,
     row: usize,
     panel: Rect,
     s: f32,
@@ -1767,8 +1771,23 @@ fn course_panel(
                 .bold()
                 .color(if *owned { theme::TEXT } else { theme::RED });
         let x = inner.x + 72.0 * s;
-        let text = t.fit(c, &text, inner.right() - x, &st).into_owned();
-        t.draw(c, &text, x, y, &st);
+        let word = course
+            .pictures
+            .get(i)
+            .copied()
+            .flatten()
+            .filter(|_| *owned)
+            .and_then(|key| words.get(key)?.title);
+        match word {
+            Some(region) => {
+                let (w, h) = crate::words::drawn_size(region, 18.0 * s, inner.right() - x);
+                c.sprite(region, Rect::new(x, y + 3.0 * s - h, w, h), theme::TEXT);
+            }
+            None => {
+                let text = t.fit(c, &text, inner.right() - x, &st).into_owned();
+                t.draw(c, &text, x, y, &st);
+            }
+        }
         y += 32.0 * s;
     }
 
@@ -3909,6 +3928,7 @@ pub fn draw_song_menu(
     ui: &mut Ui,
     vp: &Viewport,
     title: &str,
+    picture: Option<beetle_core::ChartId>,
     note: Option<&str>,
     items: &[&str],
     selected: usize,
@@ -3923,9 +3943,22 @@ pub fn draw_song_menu(
     let h = (96.0 + note_h + ROW_H * items.len() as f32) * s;
     let panel = modal_panel(c, &sk, vp, &mut hs, 460.0 * s, h, s);
     let inner = panel.inset(28.0 * s);
-    let title_style = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
-    let fitted = t.fit(c, title, inner.w, &title_style).into_owned();
-    t.draw(c, &fitted, inner.x, inner.y + 24.0 * s, &title_style);
+    // A disc song's title picture stands in for the text.
+    match picture.and_then(|id| ui.words.get(id)?.title) {
+        Some(region) => {
+            let (w, h) = crate::words::drawn_size(region, 22.0 * s, inner.w);
+            c.sprite(
+                region,
+                Rect::new(inner.x, inner.y + 27.0 * s - h, w, h),
+                theme::TEXT,
+            );
+        }
+        None => {
+            let title_style = TextStyle::new(20.0 * s).bold().color(theme::TEXT);
+            let fitted = t.fit(c, title, inner.w, &title_style).into_owned();
+            t.draw(c, &fitted, inner.x, inner.y + 24.0 * s, &title_style);
+        }
+    }
     let keys_style = TextStyle::new(12.0 * s).color(theme::MUTED);
     t.draw(
         c,

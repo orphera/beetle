@@ -411,6 +411,7 @@ fn render_ex(
             &vp,
             "FREEDOM DiVE",
             None,
+            None,
             &[
                 &strings::fill(
                     strings::MENU_SOUND_SET_ACTIVE(),

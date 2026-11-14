@@ -712,6 +712,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             ui,
             &vp,
             &menu.title,
+            Some(menu.picture),
             menu.note.as_deref(),
             &items,
             menu.row,
@@ -1046,6 +1047,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
     begin(state, size);
     let now = Instant::now();
     show_result_backdrop(state, now);
+    let words = crate::words::for_play(state, state.active_picture_key);
     if let (Some(chart), Some(judge)) = (&state.active_chart, &state.active_judge) {
         beetle_render::draw_result(
             state.gpu_ui.ui.current(),
@@ -1063,6 +1065,7 @@ pub fn result(state: &mut AppState, size: PhysicalSize<u32>) {
                 ln_label: ln_label.as_deref(),
                 gauge_trend: &state.gauge_trend,
                 now,
+                words,
             },
         );
     }
@@ -1135,6 +1138,20 @@ fn course_result(state: &mut AppState, size: PhysicalSize<u32>) {
     begin(state, size);
     show_result_backdrop(state, Instant::now());
     let unsaved_reason = crate::course_play::unsaved_reason(state);
+    // Each song's title picture, written into the atlas before the frame draws.
+    let stage_words: Vec<Option<beetle_render::AtlasRegion>> = match &state.course {
+        Some(course) => {
+            let keys: Vec<Option<beetle_core::ChartId>> = course
+                .songs
+                .iter()
+                .map(|&song| state.songs.get(song).map(|s| s.picture_key()))
+                .collect();
+            keys.into_iter()
+                .map(|key| key.and_then(|k| crate::words::for_play(state, k)?.title))
+                .collect()
+        }
+        None => Vec::new(),
+    };
     if let Some(course) = &state.course {
         let run = &course.run;
         let numbers = |r: &beetle_core::StageResult| beetle_render::CourseNumbers {
@@ -1150,6 +1167,7 @@ fn course_result(state: &mut AppState, size: PhysicalSize<u32>) {
             .enumerate()
             .map(|(i, &song)| beetle_render::CourseStageLine {
                 title: state.songs.get(song).map_or("", |s| s.title.as_str()),
+                word: stage_words.get(i).copied().flatten(),
                 played: run.stages().get(i).map(numbers),
             })
             .collect();

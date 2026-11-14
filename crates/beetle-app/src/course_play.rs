@@ -288,6 +288,10 @@ fn view(
                 None => (chart.title.clone(), false),
             })
             .collect(),
+        pictures: found
+            .iter()
+            .map(|f| f.map(|i| songs[i].picture_key()))
+            .collect(),
         unsupported: def
             .unsupported()
             .map(Constraint::name)
