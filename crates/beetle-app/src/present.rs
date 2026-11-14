@@ -543,7 +543,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
         .current_selected_song()
         .is_some_and(|s| Path::new(&replay_path(s.id, s.score_rule(ln_option))).exists());
     let mut chips = option_chips(state, state.current_selected_song());
-    // Speed, lane order and arrangement lead the row; the mouse steps them.
+    // Speed, lane order, arrangement and gauge lead the row; the mouse steps them.
     chips.insert(
         2,
         strings::fill(
@@ -681,7 +681,7 @@ pub fn song_select(state: &mut AppState, size: PhysicalSize<u32>) {
             jacket,
             ambient,
             option_chips: &chips,
-            quick_chips: 3,
+            quick_chips: 4,
             auto_play: state.is_auto_play,
             has_replay,
             preview_secs: state.preview.playing_for(),

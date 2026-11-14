@@ -324,7 +324,7 @@ fn render_ex(
             jacket: None,
             ambient: None,
             option_chips: &chips,
-            quick_chips: 3,
+            quick_chips: 4,
             auto_play: false,
             has_replay: selected == 5,
             preview_secs: (selected == 5 && search.is_empty()).then_some(0.4),

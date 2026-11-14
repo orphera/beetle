@@ -100,7 +100,7 @@ pub enum HitId {
     OptionPrev(usize),
     OptionNext(usize),
     /// A quick option chip above PLAY on song select (0 speed, 1 lane
-    /// order, 2 arrangement): its left half steps back, its right half forward.
+    /// order, 2 arrangement, 3 gauge): its left half steps back, its right half forward.
     QuickOpt {
         which: u8,
         forward: bool,

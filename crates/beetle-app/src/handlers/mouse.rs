@@ -210,6 +210,7 @@ fn song_select_click(state: &mut AppState, id: HitId) {
             let id = match which {
                 0 => OptionId::Green,
                 1 => OptionId::Modifier,
+                3 => OptionId::Gauge,
                 _ => OptionId::GfdmLanes,
             };
             play_ui(state, UiSound::Move);

@@ -150,7 +150,7 @@ pub struct SelectFrame<'a> {
     /// Current play options shown above the PLAY button ("그린 500", ...).
     pub option_chips: &'a [String],
     /// How many of the leading chips are quick options (speed, lane order,
-    /// arrangement) the mouse can step; the rest are read-only.
+    /// arrangement, gauge) the mouse can step; the rest are read-only.
     pub quick_chips: usize,
     pub auto_play: bool,
     pub has_replay: bool,
