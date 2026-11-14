@@ -798,6 +798,7 @@ impl ApplicationHandler for BeetleApp {
         // devtools: keep frames coming until a pending capture is taken,
         // even on screens that otherwise sleep until the next input event.
         if state.capture.as_ref().is_some_and(|c| c.pending()) {
+            devtools::pause_for_capture(state);
             state.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),

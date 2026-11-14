@@ -707,6 +707,13 @@ impl AppState {
             self.screen = crate::devtools::start_screen().unwrap_or(after_boot);
             self.key_config_edit_mode = self.key_config_mode();
             if self.screen == AppScreen::SongSelect {
+                if let Some(source) = crate::devtools::start_source() {
+                    self.content_source = source;
+                    if let Some(path) = crate::devtools::start_folder() {
+                        self.folder_path = path;
+                    }
+                    self.recompute_entries();
+                }
                 if let Some(delete) = crate::devtools::song_menu_requested() {
                     crate::song_menu::dev_open(self, delete);
                 }

@@ -23,9 +23,12 @@
 //!   progress of its length on every frame, so a capture shows a mid-wipe.
 //! - `BEETLE_CAPTURE_REVEAL=<seconds>`: freezes the Stage Result reveal at
 //!   that time (0 to 3.2), for captures of each stage.
+//! - `BEETLE_CAPTURE_PAUSE=1`: gameplay pauses once it is under way, so a
+//!   capture shows the pause menu.
 //! - `BEETLE_CAPTURE_LAMP=<failed|easy|clear|hard|fullcombo|perfect>`: the
 //!   end banner shows this lamp instead of the play's real one (display only).
 //!
+//! - `BEETLE_CAPTURE_SOURCE=library|disc`: free play starts on that tab.
 //! - `BEETLE_CAPTURE_FOLDER=<path>`: song select starts in this folder
 //!   (`dir`, `mode/7k`, ...) instead of the saved one.
 //! - `BEETLE_DEV_MIX=<image>|<out dir>|<chart key>,...`: writes those disc
@@ -90,6 +93,28 @@ pub fn course_requested() -> Option<(usize, usize)> {
     let text = std::env::var("BEETLE_DEV_COURSE").ok()?;
     let (table, course) = text.split_once('/')?;
     Some((table.trim().parse().ok()?, course.trim().parse().ok()?))
+}
+
+/// `BEETLE_CAPTURE_PAUSE=1`: pauses gameplay a second in, once.
+pub fn pause_for_capture(state: &mut crate::state::AppState) {
+    static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering;
+    if state.screen != AppScreen::Gameplay
+        || PAUSED.load(Ordering::Relaxed)
+        || !std::env::var("BEETLE_CAPTURE_PAUSE").is_ok_and(|v| v == "1")
+    {
+        return;
+    }
+    let Some(audio) = &mut state.audio_engine else {
+        return;
+    };
+    if audio.clock().current_time_seconds() < 1.0 {
+        return;
+    }
+    let _ = audio.pause();
+    state.is_gameplay_paused = true;
+    state.pause_selected_option = 0;
+    PAUSED.store(true, Ordering::Relaxed);
 }
 
 pub fn autoplay_requested() -> bool {
@@ -198,6 +223,16 @@ pub fn start_screen() -> Option<AppScreen> {
 /// with that source, as if picked on the title.
 pub fn start_courses() -> Option<crate::folders::ContentSource> {
     match std::env::var("BEETLE_CAPTURE_COURSES").ok()?.as_str() {
+        "library" => Some(crate::folders::ContentSource::Library),
+        "disc" => Some(crate::folders::ContentSource::Disc),
+        _ => None,
+    }
+}
+
+/// `BEETLE_CAPTURE_SOURCE=library|disc`: free play song select starts on
+/// that content tab.
+pub fn start_source() -> Option<crate::folders::ContentSource> {
+    match std::env::var("BEETLE_CAPTURE_SOURCE").ok()?.as_str() {
         "library" => Some(crate::folders::ContentSource::Library),
         "disc" => Some(crate::folders::ContentSource::Disc),
         _ => None,
