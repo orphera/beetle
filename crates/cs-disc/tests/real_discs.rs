@@ -1,7 +1,7 @@
 //! Checks against the real IIDX disc images, when they are on this machine.
 //! Set `CS_DISC_IIDX16_DISC1` / `CS_DISC_IIDX16_DISC2` (and `CS_DISC_IIDX3` to
-//! `CS_DISC_IIDX14` for the chart and sound checks) to the
-//! `.iso` paths; without them these tests do nothing.
+//! `CS_DISC_IIDX14`, or `CS_DISC_BEATMANIA_US`) to the `.iso` paths for the
+//! chart and sound checks; without them these tests do nothing.
 
 use cs_disc::iidx::{Difficulty, Disc, Style};
 use cs_disc::Edition;
@@ -77,6 +77,46 @@ fn disc1_is_empress() {
         .all(|c| c.charts.len() == if c.style == Style::Single { 4 } else { 3 }));
 }
 
+#[test]
+fn us_beatmania_is_identified_and_its_songs_open() {
+    let Some((mut disc, volume)) = open("CS_DISC_BEATMANIA_US") else {
+        return;
+    };
+    assert_eq!(identify(&mut disc).unwrap(), Some(Edition::BeatmaniaUs));
+    let songs = Disc::open(&mut disc, &volume, Edition::BeatmaniaUs).unwrap();
+    assert_eq!(songs.songs.len(), 69);
+    assert!(songs
+        .songs
+        .iter()
+        .all(|s| !s.title.contains("_ending") && !s.title.contains("_practice")));
+    let stage_song = songs
+        .songs
+        .iter()
+        .find(|s| s.stage.is_some())
+        .expect("a song has a stage image");
+    let stage = songs
+        .stage_image(&mut disc, stage_song, false)
+        .unwrap()
+        .expect("US stage image decodes");
+    assert!(stage.width > 0 && stage.height > 0 && !stage.pixels.is_empty());
+    let video_song = songs
+        .songs
+        .iter()
+        .find(|s| s.video.is_some())
+        .expect("a song has a background video");
+    let video = songs
+        .read_file(&mut disc, video_song.video.unwrap())
+        .unwrap();
+    assert_eq!(&video[..4], &[0, 0, 1, 0xba]);
+    let song = songs
+        .songs
+        .iter()
+        .find(|s| s.title.contains("Attack the music"))
+        .expect("Attack the music is on the US disc");
+    assert_eq!(song.charts.len(), 2);
+    assert!(songs.chart_bms(&mut disc, song, &song.charts[0]).is_ok());
+}
+
 /// Every chart decrypts and decompresses to the `.ply` iidx-ps2tools extracted,
 /// when that extraction is on this machine (`CS_DISC_IIDX16_PLY_DIR`: the
 /// folder holding `<title> [<id>]/<title> [SP NORMAL].ply`).
@@ -125,9 +165,8 @@ fn slot_name(style: Style, difficulty: Difficulty) -> String {
     format!("{style} {difficulty}")
 }
 
-/// Every chart on both discs becomes BMS that the player parses, with every
-/// played note of the `.ply` (all but the placeholders at time 0), each within
-/// one frame of its time on the disc.
+/// Every chart becomes BMS that the player parses, with every judged note of
+/// the `.ply` on time. US beatmania lane 8 is checked as an autoplay BGM event.
 #[test]
 fn every_chart_becomes_bms_with_its_notes_on_time() {
     use cs_disc::ply::{Command, Side};
@@ -140,6 +179,7 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
+        ("CS_DISC_BEATMANIA_US", Edition::BeatmaniaUs),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
         ("CS_DISC_IIDX12", Edition::HappySky),
@@ -162,13 +202,14 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
                 let timing = beetle_core::TimingModel::from_chart(&parsed);
                 let ply = songs.chart_ply(&mut disc, chart).unwrap();
                 let double = chart.style == Style::Double;
+                let auto_lane8 = edition == Edition::BeatmaniaUs;
                 let mut expected: Vec<f64> = ply
                     .events
                     .iter()
                     .filter(|e| {
                         e.time > 0
-                            && matches!(e.command, Command::Note { side, .. }
-                                if side == Side::P1 || double)
+                            && matches!(e.command, Command::Note { side, lane, .. }
+                                if (side == Side::P1 || double) && !(auto_lane8 && lane == 8))
                     })
                     .map(|e| ply.millis(e.time))
                     .collect();
@@ -178,6 +219,31 @@ fn every_chart_becomes_bms_with_its_notes_on_time() {
                     .map(|n| timing.beat_to_time_seconds(n.measure, n.fraction) * 1000.0)
                     .collect();
                 assert_eq!(got.len(), expected.len(), "{what}: note count");
+                let mut lane8_sound = std::collections::BTreeMap::new();
+                let mut auto_lane8_count = 0;
+                for e in &ply.events {
+                    match e.command {
+                        Command::Sample { side, lane, sound } => {
+                            lane8_sound.insert((side, lane), sound);
+                        }
+                        Command::Note { side, lane: 8, .. }
+                            if auto_lane8
+                                && e.time > 0
+                                && (side == Side::P1 || double)
+                                && lane8_sound.get(&(side, 8)).is_some_and(|&sound| sound > 0) =>
+                        {
+                            auto_lane8_count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                let expected_bgm = ply
+                    .events
+                    .iter()
+                    .filter(|e| matches!(e.command, Command::Auto { sound, .. } if sound > 0))
+                    .count()
+                    + auto_lane8_count;
+                assert_eq!(parsed.bgm_notes.len(), expected_bgm, "{what}: BGM events");
                 expected.sort_by(f64::total_cmp);
                 got.sort_by(f64::total_cmp);
                 let (chart_worst, at) = got
@@ -215,6 +281,7 @@ fn every_chart_finds_and_decodes_its_sounds() {
         ("CS_DISC_IIDX7", Edition::SeventhStyle),
         ("CS_DISC_IIDX8", Edition::EighthStyle),
         ("CS_DISC_IIDX9", Edition::NinthStyle),
+        ("CS_DISC_BEATMANIA_US", Edition::BeatmaniaUs),
         ("CS_DISC_IIDX10", Edition::TenthStyle),
         ("CS_DISC_IIDX11", Edition::Red),
         ("CS_DISC_IIDX12", Edition::HappySky),

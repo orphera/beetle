@@ -74,6 +74,8 @@ pub struct Header {
     pub double: bool,
     /// pop'n music's nine buttons (P1 lanes 0–8) on the PMS channels.
     pub nine_buttons: bool,
+    /// Play PLY lane 8's sound automatically; it has no judgment lane here.
+    pub auto_lane8: bool,
     /// The file name `#WAVxx` gives sound `n` (1-based as the chart numbers them).
     pub sound_name: fn(u16) -> String,
 }
@@ -799,10 +801,20 @@ pub fn to_bms(ply: &Ply, header: &Header) -> Result<String, BmsError> {
                 if e.time == 0 || (side == Side::P2 && !header.double) {
                     continue;
                 }
+                let sound = lane_sound.get(&(side, lane)).copied().unwrap_or(0);
+                if header.auto_lane8 && lane == 8 {
+                    if sound > 0 {
+                        let pos = position(&bars, t);
+                        objects
+                            .entry((pos.bar, 1))
+                            .or_default()
+                            .push((pos, sound_id(sound)?));
+                    }
+                    continue;
+                }
                 let Some(ch) = channel(side, lane, header.nine_buttons) else {
                     continue;
                 };
-                let sound = lane_sound.get(&(side, lane)).copied().unwrap_or(0);
                 let id = if sound == 0 {
                     "ZZ".to_string()
                 } else {
@@ -909,6 +921,7 @@ mod tests {
             difficulty: 2,
             double,
             nine_buttons: false,
+            auto_lane8: false,
             sound_name: |n| format!("{n:04}.wav"),
         }
     }
@@ -985,6 +998,27 @@ mod tests {
             dp.contains("#PLAYER 3\n") && dp.contains("#00128:ZZ\n"),
             "{dp}"
         );
+    }
+
+    #[test]
+    fn extra_lane_sound_can_play_automatically() {
+        let ply = chart(&[
+            (
+                1000,
+                Command::Sample {
+                    side: Side::P1,
+                    lane: 8,
+                    sound: 41,
+                },
+            ),
+            (2000, note(Side::P1, 8)),
+        ]);
+        let mut h = header(false);
+        h.auto_lane8 = true;
+        let bms = to_bms(&ply, &h).unwrap();
+        assert!(bms.contains("#WAV15 0041.wav\n"), "{bms}");
+        assert!(bms.contains("#00101:15\n"), "{bms}");
+        assert!(!bms.contains("#00119"), "{bms}");
     }
 
     #[test]

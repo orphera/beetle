@@ -1,8 +1,8 @@
 # PS2 beatmania IIDX 디스크 형식
 
-`crates/cs-disc`가 읽는 PS2 IIDX 디스크(3rd style, 4th style, 5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
+`crates/cs-disc`가 읽는 PS2 IIDX 계열 디스크(US beatmania, 3rd style, 4th style, 5th style, 6th style, 7th style, 8th style, 9th style, 10th style, 11 IIDX RED, 12 HAPPY SKY, 13 DistorteD, 14 GOLD, 15 DJ TROOPERS, 16 EMPRESS, 16 PREMIUM BEST)의 데이터 형식과, 직접 디스크를 집계해서 알아낸 것을 모은다. 곡 세부 정보 표(제목·아티스트)는 [disc_meta.md](disc_meta.md), 재생 계획은 [2026-10-23-disc-direct-playback.md](../plans/2026-10-23-disc-direct-playback.md).
 
-출처: iidx-ps2tools(`plugins/iidx*cs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 네 장의 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
+출처: iidx-ps2tools(`plugins/iidx*cs.py`, `plugins/beatmaniauscs.py`, `parse_wvb.py`), SaxxonPike의 rhythm-game-formats(`iidx/1.md`, 아케이드 `.1`). 그 밖의 내용은 디스크를 직접 집계한 결과이며, 집계 범위를 함께 적는다.
 
 ## 1. 에디션과 표 위치
 
@@ -25,6 +25,7 @@
 | 15 DJ TROOPERS | `SLPM_551.17` | `BM2DX15A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
 | 16 EMPRESS | `SLPM_552.21` | `BM2DX16A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
 | 16 PREMIUM BEST | `SLPM_552.22` | `BM2DX16A/B/C.DAT` | 0x134 | Blowfish (코드에 가려 둠) |
+| beatmania (US) | `SLUS_212.39` | `DATA2.DAT` 하나 | 0x174 | 없음 (암호화 안 함) |
 
 - 파일 표: 12바이트 레코드(DAT 안 섹터, 미사용, 바이트 수). 10–13은 8바이트 레코드(섹터, 섹터 수). DAT 파일이 여럿이면 그 순서로 번호가 이어진다.
 - `DATA1.DAT` 표: 16바이트 레코드(id, 섹터, 섹터 수, 0).
@@ -79,16 +80,25 @@
 - 곡 표 앞 81개가 곡이다(RemyWiki 81곡). 그 뒤 `(ENDING)`.
 - 4th의 사운드는 12개다(16개로 읽으면 레코드 끝의 다른 값을 뱅크 번호로 읽는다). 엉뚱한 파일을 뱅크로 읽어도 할당이 터지지 않게, 파일 개수가 파일 크기를 넘는 뱅크는 거부한다.
 
+### 1.7 beatmania (US)
+
+- `SYSTEM.CNF`의 `SLUS_212.39`가 US판을 가리킨다. 노래 표는 0xbf510부터 0x6a14바이트이며, 0x174바이트 레코드 73개를 담는다. 앞 69개는 곡이고, 끝의 ending 한 개와 practice 세 개는 선곡 곡에서 제외한다.
+- `DATA2.DAT`의 8바이트 섹터 표는 실행 파일 0xba710부터 0x1230바이트(582개)다. `DATA1.DAT` 표는 0xb6ef0부터 0x790바이트(16바이트 레코드 121개)다.
+- 레코드 제목은 0x00의 Shift-JIS 0x40바이트다. 실제 제목에서 쓰는 쉼표·물결표·별표는 ASCII로 읽고, 게임이 붙인 트랙/곡 번호 접두부는 그대로 둔다.
+- 영상 파일 번호는 0x5c의 두 `u32` 중 첫째, 스테이지 그림은 0xb0의 `DATA1.DAT` 파일 번호다. 차트 번호 8개(`SP/DP HYPER·ANOTHER·NORMAL·BEGINNER`)는 0x130, 키음/배경음 번호 16개는 0x150부터 온다.
+- 채보는 Ps2Long 형식의 LZ 압축이며 추가 암호화는 없다. 곡 레코드의 난이도 바이트 배치는 확인하지 못해 읽지 않고, 표시 레벨은 0이다. 이 디스크에는 cs-disc가 읽는 단위인정·EXPERT 표가 없다.
+- 이 판 채보에는 lane 8도 있다. 현재 판정 모드에 대응 레인이 없어, 해당 키음은 노트 시각에 자동 재생한다. 따라서 소리는 유지되지만 lane 8은 판정되지 않는다.
+
 ## 2. 곡 레코드
 
-| 필드 | 10th | 11 RED | 12 HAPPY SKY | 13 DistorteD | 14 GOLD | 15·16 |
-|---|---|---|---|---|---|---|
-| 제목 (ASCII, 대문자 약칭) | 0x00, 0x40바이트 | 0x00 | 0x00 | 0x00 | 0x00 | 0x00 |
-| 레벨 바이트 | 0x41부터 | 0x41부터 | 0x41부터 | 0x42부터 | 0x42부터 | 0x4a부터 |
-| 배경 영상 파일 번호 | 0x58 | 0x5c | 0x54 | 0x54 | 0x54 | 0x58 |
-| 스테이지 그림 | 0xd4 (0xac는 BGA 오버레이) | 0xd8 (0xb0은 오버레이) | 0xcc (0xa4는 오버레이) | 0x88 (0x60은 BGA 오버레이) | 0x84 (DATA1 파일 번호) | 0x94 |
-| 차트 파일 번호 10개 (10–13은 8개, BLACK 없음) | 0x12c | 0x100 | 0xec | 0xb8 | 0xb4 | 0xc0 |
-| 사운드 파일 번호 16개 | 0x14c | 0x120 | 0x10c | 0xd8 | 0xdc | 0xe8 |
+| 필드 | 10th | 11 RED | 12 HAPPY SKY | 13 DistorteD | 14 GOLD | 15·16 | US beatmania |
+|---|---|---|---|---|---|---|---|
+| 제목 | ASCII, 0x00·0x40바이트 | 0x00 | 0x00 | 0x00 | 0x00 | 0x00 | Shift-JIS, 0x00·0x40바이트 |
+| 레벨 바이트 | 0x41부터 | 0x41부터 | 0x41부터 | 0x42부터 | 0x42부터 | 0x4a부터 | 미확인 |
+| 배경 영상 파일 번호 | 0x58 | 0x5c | 0x54 | 0x54 | 0x54 | 0x58 | 0x5c |
+| 스테이지 그림 | 0xd4 (0xac는 BGA 오버레이) | 0xd8 (0xb0은 오버레이) | 0xcc (0xa4는 오버레이) | 0x88 (0x60은 BGA 오버레이) | 0x84 (DATA1 파일 번호) | 0x94 | 0xb0 (DATA1 파일 번호) |
+| 차트 파일 번호 (10–13은 8개, BLACK 없음) | 0x12c | 0x100 | 0xec | 0xb8 | 0xb4 | 0xc0 | 0x130 (8개) |
+| 사운드 파일 번호 16개 | 0x14c | 0x120 | 0x10c | 0xd8 | 0xdc | 0xe8 | 0x150 |
 
 - 차트 순서: SP H, DP H, SP A, DP A, SP N, DP N, SP B, DP B, SP BLACK, DP BLACK.
 - 레벨: 15·16은 SP N/H/A/B/BLACK, DP N/H/A/B/BLACK 순의 10바이트. DJ TROOPERS에서 DAZZLIN' DARLIN' DP BEGINNER가 8번 바이트에 1, RISTACCIA DP BLACK이 9번 바이트에 11(DP ANOTHER는 10)로 확인했다.

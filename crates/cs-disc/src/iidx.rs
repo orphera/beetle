@@ -57,6 +57,8 @@ pub enum Edition {
     Empress,
     /// 16 EMPRESS, disc 2, `SLPM_552.22`.
     PremiumBest,
+    /// beatmania (US), `SLUS_212.39`.
+    BeatmaniaUs,
     /// pop'n music 8, `SLPM_653.16`.
     Popn8,
     /// pop'n music 9, `SLPM_655.08`.
@@ -71,7 +73,7 @@ pub enum Edition {
     Popn14,
 }
 
-const EDITIONS: [Edition; 21] = [
+const EDITIONS: [Edition; 22] = [
     Edition::ThirdStyle,
     Edition::FourthStyle,
     Edition::FifthStyle,
@@ -87,6 +89,7 @@ const EDITIONS: [Edition; 21] = [
     Edition::DjTroopers,
     Edition::Empress,
     Edition::PremiumBest,
+    Edition::BeatmaniaUs,
     Edition::Popn8,
     Edition::Popn9,
     Edition::Popn10,
@@ -366,6 +369,8 @@ struct Record {
 enum TitleField {
     /// ASCII, `TITLE_LEN` bytes from 0x00 (9th on).
     Inline,
+    /// Shift-JIS, `TITLE_LEN` bytes from 0x00 (US beatmania).
+    InlineShiftJis,
     /// The executable address of the ASCII title at this field: the file
     /// offset is the address less `base` (8th and older).
     Pointer { at: usize, base: u32 },
@@ -999,6 +1004,36 @@ const NINTH_STYLE: Layout = Layout {
     ..TENTH_STYLE
 };
 
+const BEATMANIA_US: Layout = Layout {
+    executable: "SLUS_212.39",
+    slug: "beatmania-us",
+    file_tables: &[(0xba710, 0x1230)],
+    dat_files: &["DATA2.DAT"],
+    songs: (0xbf510, 0x6a14),
+    data1: (0xb6ef0, 0x790),
+    record: Record {
+        size: 0x174,
+        title: TitleField::InlineShiftJis,
+        numbers: FileNumbers::Running,
+        levels_at: 0x4a,
+        level_of: [NO_FIELD; 10],
+        video_at: 0x5c,
+        charts_at: 0x130,
+        chart_count: 8,
+        sounds_at: 0x150,
+        sound_count: 16,
+        stage: StageArt::Overlay {
+            at: 0xb0,
+            picks: None,
+        },
+    },
+    dan: None,
+    expert: None,
+    word_layout: None,
+    old_words: None,
+    ..TENTH_STYLE
+};
+
 const TENTH_STYLE: Layout = Layout {
     executable: "SLPM_661.80",
     slug: "iidx10",
@@ -1400,6 +1435,7 @@ impl Edition {
             Edition::SeventhStyle => &SEVENTH_STYLE,
             Edition::EighthStyle => &EIGHTH_STYLE,
             Edition::NinthStyle => &NINTH_STYLE,
+            Edition::BeatmaniaUs => &BEATMANIA_US,
             Edition::TenthStyle => &TENTH_STYLE,
             Edition::Red => &RED,
             Edition::HappySky => &HAPPY_SKY,
@@ -2157,6 +2193,7 @@ impl Disc {
             difficulty: chart.difficulty.bms_number(),
             double: chart.style == Style::Double,
             nine_buttons: self.edition.is_popn(),
+            auto_lane8: self.edition == Edition::BeatmaniaUs,
             sound_name,
         };
         to_bms(&ply, &header).map_err(|e| invalid(e.to_string()))
@@ -3005,9 +3042,12 @@ fn read_file_tables(
     Ok(files)
 }
 
-/// A tutorial or practice record, not a song: one SP BEGINNER chart under
-/// `PRACTICE` (13), `TUTORIAL` (14), `TUTORIAL01`–`04` (15) or no title (16).
+/// A tutorial or practice record, not a song.
 fn is_tutorial(title: &str, charts: &[Chart]) -> bool {
+    let lower = title.to_ascii_lowercase();
+    if lower.contains("_ending") || lower.contains("_practice") {
+        return true;
+    }
     let named = title.is_empty() || title == "PRACTICE" || title.starts_with("TUTORIAL");
     let beginner_only = matches!(
         charts,
@@ -3018,6 +3058,35 @@ fn is_tutorial(title: &str, charts: &[Chart]) -> bool {
         }]
     );
     named && beginner_only
+}
+
+fn title_string(bytes: &[u8], shift_jis: bool) -> String {
+    let mut title = String::new();
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at).filter(|&&byte| byte != 0) {
+        if byte.is_ascii() {
+            title.push(byte as char);
+            at += 1;
+            continue;
+        }
+        if shift_jis && ((0x81..=0x9f).contains(&byte) || (0xe0..=0xef).contains(&byte)) {
+            let Some(&trail) = bytes.get(at + 1) else {
+                title.push('?');
+                break;
+            };
+            title.push(match (byte, trail) {
+                (0x81, 0x43) => ',',
+                (0x81, 0x60) => '~',
+                (0x81, 0x9a) => '*',
+                _ => '?',
+            });
+            at += 2;
+        } else {
+            title.push('?');
+            at += 1;
+        }
+    }
+    title.trim().to_string()
 }
 
 fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<Vec<Song>> {
@@ -3033,7 +3102,11 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
                 (file != 0 && file != u32::MAX).then(|| Chart {
                     style,
                     difficulty,
-                    level: levels[layout.level_of[i]],
+                    level: if layout.level_of[i] == NO_FIELD {
+                        0
+                    } else {
+                        levels[layout.level_of[i]]
+                    },
                     file: layout.numbers.chart(file),
                     bgm_lead: 0,
                 })
@@ -3054,20 +3127,17 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
             };
         }
         let title = match layout.title {
-            TitleField::Inline => &record[..TITLE_LEN],
+            TitleField::Inline => title_string(&record[..TITLE_LEN], false),
+            TitleField::InlineShiftJis => title_string(&record[..TITLE_LEN], true),
             TitleField::Pointer { at, base } => {
                 let start = u32_at(record, at).wrapping_sub(base) as usize;
-                exe.get(start..(start + TITLE_LEN).min(exe.len()))
-                    .unwrap_or(&[])
+                title_string(
+                    exe.get(start..(start + TITLE_LEN).min(exe.len()))
+                        .unwrap_or(&[]),
+                    false,
+                )
             }
         };
-        let title = title
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| if b.is_ascii() { b as char } else { '?' })
-            .collect::<String>()
-            .trim()
-            .to_string();
         if is_tutorial(&title, &charts) {
             continue;
         }
@@ -3134,6 +3204,15 @@ mod tests {
             r[RECORD.charts_at + i * 4..][..4].copy_from_slice(&c.to_le_bytes());
         }
         r
+    }
+
+    #[test]
+    fn us_title_punctuation_is_readable_without_a_text_codec_dependency() {
+        assert_eq!(
+            title_string(b"20\x81\x43November \x81\x60MIO2\x81\x60 \x81\x9a", true),
+            "20,November ~MIO2~ *"
+        );
+        assert_eq!(title_string(b"A\x81\x43B", false), "A?CB");
     }
 
     #[test]
@@ -3349,6 +3428,7 @@ mod tests {
             Edition::DjTroopers,
             Edition::Empress,
             Edition::PremiumBest,
+            Edition::BeatmaniaUs,
             Edition::Popn8,
             Edition::Popn9,
             Edition::Popn10,
@@ -3367,7 +3447,9 @@ mod tests {
                 Tables::Iidx(layout) => {
                     let size = layout.record.size;
                     for offset in layout.record.levels_at..layout.record.levels_at + 10 {
-                        assert!(offset < size, "{edition:?} level offset {offset:#x}");
+                        if layout.record.level_of[offset - layout.record.levels_at] != NO_FIELD {
+                            assert!(offset < size, "{edition:?} level offset {offset:#x}");
+                        }
                     }
                     for offset in [layout.record.charts_at, layout.record.sounds_at] {
                         assert!(offset < size, "{edition:?} field offset {offset:#x}");
@@ -3420,8 +3502,13 @@ mod tests {
             Edition::from_executable("slpm_552.22"),
             Some(Edition::PremiumBest)
         );
+        assert_eq!(
+            Edition::from_executable("slus_212.39"),
+            Some(Edition::BeatmaniaUs)
+        );
         assert_eq!(Edition::from_executable("SLPM_000.00"), None);
         assert_eq!(Edition::Gold.name(), "beatmania IIDX 14 GOLD");
+        assert_eq!(Edition::BeatmaniaUs.name(), "beatmania (US)");
     }
 
     #[test]

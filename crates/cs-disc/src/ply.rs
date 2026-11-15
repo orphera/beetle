@@ -71,8 +71,8 @@ pub enum Side {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {
-    /// A note on `lane` (0..=6 keys, 7 scratch). `length` is `param`
-    /// (non-zero for a long/backspin note, in the same time unit).
+    /// A note on `lane` (0..=6 keys, 7 scratch; US beatmania also uses lane 8).
+    /// `length` is `param` (non-zero for a long/backspin note, in the same time unit).
     ///
     /// At time 0 on a PS2 disc it is not a note: lane 0 notes there carry
     /// the side's note count in `c2`, 250 at a time (2HO SP HYPER: 250, 250,

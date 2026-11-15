@@ -4,8 +4,7 @@
 //! Codes and chart layouts from iidx-ps2tools (`plugins/*.py` `is_match`,
 //! `charttool/plugins/iidx*cs.py`). A disc whose code is listed but not
 //! `playable` is recognised (so the player can say what it is) but not read:
-//! its song table, file tables and sounds have not been ported yet (only the
-//! US beatmania now).
+//! its song table, file tables and sounds have not been ported yet.
 
 use crate::ply::ChartFormat;
 
@@ -152,8 +151,10 @@ pub const IIDX_PS2: [Title; 24] = [
             ChartFormat::Ps2Long,
         )
     },
-    // The 9th style chart code reads it.
-    title("SLUS_212.39", "beatmania (US)", ChartFormat::Ps2Long),
+    Title {
+        playable: true,
+        ..title("SLUS_212.39", "beatmania (US)", ChartFormat::Ps2Long)
+    },
     Title {
         playable: true,
         ..title("SLPM_653.16", "pop'n music 8", ChartFormat::Popn)
@@ -214,9 +215,10 @@ mod tests {
     }
 
     #[test]
-    fn the_us_disc_is_known_but_not_read() {
+    fn the_us_disc_is_known_and_playable() {
         let t = find("SLUS_212.39").unwrap();
-        assert!(!t.playable);
+        assert!(t.playable);
+        assert_eq!(t.name, "beatmania (US)");
         assert!(find("SLPM_000.00").is_none());
     }
 
