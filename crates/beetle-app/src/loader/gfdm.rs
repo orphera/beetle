@@ -5,7 +5,7 @@
 //! the music stream in its movie, which also plays as the background.
 //! GuitarFreaks 4thMIX & DrumMania 3rdMIX (`cs_disc::gf4dm`) has the same
 //! keys; its sounds are each mode's `.sdd` (bank and music), with no movie
-//! or banner.
+//! or banner; its title strips come from the song select's textures.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -97,7 +97,18 @@ impl GfdmDisc {
 
     /// Song `id`'s title strip (`IDX_CO`), `None` when the disc has none.
     pub(crate) fn title(&self, disc: &mut SectorReader<File>, id: u32) -> Option<Rgba> {
-        self.picture(disc, &title_name(id))
+        match &self.disc {
+            Backend::Silver(_) => self.picture(disc, &title_name(id)),
+            Backend::Fourth(d) => d.title(id),
+        }
+    }
+
+    /// The name of the disc's names file (`names::ensure_gfdm`).
+    pub(crate) fn names_slug(&self) -> &'static str {
+        match &self.disc {
+            Backend::Silver(_) => "gfdm",
+            Backend::Fourth(_) => "gf4dm",
+        }
     }
 
     /// The rect called `name`, cut out of its texture.

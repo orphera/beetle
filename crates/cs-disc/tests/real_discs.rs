@@ -1020,6 +1020,16 @@ fn gf4dm3_songs_have_charts_and_sounds() {
     assert_eq!(gf.songs.len(), 44);
     for song in &gf.songs {
         let charts = gf.song_charts(song);
+        // Every song but the RIFF practice ones shows its title strip in
+        // the song select (B32).
+        let title = gf.title(song.info.id);
+        if song.info.name.starts_with("RIFF") {
+            assert!(title.is_none(), "{}", song.code);
+        } else {
+            let title = title.expect("title strip");
+            assert_eq!((title.width, title.height), (224, 32), "{}", song.code);
+            assert!(title.pixels.iter().any(|p| p[3] != 0), "{}", song.code);
+        }
         let name = &song.info.name;
         let parts = |part| {
             charts

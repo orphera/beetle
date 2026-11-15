@@ -749,13 +749,10 @@ fn read_gfdm_songs(source: String, mut disc: cs_disc::SectorReader<std::fs::File
             }
         }
     }
-    // The rows draw each song's title strip from the disc's own picture
-    // (4thMIX & 3rdMIX has none: its rows show the chart's title).
-    if !matches!(songs.disc, crate::loader::gfdm::Backend::Silver(_)) {
-        return copies;
-    }
+    // The rows draw each song's title strip from the disc's own picture.
     let ids: Vec<u32> = songs.songs.iter().map(|s| s.id).collect();
     crate::names::ensure_gfdm(
+        songs.names_slug(),
         &ids,
         |id| songs.title(&mut disc, id),
         &source,

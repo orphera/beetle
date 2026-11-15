@@ -245,16 +245,17 @@ pub fn ensure<R: io::Read + io::Seek>(
     let _ = fs::write(path(slug), encode(&names));
 }
 
-/// The names file of the GuitarFreaks & DrumMania disc: each song's title
-/// strip as its word picture (`title`), no artist (the disc's record has none).
-/// Made when missing or older than `source`, like `ensure`.
+/// The names file (`slug`) of a GuitarFreaks & DrumMania disc: each song's
+/// title strip as its word picture (`title`), no artist (the disc's record
+/// has none). Made when missing or older than `source`, like `ensure`.
 pub fn ensure_gfdm(
+    slug: &str,
     song_ids: &[u32],
     mut title: impl FnMut(u32) -> Option<Rgba>,
     source: &str,
     charts: &[(ChartId, u32)],
 ) {
-    if is_current(GFDM_SLUG, Path::new(source)) {
+    if is_current(slug, Path::new(source)) {
         return;
     }
     let mut names = Names {
@@ -282,11 +283,8 @@ pub fn ensure_gfdm(
         return;
     }
     let _ = fs::create_dir_all(DIR);
-    let _ = fs::write(path(GFDM_SLUG), encode(&names));
+    let _ = fs::write(path(slug), encode(&names));
 }
-
-/// The slug of the GuitarFreaks & DrumMania disc's names file.
-const GFDM_SLUG: &str = "gfdm";
 
 #[cfg(test)]
 mod tests {

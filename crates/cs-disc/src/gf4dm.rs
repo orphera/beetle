@@ -33,6 +33,7 @@ use std::io::{self, Read, Seek};
 
 use crate::gfdm::{Event, Game, MusicInfo, Seq, SongCharts, Track};
 use crate::iso9660::{FileExtent, Volume};
+use crate::ps2tex::Rgba;
 use crate::sector::SectorReader;
 
 /// The boot executable.
@@ -46,6 +47,8 @@ const DRIVER_PATH: &str = "DRIVER/SDDRV.IRX";
 const DAT_KEY: u32 = 0x1fd450;
 const SONG_IDS: u32 = 0x1fd480;
 const SONGS: usize = 49;
+/// The song select's textures: the title strips first, one a song.
+const TITLE_TEXTURES: &str = "texdat/gd_music_select.dat";
 /// The sound driver's table of (`.sdd` name pointer, `0x1880`), 8 bytes
 /// each, at this offset in its loaded segment.
 const DRIVER_TABLE: usize = 64960;
@@ -286,6 +289,9 @@ pub struct Disc {
     spk_files: Vec<SpkFile>,
     seq_codes: Vec<u32>,
     seq_data: Vec<u8>,
+    /// `TITLE_TEXTURES`, and the song of each title strip.
+    title_textures: Vec<u8>,
+    title_ids: Vec<u32>,
 }
 
 /// Reads executable address `addr` through the ELF's first program header.
@@ -398,6 +404,19 @@ impl Disc {
             .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
             .collect();
         let seq_data = read("seq/seqdata.dat")?;
+        let title_textures = read(TITLE_TEXTURES).unwrap_or_default();
+        // The title strips go by song number, all the song table's songs
+        // but the RIFF practice songs (`riff41`), which have no charts.
+        let mut title_ids: Vec<u32> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                info.iter()
+                    .any(|(i, name)| i == id && !name.starts_with("riff"))
+            })
+            .collect();
+        title_ids.sort_unstable();
+        title_ids.dedup();
         let head = unscramble(&disc.read_at(spk.offset(), 0x4000)?);
         let spk_files = spk_files(&head).ok_or_else(|| bad("bad SPK table"))?;
 
@@ -431,6 +450,8 @@ impl Disc {
             spk_files,
             seq_codes,
             seq_data,
+            title_textures,
+            title_ids,
         }))
     }
 
@@ -454,6 +475,12 @@ impl Disc {
             1 => unpack(bytes),
             _ => Some(bytes.to_vec()),
         }
+    }
+
+    /// Song `id`'s title strip as the song select shows it (224×32).
+    pub fn title(&self, id: u32) -> Option<Rgba> {
+        let n = self.title_ids.iter().position(|&i| i == id)?;
+        tim(&texture(&self.title_textures, n)?)
     }
 
     /// A song's charts as `gfdm` sequences.
@@ -554,6 +581,74 @@ impl Disc {
     ) -> io::Result<Option<Vec<u8>>> {
         self.read_spk(disc, &format!("{}_{}.sdd", file.prefix(), song.code))
     }
+}
+
+/// Entry `n` of a texture file (`texdat/*.dat`): `u32` count, from 0x10 a
+/// `u32` offset each, bit 31 when packed like a chart (`unpack`), else
+/// Konami's LZ alone.
+fn texture(file: &[u8], n: usize) -> Option<Vec<u8>> {
+    let count = u32_at(file, 0)? as usize;
+    if n >= count {
+        return None;
+    }
+    let start = u32_at(file, 0x10 + n * 4)?;
+    let end = match n + 1 < count {
+        true => (u32_at(file, 0x10 + (n + 1) * 4)? & 0x7fff_ffff) as usize,
+        false => file.len(),
+    };
+    let bytes = file.get((start & 0x7fff_ffff) as usize..end)?;
+    match start >> 31 {
+        1 => unpack(bytes),
+        _ => crate::lz::decode(bytes),
+    }
+}
+
+/// A PlayStation TIM picture with a colour table (4 or 8 bits a pixel);
+/// colour 0 is see-through.
+fn tim(bytes: &[u8]) -> Option<Rgba> {
+    let flags = u32_at(bytes, 4)?;
+    if u32_at(bytes, 0)? != 0x10 || flags & 8 == 0 {
+        return None;
+    }
+    let colour = |v: u16| -> [u8; 4] {
+        let c = |shift: u16| {
+            let x = ((v >> shift) & 31) as u8;
+            x << 3 | x >> 2
+        };
+        [c(0), c(5), c(10), if v == 0 { 0 } else { 255 }]
+    };
+    let block = |at: usize| -> Option<(usize, usize, usize)> {
+        let len = u32_at(bytes, at)? as usize;
+        let w = u16_at(bytes, at + 8)? as usize;
+        let h = u16_at(bytes, at + 10)? as usize;
+        Some((len, w, h))
+    };
+    let (clut_len, clut_w, _) = block(8)?;
+    let clut: Vec<[u8; 4]> = (0..clut_w)
+        .map(|k| u16_at(bytes, 8 + 12 + k * 2).map(colour))
+        .collect::<Option<_>>()?;
+    let at = 8 + clut_len;
+    let (_, w, h) = block(at)?;
+    let data = bytes.get(at + 12..at + 12 + w * 2 * h)?;
+    let (width, index): (usize, Vec<usize>) = match flags & 3 {
+        0 => (
+            w * 4,
+            data.iter()
+                .flat_map(|&b| [(b & 15) as usize, (b >> 4) as usize])
+                .collect(),
+        ),
+        1 => (w * 2, data.iter().map(|&b| b as usize).collect()),
+        _ => return None,
+    };
+    let pixels = index
+        .iter()
+        .map(|&i| clut.get(i).copied())
+        .collect::<Option<_>>()?;
+    Some(Rgba {
+        width: width as u32,
+        height: h as u32,
+        pixels,
+    })
 }
 
 /// Raw 8-byte events, up to the all-zero one that ends a chart.
