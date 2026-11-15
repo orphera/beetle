@@ -58,6 +58,7 @@ pub enum UiAction {
     DialogCancel,
     DialogChoice(usize, usize),
     DialogListRemove(usize),
+    DialogAddDrive(char),
     DialogCard(usize),
     /// An answer to the add question, by button.
     DialogAnswer(usize),

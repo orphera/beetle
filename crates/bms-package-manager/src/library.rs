@@ -21,6 +21,16 @@ pub fn save_library(list: &LibraryPaths) -> std::io::Result<()> {
     beetle_core::write_atomic(library_file(), list.serialize())
 }
 
+/// The letters of the optical drives on this machine.
+pub fn optical_drives() -> Vec<char> {
+    cs_disc::drive::optical_drives()
+}
+
+/// The drive letter a path names when it is a bare drive (`E:`, `E:\`, `E:/`).
+pub fn as_drive_letter(path: &str) -> Option<char> {
+    cs_disc::drive::as_drive_letter(path)
+}
+
 /// Absolute form of an existing folder, as the collection stores it (`beetle_core::display_path`).
 pub fn absolute_dir(path: &str) -> Result<String, String> {
     let p = fs::canonicalize(path).map_err(|e| format!("'{path}': {e}"))?;

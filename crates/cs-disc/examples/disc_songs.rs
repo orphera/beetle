@@ -34,6 +34,12 @@ fn list(target: &str) -> io::Result<()> {
     let mut disc = cs_disc::open(target)?;
     let Some(game) = identify(&mut disc)? else {
         match cs_disc::identify_title(&mut disc)? {
+            Some(title)
+                if title.code == cs_disc::gfdm::EXE_PATH
+                    || title.code == cs_disc::gf4dm3::EXE_PATH =>
+            {
+                return list_gfdm(target, &mut disc, title.code, title.name);
+            }
             Some(title) => println!("{target}: {} ({}), not read yet", title.name, title.code),
             None => println!("{target}: not a disc this player reads"),
         }
@@ -65,4 +71,52 @@ fn list(target: &str) -> io::Result<()> {
         println!("{:4}  {:40}  {}", song.id, song.title, charts.join(" "));
     }
     Ok(())
+}
+
+fn list_gfdm(
+    target: &str,
+    disc: &mut cs_disc::SectorReader<std::fs::File>,
+    code: &str,
+    name: &str,
+) -> io::Result<()> {
+    let volume = Volume::open(disc)?;
+    if code == cs_disc::gfdm::EXE_PATH {
+        let reader = cs_disc::gfdm::Disc::open(disc, &volume)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing GFDM index"))?;
+        let songs = reader.songs(disc)?;
+        print_gfdm_songs(
+            target,
+            name,
+            code,
+            songs.len(),
+            songs.iter().map(|song| &song.info),
+        );
+    } else {
+        let reader = cs_disc::gf4dm3::Disc::open(disc, &volume)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not a GF4DM3 disc"))?;
+        print_gfdm_songs(
+            target,
+            name,
+            code,
+            reader.songs.len(),
+            reader.songs.iter().map(|song| &song.info),
+        );
+    }
+    Ok(())
+}
+
+fn print_gfdm_songs<'a>(
+    target: &str,
+    name: &str,
+    code: &str,
+    count: usize,
+    songs: impl Iterator<Item = &'a cs_disc::gfdm::MusicInfo>,
+) {
+    println!("{target}: {name} ({code}, {count} songs)");
+    for song in songs {
+        println!(
+            "{:4}  {:40}  GF {:?}  OPEN {:?}  BASS {:?}  DM {:?}",
+            song.id, song.name, song.gf_levels, song.open_levels, song.bass_levels, song.dm_levels,
+        );
+    }
 }

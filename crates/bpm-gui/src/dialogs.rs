@@ -1,7 +1,7 @@
 //! The dialogs: what each one asks, its text fields, and how it looks
 //! (`Dialog::view`). What confirming does lives in `main.rs`.
 
-use crate::ui::{ButtonView, ChoiceView, DialogView, FieldView, ListRowView};
+use crate::ui::{ButtonView, ChoiceView, DialogView, FieldView, ListRowAction, ListRowView};
 use crate::widgets::{Btn, UiAction};
 use bms_package_manager::file_dialog::PickKind;
 use bms_package_manager::BgaPackMode;
@@ -245,10 +245,24 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                     .map(|p| ListRowView {
                         text: p.clone(),
                         ok: bms_package_manager::library::entry_present(p),
+                        action: ListRowAction::Remove,
                     })
                     .collect();
+                for letter in bms_package_manager::optical_drives() {
+                    if library
+                        .iter()
+                        .any(|path| bms_package_manager::as_drive_letter(path) == Some(letter))
+                    {
+                        continue;
+                    }
+                    v.list.push(ListRowView {
+                        text: format!("CD/DVD 드라이브 ({letter}:)"),
+                        ok: true,
+                        action: ListRowAction::AddDrive(letter),
+                    });
+                }
                 v.list_top = self.list_top;
-                v.list_empty = "아직 연결한 폴더가 없어요".into();
+                v.list_empty = "아직 연결한 위치가 없어요".into();
                 v.fields = vec![
                     field(
                         0,
@@ -261,7 +275,7 @@ Enter 확인 · Esc 닫기 · F5 새로고침 · Ctrl+V 붙여넣기"
                         ".iso 파일 경로 (찾아보기로 고르면 바로 연결돼요)",
                     ),
                 ];
-                v.footnote = "바뀐 내용은 Beetle 창으로 돌아가면 반영돼요.".into();
+                v.footnote = "광학 드라이브는 목록의 '연결'을 누르세요. 바뀐 내용은 Beetle 창으로 돌아가면 반영돼요.".into();
                 v.buttons = vec![
                     button("닫기", Btn::Ghost, UiAction::DialogCancel),
                     button("연결", Btn::Primary, UiAction::DialogConfirm),

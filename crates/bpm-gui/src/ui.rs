@@ -68,6 +68,14 @@ pub struct ChoiceView {
 pub struct ListRowView {
     pub text: String,
     pub ok: bool,
+    pub action: ListRowAction,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ListRowAction {
+    #[default]
+    Remove,
+    AddDrive(char),
 }
 
 #[derive(Debug, Clone)]
@@ -1246,13 +1254,31 @@ impl GuiRenderer {
             let top = d.list_top.min(d.list.len().saturating_sub(LIST_ROWS));
             for (i, row) in d.list.iter().enumerate().skip(top).take(LIST_ROWS) {
                 self.round(lx, cy, inner, 36.0, 8.0, theme::SURFACE);
-                let (tag, fg, bg) = if row.ok {
-                    ("연결됨", theme::GREEN, theme::GREEN_SOFT)
-                } else {
-                    ("찾을 수 없음", theme::DANGER, theme::DANGER_SOFT)
+                let (tag, fg, bg, button, action) = match row.action {
+                    ListRowAction::Remove if row.ok => (
+                        "연결됨",
+                        theme::GREEN,
+                        theme::GREEN_SOFT,
+                        "빼기",
+                        UiAction::DialogListRemove(i),
+                    ),
+                    ListRowAction::Remove => (
+                        "찾을 수 없음",
+                        theme::DANGER,
+                        theme::DANGER_SOFT,
+                        "빼기",
+                        UiAction::DialogListRemove(i),
+                    ),
+                    ListRowAction::AddDrive(letter) => (
+                        "CD/DVD",
+                        theme::BLUE,
+                        ColorRgba::new(26, 40, 64, 255),
+                        "연결",
+                        UiAction::DialogAddDrive(letter),
+                    ),
                 };
                 let tag_w = self.chip(tag, lx + 10.0, cy + 8.0, fg, bg);
-                let bw = GuiRenderer::button_w("빼기");
+                let bw = GuiRenderer::button_w(button);
                 self.text_in(
                     &row.text,
                     lx + 20.0 + tag_w,
@@ -1267,9 +1293,13 @@ impl GuiRenderer {
                     cy + 4.0,
                     bw,
                     28.0,
-                    "빼기",
-                    Btn::Ghost,
-                    UiAction::DialogListRemove(i),
+                    button,
+                    if button == "연결" {
+                        Btn::Secondary
+                    } else {
+                        Btn::Ghost
+                    },
+                    action,
                 );
                 cy += 40.0;
             }

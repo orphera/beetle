@@ -983,6 +983,9 @@ fn dispatch(state: &mut AppState, action: UiAction) {
             }
         }
         UiAction::DialogListRemove(i) => library_remove(state, i),
+        UiAction::DialogAddDrive(letter) => {
+            library_add(state, &format!("{letter}:"));
+        }
         UiAction::DialogAnswer(i) => answer_question(state, Some(i)),
         UiAction::DialogCard(i) => {
             let Some(dialog) = &state.dialog else {
