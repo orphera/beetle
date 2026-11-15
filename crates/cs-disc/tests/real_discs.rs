@@ -1010,11 +1010,11 @@ fn popn_expert_courses_match_the_cs_pages() {
 /// music has guitar, bass and drum charts, and their sound files decode.
 #[test]
 fn gf4dm3_songs_have_charts_and_sounds() {
-    use cs_disc::gf4dm::{self, SoundFile};
+    use cs_disc::gf4dm3::{self, SoundFile};
     let Some((mut disc, volume)) = open("CS_DISC_GF4DM3") else {
         return;
     };
-    let gf = gf4dm::Disc::open(&mut disc, &volume)
+    let gf = gf4dm3::Disc::open(&mut disc, &volume)
         .unwrap()
         .expect("GF4DM3");
     assert_eq!(gf.songs.len(), 44);
@@ -1083,12 +1083,12 @@ fn gf4dm3_songs_have_charts_and_sounds() {
                 continue;
             }
             let sdd = gf.sound_file(&mut disc, song, file).unwrap().expect("sdd");
-            let banks = gf4dm::banks(&sdd);
+            let banks = gf4dm3::banks(&sdd);
             assert!(
                 file == SoundFile::Bass || !banks.is_empty(),
                 "{name} {file:?}"
             );
-            let Some([l, r]) = gf4dm::music(&sdd) else {
+            let Some([l, r]) = gf4dm3::music(&sdd) else {
                 eprintln!("  {file:?}: no music");
                 continue;
             };

@@ -1,6 +1,6 @@
 # PS2 GuitarFreaks 4thMIX & DrumMania 3rdMIX 디스크 형식
 
-`crates/cs-disc`의 `gf4dm.rs`가 읽는 PS2 GuitarFreaks 4thMIX & DrumMania 3rdMIX(`SLPM_650.52`) 디스크의 형식이다. 디스크 한 장과 실행 파일·사운드 드라이버의 기계어를 읽어 알아냈다(2026-11-15). Masterpiece Silver는 [gfdm_ps2_disc.md](gfdm_ps2_disc.md).
+`crates/cs-disc`의 `gf4dm3.rs`가 읽는 PS2 GuitarFreaks 4thMIX & DrumMania 3rdMIX(`SLPM_650.52`) 디스크의 형식이다. 디스크 한 장과 실행 파일·사운드 드라이버의 기계어를 읽어 알아냈다(2026-11-15). Masterpiece Silver는 [gfdm_ps2_disc.md](gfdm_ps2_disc.md).
 
 채보는 `gfdm::Seq`(1/300초)로 바꿔 Masterpiece Silver와 같은 `gfdm_bms`로 BMS를 만든다. 앱의 키도 같은 `gfdm/<id>/<파트><난이도>`다.
 
@@ -67,7 +67,7 @@
 
 `u32` 그림 수, 0x10부터 `u32` 위치 표. 비트 31이 서 있으면 채보와 같은 허프만+LZ, 아니면 LZ만이다. 풀면 PlayStation TIM(`0x10`, 플래그 8 = 4비트, 9 = 8비트, 16비트 색 표, 색 0은 투명)이다. 디스크의 `texdat/*.dat` 42개에서 TIM 2196장이 나온다(`hdd_err`·`sn_flame`·`system`의 일부는 다른 형식).
 
-`gd_music_select.dat`의 0~45번이 곡 제목 그림(224×32)이다. 순서는 실행 파일 곡 표(1.)의 49곡 가운데 RIFF 연습곡(`riff41`~`riff43`, 제목 그림 없음)을 뺀 46곡의 곡 번호 순. 46번은 `???`, 47~91번은 64×112 그림이다. 앱은 이 그림을 Masterpiece Silver의 제목 그림처럼 선곡 목록에 그린다(이름 파일 `gf4dm.names`).
+`gd_music_select.dat`의 0~45번이 곡 제목 그림(224×32)이다. 순서는 실행 파일 곡 표(1.)의 49곡 가운데 RIFF 연습곡(`riff41`~`riff43`, 제목 그림 없음)을 뺀 46곡의 곡 번호 순. 46번은 `???`, 47~91번은 64×112 그림이다. 앱은 이 그림을 Masterpiece Silver의 제목 그림처럼 선곡 목록에 그린다(이름 파일 `gf4dm3.names`).
 
 ## 3. `GF4DM3.SPK`
 

@@ -26,7 +26,7 @@ pub mod atrac3;
 mod blowfish;
 mod blowfish_pi;
 pub mod drive;
-pub mod gf4dm;
+pub mod gf4dm3;
 pub mod gfdm;
 pub mod gfdm_bms;
 pub mod iidx;

@@ -662,7 +662,7 @@ pub struct KeySound {
 pub struct Kits {
     songs: Vec<SongKits>,
     /// Every note's key is its sound (bank 0), and the music holds the
-    /// parts not played (GuitarFreaks 4thMIX & DrumMania 3rdMIX: `gf4dm`).
+    /// parts not played (GuitarFreaks 4thMIX & DrumMania 3rdMIX: `gf4dm3`).
     identity: bool,
 }
 
@@ -787,7 +787,7 @@ impl Kits {
     }
 
     /// Tables where each note's key is its sound, for a disc whose music
-    /// already holds the parts not played (`gf4dm`).
+    /// already holds the parts not played (`gf4dm3`).
     pub fn identity() -> Self {
         Self {
             songs: Vec::new(),

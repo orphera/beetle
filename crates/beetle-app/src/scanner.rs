@@ -698,7 +698,7 @@ fn read_disc(target: &str) -> Vec<Copy> {
     }
     let Ok(Some(edition)) = cs_disc::identify(&mut disc) else {
         if let Ok(Some(title)) = cs_disc::identify_title(&mut disc) {
-            if title.code == cs_disc::gfdm::EXE_PATH || title.code == cs_disc::gf4dm::EXE_PATH {
+            if title.code == cs_disc::gfdm::EXE_PATH || title.code == cs_disc::gf4dm3::EXE_PATH {
                 return read_gfdm_songs(source, disc);
             }
             println!(

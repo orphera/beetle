@@ -3,7 +3,7 @@
 //! keyboard with `@<N>k+...`, `chart_arrange`): the chart is the
 //! BMS `cs_disc::gfdm_bms` writes, its sounds the song's sample banks and
 //! the music stream in its movie, which also plays as the background.
-//! GuitarFreaks 4thMIX & DrumMania 3rdMIX (`cs_disc::gf4dm`) has the same
+//! GuitarFreaks 4thMIX & DrumMania 3rdMIX (`cs_disc::gf4dm3`) has the same
 //! keys; its sounds are each mode's `.sdd` (bank and music), with no movie
 //! or banner; its title strips come from the song select's textures.
 
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use beetle_audio::SampleBank;
 use beetle_core::{BmpId, BmsChart, WavId};
 use beetle_render::{ColorRgba, ImageBuffer};
-use cs_disc::gf4dm::{self, SoundFile};
+use cs_disc::gf4dm3::{self, SoundFile};
 use cs_disc::gfdm::{
     bank_samples, movie_audio, read_kits, song_path, Disc, Kits, MusicInfo, SongCharts, SongFile,
     MOVIE_AUDIO_BLOCK, MUSIC_LEAD, MUSIC_RATE,
@@ -43,14 +43,14 @@ pub(crate) enum Backend {
     /// Masterpiece Silver.
     Silver(Disc),
     /// 4thMIX & 3rdMIX.
-    Fourth(gf4dm::Disc),
+    Fourth(gf4dm3::Disc),
 }
 
 impl GfdmDisc {
     /// `None` when the disc is not a GuitarFreaks & DrumMania disc.
     pub(crate) fn read(disc: &mut SectorReader<File>) -> Option<Self> {
         let volume = Volume::open(disc).ok()?;
-        if let Some(fourth) = gf4dm::Disc::open(disc, &volume).ok().flatten() {
+        if let Some(fourth) = gf4dm3::Disc::open(disc, &volume).ok().flatten() {
             return Some(Self {
                 songs: fourth.songs.iter().map(|s| s.info.clone()).collect(),
                 disc: Backend::Fourth(fourth),
@@ -107,7 +107,7 @@ impl GfdmDisc {
     pub(crate) fn names_slug(&self) -> &'static str {
         match &self.disc {
             Backend::Silver(_) => "gfdm",
-            Backend::Fourth(_) => "gf4dm",
+            Backend::Fourth(_) => "gf4dm3",
         }
     }
 
@@ -297,8 +297,8 @@ impl GfdmSource {
         let mut music = needs(|s| *s == Sound::Music)
             .then(|| self.fourth_music(mode))
             .flatten();
-        let drum_bank = gf4dm::banks(&drums).into_iter().next();
-        let guitar_bank = gf4dm::banks(&guitar).into_iter().next();
+        let drum_bank = gf4dm3::banks(&drums).into_iter().next();
+        let guitar_bank = gf4dm3::banks(&guitar).into_iter().next();
         let mut out = HashMap::new();
         for (id, sound) in wanted {
             let pcm = match sound {
@@ -326,16 +326,16 @@ impl GfdmSource {
     /// less than a second.
     fn fourth_music(&mut self, file: SoundFile) -> Option<Pcm> {
         let long = |sdd: Option<Vec<u8>>| {
-            gf4dm::music(&sdd?).filter(|[l, _]| l.len() > gf4dm::MUSIC_RATE as usize)
+            gf4dm3::music(&sdd?).filter(|[l, _]| l.len() > gf4dm3::MUSIC_RATE as usize)
         };
         let [mut left, mut right] = match long(self.sdd(file)) {
             Some(m) => m,
             None => long(self.sdd(SoundFile::Guitar))?,
         };
-        left.drain(..gf4dm::MUSIC_LEAD.min(left.len()));
-        right.drain(..gf4dm::MUSIC_LEAD.min(right.len()));
+        left.drain(..gf4dm3::MUSIC_LEAD.min(left.len()));
+        right.drain(..gf4dm3::MUSIC_LEAD.min(right.len()));
         Some(Pcm {
-            rate: gf4dm::MUSIC_RATE,
+            rate: gf4dm3::MUSIC_RATE,
             channels: vec![left, right],
         })
     }
@@ -343,7 +343,7 @@ impl GfdmSource {
 
 /// 4thMIX & 3rdMIX: a tone at its volume and pan, played at `rate`, held
 /// for `ticks` (1/300 s, 0 whole) and then faded out.
-fn fourth_tone(bank: &gf4dm::Bank, tone: &gf4dm::Tone, rate: u32, ticks: u16) -> Option<Pcm> {
+fn fourth_tone(bank: &gf4dm3::Bank, tone: &gf4dm3::Tone, rate: u32, ticks: u16) -> Option<Pcm> {
     let gain = tone.volume as i32;
     let mut mono: Vec<i16> = bank
         .decode(tone)

@@ -93,10 +93,10 @@ GFDM(GuitarFreaks & DrumMania Masterpiece Silver)은 2026-11-10 플레이 가능
   - 2026-11-12 오픈 채보도 편곡됨(오픈 피크는 프렛 없는 노트 하나, 음 높이로 자리 잡음). 전에는 편곡을 켜도 오픈 채보는 원본 4K로 열렸음. 베이스는 원래 됐음. 디스크 전체 3640개 편곡 채보(오픈 147채보 포함)의 소리 모음이 원본과 같음
   - 2026-11-13 편곡 손봄: 8K에서 바깥 레인(L·R)이 옆의 세 키와 한꺼번에 나오지 않음(바깥 노트는 세 키 너비의 막대라 가려졌음, `hides`). 더블 플레이(10K·14K) 채보도 양쪽 노트를 한 벌의 레인에 모아 편곡함. 피처 `flip`(킥 뒤집기): 마디에서 박자를 잡는 소리(드럼은 베이스 드럼, 그 밖에는 박 위에 가장 많이 놓인 음 높이·키음)가 같은 자리로 다시 나오면 한 번 걸러 반대쪽 레인에 놓고 그 마디의 다른 노트는 그대로 둠. 프리셋 `flow`(와 `auto`·`easy`·`session`)에 들어감: 그 프리셋으로 만든 편곡 채보의 id가 모두 바뀜. 플레이 옵션의 편곡 세부 줄 "킥 뒤집기"로 끔.
 
-GF4DM3(GuitarFreaks 4thMIX & DrumMania 3rdMIX)은 2026-11-15 읽기·플레이 구현(42곡, `cs_disc::gf4dm`, 형식은 [specs/gf4dm3_ps2_disc.md](specs/gf4dm3_ps2_disc.md)). 사용자가 앱에서 쳐 보고 남긴 것:
+GF4DM3(GuitarFreaks 4thMIX & DrumMania 3rdMIX)은 2026-11-15 읽기·플레이 구현(42곡, `cs_disc::gf4dm3`, 형식은 [specs/gf4dm3_ps2_disc.md](specs/gf4dm3_ps2_disc.md)). 사용자가 앱에서 쳐 보고 남긴 것:
 - [ ] **B30** GF4DM3 기타 키음이 깨지게 들림(RIGHT ON TIME에서 확인). 음색 음높이(기준 키), 노트 길이로 끊기, 음량·팬, ADPCM 디코드(루프 플래그) 중 무엇인지 다시 확인
-- [x] **B31** GF4DM3 BPM이 계속 오락가락함. 지금은 마디선 간격으로 템포를 만들어서(`gf4dm::meta_track`, 마디당 4박 가정) 마디선이 고르지 않으면 흔들림. 채보나 곡 표에서 실제 BPM을 찾거나, 박선(드럼 종류 8)으로 템포를 잡기 — 드럼 마디선·박선으로 구간마다 템포를 맞춤(`gf4dm::beat_grid`), 대부분 정수 BPM 하나
-- [x] **B32** GF4DM3 곡 제목: 게임 화면에는 제목이 나오므로 Masterpiece Silver처럼 제목 이미지를 찾아 꺼내기(`GF4DM3.DAT`의 `texdat/*`, `tex/objname.bin` 후보). 지금은 8글자 내부 이름(`AINOSI`)을 씀 — `texdat/gd_music_select.dat`의 TIM 0~45번이 곡 번호 순 제목 그림(RIFF 제외), `gf4dm::Disc::title`
+- [x] **B31** GF4DM3 BPM이 계속 오락가락함. 지금은 마디선 간격으로 템포를 만들어서(`gf4dm3::meta_track`, 마디당 4박 가정) 마디선이 고르지 않으면 흔들림. 채보나 곡 표에서 실제 BPM을 찾거나, 박선(드럼 종류 8)으로 템포를 잡기 — 드럼 마디선·박선으로 구간마다 템포를 맞춤(`gf4dm3::beat_grid`), 대부분 정수 BPM 하나
+- [x] **B32** GF4DM3 곡 제목: 게임 화면에는 제목이 나오므로 Masterpiece Silver처럼 제목 이미지를 찾아 꺼내기(`GF4DM3.DAT`의 `texdat/*`, `tex/objname.bin` 후보). 지금은 8글자 내부 이름(`AINOSI`)을 씀 — `texdat/gd_music_select.dat`의 TIM 0~45번이 곡 번호 순 제목 그림(RIFF 제외), `gf4dm3::Disc::title`
 
 ### 플레이·화면
 - [x] **B5** BPM이 바뀌는 지점을 레인에 표시 — 마디선처럼 금색 줄 + 기어 바깥에 새 BPM 숫자
