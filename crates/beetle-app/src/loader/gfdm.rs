@@ -310,8 +310,10 @@ impl GfdmSource {
                     fourth_tone(b, tone, tone.rate(key), 0)
                 }),
                 Sound::Guitar { sound, ticks, .. } => guitar_bank.as_ref().and_then(|b| {
+                    // A guitar tone sounds at the key it covers, mostly an
+                    // octave under its root (B30).
                     let tone = b.tones.get(sound as usize)?;
-                    fourth_tone(b, tone, tone.rate(tone.root), ticks)
+                    fourth_tone(b, tone, tone.rate(tone.low), ticks)
                 }),
             };
             if let Some(pcm) = pcm {
