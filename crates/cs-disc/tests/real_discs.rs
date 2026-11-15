@@ -1018,12 +1018,16 @@ fn gf4dm3_songs_have_charts_and_sounds() {
         .unwrap()
         .expect("GF4DM3");
     assert_eq!(gf.songs.len(), 44);
+    // The record's title and drum levels (norm, real, expr).
+    let right_on_time = gf.songs.iter().find(|s| s.info.id == 307).unwrap();
+    assert_eq!(right_on_time.info.name, "RIGHT ON TIME");
+    assert_eq!(right_on_time.info.dm_levels, [4, 7, 8]);
     for song in &gf.songs {
         let charts = gf.song_charts(song);
         // Every song but the RIFF practice ones shows its title strip in
         // the song select (B32).
         let title = gf.title(song.info.id);
-        if song.info.name.starts_with("RIFF") {
+        if (315..=317).contains(&song.info.id) {
             assert!(title.is_none(), "{}", song.code);
         } else {
             let title = title.expect("title strip");
@@ -1068,9 +1072,10 @@ fn gf4dm3_songs_have_charts_and_sounds() {
             // to make a new tempo every bar (B31).
             let bpms: Vec<&str> = bms.lines().filter(|l| l.starts_with("#BPM")).collect();
             eprintln!("  {chart:?}: {}", bpms.join(" "));
-            // The medleys (CLASSIC PARTY 2, 1175) really change tempo often.
+            // The medleys (Classic party 2 318, 1175 126) really change
+            // tempo often.
             assert!(
-                bpms.len() <= 8 || ["CLASS2", "1175"].contains(&name.as_str()),
+                bpms.len() <= 8 || [318, 126].contains(&song.info.id),
                 "{name} {chart:?}: {bpms:?}"
             );
         }

@@ -350,19 +350,49 @@ fn driver_names(irx: &[u8]) -> Option<Vec<String>> {
         .collect()
 }
 
-/// `music_info5.bin`: `u16` record count, `u16`, then 0x50-byte records
-/// (`u16` song id at 0xc, the 8-byte name at 0x10).
-fn music_info(bytes: &[u8]) -> Vec<(u32, String)> {
+/// A song's record in `music_info5.bin`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Record {
+    id: u32,
+    /// The 8-letter name (`ainosi`).
+    name: String,
+    /// The title in roman letters (`ai no shirushi`).
+    title: String,
+    /// Length in 1/75 s.
+    length: u32,
+    /// Level of each mode (1–10, 0 not in that mode); `LEVEL_*`.
+    levels: [u8; 7],
+}
+
+/// Modes of `Record::levels`, by the drum chart each has.
+const LEVEL_EASY: usize = 1;
+const LEVEL_NORM: usize = 2;
+const LEVEL_REAL: usize = 3;
+const LEVEL_EXPR: usize = 4;
+
+/// `music_info5.bin`: `u16` record count *n*, `u16` count *m*; from 0x10
+/// *n* 0x50-byte records (`u16` song id at 0, the 8-byte name at 4, the
+/// title's place in the strings at 0xc, the length at 0xe, a level for
+/// each mode from 0x1b), *m* `u32`, then NUL-ended strings.
+fn music_info(bytes: &[u8]) -> Vec<Record> {
     let count = u16_at(bytes, 0).unwrap_or(0) as usize;
+    let others = u16_at(bytes, 2).unwrap_or(0) as usize;
+    let strings = 0x10 + count * 0x50 + others * 4;
+    let text = |b: &[u8]| -> String {
+        let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+        b[..end].iter().map(|&c| c as char).collect()
+    };
     (0..count)
         .filter_map(|k| {
-            let r = bytes.get(4 + k * 0x50..4 + (k + 1) * 0x50)?;
-            let name = &r[0x10..0x18];
-            let end = name.iter().position(|&b| b == 0).unwrap_or(8);
-            Some((
-                u16_at(r, 0xc)? as u32,
-                name[..end].iter().map(|&b| b as char).collect(),
-            ))
+            let r = bytes.get(0x10 + k * 0x50..0x10 + (k + 1) * 0x50)?;
+            let title_at = strings + u16_at(r, 0xc)? as usize;
+            Some(Record {
+                id: u16_at(r, 0)? as u32,
+                name: text(&r[4..0xc]),
+                title: text(bytes.get(title_at..)?),
+                length: u16_at(r, 0xe)? as u32,
+                levels: r[0x1b..0x22].try_into().ok()?,
+            })
         })
         .collect()
 }
@@ -412,7 +442,7 @@ impl Disc {
             .copied()
             .filter(|id| {
                 info.iter()
-                    .any(|(i, name)| i == id && !name.starts_with("riff"))
+                    .any(|r| r.id == *id && !r.name.starts_with("riff"))
             })
             .collect();
         title_ids.sort_unstable();
@@ -427,19 +457,30 @@ impl Disc {
             if songs.iter().any(|s| s.code == code) {
                 continue;
             }
-            let Some((_, name)) = info.iter().find(|(i, _)| *i == id) else {
+            let Some(r) = info.iter().find(|r| r.id == id) else {
                 continue;
+            };
+            // The drums' levels for the app's difficulties (`song_charts`):
+            // norm (easy without it), real, expr. The guitar has none of
+            // its own that is known.
+            let lv = r.levels;
+            let first = match lv[LEVEL_NORM] {
+                0 => lv[LEVEL_EASY],
+                n => n,
             };
             songs.push(Song {
                 info: MusicInfo {
                     id,
-                    name: name.to_uppercase(),
+                    name: match r.title.is_empty() {
+                        true => r.name.to_uppercase(),
+                        false => r.title.clone(),
+                    },
                     bpm: 0,
                     gf_levels: [0; 3],
-                    dm_levels: [0; 3],
+                    dm_levels: [first, lv[LEVEL_REAL], lv[LEVEL_EXPR]],
                     bass_levels: [0; 3],
                     open_levels: [0; 3],
-                    length: 0,
+                    length: r.length * TO_GFDM,
                 },
                 code,
             });
