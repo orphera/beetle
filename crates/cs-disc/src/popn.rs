@@ -684,6 +684,7 @@ pub(crate) fn read_songs(
         songs.push(Song {
             id: id as u32,
             title,
+            stagefile: None,
             charts,
             sounds,
             stage: form
@@ -1642,6 +1643,7 @@ mod tests {
         let make_song = |id, title: &str, bank| Song {
             id,
             title: title.to_string(),
+            stagefile: None,
             charts: [Difficulty::Normal, Difficulty::Hyper]
                 .into_iter()
                 .map(|difficulty| Chart {

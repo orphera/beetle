@@ -348,6 +348,8 @@ enum FileRecords {
 struct Record {
     size: usize,
     title: TitleField,
+    /// DATA1 file number for the song's stagefile, where present.
+    stagefile_at: Option<usize>,
     numbers: FileNumbers,
     /// The level bytes and which of them each chart slot (`CHART_SLOTS` order) shows.
     levels_at: usize,
@@ -463,6 +465,7 @@ struct Picks {
 const RECORD_15_16: Record = Record {
     size: 0x134,
     title: TitleField::Inline,
+    stagefile_at: None,
     numbers: FileNumbers::Running,
     levels_at: 0x4a,
     level_of: [1, 6, 2, 7, 0, 5, 3, 8, 4, 9],
@@ -712,6 +715,7 @@ const SIXTH_STYLE: Layout = Layout {
             at: 0,
             base: 0xff000,
         },
+        stagefile_at: None,
         numbers: FileNumbers::Archives {
             at: 0x16,
             first: 0x1590 / 16,
@@ -908,6 +912,7 @@ const EIGHTH_STYLE: Layout = Layout {
             at: 0,
             base: 0xfff80,
         },
+        stagefile_at: None,
         numbers: FileNumbers::Split { first: 116 },
         levels_at: 0x08,
         level_of: [0, 1, 0, 1, 2, 3, 4, 5, 0, 1],
@@ -1014,6 +1019,7 @@ const BEATMANIA_US: Layout = Layout {
     record: Record {
         size: 0x174,
         title: TitleField::InlineShiftJis,
+        stagefile_at: Some(0xd8),
         numbers: FileNumbers::Running,
         levels_at: 0x4a,
         level_of: [NO_FIELD; 10],
@@ -1029,7 +1035,10 @@ const BEATMANIA_US: Layout = Layout {
     },
     dan: None,
     expert: None,
-    word_layout: None,
+    word_layout: Some(WordLayout {
+        offsets: [0xe0, 0xe4, 0xe8, 0xf0],
+        rect_base: 0x90,
+    }),
     old_words: None,
     ..TENTH_STYLE
 };
@@ -1050,6 +1059,7 @@ const TENTH_STYLE: Layout = Layout {
     record: Record {
         size: 0x16c,
         title: TitleField::Inline,
+        stagefile_at: None,
         numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [9, 11, 9, 11, 10, 12, 0, 0, 9, 11],
@@ -1099,6 +1109,7 @@ const RED: Layout = Layout {
     record: Record {
         size: 0x140,
         title: TitleField::Inline,
+        stagefile_at: None,
         numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [11, 14, 13, 16, 12, 15, 0, 0, 13, 16],
@@ -1148,6 +1159,7 @@ const HAPPY_SKY: Layout = Layout {
     record: Record {
         size: 0x144,
         title: TitleField::Inline,
+        stagefile_at: None,
         numbers: FileNumbers::Running,
         levels_at: 0x41,
         level_of: [10, 13, 11, 14, 9, 12, 0, 0, 11, 14],
@@ -1199,6 +1211,7 @@ const DISTORTED: Layout = Layout {
     record: Record {
         size: 0x118,
         title: TitleField::Inline,
+        stagefile_at: None,
         numbers: FileNumbers::Running,
         levels_at: 0x42,
         level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
@@ -1256,6 +1269,7 @@ const GOLD: Layout = Layout {
     record: Record {
         size: 0x11c,
         title: TitleField::Inline,
+        stagefile_at: None,
         numbers: FileNumbers::Running,
         levels_at: 0x42,
         level_of: [11, 14, 12, 15, 10, 13, 0, 0, 12, 15],
@@ -1539,6 +1553,8 @@ pub struct Song {
     pub id: u32,
     /// The title as the disc stores it (ASCII; other bytes become `?`).
     pub title: String,
+    /// The `DATA1.DAT` file number of the song's stagefile, where present.
+    pub stagefile: Option<u32>,
     /// In `Style`, then `Difficulty` order.
     pub charts: Vec<Chart>,
     /// The sound file numbers as stored (key sounds and BGM per chart pair; `0xffff` is none).
@@ -2265,6 +2281,29 @@ impl Disc {
             .and_then(|bytes| first_picture(&bytes)))
     }
 
+    /// The song's stagefile stored in a DATA1 archive, where the edition has one.
+    pub fn stagefile_image<R: Read + Seek>(
+        &self,
+        disc: &mut SectorReader<R>,
+        song: &Song,
+    ) -> io::Result<Option<Rgba>> {
+        let Some(file) = song.stagefile else {
+            return Ok(None);
+        };
+        let Some(archive) = self.read_data1(disc, file)? else {
+            return Ok(None);
+        };
+        Ok(data1_texture(&archive, 1))
+    }
+
+    /// Where a song's stagefile is: its absolute DATA1 byte span and image index.
+    pub fn stagefile_extent(&self, song: &Song) -> Option<(u64, u64, u32)> {
+        let file = song.stagefile?;
+        let &(offset, size) = self.data1_files.get(file as usize)?;
+        (size != 0 && offset + size <= self.data1.size)
+            .then(|| (self.data1.offset() + offset, size, 0))
+    }
+
     /// The word pictures of a `song`: its title and its artist (and on
     /// PREMIUM BEST its small title), as coverage masks. `None` where the disc
     /// has no word pictures for it. For the names of many songs, use
@@ -2719,10 +2758,7 @@ impl Disc {
                 let Some(archive) = self.read_data1(disc, file)? else {
                     return Ok(None);
                 };
-                let image = archive_texture(&archive, 1).and_then(|(size, raw)| {
-                    let (width, height) = texture_size(size)?;
-                    decode_psmt8(&raw, width, height)
-                });
+                let image = data1_texture(&archive, 1);
                 let picture = match song.stage_picks {
                     Some((usual, on_another)) if another => on_another.unwrap_or(usual),
                     Some((usual, _)) => usual,
@@ -2856,6 +2892,12 @@ fn archive_texture(archive: &[u8], wanted: usize) -> Option<(usize, Vec<u8>)> {
     archive_files(archive)?
         .nth(wanted)
         .and_then(|(unpacked, bytes)| Some((unpacked, decode_lzss(bytes?, unpacked)?)))
+}
+
+fn data1_texture(archive: &[u8], index: usize) -> Option<Rgba> {
+    let (size, raw) = archive_texture(archive, index)?;
+    let (width, height) = texture_size(size)?;
+    decode_psmt8(&raw, width, height)
 }
 
 /// The files of a DATA1 archive (`archive_texture`): (decompressed size,
@@ -3167,6 +3209,10 @@ fn read_songs(exe: &[u8], span: (usize, usize), layout: &Record) -> io::Result<V
         songs.push(Song {
             id: id as u32,
             title,
+            stagefile: layout
+                .stagefile_at
+                .map(|at| u32_at(record, at))
+                .filter(|&file| file != 0 && file != u32::MAX),
             charts,
             sounds,
             stage,

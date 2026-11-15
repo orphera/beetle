@@ -183,10 +183,18 @@ trait SongSource {
     fn videos(&mut self, chart: &BmsChart) -> HashMap<BmpId, VideoSource>;
     /// The song's stage artwork.
     fn stage_image(&mut self) -> Option<StageArt>;
+    /// The song's select-screen stagefile; other sources use their stage art.
+    fn select_art(&mut self) -> Option<StageArt> {
+        self.stage_image()
+    }
     /// Names where the stage art is read from: charts with the same key show
     /// the same art, decoded once (`load_stage`). `None`: read for each chart.
     fn stage_key(&mut self) -> Option<String> {
         None
+    }
+    /// Names where the select-screen art is read from.
+    fn select_art_key(&mut self) -> Option<String> {
+        self.stage_key()
     }
 }
 
@@ -204,21 +212,9 @@ fn open_source(file_path: &str) -> Result<Box<dyn SongSource>, ChartLoadError> {
     }
 }
 
-/// Loads a song's stage artwork (the caller keeps it in memory).
-/// The stage image the song select screen shows (its detail panel and jacket).
-/// IIDX discs have none there: their loading art is slow to read from the disc,
-/// so the select screen shows the text instead. Pop'n art is in the atlas and
-/// stays. Gameplay still loads the full stage image (`load_stage_image`).
+/// Loads a song's select-screen stagefile (the caller keeps it in memory).
 pub fn select_stage_image(song: &SongMetadata) -> StagePicture {
-    if let SongAddress::Disc { image, chart } = SongAddress::parse(&song.file_path) {
-        let popn = disc::DiscSource::open(image, chart)
-            .map(|source| source.is_popn())
-            .unwrap_or(false);
-        if !popn {
-            return StagePicture::none(song.id);
-        }
-    }
-    load_stage(song)
+    load_stage_with(song, true)
 }
 
 /// A decoded stage picture, shared by every chart that shows it.
@@ -289,16 +285,28 @@ pub fn forget_stage_pictures() {
 
 /// Loads a song's stage art, reusing the decode of any chart that shares it.
 pub fn load_stage(song: &SongMetadata) -> StagePicture {
+    load_stage_with(song, false)
+}
+
+fn load_stage_with(song: &SongMetadata, select_art: bool) -> StagePicture {
     let Ok(mut source) = open_source(&song.file_path) else {
         return StagePicture::none(song.id);
     };
-    let shared = source
-        .stage_key()
-        .map(|key| ChartId::of_bytes(format!("stage:{key}").as_bytes()));
+    let key = if select_art {
+        source.select_art_key()
+    } else {
+        source.stage_key()
+    };
+    let shared = key.map(|key| ChartId::of_bytes(format!("stage:{key}").as_bytes()));
     if let Some(hit) = shared.and_then(|id| stage_pictures().get(&id)) {
         return hit;
     }
-    let image = source.stage_image().map(Arc::new);
+    let image = (if select_art {
+        source.select_art()
+    } else {
+        source.stage_image()
+    })
+    .map(Arc::new);
     let backdrop = image
         .as_deref()
         .and_then(beetle_render::backdrop::blur_backdrop)
@@ -1667,6 +1675,31 @@ mod tests {
             other => panic!("no disc video: {other:?}"),
         }
         assert_eq!(song_file_label(&meta), "sp_another");
+    }
+
+    /// With `CS_DISC_BEATMANIA_US` set, the song's DATA1 stagefile is shown
+    /// in the select screen independently of its loading-card image.
+    #[test]
+    fn a_us_beatmania_disc_stagefile_loads_for_song_select() {
+        let Ok(image) = std::env::var("CS_DISC_BEATMANIA_US") else {
+            return;
+        };
+        let address = beetle_core::disc_address(&image, "000/sp_hyper");
+        let mut disc = cs_disc::open(&image).unwrap();
+        let volume = cs_disc::Volume::open(&mut disc).unwrap();
+        let songs =
+            cs_disc::iidx::Disc::open(&mut disc, &volume, cs_disc::Edition::BeatmaniaUs).unwrap();
+        let (song, chart) = songs.find("000/sp_hyper").unwrap();
+        assert!(song.stage.is_none());
+        assert!(song.stagefile.is_some());
+        let bms = songs.chart_bms(&mut disc, song, chart).unwrap();
+        let meta = SongMetadata::from_bytes(&address, bms.as_bytes()).unwrap();
+
+        let selected = select_stage_image(&meta)
+            .image
+            .expect("the stagefile should be shown in song select");
+        assert!(selected.width > 0 && selected.height > 0);
+        assert!(selected.pixels.iter().any(|pixel| pixel.a != 0));
     }
 
     /// With `CS_DISC_IIDX14` set to the GOLD image or drive: Blind Justice

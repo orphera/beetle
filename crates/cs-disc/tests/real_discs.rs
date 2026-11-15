@@ -3,7 +3,7 @@
 //! `CS_DISC_IIDX14`, or `CS_DISC_BEATMANIA_US`) to the `.iso` paths for the
 //! chart and sound checks; without them these tests do nothing.
 
-use cs_disc::iidx::{Difficulty, Disc, Style};
+use cs_disc::iidx::{Difficulty, Disc, NameSheets, Style};
 use cs_disc::Edition;
 use cs_disc::{identify, SectorReader, Volume};
 
@@ -115,6 +115,48 @@ fn us_beatmania_is_identified_and_its_songs_open() {
         .expect("Attack the music is on the US disc");
     assert_eq!(song.charts.len(), 2);
     assert!(songs.chart_bms(&mut disc, song, &song.charts[0]).is_ok());
+}
+
+#[test]
+fn us_beatmania_reads_every_song_word_picture_and_stagefile() {
+    let Some((mut disc, volume)) = open("CS_DISC_BEATMANIA_US") else {
+        return;
+    };
+    let songs = Disc::open(&mut disc, &volume, Edition::BeatmaniaUs).unwrap();
+    let mut sheets = NameSheets::default();
+    for song in &songs.songs {
+        let names = songs
+            .song_names_with(&mut disc, song, &mut sheets)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{}: no word pictures", song.title));
+        for (kind, image) in [
+            ("small title", names.small_title.as_ref()),
+            ("title", names.title.as_ref()),
+            ("artist", names.artist.as_ref()),
+            ("genre", names.genre.as_ref()),
+        ] {
+            let image = image.unwrap_or_else(|| panic!("{}: no {kind}", song.title));
+            assert!(
+                image.width > 0 && image.height > 0,
+                "{}: empty {kind}",
+                song.title
+            );
+        }
+        let stagefile = songs
+            .stagefile_image(&mut disc, song)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{}: no stagefile", song.title));
+        assert!(
+            stagefile.width > 0 && stagefile.height > 0 && !stagefile.pixels.is_empty(),
+            "{}: empty stagefile",
+            song.title
+        );
+        assert!(
+            songs.stagefile_extent(song).is_some(),
+            "{}: stagefile has no DATA1 extent",
+            song.title
+        );
+    }
 }
 
 /// Every chart decrypts and decompresses to the `.ply` iidx-ps2tools extracted,

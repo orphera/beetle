@@ -48,11 +48,6 @@ fn read_discs() -> std::sync::MutexGuard<'static, HashMap<String, (Stamp, Arc<Di
 }
 
 impl DiscSource {
-    /// Whether the disc is a pop'n music disc (its art is in the atlas).
-    pub(super) fn is_popn(&self) -> bool {
-        self.songs.edition.is_popn()
-    }
-
     pub(super) fn open(image: &str, key: &str) -> Result<Self, ChartLoadError> {
         let mut disc = cs_disc::open(image).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => ChartLoadError::NotFound,
@@ -110,6 +105,20 @@ impl DiscSource {
 
     fn slot(&self) -> &cs_disc::iidx::Chart {
         &self.song().charts[self.chart]
+    }
+
+    fn stage_art(&self, picture: cs_disc::ps2tex::Rgba) -> StageArt {
+        let decoded = if self.songs.edition.is_popn() {
+            picture.letterboxed_4_3()
+        } else {
+            picture.centered_4_3()
+        };
+        let mut image =
+            ImageBuffer::new(decoded.width, decoded.height, ColorRgba::new(0, 0, 0, 255));
+        for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {
+            *out = ColorRgba::new(r, g, b, a);
+        }
+        image
     }
 
     /// Every sound the chart plays, decoded at its bank volume (the BGM
@@ -282,6 +291,18 @@ impl SongSource for DiscSource {
         Some(format!("disc:{}@{at}+{size}#{index}:{another}", self.image))
     }
 
+    fn select_art_key(&mut self) -> Option<String> {
+        let song = &self.songs.songs[self.song];
+        let (at, size, index) = self.songs.stagefile_extent(song)?;
+        Some(format!("disc-stagefile:{}@{at}+{size}#{index}", self.image))
+    }
+
+    fn select_art(&mut self) -> Option<StageArt> {
+        let song = &self.songs.songs[self.song];
+        let picture = self.songs.stagefile_image(&mut self.disc, song).ok()??;
+        Some(self.stage_art(picture))
+    }
+
     fn stage_image(&mut self) -> Option<StageArt> {
         let song = &self.songs.songs[self.song];
         let another = song.charts[self.chart].difficulty == Difficulty::Another;
@@ -289,17 +310,7 @@ impl SongSource for DiscSource {
             .songs
             .stage_image(&mut self.disc, song, another)
             .ok()??;
-        let decoded = if self.songs.edition.is_popn() {
-            picture.letterboxed_4_3()
-        } else {
-            picture.centered_4_3()
-        };
-        let mut image =
-            ImageBuffer::new(decoded.width, decoded.height, ColorRgba::new(0, 0, 0, 255));
-        for (out, [r, g, b, a]) in image.pixels.iter_mut().zip(decoded.pixels) {
-            *out = ColorRgba::new(r, g, b, a);
-        }
-        Some(image)
+        Some(self.stage_art(picture))
     }
 }
 
