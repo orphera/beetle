@@ -95,7 +95,7 @@ GFDM(GuitarFreaks & DrumMania Masterpiece Silver)은 2026-11-10 플레이 가능
 
 GF4DM3(GuitarFreaks 4thMIX & DrumMania 3rdMIX)은 2026-11-15 읽기·플레이 구현(42곡, `cs_disc::gf4dm`, 형식은 [specs/gf4dm3_ps2_disc.md](specs/gf4dm3_ps2_disc.md)). 사용자가 앱에서 쳐 보고 남긴 것:
 - [ ] **B30** GF4DM3 기타 키음이 깨지게 들림(RIGHT ON TIME에서 확인). 음색 음높이(기준 키), 노트 길이로 끊기, 음량·팬, ADPCM 디코드(루프 플래그) 중 무엇인지 다시 확인
-- [ ] **B31** GF4DM3 BPM이 계속 오락가락함. 지금은 마디선 간격으로 템포를 만들어서(`gf4dm::meta_track`, 마디당 4박 가정) 마디선이 고르지 않으면 흔들림. 채보나 곡 표에서 실제 BPM을 찾거나, 박선(드럼 종류 8)으로 템포를 잡기
+- [x] **B31** GF4DM3 BPM이 계속 오락가락함. 지금은 마디선 간격으로 템포를 만들어서(`gf4dm::meta_track`, 마디당 4박 가정) 마디선이 고르지 않으면 흔들림. 채보나 곡 표에서 실제 BPM을 찾거나, 박선(드럼 종류 8)으로 템포를 잡기 — 드럼 마디선·박선으로 구간마다 템포를 맞춤(`gf4dm::beat_grid`), 대부분 정수 BPM 하나
 - [ ] **B32** GF4DM3 곡 제목: 게임 화면에는 제목이 나오므로 Masterpiece Silver처럼 제목 이미지를 찾아 꺼내기(`GF4DM3.DAT`의 `texdat/*`, `tex/objname.bin` 후보). 지금은 8글자 내부 이름(`AINOSI`)을 씀
 
 ### 플레이·화면

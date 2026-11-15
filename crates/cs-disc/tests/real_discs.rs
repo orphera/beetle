@@ -1054,6 +1054,15 @@ fn gf4dm3_songs_have_charts_and_sounds() {
                 .filter(|l| l.starts_with('#') && l.as_bytes().get(4) == Some(&b'1'))
                 .count();
             assert!(notes > 0, "{name} {chart:?}");
+            // One tempo for most songs: the bar lines rounded to 1/75 s used
+            // to make a new tempo every bar (B31).
+            let bpms: Vec<&str> = bms.lines().filter(|l| l.starts_with("#BPM")).collect();
+            eprintln!("  {chart:?}: {}", bpms.join(" "));
+            // The medleys (CLASSIC PARTY 2, 1175) really change tempo often.
+            assert!(
+                bpms.len() <= 8 || ["CLASS2", "1175"].contains(&name.as_str()),
+                "{name} {chart:?}: {bpms:?}"
+            );
         }
         for file in [SoundFile::Guitar, SoundFile::Bass, SoundFile::Drums] {
             let played = match file {

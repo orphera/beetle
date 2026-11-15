@@ -465,6 +465,7 @@ impl Disc {
         let mut guitar = Seq { tracks: Vec::new() };
         // (part, difficulty, names to try): 1 guitar, 2 bass.
         let mut used: Vec<String> = Vec::new();
+        let mut guitar_bars = Vec::new();
         for (part, side) in [(1u8, "_1p1"), (2, "_2p2")] {
             for (difficulty, names) in [
                 (1u8, &["nor"][..]),
@@ -480,18 +481,45 @@ impl Disc {
                 };
                 used.push(n.clone());
                 let bytes = pick(&[n]).unwrap_or_default();
-                guitar_track(&mut guitar, &bytes, difficulty, part);
+                let bars = guitar_track(&mut guitar, &bytes, difficulty, part);
+                if guitar_bars.is_empty() {
+                    guitar_bars = bars;
+                }
             }
         }
         let mut drums = Seq { tracks: Vec::new() };
+        let mut drum_lines = (Vec::new(), Vec::new());
         for (difficulty, names) in [
             (1u8, &["norm", "easy"][..]),
             (2, &["real"][..]),
             (3, &["expr"][..]),
         ] {
             if let Some(bytes) = pick(names) {
-                drum_track(&mut drums, &bytes, difficulty);
+                let lines = drum_track(&mut drums, &bytes, difficulty);
+                if drum_lines.0.is_empty() {
+                    drum_lines = lines;
+                }
             }
+        }
+        // The tempo comes from the drums' beat lines, which both parts
+        // share; guitar charts have bar lines only, and some bars are two
+        // beats. Each part keeps its own bar lines.
+        let (mut drum_bars, beats) = drum_lines;
+        drum_bars.sort_unstable();
+        drum_bars.dedup();
+        guitar_bars.sort_unstable();
+        guitar_bars.dedup();
+        let grid = match drum_bars.is_empty() {
+            true => beat_grid(&guitar_bars, &[]),
+            false => beat_grid(&drum_bars, &beats),
+        };
+        if !drums.tracks.is_empty() {
+            let meta = meta_track(Game::DrumMania, &mut drum_bars, &grid);
+            drums.tracks.insert(0, meta);
+        }
+        if !guitar.tracks.is_empty() {
+            let meta = meta_track(Game::GuitarFreaks, &mut guitar_bars, &grid);
+            guitar.tracks.insert(0, meta);
         }
         SongCharts {
             info: song.info.clone(),
@@ -542,22 +570,84 @@ fn events(bytes: &[u8]) -> impl Iterator<Item = (u32, u16, u16)> + '_ {
         .take_while(|&e| e != (0, 0, 0))
 }
 
-/// A meta track from bar line times (1/75 s): a bar line and a tempo at
-/// each, four beats a bar.
-fn meta_track(game: Game, bars: &mut Vec<u32>) -> Track {
+/// Steady stretches of bars (times in 1/75 s): `(first bar, ticks a
+/// beat)`. A bar's beats are the beat lines inside it plus one, or four
+/// when there are no beat lines (guitar charts). The disc rounds each line
+/// to a tick, so bars of one tempo come out 138 and 139 ticks long; fitting
+/// a stretch gets the tempo back (130.00). Bar lines, not beat lines, set
+/// the stretches: in DAY DREAM the beat lines run on a grid of their own.
+fn beat_grid(bars: &[u32], beat_lines: &[u32]) -> Vec<(u32, f64)> {
+    // A bar off the stretch's tempo by more than this starts a new tempo.
+    const TOLERANCE: f64 = 1.5;
+    // Without beat lines a bar is four beats, or the count (a two-beat bar)
+    // that keeps the last bar's beat when one fits.
+    let mut last_beat: Option<f64> = None;
+    let beats: Vec<u32> = bars
+        .windows(2)
+        .map(|w| {
+            let len = (w[1] - w[0]) as f64;
+            let n = match (beat_lines.is_empty(), last_beat) {
+                (false, _) => {
+                    1 + beat_lines.iter().filter(|&&t| t > w[0] && t < w[1]).count() as u32
+                }
+                (true, Some(beat)) => (1..=8)
+                    .find(|&n| (len - n as f64 * beat).abs() <= TOLERANCE)
+                    .unwrap_or(4),
+                (true, None) => 4,
+            };
+            last_beat = Some(len / n as f64);
+            n
+        })
+        .collect();
+    let mut grid = Vec::new();
+    let mut i = 0;
+    while i + 1 < bars.len() {
+        let mut j = i + 1;
+        while j + 1 < bars.len() {
+            let per = (bars[j] - bars[i]) as f64 / beats[i..j].iter().sum::<u32>() as f64;
+            let next = (bars[j + 1] - bars[j]) as f64;
+            if (next - per * beats[j] as f64).abs() > TOLERANCE {
+                break;
+            }
+            j += 1;
+        }
+        let n = beats[i..j].iter().sum::<u32>() as f64;
+        let mut bpm = 60.0 * TICKS_PER_SECOND as f64 * n / (bars[j] - bars[i]) as f64;
+        // 140.01 from the rounding is 140.
+        bpm = if (bpm - bpm.round()).abs() < 0.03 {
+            bpm.round()
+        } else {
+            (bpm * 100.0).round() / 100.0
+        };
+        grid.push((bars[i], 60.0 * TICKS_PER_SECOND as f64 / bpm));
+        i = j;
+    }
+    grid
+}
+
+/// A meta track: a tempo at the start of each stretch of `grid`, and the
+/// bar lines (1/75 s), each moved onto the grid's nearest beat when it is
+/// that close.
+fn meta_track(game: Game, bars: &mut Vec<u32>, grid: &[(u32, f64)]) -> Track {
     bars.sort_unstable();
     bars.dedup();
     let mut events = Vec::new();
-    for (k, &t) in bars.iter().enumerate() {
-        let len = match (bars.get(k + 1), k.checked_sub(1).map(|p| bars[p])) {
-            (Some(&next), _) => next - t,
-            (None, Some(prev)) => t - prev,
-            _ => TICKS_PER_SECOND * 2,
-        };
-        let us = len as u64 * 1_000_000 / TICKS_PER_SECOND as u64 / 4;
-        let time = t * TO_GFDM;
-        events.push(event(time, 0, 0x10, us as u32, 0));
-        events.push(event(time, 0, 0x50, 0, 0));
+    for &(start, ticks) in grid {
+        let us = (ticks * 1_000_000.0 / TICKS_PER_SECOND as f64).round() as u32;
+        events.push(event(start * TO_GFDM, 0, 0x10, us, 0));
+    }
+    if grid.is_empty() {
+        events.push(event(0, 0, 0x10, 500_000, 0));
+    }
+    for &t in bars.iter() {
+        let mut time = (t * TO_GFDM) as f64;
+        if let Some(&(start, ticks)) = grid.iter().rev().find(|g| g.0 <= t).or(grid.first()) {
+            let k = (t as f64 - start as f64) / ticks;
+            if (k - k.round()).abs() < 0.1 {
+                time = (start as f64 + k.round() * ticks) * TO_GFDM as f64;
+            }
+        }
+        events.push(event(time.round() as u32, 0, 0x50, 0, 0));
     }
     Track {
         game,
@@ -580,7 +670,7 @@ fn event(time: u32, value: u8, kind: u8, a: u32, b: u32) -> Event {
 
 /// Adds a guitar chart: its notes (`a` the tone, high half the length in
 /// 1/300 s), and the meta track from its bar lines if there is none yet.
-fn guitar_track(seq: &mut Seq, bytes: &[u8], difficulty: u8, part: u8) {
+fn guitar_track(seq: &mut Seq, bytes: &[u8], difficulty: u8, part: u8) -> Vec<u32> {
     let mut bars = Vec::new();
     let mut notes = Vec::new();
     for (time, length, frets) in events(bytes) {
@@ -602,10 +692,7 @@ fn guitar_track(seq: &mut Seq, bytes: &[u8], difficulty: u8, part: u8) {
         }
     }
     if notes.is_empty() {
-        return;
-    }
-    if !seq.tracks.iter().any(|t| t.is_meta) {
-        seq.tracks.push(meta_track(Game::GuitarFreaks, &mut bars));
+        return Vec::new();
     }
     seq.tracks.push(Track {
         game: Game::GuitarFreaks,
@@ -614,11 +701,13 @@ fn guitar_track(seq: &mut Seq, bytes: &[u8], difficulty: u8, part: u8) {
         part,
         events: notes,
     });
+    bars
 }
 
 /// Adds a drum chart: lanes 0–5 as notes, lane 6 as sounds (`a` the key).
-fn drum_track(seq: &mut Seq, bytes: &[u8], difficulty: u8) {
+fn drum_track(seq: &mut Seq, bytes: &[u8], difficulty: u8) -> (Vec<u32>, Vec<u32>) {
     let mut bars = Vec::new();
+    let mut beats = Vec::new();
     let mut notes = Vec::new();
     for (time, kind, key) in events(bytes) {
         let (lane, volume) = (kind as u8, (kind >> 8) as u32);
@@ -626,14 +715,12 @@ fn drum_track(seq: &mut Seq, bytes: &[u8], difficulty: u8) {
             0..=5 => notes.push(event(time * TO_GFDM, lane, 0, key as u32, volume)),
             6 => notes.push(event(time * TO_GFDM, 0xff, 1, key as u32, volume)),
             7 => bars.push(time),
+            8 => beats.push(time),
             _ => {}
         }
     }
     if !notes.iter().any(|e| e.kind == 0) {
-        return;
-    }
-    if !seq.tracks.iter().any(|t| t.is_meta) {
-        seq.tracks.push(meta_track(Game::DrumMania, &mut bars));
+        return (Vec::new(), Vec::new());
     }
     seq.tracks.push(Track {
         game: Game::DrumMania,
@@ -642,6 +729,7 @@ fn drum_track(seq: &mut Seq, bytes: &[u8], difficulty: u8) {
         part: 0,
         events: notes,
     });
+    (bars, beats)
 }
 
 /// One tone of a sound bank (`VPHD`, 0x20 bytes from 0x240).
@@ -838,14 +926,36 @@ mod tests {
             bytes.extend_from_slice(&b.to_le_bytes());
         }
         let mut seq = Seq { tracks: Vec::new() };
-        guitar_track(&mut seq, &bytes, 1, 1);
-        let note = seq.tracks[1].events[0];
+        let mut bars = guitar_track(&mut seq, &bytes, 1, 1);
+        let note = seq.tracks[0].events[0];
         assert_eq!(note.time, 160);
         assert_eq!(note.value, 0x21);
         assert_eq!(note.a, 70 | 68 << 16);
-        // 100 ticks a bar at 75/s, four beats: 1/3 s a beat.
-        let tempo = seq.tracks[0].events[0];
+        // 100 ticks a bar at 75/s, four beats: 1/3 s a beat (180 BPM).
+        let grid = beat_grid(&bars, &[]);
+        let tempo = meta_track(Game::GuitarFreaks, &mut bars, &grid).events[0];
         assert_eq!((tempo.kind, tempo.a), (0x10, 333_333));
+    }
+
+    #[test]
+    fn bars_rounded_to_ticks_keep_one_tempo() {
+        // 130 BPM: 138.46 ticks a bar, each rounded to a tick on the disc.
+        let mut bars: Vec<u32> = (0..20)
+            .map(|k| (k as f64 * 138.4615).round() as u32)
+            .collect();
+        let grid = beat_grid(&bars, &[]);
+        let meta = meta_track(Game::DrumMania, &mut bars, &grid);
+        let tempos: Vec<_> = meta.events.iter().filter(|e| e.kind == 0x10).collect();
+        assert_eq!(tempos.len(), 1);
+        assert_eq!(tempos[0].a, 461_538);
+        // Bar 3 sits on the grid (3 × 138.46 ticks × 4), not the rounded 415.
+        let bar3 = meta
+            .events
+            .iter()
+            .filter(|e| e.kind == 0x50)
+            .nth(3)
+            .unwrap();
+        assert_eq!(bar3.time, 1662);
     }
 
     #[test]
