@@ -1113,7 +1113,7 @@ fn song_row(
         tx,
         text_w,
         on,
-        words.and_then(|w| w.small_title.or(w.title)),
+        words.and_then(list_word),
         s,
     );
     let mode = theme::mode_label(song.play_mode);
@@ -1253,6 +1253,14 @@ fn is_disc_song(song: &SongMetadata) -> bool {
         SongAddress::parse(&song.file_path),
         SongAddress::Disc { .. }
     )
+}
+
+/// The picture a list row shows as its title: the small title, or on pop'n
+/// discs the banner. IIDX 3rd to 8th style draw the row title in a font from
+/// the record's text, so their big title picture is left to the detail panel
+/// and the row draws the text title.
+fn list_word(w: WordRegions) -> Option<AtlasRegion> {
+    w.small_title.or(w.title.filter(|_| w.popn))
 }
 
 /// The row title: its word picture when one is given and fits `text_w`,
@@ -1446,7 +1454,7 @@ fn group_row(
         tx,
         text_w,
         on,
-        words.and_then(|w| w.small_title.or(w.title)),
+        words.and_then(list_word),
         s,
     );
 
