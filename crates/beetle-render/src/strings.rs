@@ -1205,6 +1205,10 @@ table! {
         ko "세션",
         en "Session",
         ja "セッション";
+    pub VALUE_GFDM_NN =
+        ko "신경망",
+        en "Neural",
+        ja "ニューラル";
     pub VALUE_GFDM_CUSTOM =
         ko "직접 설정",
         en "Custom",
@@ -1602,6 +1606,10 @@ table! {
         ko "세션: 흐름과 같고, GFDM 채보에서는 이 파트가 쉬는 곳에서 다른 파트의 노트도 쳐요.",
         en "Session: Flow, and on GFDM charts the other parts' notes come in where this part rests.",
         ja "セッション: 流れと同じで、GFDM の譜面ではこのパートが休むところで他のパートのノーツも演奏します。";
+    pub HELP_GFDM_PRESET_NN =
+        ko "신경망: 사람이 만든 4K, 6K, 8K 채보로 학습한 신경망이 레인을 골라요. 다른 세부 설정은 쓰지 않고, 시드를 바꾸면 다른 채보가 나와요.",
+        en "Neural: a network trained on hand-made 4K, 6K and 8K charts picks the lanes. The other settings are not used; another seed gives another chart.",
+        ja "ニューラル: 人が作った 4K・6K・8K の譜面で学習したネットワークがレーンを選びます。ほかの詳細設定は使わず、シードを変えると別の譜面になります。";
     pub HELP_GFDM_PRESET_CUSTOM =
         ko "직접 설정: 고급 옵션에서 고른 규칙을 그대로 써요.",
         en "Custom: uses the rules chosen in the advanced options as they are.",

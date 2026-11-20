@@ -342,6 +342,7 @@ pub fn help(gfdm: &crate::arrange::ArrangeSetting, desc: &OptionDesc) -> &'stati
         PresetChoice::Named(Preset::Alternate) => strings::HELP_GFDM_PRESET_ALT(),
         PresetChoice::Named(Preset::Easy) => strings::HELP_GFDM_PRESET_EASY(),
         PresetChoice::Named(Preset::Session) => strings::HELP_GFDM_PRESET_SESSION(),
+        PresetChoice::Named(Preset::Neural) => strings::HELP_GFDM_PRESET_NN(),
         PresetChoice::Custom => strings::HELP_GFDM_PRESET_CUSTOM(),
     }
 }
@@ -829,6 +830,7 @@ pub fn value(state: &AppState, id: OptionId) -> String {
                 PresetChoice::Named(Preset::Alternate) => strings::VALUE_GFDM_ALT(),
                 PresetChoice::Named(Preset::Easy) => strings::VALUE_GFDM_EASY(),
                 PresetChoice::Named(Preset::Session) => strings::VALUE_GFDM_SESSION(),
+                PresetChoice::Named(Preset::Neural) => strings::VALUE_GFDM_NN(),
                 PresetChoice::Custom => strings::VALUE_GFDM_CUSTOM(),
             }
             .to_string()

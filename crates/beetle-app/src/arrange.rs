@@ -29,12 +29,13 @@ pub enum PresetChoice {
 }
 
 impl PresetChoice {
-    pub const ORDER: [PresetChoice; 6] = [
+    pub const ORDER: [PresetChoice; 7] = [
         PresetChoice::Auto,
         PresetChoice::Named(Preset::Flow),
         PresetChoice::Named(Preset::Alternate),
         PresetChoice::Named(Preset::Easy),
         PresetChoice::Named(Preset::Session),
+        PresetChoice::Named(Preset::Neural),
         PresetChoice::Custom,
     ];
 

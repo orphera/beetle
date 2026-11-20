@@ -63,6 +63,8 @@ pub const MAX_RUN: u8 = 6;
 /// Places in a bar `Group::slot` counts.
 pub const BAR_SLOTS: u16 = 960;
 
+mod nn;
+
 /// How a chart is laid out again. Two arrangements that are equal give the
 /// same lanes; `key` writes each in one way only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -88,6 +90,10 @@ pub struct Arrange {
     pub trig: bool,
     pub even: bool,
     pub flip: bool,
+    /// The neural arrangement (`nn`): a network trained on hand-made 4K, 6K
+    /// and 8K charts places the notes, drawn with `seed`; the other
+    /// features mean nothing with it.
+    pub nn: bool,
     /// Guitar and bass: a note whose sound is held long becomes a long note
     /// (`ln`); `auto` turns it on for them.
     pub ln: bool,
@@ -131,6 +137,14 @@ impl Arrange {
                 ..Default::default()
             };
         }
+        if self.nn {
+            return Arrange {
+                lanes: self.lanes,
+                nn: true,
+                seed: self.seed,
+                ..Default::default()
+            };
+        }
         if kind != Source::Strings {
             self.ln = false;
         }
@@ -162,7 +176,7 @@ impl Arrange {
         if !self.hand || self.run < 2 {
             self.run = 0;
         }
-        if self.noise == 0 && !self.vary && !self.fig {
+        if self.noise == 0 && !self.vary && !self.fig && !self.nn {
             self.seed = 0;
         }
         self
@@ -175,6 +189,7 @@ impl Arrange {
             return out + "+auto";
         }
         for (on, name) in [
+            (self.nn, "nn"),
             (self.pitch, "pitch"),
             (self.home, "home"),
             (self.stick, "stick"),
@@ -213,7 +228,7 @@ impl Arrange {
         if self.noise > 0 {
             out += &format!("+r{}", self.noise);
         }
-        if self.seed != 0 && (self.noise > 0 || self.vary || self.fig) {
+        if self.seed != 0 && (self.noise > 0 || self.vary || self.fig || self.nn) {
             out += &format!("+s{}", self.seed);
         }
         out
@@ -238,6 +253,7 @@ impl Arrange {
         for p in parts {
             match p {
                 "auto" => a.auto = true,
+                "nn" => a.nn = true,
                 "pitch" => a.pitch = true,
                 "home" => a.home = true,
                 "stick" => a.stick = true,
@@ -297,14 +313,17 @@ pub enum Preset {
     Easy,
     /// `Flow` with the other parts' notes brought in where the part rests.
     Session,
+    /// The neural arrangement (`nn`).
+    Neural,
 }
 
 impl Preset {
-    pub const ALL: [Preset; 4] = [
+    pub const ALL: [Preset; 5] = [
         Preset::Flow,
         Preset::Alternate,
         Preset::Easy,
         Preset::Session,
+        Preset::Neural,
     ];
 
     /// The name in `config.dat`.
@@ -314,6 +333,7 @@ impl Preset {
             Preset::Alternate => "alt",
             Preset::Easy => "easy",
             Preset::Session => "session",
+            Preset::Neural => "nn",
         }
     }
 
@@ -356,6 +376,11 @@ impl Preset {
                 ..flow
             },
             Preset::Session => Arrange { mix: 5, ..flow },
+            Preset::Neural => Arrange {
+                lanes,
+                nn: true,
+                ..Default::default()
+            },
         }
     }
 }
@@ -1196,6 +1221,9 @@ fn bar_turns(a: &Arrange, kind: Source, n: usize, groups: &[Group]) -> Vec<Optio
 /// when the arrangement has none (`j`). Groups are in time order.
 pub fn arrange(a: &Arrange, kind: Source, jack_ms: u16, groups: &[Group]) -> Vec<Vec<Option<u8>>> {
     let a = resolve(a, kind, groups);
+    if a.nn {
+        return nn::arrange(a.lanes, a.seed, groups);
+    }
     let (masks, lanes) = search(&a, kind, jack_ms, groups, &[]);
     if !a.motif {
         return lanes;
@@ -1763,6 +1791,7 @@ mod tests {
             trig: false,
             even: true,
             flip: true,
+            nn: false,
             ln: true,
             run: 3,
             jack_ms: Some(150),
@@ -2110,6 +2139,19 @@ mod tests {
         );
         assert_eq!(Preset::Easy.arrange(6).thin_ms, Some(150));
         assert_eq!(Preset::Session.arrange(6).mix, 5);
+        assert_eq!(Preset::Neural.arrange(8).key(), "8k+nn");
+    }
+
+    #[test]
+    fn neural_keys_keep_only_the_seed() {
+        let a = Arrange::parse("6k+nn+s12").unwrap();
+        assert!(a.nn);
+        assert_eq!(a.seed, 12);
+        assert_eq!(a.key(), "6k+nn+s12");
+        let noisy = Arrange::parse("6k+nn+pitch+hand+r3+s12").unwrap();
+        for kind in [Source::Drums, Source::Strings, Source::Keys { lanes: 7 }] {
+            assert_eq!(noisy.for_part(kind).key(), "6k+nn+s12");
+        }
     }
 
     #[test]
