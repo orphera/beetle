@@ -12,6 +12,7 @@ mod escape;
 pub mod identity;
 pub mod judge;
 pub mod key_sounds;
+pub mod level_estimate;
 pub mod library;
 pub mod library_paths;
 pub mod load_location;

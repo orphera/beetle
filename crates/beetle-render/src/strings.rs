@@ -1997,6 +1997,12 @@ table! {
         ja "練習";
 
     // ---- Gameplay -----------------------------------------------------
+    /// Beside the difficulty chip of an arranged chart: a level estimated
+    /// from its notes (no table knows the chart); `{}` is the level.
+    pub ESTIMATED_LEVEL =
+        ko "추정 {}",
+        en "Est. {}",
+        ja "推定 {}";
     pub COMBO =
         ko "콤보",
         en "Combo",

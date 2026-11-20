@@ -388,6 +388,7 @@ pub fn load_chart_and_audio_arranged(
     // The play and result screens name the difficulty as the game does.
     chart.header.difficulty_names = song.difficulty_names();
     let timing = TimingModel::from_chart(&chart);
+    let is_arranged = arrange.is_some() || crate::arrange::is_arranged_address(&song.file_path);
     if let Some(job) = arrange {
         let is_pms = song.file_path.to_lowercase().ends_with(".pms");
         let mode = chart.detect_play_mode_with_hint(is_pms);
@@ -406,6 +407,12 @@ pub fn load_chart_and_audio_arranged(
         let _ = job
             .meta
             .send(Some(crate::arrange_chart::arranged_metadata(song, &chart)));
+    }
+    // No table knows an arranged chart: the play screen shows a level
+    // estimated from its notes. Arranging moves notes between lanes only, so
+    // the original's timing holds.
+    if is_arranged {
+        chart.header.estimated_level = beetle_core::level_estimate::estimate_chart(&chart, &timing);
     }
 
     let started = std::time::Instant::now();

@@ -1388,6 +1388,13 @@ fn song_block(c: &mut Canvas, t: &mut TextEngine, sk: &Skin, f: &PlayFrame, r: R
     let chip = Rect::new(r.x, r.y, chip_w, 20.0 * s);
     c.nine(&sk.panel_lg, chip, tier_col);
     t.draw_in(c, &chip_txt, chip, Align::Center, &chip_st);
+    // An arranged chart keeps the original's level in the chip; the level
+    // its own notes come to follows it.
+    if let Some(level) = header.estimated_level {
+        let st = TextStyle::new(12.0 * s).bold().color(tier_col);
+        let txt = strings::fill(strings::ESTIMATED_LEVEL(), &[&format!("{level:.1}")]);
+        t.draw(c, &txt, chip.right() + 8.0 * s, r.y + 15.0 * s, &st);
+    }
 
     if let Some(badge) = f.badge {
         let st = caption(12.0, s).color(theme::ON_ACCENT);

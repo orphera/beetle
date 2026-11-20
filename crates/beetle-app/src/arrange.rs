@@ -250,6 +250,16 @@ impl ArrangeSetting {
     }
 }
 
+/// Whether `address` is an arranged GFDM chart (its key carries `@...`).
+pub fn is_arranged_address(address: &str) -> bool {
+    match SongAddress::parse(address) {
+        SongAddress::Disc { chart, .. } => {
+            ChartRef::parse(chart).is_some_and(|(_, c)| c.arrange.is_some())
+        }
+        _ => false,
+    }
+}
+
 /// How a chart opens arranged, with the key mode it then plays in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
@@ -291,6 +301,13 @@ mod tests {
 
     fn song(path: &str) -> SongMetadata {
         SongMetadata::from_bytes(path, b"#WAV01 a.wav\n#00111:01\n").unwrap()
+    }
+
+    #[test]
+    fn arranged_addresses_are_told_apart() {
+        assert!(is_arranged_address("disc:D:/x.iso::gfdm/404/gf3@6k+auto"));
+        assert!(!is_arranged_address("disc:D:/x.iso::gfdm/404/gf3"));
+        assert!(!is_arranged_address("D:/BMS/a/b.bms"));
     }
 
     #[test]

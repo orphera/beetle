@@ -260,6 +260,9 @@ pub struct BmsHeader {
     pub bga_table: HashMap<BmpId, BgaDefinition>,
     pub bpm_table: HashMap<WavId, f64>,
     pub stop_table: HashMap<WavId, f64>,
+    /// A level estimated from the notes (`level_estimate`). Not in the chart
+    /// text: the loader sets it for an arranged chart, which no table knows.
+    pub estimated_level: Option<f32>,
 }
 
 impl Default for BmsHeader {
@@ -290,6 +293,7 @@ impl Default for BmsHeader {
             bga_table: HashMap::new(),
             bpm_table: HashMap::new(),
             stop_table: HashMap::new(),
+            estimated_level: None,
         }
     }
 }
